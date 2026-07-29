@@ -14,15 +14,17 @@ use super::{
     ffi,
     optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
     preview_analysis::{
-        AnalyzedEditPreview, SensorClippingMask, validate_analyzed_edit_preview,
-        validate_rgb8_edit_preview, validate_sensor_clipping_mask,
+        AnalyzedEditPreview, EditPreviewMaskCoverageRequest, RenderedEditPreview,
+        SensorClippingMask, validate_analyzed_edit_preview, validate_mask_coverage,
+        validate_mask_coverage_request, validate_rgb8_edit_preview, validate_sensor_clipping_mask,
     },
+    preview_frame::OwnedInteractivePreviewFrame,
     raw_development::{
         RawDevelopmentIntent, RawDevelopmentPlan, RawDevelopmentReceipt, RawPipelineReceipt,
         ffi_raw_development_plan, preflight_photo_edit_development, raw_development_receipt,
         raw_pipeline_receipt,
     },
-    render_wire::{ffi_render_request, proxy_payload},
+    render_wire::{ffi_render_request, ffi_render_request_with_mask_coverage, proxy_payload},
 };
 
 // SAFETY: the C++ handle owns a fully prepared, immutable float working proxy. It contains no
@@ -372,6 +374,7 @@ impl LibRawEditPreviewSession {
         if rendered.cancelled {
             return Ok(CancellableEditPreview::Cancelled);
         }
+        validate_mask_coverage(rendered.mask_coverage, None, output_dimensions)?;
         let proxy = proxy_payload(rendered.proxy);
         if proxy.dimensions != output_dimensions {
             return Err(BridgeError::InvalidEditPreviewOutput(
@@ -396,7 +399,37 @@ impl LibRawEditPreviewSession {
         plan: &AdjustmentRenderPlan,
         cancellation: &EditPreviewCancellation,
     ) -> Result<CancellableEditPreview<shadow_domain::ProxyPayload>, BridgeError> {
+        match self.render_plan_rgb8_with_mask_coverage_cancellable(plan, None, cancellation)? {
+            CancellableEditPreview::Completed(rendered) => {
+                Ok(CancellableEditPreview::Completed(rendered.proxy))
+            }
+            CancellableEditPreview::Cancelled => Ok(CancellableEditPreview::Cancelled),
+        }
+    }
+
+    /// Executes a typed plan and optionally captures one Grade Node's exact
+    /// local-mask coverage from the same cancellable RGB8 render.
+    ///
+    /// The target is a zero-based compiled layer index. Selection revision is
+    /// returned unchanged as host transaction metadata and never enters native
+    /// evaluation or durable cache identity. Cancellation returns neither the
+    /// preview nor coverage half.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-request error for an out-of-range target, or an
+    /// invalid-output error if native coverage is unpaired, malformed, stale,
+    /// padded, or uses an unsupported version.
+    pub fn render_plan_rgb8_with_mask_coverage_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        mask_coverage: Option<EditPreviewMaskCoverageRequest>,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<RenderedEditPreview>, BridgeError> {
         plan.validate()?;
+        if let Some(request) = mask_coverage {
+            validate_mask_coverage_request(plan, request)?;
+        }
         let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let cancellation = cancellation
@@ -405,13 +438,61 @@ impl LibRawEditPreviewSession {
             .ok_or(BridgeError::NullHandle)?;
         // The wire request still contains the legacy JPEG-quality field, but
         // the RGB8 native entry point does not inspect it.
-        let request = ffi_render_request(plan, self.max_edge, 95);
+        let request = ffi_render_request_with_mask_coverage(plan, self.max_edge, 95, mask_coverage);
         let rendered = handle.render_adjustment_plan_rgb8_cancellable(&request, cancellation)?;
         if rendered.cancelled {
             return Ok(CancellableEditPreview::Cancelled);
         }
         let proxy = validate_rgb8_edit_preview(proxy_payload(rendered.proxy), output_dimensions)?;
-        Ok(CancellableEditPreview::Completed(proxy))
+        let mask_coverage =
+            validate_mask_coverage(rendered.mask_coverage, mask_coverage, output_dimensions)?;
+        Ok(CancellableEditPreview::Completed(RenderedEditPreview {
+            proxy,
+            mask_coverage,
+        }))
+    }
+
+    /// Executes a typed plan into one move-only native RGB8 frame owner with optional paired
+    /// local-mask coverage.
+    ///
+    /// Unlike [`Self::render_plan_rgb8_with_mask_coverage_cancellable`], this interactive route
+    /// does not copy either full-frame vector into a Rust allocation. Returned slices borrow the
+    /// completed frame and remain valid after this session is dropped. Cooperative cancellation
+    /// publishes no owner and returns [`CancellableEditPreview::Cancelled`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-request, decoder, or invalid-output error when a non-cancelled render
+    /// cannot produce one complete, tightly packed RGB8/coverage owner.
+    pub fn render_plan_interactive_frame_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        mask_coverage: Option<EditPreviewMaskCoverageRequest>,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<OwnedInteractivePreviewFrame>, BridgeError> {
+        plan.validate()?;
+        if let Some(request) = mask_coverage {
+            validate_mask_coverage_request(plan, request)?;
+        }
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancellation = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        // The wire request retains the compatibility JPEG-quality field; the owned RGB8 native
+        // entry point does not inspect it.
+        let request = ffi_render_request_with_mask_coverage(plan, self.max_edge, 95, mask_coverage);
+        let native =
+            handle.render_adjustment_plan_owned_rgb8_cancellable(&request, cancellation)?;
+        match OwnedInteractivePreviewFrame::from_nullable_native(
+            native,
+            output_dimensions,
+            mask_coverage,
+        )? {
+            Some(frame) => Ok(CancellableEditPreview::Completed(frame)),
+            None => Ok(CancellableEditPreview::Cancelled),
+        }
     }
 
     /// Executes a typed plan and returns its JPEG plus generation-matched
@@ -461,15 +542,42 @@ impl LibRawEditPreviewSession {
         jpeg_quality: u8,
         cancellation: &EditPreviewCancellation,
     ) -> Result<CancellableEditPreview<AnalyzedEditPreview>, BridgeError> {
+        self.render_plan_with_analysis_and_mask_coverage_cancellable(
+            plan,
+            jpeg_quality,
+            None,
+            cancellation,
+        )
+    }
+
+    /// Executes a typed plan with generation-matched analysis and optional
+    /// exact local-mask coverage under one cooperative cancellation terminal.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid request for an out-of-range coverage target, or an
+    /// invalid-output error when any completed proxy, analysis, execution
+    /// receipt, or coverage field violates its paired contract.
+    pub fn render_plan_with_analysis_and_mask_coverage_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+        mask_coverage: Option<EditPreviewMaskCoverageRequest>,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<AnalyzedEditPreview>, BridgeError> {
         plan.validate()?;
         validate_jpeg_quality(jpeg_quality)?;
+        if let Some(request) = mask_coverage {
+            validate_mask_coverage_request(plan, request)?;
+        }
         let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let cancellation = cancellation
             .handle
             .as_ref()
             .ok_or(BridgeError::NullHandle)?;
-        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let request =
+            ffi_render_request_with_mask_coverage(plan, self.max_edge, jpeg_quality, mask_coverage);
         let rendered =
             handle.render_adjustment_plan_with_analysis_cancellable(&request, cancellation)?;
         if rendered.cancelled {
@@ -477,12 +585,14 @@ impl LibRawEditPreviewSession {
         }
         let analyzed = rendered.preview;
         let proxy = proxy_payload(analyzed.proxy);
-        let completed = validate_analyzed_edit_preview(
+        let mut completed = validate_analyzed_edit_preview(
             proxy,
             analyzed.analysis,
             analyzed.execution,
             output_dimensions,
         )?;
+        completed.mask_coverage =
+            validate_mask_coverage(rendered.mask_coverage, mask_coverage, output_dimensions)?;
         Ok(CancellableEditPreview::Completed(completed))
     }
 }

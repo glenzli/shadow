@@ -15,32 +15,72 @@ pub enum ArtifactHashAlgorithm {
     Sha256,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GeneratedArtifactStorageClass {
-    /// A result that may be evicted and recomputed from its exact provenance.
-    RebuildableProposal,
-    /// An accepted edit dependency that must not be evicted like a preview.
-    ManagedDerived,
-}
-
 /// One content-addressed output produced by an AI worker.
 ///
-/// The worker may only create `RebuildableProposal` artifacts. The application
-/// promotes an accepted result into `ManagedDerived` storage before a recipe is
-/// allowed to depend on it.
+/// This is a byte identity, not durable-storage authority. A worker may create
+/// it for a rebuildable proposal; only the managed-store transaction can wrap
+/// it in a [`crate::ManagedGeneratedArtifactReference`].
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeneratedArtifactReference {
-    pub contract_version: u32,
-    pub hash_algorithm: ArtifactHashAlgorithm,
-    pub content_hash: String,
-    pub byte_len: u64,
-    pub media_type: String,
-    pub encoding_version: u32,
-    pub storage_class: GeneratedArtifactStorageClass,
+    contract_version: u32,
+    hash_algorithm: ArtifactHashAlgorithm,
+    content_hash: String,
+    byte_len: u64,
+    media_type: String,
+    encoding_version: u32,
 }
 
 impl GeneratedArtifactReference {
+    /// Creates one validated rebuildable generated-byte identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a malformed hash, empty payload, media type, or
+    /// encoding revision.
+    pub fn new(
+        hash_algorithm: ArtifactHashAlgorithm,
+        content_hash: String,
+        byte_len: u64,
+        media_type: String,
+        encoding_version: u32,
+    ) -> Result<Self, AiArtifactContractError> {
+        let artifact = Self {
+            contract_version: AI_GENERATED_ARTIFACT_CONTRACT_VERSION,
+            hash_algorithm,
+            content_hash,
+            byte_len,
+            media_type,
+            encoding_version,
+        };
+        artifact.validate()?;
+        Ok(artifact)
+    }
+
+    pub const fn contract_version(&self) -> u32 {
+        self.contract_version
+    }
+
+    pub const fn hash_algorithm(&self) -> ArtifactHashAlgorithm {
+        self.hash_algorithm
+    }
+
+    pub fn content_hash(&self) -> &str {
+        &self.content_hash
+    }
+
+    pub const fn byte_len(&self) -> u64 {
+        self.byte_len
+    }
+
+    pub fn media_type(&self) -> &str {
+        &self.media_type
+    }
+
+    pub const fn encoding_version(&self) -> u32 {
+        self.encoding_version
+    }
+
     /// Validates the portable identity and encoding contract.
     ///
     /// # Errors
@@ -75,6 +115,7 @@ impl GeneratedArtifactReference {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RasterExtent {
     pub width: u32,
     pub height: u32,
@@ -119,6 +160,7 @@ pub enum MaskPointPolarity {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaskPromptPoint {
     pub x: UnitInterval,
     pub y: UnitInterval,
@@ -126,6 +168,7 @@ pub struct MaskPromptPoint {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NormalizedMaskBox {
     pub left: UnitInterval,
     pub top: UnitInterval,
@@ -148,11 +191,16 @@ impl NormalizedMaskBox {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
+#[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum MaskPrompt {
     AutomaticSubject,
-    Points { points: Vec<MaskPromptPoint> },
-    Box { bounds: NormalizedMaskBox },
+    Points {
+        #[serde(deserialize_with = "crate::wire_v1::vec_64")]
+        points: Vec<MaskPromptPoint>,
+    },
+    Box {
+        bounds: NormalizedMaskBox,
+    },
 }
 
 impl MaskPrompt {
@@ -183,6 +231,7 @@ impl MaskPrompt {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubjectMaskParameters {
     pub prompt: MaskPrompt,
     pub coordinate_space: MaskCoordinateSpace,
@@ -229,6 +278,7 @@ pub enum DenoiseQuality {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DenoiseParameters {
     pub domain_policy: DenoiseDomainPolicy,
     pub quality: DenoiseQuality,
@@ -251,7 +301,7 @@ impl DenoiseParameters {
 
 /// Typed task parameters carried by the stable worker envelope.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
+#[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum AiTaskParameters {
     #[default]
     None,
@@ -299,7 +349,7 @@ pub enum SoftMaskEncoding {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
+#[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum MaskSemantic {
     Subject,
     Object,
@@ -324,6 +374,7 @@ impl MaskSemantic {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SoftMaskArtifact {
     pub artifact: GeneratedArtifactReference,
     /// Physical resolution of the stored mask raster.
@@ -368,6 +419,7 @@ pub enum RasterPixelLayout {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TileContract {
     pub tile_edge: u32,
     pub halo: u32,
@@ -391,6 +443,7 @@ impl TileContract {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DenoisedRasterArtifact {
     pub artifact: GeneratedArtifactReference,
     pub input_domain: ImageDomain,
@@ -451,7 +504,7 @@ impl DenoisedRasterArtifact {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
+#[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum AiGeneratedPayload {
     SoftMask(SoftMaskArtifact),
     DenoisedRaster(DenoisedRasterArtifact),

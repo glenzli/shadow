@@ -39,7 +39,7 @@ fn oklab_color_warper_elides_neutral_lattice_and_preserves_fixed_mapping() {
     authored.fine.oklab_color_warper.strength = 0.63;
     let identity = authored.recipe_v1_identity.oklab_color_warper_render_op_id;
 
-    let ffi = encode_grade_stack_draft_recipe_v1(authored.clone());
+    let ffi = encode_grade_stack_draft_recipe_v1(authored.clone()).expect("encode Grade Stack");
     assert_eq!(
         ffi.grade_nodes[0]
             .fine

@@ -12,6 +12,10 @@ Item {
     required property bool interactionEnabled
     required property real levelZeroWidth
     required property real levelZeroHeight
+    required property bool selectedContinuous
+    required property int selectedIndex
+
+    signal regionSelected(bool continuous, int index)
 
     readonly property real pixelScale: Math.max(
         0.0001,
@@ -32,6 +36,10 @@ Item {
             z: 1
             editor: overlay.editor
             pixelScale: overlay.pixelScale
+            selected: overlay.selectedContinuous
+                && overlay.selectedIndex === modelData.index
+            onSelectedRequested:
+                overlay.regionSelected(true, modelData.index)
         }
     }
 
@@ -43,6 +51,10 @@ Item {
             z: 2
             editor: overlay.editor
             pixelScale: overlay.pixelScale
+            selected: !overlay.selectedContinuous
+                && overlay.selectedIndex === modelData.index
+            onSelectedRequested:
+                overlay.regionSelected(false, modelData.index)
         }
     }
 }

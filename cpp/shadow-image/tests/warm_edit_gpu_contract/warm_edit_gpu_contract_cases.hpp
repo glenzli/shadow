@@ -10,6 +10,7 @@ namespace shadow::image::warm_edit_gpu_contract {
 [[nodiscard]] int run_resident_gpu_selective_tone_contract();
 [[nodiscard]] int run_resident_gpu_composed_stage_contract();
 [[nodiscard]] int run_resident_gpu_layer_composition_contract();
+[[nodiscard]] int run_resident_gpu_mask_coverage_contract();
 [[nodiscard]] int run_resident_gpu_retouch_contract();
 [[nodiscard]] int run_resident_gpu_geometry_contract();
 [[nodiscard]] int run_resident_gpu_dehaze_and_defringe_contract();
@@ -17,6 +18,7 @@ namespace shadow::image::warm_edit_gpu_contract {
 [[nodiscard]] int run_perceptual_resource_cache_contract();
 [[nodiscard]] int run_color_warper_resource_cache_contract();
 [[nodiscard]] int run_cancellation_contract();
+[[nodiscard]] int run_presentation_pipeline_failure_contract();
 [[nodiscard]] int run_benchmark_when_requested();
 
 } // namespace shadow::image::warm_edit_gpu_contract

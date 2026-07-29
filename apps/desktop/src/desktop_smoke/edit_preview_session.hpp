@@ -8,9 +8,16 @@ class ReviewController;
 
 namespace DesktopSmoke {
 
+enum class EditPreviewTransportExpectation {
+    None,
+    MetalNative,
+    SoftwareFallback,
+};
+
 struct EditPreviewSessionOptions final {
     bool request_before = false;
     bool request_full_detail = false;
+    EditPreviewTransportExpectation transport_expectation = EditPreviewTransportExpectation::None;
 };
 
 /// Runs the complete first-photo Precision acceptance lifecycle.

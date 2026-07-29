@@ -67,11 +67,6 @@ namespace {
            || settings.manual_tca_blue_yellow != 0 || settings.manual_vignetting_amount != 0;
 }
 
-[[nodiscard]] bool has_manual_geometry(const OpticsSettings& settings) noexcept {
-    return settings.manual_distortion != 0 || settings.manual_tca_red_cyan != 0
-           || settings.manual_tca_blue_yellow != 0;
-}
-
 void validate_manual_input(const PixelBuffer& input) {
     if (input.dimensions.width == 0U || input.dimensions.height == 0U
         || input.bits_per_channel != 16U || input.channels != rgb_channels
@@ -140,6 +135,15 @@ void validate_manual_input(const PixelBuffer& input) {
 }
 
 } // namespace
+
+bool has_manual_geometry(const OpticsSettings& settings) noexcept {
+    return settings.manual_distortion != 0 || settings.manual_tca_red_cyan != 0
+           || settings.manual_tca_blue_yellow != 0;
+}
+
+bool has_manual_vignetting(const OpticsSettings& settings) noexcept {
+    return settings.manual_vignetting_amount != 0;
+}
 
 [[nodiscard]] std::optional<PixelBuffer>
 apply_manual_optics(const PixelBuffer& input, const OpticsSettings& settings) {
@@ -258,6 +262,75 @@ void validate_manual_scene_linear_input(const SceneLinearRgbFrame& input) {
     }
 }
 
+void apply_manual_scene_linear_vignetting_region(
+    SceneLinearRgbFrame& input,
+    const Dimensions full_dimensions,
+    const std::uint32_t origin_x,
+    const std::uint32_t origin_y,
+    const OpticsSettings& settings
+) {
+    validate_settings(settings);
+    validate_manual_scene_linear_input(input);
+    if (has_manual_geometry(settings)) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "pointwise region optics cannot execute manual geometry"
+        );
+    }
+    if (full_dimensions.width == 0U || full_dimensions.height == 0U
+        || origin_x >= full_dimensions.width || origin_y >= full_dimensions.height
+        || input.dimensions.width > full_dimensions.width - origin_x
+        || input.dimensions.height > full_dimensions.height - origin_y) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "manual vignette region is outside the full image"
+        );
+    }
+    if (!has_manual_vignetting(settings)) {
+        return;
+    }
+
+    const double center_x = (static_cast<double>(full_dimensions.width) - 1.0) * 0.5;
+    const double center_y = (static_cast<double>(full_dimensions.height) - 1.0) * 0.5;
+    const double radius_scale = std::max(1.0, std::hypot(center_x, center_y));
+    const double vignette_amount = static_cast<double>(settings.manual_vignetting_amount) / 100.0;
+    const double vignette_midpoint =
+        static_cast<double>(settings.manual_vignetting_midpoint) / 100.0;
+    for (std::uint32_t local_y = 0U; local_y < input.dimensions.height; ++local_y) {
+        const double global_y = static_cast<double>(origin_y + local_y);
+        for (std::uint32_t local_x = 0U; local_x < input.dimensions.width; ++local_x) {
+            const double global_x = static_cast<double>(origin_x + local_x);
+            const double normalized_x = (global_x - center_x) / radius_scale;
+            const double normalized_y = (global_y - center_y) / radius_scale;
+            const double radius =
+                std::min(1.0, std::sqrt(normalized_x * normalized_x + normalized_y * normalized_y));
+            const double denominator = std::max(1e-6, 1.0 - vignette_midpoint);
+            const double progress =
+                std::clamp((radius - vignette_midpoint) / denominator, 0.0, 1.0);
+            const double feathered = progress * progress * (3.0 - 2.0 * progress);
+            const double gain = std::exp2(vignette_amount * feathered * 1.15);
+            const std::size_t index =
+                (static_cast<std::size_t>(local_y) * input.dimensions.width + local_x)
+                * rgb_channels;
+            for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                const double corrected = static_cast<double>(input.samples[index + channel]) * gain;
+                if (!std::isfinite(corrected)
+                    || corrected < -static_cast<double>(std::numeric_limits<float>::max())
+                    || corrected > static_cast<double>(std::numeric_limits<float>::max())) {
+                    throw DecodeError(
+                        DecodeErrorCode::resource_limit,
+                        0,
+                        "manual scene-linear vignette produced a non-finite fp32 sample"
+                    );
+                }
+                input.samples[index + channel] = static_cast<float>(corrected);
+            }
+        }
+    }
+}
+
 namespace {
 
 [[nodiscard]] float manual_bilinear_scene_linear_sample_channel(
@@ -321,6 +394,10 @@ apply_manual_optics(const SceneLinearRgbFrame& input, const OpticsSettings& sett
     }
 
     SceneLinearRgbFrame output = input;
+    if (!has_manual_geometry(settings)) {
+        apply_manual_scene_linear_vignetting_region(output, input.dimensions, 0U, 0U, settings);
+        return output;
+    }
     const auto width = static_cast<std::size_t>(input.dimensions.width);
     const auto height = static_cast<std::size_t>(input.dimensions.height);
     const bool remap = has_manual_geometry(settings);

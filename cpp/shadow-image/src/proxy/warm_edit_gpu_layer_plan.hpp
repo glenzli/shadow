@@ -1,8 +1,8 @@
 #pragma once
 
 #include "warm_edit_gpu.hpp"
-#include "warm_edit_gpu_brush_index.hpp"
 #include "warm_edit_gpu_kernel_contract.hpp"
+#include "warm_edit_gpu_mask_plan.hpp"
 
 #include <shadow/image/adjustment_layers.hpp>
 
@@ -24,6 +24,11 @@ struct WarmGpuLayerPlanEntry final {
 
 struct WarmGpuLayerPlan final {
     std::vector<WarmGpuLayerPlanEntry> active_layers;
+    struct MaskCoverageCapture final {
+        std::uint32_t layer_index = 0U;
+        WarmGpuMaskPlan mask;
+    };
+    std::optional<MaskCoverageCapture> mask_coverage;
     bool complete = true;
     std::string diagnostic;
 };
@@ -31,7 +36,8 @@ struct WarmGpuLayerPlan final {
 [[nodiscard]] WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
     const FloatRgbImage& source_layout,
     std::span<const AdjustmentLayer> layers,
-    WarmEditGpuRenderContext context
+    WarmEditGpuRenderContext context,
+    std::optional<std::uint32_t> target_layer_index = std::nullopt
 );
 
 } // namespace shadow::image::detail

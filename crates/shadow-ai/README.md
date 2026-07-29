@@ -1,10 +1,10 @@
 # shadow-ai
 
 `shadow-ai` is Shadow's model-independent AI foundation. It intentionally does
-not load a model, download weights, inspect hardware, edit a photo, or access the
-Catalog. Runtime scheduling and persistence remain application-layer
-responsibilities; the first such adapter now lives in `shadow-core` and
-`shadow-catalog` without coupling this crate to either one.
+not load a model, download weights, edit a photo, or access the Catalog. It now
+owns provider-neutral runtime and promotion protocols, but runtime scheduling,
+native framework linkage, package installation, durable storage, and
+persistence remain application-layer responsibilities.
 
 Use this file for the crate's current facts and navigation. The staged,
 evidence-gated route from these contracts to real culling, masks, restoration,
@@ -15,28 +15,81 @@ and gates, not implemented inference.
 ## What is implemented now
 
 - Stable task/capability, input artifact, observation, provenance, confidence,
-  privacy, and proposal-review contracts.
+  privacy, and proposal-review contracts. `AiJobRequest` is application intent:
+  provider, model, checkpoint, framework, and remote-service identity enter only
+  after admission. A successful lease is the only normal constructor for an
+  `AiObservation`: its exact-v1 envelope copies request/task/target identity
+  from runtime provenance, rejects cross-field substitution, and stream-bounds
+  explanation evidence to 64 signals.
+- Exact admitted route identities for local artifact sets, system-framework
+  request revisions/OS builds, and remote services, plus an exact identity of
+  the complete admitted backend/precision/thread/memory plan. A move-only
+  execution lease supports cooperative cancellation, monotonic progress,
+  complete route-and-plan matching, explicit fallback disclosure, measured
+  usage, and one terminal receipt per consumed lease. A provider returns only
+  its payload; the lease wraps success in a move-only envelope whose provenance
+  binds the complete request, inputs, route, and plan. Local/system routes can
+  never bind a remote backend, and a fallback can never select a remote route.
+  The application scheduler still owns lease uniqueness and revocation.
 - Typed subject-mask and denoise requests plus validated generated-artifact
   outputs. A soft mask records both its stored raster extent and the image
   coordinate extent it maps to. A denoise output records its exact source pixel
   contract, image domain, layout, sample format, tiling halo, and whether it is
   full resolution.
-- A storage-class boundary for generated pixels: workers emit rebuildable
-  proposals, while the application must promote an accepted mask or denoised
-  raster to managed derived storage before a Recipe can depend on it. Generated
-  pixels are never intended to live as SQLite blobs or ordinary evictable
-  thumbnail cache entries.
-- A strict model manifest covering exact artifact revision/hash, tensor I/O,
-  preprocessing, execution targets, RAM/VRAM, code/weight/data license notes,
-  redistribution, gating, and side-loading.
+- A promotion boundary for generated pixels: workers emit rebuildable byte
+  identities, while promotion consumes the runtime-issued successful-output
+  envelope and runs through an application-owned managed-store transaction.
+  Only that durability authority can return the exact verified commit consumed
+  by the transaction. Managed raster and artifact authority values are
+  move-only and non-deserializable; a persisted descriptor reconstructs
+  authority only after the store verifies its object identity and bytes.
+  Generated pixels are never intended to live as SQLite blobs or ordinary
+  evictable thumbnail cache entries. The actual managed store and Recipe
+  reference are not implemented.
+- A strict local model manifest covering one exact multi-blob artifact set,
+  whose identity is a domain-separated, length-prefixed BLAKE3 digest of the
+  canonical-path-sorted inventory. Before hashing, its portable ASCII path
+  grammar rejects traversal, drive/UNC/ADS syntax, Windows device names,
+  leading/trailing-space aliases, short-name `~` aliases, case aliases, and
+  Unicode normalization ambiguity. Installed availability names that exact
+  identity rather than a verification boolean. Exact-v1 deserialization is
+  recursive, rejects unknown fields and duplicate sets, and stream-bounds all
+  manifest/request vectors.
+  The manifest also covers tensor I/O, preprocessing, execution targets,
+  RAM/VRAM, code/weight/data license notes, redistribution, gating, and
+  side-loading. Core ML `.mlpackage` source archives are identity; extracted
+  packages, `.mlmodelc`, and device-specialized caches are rebuildable.
+- A separate remote-provider manifest covering rendered-RGB/mask upload scope,
+  privacy, retention, training use, terms revision, offline behavior,
+  idempotency, and cancellation. An application store must first sanitize,
+  encode, persist, and verify each outbound object; its opaque move-only receipt
+  binds source identity to outbound hash, byte length, media type, and extent.
+  Remote admission accounts those outbound bytes and produces an opaque,
+  expiring, move-only grant bound to the complete request, manifest/legal facts,
+  consent/policy revision, exact receipt inventory, and stable idempotency key.
+  Validated receipts are canonicalized by request input index before both grant
+  identity and transport inventory are created, so caller ordering is irrelevant.
+  RAW, sensor-mosaic, scene-linear, and frozen-feature inputs are represented
+  locally but always rejected by remote admission.
 - Deterministic resource admission against a supplied Mac/Windows hardware
-  snapshot. It respects RAM reserve, device-memory headroom, session limits,
-  CPU threads, battery state, remote policy, and biometric privacy.
+  snapshot. It budgets RAM reserve, device-memory headroom, session limits, and
+  CPU threads. This local-manifest planner always rejects `RemoteApi`; only the
+  separate remote manifest, prepared-upload, consent, and grant path may
+  authorize remote transport. Scratch disk, upload bytes, and duration remain
+  metadata for their own authorities and are not falsely recorded as `RunPlan`
+  reservations.
 - Explainable group-relative selection scoring. Severe defects are a safety gate;
   technical quality, general prior, personal preference, and uniqueness remain
   separate signals. Unique or manually protected photos are never hidden by the
   gate. The API can propose or fold duplicates, but cannot delete originals or
   write Reject decisions.
+- Complete feature-print distance evidence plus a deterministic greedy
+  complete-link partition and similarity-medoid review start. This path never
+  calls the medoid “best”, never hides a protected candidate, and keeps
+  technical quality, face capture quality, aesthetics, and preference separate.
+  The Apple Vision route pins FeaturePrint request revision 1 and the OS build,
+  but the current provider is deliberately unlinked and returns `unavailable`
+  rather than placeholder distances.
 - Append-only feedback events that record the candidates the user actually saw.
   Explicit pairwise choices can become incremental examples; absence of a click,
   export, dwell time, and other ambiguous behavior are not silently turned into
@@ -56,8 +109,8 @@ and gates, not implemented inference.
 Unaccepted model-derived data remains rebuildable. Human decisions, feedback
 events, and accepted edit versions are durable application facts today. The
 generated-artifact contract additionally requires any future accepted generated
-dependency to be promoted to managed derived storage before a Recipe can refer
-to it; that storage and promotion path is not implemented yet. The current
+dependency to pass the implemented store-authority transaction before a Recipe
+can refer to it; the managed store and Recipe wiring are not implemented yet. The current
 application stores manual Pick/Reject/rating transitions in a separate immutable
 Catalog ledger, but does not expose that ledger as AI training data or grant
 models write access to it. A feedback candidate may also carry the exact encoded
@@ -95,7 +148,8 @@ observation is displayed separately and is not yet copied into the feedback even
 
 ## Deliberately not implemented
 
-- No ONNX Runtime/Core ML/CUDA/Metal/DirectML/Windows ML adapter.
+- No linked ONNX Runtime/Core ML/Vision/CUDA/Metal/DirectML/Windows ML inference
+  adapter. The Apple Vision module is an availability-tested boundary only.
 - No DINO, CLIP, face/eye, SAM, depth, inpaint, diffusion, VLM, or LLM model.
 - No fabricated quality score, embedding, mask, recipe, or generated patch.
 - No persistent mask raster store or managed derived-raster store yet. The
@@ -108,8 +162,20 @@ observation is displayed separately and is not yet copied into the feedback even
 
 ## Next navigation
 
-- Follow the source modules from [`src/lib.rs`](src/lib.rs) when changing a
-  current contract.
+- [`src/contract.rs`](src/contract.rs) owns provider-neutral task intent and
+  result evidence.
+- [`src/runtime/`](src/runtime/) owns route identity, admission, leases,
+  progress/cancellation, runtime-issued provenance, and terminal receipts.
+- [`src/manifest.rs`](src/manifest.rs) owns local artifact sets;
+  [`src/remote/manifest.rs`](src/remote/manifest.rs) owns remote service facts
+  [`src/remote/upload.rs`](src/remote/upload.rs) owns prepared outbound-store
+  receipts, and [`src/remote/admission.rs`](src/remote/admission.rs) owns the
+  exact request/grant gate.
+- [`src/culling.rs`](src/culling.rs) owns similarity-only grouping evidence;
+  [`src/providers/`](src/providers/) owns platform availability boundaries.
+- [`src/generated.rs`](src/generated.rs) owns typed generated outputs and
+  [`src/derived_raster.rs`](src/derived_raster.rs) owns the managed-store
+  promotion transaction boundary.
 - Use [`AI_CAPABILITY_PLAN.md`](AI_CAPABILITY_PLAN.md) when selecting or
   integrating a runtime, model package, culling feature, mask generator,
   restoration provider, denoiser, or super-resolution route.

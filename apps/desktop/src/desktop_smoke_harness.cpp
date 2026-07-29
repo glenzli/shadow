@@ -37,55 +37,39 @@ void installDesktopSmokeHarness(
         );
     }
 
-    const bool open_first_edit =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_FIRST_EDIT");
+    const bool open_first_edit = qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_FIRST_EDIT");
     const bool record_first_comparison =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_RECORD_FIRST_COMPARISON");
     const bool forget_recorded_comparison =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_FORGET_RECORDED_COMPARISON");
-    const bool set_first_decision =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_SET_FIRST_DECISION");
+    const bool set_first_decision = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SET_FIRST_DECISION");
     const bool undo_first_decision =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_UNDO_FIRST_DECISION");
-    const bool request_before =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_REQUEST_BEFORE");
-    const bool grade_stack_smoke =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_GRADE_STACK_SMOKE");
-    const bool full_detail_smoke =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_FULL_DETAIL_SMOKE");
+    const bool request_before = qEnvironmentVariableIsSet("SHADOW_DESKTOP_REQUEST_BEFORE");
+    const bool grade_stack_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_GRADE_STACK_SMOKE");
+    const bool full_detail_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_FULL_DETAIL_SMOKE");
+    const bool metal_preview_smoke =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_METAL_PREVIEW_SMOKE");
+    const bool software_preview_smoke =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_SOFTWARE_PREVIEW_SMOKE");
     const bool streaming_scan_smoke =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_STREAMING_SCAN_SMOKE");
     const bool reopen_library_smoke =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE");
-    const bool cancel_scan_smoke =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_CANCEL_SCAN_SMOKE");
-    const bool i18n_smoke =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_I18N_SMOKE");
-    const bool close_lifecycle_smoke =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_CLOSE_SMOKE");
-    const bool dirty_close_smoke =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_DIRTY_CLOSE_SMOKE");
-    const bool smoke_test =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
+    const bool cancel_scan_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_CANCEL_SCAN_SMOKE");
+    const bool i18n_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_I18N_SMOKE");
+    const bool close_lifecycle_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_CLOSE_SMOKE");
+    const bool dirty_close_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_DIRTY_CLOSE_SMOKE");
+    const bool smoke_test = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
 
     const bool needs_legacy_first_photo_opener =
-        !smoke_test || dirty_close_smoke
-        || (grade_stack_smoke && !full_detail_smoke);
+        !smoke_test || dirty_close_smoke || (grade_stack_smoke && !full_detail_smoke);
     if (open_first_edit && !record_first_comparison && !set_first_decision
         && needs_legacy_first_photo_opener) {
-        DesktopSmoke::installFirstPhotoOpener(
-            application,
-            engine,
-            controller,
-            editor
-        );
+        DesktopSmoke::installFirstPhotoOpener(application, engine, controller, editor);
     }
     if (record_first_comparison) {
-        DesktopSmoke::installFirstComparisonRequest(
-            application,
-            controller,
-            thumbnail_provider
-        );
+        DesktopSmoke::installFirstComparisonRequest(application, controller, thumbnail_provider);
     }
     if (set_first_decision && !record_first_comparison) {
         DesktopSmoke::installFirstDecisionRequest(application, controller);
@@ -102,26 +86,13 @@ void installDesktopSmokeHarness(
     } else if (close_lifecycle_smoke) {
         DesktopSmoke::startCloseLifecycle(application, engine);
     } else if (i18n_smoke) {
-        DesktopSmoke::startI18nLifecycle(
-            application,
-            engine,
-            controller,
-            preferences
-        );
+        DesktopSmoke::startI18nLifecycle(application, engine, controller, preferences);
     } else if (cancel_scan_smoke) {
         DesktopSmoke::startCancelScanLifecycle(application, controller);
     } else if (streaming_scan_smoke) {
-        DesktopSmoke::startStreamingScanLifecycle(
-            application,
-            engine,
-            controller
-        );
+        DesktopSmoke::startStreamingScanLifecycle(application, engine, controller, editor);
     } else if (reopen_library_smoke) {
-        DesktopSmoke::startReopenLibraryLifecycle(
-            application,
-            engine,
-            controller
-        );
+        DesktopSmoke::startReopenLibraryLifecycle(application, engine, controller);
     } else if (record_first_comparison) {
         DesktopSmoke::awaitFirstComparisonMutation(
             application,
@@ -129,11 +100,7 @@ void installDesktopSmokeHarness(
             forget_recorded_comparison
         );
     } else if (set_first_decision) {
-        DesktopSmoke::awaitFirstDecisionMutation(
-            application,
-            controller,
-            undo_first_decision
-        );
+        DesktopSmoke::awaitFirstDecisionMutation(application, controller, undo_first_decision);
     } else if (open_first_edit && full_detail_smoke) {
         DesktopSmoke::startEditPreviewSession(
             application,
@@ -144,6 +111,11 @@ void installDesktopSmokeHarness(
             {
                 .request_before = request_before,
                 .request_full_detail = true,
+                .transport_expectation =
+                    metal_preview_smoke ? DesktopSmoke::EditPreviewTransportExpectation::MetalNative
+                    : software_preview_smoke
+                        ? DesktopSmoke::EditPreviewTransportExpectation::SoftwareFallback
+                        : DesktopSmoke::EditPreviewTransportExpectation::None,
             }
         );
     } else if (open_first_edit && grade_stack_smoke) {
@@ -158,6 +130,11 @@ void installDesktopSmokeHarness(
             {
                 .request_before = request_before,
                 .request_full_detail = false,
+                .transport_expectation =
+                    metal_preview_smoke ? DesktopSmoke::EditPreviewTransportExpectation::MetalNative
+                    : software_preview_smoke
+                        ? DesktopSmoke::EditPreviewTransportExpectation::SoftwareFallback
+                        : DesktopSmoke::EditPreviewTransportExpectation::None,
             }
         );
     } else {

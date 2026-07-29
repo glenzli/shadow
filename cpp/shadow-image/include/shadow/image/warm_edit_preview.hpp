@@ -3,6 +3,7 @@
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/edit_preview_frame.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/optics.hpp>
 #include <shadow/image/photo_geometry.hpp>
@@ -24,6 +25,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace shadow::image {
 
@@ -83,6 +85,7 @@ struct EditPreviewExecutionReceipt final {
     // then completely identifies the output math.
     bool adjustment_fell_back = false;
     bool display_fell_back = false;
+    bool presentation_fell_back = false;
     std::string diagnostic;
 
     [[nodiscard]] bool valid() const noexcept;
@@ -129,6 +132,16 @@ struct AnalyzedEditPreview final {
     EditPreviewExecutionReceipt execution;
 };
 
+struct EditPreviewRgb8WithMaskCoverage final {
+    EncodedProxy preview;
+    std::optional<EditPreviewMaskCoverage> mask_coverage;
+};
+
+struct AnalyzedEditPreviewWithMaskCoverage final {
+    AnalyzedEditPreview preview;
+    std::optional<EditPreviewMaskCoverage> mask_coverage;
+};
+
 struct WarmEditPreviewGpuStats final {
     bool resident = false;
     std::uint64_t source_upload_count = 0U;
@@ -136,6 +149,11 @@ struct WarmEditPreviewGpuStats final {
     std::uint64_t render_count = 0U;
     std::uint64_t completed_render_count = 0U;
     std::uint64_t peak_concurrent_renders = 0U;
+    // Presentation counters describe only explicit native-surface requests. A completed request
+    // either publishes one independently owned texture or records a named host-RGB fallback.
+    std::uint64_t presentation_surface_request_count = 0U;
+    std::uint64_t presentation_surface_publish_count = 0U;
+    std::uint64_t presentation_surface_fallback_count = 0U;
     std::uint64_t curve_resource_upload_count = 0U;
     std::uint64_t lut_resource_upload_count = 0U;
     std::uint64_t perceptual_mixer_resource_upload_count = 0U;
@@ -223,14 +241,45 @@ class WarmEditPreviewSession final {
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {}
     ) const;
+    // Opaque-owner interactive route. On compatible Metal systems the returned frame owns a
+    // native presentation surface and has no materialized host RGB8 bytes. CPU and named
+    // presentation fallbacks retain the exact packed RGB8 contract.
+    [[nodiscard]] CancellableEditPreviewResult<InteractiveEditPreviewFrame>
+    render_interactive_frame_cancellable(
+        std::span<const AdjustmentNode> nodes,
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
+    ) const;
     [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_rgb8_layers_cancellable(
         std::span<const AdjustmentLayer> layers,
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] CancellableEditPreviewResult<EditPreviewRgb8WithMaskCoverage>
+    render_rgb8_layers_with_mask_coverage_cancellable(
+        std::span<const AdjustmentLayer> layers,
+        std::optional<std::uint32_t> target_layer_index,
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] CancellableEditPreviewResult<InteractiveEditPreviewFrame>
+    render_interactive_frame_layers_with_mask_coverage_cancellable(
+        std::span<const AdjustmentLayer> layers,
+        std::optional<std::uint32_t> target_layer_index,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {}
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreview>
     render_jpeg_with_analysis_cancellable(
         std::span<const AdjustmentNode> nodes,
+        std::uint8_t jpeg_quality,
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreviewWithMaskCoverage>
+    render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
+        std::span<const AdjustmentLayer> layers,
+        std::optional<std::uint32_t> target_layer_index,
         std::uint8_t jpeg_quality,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {}

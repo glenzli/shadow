@@ -1,18 +1,30 @@
 #include "edit_preview_provider.hpp"
 
+#include "edit_preview_metal_texture_factory.hpp"
+
 #include <QBuffer>
 #include <QColorSpace>
 #include <QImageReader>
-#include <QReadLocker>
+#include <QQuickTextureFactory>
+#include <QQuickWindow>
+#include <QSGTexture>
 #include <QUrlQuery>
-#include <QWriteLocker>
 
+#include <algorithm>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace {
 
-void release_rgb8_pixels(void* const owner) noexcept { delete static_cast<QByteArray*>(owner); }
+void release_byte_array(void* const owner) noexcept {
+    delete static_cast<QByteArray*>(owner);
+}
+
+void release_frame_owner(void* const owner) noexcept {
+    delete static_cast<std::shared_ptr<const BackendEditPreviewFrame>*>(owner);
+}
 
 [[nodiscard]] QImage rgb8_image(EditPreviewStore::Snapshot snapshot) {
     const bool valid_dimensions = snapshot.dimensions.isValid();
@@ -22,153 +34,285 @@ void release_rgb8_pixels(void* const owner) noexcept { delete static_cast<QByteA
                                        ? static_cast<quint64>(snapshot.row_stride_bytes) *
                                              static_cast<quint64>(snapshot.dimensions.height())
                                        : 0U;
-    const bool valid_layout = valid_dimensions &&
-                              static_cast<quint64>(snapshot.row_stride_bytes) == minimum_stride &&
-                              snapshot.row_stride_bytes > 0 &&
-                              expected_bytes == static_cast<quint64>(snapshot.bytes.size());
-    if (snapshot.bytes.isEmpty() || !valid_layout) {
+    std::span<const std::uint8_t> frame_pixels;
+    if (snapshot.frame != nullptr) {
+        try {
+            frame_pixels = snapshot.frame->materializeRgb8();
+        } catch (...) {
+            return {};
+        }
+    }
+    const quint64 actual_bytes = snapshot.frame ? static_cast<quint64>(frame_pixels.size())
+                                                : static_cast<quint64>(snapshot.bytes.size());
+    const bool valid_layout = valid_dimensions
+                              && static_cast<quint64>(snapshot.row_stride_bytes) == minimum_stride
+                              && snapshot.row_stride_bytes > 0 && expected_bytes == actual_bytes;
+    if (!valid_layout || (snapshot.frame == nullptr && snapshot.bytes.isEmpty())
+        || (snapshot.frame != nullptr
+            && (snapshot.frame->dimensions() != snapshot.dimensions
+                || snapshot.frame->rowStrideBytes()
+                       != static_cast<std::size_t>(snapshot.row_stride_bytes)))) {
         return {};
     }
-    auto* const pixel_owner = new QByteArray(std::move(snapshot.bytes));
-    QImage image(reinterpret_cast<const uchar*>(pixel_owner->constData()),
-                 snapshot.dimensions.width(), snapshot.dimensions.height(),
-                 snapshot.row_stride_bytes, QImage::Format_RGB888, release_rgb8_pixels,
-                 pixel_owner);
+
+    const uchar* pixels = nullptr;
+    QImageCleanupFunction cleanup = nullptr;
+    void* cleanup_info = nullptr;
+    if (snapshot.frame != nullptr) {
+        pixels = frame_pixels.data();
+        cleanup = release_frame_owner;
+        cleanup_info =
+            new std::shared_ptr<const BackendEditPreviewFrame>(std::move(snapshot.frame));
+    } else {
+        auto* const pixel_owner = new QByteArray(std::move(snapshot.bytes));
+        pixels = reinterpret_cast<const uchar*>(pixel_owner->constData());
+        cleanup = release_byte_array;
+        cleanup_info = pixel_owner;
+    }
+    QImage image(
+        pixels,
+        snapshot.dimensions.width(),
+        snapshot.dimensions.height(),
+        snapshot.row_stride_bytes,
+        QImage::Format_RGB888,
+        cleanup,
+        cleanup_info
+    );
     image.setColorSpace(QColorSpace::SRgb);
     return image;
 }
 
-} // namespace
-
-EditPreviewStore::StoredPreview& EditPreviewStore::slot(
-    const EditPreviewSlot slot
-) noexcept {
-    return slot == EditPreviewSlot::Before ? before_ : current_;
-}
-
-const EditPreviewStore::StoredPreview& EditPreviewStore::slot(
-    const EditPreviewSlot slot
-) const noexcept {
-    return slot == EditPreviewSlot::Before ? before_ : current_;
-}
-
-void EditPreviewStore::publish(const EditPreviewSlot target, QByteArray bytes,
-                               const QSize dimensions, const qsizetype row_stride_bytes,
-                               QImage display_zebra, const quint64 generation) {
-    QWriteLocker lock(&lock_);
-    auto& stored = slot(target);
-    stored.bytes = std::move(bytes);
-    stored.dimensions = dimensions;
-    stored.row_stride_bytes = row_stride_bytes;
-    stored.display_zebra = std::move(display_zebra);
-    stored.generation = generation;
-}
-
-void EditPreviewStore::clear(
-    const EditPreviewSlot target,
-    const quint64 generation
+[[nodiscard]] QImage alpha8_image(
+    EditPreviewStore::MaskCoverageSnapshot snapshot
 ) {
-    QWriteLocker lock(&lock_);
-    auto& stored = slot(target);
-    stored = {};
-    stored.generation = generation;
-}
-
-void EditPreviewStore::clearAll(
-    const quint64 current_generation,
-    const quint64 before_generation
-) {
-    QWriteLocker lock(&lock_);
-    current_ = {};
-    current_.generation = current_generation;
-    before_ = {};
-    before_.generation = before_generation;
-}
-
-EditPreviewStore::Snapshot EditPreviewStore::snapshot(
-    const EditPreviewSlot target,
-    const quint64 generation
-) const {
-    QReadLocker lock(&lock_);
-    const auto& stored = slot(target);
-    if (generation != stored.generation) {
+    const bool valid_dimensions = snapshot.dimensions.isValid()
+        && !snapshot.dimensions.isEmpty();
+    std::span<const std::uint8_t> frame_samples;
+    if (snapshot.frame != nullptr) {
+        const auto coverage = snapshot.frame->maskCoverage();
+        if (!coverage.has_value() || coverage->dimensions != snapshot.dimensions
+            || coverage->row_stride_bytes != static_cast<std::size_t>(snapshot.row_stride_bytes)) {
+            return {};
+        }
+        frame_samples = coverage->samples;
+    }
+    const quint64 expected_bytes =
+        valid_dimensions && snapshot.row_stride_bytes > 0
+        ? static_cast<quint64>(snapshot.row_stride_bytes)
+              * static_cast<quint64>(snapshot.dimensions.height())
+        : 0U;
+    const quint64 actual_bytes = snapshot.frame ? static_cast<quint64>(frame_samples.size())
+                                                : static_cast<quint64>(snapshot.samples.size());
+    if (!valid_dimensions || (snapshot.frame == nullptr && snapshot.samples.isEmpty())
+        || snapshot.row_stride_bytes != snapshot.dimensions.width()
+        || expected_bytes != actual_bytes) {
         return {};
     }
-    return {
-        .bytes = stored.bytes,
-        .dimensions = stored.dimensions,
-        .row_stride_bytes = stored.row_stride_bytes,
-        .display_zebra = stored.display_zebra,
-    };
+    const uchar* samples = nullptr;
+    QImageCleanupFunction cleanup = nullptr;
+    void* cleanup_info = nullptr;
+    if (snapshot.frame != nullptr) {
+        samples = frame_samples.data();
+        cleanup = release_frame_owner;
+        cleanup_info =
+            new std::shared_ptr<const BackendEditPreviewFrame>(std::move(snapshot.frame));
+    } else {
+        auto* const sample_owner = new QByteArray(std::move(snapshot.samples));
+        samples = reinterpret_cast<const uchar*>(sample_owner->constData());
+        cleanup = release_byte_array;
+        cleanup_info = sample_owner;
+    }
+    return QImage(
+        samples,
+        snapshot.dimensions.width(),
+        snapshot.dimensions.height(),
+        snapshot.row_stride_bytes,
+        QImage::Format_Alpha8,
+        cleanup,
+        cleanup_info
+    );
 }
 
-void EditPreviewStore::publishDetails(
-    QVector<DetailPublication> publications,
-    const EditDetailGeneration generation
-) {
-    QWriteLocker lock(&lock_);
-    details_.clear();
-    detail_generation_ = generation;
-    for (auto& publication : publications) {
-        if (publication.ticket.isEmpty() || publication.bytes.isEmpty()) {
-            continue;
-        }
-        details_.insert(
-            publication.ticket,
-            StoredPreview{
-                .bytes = std::move(publication.bytes),
-                .dimensions = publication.dimensions,
-                .generation = 0,
-                .row_stride_bytes = publication.row_stride_bytes,
-            }
+class RetainedEditPreviewTextureFactory final : public QQuickTextureFactory {
+  public:
+    explicit RetainedEditPreviewTextureFactory(
+        QImage image,
+        std::shared_ptr<const BackendEditPreviewFrame> frame
+    ) : image_(std::move(image)), frame_(std::move(frame)) {}
+
+    [[nodiscard]] QSGTexture* createTexture(QQuickWindow* const window) const override {
+        return window != nullptr ? window->createTextureFromImage(image_) : nullptr;
+    }
+
+    [[nodiscard]] QSize textureSize() const override {
+        return image_.size();
+    }
+
+    [[nodiscard]] int textureByteCount() const override {
+        return static_cast<int>(
+            std::min<qsizetype>(image_.sizeInBytes(), std::numeric_limits<int>::max())
         );
     }
-}
 
-void EditPreviewStore::clearDetails(const EditDetailGeneration generation) {
-    QWriteLocker lock(&lock_);
-    details_.clear();
-    detail_generation_ = generation;
-}
+    [[nodiscard]] QImage image() const override {
+        // QQuickTextureFactory requires this escape hatch to own its storage
+        // independently of both the factory and an external pixel buffer.
+        return image_.copy();
+    }
 
-EditPreviewStore::Snapshot EditPreviewStore::detailSnapshot(
-    const QString& ticket,
-    const EditDetailGeneration generation
-) const {
-    QReadLocker lock(&lock_);
-    if (generation != detail_generation_) {
-        return {};
+  private:
+    QImage image_;
+    std::shared_ptr<const BackendEditPreviewFrame> frame_;
+};
+
+struct OverviewRequest final {
+    EditPreviewSlot slot = EditPreviewSlot::Current;
+    quint64 generation = 0U;
+};
+
+[[nodiscard]] std::optional<OverviewRequest> parse_overview_request(const QString& id) {
+    const qsizetype query_start = id.indexOf(QLatin1Char('?'));
+    const QString slot_name = query_start >= 0 ? id.left(query_start) : id;
+    EditPreviewSlot slot;
+    if (slot_name == QStringLiteral("current")) {
+        slot = EditPreviewSlot::Current;
+    } else if (slot_name == QStringLiteral("before")) {
+        slot = EditPreviewSlot::Before;
+    } else {
+        return std::nullopt;
     }
-    const auto found = details_.constFind(ticket);
-    if (found == details_.cend()) {
-        return {};
+    const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
+    bool valid_generation = false;
+    const quint64 generation =
+        query.queryItemValue(QStringLiteral("generation")).toULongLong(&valid_generation);
+    if (!valid_generation) {
+        return std::nullopt;
     }
-    return {
-        .bytes = found->bytes,
-        .dimensions = found->dimensions,
-        .row_stride_bytes = found->row_stride_bytes,
-        .display_zebra = found->display_zebra,
+    return OverviewRequest{
+        .slot = slot,
+        .generation = generation,
     };
 }
 
-EditPreviewProvider::EditPreviewProvider(std::shared_ptr<EditPreviewStore> store)
-    : QQuickImageProvider(
-          QQuickImageProvider::Image,
-          QQmlImageProviderBase::ForceAsynchronousImageLoading
-      ),
-      store_(std::move(store)) {}
+} // namespace
+
+EditPreviewProvider::EditPreviewProvider(
+    std::shared_ptr<EditPreviewStore> store,
+    std::shared_ptr<EditPreviewPresentationContext> presentation_context
+) :
+    QQuickImageProvider(
+        QQuickImageProvider::Texture,
+        QQmlImageProviderBase::ForceAsynchronousImageLoading
+    ),
+    store_(std::move(store)), presentation_context_(std::move(presentation_context)) {}
 
 QImage EditPreviewProvider::requestImage(
     const QString& id,
     QSize* size,
     const QSize& requested_size
 ) {
+    return resolveImage(id, size, requested_size, nullptr);
+}
+
+QQuickTextureFactory*
+EditPreviewProvider::requestTexture(const QString& id, QSize* size, const QSize& requested_size) {
+    // Interactive overview frames cross the loading thread as immutable
+    // descriptors. Native/QSG inspection and any compatibility readback are
+    // deferred to createTexture() on Qt Quick's render thread.
+    const auto overview = parse_overview_request(id);
+    if (overview.has_value()) {
+        const auto snapshot = store_->snapshot(overview->slot, overview->generation);
+        if (snapshot.frame != nullptr && snapshot.row_stride_bytes > 0) {
+            if (size != nullptr) {
+                *size = snapshot.dimensions;
+            }
+            return makeEditPreviewTextureFactory(
+                snapshot.frame,
+                snapshot.presentation_binding,
+                presentation_context_
+            );
+        }
+    }
+
+    std::shared_ptr<const BackendEditPreviewFrame> retained_frame;
+    QImage image = resolveImage(id, size, requested_size, &retained_frame);
+    if (image.isNull()) {
+        return nullptr;
+    }
+    return new RetainedEditPreviewTextureFactory(std::move(image), std::move(retained_frame));
+}
+
+QImage EditPreviewProvider::resolveImage(
+    const QString& id,
+    QSize* size,
+    const QSize& requested_size,
+    std::shared_ptr<const BackendEditPreviewFrame>* const retained_frame
+) const {
+    if (retained_frame != nullptr) {
+        retained_frame->reset();
+    }
     const qsizetype query_start = id.indexOf(QLatin1Char('?'));
     const QString slot_name = query_start >= 0 ? id.left(query_start) : id;
     const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
     if (slot_name.startsWith(QStringLiteral("scope/"))) {
         const QStringList scope_parts = slot_name.split(QLatin1Char('/'));
-        if (scope_parts.size() != 3 || scope_parts.at(1) != QStringLiteral("zebra")) {
+        if (scope_parts.size() != 3) {
+            if (size != nullptr) {
+                *size = {};
+            }
+            return {};
+        }
+        if (scope_parts.at(1) == QStringLiteral("mask")) {
+            if (scope_parts.at(2) != QStringLiteral("current")) {
+                if (size != nullptr) {
+                    *size = {};
+                }
+                return {};
+            }
+            bool valid_photo = false;
+            bool valid_recipe = false;
+            bool valid_target = false;
+            bool valid_selection = false;
+            bool valid_preview = false;
+            const MaskCoverageGeneration generation{
+                .photo = query.queryItemValue(QStringLiteral("photo")).toULongLong(
+                    &valid_photo
+                ),
+                .recipe_revision =
+                    query.queryItemValue(QStringLiteral("recipe")).toULongLong(
+                        &valid_recipe
+                    ),
+                .target_layer_index =
+                    query.queryItemValue(QStringLiteral("target")).toUInt(
+                        &valid_target
+                    ),
+                .selection_revision =
+                    query.queryItemValue(QStringLiteral("selection")).toULongLong(
+                        &valid_selection
+                    ),
+                .paired_preview_generation =
+                    query.queryItemValue(QStringLiteral("preview")).toULongLong(
+                        &valid_preview
+                    ),
+            };
+            if (!valid_photo || !valid_recipe || !valid_target
+                || !valid_selection || !valid_preview) {
+                if (size != nullptr) {
+                    *size = {};
+                }
+                return {};
+            }
+            auto snapshot = store_->maskCoverageSnapshot(generation);
+            if (retained_frame != nullptr) {
+                *retained_frame = snapshot.frame;
+            }
+            QImage image = alpha8_image(std::move(snapshot));
+            if (size != nullptr) {
+                *size = image.size();
+            }
+            return image;
+        }
+        if (scope_parts.at(1) != QStringLiteral("zebra")) {
             if (size != nullptr) {
                 *size = {};
             }
@@ -264,13 +408,16 @@ QImage EditPreviewProvider::requestImage(
         return {};
     }
     auto snapshot = store_->snapshot(slot, generation);
-    if (snapshot.bytes.isEmpty()) {
+    if (snapshot.bytes.isEmpty() && snapshot.frame == nullptr) {
         if (size != nullptr) {
             *size = {};
         }
         return {};
     }
     if (snapshot.row_stride_bytes > 0) {
+        if (retained_frame != nullptr) {
+            *retained_frame = snapshot.frame;
+        }
         QImage image = rgb8_image(std::move(snapshot));
         if (size != nullptr) {
             *size = image.size();

@@ -4,7 +4,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const BRIDGE_INPUTS: &[&str] = &[
+const BRIDGE_SOURCES: &[&str] = &[
+    "src/bridge/adjustment_render_wire.cpp",
+    "src/bridge/cxx_bridge.cpp",
+    "src/bridge/cxx_handle.cpp",
+    "src/bridge/cxx_preview_frame.cpp",
+];
+
+const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
     "include/shadow/image/decoder.hpp",
     "include/shadow/image/private_decoder_plugin.hpp",
     "include/shadow/image/display_luma.hpp",
@@ -33,19 +40,18 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/camera_profile.hpp",
     "include/shadow/image/camera_profile_catalog.hpp",
     "include/shadow/image/dcp_color_development.hpp",
+    "include/shadow/image/edit_preview_frame.hpp",
     "include/shadow/image/fused_raw_development.hpp",
     "include/shadow/image/raw_denoise.hpp",
     "include/shadow/image/cxx_bridge.hpp",
+    "include/shadow/image/cxx_preview_frame.hpp",
     "include/shadow/image/color_management.hpp",
     "include/shadow/image/source_rendering.hpp",
     "include/shadow/image/source_profile_catalog.hpp",
     "include/shadow/image/warm_edit_preview.hpp",
     "include/shadow/image/working_rgb.hpp",
     "src/bridge/adjustment_render_wire.hpp",
-    "src/bridge/adjustment_render_wire.cpp",
     "src/bridge/cxx_bridge_projection.hpp",
-    "src/bridge/cxx_bridge.cpp",
-    "src/bridge/cxx_handle.cpp",
 ];
 
 const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
@@ -77,6 +83,7 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/edit/finishing_effects_cpu.cpp",
     "src/edit/guided_selective_tone.cpp",
     "src/edit/local_mask.cpp",
+    "src/edit/local_mask_coverage.cpp",
     "src/edit/local_mask_validation.cpp",
     "src/edit/metal_adjustment_program.cpp",
     "src/edit/oklab_color_warper.cpp",
@@ -99,19 +106,30 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/raw/fused_raw_development.cpp",
     "src/raw/raw_denoise.cpp",
     "src/raw/raw_denoise_plan.cpp",
+    "src/raw/raw_frame_development_plan.cpp",
+    "src/raw/raw_frame_region_development.cpp",
+    "src/raw/raw_frame_source_preparation.cpp",
     "src/raw/raw_frame_source_development.cpp",
     "src/raw/raw_pipeline.cpp",
+    "src/raw/resident_raw_source.cpp",
     "src/raw/sensor_clipping.cpp",
     "src/decoder/private_decoder_plugin.cpp",
+    "src/optics/lensfun_cpu_reference.cpp",
     "src/optics/lensfun_profile_catalog.cpp",
+    "src/optics/lensfun_modifier_plan.cpp",
+    "src/optics/lensfun_region_plan.cpp",
     "src/optics/manual_optics.cpp",
     "src/optics/lensfun_optics.cpp",
+    "src/optics/scene_linear_region_optics.cpp",
     "src/proxy/developed_source_raster.cpp",
     "src/proxy/display_output.cpp",
     "src/proxy/edited_proxy_rendering.cpp",
+    "src/proxy/edit_preview_frame.cpp",
     "src/proxy/edit_preview_rendering.cpp",
     "src/proxy/full_edit_detail.cpp",
     "src/proxy/full_edit_detail_gpu_cache.cpp",
+    "src/proxy/full_edit_detail_gpu_cache_resident.cpp",
+    "src/proxy/full_edit_detail_source_preparation.cpp",
     "src/proxy/jpeg_display_luma.cpp",
     "src/proxy/jpeg_proxy_encoding.cpp",
     "src/proxy/proxy_rendering.cpp",
@@ -119,6 +137,7 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/proxy/warm_edit_gpu_brush_index.cpp",
     "src/proxy/warm_edit_gpu_geometry_plan.cpp",
     "src/proxy/warm_edit_gpu_layer_plan.cpp",
+    "src/proxy/warm_edit_gpu_mask_plan.cpp",
     "src/proxy/warm_edit_gpu_neighbourhood_plan.cpp",
     "src/proxy/warm_edit_gpu_retouch_plan.cpp",
     "src/proxy/warm_edit_gpu_render_plan.cpp",
@@ -128,17 +147,21 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
 const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
     "src/edit/metal_adjustment.mm",
     "src/optics/metal_manual_optics.mm",
+    "src/optics/metal_scene_linear_region_optics.mm",
     "src/raw/metal_dcp_color_encoding.mm",
     "src/raw/metal_dcp_color_rendering.mm",
+    "src/raw/metal_resident_raw_source.mm",
     "src/raw/metal_raw_denoise_encoding.mm",
     "src/raw/metal_raw_denoise.mm",
     "src/raw/metal_raw_reconstruction.mm",
     "src/raw/metal_raw_runtime.mm",
+    "src/proxy/full_edit_detail_metal_source.mm",
     "src/proxy/metal_display_output.mm",
     "src/proxy/warm_edit_gpu_dispatcher.mm",
     "src/proxy/warm_edit_gpu_geometry_encoder.mm",
     "src/proxy/warm_edit_gpu_layer_dispatcher.mm",
     "src/proxy/warm_edit_gpu_pipeline_context.mm",
+    "src/proxy/warm_edit_gpu_presentation_surface.mm",
     "src/proxy/warm_edit_gpu_resident_resources.mm",
     "src/proxy/warm_edit_gpu_retouch_encoder.mm",
     "src/proxy/warm_edit_gpu_stage_encoder.mm",
@@ -150,8 +173,12 @@ const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
 const EMBEDDED_IMAGE_STUB_SOURCES: &[&str] = &[
     "src/edit/metal_adjustment_stub.cpp",
     "src/optics/metal_manual_optics_stub.cpp",
+    "src/optics/metal_scene_linear_region_optics_stub.cpp",
+    "src/raw/metal_resident_raw_source_stub.cpp",
     "src/raw/metal_raw_development_stub.cpp",
+    "src/proxy/full_edit_detail_metal_source_stub.cpp",
     "src/proxy/metal_display_output_stub.cpp",
+    "src/proxy/warm_edit_gpu_presentation_surface_stub.cpp",
     "src/proxy/warm_edit_gpu_stub.cpp",
 ];
 
@@ -169,6 +196,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/edit/edit_execution_validation.hpp",
     "src/edit/finishing_effects_cpu.hpp",
     "src/edit/guided_selective_tone.hpp",
+    "src/edit/local_mask_coverage.hpp",
     "src/edit/local_mask_validation.hpp",
     "src/edit/metal_adjustment_execution.hpp",
     "src/edit/metal_adjustment_msl.hpp",
@@ -177,19 +205,31 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/edit/perceptual_color.hpp",
     "src/edit/perceptual_hue_selection.hpp",
     "src/edit/perceptual_contrast.hpp",
+    "src/edit/photo_geometry_sampling.hpp",
     "src/edit/rgb_pixel_traversal.hpp",
     "src/edit/retouch_heal_blending.hpp",
     "src/edit/scalar_neighborhood_filters.hpp",
     "src/edit/technical_detail_cpu.hpp",
     "src/edit/tone_curve_internal.hpp",
     "src/edit/working_color_math.hpp",
+    "src/optics/lensfun_modifier_plan.hpp",
+    "src/optics/lensfun_modifier_plan_internal.hpp",
     "src/optics/lensfun_profile_catalog.hpp",
     "src/optics/manual_optics.hpp",
     "src/optics/metal_manual_optics.hpp",
+    "src/optics/metal_scene_linear_region_optics.hpp",
+    "src/optics/metal_scene_linear_region_optics_msl.hpp",
+    "src/optics/scene_linear_region_optics.hpp",
+    "src/raw/raw_frame_region_development.hpp",
+    "src/raw/raw_frame_source_preparation.hpp",
+    "src/raw/resident_raw_source.hpp",
     "src/proxy/developed_source_raster.hpp",
     "src/proxy/display_rgb_math.hpp",
     "src/proxy/edit_preview_rendering.hpp",
     "src/proxy/full_edit_detail_gpu_cache.hpp",
+    "src/proxy/full_edit_detail_metal_source.hpp",
+    "src/proxy/full_edit_detail_metal_source_msl.hpp",
+    "src/proxy/full_edit_detail_source_preparation.hpp",
     "src/proxy/jpeg_proxy_encoding.hpp",
     "src/proxy/metal_display_output.hpp",
     "src/proxy/proxy_render_request_validation.hpp",
@@ -203,9 +243,12 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/proxy/warm_edit_gpu_kernel_contract.hpp",
     "src/proxy/warm_edit_gpu_layer_dispatcher.hpp",
     "src/proxy/warm_edit_gpu_layer_plan.hpp",
+    "src/proxy/warm_edit_gpu_mask_msl.hpp",
+    "src/proxy/warm_edit_gpu_mask_plan.hpp",
     "src/proxy/warm_edit_gpu_msl.hpp",
     "src/proxy/warm_edit_gpu_neighbourhood_plan.hpp",
     "src/proxy/warm_edit_gpu_pipeline_context.hpp",
+    "src/proxy/warm_edit_gpu_presentation_surface.hpp",
     "src/proxy/warm_edit_gpu_render_plan.hpp",
     "src/proxy/warm_edit_gpu_retouch_encoder.hpp",
     "src/proxy/warm_edit_gpu_retouch_plan.hpp",
@@ -220,8 +263,10 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/raw/metal_raw_development.hpp",
     "src/raw/metal_raw_development_msl.hpp",
     "src/raw/metal_raw_denoise_encoding.hpp",
+    "src/raw/metal_resident_raw_source.hpp",
     "src/raw/metal_raw_runtime.hpp",
     "src/raw/raw_denoise_plan.hpp",
+    "src/raw/raw_frame_development_plan.hpp",
     "src/raw/raw_frame_source_development.hpp",
 ];
 
@@ -325,12 +370,10 @@ fn main() {
     );
 
     let mut build = cxx_build::bridge("src/lib.rs");
-    build
-        .file(image_root.join("src/bridge/adjustment_render_wire.cpp"))
-        .file(image_root.join("src/bridge/cxx_bridge.cpp"))
-        .file(image_root.join("src/bridge/cxx_handle.cpp"))
-        .include(&image_include)
-        .std("c++20");
+    for relative_path in BRIDGE_SOURCES {
+        build.file(image_root.join(relative_path));
+    }
+    build.include(&image_include).std("c++20");
 
     if external_image {
         // CMake already owns Shadow::Image for desktop builds. Keep only the generated CXX glue
@@ -339,7 +382,8 @@ fn main() {
         configure_warnings!(&mut build);
         build.compile("shadow-bridge-cxx");
         println!("cargo:rerun-if-changed=src/lib.rs");
-        track_inputs(&image_root, BRIDGE_INPUTS);
+        track_inputs(&image_root, BRIDGE_SOURCES);
+        track_inputs(&image_root, BRIDGE_ADDITIONAL_INPUTS);
         return;
     }
 
@@ -537,7 +581,8 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/lib.rs");
-    track_inputs(&image_root, BRIDGE_INPUTS);
+    track_inputs(&image_root, BRIDGE_SOURCES);
+    track_inputs(&image_root, BRIDGE_ADDITIONAL_INPUTS);
     track_inputs(&image_root, EMBEDDED_IMAGE_SOURCES);
     track_inputs(&image_root, EMBEDDED_IMAGE_METAL_SOURCES);
     track_inputs(&image_root, EMBEDDED_IMAGE_STUB_SOURCES);

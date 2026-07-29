@@ -260,6 +260,10 @@ pub enum FeedbackValidationError {
     ZeroVisualValue { field: &'static str },
     #[error("{field} must be exactly 64 lowercase hexadecimal characters")]
     InvalidVisualDigest { field: &'static str },
+    #[error("active model execution route is incomplete or internally inconsistent")]
+    InvalidModelRoute,
+    #[error("{field} must be exactly 64 lowercase hexadecimal characters")]
+    InvalidModelDigest { field: &'static str },
 }
 
 impl NewFeedbackEvent {
@@ -424,13 +428,9 @@ fn validate_feedback(
         }
     }
     if let Some(model) = &presentation.active_model {
-        validate_identifier("model provider id", &model.provider_id)?;
-        validate_identifier("model id", &model.model_id)?;
-        validate_identifier("model revision", &model.model_revision)?;
-        validate_identifier("model sha256", &model.model_sha256)?;
-        validate_identifier("model preprocessing version", &model.preprocessing_version)?;
-        validate_identifier("model input source hash", &model.input_source_hash)?;
-        validate_identifier("model cache key", &model.cache_key)?;
+        model
+            .validate()
+            .map_err(|_| FeedbackValidationError::InvalidModelRoute)?;
     }
 
     validate_action(action, &presented_photos)

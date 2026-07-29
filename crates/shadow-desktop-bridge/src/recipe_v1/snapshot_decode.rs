@@ -438,6 +438,14 @@ fn recipe_v1_local_mask_from_snapshot(
             reference.revision()
         )
     })?;
+    if matches!(
+        mask.definition(),
+        MaskDefinition::ConditionExpression { .. }
+    ) {
+        bail!(
+            "the current editable Grade Stack cannot project persisted composite, chroma-qualified, or local-detail condition masks into the Qt DTO"
+        );
+    }
     Ok(Some(mask.definition().clone()))
 }
 
@@ -471,7 +479,7 @@ pub(crate) fn ffi_shared_grade_node(
         label: revision.label().to_owned(),
         grade_node: encode_grade_node_draft_recipe_v1(grade_node_draft_from_shared_revision(
             revision,
-        )?),
+        )?)?,
     })
 }
 
@@ -729,3 +737,6 @@ pub(crate) fn required_text(
         ),
     }
 }
+
+#[cfg(test)]
+mod tests;

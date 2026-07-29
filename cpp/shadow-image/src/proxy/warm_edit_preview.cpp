@@ -323,9 +323,13 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
            && display_output_contract_version == display_srgb8_output_transform_version
            && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
            && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
+           && (!presentation_fell_back
+               || display_backend == EditPreviewBackend::metal)
            && (!fused_pipeline || display_backend == EditPreviewBackend::metal)
            && (!fused_pipeline || (!adjustment_fell_back && !display_fell_back))
-           && ((adjustment_fell_back || display_fell_back) == !diagnostic.empty());
+           && ((adjustment_fell_back || display_fell_back
+                || presentation_fell_back)
+               == !diagnostic.empty());
 }
 
 std::string edit_preview_execution_receipt_identity(const EditPreviewExecutionReceipt& receipt) {
@@ -490,7 +494,9 @@ EncodedProxy WarmEditPreviewSession::render_jpeg_layers(
         layers,
         geometry,
         false,
-        {}
+        {},
+        std::nullopt,
+        detail::WarmEditGpuOutputIntent::host_rgb8
     );
     if (!prepared.has_value()) {
         throw DecodeError(
@@ -518,7 +524,9 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
         layers,
         geometry,
         true,
-        {}
+        {},
+        std::nullopt,
+        detail::WarmEditGpuOutputIntent::host_rgb8
     );
     if (!prepared.has_value() || !prepared->edited.has_value()) {
         throw DecodeError(
@@ -562,13 +570,60 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_c
         nodes,
         geometry,
         false,
-        cancellation
+        cancellation,
+        detail::WarmEditGpuOutputIntent::host_rgb8
     );
     if (!prepared.has_value()) {
         return {};
     }
     return {
         .completed = rgb8_proxy(std::move(*prepared)),
+    };
+}
+
+CancellableEditPreviewResult<InteractiveEditPreviewFrame>
+WarmEditPreviewSession::render_interactive_frame_cancellable(
+    const std::span<const AdjustmentNode> nodes,
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry
+) const {
+    auto prepared = prepare_edit_preview_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        nodes,
+        geometry,
+        false,
+        cancellation,
+        detail::WarmEditGpuOutputIntent::metal_presentation_surface
+    );
+    if (!prepared.has_value()) {
+        return {};
+    }
+    auto mask_coverage = std::move(prepared->mask_coverage);
+    auto fallback = std::move(prepared->presentation_fallback_diagnostic);
+    if (prepared->presentation_surface) {
+        if (!prepared->rgb.empty() || !fallback.empty()) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "native presentation frame mixed Metal and host fallback storage"
+            );
+        }
+        return {
+            .completed = InteractiveEditPreviewFrame(
+                prepared->dimensions,
+                std::move(prepared->presentation_surface),
+                std::move(mask_coverage)
+            ),
+        };
+    }
+    return {
+        .completed = InteractiveEditPreviewFrame(
+            rgb8_proxy(std::move(*prepared)),
+            std::move(mask_coverage),
+            std::move(fallback)
+        ),
     };
 }
 
@@ -584,13 +639,94 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_l
         layers,
         geometry,
         false,
-        cancellation
+        cancellation,
+        std::nullopt,
+        detail::WarmEditGpuOutputIntent::host_rgb8
     );
     if (!prepared.has_value()) {
         return {};
     }
     return {
         .completed = rgb8_proxy(std::move(*prepared)),
+    };
+}
+
+CancellableEditPreviewResult<EditPreviewRgb8WithMaskCoverage>
+WarmEditPreviewSession::render_rgb8_layers_with_mask_coverage_cancellable(
+    const std::span<const AdjustmentLayer> layers,
+    const std::optional<std::uint32_t> target_layer_index,
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry
+) const {
+    auto prepared = prepare_edit_preview_layer_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        layers,
+        geometry,
+        false,
+        cancellation,
+        target_layer_index,
+        detail::WarmEditGpuOutputIntent::host_rgb8
+    );
+    if (!prepared.has_value()) {
+        return {};
+    }
+    auto mask_coverage = std::move(prepared->mask_coverage);
+    return {
+        .completed = EditPreviewRgb8WithMaskCoverage{
+            .preview = rgb8_proxy(std::move(*prepared)),
+            .mask_coverage = std::move(mask_coverage),
+        },
+    };
+}
+
+CancellableEditPreviewResult<InteractiveEditPreviewFrame>
+WarmEditPreviewSession::
+    render_interactive_frame_layers_with_mask_coverage_cancellable(
+        const std::span<const AdjustmentLayer> layers,
+        const std::optional<std::uint32_t> target_layer_index,
+        const std::stop_token cancellation,
+        const PhotoGeometry& geometry
+    ) const {
+    auto prepared = prepare_edit_preview_layer_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        layers,
+        geometry,
+        false,
+        cancellation,
+        target_layer_index,
+        detail::WarmEditGpuOutputIntent::metal_presentation_surface
+    );
+    if (!prepared.has_value()) {
+        return {};
+    }
+    auto mask_coverage = std::move(prepared->mask_coverage);
+    auto fallback = std::move(prepared->presentation_fallback_diagnostic);
+    if (prepared->presentation_surface) {
+        if (!prepared->rgb.empty() || !fallback.empty()) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "layered native presentation frame mixed Metal and host fallback storage"
+            );
+        }
+        return {
+            .completed = InteractiveEditPreviewFrame(
+                prepared->dimensions,
+                std::move(prepared->presentation_surface),
+                std::move(mask_coverage)
+            ),
+        };
+    }
+    return {
+        .completed = InteractiveEditPreviewFrame(
+            rgb8_proxy(std::move(*prepared)),
+            std::move(mask_coverage),
+            std::move(fallback)
+        ),
     };
 }
 
@@ -608,7 +744,8 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_jpeg_c
         nodes,
         geometry,
         false,
-        cancellation
+        cancellation,
+        detail::WarmEditGpuOutputIntent::host_rgb8
     );
     if (!prepared.has_value()) {
         return {};
@@ -645,7 +782,8 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
         nodes,
         geometry,
         true,
-        cancellation
+        cancellation,
+        detail::WarmEditGpuOutputIntent::host_rgb8
     );
     if (!prepared.has_value()) {
         return {};
@@ -679,6 +817,71 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
             .proxy = std::move(proxy),
             .analysis = std::move(*analysis),
             .execution = std::move(prepared->execution),
+        },
+    };
+}
+
+CancellableEditPreviewResult<AnalyzedEditPreviewWithMaskCoverage>
+WarmEditPreviewSession::
+    render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
+        const std::span<const AdjustmentLayer> layers,
+        const std::optional<std::uint32_t> target_layer_index,
+        const std::uint8_t jpeg_quality,
+        const std::stop_token cancellation,
+        const PhotoGeometry& geometry
+    ) const {
+    proxy_detail::validate_jpeg_quality(jpeg_quality);
+    auto prepared = prepare_edit_preview_layer_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        layers,
+        geometry,
+        true,
+        cancellation,
+        target_layer_index,
+        detail::WarmEditGpuOutputIntent::host_rgb8
+    );
+    if (!prepared.has_value()) {
+        return {};
+    }
+    if (!prepared->edited.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "mask-coverage analysis did not retain its paired scene-linear frame"
+        );
+    }
+    auto analysis =
+        analyze_edit_preview(*prepared->edited, prepared->rgb, cancellation);
+    if (!analysis.has_value()) {
+        return {};
+    }
+    auto encoded = proxy_detail::encode_proxy_jpeg_cancellable(
+        prepared->rgb,
+        prepared->dimensions,
+        jpeg_quality,
+        cancellation
+    );
+    if (!encoded.has_value()) {
+        return {};
+    }
+    AnalyzedEditPreview preview{
+        .proxy =
+            EncodedProxy{
+                .dimensions = prepared->dimensions,
+                .bytes = std::move(*encoded),
+            },
+        .analysis = std::move(*analysis),
+        .execution = std::move(prepared->execution),
+    };
+    if (cancellation.stop_requested()) {
+        return {};
+    }
+    return {
+        .completed = AnalyzedEditPreviewWithMaskCoverage{
+            .preview = std::move(preview),
+            .mask_coverage = std::move(prepared->mask_coverage),
         },
     };
 }

@@ -68,9 +68,10 @@ fn grade_stack_rejects_cross_grade_node_render_op_identity_reuse() {
         geometry: PhotoGeometry::identity(),
     };
 
-    let ffi_error =
-        decode_grade_stack_draft_recipe_v1(&encode_grade_stack_draft_recipe_v1(invalid.clone()))
-            .expect_err("FFI stack must reject a render-op id reused by another Grade Node");
+    let ffi_error = decode_grade_stack_draft_recipe_v1(
+        &encode_grade_stack_draft_recipe_v1(invalid.clone()).expect("encode invalid draft"),
+    )
+    .expect_err("FFI stack must reject a render-op id reused by another Grade Node");
     assert!(
         ffi_error
             .to_string()
@@ -239,7 +240,8 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
         .expect_err("seventeen Grade Nodes must fail closed");
     assert!(error.to_string().contains("1 through 16"));
 
-    let mut ffi_seventeen = encode_grade_stack_draft_recipe_v1(sixteen);
+    let mut ffi_seventeen =
+        encode_grade_stack_draft_recipe_v1(sixteen).expect("encode sixteen nodes");
     ffi_seventeen
         .grade_nodes
         .push(new_basic_grade_node("One too many").unwrap());

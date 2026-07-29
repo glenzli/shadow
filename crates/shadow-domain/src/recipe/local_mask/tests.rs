@@ -1,5 +1,8 @@
 use super::*;
-use crate::recipe::{FiniteF64, RecipeValidationError, UnitInterval};
+use crate::recipe::{
+    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, FiniteF64,
+    RecipeValidationError, UnitInterval,
+};
 
 #[test]
 fn local_masks_reject_degenerate_geometry() {
@@ -210,5 +213,80 @@ fn color_range_normalizes_hue_and_rejects_invalid_width() {
     assert_eq!(
         noncanonical.validate(),
         Err(RecipeValidationError::InvalidColorMaskHue(360.0))
+    );
+}
+
+#[test]
+fn single_condition_leaves_keep_the_existing_persistent_mask_shapes() {
+    let luminance = ConditionMaskExpression::leaf(ConditionMaskPredicate::oklab_lightness_range(
+        UnitInterval::new(0.2).expect("lower"),
+        UnitInterval::new(0.8).expect("upper"),
+        UnitInterval::new(0.15).expect("softness"),
+    ))
+    .expect("luminance expression");
+    let luminance =
+        MaskDefinition::condition_expression(luminance).expect("canonical luminance mask");
+    assert_eq!(
+        serde_json::to_string(&luminance).expect("serialize luminance"),
+        r#"{"kind":"luminance_range","lower":0.2,"upper":0.8,"softness":0.15,"invert":false}"#
+    );
+
+    let inverted_hue = ConditionMaskExpression::not(ConditionMaskNode::leaf(
+        ConditionMaskPredicate::oklch_hue_range(
+            725.0,
+            35.0,
+            UnitInterval::ZERO,
+            UnitInterval::new(0.4).expect("softness"),
+        )
+        .expect("hue predicate"),
+    ))
+    .expect("inverted hue expression");
+    let inverted_hue =
+        MaskDefinition::condition_expression(inverted_hue).expect("canonical hue mask");
+    assert_eq!(
+        serde_json::to_string(&inverted_hue).expect("serialize hue"),
+        r#"{"kind":"color_range","center_hue_degrees":5.0,"width_degrees":35.0,"softness":0.4,"invert":true}"#
+    );
+}
+
+#[test]
+fn composite_conditions_persist_but_reducible_direct_variants_are_rejected() {
+    let expression = ConditionMaskExpression::all(vec![
+        ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
+            UnitInterval::new(0.2).expect("lower"),
+            UnitInterval::new(0.8).expect("upper"),
+            UnitInterval::new(0.1).expect("softness"),
+        )),
+        ConditionMaskNode::leaf(ConditionMaskPredicate::oklch_chroma_range(
+            UnitInterval::new(0.25).expect("lower"),
+            UnitInterval::new(0.9).expect("upper"),
+            UnitInterval::new(0.15).expect("softness"),
+        )),
+    ])
+    .expect("composite");
+    let definition =
+        MaskDefinition::condition_expression(expression.clone()).expect("condition mask");
+    assert!(matches!(
+        definition,
+        MaskDefinition::ConditionExpression { .. }
+    ));
+    let encoded = serde_json::to_string(&definition).expect("serialize condition mask");
+    assert_eq!(
+        serde_json::from_str::<MaskDefinition>(&encoded).expect("deserialize condition mask"),
+        definition
+    );
+
+    let reducible = ConditionMaskExpression::leaf(ConditionMaskPredicate::oklab_lightness_range(
+        UnitInterval::new(0.2).expect("lower"),
+        UnitInterval::new(0.8).expect("upper"),
+        UnitInterval::new(0.1).expect("softness"),
+    ))
+    .expect("single leaf");
+    assert_eq!(
+        MaskDefinition::ConditionExpression {
+            expression: reducible
+        }
+        .validate(),
+        Err(RecipeValidationError::NonCanonicalConditionMaskExpression)
     );
 }

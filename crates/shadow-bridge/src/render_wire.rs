@@ -9,6 +9,7 @@ use super::{
     decoder::{dimensions, preview_codec},
     detail_session::{DetailTileRect, DetailTileRequest},
     ffi,
+    preview_analysis::EditPreviewMaskCoverageRequest,
 };
 
 pub(super) fn ffi_render_request(
@@ -16,11 +17,22 @@ pub(super) fn ffi_render_request(
     max_edge: u32,
     jpeg_quality: u8,
 ) -> ffi::FfiAdjustmentRenderRequest {
+    ffi_render_request_with_mask_coverage(plan, max_edge, jpeg_quality, None)
+}
+
+pub(super) fn ffi_render_request_with_mask_coverage(
+    plan: &AdjustmentRenderPlan,
+    max_edge: u32,
+    jpeg_quality: u8,
+    mask_coverage: Option<EditPreviewMaskCoverageRequest>,
+) -> ffi::FfiAdjustmentRenderRequest {
     ffi::FfiAdjustmentRenderRequest {
         nodes: plan.nodes.iter().map(ffi_render_node).collect(),
         geometry: ffi_photo_geometry(plan.geometry),
         max_edge,
         jpeg_quality,
+        mask_coverage_requested: mask_coverage.is_some(),
+        mask_coverage_target_layer_index: mask_coverage.map_or(0, |value| value.target_layer_index),
     }
 }
 

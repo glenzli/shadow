@@ -11,6 +11,7 @@ class WarmGpuResidentResources;
     std::span<const AdjustmentLayer> layers,
     bool retain_linear_for_analysis,
     WarmEditGpuRenderContext context,
+    std::optional<std::uint32_t> target_layer_index,
     std::stop_token cancellation
 );
 

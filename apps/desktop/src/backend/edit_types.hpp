@@ -1,5 +1,6 @@
 #pragma once
 
+#include "edit_preview_frame.hpp"
 #include "../edit_preview_contract.hpp"
 
 #include <QByteArray>
@@ -11,6 +12,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 // Complete non-destructive edit wire contract used by the Qt shell facade.
 struct BackendBasicEditParameters final {
@@ -338,7 +340,25 @@ struct BackendEditPreviewAnalysis final {
     std::uint64_t highlight_clipped_pixels = 0;
 };
 
+// Exact renderer coverage for one selected Grade Node. It is transient UI
+// evidence paired with the preview response and never part of the durable
+// encoded-preview/cache identity.
+struct BackendMaskCoverage final {
+    QByteArray samples;
+    std::uint32_t version = 0;
+    std::uint32_t target_layer_index = 0;
+    std::uint64_t selection_revision = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint32_t row_stride_bytes = 0;
+    bool available = false;
+};
+
 struct BackendEditedPreview final {
+    // Present only for the interactive RGB8 route. The shared immutable owner
+    // also retains optional paired R8 mask coverage across worker, store, and
+    // texture-factory lifetimes.
+    std::shared_ptr<const BackendEditPreviewFrame> frame;
     QByteArray bytes;
     // Zero denotes an encoded JPEG. Interactive previews use tightly packed
     // display-sRGB RGB8 with `width * 3` bytes per row.
@@ -347,6 +367,7 @@ struct BackendEditedPreview final {
     // RAW sources receive a sensor-domain clipping overlay. Rendered sources retain a clearly
     // weaker display-endpoint fallback because they cannot honestly report lost RAW headroom.
     QImage display_zebra;
+    BackendMaskCoverage mask_coverage;
     BackendOpticsReceipt optics;
     std::uint32_t width = 0;
     std::uint32_t height = 0;

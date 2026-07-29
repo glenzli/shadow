@@ -563,7 +563,8 @@ impl DesktopSession {
             is_version_draft,
             working_commit_id: selected_id.map_or_else(String::new, |id| id.to_string()),
             recipe_id: recipe_id.map_or_else(String::new, |id| id.to_string()),
-            settings: encode_grade_stack_draft_recipe_v1(grade_stack),
+            settings: encode_grade_stack_draft_recipe_v1(grade_stack)
+                .context("project persisted Recipe into the editable desktop contract")?,
             versions,
         })
     }

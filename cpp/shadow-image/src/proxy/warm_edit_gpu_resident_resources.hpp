@@ -26,6 +26,7 @@ struct WarmEditPreviewGpuStats;
 namespace shadow::image::detail {
 
 struct PreparedMetalAdjustment;
+struct WarmEditGpuAdoptedSource;
 
 struct WarmGpuResidentLayout final {
     Dimensions dimensions;
@@ -96,6 +97,8 @@ struct WarmGpuSlotBuffers final {
     id<MTLBuffer> local_contrast_a = nil;
     id<MTLBuffer> local_contrast_b = nil;
     id<MTLBuffer> layer_before = nil;
+    id<MTLBuffer> mask_coverage_linear = nil;
+    id<MTLBuffer> mask_coverage_r8 = nil;
     id<MTLBuffer> retouch_statistics = nil;
     id<MTLBuffer> retouch_summary = nil;
     id<MTLBuffer> rgb8 = nil;
@@ -121,6 +124,7 @@ class WarmGpuSlotLease final {
     [[nodiscard]] std::string ensure_texture_clarity_resources();
     [[nodiscard]] std::string ensure_local_contrast_resources();
     [[nodiscard]] std::string ensure_layer_resources();
+    [[nodiscard]] std::string ensure_mask_coverage_resources();
     [[nodiscard]] std::string ensure_retouch_resources();
     void mark_completed() noexcept;
 
@@ -158,6 +162,9 @@ class WarmGpuResidentResources final {
     );
     [[nodiscard]] std::optional<WarmGpuSlotLease> acquire_slot(std::stop_token cancellation);
     [[nodiscard]] WarmEditPreviewGpuStats stats_snapshot() const noexcept;
+    void record_presentation_surface_request() noexcept;
+    void record_presentation_surface_publish() noexcept;
+    void record_presentation_surface_fallback() noexcept;
 
   private:
     struct Impl;
@@ -170,6 +177,7 @@ class WarmGpuResidentResources final {
     [[nodiscard]] std::string ensure_texture_clarity_resources(std::size_t index);
     [[nodiscard]] std::string ensure_local_contrast_resources(std::size_t index);
     [[nodiscard]] std::string ensure_layer_resources(std::size_t index);
+    [[nodiscard]] std::string ensure_mask_coverage_resources(std::size_t index);
     [[nodiscard]] std::string ensure_retouch_resources(std::size_t index);
     void release_slot(std::size_t index, bool completed) noexcept;
 
@@ -178,6 +186,13 @@ class WarmGpuResidentResources final {
     friend class WarmGpuSlotLease;
     friend WarmGpuResidentPreparation
     prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device);
+    friend WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
+        const FloatRgbImage& source,
+        id<MTLDevice> device,
+        id<MTLBuffer> adopted_source,
+        std::uint64_t external_resident_bytes,
+        std::uint64_t resident_allowance_bytes
+    );
 };
 
 struct WarmGpuResidentPreparation final {
@@ -187,5 +202,12 @@ struct WarmGpuResidentPreparation final {
 
 [[nodiscard]] WarmGpuResidentPreparation
 prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device);
+[[nodiscard]] WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
+    const FloatRgbImage& source,
+    id<MTLDevice> device,
+    id<MTLBuffer> adopted_source,
+    std::uint64_t external_resident_bytes,
+    std::uint64_t resident_allowance_bytes
+);
 
 } // namespace shadow::image::detail

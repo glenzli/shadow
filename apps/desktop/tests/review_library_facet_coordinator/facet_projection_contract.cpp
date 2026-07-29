@@ -17,41 +17,54 @@ void run_facet_projection_contracts() {
     const auto months = coordinator.captureMonths();
     const auto cameras = coordinator.cameras();
     const auto lenses = coordinator.lenses();
+    const auto system_counts = coordinator.systemCollectionCounts();
     require(
         months.size() == 1 && cameras.size() == 1 && lenses.size() == 1,
         "one immutable query publishes all three bounded projections"
     );
     require(
-        months.front().toMap().value(QStringLiteral("key"))
-                == QStringLiteral("nikon-z9-month")
+        months.front().toMap().value(QStringLiteral("key")) == QStringLiteral("nikon-z9-month")
             && cameras.front().toMap().value(QStringLiteral("key"))
-                == QStringLiteral("nikon-z9-camera")
+                   == QStringLiteral("nikon-z9-camera")
             && lenses.front().toMap().value(QStringLiteral("key"))
-                == QStringLiteral("nikon-z9-lens")
-            && cameras.front().toMap().value(QStringLiteral("photoCount"))
-                .toULongLong() == 7,
+                   == QStringLiteral("nikon-z9-lens")
+            && cameras.front().toMap().value(QStringLiteral("photoCount")).toULongLong() == 7,
         "projection preserves dimension identity, labels, and counts"
+    );
+    require(
+        system_counts.value(QStringLiteral("available")).toBool()
+            && system_counts.value(QStringLiteral("all")).toULongLong() == 41
+            && system_counts.value(QStringLiteral("liked")).toULongLong() == 7
+            && system_counts.value(QStringLiteral("fiveStar")).toULongLong() == 3,
+        "projection publishes global built-in collection counts"
     );
     {
         std::lock_guard lock(state->mutex);
         require(
             state->calls.size() == 3
-                && state->calls.at(0).kind
-                    == BackendLibraryFacetKind::CaptureMonth
-                && state->calls.at(1).kind
-                    == BackendLibraryFacetKind::Camera
-                && state->calls.at(2).kind
-                    == BackendLibraryFacetKind::Lens,
+                && state->calls.at(0).kind == BackendLibraryFacetKind::CaptureMonth
+                && state->calls.at(1).kind == BackendLibraryFacetKind::Camera
+                && state->calls.at(2).kind == BackendLibraryFacetKind::Lens,
             "the batch queries each facet dimension exactly once"
         );
         for (const auto& call : state->calls) {
             require(
                 call.camera_key == QStringLiteral("nikon-z9")
-                    && call.album_id == QStringLiteral("favorites")
-                    && call.cursor_key.isEmpty() && call.limit == 24,
+                    && call.album_id == QStringLiteral("favorites") && call.cursor_key.isEmpty()
+                    && call.limit == 24,
                 "each dimension receives the same filter and first-page bound"
             );
         }
+        require(
+            state->count_calls.size() == 3 && !state->count_calls.at(0).has_liked
+                && !state->count_calls.at(0).has_minimum_rating
+                && state->count_calls.at(0).album_id.isEmpty() && state->count_calls.at(1).has_liked
+                && state->count_calls.at(1).liked && state->count_calls.at(1).album_id.isEmpty()
+                && state->count_calls.at(2).has_minimum_rating
+                && state->count_calls.at(2).minimum_rating == 5
+                && state->count_calls.at(2).album_id.isEmpty(),
+            "built-in collection counts stay global and use exact filters"
+        );
     }
 }
 

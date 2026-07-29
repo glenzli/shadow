@@ -23,10 +23,13 @@ class DecodeSession;
 namespace detail {
 class FullEditDetailGpuCache;
 }
+namespace raw_pipeline_detail {
+class ResidentRawSource;
+}
 
-// Full-detail sessions retain the provider's complete 16-bit reference RGB image, but never
-// more than 512 MiB. The metadata preflight assumes worst-case RGB even when a provider may
-// ultimately return one-channel grayscale data.
+// Full-detail sessions retain a provider's complete packed reference image or one CPU/device
+// resident uint16 CFA source, but never more than 512 MiB. Route-specific metadata preflight uses
+// this bound for a possible resident RawFrame and the fp32 bound below only for materialized RAW.
 inline constexpr std::uint64_t maximum_full_edit_detail_retained_bytes =
     512ULL * 1'024ULL * 1'024ULL;
 // Owned RawFrame development keeps scene-linear fp32 values so it can retain highlight headroom.
@@ -82,9 +85,11 @@ struct RenderedDetailTile final {
     DetailTileExecutionReceipt execution;
 };
 
-// An immutable complete linear source for 1:1 detail requests. Raster/provider-compatibility
-// sources retain packed u16 RGB; Shadow's owned RawFrame route retains scene-linear fp32 so
-// highlight headroom survives until the requested tile reaches the edit graph.
+// An immutable 1:1 source session. Raster/provider-compatibility and materialized RAW routes keep
+// their complete packed-u16 or scene-linear-fp32 raster. Eligible forced-CPU and automatic/Metal
+// RawFrame routes instead keep one owner-bound CFA source plus prepared camera/optics state. CPU
+// develops only requested regions; Metal keeps RAW, optics, source rendering, editing, and display
+// on one device transaction until the final packed tile, without a complete fp32 intermediate.
 class FullEditDetailSession final {
   public:
     FullEditDetailSession(const FullEditDetailSession&) = delete;
@@ -118,8 +123,20 @@ class FullEditDetailSession final {
         OpticsProfileReceipt optics_receipt,
         SourceRenderingReceipt source_rendering
     );
+    FullEditDetailSession(
+        std::unique_ptr<raw_pipeline_detail::ResidentRawSource> resident_raw_source,
+        std::uint64_t retained_bytes,
+        RawDevelopmentReceipt raw_development_receipt,
+        RawPipelineReceipt raw_pipeline_receipt,
+        OpticsProfileReceipt optics_receipt,
+        SourceRenderingReceipt source_rendering
+    );
 
     DevelopedSourcePixels reference_source_;
+    // RAW detail may retain the prepared sensor plane on CPU or Metal instead of a complete fp32
+    // RGB raster. The public DevelopedSourcePixels contract remains unchanged for materialized
+    // callers, while the resident owner keeps device failure terminal after publication.
+    std::unique_ptr<raw_pipeline_detail::ResidentRawSource> resident_raw_source_;
     std::uint64_t retained_bytes_ = 0;
     // Kept separately from the post-optics raster: an independently implemented OpticsProvider
     // is allowed to allocate a new PixelBuffer and must not be able to erase decoder provenance.
@@ -147,8 +164,8 @@ class FullEditDetailSession final {
     );
 };
 
-// Checks the provider metadata against the worst-case RGB u16 retention bound before asking it
-// to render pixels, then independently checks the actual retained vector allocation.
+// Checks provider metadata against the route-specific resident-CFA or materialized-RGB bound
+// before expensive pixel work, then independently checks the actual retained allocation.
 [[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
     const DecodeSession& session,
     const OpticsProvider* optics_provider = nullptr,

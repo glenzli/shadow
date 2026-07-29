@@ -32,6 +32,8 @@ that same private wire representation:
   extracted as the next boundary.
 - [`src/preview_analysis.rs`](src/preview_analysis.rs) owns warm-preview histograms, source
   clipping masks, execution provenance, and fail-closed analysis validation.
+- [`src/preview_frame.rs`](src/preview_frame.rs) owns the move-only native interactive-frame
+  handle, descriptor validation, and RGB8/R8 slices tied to that owner's lifetime.
 - [`src/preview_session.rs`](src/preview_session.rs) owns reusable warm-preview state,
   cancellation, and generation-matched render outcomes.
 - [`src/detail_session.rs`](src/detail_session.rs) owns the retained full-resolution source,
@@ -47,7 +49,10 @@ that same private wire representation:
 
 On the native side, the public ABI remains in
 [`cxx_bridge.hpp`](../../cpp/shadow-image/include/shadow/image/cxx_bridge.hpp) and its composition
-shim. The internal
+shim. The leaf
+[`cxx_preview_frame.hpp`](../../cpp/shadow-image/include/shadow/image/cxx_preview_frame.hpp) and
+[`cxx_preview_frame.cpp`](../../cpp/shadow-image/src/bridge/cxx_preview_frame.cpp) own the first
+`UniquePtr` frame boundary and its borrowed immutable slices. The internal
 [`adjustment_render_wire.cpp`](../../cpp/shadow-image/src/bridge/adjustment_render_wire.cpp)
 owns the complete Rust-to-C++ Adjustment decoder: every operation variant, local-mask layer
 boundary, retouch target/stroke, node limit, and stable invalid-request diagnostic. Cargo compiles
@@ -81,9 +86,15 @@ For slider interaction, `LibRawEditPreviewSession::open(path, max_edge)` asks Li
 processed linear-light 16-bit RGB in sRGB/Rec.709-D65 primaries once, normalizes/downsamples it,
 and retains only a bounded linear float working proxy. Repeated
 `render(edits, jpeg_quality)` calls provide the four-node Basic compatibility path;
-`render_plan(plan, jpeg_quality)` executes a validated typed plan. Interactive desktop callers use
-`render_plan_rgb8_cancellable`, whose validated Bitmap payload is tightly packed display-sRGB
-RGB8 and skips compression; it is transient and not a cache artifact. The parallel
+`render_plan(plan, jpeg_quality)` executes a validated typed plan. Interactive callers use
+`render_plan_interactive_frame_cancellable`, which moves tightly packed display-sRGB RGB8 and
+optional paired R8 coverage into one native owner and borrows both slices without a
+native-to-Rust full-frame copy. On Apple Metal, that same opaque owner can instead expose a
+buffer-backed RGBA8-sRGB texture descriptor `{resource, texture, device, stride, format}`; Rust
+projects only the descriptor while the owner keeps the Metal allocation alive. The desktop may
+explicitly materialize packed RGB8 for a named software/failure fallback, but native presentation
+does not traverse either Rust bytes or JPEG. The legacy `render_plan_rgb8_cancellable` materializer remains for
+compatibility. Both routes skip compression and are transient rather than cache artifacts. The parallel
 `render_plan_with_analysis` path returns that JPEG together with four exact 256-bin histograms
 from the uncompressed display-encoded sRGB proxy before JPEG encoding and strict processed-linear working-RGB `< 0` /
 `> 1` per-channel and any-channel clipping counts from before output clamping. Rust validates the
@@ -108,9 +119,10 @@ individual tiles, avoiding independent chroma/block
 boundaries at tile seams. The detail wrapper is also `Send + Sync`; concurrent calls read the
 retained source and own all crop/edit/output memory independently.
 
-Compressed embedded previews and generated proxies are small enough to cross as owned bytes.
-Large mosaic and full-resolution u16 RGB buffers remain in C++; detail requests copy only bounded
-RGB8 tiles across FFI rather than exposing `Vec<u16>`.
+Compressed embedded previews and durable generated proxies are small enough to cross as owned
+bytes. Interactive RGB8 and R8 coverage instead stay in one immutable native frame owner and cross
+as borrowed slices. Large mosaic and full-resolution u16 RGB buffers remain in C++; detail
+requests copy only bounded RGB8 tiles across FFI rather than exposing `Vec<u16>`.
 
 `decode_jpeg_display_luma(bytes, max_edge)` is the analysis-side compressed-payload bridge. It
 accepts `max_edge` only in 1 through 512 and returns owned `width`, `height`, sample `stride`,

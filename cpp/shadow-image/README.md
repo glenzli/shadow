@@ -48,7 +48,9 @@ the LibRaw translation unit that happens to consume them.
 Rust consumes owned metadata/capability/preview snapshots, the selected embedded preview, and a
 final compressed proxy through the CXX adapter. `src/bridge/cxx_bridge.cpp` owns DTO projection and
 stateless provider entry points; `src/bridge/cxx_handle.cpp` owns the decode, warm-preview, and
-full-detail session lifecycles. `src/bridge/adjustment_render_wire.cpp` owns Recipe node projection.
+full-detail session lifecycles. `include/shadow/image/cxx_preview_frame.hpp` and
+`src/bridge/cxx_preview_frame.cpp` own the borrowed-slice ABI for one move-only interactive frame.
+`src/bridge/adjustment_render_wire.cpp` owns Recipe node projection.
 The bridge remains intentionally coarse-grained: full-size mosaic/RGB buffers stay in C++, where
 the fallback path performs bilinear downscaling and libjpeg-compatible encoding before transferring
 bytes.
@@ -67,11 +69,23 @@ Current contract rules:
   local DCP may replace the provider's generic matrix; profiles carrying unsupported creative
   tables are rejected as a whole. `render_reference_rgb` remains only the explicit
   provider-processed compatibility route. Every choice and fallback is recorded in the pipeline
-  receipt and cache identity. `src/raw/raw_frame_source_development.*` owns that complete
-  sensor-frame development transaction, including calibration, denoise, reconstruction, DCP
-  post-processing, and its development receipt. `src/raw/raw_pipeline.cpp` retains route
-  selection, provider compatibility fallback, plan negotiation, exact-DCP admission, and the
-  top-level pipeline receipt.
+  receipt and cache identity. `src/raw/raw_frame_development_plan.*` owns source validation, the
+  immutable camera transform and optional DCP lifetime, source-wide luminance calibration,
+  preview/diagnostic geometry, prepared CFA-denoise intent, and RAW receipt finalization.
+  `src/raw/raw_frame_source_preparation.*` owns the one-time session decode, plan negotiation,
+  exact-DCP admission, final RawFrame pipeline receipt, and unforgeable source identity shared by
+  materialized and resident consumers. Only that owner may prepare region optics for publication,
+  so independently prepared or cross-source camera/optics state is rejected before CFA work or
+  device upload. `src/raw/raw_frame_source_development.*` consumes that preparation for the complete
+  CPU/Metal materialization transaction. `src/raw/raw_frame_region_development.*` owns the exact
+  CPU region contract: oriented output cores, active-sensor reconstruction coordinates,
+  stored-sensor demosaic/denoise preimages, halos, CFA phase, and byte-identical full-versus-region
+  reconstruction. `src/raw/resident_raw_source.*` owns the aggregate CPU/device detail lifecycle,
+  keeping one CFA plus immutable camera/DCP/optics/receipt state. Forced CPU materializes only
+  requested RGB regions; automatic/Metal delegates one exact source preimage at a time to
+  `src/raw/metal_resident_raw_source.*`, retaining sensor/DCP buffers across requests without a
+  complete fp32 readback. `src/raw/raw_pipeline.cpp` retains top-level route selection and provider
+  compatibility fallback.
 - `render_reference_proxy_jpeg` bounds the longest edge (2048, quality 95, and 4:4:4 chroma in the current recipe) and rejects unbounded requests. Its version belongs in the cache key.
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
@@ -200,16 +214,18 @@ must introduce a new versioned Recipe-aware operation; it must not overload this
 promote an unowned parser into the public crate facade, or substitute a JPEG proxy for a RAW detail
 tile.
 
-Lensfun optics has three production owners behind the stable `OpticsProvider` API.
+Lensfun optics has responsibility-named production owners behind the stable `OpticsProvider` API.
 `src/optics/lensfun_profile_catalog.*` owns database selection and loading, normalized camera
 identity lookup, compatible-lens projection, explicit/manual profile resolution, synchronization,
 and the match cache. `src/optics/manual_optics.*` owns settings validation plus
 provider-independent manual distortion, transverse chromatic aberration, vignetting, and CPU
 fallback execution. `src/optics/metal_manual_optics.*` owns the bounded scene-linear fp32 Metal
 executor; automatic mode uses it for full-resolution manual optics while explicit CPU mode retains
-the f64 coordinate oracle. `src/optics/lensfun_optics.cpp` consumes an immutable profile match and
-owns Lensfun modifier configuration, automatic correction, receipt projection, and third-party
-pixel remapping. `src/acceleration/image_acceleration_policy.*` is the single parser for
+the f64 coordinate oracle. `src/optics/lensfun_optics.cpp` consumes catalog matches, preserves provider fallback semantics, and selects the stable correction receipt/plan boundary.
+`src/optics/lensfun_modifier_plan.*` clones resolved Lensfun camera/lens state into provider-independent immutable plan ownership.
+`src/optics/lensfun_region_plan.cpp` compiles absolute RGB inverse maps, exact bilinear source preimages, and source-aligned profile-vignette gains; `src/optics/lensfun_cpu_reference.cpp` owns full-frame and regional CPU oracle execution.
+`src/optics/scene_linear_region_optics.*` classifies the prepared plan as neutral, owned pointwise, coordinate-remapping, or materialization-only; CPU resident RAW currently admits only neutral or owned pointwise plans and fails closed for the other classes.
+`src/acceleration/image_acceleration_policy.*` is the single parser for
 `SHADOW_IMAGE_ACCELERATION`; RAW, edit, display, and optics boundaries project its neutral choice
 into their own typed backend errors.
 
@@ -237,6 +253,9 @@ Decoder contract tests follow the production responsibilities instead of one agg
   missing camera/lens statuses.
 - `tests/optics_preparation_contract_test.cpp` owns manual/Lensfun pixel correction and its
   position before warm-preview and full-detail preparation.
+- `tests/optics_region_contract_test.cpp` owns optics-locality classification, unknown-provider
+  fail-closed behavior, and byte-identical pointwise manual-vignette regions versus full CPU
+  correction in global coordinates.
 - `tests/manual_optics_metal_execution_contract_test.cpp` owns real-device CPU/Metal parity,
   forced tiled execution, determinism, and the opt-in
   `SHADOW_TEST_MANUAL_OPTICS_METAL_BENCHMARK` timing.
@@ -244,6 +263,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   output boundary.
 - `tests/edit_preview_session_contract_test.cpp` owns immutable warm-preview preparation, receipt
   retention, repeated rendering, geometry-derived radius, bounds, and preflight validation.
+- `tests/edit_preview_frame_contract_test.cpp` owns moved RGB8/R8 allocation retention, stable
+  addresses, and fail-closed interactive descriptor pairing.
 - `tests/edit_preview_execution_contract_test.cpp` owns output analysis, cancellation, backend
   receipts, and execution identity.
 - `tests/edit_preview_layer_execution_contract_test.cpp` owns fused resident layer receipts,
@@ -268,6 +289,21 @@ Decoder contract tests follow the production responsibilities instead of one agg
   source-rendering outputs.
 - `tests/raw_pipeline_routing_contract_test.cpp` owns host-versus-provider route selection,
   backend identity, explicit fallback, exact-DCP admission, and host capability negotiation.
+- `tests/resident_raw_source_contract_test.cpp` owns one-decode/one-CFA resident reuse,
+  full-versus-region equivalence across orientation, active margins, CFA phase, demosaic/denoise
+  halos, exact DCP receipts, source-bound optics rejection, and forced-CPU materialization fallback
+  for unknown optics providers.
+- `tests/metal_resident_raw_source_contract_test.cpp` owns provider-neutral Canon/Sony/Nikon/private
+  RawFrame admission, source-owner isolation, repeated/concurrent regions, byte/device admission,
+  one shared retained-byte allowance, terminal post-publication failure, and the zero full-frame
+  readback contract.
+- `tests/metal_scene_linear_region_optics_contract_test.cpp` owns real-device C-b→C-c evidence
+  binding, DCP/denoise/Lensfun parity, same-size cross-lens rejection, completion lifetime, and zero
+  nominal source re-upload/fp32 readback.
+- `tests/full_edit_detail_metal_raw_contract_test.cpp` owns the native
+  RAW→optics→source-render→warm-edit tile transaction, same-viewport reuse, CPU/display precision,
+  zero intermediate readback, and the opt-in `SHADOW_BENCH_FULL_EDIT_DETAIL_METAL_RAW` 4096×3072
+  timing report.
 - `tests/raw_sensor_preparation_contract_test.cpp` owns CFA-preserving denoise, calibration/cache
   identity, highlight treatment, reconstruction quality, and preview/detail source calibration.
 - `tests/fused_raw_cpu_development_contract_test.cpp` owns fused CPU orientation, preview
@@ -308,7 +344,8 @@ New production code should include the narrow semantic owner directly:
 - `working_rgb.hpp` owns the in-process float raster, scene/display reference, and named working
   color-space contract.
 - `photo_geometry.hpp` owns crop/orientation state, the shared integer layout, coordinate mapping,
-  and geometry application.
+  and geometry application. `src/edit/photo_geometry_sampling.hpp` is the narrow internal inverse
+  mapping shared by RGB geometry and scalar selection coverage.
 - `edit_error.hpp` owns edit failure categories and their optional source-node location.
 - `adjustment_parameters.hpp` owns the complete authored parameter registry and its stable variant
   order; `adjustment_graph.hpp` owns node identity and operation mapping.
@@ -321,7 +358,10 @@ New production code should include the narrow semantic owner directly:
   gradient-domain texture blend; `adjustment_layers.hpp` owns masks, layer composition, and
   masked execution.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
-  execution provenance, transient display-sRGB RGB8 presentation and settled JPEG output;
+  execution provenance, transient display-sRGB RGB8 rendering, and settled JPEG output;
+  `edit_preview_frame.hpp` owns the immutable moved RGB8/R8 presentation frame and paired mask
+  coverage descriptor; `src/proxy/warm_edit_gpu_presentation_surface.*` owns the Apple Metal
+  buffer-backed RGBA8-sRGB presentation texture and its explicit packed-RGB fallback;
   `full_edit_detail.hpp` owns bounded full-resolution tile sessions.
 - `edited_proxy_rendering.hpp` owns one-shot adjusted proxy orchestration, while
   `proxy_rendering.hpp` remains the unedited encoded-proxy owner.
@@ -332,17 +372,31 @@ representations. `src/proxy/jpeg_proxy_encoding.*` owns the bounded libjpeg 4:4:
 by reference and edited proxies. `src/proxy/proxy_render_request_validation.*` owns the shared
 proxy-size/JPEG-quality boundary and RAW-plan schema/intent checks. Lifecycle-specific preparation
 and rendering stay with the warm-preview, full-detail, and proxy owners rather than with these
-leaf modules. `src/proxy/full_edit_detail.cpp` is the complete retained-source/tile lifecycle
-owner; its memory policy, optical source preparation, apron expansion, and render methods move
-together. `src/proxy/full_edit_detail_gpu_cache.*` is its independent runtime accelerator: it
-owns the bounded LRU of expanded working-tile uploads, GPU execution, exact core readback, and
-post-dispatch resident-memory accounting. It does not own source geometry, fallback semantics, or
-durable cache identity. `src/proxy/proxy_rendering.cpp` owns the ordinary one-shot reference-proxy
-pipeline and the canonical aspect-preserving proxy dimension calculation.
+leaf modules. `src/proxy/full_edit_detail_source_preparation.*` owns representation-specific
+metadata admission, owner-bound optical preparation, provider compatibility, and the complete
+forced-CPU versus automatic/forced-Metal source-routing transaction. Its result is a tagged
+materialized-or-resident owner with no null/dual state. Eligible forced-CPU RawFrame input retains
+`ResidentRawSource`; eligible automatic/Metal input publishes the same aggregate as a
+device-resident source. Pre-publication automatic failures may return the intact prepared owner to
+the existing materializer, while forced Metal fails closed. Unknown/non-resident optics on forced
+CPU continue through complete CPU materialization. `src/proxy/full_edit_detail.cpp` owns the
+resulting session, apron/geometry composition, CPU tile execution, and terminal resident-device
+failure: after publication it never silently substitutes CPU pixels or provenance. Materialized
+paths preserve the public `DevelopedSourcePixels` contract.
+`src/proxy/full_edit_detail_metal_source.*` owns the native
+CFA→DCP/demosaic→region-optics→source-rendering transaction and adopts its same-device fp32 tile into
+warm editing without a RAW re-upload, fp32 readback, or full-frame fp32 allocation.
+`src/proxy/full_edit_detail_gpu_cache.cpp` owns the bounded materialized-source LRU;
+`src/proxy/full_edit_detail_gpu_cache_resident.cpp` owns one serialized resident viewport session,
+combined device-budget accounting, exact core readback, and reuse. Neither owns source geometry,
+fallback semantics, or durable cache identity. `src/proxy/proxy_rendering.cpp` owns the ordinary
+one-shot reference-proxy pipeline and the canonical aspect-preserving proxy dimension calculation.
 `src/proxy/edited_proxy_rendering.cpp` owns only the one-shot adjusted-proxy entry points and
 delegates the retained preview lifecycle to `WarmEditPreviewSession`.
 `src/proxy/edit_preview_rendering.*` owns stateless flat-node/layer execution, CPU/Metal fallback
 receipts, display projection, and histogram/clipping/HDR analysis.
+`src/proxy/edit_preview_frame.cpp` validates and retains one completed packed RGB8 allocation plus
+its optional generation-paired R8 coverage without copying either vector.
 `src/proxy/warm_edit_preview.cpp` owns the retained interactive lifecycle: bounded source and
 optics preparation, resident GPU session creation, cancellation result orchestration, transient
 RGB8 versus settled analysis/JPEG output policy, and source/execution receipt delivery.
@@ -360,6 +414,10 @@ segment count, and neutral identity required by Metal lowering.
 admission contract. CPU layer execution and resident Metal lowering both call it before bypassing
 disabled or neutral content, so malformed persisted recipes cannot acquire backend-dependent
 validation.
+`src/edit/local_mask_coverage.*` owns the five-kind CPU evaluator, pre-adjustment-input capture,
+continuous brush capsules, condition-mask color conversion, and scalar geometry/R8 projection.
+`src/edit/local_mask.cpp` consumes that evaluator for layer blending; a selected active layer
+reuses its captured float raster rather than evaluating color or luminance conditions twice.
 `src/edit/perceptual_color.*` owns hue-band and ordered Point Color mapping, global Oklab
 opponent balance, Selective Color, validation, and the shared sub-stage classifier consumed by
 CPU execution and Metal lowering. `src/edit/oklab_color_warper.*` separately owns lattice
@@ -407,10 +465,11 @@ owns only backend availability and the execution attempt boundary.
 operation expansion and order, all side-table ranges, stale-plan rejection, and the resident
 prevalidated-raster contract remain one test-owned transaction.
 The embedded Warm Metal program is a separate language owner in
-`src/proxy/warm_edit_gpu_msl.hpp`; post-edit crop/orientation sampling is isolated further in
-`src/proxy/warm_edit_gpu_geometry_msl.hpp`. The Objective-C++ runtime consumes these fragments
-without owning their kernel implementations. Their mirrored host records and checked buffer
-layouts live in `src/proxy/warm_edit_gpu_kernel_contract.hpp`.
+`src/proxy/warm_edit_gpu_msl.hpp`. Local-mask evaluation, R8 capture, and layer blending are one
+cohesive DSL fragment in `src/proxy/warm_edit_gpu_mask_msl.hpp`; post-edit crop/orientation
+sampling is isolated further in `src/proxy/warm_edit_gpu_geometry_msl.hpp`. The Objective-C++
+runtime consumes these fragments without owning their kernel implementations. Their mirrored host
+records and checked buffer layouts live in `src/proxy/warm_edit_gpu_kernel_contract.hpp`.
 Pure, cross-platform lowering of one neighborhood operation into immutable kernel parameters lives
 in `src/proxy/warm_edit_gpu_neighbourhood_plan.*`. `src/proxy/warm_edit_gpu_render_plan.*` is the
 smaller composition owner: it preserves every pixel-local gap while collecting any number of
@@ -435,6 +494,9 @@ contract.
 capsules (retaining point capsules only for isolated strokes) and builds one bounded CSR grid in
 full-image coordinates. The exact packed words are cacheable as one immutable resident buffer;
 per-pixel Metal work examines only the current cell's candidates instead of every authored point.
+`src/proxy/warm_edit_gpu_mask_plan.*` is the single host lowering owner for all five mask kinds,
+including working-space condition matrices and empty-brush semantics. Layer blending and optional
+coverage capture consume the same prepared record and brush index.
 `src/proxy/warm_edit_gpu_retouch_plan.*` independently lowers each ordered continuous Heal or
 Clone region into raster-space capsules and a bounded CSR grid. Its immutable packed geometry is
 cached by the resident-resource owner, while `warm_edit_gpu_retouch_encoder.*` preserves every
@@ -453,8 +515,10 @@ reuse the existing two synchronized RGB slots without another upload or host rou
 owner. It maps opacity, unmasked layers, normalized linear/radial gradients, and indexed
 continuous brushes to the mirrored Metal blend ABI. `src/proxy/warm_edit_gpu_layer_dispatcher.*`
 executes every admitted layer sequentially in one command buffer, snapshots only layers that
-require blending, leases exact brush-index resources, preserves the settled linear analysis
-result, and performs one final RGB8 readback.
+require blending, captures a requested mask before its own adjustment, reuses that resident float
+coverage for the target blend, applies the same geometry into tightly packed R8, preserves the
+settled linear analysis result, and publishes the paired RGB/coverage result only after the one
+command transaction completes.
 `src/proxy/warm_edit_gpu_stage_encoder.*` owns stage-specific resource admission, Metal kernel
 order, and intermediate-buffer selection. `src/proxy/warm_edit_gpu_dispatcher.*` packs the
 prepared transaction into one command buffer, interprets status, and performs the single final
@@ -485,6 +549,11 @@ reuse, and the opt-in `SHADOW_TEST_WARM_LAYER_BENCHMARK` and
 candidate completeness. The focused detail-tile layer seam contract verifies that the same
 normalized masks, continuous capsules, and creative-detail apron produce byte-identical whole
 and irregular tiled output on resident Metal.
+`tests/local_mask_coverage_contract_test.cpp` owns the public CPU paired-frame contract, all five
+mask kinds, inactive/no-op targets, geometry, typed target rejection, and cancellation.
+`tests/warm_edit_gpu_contract/mask_coverage_contract_test.cpp` owns real-device CPU/Metal R8
+parity, pre-adjustment-input order, resident target-blend reuse, inactive targets, geometry, and
+atomic cancellation.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

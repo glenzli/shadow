@@ -6,11 +6,13 @@ namespace shadow::bridge {
 class DecodeHandle;
 class EditPreviewHandle;
 class EditPreviewCancellationHandle;
+class InteractiveEditPreviewFrameHandle;
 class FullEditDetailHandle;
 }
 
 #include "shadow-bridge/src/lib.rs.h"
 
+#include <shadow/image/cxx_preview_frame.hpp>
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/display_luma.hpp>
 #include <shadow/image/full_edit_detail.hpp>
@@ -112,6 +114,11 @@ public:
         const EditPreviewCancellationHandle& cancellation
     ) const;
     [[nodiscard]] FfiCancellableEncodedProxy render_adjustment_plan_rgb8_cancellable(
+        const FfiAdjustmentRenderRequest& request,
+        const EditPreviewCancellationHandle& cancellation
+    ) const;
+    [[nodiscard]] std::unique_ptr<InteractiveEditPreviewFrameHandle>
+    render_adjustment_plan_owned_rgb8_cancellable(
         const FfiAdjustmentRenderRequest& request,
         const EditPreviewCancellationHandle& cancellation
     ) const;

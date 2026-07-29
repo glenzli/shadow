@@ -1,10 +1,11 @@
 use super::*;
 use crate::recipe::test_support::inline_layer;
 use crate::recipe::{
-    AdjustmentNode, AdjustmentScope, BlendMode, EditGraph, FiniteF64, ImageDomain, LayerContent,
-    LayerRevisionSelector, MaskCoordinateSpace, MaskDefinition, NodeInput, OperationDescriptor,
-    OperationId, ParameterKey, ParameterValue, PhotoQuarterTurn, PortType, ProcessingStage,
-    RecipeCommit, RetouchMode, RetouchPoint, UnitInterval,
+    AdjustmentNode, AdjustmentScope, BlendMode, ConditionMaskExpression, ConditionMaskNode,
+    ConditionMaskPredicate, EditGraph, FiniteF64, ImageDomain, LayerContent, LayerRevisionSelector,
+    MaskCoordinateSpace, MaskDefinition, NodeInput, OperationDescriptor, OperationId, ParameterKey,
+    ParameterValue, PhotoQuarterTurn, PortType, ProcessingStage, RecipeCommit, RetouchMode,
+    RetouchPoint, UnitInterval,
 };
 use crate::{
     EntityId, LayerId, LayerInstanceId, LayerRevisionId, MaskId, NodeId, RecipeCommitId, RecipeId,
@@ -45,6 +46,45 @@ fn local_mask_revisions_are_validated_and_resolve_by_exact_space() {
     assert!(encoded.contains("linear_gradient"));
     let decoded: RecipeSnapshot = serde_json::from_str(&encoded).expect("deserialize recipe");
     decoded.validate().expect("valid deserialized recipe");
+    assert_eq!(decoded, snapshot);
+}
+
+#[test]
+fn bounded_condition_expressions_round_trip_inside_recipe_mask_revisions() {
+    let unit = |value| UnitInterval::new(value).expect("unit interval");
+    let expression = ConditionMaskExpression::all(vec![
+        ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
+            unit(0.2),
+            unit(0.8),
+            unit(0.1),
+        )),
+        ConditionMaskNode::leaf(
+            ConditionMaskPredicate::local_detail_range(12, unit(0.3), unit(0.9), unit(0.2))
+                .expect("detail condition"),
+        ),
+    ])
+    .expect("bounded expression");
+    let mask = MaskRevision::new(
+        MaskId::new_v7(),
+        1,
+        MaskCoordinateSpace::Original,
+        MaskDefinition::condition_expression(expression).expect("condition mask"),
+    )
+    .expect("condition revision");
+    let snapshot = RecipeSnapshot::new_with_input_settings_and_masks(
+        CURRENT_RECIPE_SCHEMA_VERSION,
+        RecipeInputSettings::default(),
+        vec![mask],
+        vec![inline_layer()],
+    )
+    .expect("condition Recipe");
+
+    let encoded = serde_json::to_string(&snapshot).expect("serialize condition Recipe");
+    assert!(encoded.contains("\"kind\":\"condition_expression\""));
+    assert!(encoded.contains("\"algorithm\":\"box_mean_absolute_residual_v1\""));
+    let decoded: RecipeSnapshot =
+        serde_json::from_str(&encoded).expect("deserialize condition Recipe");
+    decoded.validate().expect("validate condition Recipe");
     assert_eq!(decoded, snapshot);
 }
 

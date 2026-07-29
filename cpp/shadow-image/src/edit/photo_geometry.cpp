@@ -2,6 +2,8 @@
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include "photo_geometry_sampling.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -69,26 +71,12 @@ void validate_image(const FloatRgbImage& image, const std::string_view role) {
     ));
 }
 
-[[nodiscard]] bool is_transposed(const PhotoQuarterTurn quarter_turn) noexcept {
-    return quarter_turn == PhotoQuarterTurn::clockwise_90
-        || quarter_turn == PhotoQuarterTurn::clockwise_270;
-}
-
-[[nodiscard]] Dimensions oriented_crop_dimensions(
-    const GeometryPixelRect crop,
-    const PhotoGeometry& geometry
-) noexcept {
-    return Dimensions{
-        .width = is_transposed(geometry.quarter_turn) ? crop.height : crop.width,
-        .height = is_transposed(geometry.quarter_turn) ? crop.width : crop.height,
-    };
-}
-
 [[nodiscard]] Dimensions auto_crop_dimensions(
     const GeometryPixelRect crop,
     const PhotoGeometry& geometry
 ) {
-    const Dimensions oriented = oriented_crop_dimensions(crop, geometry);
+    const Dimensions oriented =
+        detail::photo_geometry_oriented_crop_dimensions(crop, geometry);
     if (geometry.straighten_degrees == 0.0) {
         return oriented;
     }
@@ -128,69 +116,6 @@ void validate_output_rect(
     ) {
         invalid_geometry("output tile lies outside the geometry canvas");
     }
-}
-
-struct ContinuousCoordinate final {
-    double x = 0.0;
-    double y = 0.0;
-};
-
-[[nodiscard]] ContinuousCoordinate source_coordinate_for_output(
-    const PhotoGeometryLayout& layout,
-    const PhotoGeometry& geometry,
-    const std::uint32_t output_x,
-    const std::uint32_t output_y
-) {
-    const std::uint32_t crop_width = layout.source_crop.width;
-    const std::uint32_t crop_height = layout.source_crop.height;
-    const double output_width = static_cast<double>(layout.output_dimensions.width);
-    const double output_height = static_cast<double>(layout.output_dimensions.height);
-    const Dimensions full_oriented = oriented_crop_dimensions(layout.source_crop, geometry);
-    const double full_oriented_width = static_cast<double>(full_oriented.width);
-    const double full_oriented_height = static_cast<double>(full_oriented.height);
-    const double angle = geometry.straighten_degrees
-        * 3.141592653589793238462643383279502884 / 180.0;
-    const double cosine = std::cos(angle);
-    const double sine = std::sin(angle);
-    const double output_dx = static_cast<double>(output_x) + 0.5 - output_width * 0.5;
-    const double output_dy = static_cast<double>(output_y) + 0.5 - output_height * 0.5;
-    // Inverse-map the clockwise display rotation so every output pixel samples
-    // the immutable source raster exactly once.
-    const double oriented_x =
-        std::fma(cosine, output_dx, sine * output_dy) + full_oriented_width * 0.5;
-    const double oriented_y =
-        std::fma(-sine, output_dx, cosine * output_dy) + full_oriented_height * 0.5;
-
-    double crop_x = 0.0;
-    double crop_y = 0.0;
-    switch (geometry.quarter_turn) {
-    case PhotoQuarterTurn::zero:
-        crop_x = oriented_x;
-        crop_y = oriented_y;
-        break;
-    case PhotoQuarterTurn::clockwise_90:
-        crop_x = oriented_y;
-        crop_y = static_cast<double>(crop_height) - oriented_x;
-        break;
-    case PhotoQuarterTurn::clockwise_180:
-        crop_x = static_cast<double>(crop_width) - oriented_x;
-        crop_y = static_cast<double>(crop_height) - oriented_y;
-        break;
-    case PhotoQuarterTurn::clockwise_270:
-        crop_x = static_cast<double>(crop_width) - oriented_y;
-        crop_y = oriented_x;
-        break;
-    }
-    if (geometry.flip_horizontal) {
-        crop_x = static_cast<double>(crop_width) - crop_x;
-    }
-    if (geometry.flip_vertical) {
-        crop_y = static_cast<double>(crop_height) - crop_y;
-    }
-    return ContinuousCoordinate{
-        .x = static_cast<double>(layout.source_crop.x) + crop_x - 0.5,
-        .y = static_cast<double>(layout.source_crop.y) + crop_y - 0.5,
-    };
 }
 
 } // namespace
@@ -260,21 +185,26 @@ GeometryPixelRect photo_geometry_source_rect_for_output(
         invalid_geometry("layout has an empty source crop");
     }
     validate_output_rect(output_rect, layout.output_dimensions);
-    const std::array<ContinuousCoordinate, 4U> corners{
-        source_coordinate_for_output(layout, geometry, output_rect.x, output_rect.y),
-        source_coordinate_for_output(
+    const std::array<detail::PhotoGeometrySourceCoordinate, 4U> corners{
+        detail::photo_geometry_source_coordinate_for_output(
+            layout,
+            geometry,
+            output_rect.x,
+            output_rect.y
+        ),
+        detail::photo_geometry_source_coordinate_for_output(
             layout,
             geometry,
             output_rect.x + output_rect.width - 1U,
             output_rect.y
         ),
-        source_coordinate_for_output(
+        detail::photo_geometry_source_coordinate_for_output(
             layout,
             geometry,
             output_rect.x,
             output_rect.y + output_rect.height - 1U
         ),
-        source_coordinate_for_output(
+        detail::photo_geometry_source_coordinate_for_output(
             layout,
             geometry,
             output_rect.x + output_rect.width - 1U,
@@ -357,7 +287,8 @@ FloatRgbImage apply_photo_geometry_tile(
     output.transfer_function = source_tile.transfer_function;
     output.reference = source_tile.reference;
     output.working_space = source_tile.working_space;
-    const bool transpose = is_transposed(geometry.quarter_turn);
+    const bool transpose =
+        detail::photo_geometry_is_transposed(geometry.quarter_turn);
     output.level_zero_to_raster_scale_x = transpose
         ? source_tile.level_zero_to_raster_scale_y
         : source_tile.level_zero_to_raster_scale_x;
@@ -368,7 +299,8 @@ FloatRgbImage apply_photo_geometry_tile(
 
     for (std::uint32_t y = 0U; y < output_rect.height; ++y) {
         for (std::uint32_t x = 0U; x < output_rect.width; ++x) {
-            const auto source = source_coordinate_for_output(
+            const auto source =
+                detail::photo_geometry_source_coordinate_for_output(
                 layout,
                 geometry,
                 output_rect.x + x,

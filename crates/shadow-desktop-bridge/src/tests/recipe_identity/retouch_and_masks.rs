@@ -83,7 +83,7 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
     assert_eq!(strokes[0].mode, 1);
     assert_eq!(strokes[0].source_offset_x_radii, 1.25);
 
-    let outgoing = encode_grade_stack_draft_recipe_v1(draft);
+    let outgoing = encode_grade_stack_draft_recipe_v1(draft).expect("encode Grade Stack");
     assert_eq!(outgoing.retouch_spots.len(), 1);
     assert_eq!(outgoing.retouch_strokes.len(), 1);
     assert_eq!(outgoing.retouch_strokes[0].points.len(), 2);

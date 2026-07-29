@@ -5,11 +5,14 @@
 //! publication, and the final FFI projection in one auditable lifecycle.
 
 use anyhow::{Result as AnyResult, anyhow, bail};
-use shadow_bridge::{CancellableEditPreview, photo_provider_version};
+use shadow_bridge::{
+    AnalyzedEditPreview, CancellableEditPreview, EditPreviewMaskCoverageRequest,
+    OwnedInteractivePreviewFrame, photo_provider_version,
+};
 
 use super::{
-    RecipePreviewStoreRequest, cancelled_edited_preview, completed_edited_preview,
-    store_recipe_preview,
+    OwnedEditedPreview, RecipePreviewStoreRequest, cancelled_edited_preview,
+    completed_edited_preview, store_recipe_preview,
 };
 use crate::{
     DesktopSession, ffi,
@@ -63,18 +66,69 @@ fn preview_registry_error(error: &PreviewRenderRegistryError, token: u64) -> any
     anyhow!("edit preview render token {token} is invalid: {error:?}")
 }
 
+fn mask_coverage_request(
+    requested: bool,
+    target_layer_index: u32,
+    mask_selection_revision: u64,
+    grade_node_count: usize,
+    target_has_mask: bool,
+) -> AnyResult<Option<EditPreviewMaskCoverageRequest>> {
+    if !requested {
+        if target_layer_index != 0 || mask_selection_revision != 0 {
+            bail!("unrequested mask coverage must use zero target and revision sentinels");
+        }
+        return Ok(None);
+    }
+    let target = usize::try_from(target_layer_index)
+        .map_err(|_| anyhow!("mask coverage target does not fit the host address space"))?;
+    if target >= grade_node_count {
+        bail!("mask coverage target is outside the authored Grade Stack");
+    }
+    if !target_has_mask {
+        return Ok(None);
+    }
+    Ok(Some(EditPreviewMaskCoverageRequest {
+        target_layer_index,
+        mask_selection_revision,
+    }))
+}
+
+enum CompletedEditPreview {
+    Interactive(OwnedInteractivePreviewFrame),
+    Materialized(Box<AnalyzedEditPreview>),
+}
+
+fn cancelled_owned_edited_preview() -> Box<OwnedEditedPreview> {
+    OwnedEditedPreview::materialized(cancelled_edited_preview())
+}
+
 impl DesktopSession {
-    // Admission, native cancellation, the terminal claim, and publication form
-    // one linearized transaction. Splitting that sequence would hide the race
-    // invariant this function exists to make auditable.
-    #[allow(clippy::too_many_lines)]
+    /// Explicit materializing compatibility route.
+    ///
+    /// The Qt interactive path retains [`OwnedEditedPreview`] instead. Existing
+    /// Rust callers and settled-preview consumers may keep using this method
+    /// while migration is in progress.
     pub(crate) fn render_basic_edit_preview(
         &self,
         photo_id: &str,
         source_path: &str,
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
-        let render = (|| -> AnyResult<ffi::FfiEditedPreview> {
+        self.render_basic_edit_preview_owned(photo_id, source_path, request)
+            .and_then(OwnedEditedPreview::into_materialized_projection)
+    }
+
+    // Admission, native cancellation, the terminal claim, and publication form
+    // one linearized transaction. Splitting that sequence would hide the race
+    // invariant this function exists to make auditable.
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn render_basic_edit_preview_owned(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+    ) -> AnyResult<Box<OwnedEditedPreview>> {
+        let render = (|| -> AnyResult<Box<OwnedEditedPreview>> {
             match self
                 .edit_preview_render_tokens
                 .admission(request.render_token)
@@ -85,7 +139,7 @@ impl DesktopSession {
                     self.edit_preview_render_tokens
                         .claim_terminal(request.render_token)
                         .map_err(|error| preview_registry_error(&error, request.render_token))?;
-                    return Ok(cancelled_edited_preview());
+                    return Ok(cancelled_owned_edited_preview());
                 }
             }
             let native_cancellation = self
@@ -101,6 +155,16 @@ impl DesktopSession {
                     request.use_working_recipe
                 );
             }
+            let mask_coverage = mask_coverage_request(
+                request.mask_coverage_requested,
+                request.mask_coverage_target_layer_index,
+                request.mask_selection_revision,
+                request.settings.grade_nodes.len(),
+                usize::try_from(request.mask_coverage_target_layer_index)
+                    .ok()
+                    .and_then(|target| request.settings.grade_nodes.get(target))
+                    .is_some_and(|grade_node| grade_node.local_mask_kind != 0),
+            )?;
             let source_environment_cache_identity =
                 current_source_environment_cache_identity(&photo_provider_version());
             let recipe = resolve_recipe_render(
@@ -126,37 +190,40 @@ impl DesktopSession {
                 self.edit_preview_render_tokens
                     .claim_terminal(request.render_token)
                     .map_err(|error| preview_registry_error(&error, request.render_token))?;
-                return Ok(cancelled_edited_preview());
+                return Ok(cancelled_owned_edited_preview());
             }
             let rendered = match policy {
                 EditPreviewPolicy::Interactive => {
-                    match session
-                        .render_plan_rgb8_cancellable(&recipe.plan, &native_cancellation)?
-                    {
-                        CancellableEditPreview::Completed(proxy) => {
-                            CancellableEditPreview::Completed((proxy, None, None))
+                    match session.render_plan_interactive_frame_cancellable(
+                        &recipe.plan,
+                        mask_coverage,
+                        &native_cancellation,
+                    )? {
+                        CancellableEditPreview::Completed(frame) => {
+                            CancellableEditPreview::Completed(CompletedEditPreview::Interactive(
+                                frame,
+                            ))
                         }
                         CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
                     }
                 }
                 EditPreviewPolicy::Settled | EditPreviewPolicy::NeutralBefore => {
-                    match session.render_plan_with_analysis_cancellable(
+                    match session.render_plan_with_analysis_and_mask_coverage_cancellable(
                         &recipe.plan,
                         request.jpeg_quality,
+                        mask_coverage,
                         &native_cancellation,
                     )? {
                         CancellableEditPreview::Completed(rendered) => {
-                            CancellableEditPreview::Completed((
-                                rendered.proxy,
-                                Some(rendered.analysis),
-                                Some(rendered.execution),
+                            CancellableEditPreview::Completed(CompletedEditPreview::Materialized(
+                                Box::new(rendered),
                             ))
                         }
                         CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
                     }
                 }
             };
-            let (proxy, analysis, execution) = match rendered {
+            let rendered = match rendered {
                 CancellableEditPreview::Completed(rendered) => rendered,
                 CancellableEditPreview::Cancelled => {
                     // Native cancellation is only reachable through the
@@ -168,7 +235,7 @@ impl DesktopSession {
                         .map_err(|error| preview_registry_error(&error, request.render_token))?
                     {
                         PreviewTerminalClaim::Cancelled => {
-                            return Ok(cancelled_edited_preview());
+                            return Ok(cancelled_owned_edited_preview());
                         }
                         PreviewTerminalClaim::Completed => {
                             bail!(
@@ -189,13 +256,13 @@ impl DesktopSession {
                 .claim_terminal(request.render_token)
                 .map_err(|error| preview_registry_error(&error, request.render_token))?;
             if terminal == PreviewTerminalClaim::Cancelled {
-                return Ok(cancelled_edited_preview());
+                return Ok(cancelled_owned_edited_preview());
             }
 
             if admits_recipe_preview_cache(policy, terminal) {
-                let execution = execution
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("settled edit preview has no execution receipt"))?;
+                let CompletedEditPreview::Materialized(rendered) = &rendered else {
+                    bail!("settled edit preview has no materialized execution receipt");
+                };
                 // The on-screen result remains responsive if disk caching is
                 // temporarily unavailable. Only a completed settled current
                 // Recipe may enter the durable Gallery cache.
@@ -205,25 +272,35 @@ impl DesktopSession {
                     RecipePreviewStoreRequest {
                         representation_id: source.representation_id,
                         expected_source: source.source,
-                        proxy: &proxy,
+                        proxy: &rendered.proxy,
                         recipe_snapshot_digest: recipe.snapshot_digest,
                         max_edge: request.max_edge,
                         jpeg_quality: request.jpeg_quality,
                         raw_pipeline_receipt: session.raw_pipeline_receipt(),
-                        edit_execution_receipt: execution,
+                        edit_execution_receipt: &rendered.execution,
                         source_environment_cache_identity: &source_environment_cache_identity,
                     },
                 ) {
                     eprintln!("Shadow: could not cache edited preview: {error:#}");
                 }
             }
-            Ok(completed_edited_preview(
-                proxy,
-                analysis.as_ref(),
-                session.optics_receipt(),
-                session.sensor_clipping_mask(),
-                policy,
-            ))
+            match rendered {
+                CompletedEditPreview::Interactive(frame) => Ok(OwnedEditedPreview::interactive(
+                    frame,
+                    session.optics_receipt(),
+                )),
+                CompletedEditPreview::Materialized(rendered) => {
+                    let rendered = *rendered;
+                    Ok(OwnedEditedPreview::materialized(completed_edited_preview(
+                        rendered.proxy,
+                        Some(&rendered.analysis),
+                        rendered.mask_coverage,
+                        session.optics_receipt(),
+                        session.sensor_clipping_mask(),
+                        policy,
+                    )))
+                }
+            }
         })();
 
         match render {
@@ -232,7 +309,7 @@ impl DesktopSession {
                 .edit_preview_render_tokens
                 .claim_terminal(request.render_token)
             {
-                Ok(PreviewTerminalClaim::Cancelled) => Ok(cancelled_edited_preview()),
+                Ok(PreviewTerminalClaim::Cancelled) => Ok(cancelled_owned_edited_preview()),
                 Ok(PreviewTerminalClaim::Completed)
                 | Err(PreviewRenderRegistryError::TerminalAlreadyClaimed) => Err(error),
                 Err(registry_error) => Err(error.context(preview_registry_error(

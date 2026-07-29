@@ -1,0 +1,165 @@
+pragma ComponentBehavior: Bound
+pragma Translator: "PrecisionWorkspace"
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// One selected repair region's mode and edge geometry. Collection navigation
+// and creation stay in PrecisionRetouchTools.
+ColumnLayout {
+    id: regionInspector
+
+    required property var editor
+    required property var region
+    required property bool continuous
+    required property int displayIndex
+    required property bool controlsEnabled
+
+    Layout.fillWidth: true
+    Layout.leftMargin: 14
+    Layout.rightMargin: 14
+    Layout.topMargin: 8
+    Layout.bottomMargin: 4
+    enabled: controlsEnabled
+    spacing: 6
+
+    function setMode(mode) {
+        if (continuous) {
+            editor.setRetouchStrokeMode(region.index, mode)
+        } else {
+            editor.setRetouchSpotMode(region.index, mode)
+        }
+    }
+
+    function remove() {
+        if (continuous) {
+            editor.removeRetouchStroke(region.index)
+        } else {
+            editor.removeRetouchSpot(region.index)
+        }
+    }
+
+    function setRadius(value) {
+        if (continuous) {
+            editor.setRetouchStrokeRadius(
+                region.index, Math.round(value))
+        } else {
+            editor.setRetouchSpotRadius(
+                region.index, Math.round(value))
+        }
+    }
+
+    function setFeather(value) {
+        if (continuous) {
+            editor.setRetouchStrokeFeather(region.index, value)
+        } else {
+            editor.setRetouchSpotFeather(region.index, value)
+        }
+    }
+
+    function historyKey(parameter) {
+        return continuous
+            ? "retouch/stroke/" + region.index + "/" + parameter
+            : "retouch/" + region.index + "/" + parameter
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("Region %1").arg(regionInspector.displayIndex + 1)
+            color: regionInspector.enabled
+                ? Theme.textSecondary : Theme.textDisabled
+            font.pixelSize: 10
+            font.weight: Font.DemiBold
+        }
+
+        ShadowIconButton {
+            buttonSize: 30
+            iconSize: 17
+            source: "qrc:/icons/heal.svg"
+            selected: Number(regionInspector.region.mode) === 0
+            toolTipText: qsTr(
+                "Blend a defect from its surrounding pixels")
+            accessibleName: qsTr("Heal") + " · "
+                + qsTr("Region %1").arg(regionInspector.displayIndex + 1)
+            onClicked: regionInspector.setMode(0)
+        }
+
+        ShadowIconButton {
+            buttonSize: 30
+            iconSize: 17
+            source: "qrc:/icons/clone.svg"
+            selected: Number(regionInspector.region.mode) === 1
+            toolTipText: qsTr("Copy a same-shaped nearby source")
+            accessibleName: qsTr("Clone") + " · "
+                + qsTr("Region %1").arg(regionInspector.displayIndex + 1)
+            onClicked: regionInspector.setMode(1)
+        }
+
+        ShadowIconButton {
+            buttonSize: 30
+            iconSize: 16
+            source: "qrc:/icons/trash.svg"
+            variant: ShadowIconButton.Danger
+            toolTipText: qsTr("Remove region %1").arg(
+                regionInspector.displayIndex + 1)
+            accessibleName: toolTipText
+            onClicked: regionInspector.remove()
+        }
+    }
+
+    ShadowSlider {
+        Layout.fillWidth: true
+        label: qsTr("Size")
+        from: 1
+        to: 128
+        neutralValue: 18
+        stepSize: 1
+        decimals: 0
+        suffix: qsTr(" px")
+        value: regionInspector.region.radius
+        toolTipText: qsTr("Full-resolution repair radius")
+        onGestureStarted:
+            regionInspector.editor.beginParameterEdit(
+                regionInspector.historyKey("radius"))
+        onEdited: value => regionInspector.setRadius(value)
+        onGestureFinished:
+            regionInspector.editor.endParameterEdit(
+                regionInspector.historyKey("radius"))
+    }
+
+    ShadowSlider {
+        Layout.fillWidth: true
+        label: qsTr("Feather")
+        from: 0
+        to: 1
+        neutralValue: 0.28
+        stepSize: 0.01
+        decimals: 0
+        displayMultiplier: 100
+        suffix: "%"
+        value: Number(regionInspector.region.feather)
+        toolTipText: qsTr("Soften the repair edge")
+        onGestureStarted:
+            regionInspector.editor.beginParameterEdit(
+                regionInspector.historyKey("feather"))
+        onEdited: value => regionInspector.setFeather(value)
+        onGestureFinished:
+            regionInspector.editor.endParameterEdit(
+                regionInspector.historyKey("feather"))
+    }
+
+    Label {
+        Layout.fillWidth: true
+        visible: Number(regionInspector.region.mode) === 1
+        text: qsTr("Drag the linked source region on the image.")
+        color: regionInspector.enabled
+            ? Theme.textMuted : Theme.textDisabled
+        font.pixelSize: 9
+        lineHeight: 1.2
+    }
+}

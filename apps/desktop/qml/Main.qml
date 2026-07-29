@@ -11,6 +11,7 @@ ApplicationWindow {
     required property var controller
     required property var justifiedReviewLayout
     required property var editor
+    required property var editPreviewPresentation
     required property var exportController
     required property var cacheMaintenanceController
     required property var preferences
@@ -246,6 +247,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: window.editor
+            editPreviewPresentation: window.editPreviewPresentation
             lutLibrary: window.lutLibrary
             captureMetadata: ({
                 representationId: reviewWorkspace.selectedRepresentationId,

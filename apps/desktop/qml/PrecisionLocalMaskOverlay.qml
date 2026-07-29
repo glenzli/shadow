@@ -3,14 +3,16 @@ pragma Translator: "PrecisionWorkspace"
 
 import QtQuick
 
-// Direct manipulation for the selected Grade Node's local mask. The backend
-// remains the single owner of normalized mask values and edit history; this
-// component only maps those values to the currently displayed photo surface.
+// Direct manipulation handles for the selected Grade Node's local mask. Exact
+// affected-area coverage is rendered by PrecisionMaskCoverageOverlay; the
+// brush keeps only a continuous capsule fallback until native coverage arrives.
 Item {
     id: overlay
 
     required property var editor
     required property bool interactionEnabled
+    required property bool nativeCoverageReady
+    required property bool coverageVisible
 
     readonly property var mask: editor.selectedLocalMask
     readonly property int kind: Number(mask.kind || 0)
@@ -216,6 +218,9 @@ Item {
             context.lineJoin = "round"
 
             if (overlay.kind === 3) {
+                if (overlay.nativeCoverageReady
+                        || !overlay.coverageVisible)
+                    return
                 const brushRadius = Math.max(
                     1,
                     overlay.maskNumber("radiusX", 0.035)
@@ -224,12 +229,7 @@ Item {
                 // Match the renderer's swept-circle geometry: segments become
                 // filled capsules with circular caps. This is one continuous
                 // affected area, not visible authored points or a centerline.
-                context.fillStyle = Qt.rgba(
-                    Theme.accent.r,
-                    Theme.accent.g,
-                    Theme.accent.b,
-                    0.13
-                )
+                context.fillStyle = Theme.maskCoverageTint
                 overlay.fillBrushCoverage(context, brushRadius)
                 const coreRadius = brushRadius * Math.max(
                     0,
@@ -237,10 +237,10 @@ Item {
                 )
                 if (coreRadius >= 1) {
                     context.fillStyle = Qt.rgba(
-                        Theme.accent.r,
-                        Theme.accent.g,
-                        Theme.accent.b,
-                        0.12
+                        Theme.maskCoverageTint.r,
+                        Theme.maskCoverageTint.g,
+                        Theme.maskCoverageTint.b,
+                        Math.min(1, Theme.maskCoverageTint.a * 0.72)
                     )
                     overlay.fillBrushCoverage(context, coreRadius)
                 }
@@ -308,6 +308,15 @@ Item {
 
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
+        Connections {
+            target: overlay
+            function onNativeCoverageReadyChanged() {
+                maskGuide.requestPaint()
+            }
+            function onCoverageVisibleChanged() {
+                maskGuide.requestPaint()
+            }
+        }
         Component.onCompleted: requestPaint()
     }
 

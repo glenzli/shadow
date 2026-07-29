@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_preview_presentation_context.hpp"
 #include "preview_diagnostics.hpp"
 
 #include <QtConcurrent>
@@ -156,11 +157,19 @@ void EditController::finishPreviewTask() {
                 dimensions,
                 static_cast<qsizetype>(result.preview.row_stride_bytes),
                 std::move(result.preview.display_zebra),
-                result.generation.current_revision
+                result.generation.current_revision,
+                std::move(result.preview.frame),
+                result.generation.presentation_binding
             );
             preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
                                   .arg(result.generation.current_revision);
             emit previewSourceChanged();
+            if (accepted) {
+                publishMaskCoverage(
+                    std::move(result.preview.mask_coverage),
+                    result.generation
+                );
+            }
             if (!provisional_preview_source_.isEmpty()) {
                 // Publish the authoritative RAW render first, so QML never reveals an empty
                 // canvas between the cached Library visual and the local edit preview.
@@ -276,6 +285,23 @@ void EditController::startPreviewRender() {
         preview_stack.geometry.crop_right = 1.0;
         preview_stack.geometry.crop_bottom = 1.0;
     }
+    EditPreviewGeneration generation{
+        .policy = policy,
+        .photo = photo_generation_,
+        .current_revision = render_revision_,
+        .render_token = preview_render_token_,
+        .recipe_revision = working_revision_,
+        .mask_coverage_request = currentMaskCoverageRequest(preview_stack),
+        .presentation_binding = interactive && preview_presentation_context_
+                                    ? preview_presentation_context_->snapshot()
+                                    : EditPreviewPresentationBinding{},
+    };
+    if (generation.mask_coverage_request.has_value()) {
+        mask_coverage_refresh_pending_ = false;
+        preview_store_->expectMaskCoverage(
+            maskCoverageGeneration(generation)
+        );
+    }
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
         "EditController", "Rendering preview…")));
     preview_watcher_.setFuture(QtConcurrent::run(
@@ -288,12 +314,7 @@ void EditController::startPreviewRender() {
         preview_render_token_,
         max_edge,
         jpeg_quality,
-        EditPreviewGeneration{
-            .policy = policy,
-            .photo = photo_generation_,
-            .current_revision = render_revision_,
-            .render_token = preview_render_token_,
-        }
+        std::move(generation)
     ));
 }
 
@@ -331,6 +352,7 @@ void EditController::maybeStartBeforePreview() {
             .photo = photo_generation_,
             .current_revision = 0,
             .render_token = preview_render_token_,
+            .recipe_revision = 0,
         }
     ));
 }

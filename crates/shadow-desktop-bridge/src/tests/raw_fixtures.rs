@@ -407,6 +407,9 @@ fn preview_request(
             ffi::FfiEditPreviewPolicy::NeutralBefore
         },
         use_working_recipe,
+        mask_coverage_requested: false,
+        mask_coverage_target_layer_index: 0,
+        mask_selection_revision: 0,
     }
 }
 

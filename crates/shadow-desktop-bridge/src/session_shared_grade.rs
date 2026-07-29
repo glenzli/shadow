@@ -72,7 +72,8 @@ impl DesktopSession {
                 if merge == SharedGradeMerge::Unchanged {
                     return Ok(merge);
                 }
-                let settings = encode_grade_stack_draft_recipe_v1(grade_stack);
+                let settings = encode_grade_stack_draft_recipe_v1(grade_stack)
+                    .context("project merged shared Grade Node into the desktop contract")?;
                 self.autosave_basic_edit_working_at(
                     &target.photo_id,
                     &target.source_path,

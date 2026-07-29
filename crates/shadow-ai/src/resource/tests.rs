@@ -2,23 +2,36 @@ use std::collections::BTreeSet;
 
 use crate::{
     AiCapability, BackendRequirement, DistributionTerms, LicensePermission, LicenseTerms,
-    ModelAccess, ModelArtifact, ModelFormat, Quantization,
+    ModelAccess, ModelArtifact, ModelArtifactRole, ModelArtifactSet, ModelFormat, Quantization,
 };
 
 use super::*;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
+fn artifact_set() -> ModelArtifactSet {
+    let mut set = ModelArtifactSet {
+        set_id: "test-r1".into(),
+        inventory_blake3: String::new(),
+        artifacts: vec![ModelArtifact {
+            relative_path: "model.onnx".into(),
+            role: ModelArtifactRole::ModelDefinition,
+            byte_len: 1,
+            sha256: "a".repeat(64),
+        }],
+    };
+    set.inventory_blake3 = set
+        .computed_inventory_blake3()
+        .expect("valid artifact fixture");
+    set
+}
+
 fn manifest(targets: Vec<BackendKind>) -> ModelManifest {
     ModelManifest {
         schema_version: 1,
         model_id: "test".into(),
         exact_revision: "r1".into(),
-        artifact: ModelArtifact {
-            filename: "model.onnx".into(),
-            byte_len: 1,
-            sha256: "a".repeat(64),
-        },
+        artifact_set: artifact_set(),
         capabilities: BTreeSet::from([AiCapability::SimilarityEmbedding]),
         format: ModelFormat::Onnx,
         opset: Some(18),
@@ -86,7 +99,6 @@ fn policy() -> ResourcePolicy {
         reserved_system_ram_bytes: 2 * GIB,
         maximum_ai_cpu_threads: 8,
         maximum_device_memory_percent: 75,
-        remote_execution: RemoteExecutionPolicy::Disabled,
         on_battery: OnBatteryPolicy::PauseBackground,
     }
 }
@@ -103,10 +115,9 @@ fn request() -> AdmissionRequest {
         },
         availability: ModelAvailability {
             local: LocalModelAvailability::Installed {
-                digest_verified: true,
+                artifact_set_blake3: artifact_set().inventory_blake3,
                 license_accepted: true,
             },
-            remote: RemoteModelAvailability::Unavailable,
         },
     }
 }
@@ -120,7 +131,7 @@ fn chooses_first_compatible_local_backend() {
             backend("cpu", BackendKind::Cpu, None),
         ]),
         policy(),
-        request(),
+        &request(),
     );
     assert!(matches!(
         decision,
@@ -134,28 +145,24 @@ fn chooses_first_compatible_local_backend() {
 }
 
 #[test]
-fn can_fall_back_from_an_unavailable_local_target_to_remote() {
-    let mut fallback_request = request();
-    fallback_request.availability.remote = RemoteModelAvailability::Available {
-        license_accepted: true,
-    };
-    let mut fallback_policy = policy();
-    fallback_policy.remote_execution = RemoteExecutionPolicy::PersonalAllowed;
+fn local_manifest_planner_never_authorizes_a_remote_backend() {
     let decision = admit(
         &manifest(vec![BackendKind::CoreMl, BackendKind::RemoteApi]),
         &hardware(vec![backend("api", BackendKind::RemoteApi, None)]),
-        fallback_policy,
-        fallback_request,
+        policy(),
+        &request(),
     );
-    assert!(matches!(
+    assert_eq!(
         decision,
-        AdmissionDecision::Run {
-            plan: RunPlan {
-                backend_kind: BackendKind::RemoteApi,
-                ..
-            }
+        AdmissionDecision::Defer {
+            blockers: vec![
+                AdmissionBlocker::RemoteExecutionRequiresGrant,
+                AdmissionBlocker::BackendUnavailable {
+                    kind: BackendKind::CoreMl,
+                },
+            ],
         }
-    ));
+    );
 }
 
 #[test]
@@ -164,7 +171,7 @@ fn leaves_headroom_in_device_memory() {
         &manifest(vec![BackendKind::Cuda]),
         &hardware(vec![backend("cuda:0", BackendKind::Cuda, Some(2 * GIB))]),
         policy(),
-        request(),
+        &request(),
     );
     assert!(matches!(
         decision,
@@ -177,28 +184,19 @@ fn leaves_headroom_in_device_memory() {
 }
 
 #[test]
-fn never_uploads_sensitive_faces_without_explicit_policy() {
-    let mut remote_request = request();
-    remote_request.privacy = PrivacyClass::SensitiveBiometric;
-    remote_request.availability = ModelAvailability {
-        local: LocalModelAvailability::Missing,
-        remote: RemoteModelAvailability::Available {
-            license_accepted: true,
-        },
-    };
-    let mut remote_policy = policy();
-    remote_policy.remote_execution = RemoteExecutionPolicy::PublicOnly;
+fn remote_backend_is_blocked_even_when_local_model_bytes_are_installed() {
     let decision = admit(
         &manifest(vec![BackendKind::RemoteApi]),
         &hardware(vec![backend("api", BackendKind::RemoteApi, None)]),
-        remote_policy,
-        remote_request,
+        policy(),
+        &request(),
     );
-    assert!(matches!(
+    assert_eq!(
         decision,
-        AdmissionDecision::Defer { blockers }
-            if blockers.contains(&AdmissionBlocker::SensitiveBiometricRemoteUploadDisabled)
-    ));
+        AdmissionDecision::Defer {
+            blockers: vec![AdmissionBlocker::RemoteExecutionRequiresGrant],
+        }
+    );
 }
 
 #[test]
@@ -216,10 +214,60 @@ fn pauses_library_work_on_battery() {
             &manifest(vec![BackendKind::CoreMl]),
             &profile,
             policy(),
-            background,
+            &background,
         ),
         AdmissionDecision::Defer {
             blockers: vec![AdmissionBlocker::BackgroundPausedOnBattery]
         }
     );
+}
+
+#[test]
+fn installed_bytes_for_another_artifact_set_are_not_admitted() {
+    let mut wrong = request();
+    wrong.availability.local = LocalModelAvailability::Installed {
+        artifact_set_blake3: "0".repeat(64),
+        license_accepted: true,
+    };
+    let expected = artifact_set().inventory_blake3;
+    assert_eq!(
+        admit(
+            &manifest(vec![BackendKind::Cpu]),
+            &hardware(vec![backend("cpu", BackendKind::Cpu, None)]),
+            policy(),
+            &wrong,
+        ),
+        AdmissionDecision::Defer {
+            blockers: vec![AdmissionBlocker::ArtifactSetIdentityMismatch {
+                expected,
+                installed: "0".repeat(64),
+            }]
+        }
+    );
+}
+
+#[test]
+fn scratch_upload_and_duration_are_metadata_not_false_run_plan_reservations() {
+    let mut metadata_heavy = request();
+    metadata_heavy.estimate.scratch_disk_bytes = u64::MAX;
+    metadata_heavy.estimate.upload_bytes = u64::MAX;
+    metadata_heavy.estimate.estimated_duration_ms = Some(u64::MAX);
+    let decision = admit(
+        &manifest(vec![BackendKind::Cpu]),
+        &hardware(vec![backend("cpu", BackendKind::Cpu, None)]),
+        policy(),
+        &metadata_heavy,
+    );
+    assert!(matches!(
+        decision,
+        AdmissionDecision::Run {
+            plan: RunPlan {
+                backend_kind: BackendKind::Cpu,
+                cpu_threads: 4,
+                reserved_system_ram_bytes,
+                reserved_device_memory_bytes: 0,
+                ..
+            }
+        } if reserved_system_ram_bytes == 2 * GIB
+    ));
 }

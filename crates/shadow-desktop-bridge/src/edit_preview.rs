@@ -2,14 +2,16 @@
 //!
 //! Follow [`service`] for the complete cancellable transaction,
 //! [`warm_session_cache`] for decoded-source reuse, [`recipe_preview_store`]
-//! for post-terminal durable publication, and [`response`] for the final FFI
-//! projection.
+//! for post-terminal durable publication, [`owned_response`] for the stable
+//! cross-language payload lifetime, and [`response`] for descriptor projection.
 
+mod owned_response;
 mod recipe_preview_store;
 mod response;
 mod service;
 mod warm_session_cache;
 
+pub(crate) use owned_response::OwnedEditedPreview;
 pub(crate) use recipe_preview_store::{RecipePreviewStoreRequest, store_recipe_preview};
 pub(crate) use response::{cancelled_edited_preview, completed_edited_preview};
 pub(crate) use service::EditPreviewPolicy;

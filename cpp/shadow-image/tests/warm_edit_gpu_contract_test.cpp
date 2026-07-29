@@ -5,6 +5,17 @@
 int main() {
     namespace contract = shadow::image::warm_edit_gpu_contract;
 
+    if (
+        std::getenv(
+            "SHADOW_TEST_WARM_METAL_FORCE_PRESENTATION_PIPELINE_FAILURE"
+        )
+        != nullptr
+    ) {
+        return contract::run_presentation_pipeline_failure_contract() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+    }
+
     int failures = 0;
     failures += contract::run_resident_backend_matches_cpu_oracle();
     failures += contract::run_resident_gpu_technical_detail_contract();
@@ -14,6 +25,7 @@ int main() {
     failures += contract::run_resident_gpu_selective_tone_contract();
     failures += contract::run_resident_gpu_composed_stage_contract();
     failures += contract::run_resident_gpu_layer_composition_contract();
+    failures += contract::run_resident_gpu_mask_coverage_contract();
     failures += contract::run_resident_gpu_retouch_contract();
     failures += contract::run_resident_gpu_geometry_contract();
     failures += contract::run_resident_gpu_dehaze_and_defringe_contract();

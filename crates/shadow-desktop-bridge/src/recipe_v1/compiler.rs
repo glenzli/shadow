@@ -107,7 +107,7 @@ pub(crate) fn compile_recipe_render_plan(
                             reference.revision()
                         )
                     })?;
-                    Some(adjustment_local_mask(definition.definition()))
+                    Some(adjustment_local_mask(definition.definition())?)
                 }
             };
             let start_id = format!("local-mask-layer-start:{}", layer.id());
@@ -273,8 +273,8 @@ fn append_photo_retouch_nodes(
     Ok(())
 }
 
-fn adjustment_local_mask(definition: &MaskDefinition) -> AdjustmentLocalMask {
-    match definition {
+fn adjustment_local_mask(definition: &MaskDefinition) -> AnyResult<AdjustmentLocalMask> {
+    Ok(match definition {
         MaskDefinition::LinearGradient {
             start_x,
             start_y,
@@ -343,7 +343,12 @@ fn adjustment_local_mask(definition: &MaskDefinition) -> AdjustmentLocalMask {
             softness: softness.get(),
             invert: *invert,
         },
-    }
+        MaskDefinition::ConditionExpression { .. } => {
+            bail!(
+                "Recipe v1 persists bounded condition-mask expressions, but this renderer supports only single luminance and zero-minimum-chroma hue leaves"
+            )
+        }
+    })
 }
 
 #[allow(clippy::too_many_lines)] // Keep the exhaustive operation-contract mapping auditable.

@@ -178,6 +178,10 @@ QtObject {
         ? "#c9181c21" : "#c9ffffff"
     readonly property color previewHudStrongOverlay: effectiveDark
         ? "#d9181c21" : "#d9ffffff"
+    // Industry-standard local-mask red. Coverage remains a native R8 alpha
+    // texture; this token owns only its presentation tint and opacity.
+    readonly property color maskCoverageTint: effectiveDark
+        ? "#73ef5660" : "#66df3f4c"
 
     // Tone curve
     readonly property color curveGrid: effectiveDark ? "#293038" : "#cbd1d7"

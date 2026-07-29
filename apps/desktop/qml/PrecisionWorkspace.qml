@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 // Page-level composition only.  The canvas owns mutually dependent viewport
@@ -11,6 +10,7 @@ Item {
     id: precision
 
     required property var editor
+    required property var editPreviewPresentation
     required property var lutLibrary
     required property var captureMetadata
     signal openLutLibraryRequested()
@@ -25,6 +25,8 @@ Item {
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
     property int activeSpecialTool: toolNone
+    property bool selectedRetouchContinuous: true
+    property int selectedRetouchIndex: -1
     // Zero means freeform. Positive values are output-space aspect locks used
     // by the crop overlay, never persisted as a second geometry authority.
     property real cropAspectRatioLock: 0
@@ -57,6 +59,7 @@ Item {
             editor.setRetouchPickerActive(false)
 
         activeSpecialTool = nextTool
+        editor.setMaskToolActive(nextTool === toolMask)
         editor.setCropToolActive(nextTool === toolCrop)
         if (nextTool === toolRepair)
             editor.setRetouchPickerActive(true)
@@ -66,14 +69,38 @@ Item {
         if (activeSpecialTool === toolNone)
             return
         activeSpecialTool = toolNone
+        editor.setMaskToolActive(false)
         editor.setCropToolActive(false)
         editor.setRetouchPickerActive(false)
+    }
+
+    function cancelTransientInteractionOrLeaveTool() {
+        if (editor.pointColorPickerActive) {
+            editor.setPointColorPickerActive(false)
+            return
+        }
+        if (editor.whiteBalancePickerActive) {
+            editor.setWhiteBalancePickerActive(false)
+            return
+        }
+        if (editor.retouchPickerActive) {
+            editor.setRetouchPickerActive(false)
+            return
+        }
+        leaveSpecialTool()
+    }
+
+    function selectRetouchRegion(continuous, index) {
+        selectedRetouchContinuous = continuous
+        selectedRetouchIndex = index
     }
 
     Connections {
         target: precision.editor
 
         function onSourceIdentityChanged() {
+            precision.selectedRetouchContinuous = true
+            precision.selectedRetouchIndex = -1
             precision.leaveSpecialTool()
         }
 
@@ -99,9 +126,20 @@ Item {
 
     Shortcut {
         sequence: "Escape"
+        enabled: precision.visible && (precision.editor.pointColorPickerActive
+            || precision.editor.whiteBalancePickerActive
+            || precision.editor.retouchPickerActive
+            || precision.activeSpecialTool !== precision.toolNone)
+        onActivated: precision.cancelTransientInteractionOrLeaveTool()
+    }
+
+    Shortcut {
+        sequence: "O"
         enabled: precision.visible
-            && precision.activeSpecialTool !== precision.toolNone
-        onActivated: precision.leaveSpecialTool()
+            && precision.activeSpecialTool === precision.toolMask
+        onActivated:
+            precisionCanvas.maskOverlayVisible =
+                !precisionCanvas.maskOverlayVisible
     }
 
     Shortcut {
@@ -141,9 +179,17 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: precision.editor
+            editPreviewPresentation:
+                precision.editPreviewPresentation
             activeToolMode: precision.activeSpecialTool
             cropAspectRatioLock: precision.cropAspectRatioLock
+            selectedRetouchContinuous:
+                precision.selectedRetouchContinuous
+            selectedRetouchIndex: precision.selectedRetouchIndex
             onNeutralToolRequested: precision.leaveSpecialTool()
+            onRetouchRegionSelectionRequested:
+                (continuous, index) =>
+                    precision.selectRetouchRegion(continuous, index)
         }
 
         PrecisionInspector {
@@ -159,6 +205,10 @@ Item {
             readyPreviewGeneration: precisionCanvas.readyPreviewGeneration
             previewFrameReady: precisionCanvas.previewFrameReady
             comparisonActive: precisionCanvas.comparisonActive
+            maskOverlayVisible: precisionCanvas.maskOverlayVisible
+            selectedRetouchContinuous:
+                precision.selectedRetouchContinuous
+            selectedRetouchIndex: precision.selectedRetouchIndex
             currentPhotoAspect: precisionCanvas.imagePixelWidth
                 / Math.max(1, precisionCanvas.imagePixelHeight)
             workspaceWidth: precision.width
@@ -175,6 +225,11 @@ Item {
             onToolModeRequested: mode => precision.setActiveSpecialTool(mode)
             onCropAspectRatioRequested: ratio =>
                 precision.cropAspectRatioLock = ratio
+            onMaskOverlayVisibilityRequested: visible =>
+                precisionCanvas.maskOverlayVisible = visible
+            onRetouchRegionSelectionRequested:
+                (continuous, index) =>
+                    precision.selectRetouchRegion(continuous, index)
         }
     }
 

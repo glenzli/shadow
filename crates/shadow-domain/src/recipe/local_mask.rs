@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::MaskId;
 
-use super::{FiniteF64, MaskCoordinateSpace, RecipeValidationError, UnitInterval};
+use super::{
+    FiniteF64, MaskCoordinateSpace, RecipeValidationError, UnitInterval,
+    condition_mask::{ConditionMaskExpression, LegacyConditionLeaf},
+};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct MaskReference {
@@ -108,6 +111,10 @@ pub enum MaskDefinition {
         #[serde(default)]
         invert: bool,
     },
+    /// A bounded typed condition that cannot be represented by the legacy
+    /// single luminance or hue leaf. Runtime support is capability-gated at
+    /// the Recipe compiler; persistence never implies executability.
+    ConditionExpression { expression: ConditionMaskExpression },
 }
 
 /// One immutable freehand-mask sample in original-image coordinates.
@@ -271,7 +278,47 @@ impl MaskDefinition {
         Ok(definition)
     }
 
-    fn validate(&self) -> Result<(), RecipeValidationError> {
+    /// Stores a bounded condition expression in its canonical Recipe shape.
+    ///
+    /// A single luminance leaf or zero-minimum-chroma hue leaf is rewritten to
+    /// the existing v1 mask variant. This preserves the byte representation
+    /// and content-derived identity used before composite conditions existed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the expression violates its fixed schema or tree
+    /// bounds.
+    pub fn condition_expression(
+        expression: ConditionMaskExpression,
+    ) -> Result<Self, RecipeValidationError> {
+        expression.validate()?;
+        match expression.legacy_leaf() {
+            Some(LegacyConditionLeaf::Luminance {
+                lower,
+                upper,
+                softness,
+                invert,
+            }) => Self::luminance_range(lower, upper, softness, invert),
+            Some(LegacyConditionLeaf::Hue {
+                center_hue_degrees,
+                half_width_degrees,
+                softness,
+                invert,
+            }) => Self::color_range(
+                center_hue_degrees.get(),
+                half_width_degrees.get(),
+                softness,
+                invert,
+            ),
+            None => {
+                let definition = Self::ConditionExpression { expression };
+                definition.validate()?;
+                Ok(definition)
+            }
+        }
+    }
+
+    pub(super) fn validate(&self) -> Result<(), RecipeValidationError> {
         match self {
             Self::LinearGradient {
                 start_x,
@@ -323,6 +370,12 @@ impl MaskDefinition {
                     return Err(RecipeValidationError::InvalidColorMaskWidth(
                         width_degrees.get(),
                     ));
+                }
+            }
+            Self::ConditionExpression { expression } => {
+                expression.validate()?;
+                if expression.legacy_leaf().is_some() {
+                    return Err(RecipeValidationError::NonCanonicalConditionMaskExpression);
                 }
             }
         }

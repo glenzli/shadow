@@ -11,12 +11,132 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stop_token>
 #include <utility>
 
 namespace shadow::bridge {
 
 using namespace cxx_bridge_projection;
+
+namespace {
+
+[[nodiscard]] std::optional<std::uint32_t> mask_coverage_target(
+    const FfiAdjustmentRenderRequest& request
+) {
+    if (!request.mask_coverage_requested) {
+        if (request.mask_coverage_target_layer_index != 0U) {
+            throw image::DecodeError(
+                image::DecodeErrorCode::invalid_request,
+                0,
+                "unrequested edit-preview mask coverage must use the zero target sentinel"
+            );
+        }
+        return std::nullopt;
+    }
+    return request.mask_coverage_target_layer_index;
+}
+
+void reject_mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
+    if (mask_coverage_target(request).has_value()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "this edit-preview entry point does not return paired mask coverage"
+        );
+    }
+}
+
+[[nodiscard]] image::CancellableEditPreviewResult<
+    image::EditPreviewRgb8WithMaskCoverage>
+render_adjustment_plan_rgb8_frame(
+    const image::WarmEditPreviewSession& session,
+    const FfiAdjustmentRenderRequest& request,
+    const EditPreviewCancellationHandle& cancellation
+) {
+    if (request.max_edge != session.max_edge()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "warm edit preview request does not match the prepared max edge"
+        );
+    }
+    const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    const auto target = mask_coverage_target(request);
+    if (target.has_value() && !layers.has_value()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "mask coverage target requires an explicit adjustment-layer plan"
+        );
+    }
+    if (layers.has_value()) {
+        return session.render_rgb8_layers_with_mask_coverage_cancellable(
+            *layers,
+            target,
+            cancellation.token(),
+            geometry
+        );
+    }
+
+    auto rendered = session.render_rgb8_cancellable(
+        adjustment_render_wire::adjustment_nodes(request.nodes),
+        cancellation.token(),
+        geometry
+    );
+    if (rendered.cancelled()) {
+        return {};
+    }
+    return {
+        .completed = image::EditPreviewRgb8WithMaskCoverage{
+            .preview = std::move(*rendered.completed),
+            .mask_coverage = std::nullopt,
+        },
+    };
+}
+
+[[nodiscard]] image::CancellableEditPreviewResult<
+    image::InteractiveEditPreviewFrame>
+render_adjustment_plan_interactive_frame(
+    const image::WarmEditPreviewSession& session,
+    const FfiAdjustmentRenderRequest& request,
+    const EditPreviewCancellationHandle& cancellation
+) {
+    if (request.max_edge != session.max_edge()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "warm edit preview request does not match the prepared max edge"
+        );
+    }
+    const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    const auto target = mask_coverage_target(request);
+    if (target.has_value() && !layers.has_value()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "mask coverage target requires an explicit adjustment-layer plan"
+        );
+    }
+    if (layers.has_value()) {
+        return session
+            .render_interactive_frame_layers_with_mask_coverage_cancellable(
+                *layers,
+                target,
+                cancellation.token(),
+                geometry
+            );
+    }
+    return session.render_interactive_frame_cancellable(
+        adjustment_render_wire::adjustment_nodes(request.nodes),
+        cancellation.token(),
+        geometry
+    );
+}
+
+} // namespace
 
 DecodeHandle::DecodeHandle(
     std::unique_ptr<image::DecoderProvider> provider,
@@ -189,6 +309,7 @@ FfiEncodedProxy DecodeHandle::render_reference_proxy(
 FfiEncodedProxy DecodeHandle::render_adjustment_plan(
     const FfiAdjustmentRenderRequest& request
 ) const {
+    reject_mask_coverage_target(request);
     const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
     const auto geometry = photo_geometry(request.geometry);
     const auto preview = image::prepare_warm_edit_preview(
@@ -284,6 +405,7 @@ std::shared_ptr<EditPreviewCancellationHandle> new_edit_preview_cancellation() {
 FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
     const FfiAdjustmentRenderRequest& request
 ) const {
+    reject_mask_coverage_target(request);
     if (request.max_edge != session_.max_edge()) {
         throw image::DecodeError(
             image::DecodeErrorCode::invalid_request,
@@ -307,6 +429,7 @@ FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
 FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
     const FfiAdjustmentRenderRequest& request
 ) const {
+    reject_mask_coverage_target(request);
     if (request.max_edge != session_.max_edge()) {
         throw image::DecodeError(
             image::DecodeErrorCode::invalid_request,
@@ -331,6 +454,7 @@ FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_cancellable
     const FfiAdjustmentRenderRequest& request,
     const EditPreviewCancellationHandle& cancellation
 ) const {
+    reject_mask_coverage_target(request);
     if (request.max_edge != session_.max_edge()) {
         throw image::DecodeError(
             image::DecodeErrorCode::invalid_request,
@@ -342,12 +466,19 @@ FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_cancellable
     const auto geometry = photo_geometry(request.geometry);
     if (layers.has_value()) {
         if (cancellation.token().stop_requested()) {
-            return FfiCancellableEncodedProxy{.cancelled = true, .proxy = {}};
+            return FfiCancellableEncodedProxy{
+                .cancelled = true,
+                .proxy = {},
+                .mask_coverage = {},
+            };
         }
         auto rendered = session_.render_jpeg_layers(*layers, request.jpeg_quality, geometry);
         return FfiCancellableEncodedProxy{
             .cancelled = cancellation.token().stop_requested(),
-            .proxy = cancellation.token().stop_requested() ? FfiEncodedProxy{} : encoded_proxy(rendered),
+            .proxy = cancellation.token().stop_requested()
+                ? FfiEncodedProxy{}
+                : encoded_proxy(rendered),
+            .mask_coverage = {},
         };
     }
     const auto nodes = adjustment_render_wire::adjustment_nodes(request.nodes);
@@ -361,39 +492,54 @@ FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_cancellable
         return FfiCancellableEncodedProxy{
             .cancelled = true,
             .proxy = {},
+            .mask_coverage = {},
         };
     }
     return FfiCancellableEncodedProxy{
         .cancelled = false,
         .proxy = encoded_proxy(*rendered.completed),
+        .mask_coverage = {},
     };
 }
 
 FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_rgb8_cancellable(
     const FfiAdjustmentRenderRequest& request,
-    const EditPreviewCancellationHandle& cancellation) const {
-    if (request.max_edge != session_.max_edge()) {
-        throw image::DecodeError(image::DecodeErrorCode::invalid_request, 0,
-                                 "warm edit preview request does not match the prepared max edge");
-    }
-    const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
-    const auto geometry = photo_geometry(request.geometry);
-    auto rendered =
-        layers.has_value()
-            ? session_.render_rgb8_layers_cancellable(*layers, cancellation.token(), geometry)
-            : session_.render_rgb8_cancellable(
-                  adjustment_render_wire::adjustment_nodes(request.nodes), cancellation.token(),
-                  geometry);
+    const EditPreviewCancellationHandle& cancellation
+) const {
+    const auto rendered =
+        render_adjustment_plan_rgb8_frame(session_, request, cancellation);
     if (rendered.cancelled()) {
         return FfiCancellableEncodedProxy{
             .cancelled = true,
             .proxy = {},
+            .mask_coverage = {},
         };
     }
     return FfiCancellableEncodedProxy{
         .cancelled = false,
-        .proxy = encoded_proxy(*rendered.completed),
+        .proxy = encoded_proxy(rendered.completed->preview),
+        .mask_coverage =
+            edit_preview_mask_coverage(rendered.completed->mask_coverage),
     };
+}
+
+std::unique_ptr<InteractiveEditPreviewFrameHandle>
+EditPreviewHandle::render_adjustment_plan_owned_rgb8_cancellable(
+    const FfiAdjustmentRenderRequest& request,
+    const EditPreviewCancellationHandle& cancellation
+) const {
+    auto rendered =
+        render_adjustment_plan_interactive_frame(
+            session_,
+            request,
+            cancellation
+        );
+    if (rendered.cancelled()) {
+        return {};
+    }
+    return std::make_unique<InteractiveEditPreviewFrameHandle>(
+        std::move(*rendered.completed)
+    );
 }
 
 FfiCancellableAnalyzedEditPreview
@@ -410,20 +556,34 @@ EditPreviewHandle::render_adjustment_plan_with_analysis_cancellable(
     }
     const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
     const auto geometry = photo_geometry(request.geometry);
+    const auto target = mask_coverage_target(request);
+    if (target.has_value() && !layers.has_value()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "mask coverage target requires an explicit adjustment-layer plan"
+        );
+    }
     if (layers.has_value()) {
-        if (cancellation.token().stop_requested()) {
-            return FfiCancellableAnalyzedEditPreview{.cancelled = true, .preview = {}};
-        }
-        auto rendered = session_.render_jpeg_with_analysis_layers(
+        auto rendered = session_.render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
             *layers,
+            target,
             request.jpeg_quality,
+            cancellation.token(),
             geometry
         );
+        if (rendered.cancelled()) {
+            return FfiCancellableAnalyzedEditPreview{
+                .cancelled = true,
+                .preview = {},
+                .mask_coverage = {},
+            };
+        }
         return FfiCancellableAnalyzedEditPreview{
-            .cancelled = cancellation.token().stop_requested(),
-            .preview = cancellation.token().stop_requested()
-                ? FfiAnalyzedEditPreview{}
-                : analyzed_edit_preview(rendered),
+            .cancelled = false,
+            .preview = analyzed_edit_preview(rendered.completed->preview),
+            .mask_coverage =
+                edit_preview_mask_coverage(rendered.completed->mask_coverage),
         };
     }
     const auto nodes = adjustment_render_wire::adjustment_nodes(request.nodes);
@@ -437,11 +597,13 @@ EditPreviewHandle::render_adjustment_plan_with_analysis_cancellable(
         return FfiCancellableAnalyzedEditPreview{
             .cancelled = true,
             .preview = {},
+            .mask_coverage = {},
         };
     }
     return FfiCancellableAnalyzedEditPreview{
         .cancelled = false,
         .preview = analyzed_edit_preview(*rendered.completed),
+        .mask_coverage = {},
     };
 }
 

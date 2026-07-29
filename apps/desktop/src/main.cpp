@@ -1,8 +1,11 @@
-#include "desktop_backend.hpp"
 #include "cache_maintenance_controller.hpp"
+#include "desktop_backend.hpp"
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
+#include "edit_preview_presentation_context.hpp"
+#include "edit_preview_presentation_registry.hpp"
 #include "edit_preview_provider.hpp"
+#include "edit_preview_texture_item.hpp"
 #include "export_controller.hpp"
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
@@ -24,6 +27,7 @@
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QStandardPaths>
 #include <QUrl>
 #include <QVariant>
@@ -196,7 +200,12 @@ int main(int argc, char* argv[]) {
     JustifiedReviewLayoutModel justified_review_layout;
     justified_review_layout.setSourceModel(controller.model());
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
-    EditController editor(backend, edit_preview_store);
+    auto edit_preview_presentation_context = std::make_shared<EditPreviewPresentationContext>();
+    EditPreviewPresentationRegistry edit_preview_presentation(
+        edit_preview_store,
+        edit_preview_presentation_context
+    );
+    EditController editor(backend, edit_preview_store, edit_preview_presentation_context);
     QQmlApplicationEngine engine;
     preferences.attachEngine(engine);
 
@@ -205,7 +214,8 @@ int main(int argc, char* argv[]) {
         controller.reviewModel()
     );
     engine.addImageProvider(QStringLiteral("shadow"), thumbnail_provider);
-    auto* const edit_preview_provider = new EditPreviewProvider(edit_preview_store);
+    auto* const edit_preview_provider =
+        new EditPreviewProvider(edit_preview_store, edit_preview_presentation_context);
     engine.addImageProvider(QStringLiteral("shadow-edit"), edit_preview_provider);
     engine.addImageProvider(
         QStringLiteral("shadow-lut"),
@@ -221,6 +231,10 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&justified_review_layout),
         },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {
+            QStringLiteral("editPreviewPresentation"),
+            QVariant::fromValue(&edit_preview_presentation),
+        },
         {
             QStringLiteral("exportController"),
             QVariant::fromValue(&export_controller),
@@ -240,6 +254,12 @@ int main(int argc, char* argv[]) {
     if (engine.rootObjects().isEmpty()) {
         return EXIT_FAILURE;
     }
+    auto* const root_window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
+    if (root_window == nullptr) {
+        qCritical() << "Shadow.App root must be a QQuickWindow";
+        return EXIT_FAILURE;
+    }
+    edit_preview_presentation_context->attach(root_window);
 
 #if defined(Q_OS_MACOS)
     QObject* const root_object = engine.rootObjects().constFirst();

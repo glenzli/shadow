@@ -1,9 +1,12 @@
-use shadow_domain::{MaskBrushPoint, MaskDefinition, UnitInterval};
+use shadow_domain::{
+    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, MaskBrushPoint,
+    MaskDefinition, UnitInterval,
+};
 
 use super::{
-    LOCAL_MASK_BRUSH, LOCAL_MASK_COLOR_RANGE, LOCAL_MASK_LINEAR_GRADIENT,
-    LOCAL_MASK_LUMINANCE_RANGE, LOCAL_MASK_RADIAL_GRADIENT, ffi_local_mask_fields,
-    local_mask_definition_from_ffi, new_basic_grade_node,
+    GradeStackDraft, LOCAL_MASK_BRUSH, LOCAL_MASK_COLOR_RANGE, LOCAL_MASK_LINEAR_GRADIENT,
+    LOCAL_MASK_LUMINANCE_RANGE, LOCAL_MASK_RADIAL_GRADIENT, encode_grade_stack_draft_recipe_v1,
+    ffi_local_mask_fields, local_mask_definition_from_ffi, new_basic_grade_node,
 };
 
 fn unit(value: f64) -> UnitInterval {
@@ -15,7 +18,7 @@ fn legacy_local_mask_ffi_slots_remain_exact() {
     let linear = MaskDefinition::linear_gradient(unit(0.1), unit(0.2), unit(0.8), unit(0.9), true)
         .expect("linear mask");
     assert_eq!(
-        ffi_local_mask_fields(Some(&linear)),
+        ffi_local_mask_fields(Some(&linear)).expect("encode linear"),
         (
             LOCAL_MASK_LINEAR_GRADIENT,
             0.1,
@@ -40,7 +43,7 @@ fn legacy_local_mask_ffi_slots_remain_exact() {
     )
     .expect("radial mask");
     assert_eq!(
-        ffi_local_mask_fields(Some(&radial)),
+        ffi_local_mask_fields(Some(&radial)).expect("encode radial"),
         (
             LOCAL_MASK_RADIAL_GRADIENT,
             0.4,
@@ -63,7 +66,7 @@ fn legacy_local_mask_ffi_slots_remain_exact() {
     )
     .expect("brush mask");
     assert_eq!(
-        ffi_local_mask_fields(Some(&brush)),
+        ffi_local_mask_fields(Some(&brush)).expect("encode brush"),
         (
             LOCAL_MASK_BRUSH,
             0.0,
@@ -85,7 +88,7 @@ fn condition_masks_round_trip_through_normalized_desktop_slots() {
     let luminance = MaskDefinition::luminance_range(unit(0.2), unit(0.8), unit(0.15), true)
         .expect("luminance range");
     assert_eq!(
-        ffi_local_mask_fields(Some(&luminance)),
+        ffi_local_mask_fields(Some(&luminance)).expect("encode luminance"),
         (
             LOCAL_MASK_LUMINANCE_RANGE,
             0.2,
@@ -102,7 +105,7 @@ fn condition_masks_round_trip_through_normalized_desktop_slots() {
 
     let color = MaskDefinition::color_range(270.0, 45.0, unit(0.4), false).expect("color range");
     assert_eq!(
-        ffi_local_mask_fields(Some(&color)),
+        ffi_local_mask_fields(Some(&color)).expect("encode color"),
         (
             LOCAL_MASK_COLOR_RANGE,
             0.75,
@@ -168,4 +171,40 @@ fn malformed_condition_mask_slots_fail_closed() {
     grade_node.local_mask_x1 = 0.2;
     grade_node.local_mask_feather = f64::NAN;
     assert!(local_mask_definition_from_ffi(&grade_node, 0).is_err());
+}
+
+#[test]
+fn current_qt_dto_rejects_persisted_composite_condition_masks() {
+    let expression = ConditionMaskExpression::all(vec![
+        ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
+            unit(0.2),
+            unit(0.8),
+            unit(0.1),
+        )),
+        ConditionMaskNode::leaf(ConditionMaskPredicate::oklch_chroma_range(
+            unit(0.25),
+            unit(0.9),
+            unit(0.15),
+        )),
+    ])
+    .expect("expression");
+    let definition =
+        MaskDefinition::condition_expression(expression).expect("persistent condition mask");
+    let error =
+        ffi_local_mask_fields(Some(&definition)).expect_err("DTO must reject unsupported shape");
+    assert!(
+        error
+            .to_string()
+            .contains("current Qt Grade Node DTO cannot represent")
+    );
+
+    let mut grade_stack = GradeStackDraft::default();
+    grade_stack.grade_nodes[0].local_mask = Some(definition);
+    let projection_error = encode_grade_stack_draft_recipe_v1(grade_stack)
+        .expect_err("complete desktop projection must return the unsupported condition");
+    assert!(
+        projection_error
+            .to_string()
+            .contains("current Qt Grade Node DTO cannot represent")
+    );
 }

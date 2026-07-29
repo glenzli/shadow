@@ -243,7 +243,8 @@ impl ExportQueueService {
             &source.location.display_path,
             &ffi::FfiEditExportRequest {
                 base_commit_id: item.recipe_commit_id.to_string(),
-                settings: encode_grade_stack_draft_recipe_v1(grade_stack),
+                settings: encode_grade_stack_draft_recipe_v1(grade_stack)
+                    .context("project frozen export Recipe into the desktop render request")?,
                 // The renderer treats the explicit commit id as immutable;
                 // this flag retains its Recipe template/provenance handling.
                 use_working_recipe: true,

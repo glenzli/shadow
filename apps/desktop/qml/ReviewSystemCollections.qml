@@ -9,6 +9,8 @@ ColumnLayout {
     id: collections
 
     required property var workspace
+    readonly property var systemCounts:
+        workspace.controller.librarySystemCollectionCounts
 
     spacing: 8
 
@@ -43,7 +45,9 @@ ColumnLayout {
             Label {
                 Layout.fillWidth: true
                 text: qsTranslate("ReviewWorkspace", "%L1").arg(
-                    collections.workspace.controller.itemCount)
+                    collections.systemCounts.available
+                        ? collections.systemCounts.all
+                        : collections.workspace.controller.itemCount)
                 color: collections.workspace.textMuted
                 horizontalAlignment: Text.AlignRight
             }
@@ -64,6 +68,7 @@ ColumnLayout {
                 title: qsTranslate("ReviewWorkspace", "Recent Imports"),
                 icon: "qrc:/icons/history.svg",
                 enabled: false,
+                count: 0,
                 hint: qsTranslate("ReviewWorkspace", "Recent import sessions will appear here when import-time filtering is available.")
             },
             {
@@ -71,6 +76,7 @@ ColumnLayout {
                 title: qsTranslate("ReviewWorkspace", "Liked"),
                 icon: "qrc:/icons/heart.svg",
                 enabled: true,
+                count: collections.systemCounts.liked,
                 hint: qsTranslate("ReviewWorkspace", "Show photos marked Like")
             },
             {
@@ -78,6 +84,7 @@ ColumnLayout {
                 title: qsTranslate("ReviewWorkspace", "5 Stars"),
                 icon: "qrc:/icons/star.svg",
                 enabled: true,
+                count: collections.systemCounts.fiveStar,
                 hint: qsTranslate("ReviewWorkspace", "Show photos rated 5 stars")
             }
         ]
@@ -117,7 +124,11 @@ ColumnLayout {
 
                 ShadowIcon {
                     source: String(collectionRow.modelData.icon)
-                    color: collectionRow.modelData.enabled
+                    color: String(collectionRow.modelData.id) === "liked"
+                        ? Theme.likeAccent
+                        : String(collectionRow.modelData.id) === "five-star"
+                            ? Theme.labelYellow
+                            : collectionRow.modelData.enabled
                         ? (collectionRow.selected
                             ? collections.workspace.accent
                             : collections.workspace.textMuted)
@@ -135,6 +146,15 @@ ColumnLayout {
                         : Theme.textDisabled
                     font.pixelSize: 11
                     elide: Text.ElideRight
+                }
+
+                Label {
+                    visible: collectionRow.modelData.enabled
+                        && collections.systemCounts.available
+                    text: qsTranslate("ReviewWorkspace", "%L1").arg(
+                        collectionRow.modelData.count)
+                    color: collections.workspace.textMuted
+                    font.pixelSize: 10
                 }
 
                 Label {

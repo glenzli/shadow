@@ -12,6 +12,10 @@
 #include <string>
 #include <vector>
 
+namespace shadow::image::raw_pipeline_detail {
+class ResidentRawSource;
+}
+
 namespace shadow::image::detail {
 
 // Bounded LRU of expanded full-detail working regions. Each entry retains one immutable Metal
@@ -43,6 +47,24 @@ class FullEditDetailGpuCache final {
         Dimensions full_dimensions,
         std::optional<WarmEditGpuGeometryContext> geometry = std::nullopt
     );
+    [[nodiscard]] RenderAttempt render_resident(
+        raw_pipeline_detail::ResidentRawSource& source,
+        const SourceRenderingReceipt& source_rendering,
+        std::span<const AdjustmentNode> nodes,
+        DetailTileRect core_rect,
+        DetailTileRect working_rect,
+        Dimensions full_dimensions,
+        std::optional<WarmEditGpuGeometryContext> geometry = std::nullopt
+    );
+    [[nodiscard]] RenderAttempt render_resident_layers(
+        raw_pipeline_detail::ResidentRawSource& source,
+        const SourceRenderingReceipt& source_rendering,
+        std::span<const AdjustmentLayer> layers,
+        DetailTileRect core_rect,
+        DetailTileRect working_rect,
+        Dimensions full_dimensions,
+        std::optional<WarmEditGpuGeometryContext> geometry = std::nullopt
+    );
 
   private:
     struct Acquisition final {
@@ -53,6 +75,11 @@ class FullEditDetailGpuCache final {
 
     [[nodiscard]] Acquisition acquire(
         const DevelopedSourcePixels& source,
+        const SourceRenderingReceipt& source_rendering,
+        DetailTileRect working_rect
+    );
+    [[nodiscard]] Acquisition acquire_resident(
+        raw_pipeline_detail::ResidentRawSource& source,
         const SourceRenderingReceipt& source_rendering,
         DetailTileRect working_rect
     );
@@ -80,6 +107,7 @@ class FullEditDetailGpuCache final {
     static constexpr std::size_t maximum_entries = 4U;
 
     std::mutex mutex_;
+    std::mutex resident_render_mutex_;
     std::vector<Entry> entries_;
     std::uint64_t resident_bytes_ = 0U;
     std::uint64_t use_sequence_ = 0U;

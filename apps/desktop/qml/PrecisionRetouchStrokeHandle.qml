@@ -9,6 +9,9 @@ Item {
     required property var editor
     required property var modelData
     required property real pixelScale
+    required property bool selected
+
+    signal selectedRequested()
 
     property bool sourceGestureActive: false
     property real sourceStartX: 0
@@ -26,23 +29,68 @@ Item {
     readonly property real sourceOffsetY:
         Number(modelData.sourceOffsetY) * radiusPixels
 
-    function bounds() {
-        let left = Number.POSITIVE_INFINITY
-        let top = Number.POSITIVE_INFINITY
-        let right = Number.NEGATIVE_INFINITY
-        let bottom = Number.NEGATIVE_INFINITY
+    function squaredDistanceToSegment(
+        x, y, startX, startY, endX, endY
+    ) {
+        const deltaX = endX - startX
+        const deltaY = endY - startY
+        const lengthSquared = deltaX * deltaX + deltaY * deltaY
+        if (lengthSquared <= 0.0001) {
+            const pointDeltaX = x - startX
+            const pointDeltaY = y - startY
+            return pointDeltaX * pointDeltaX + pointDeltaY * pointDeltaY
+        }
+        const projection = Math.max(0, Math.min(
+            1,
+            ((x - startX) * deltaX + (y - startY) * deltaY)
+                / lengthSquared
+        ))
+        const closestX = startX + projection * deltaX
+        const closestY = startY + projection * deltaY
+        const pointDeltaX = x - closestX
+        const pointDeltaY = y - closestY
+        return pointDeltaX * pointDeltaX + pointDeltaY * pointDeltaY
+    }
+
+    function coverageContains(x, y, offsetX, offsetY) {
+        if (points.length === 0)
+            return false
+        const hitRadius = radiusPixels + 3
+        const maximumDistanceSquared = hitRadius * hitRadius
+        let previous = null
         for (let pointIndex = 0; pointIndex < points.length; ++pointIndex) {
             const point = points[pointIndex]
-            const pointX = Number(point.x) * width
-            const pointY = Number(point.y) * height
-            left = Math.min(left, pointX)
-            top = Math.min(top, pointY)
-            right = Math.max(right, pointX)
-            bottom = Math.max(bottom, pointY)
+            const pointX = Number(point.x) * width + offsetX
+            const pointY = Number(point.y) * height + offsetY
+            if (squaredDistanceToSegment(
+                    x, y, pointX, pointY, pointX, pointY
+                ) <= maximumDistanceSquared) {
+                return true
+            }
+            if (previous !== null && !Boolean(point.beginsStroke)) {
+                const previousX = Number(previous.x) * width + offsetX
+                const previousY = Number(previous.y) * height + offsetY
+                if (squaredDistanceToSegment(
+                        x, y, previousX, previousY, pointX, pointY
+                    ) <= maximumDistanceSquared) {
+                    return true
+                }
+            }
+            previous = point
         }
-        if (!Number.isFinite(left))
-            return { left: 0, top: 0, right: 0, bottom: 0 }
-        return { left: left, top: top, right: right, bottom: bottom }
+        return false
+    }
+
+    function targetContains(x, y) {
+        return coverageContains(x, y, 0, 0)
+    }
+
+    function sourceContains(x, y) {
+        return coverageContains(x, y, sourceOffsetX, sourceOffsetY)
+    }
+
+    function selectTarget() {
+        selectedRequested()
     }
 
     function finishSourceGesture() {
@@ -62,7 +110,7 @@ Item {
             Theme.accent.r,
             Theme.accent.g,
             Theme.accent.b,
-            0.16
+            strokeHandle.selected ? 0.22 : 0.11
         )
     }
 
@@ -77,74 +125,107 @@ Item {
             Theme.previewCompareDivider.r,
             Theme.previewCompareDivider.g,
             Theme.previewCompareDivider.b,
-            0.13
+            strokeHandle.selected ? 0.16 : 0.08
         )
     }
 
     Item {
-        id: sourceHitArea
+        id: targetHitMask
+        anchors.fill: parent
+        visible: false
 
-        visible: strokeHandle.points.length > 0
-        readonly property var pathBounds: strokeHandle.bounds()
-        x: pathBounds.left + strokeHandle.sourceOffsetX
-            - strokeHandle.radiusPixels
-        y: pathBounds.top + strokeHandle.sourceOffsetY
-            - strokeHandle.radiusPixels
-        width: Math.max(
-            strokeHandle.radiusPixels * 2,
-            pathBounds.right - pathBounds.left
-                + strokeHandle.radiusPixels * 2
-        )
-        height: Math.max(
-            strokeHandle.radiusPixels * 2,
-            pathBounds.bottom - pathBounds.top
-                + strokeHandle.radiusPixels * 2
-        )
-        z: 3
-
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton
-            hoverEnabled: true
-            preventStealing: true
-            cursorShape: Qt.CrossCursor
-
-            onPressed: mouse => {
-                const point = sourceHitArea.mapToItem(
-                    strokeHandle, mouse.x, mouse.y)
-                strokeHandle.sourceGestureActive = true
-                strokeHandle.sourceStartX = point.x
-                strokeHandle.sourceStartY = point.y
-                strokeHandle.sourceStartOffsetX = Number(
-                    strokeHandle.modelData.sourceOffsetX)
-                strokeHandle.sourceStartOffsetY = Number(
-                    strokeHandle.modelData.sourceOffsetY)
-                strokeHandle.editor.beginParameterEdit(
-                    "retouch/stroke/" + strokeHandle.modelData.index
-                        + "/source")
-            }
-            onPositionChanged: mouse => {
-                if (!pressed || !strokeHandle.sourceGestureActive)
-                    return
-                const point = sourceHitArea.mapToItem(
-                    strokeHandle, mouse.x, mouse.y)
-                const radius = Math.max(1, strokeHandle.radiusPixels)
-                strokeHandle.editor.setRetouchStrokeSourceOffset(
-                    strokeHandle.modelData.index,
-                    Math.max(-8, Math.min(
-                        8,
-                        strokeHandle.sourceStartOffsetX
-                            + (point.x - strokeHandle.sourceStartX) / radius
-                    )),
-                    Math.max(-8, Math.min(
-                        8,
-                        strokeHandle.sourceStartOffsetY
-                            + (point.y - strokeHandle.sourceStartY) / radius
-                    ))
-                )
-            }
-            onReleased: strokeHandle.finishSourceGesture()
-            onCanceled: strokeHandle.finishSourceGesture()
+        function contains(point) {
+            return strokeHandle.targetContains(point.x, point.y)
         }
+    }
+
+    Item {
+        id: sourceHitMask
+        anchors.fill: parent
+        visible: false
+
+        function contains(point) {
+            return strokeHandle.sourceContains(point.x, point.y)
+        }
+    }
+
+    MouseArea {
+        id: targetPointer
+        objectName: "retouchStrokeTargetHitArea"
+
+        anchors.fill: parent
+        z: 3
+        visible: strokeHandle.points.length > 0
+        enabled: visible
+        containmentMask: targetHitMask
+        acceptedButtons: Qt.LeftButton
+        hoverEnabled: true
+        preventStealing: true
+        propagateComposedEvents: false
+        cursorShape: Qt.PointingHandCursor
+
+        onPressed: mouse => {
+            strokeHandle.selectTarget()
+            mouse.accepted = true
+        }
+    }
+
+    MouseArea {
+        id: sourcePointer
+        objectName: "retouchStrokeSourceHitArea"
+
+        anchors.fill: parent
+        z: 4
+        // Donor manipulation belongs to the selected repair. This keeps
+        // unselected donor overlays from stealing a target selection or a
+        // new paint gesture. When donor and target overlap, the selected
+        // donor remains above the target and therefore keeps drag priority.
+        visible: strokeHandle.selected && strokeHandle.points.length > 0
+        enabled: visible
+        containmentMask: sourceHitMask
+        acceptedButtons: Qt.LeftButton
+        hoverEnabled: true
+        preventStealing: true
+        propagateComposedEvents: false
+        cursorShape: Qt.CrossCursor
+
+        onPressed: mouse => {
+            strokeHandle.selectedRequested()
+            const point = sourcePointer.mapToItem(
+                strokeHandle, mouse.x, mouse.y)
+            strokeHandle.sourceGestureActive = true
+            strokeHandle.sourceStartX = point.x
+            strokeHandle.sourceStartY = point.y
+            strokeHandle.sourceStartOffsetX = Number(
+                strokeHandle.modelData.sourceOffsetX)
+            strokeHandle.sourceStartOffsetY = Number(
+                strokeHandle.modelData.sourceOffsetY)
+            strokeHandle.editor.beginParameterEdit(
+                "retouch/stroke/" + strokeHandle.modelData.index
+                    + "/source")
+            mouse.accepted = true
+        }
+        onPositionChanged: mouse => {
+            if (!pressed || !strokeHandle.sourceGestureActive)
+                return
+            const point = sourcePointer.mapToItem(
+                strokeHandle, mouse.x, mouse.y)
+            const radius = Math.max(1, strokeHandle.radiusPixels)
+            strokeHandle.editor.setRetouchStrokeSourceOffset(
+                strokeHandle.modelData.index,
+                Math.max(-8, Math.min(
+                    8,
+                    strokeHandle.sourceStartOffsetX
+                        + (point.x - strokeHandle.sourceStartX) / radius
+                )),
+                Math.max(-8, Math.min(
+                    8,
+                    strokeHandle.sourceStartOffsetY
+                        + (point.y - strokeHandle.sourceStartY) / radius
+                ))
+            )
+        }
+        onReleased: strokeHandle.finishSourceGesture()
+        onCanceled: strokeHandle.finishSourceGesture()
     }
 }

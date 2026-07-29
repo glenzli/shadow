@@ -10,31 +10,31 @@
 // and status routing reviewable without hiding it in the constructor.
 void ReviewController::initializeCoordinatorWiring() {
     filtered_model_.setSourceModel(&model_);
+    connect(&filtered_model_, &ReviewFilterModel::filtersChanged, this, [this]() {
+        scheduleFilterQuery();
+        emit filtersChanged();
+    });
+    const auto notify_filtered_count = [this]() { emit filtersChanged(); };
+    connect(&filtered_model_, &QAbstractItemModel::modelReset, this, notify_filtered_count);
     connect(
         &filtered_model_,
-        &ReviewFilterModel::filtersChanged,
+        &QAbstractItemModel::rowsInserted,
         this,
-        [this]() {
-            scheduleFilterQuery();
-            emit filtersChanged();
+        [notify_filtered_count](const QModelIndex&, const int, const int) {
+            notify_filtered_count();
         }
     );
-    const auto notify_filtered_count = [this]() { emit filtersChanged(); };
-    connect(&filtered_model_, &QAbstractItemModel::modelReset,
-            this, notify_filtered_count);
-    connect(&filtered_model_, &QAbstractItemModel::rowsInserted,
-            this, [notify_filtered_count](const QModelIndex&, const int, const int) {
-                notify_filtered_count();
-            });
-    connect(&filtered_model_, &QAbstractItemModel::rowsRemoved,
-            this, [notify_filtered_count](const QModelIndex&, const int, const int) {
-                notify_filtered_count();
-            });
-    query_coordinator_.setDecisionReconciler(
-        [this](BackendReviewDecisionState state) {
-            decision_coordinator_.reconcile(std::move(state));
+    connect(
+        &filtered_model_,
+        &QAbstractItemModel::rowsRemoved,
+        this,
+        [notify_filtered_count](const QModelIndex&, const int, const int) {
+            notify_filtered_count();
         }
     );
+    query_coordinator_.setDecisionReconciler([this](BackendReviewDecisionState state) {
+        decision_coordinator_.reconcile(std::move(state));
+    });
     connect(
         &photo_inspection_coordinator_,
         &ReviewPhotoInspectionCoordinator::stateChanged,
@@ -65,25 +65,13 @@ void ReviewController::initializeCoordinatorWiring() {
         this,
         &ReviewController::comparisonForgotten
     );
-    connect(
-        &decision_coordinator_,
-        &ReviewDecisionCoordinator::stateChanged,
-        this,
-        [this]() {
-            query_coordinator_.setDecisionBusy(
-                decision_coordinator_.busy()
-            );
-            emit decisionStateChanged();
-        }
-    );
-    connect(
-        &decision_coordinator_,
-        &ReviewDecisionCoordinator::statusTextChanged,
-        this,
-        [this]() {
-            setDecisionStatusMessage(decision_coordinator_.statusMessage());
-        }
-    );
+    connect(&decision_coordinator_, &ReviewDecisionCoordinator::stateChanged, this, [this]() {
+        query_coordinator_.setDecisionBusy(decision_coordinator_.busy());
+        emit decisionStateChanged();
+    });
+    connect(&decision_coordinator_, &ReviewDecisionCoordinator::statusTextChanged, this, [this]() {
+        setDecisionStatusMessage(decision_coordinator_.statusMessage());
+    });
     connect(
         &decision_coordinator_,
         &ReviewDecisionCoordinator::undone,
@@ -100,23 +88,19 @@ void ReviewController::initializeCoordinatorWiring() {
         &facet_coordinator_,
         &ReviewLibraryFacetCoordinator::globalStatusMessageChanged,
         this,
-        [this]() {
-            setStatusMessage(facet_coordinator_.globalStatusMessage());
-        }
+        [this]() { setStatusMessage(facet_coordinator_.globalStatusMessage()); }
     );
     connect(
         &organization_coordinator_,
         &ReviewLibraryOrganizationCoordinator::stateProjected,
         this,
-        [this](
-            const QString& photo_id,
-            const bool liked,
-            const QString& color_label
-        ) {
+        [this](const QString& photo_id, const bool liked, const QString& color_label) {
             emit colorLabelChanged(photo_id, color_label);
             emit likedChanged(photo_id, liked);
             if (filtered_model_.hasActiveServerFilter()) {
                 scheduleFilterQuery();
+            } else {
+                refreshLibraryFacets();
             }
         }
     );
@@ -124,11 +108,7 @@ void ReviewController::initializeCoordinatorWiring() {
         &organization_coordinator_,
         &ReviewLibraryOrganizationCoordinator::statusMessageChanged,
         this,
-        [this]() {
-            setDecisionStatusMessage(
-                organization_coordinator_.statusMessage()
-            );
-        }
+        [this]() { setDecisionStatusMessage(organization_coordinator_.statusMessage()); }
     );
     connect(
         &album_coordinator_,
@@ -154,13 +134,9 @@ void ReviewController::initializeCoordinatorWiring() {
         this,
         [this]() {
             const auto channel = album_coordinator_.statusChannel();
-            if (channel
-                == ReviewLibraryAlbumCoordinator::StatusChannel::Decision) {
+            if (channel == ReviewLibraryAlbumCoordinator::StatusChannel::Decision) {
                 setDecisionStatusMessage(album_coordinator_.statusMessage());
-            } else if (
-                channel
-                == ReviewLibraryAlbumCoordinator::StatusChannel::Global
-            ) {
+            } else if (channel == ReviewLibraryAlbumCoordinator::StatusChannel::Global) {
                 setStatusMessage(album_coordinator_.statusMessage());
             }
         }
@@ -181,53 +157,28 @@ void ReviewController::initializeCoordinatorWiring() {
         &source_health_coordinator_,
         &ReviewSourceHealthCoordinator::globalStatusMessageChanged,
         this,
-        [this]() {
-            setStatusMessage(
-                source_health_coordinator_.globalStatusMessage()
-            );
-        }
+        [this]() { setStatusMessage(source_health_coordinator_.globalStatusMessage()); }
     );
-    connect(
-        &import_coordinator_,
-        &ReviewImportCoordinator::runningChanged,
-        this,
-        [this]() {
-            query_coordinator_.setScanRunning(
-                import_coordinator_.scanning()
-            );
-            emit scanningChanged();
-        }
-    );
+    connect(&import_coordinator_, &ReviewImportCoordinator::runningChanged, this, [this]() {
+        query_coordinator_.setScanRunning(import_coordinator_.scanning());
+        emit scanningChanged();
+    });
     connect(
         &import_coordinator_,
         &ReviewImportCoordinator::folderPathChanged,
         this,
         &ReviewController::folderPathChanged
     );
-    connect(
-        &import_coordinator_,
-        &ReviewImportCoordinator::progressChanged,
-        this,
-        [this]() {
-            emit scanProgressChanged();
-            if (import_coordinator_.takeStreamRefreshRequest(
-                    model_.rowCount(),
-                    query_coordinator_.pageRunning()
-                )) {
-                static_cast<void>(
-                    query_coordinator_.refreshStreamingPrefix(true)
-                );
-            }
+    connect(&import_coordinator_, &ReviewImportCoordinator::progressChanged, this, [this]() {
+        emit scanProgressChanged();
+        if (import_coordinator_
+                .takeStreamRefreshRequest(model_.rowCount(), query_coordinator_.pageRunning())) {
+            static_cast<void>(query_coordinator_.refreshStreamingPrefix(true));
         }
-    );
-    connect(
-        &import_coordinator_,
-        &ReviewImportCoordinator::statusMessageChanged,
-        this,
-        [this]() {
-            setStatusMessage(import_coordinator_.statusMessage());
-        }
-    );
+    });
+    connect(&import_coordinator_, &ReviewImportCoordinator::statusMessageChanged, this, [this]() {
+        setStatusMessage(import_coordinator_.statusMessage());
+    });
     connect(
         &import_coordinator_,
         &ReviewImportCoordinator::terminalRefreshRequested,
@@ -237,31 +188,21 @@ void ReviewController::initializeCoordinatorWiring() {
             requestLibraryReset();
         }
     );
-    connect(
-        &query_coordinator_,
-        &ReviewLibraryQueryCoordinator::workStateChanged,
-        this,
-        [this]() {
-            emit busyChanged();
-            emit refreshingChanged();
-            emit loadingMoreChanged();
-        }
-    );
+    connect(&query_coordinator_, &ReviewLibraryQueryCoordinator::workStateChanged, this, [this]() {
+        emit busyChanged();
+        emit refreshingChanged();
+        emit loadingMoreChanged();
+    });
     connect(
         &query_coordinator_,
         &ReviewLibraryQueryCoordinator::hasMoreChanged,
         this,
         &ReviewController::hasMoreChanged
     );
-    connect(
-        &query_coordinator_,
-        &ReviewLibraryQueryCoordinator::itemCountChanged,
-        this,
-        [this]() {
-            emit itemCountChanged();
-            emit filtersChanged();
-        }
-    );
+    connect(&query_coordinator_, &ReviewLibraryQueryCoordinator::itemCountChanged, this, [this]() {
+        emit itemCountChanged();
+        emit filtersChanged();
+    });
     connect(
         &query_coordinator_,
         &ReviewLibraryQueryCoordinator::decisionsReconciled,
@@ -272,10 +213,7 @@ void ReviewController::initializeCoordinatorWiring() {
         &query_coordinator_,
         &ReviewLibraryQueryCoordinator::queryStarted,
         this,
-        [this](
-            const BackendLibraryPhotoFilter& filter,
-            const quint64 generation
-        ) {
+        [this](const BackendLibraryPhotoFilter& filter, const quint64 generation) {
             facet_coordinator_.refresh(filter, generation);
         }
     );
@@ -285,9 +223,8 @@ void ReviewController::initializeCoordinatorWiring() {
         this,
         [this]() {
             setStatusMessage(
-                import_coordinator_.scanning()
-                    ? import_coordinator_.statusMessage()
-                    : import_coordinator_.refreshingStatusMessage()
+                import_coordinator_.scanning() ? import_coordinator_.statusMessage()
+                                               : import_coordinator_.refreshingStatusMessage()
             );
         }
     );
@@ -295,9 +232,7 @@ void ReviewController::initializeCoordinatorWiring() {
         &query_coordinator_,
         &ReviewLibraryQueryCoordinator::statusMessageChanged,
         this,
-        [this]() {
-            setStatusMessage(query_coordinator_.statusMessage());
-        }
+        [this]() { setStatusMessage(query_coordinator_.statusMessage()); }
     );
     connect(
         &query_coordinator_,
@@ -321,9 +256,7 @@ void ReviewController::initializeCoordinatorWiring() {
         &shared_grade_coordinator_,
         &ReviewSharedGradeCoordinator::statusMessageChanged,
         this,
-        [this]() {
-            setStatusMessage(shared_grade_coordinator_.statusMessage());
-        }
+        [this]() { setStatusMessage(shared_grade_coordinator_.statusMessage()); }
     );
     connect(
         &shared_grade_coordinator_,

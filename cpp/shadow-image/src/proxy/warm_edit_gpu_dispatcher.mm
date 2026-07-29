@@ -11,6 +11,7 @@
 #include "warm_edit_gpu_geometry_plan.hpp"
 #include "warm_edit_gpu_kernel_contract.hpp"
 #include "warm_edit_gpu_pipeline_context.hpp"
+#include "warm_edit_gpu_presentation_surface.hpp"
 #include "warm_edit_gpu_resident_resources.hpp"
 #include "warm_edit_gpu_transaction.hpp"
 #include "warm_edit_gpu_transaction_encoder.hpp"
@@ -254,6 +255,40 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
                    atIndex:11U];
         dispatch_warm_gpu_raster(encoder, context.display_pipeline(), output_dimensions);
         [encoder endEncoding];
+
+        std::shared_ptr<WarmEditGpuPresentationSurface> presentation_surface;
+        std::string presentation_fallback_diagnostic;
+        if (
+            render_context.output_intent
+                == WarmEditGpuOutputIntent::metal_presentation_surface
+            && !retain_linear_for_analysis
+        ) {
+            resident.record_presentation_surface_request();
+            auto preparation_surface =
+                prepare_warm_edit_gpu_presentation_surface(
+                    context.device(),
+                    output_dimensions
+                );
+            if (preparation_surface.surface) {
+                const std::string presentation_diagnostic =
+                    encode_warm_edit_gpu_presentation_surface(
+                        command_buffer,
+                        slot.rgb8,
+                        *preparation_surface.surface
+                );
+                if (presentation_diagnostic.empty()) {
+                    presentation_surface =
+                        std::move(preparation_surface.surface);
+                } else {
+                    presentation_fallback_diagnostic = presentation_diagnostic;
+                }
+            } else {
+                presentation_fallback_diagnostic =
+                    preparation_surface.diagnostic.empty()
+                    ? "Metal presentation surface preparation was unavailable"
+                    : std::move(preparation_surface.diagnostic);
+            }
+        }
         if (cancellation.stop_requested()) {
             return cancelled();
         }
@@ -279,10 +314,20 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             }
             return failed(std::move(diagnostic));
         }
+        if (presentation_surface) {
+            resident.record_presentation_surface_publish();
+        } else if (!presentation_fallback_diagnostic.empty()) {
+            resident.record_presentation_surface_fallback();
+        }
 
         RenderResult result{
             .dimensions = output_dimensions,
-            .rgb8 = std::vector<std::uint8_t>(output_rgb8_bytes),
+            .rgb8 = presentation_surface
+                ? std::vector<std::uint8_t>{}
+                : std::vector<std::uint8_t>(output_rgb8_bytes),
+            .presentation_surface = std::move(presentation_surface),
+            .presentation_fallback_diagnostic =
+                std::move(presentation_fallback_diagnostic),
             .analyzed_linear = std::nullopt,
             .had_active_adjustments =
                 transaction.had_active_adjustments || geometry_plan.has_value(),
@@ -290,7 +335,9 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         if (cancellation.stop_requested()) {
             return cancelled();
         }
-        std::memcpy(result.rgb8.data(), [slot.rgb8 contents], output_rgb8_bytes);
+        if (!result.presentation_surface) {
+            std::memcpy(result.rgb8.data(), [slot.rgb8 contents], output_rgb8_bytes);
+        }
         if (retain_linear_for_analysis) {
             FloatRgbImage linear{
                 .dimensions = output_dimensions,

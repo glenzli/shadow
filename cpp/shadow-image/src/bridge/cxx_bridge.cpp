@@ -183,6 +183,32 @@ analyzed_edit_preview(const image::AnalyzedEditPreview& preview) {
     return result;
 }
 
+[[nodiscard]] FfiEditPreviewMaskCoverage edit_preview_mask_coverage(
+    const std::optional<image::EditPreviewMaskCoverage>& coverage
+) {
+    FfiEditPreviewMaskCoverage result{};
+    if (!coverage.has_value()) {
+        return result;
+    }
+    if (!coverage->valid()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::internal,
+            0,
+            "completed edit-preview mask coverage violates its native contract"
+        );
+    }
+    result.available = true;
+    result.version = rust::String(coverage->version);
+    result.layer_index = coverage->layer_index;
+    result.dimensions = dimensions(coverage->dimensions);
+    result.row_stride_bytes = coverage->row_stride_bytes;
+    result.samples.reserve(coverage->samples.size());
+    for (const auto sample : coverage->samples) {
+        result.samples.push_back(sample);
+    }
+    return result;
+}
+
 [[nodiscard]] FfiDetailTileRect detail_tile_rect(const image::DetailTileRect value) noexcept {
     return FfiDetailTileRect{value.x, value.y, value.width, value.height};
 }

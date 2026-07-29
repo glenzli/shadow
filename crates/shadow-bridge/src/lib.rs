@@ -17,6 +17,7 @@ mod error;
 mod one_shot;
 mod optics;
 mod preview_analysis;
+mod preview_frame;
 mod preview_session;
 mod provider;
 mod raw_development;
@@ -35,6 +36,7 @@ pub use error::BridgeError;
 pub use one_shot::*;
 pub use optics::*;
 pub use preview_analysis::*;
+pub use preview_frame::*;
 pub use preview_session::*;
 pub use provider::*;
 pub use raw_development::*;
@@ -410,16 +412,33 @@ mod ffi {
         execution: FfiEditPreviewExecutionReceipt,
     }
 
+    /// Optional exact local-mask coverage paired with one completed preview.
+    ///
+    /// `available == false` requires every remaining field to use its empty
+    /// sentinel. Selection revision is host transaction metadata and therefore
+    /// never crosses this native boundary.
+    #[derive(Debug)]
+    struct FfiEditPreviewMaskCoverage {
+        available: bool,
+        version: String,
+        layer_index: u32,
+        dimensions: FfiDimensions,
+        row_stride_bytes: u32,
+        samples: Vec<u8>,
+    }
+
     #[derive(Debug)]
     struct FfiCancellableEncodedProxy {
         cancelled: bool,
         proxy: FfiEncodedProxy,
+        mask_coverage: FfiEditPreviewMaskCoverage,
     }
 
     #[derive(Debug)]
     struct FfiCancellableAnalyzedEditPreview {
         cancelled: bool,
         preview: FfiAnalyzedEditPreview,
+        mask_coverage: FfiEditPreviewMaskCoverage,
     }
 
     /// A compact RAW-source diagnostic in the exact display dimensions of the prepared preview.
@@ -502,6 +521,8 @@ mod ffi {
         geometry: FfiPhotoGeometry,
         max_edge: u32,
         jpeg_quality: u8,
+        mask_coverage_requested: bool,
+        mask_coverage_target_layer_index: u32,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -538,6 +559,7 @@ mod ffi {
         type DecodeHandle;
         type EditPreviewHandle;
         type EditPreviewCancellationHandle;
+        type InteractiveEditPreviewFrameHandle;
         type FullEditDetailHandle;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
@@ -630,6 +652,31 @@ mod ffi {
             request: &FfiAdjustmentRenderRequest,
             cancellation: &EditPreviewCancellationHandle,
         ) -> Result<FfiCancellableEncodedProxy>;
+        fn render_adjustment_plan_owned_rgb8_cancellable(
+            self: &EditPreviewHandle,
+            request: &FfiAdjustmentRenderRequest,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<UniquePtr<InteractiveEditPreviewFrameHandle>>;
+        fn width(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn height(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn row_stride_bytes(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn storage_kind(self: &InteractiveEditPreviewFrameHandle) -> u8;
+        fn native_texture_row_stride_bytes(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn native_texture_pixel_format(self: &InteractiveEditPreviewFrameHandle) -> u8;
+        fn native_resource_id(self: &InteractiveEditPreviewFrameHandle) -> u64;
+        fn native_texture_handle(self: &InteractiveEditPreviewFrameHandle) -> usize;
+        fn native_device_handle(self: &InteractiveEditPreviewFrameHandle) -> usize;
+        fn materialized_pixel_bytes(self: &InteractiveEditPreviewFrameHandle) -> usize;
+        fn retained_bytes(self: &InteractiveEditPreviewFrameHandle) -> usize;
+        fn presentation_fallback_diagnostic(self: &InteractiveEditPreviewFrameHandle) -> String;
+        fn materialize_pixels<'a>(self: &'a InteractiveEditPreviewFrameHandle) -> Result<&'a [u8]>;
+        fn mask_coverage_available(self: &InteractiveEditPreviewFrameHandle) -> bool;
+        fn mask_coverage_version(self: &InteractiveEditPreviewFrameHandle) -> String;
+        fn mask_coverage_layer_index(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn mask_coverage_width(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn mask_coverage_height(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn mask_coverage_row_stride_bytes(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn mask_coverage_samples<'a>(self: &'a InteractiveEditPreviewFrameHandle) -> &'a [u8];
         fn render_adjustment_plan_with_analysis_cancellable(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,

@@ -1,6 +1,9 @@
 //! Complete projection from a validated native preview into the desktop FFI.
 
-use shadow_bridge::{EditPreviewAnalysis, OpticsReceipt, SensorClippingMask};
+use shadow_bridge::{
+    EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, EditPreviewAnalysis, EditPreviewMaskCoverage,
+    OpticsReceipt, SensorClippingMask,
+};
 use shadow_domain::{PreviewCodec, ProxyPayload};
 
 use super::EditPreviewPolicy;
@@ -13,6 +16,14 @@ pub(crate) fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
         height: 0,
         row_stride_bytes: 0,
         bytes: Vec::new(),
+        mask_coverage_available: false,
+        mask_coverage_version: 0,
+        mask_coverage_target_layer_index: 0,
+        mask_selection_revision: 0,
+        mask_coverage_width: 0,
+        mask_coverage_height: 0,
+        mask_coverage_row_stride_bytes: 0,
+        mask_coverage_samples: Vec::new(),
         sensor_clipping_available: false,
         sensor_clipping_width: 0,
         sensor_clipping_height: 0,
@@ -51,9 +62,13 @@ pub(crate) fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
     }
 }
 
+// The explicit CXX field mapping is one auditable wire contract; fragmenting
+// it into field-family mutators would hide omissions behind construction order.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn completed_edited_preview(
     proxy: ProxyPayload,
     analysis: Option<&EditPreviewAnalysis>,
+    mask_coverage: Option<EditPreviewMaskCoverage>,
     optics: &OpticsReceipt,
     sensor_clipping: &SensorClippingMask,
     policy: EditPreviewPolicy,
@@ -70,12 +85,51 @@ pub(crate) fn completed_edited_preview(
         PreviewCodec::Jpeg => 0,
         _ => unreachable!("validated edit previews are JPEG or display-sRGB RGB8"),
     };
+    if let Some(mask_coverage) = mask_coverage.as_ref() {
+        debug_assert_eq!(mask_coverage.dimensions, proxy.dimensions);
+        debug_assert_eq!(
+            mask_coverage.row_stride_bytes,
+            mask_coverage.dimensions.width
+        );
+    }
+    let (
+        mask_coverage_available,
+        mask_coverage_version,
+        mask_coverage_target_layer_index,
+        mask_selection_revision,
+        mask_coverage_width,
+        mask_coverage_height,
+        mask_coverage_row_stride_bytes,
+        mask_coverage_samples,
+    ) = mask_coverage.map_or_else(
+        || (false, 0, 0, 0, 0, 0, 0, Vec::new()),
+        |coverage| {
+            (
+                true,
+                EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION,
+                coverage.target_layer_index,
+                coverage.mask_selection_revision,
+                coverage.dimensions.width,
+                coverage.dimensions.height,
+                coverage.row_stride_bytes,
+                coverage.samples,
+            )
+        },
+    );
     ffi::FfiEditedPreview {
         terminal: ffi::FfiEditPreviewTerminal::Completed,
         width: proxy.dimensions.width,
         height: proxy.dimensions.height,
         row_stride_bytes,
         bytes: proxy.bytes,
+        mask_coverage_available,
+        mask_coverage_version,
+        mask_coverage_target_layer_index,
+        mask_selection_revision,
+        mask_coverage_width,
+        mask_coverage_height,
+        mask_coverage_row_stride_bytes,
+        mask_coverage_samples,
         sensor_clipping_available: return_sensor_diagnostics && sensor_clipping.available,
         sensor_clipping_width: if return_sensor_diagnostics {
             sensor_clipping.dimensions.width

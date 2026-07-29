@@ -18,16 +18,12 @@ namespace review_library_facet_test {
 
 inline void require(const bool condition, const std::string& message) {
     if (!condition) {
-        std::cerr
-            << "Library facet coordinator contract failed: "
-            << message
-            << '\n';
+        std::cerr << "Library facet coordinator contract failed: " << message << '\n';
         std::exit(EXIT_FAILURE);
     }
 }
 
-template <typename Predicate>
-void wait_until(Predicate predicate, const std::string& message) {
+template <typename Predicate> void wait_until(Predicate predicate, const std::string& message) {
     QElapsedTimer timer;
     timer.start();
     while (!predicate() && timer.elapsed() < 3'000) {
@@ -45,10 +41,19 @@ struct FacetCall final {
     std::uint32_t limit = 0;
 };
 
+struct CountCall final {
+    bool has_liked = false;
+    bool liked = false;
+    bool has_minimum_rating = false;
+    std::uint8_t minimum_rating = 0;
+    QString album_id;
+};
+
 struct FacetBackendState final {
     mutable std::mutex mutex;
     std::condition_variable condition;
     QVector<FacetCall> calls;
+    QVector<CountCall> count_calls;
     bool block_first = false;
     bool first_entered = false;
     bool release_first = false;
@@ -67,9 +72,8 @@ inline QString kind_name(const BackendLibraryFacetKind kind) {
     return QStringLiteral("unknown");
 }
 
-inline ReviewLibraryFacetCoordinator::Operations operations(
-    const std::shared_ptr<FacetBackendState>& state
-) {
+inline ReviewLibraryFacetCoordinator::Operations
+operations(const std::shared_ptr<FacetBackendState>& state) {
     return {
         .page =
             [state](
@@ -89,16 +93,12 @@ inline ReviewLibraryFacetCoordinator::Operations operations(
                 if (state->block_first && state->calls.size() == 1) {
                     state->first_entered = true;
                     state->condition.notify_all();
-                    state->condition.wait(
-                        lock,
-                        [state]() { return state->release_first; }
-                    );
+                    state->condition.wait(lock, [state]() { return state->release_first; });
                 }
                 if (state->fail) {
                     throw std::runtime_error("facet query failed");
                 }
-                const QString identity =
-                    filter.camera_key + QLatin1Char('-') + kind_name(kind);
+                const QString identity = filter.camera_key + QLatin1Char('-') + kind_name(kind);
                 return BackendLibraryFacetPage{
                     .items = {
                         {
@@ -109,12 +109,33 @@ inline ReviewLibraryFacetCoordinator::Operations operations(
                     },
                 };
             },
+        .count =
+            [state](const BackendLibraryPhotoFilter& filter) {
+                std::lock_guard lock(state->mutex);
+                state->count_calls.push_back({
+                    .has_liked = filter.has_liked,
+                    .liked = filter.liked,
+                    .has_minimum_rating = filter.has_minimum_rating,
+                    .minimum_rating = filter.minimum_rating,
+                    .album_id = filter.album_id,
+                });
+                if (state->fail) {
+                    throw std::runtime_error("facet query failed");
+                }
+                if (filter.has_liked && filter.liked) {
+                    return std::uint64_t{7};
+                }
+                if (filter.has_minimum_rating && filter.minimum_rating == 5) {
+                    return std::uint64_t{3};
+                }
+                return std::uint64_t{41};
+            },
     };
 }
 
 inline int call_count(const std::shared_ptr<FacetBackendState>& state) {
     std::lock_guard lock(state->mutex);
-    return static_cast<int>(state->calls.size());
+    return static_cast<int>(state->calls.size() + state->count_calls.size());
 }
 
 } // namespace review_library_facet_test

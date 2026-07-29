@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQuickItem>
 #include <QString>
 #include <QVariant>
 #include <QVariantMap>
@@ -143,7 +144,16 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    drainBindings();
+    QQuickItem* destination_selector =
+        menu->findChild<QQuickItem*>(QStringLiteral("maskDestinationSelector"));
+    QQuickItem* brush_action = menu->findChild<QQuickItem*>(QStringLiteral("brushMaskAction"));
     if (!require(
+            destination_selector != nullptr && brush_action != nullptr
+                && destination_selector->y() < brush_action->y(),
+            "the destination choice is presented before mask type selection"
+        )
+        || !require(
             menu->property("currentNodeAvailable").toBool()
                 && menu->property("newNodeAvailable").toBool(),
             "an enabled empty node exposes both atomic destinations"

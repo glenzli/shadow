@@ -14,177 +14,72 @@ ColumnLayout {
 
     required property var inspector
     required property int currentTabIndex
+    required property bool selectedRegionContinuous
+    required property int selectedRegionIndex
+
+    signal regionSelectionRequested(bool continuous, int index)
 
     readonly property bool controlsEnabled:
         retouch.inspector.editor.active
         && !retouch.inspector.editor.stateBusy
+    readonly property int strokeCount:
+        retouch.inspector.editor.retouchStrokes.length
+    readonly property int spotCount:
+        retouch.inspector.editor.retouchSpots.length
+    readonly property int regionCount: strokeCount + spotCount
+    property int observedStrokeCount: 0
+    property int observedSpotCount: 0
+    readonly property var selectedRegion: selectedRegionContinuous
+        ? (selectedRegionIndex >= 0 && selectedRegionIndex < strokeCount
+            ? retouch.inspector.editor.retouchStrokes[selectedRegionIndex]
+            : null)
+        : (selectedRegionIndex >= 0 && selectedRegionIndex < spotCount
+            ? retouch.inspector.editor.retouchSpots[selectedRegionIndex]
+            : null)
+    readonly property int selectedRegionDisplayIndex:
+        selectedRegionContinuous
+            ? selectedRegionIndex : strokeCount + selectedRegionIndex
+    readonly property int regionInspectorCount:
+        selectedRegion === null ? 0 : 1
 
     spacing: 0
 
-    component RetouchRegionControls: ColumnLayout {
-        id: regionControls
-        required property var region
-        required property bool continuous
-        required property int displayIndex
+    function selectRegion(continuous, index) {
+        regionSelectionRequested(continuous, index)
+    }
 
-        Layout.fillWidth: true
-        Layout.leftMargin: 14
-        Layout.rightMargin: 14
-        Layout.topMargin: 8
-        Layout.bottomMargin: 4
-        enabled: retouch.controlsEnabled
-        spacing: 6
-
-        function setMode(mode) {
-            if (regionControls.continuous) {
-                retouch.inspector.editor.setRetouchStrokeMode(
-                    regionControls.region.index, mode)
-            } else {
-                retouch.inspector.editor.setRetouchSpotMode(
-                    regionControls.region.index, mode)
-            }
-        }
-
-        function remove() {
-            if (regionControls.continuous) {
-                retouch.inspector.editor.removeRetouchStroke(
-                    regionControls.region.index)
-            } else {
-                retouch.inspector.editor.removeRetouchSpot(
-                    regionControls.region.index)
-            }
-        }
-
-        function setRadius(value) {
-            if (regionControls.continuous) {
-                retouch.inspector.editor.setRetouchStrokeRadius(
-                    regionControls.region.index, Math.round(value))
-            } else {
-                retouch.inspector.editor.setRetouchSpotRadius(
-                    regionControls.region.index, Math.round(value))
-            }
-        }
-
-        function setFeather(value) {
-            if (regionControls.continuous) {
-                retouch.inspector.editor.setRetouchStrokeFeather(
-                    regionControls.region.index, value)
-            } else {
-                retouch.inspector.editor.setRetouchSpotFeather(
-                    regionControls.region.index, value)
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Region %1").arg(
-                    regionControls.displayIndex + 1)
-                color: regionControls.enabled
-                    ? Theme.textSecondary : Theme.textDisabled
-                font.pixelSize: 10
-                font.weight: Font.DemiBold
-            }
-
-            ShadowIconButton {
-                buttonSize: 30
-                iconSize: 17
-                source: "qrc:/icons/heal.svg"
-                selected: Number(regionControls.region.mode) === 0
-                toolTipText: qsTr(
-                    "Blend a defect from its surrounding pixels")
-                accessibleName: qsTr("Heal") + " · "
-                    + qsTr("Region %1").arg(
-                        regionControls.displayIndex + 1)
-                onClicked: regionControls.setMode(0)
-            }
-
-            ShadowIconButton {
-                buttonSize: 30
-                iconSize: 17
-                source: "qrc:/icons/clone.svg"
-                selected: Number(regionControls.region.mode) === 1
-                toolTipText: qsTr("Copy a same-shaped nearby source")
-                accessibleName: qsTr("Clone") + " · "
-                    + qsTr("Region %1").arg(
-                        regionControls.displayIndex + 1)
-                onClicked: regionControls.setMode(1)
-            }
-
-            ShadowIconButton {
-                buttonSize: 30
-                iconSize: 16
-                source: "qrc:/icons/trash.svg"
-                variant: ShadowIconButton.Danger
-                toolTipText: qsTr("Remove region %1").arg(
-                    regionControls.displayIndex + 1)
-                accessibleName: toolTipText
-                onClicked: regionControls.remove()
-            }
-        }
-
-        ShadowSlider {
-            Layout.fillWidth: true
-            label: qsTr("Size")
-            from: 1
-            to: 128
-            neutralValue: 18
-            stepSize: 1
-            decimals: 0
-            suffix: qsTr(" px")
-            value: regionControls.region.radius
-            toolTipText: qsTr("Full-resolution repair radius")
-            onGestureStarted: retouch.inspector.editor.beginParameterEdit(
-                regionControls.continuous
-                    ? "retouch/stroke/" + regionControls.region.index
-                        + "/radius"
-                    : "retouch/" + regionControls.region.index + "/radius")
-            onEdited: value => regionControls.setRadius(value)
-            onGestureFinished: retouch.inspector.editor.endParameterEdit(
-                regionControls.continuous
-                    ? "retouch/stroke/" + regionControls.region.index
-                        + "/radius"
-                    : "retouch/" + regionControls.region.index + "/radius")
-        }
-
-        ShadowSlider {
-            Layout.fillWidth: true
-            label: qsTr("Feather")
-            from: 0
-            to: 1
-            neutralValue: 0.28
-            stepSize: 0.01
-            decimals: 0
-            displayMultiplier: 100
-            suffix: "%"
-            value: Number(regionControls.region.feather)
-            toolTipText: qsTr("Soften the repair edge")
-            onGestureStarted: retouch.inspector.editor.beginParameterEdit(
-                regionControls.continuous
-                    ? "retouch/stroke/" + regionControls.region.index
-                        + "/feather"
-                    : "retouch/" + regionControls.region.index + "/feather")
-            onEdited: value => regionControls.setFeather(value)
-            onGestureFinished: retouch.inspector.editor.endParameterEdit(
-                regionControls.continuous
-                    ? "retouch/stroke/" + regionControls.region.index
-                        + "/feather"
-                    : "retouch/" + regionControls.region.index + "/feather")
-        }
-
-        Label {
-            Layout.fillWidth: true
-            visible: Number(regionControls.region.mode) === 1
-            text: qsTr("Drag the linked source region on the image.")
-            color: regionControls.enabled
-                ? Theme.textMuted : Theme.textDisabled
-            font.pixelSize: 9
-            lineHeight: 1.2
+    function selectNewestRegion() {
+        if (strokeCount > observedStrokeCount) {
+            selectRegion(true, strokeCount - 1)
+        } else if (spotCount > observedSpotCount) {
+            selectRegion(false, spotCount - 1)
+        } else if (strokeCount > 0) {
+            selectRegion(true, strokeCount - 1)
+        } else if (spotCount > 0) {
+            selectRegion(false, spotCount - 1)
+        } else {
+            regionSelectionRequested(true, -1)
         }
     }
+
+    function reconcileSelection() {
+        const added = strokeCount > observedStrokeCount
+            || spotCount > observedSpotCount
+        if (added || selectedRegion === null)
+            selectNewestRegion()
+        observedStrokeCount = strokeCount
+        observedSpotCount = spotCount
+    }
+
+    Connections {
+        target: retouch.inspector.editor
+
+        function onParametersChanged() {
+            retouch.reconcileSelection()
+        }
+    }
+
+    Component.onCompleted: reconcileSelection()
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
@@ -232,26 +127,6 @@ ColumnLayout {
                 }
             }
 
-            Rectangle {
-                Layout.preferredWidth: 1
-                Layout.preferredHeight: 22
-                color: Theme.border
-            }
-
-            ShadowIconButton {
-                buttonSize: 36
-                iconSize: 19
-                source: "qrc:/icons/brush.svg"
-                selected: retouch.inspector.editor.retouchPickerActive
-                toolTipText: retouch.inspector.editor.retouchPickerActive
-                    ? qsTr("Stop painting")
-                    : qsTr("Start painting")
-                accessibleName: toolTipText
-                enabled: retouch.controlsEnabled
-                onClicked: retouch.inspector.editor.setRetouchPickerActive(
-                    !retouch.inspector.editor.retouchPickerActive)
-            }
-
             Item { Layout.fillWidth: true }
         }
 
@@ -262,8 +137,10 @@ ColumnLayout {
             Layout.topMargin: 6
             Layout.bottomMargin: 10
             text: retouch.inspector.editor.retouchPickerActive
-                ? qsTr("Drag across the image to paint repair regions.")
-                : qsTr("Select a repair region on the image to refine it.")
+                ? qsTr("Drag on the image to paint · Esc stops painting")
+                : retouch.regionCount > 0
+                    ? qsTr("Select a repair region below or on the image.")
+                    : qsTr("Choose Heal or Clone, then paint on the image.")
             color: !retouch.controlsEnabled
                 ? Theme.textDisabled
                 : retouch.inspector.editor.retouchPickerActive
@@ -273,27 +150,24 @@ ColumnLayout {
             lineHeight: 1.25
         }
 
-        Repeater {
-            model: retouch.inspector.editor.retouchStrokes
-
-            delegate: RetouchRegionControls {
-                required property var modelData
-                region: modelData
-                continuous: true
-                displayIndex: modelData.index
-            }
+        PrecisionRetouchRegionPicker {
+            editor: retouch.inspector.editor
+            selectedContinuous: retouch.selectedRegionContinuous
+            selectedIndex: retouch.selectedRegionIndex
+            onRegionRequested: (continuous, index) =>
+                retouch.selectRegion(continuous, index)
         }
 
-        Repeater {
-            model: retouch.inspector.editor.retouchSpots
-
-            delegate: RetouchRegionControls {
-                required property var modelData
-                region: modelData
-                continuous: false
-                displayIndex: retouch.inspector.editor.retouchStrokes.length
-                    + modelData.index
-            }
+        PrecisionRetouchRegionInspector {
+            objectName: "retouchSelectedRegionInspector"
+            visible: retouch.selectedRegion !== null
+            editor: retouch.inspector.editor
+            region: retouch.selectedRegion === null
+                ? ({ "index": -1, "mode": 0, "radius": 18, "feather": 0.28 })
+                : retouch.selectedRegion
+            continuous: retouch.selectedRegionContinuous
+            displayIndex: retouch.selectedRegionDisplayIndex
+            controlsEnabled: retouch.controlsEnabled
         }
     }
 }

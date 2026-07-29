@@ -66,6 +66,23 @@ public:
             }
 
             error = nil;
+            OwnedObjectiveCObject resident_function(
+                [static_cast<id<MTLLibrary>>(library.get())
+                    newFunctionWithName:@"develop_bayer_resident_region"]
+            );
+            if (!resident_function) {
+                resident_diagnostic_ = "Metal resident RAW shader entry point is unavailable";
+            } else {
+                resident_pipeline_ = [device_ newComputePipelineStateWithFunction:
+                    static_cast<id<MTLFunction>>(resident_function.get())
+                    error:&error];
+                if (resident_pipeline_ == nil) {
+                    resident_diagnostic_ = "Metal resident RAW pipeline creation failed: "
+                        + error_description(error);
+                }
+            }
+
+            error = nil;
             OwnedObjectiveCObject preview_function(
                 [static_cast<id<MTLLibrary>>(library.get())
                     newFunctionWithName:@"develop_bayer_area_preview"]
@@ -122,6 +139,7 @@ public:
         [denoise_pipeline_ release];
         [dcp_pipeline_ release];
         [preview_pipeline_ release];
+        [resident_pipeline_ release];
         [pipeline_ release];
         [queue_ release];
         [device_ release];
@@ -138,6 +156,10 @@ public:
         return device_ != nil && queue_ != nil && denoise_pipeline_ != nil;
     }
 
+    [[nodiscard]] bool resident_valid() const noexcept {
+        return device_ != nil && queue_ != nil && resident_pipeline_ != nil;
+    }
+
     [[nodiscard]] bool area_preview_valid() const noexcept {
         return device_ != nil && queue_ != nil && preview_pipeline_ != nil;
     }
@@ -151,6 +173,9 @@ public:
     [[nodiscard]] id<MTLComputePipelineState> pipeline() const noexcept {
         return pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> resident_pipeline() const noexcept {
+        return resident_pipeline_;
+    }
     [[nodiscard]] id<MTLComputePipelineState> raw_denoise_pipeline() const noexcept {
         return denoise_pipeline_;
     }
@@ -161,6 +186,9 @@ public:
         return dcp_pipeline_;
     }
     [[nodiscard]] const std::string& diagnostic() const noexcept { return diagnostic_; }
+    [[nodiscard]] const std::string& resident_diagnostic() const noexcept {
+        return resident_diagnostic_.empty() ? diagnostic_ : resident_diagnostic_;
+    }
     [[nodiscard]] const std::string& area_preview_diagnostic() const noexcept {
         return preview_diagnostic_.empty() ? diagnostic_ : preview_diagnostic_;
     }
@@ -175,10 +203,12 @@ private:
     id<MTLDevice> device_ = nil;
     id<MTLCommandQueue> queue_ = nil;
     id<MTLComputePipelineState> pipeline_ = nil;
+    id<MTLComputePipelineState> resident_pipeline_ = nil;
     id<MTLComputePipelineState> preview_pipeline_ = nil;
     id<MTLComputePipelineState> dcp_pipeline_ = nil;
     id<MTLComputePipelineState> denoise_pipeline_ = nil;
     std::string diagnostic_;
+    std::string resident_diagnostic_;
     std::string preview_diagnostic_;
     std::string dcp_diagnostic_;
     std::string denoise_diagnostic_;
@@ -203,6 +233,10 @@ private:
     return metal_context().pipeline();
 }
 
+[[nodiscard]] id<MTLComputePipelineState> metal_raw_resident_reconstruction_pipeline() noexcept {
+    return metal_context().resident_pipeline();
+}
+
 [[nodiscard]] id<MTLComputePipelineState> metal_raw_area_preview_pipeline() noexcept {
     return metal_context().area_preview_pipeline();
 }
@@ -215,12 +249,20 @@ private:
     return metal_context().dcp_pipeline();
 }
 
+[[nodiscard]] bool metal_raw_resident_reconstruction_available() noexcept {
+    return metal_context().resident_valid();
+}
+
 [[nodiscard]] bool metal_raw_area_preview_available() noexcept {
     return metal_context().area_preview_valid();
 }
 
 [[nodiscard]] const std::string& metal_raw_runtime_diagnostic() noexcept {
     return metal_context().diagnostic();
+}
+
+[[nodiscard]] const std::string& metal_raw_resident_reconstruction_diagnostic() noexcept {
+    return metal_context().resident_diagnostic();
 }
 
 [[nodiscard]] const std::string& metal_raw_area_preview_diagnostic() noexcept {

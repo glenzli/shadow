@@ -203,21 +203,12 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     return result;
 }
 
-kernel void develop_bayer_full(
-    device const ushort* samples [[buffer(0)]],
-    device float* output [[buffer(1)]],
-    constant RawDevelopmentParameters& parameters [[buffer(2)]],
-    device const ushort* clipping_source [[buffer(3)]],
-    device uchar* clipping_output [[buffer(4)]],
-    uint2 position [[thread_position_in_grid]]
+inline float3 develop_bayer_scene_linear_at(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint output_x,
+    const uint output_y
 ) {
-    if (position.x >= parameters.output_width
-        || position.y >= parameters.output_tile_height) {
-        return;
-    }
-
-    const uint output_x = position.x;
-    const uint output_y = parameters.output_row_offset + position.y;
     uint source_x = output_x;
     uint source_y = output_y;
     switch (parameters.orientation) {
@@ -242,10 +233,6 @@ kernel void develop_bayer_full(
     const CameraRgbSample camera = parameters.reconstruction_quality == 2u
         ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
         : camera_rgb_at(samples, parameters, raw_x, raw_y);
-    if (parameters.project_sensor_clipping != 0u) {
-        clipping_output[position.y * parameters.output_width + output_x] =
-            sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
-    }
     const float red =
         parameters.camera_to_linear_srgb[0] * camera.values.x
         + parameters.camera_to_linear_srgb[1] * camera.values.y
@@ -258,12 +245,66 @@ kernel void develop_bayer_full(
         parameters.camera_to_linear_srgb[6] * camera.values.x
         + parameters.camera_to_linear_srgb[7] * camera.values.y
         + parameters.camera_to_linear_srgb[8] * camera.values.z;
-    float3 scene_linear = float3(red, green, blue);
-    if (parameters.neutralize_sensor_highlights != 0u) {
-        scene_linear = neutralize_sensor_clipped_highlight(scene_linear, camera);
+    const float3 scene_linear = float3(red, green, blue);
+    return parameters.neutralize_sensor_highlights != 0u
+        ? neutralize_sensor_clipped_highlight(scene_linear, camera)
+        : scene_linear;
+}
+
+kernel void develop_bayer_full(
+    device const ushort* samples [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant RawDevelopmentParameters& parameters [[buffer(2)]],
+    device const ushort* clipping_source [[buffer(3)]],
+    device uchar* clipping_output [[buffer(4)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.output_width
+        || position.y >= parameters.output_tile_height) {
+        return;
     }
+
+    const uint output_x = position.x;
+    const uint output_y = parameters.output_row_offset + position.y;
+    if (parameters.project_sensor_clipping != 0u) {
+        clipping_output[position.y * parameters.output_width + output_x] =
+            sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
+    }
+    const float3 scene_linear =
+        develop_bayer_scene_linear_at(samples, parameters, output_x, output_y);
     const uint output_index =
         (position.y * parameters.output_width + output_x) * 3u;
+    output[output_index] = scene_linear.x;
+    output[output_index + 1u] = scene_linear.y;
+    output[output_index + 2u] = scene_linear.z;
+}
+
+// Resident full-detail execution keeps the denoised CFA on the device and asks for bounded
+// oriented output rectangles. The origin is explicit and the destination is local, so repeated
+// viewport requests never reinterpret a tile as a miniature full image.
+kernel void develop_bayer_resident_region(
+    device const ushort* samples [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant RawDevelopmentParameters& parameters [[buffer(2)]],
+    constant uint2& output_origin [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.output_width || position.y >= parameters.output_height) {
+        return;
+    }
+    const uint output_x = output_origin.x + position.x;
+    const uint output_y = output_origin.y + position.y;
+    const bool transposed = parameters.orientation == 5 || parameters.orientation == 6;
+    const uint full_width = transposed
+        ? parameters.reconstruction_height : parameters.reconstruction_width;
+    const uint full_height = transposed
+        ? parameters.reconstruction_width : parameters.reconstruction_height;
+    if (output_x >= full_width || output_y >= full_height) {
+        return;
+    }
+    const float3 scene_linear =
+        develop_bayer_scene_linear_at(samples, parameters, output_x, output_y);
+    const uint output_index = (position.y * parameters.output_width + position.x) * 3u;
     output[output_index] = scene_linear.x;
     output[output_index + 1u] = scene_linear.y;
     output[output_index + 2u] = scene_linear.z;

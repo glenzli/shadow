@@ -471,6 +471,21 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
                                    metal_adjustment),
          "session-resident fused Metal has a distinct cache-safe execution "
          "identity");
+  image::EditPreviewExecutionReceipt presentation_fallback = fused;
+  presentation_fallback.presentation_fell_back = true;
+  presentation_fallback.diagnostic =
+      "presentation: test-injected native texture failure";
+  expect(
+      presentation_fallback.valid() &&
+          image::edit_preview_execution_receipt_identity(
+              presentation_fallback) == fused_identity,
+      "presentation-only fallback is valid and does not change the rendered "
+      "pixel cache identity");
+  image::EditPreviewExecutionReceipt impossible_cpu_presentation_fallback = cpu;
+  impossible_cpu_presentation_fallback.presentation_fell_back = true;
+  impossible_cpu_presentation_fallback.diagnostic = "impossible";
+  expect(!impossible_cpu_presentation_fallback.valid(),
+         "a CPU display route cannot claim native Metal presentation fallback");
   image::EditPreviewExecutionReceipt impossible_fused_hybrid = fused;
   impossible_fused_hybrid.display_backend = image::EditPreviewBackend::cpu;
   impossible_fused_hybrid.display_backend_version =

@@ -11,6 +11,7 @@ Item {
     id: comparison
 
     required property var editor
+    required property var editPreviewPresentation
     required property bool comparisonActive
     required property int comparisonMode
     required property real comparisonPosition
@@ -140,12 +141,24 @@ Item {
             Image {
                 anchors.fill: parent
                 anchors.margins: 10
-                source: comparison.afterPreviewSource
+                source: dualAfterLivePreview.fallbackSource
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 cache: false
                 retainWhileLoading: true
                 smooth: true
+            }
+
+            EditPreviewTextureItem {
+                id: dualAfterLivePreview
+                objectName: "dualAfterLivePreview"
+                anchors.fill: parent
+                anchors.margins: 10
+                presentationRegistry:
+                    comparison.editPreviewPresentation
+                source: comparison.afterPreviewSource
+                liveAdmissionEnabled: comparison.dualComparison
+                fillMode: EditPreviewTextureItem.PreserveAspectFit
             }
 
             Rectangle {

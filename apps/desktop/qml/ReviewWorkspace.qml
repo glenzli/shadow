@@ -8,6 +8,7 @@ import QtQuick.Window
 
 Item {
     id: review
+    objectName: "reviewWorkspace"
 
     required property var controller
     required property var justifiedReviewLayout
@@ -100,12 +101,12 @@ Item {
         && !controller.scanning && !controller.refreshing
         && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
+    // Editing consumes the immutable source identity, not the Library query or
+    // generated thumbnail. A row already published by an in-flight import is
+    // therefore admissible; EditController owns any later open serialization.
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
         && selectedRepresentationId.length > 0 && selectedPath.length > 0
         && !comparison.compareMode
-        && !controller.refreshing
-        && !controller.busy && !controller.loadingMore
-        && !controller.comparisonBusy && !controller.decisionBusy
     readonly property var currentLibraryAlbum: {
         const albums = controller.libraryAlbums
         const selectedId = String(controller.libraryAlbumId)

@@ -4,6 +4,14 @@ use shadow_domain::{ImageDimensions, PreviewCodec};
 
 use super::{BridgeError, decoder::dimensions, ffi};
 
+mod mask_coverage;
+
+pub use mask_coverage::{
+    EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, EDIT_PREVIEW_MASK_COVERAGE_VERSION,
+    EditPreviewMaskCoverage, EditPreviewMaskCoverageRequest, RenderedEditPreview,
+};
+pub(super) use mask_coverage::{validate_mask_coverage, validate_mask_coverage_request};
+
 /// Number of bins in every warm edit-preview display histogram.
 pub const EDIT_PREVIEW_HISTOGRAM_BIN_COUNT: usize = 256;
 
@@ -124,6 +132,8 @@ pub struct AnalyzedEditPreview {
     pub proxy: shadow_domain::ProxyPayload,
     pub analysis: EditPreviewAnalysis,
     pub execution: EditPreviewExecutionReceipt,
+    /// Exact renderer coverage paired with this preview generation when requested.
+    pub mask_coverage: Option<EditPreviewMaskCoverage>,
 }
 
 fn validate_edit_preview_proxy(
@@ -190,6 +200,7 @@ pub(super) fn validate_analyzed_edit_preview(
         proxy,
         analysis,
         execution,
+        mask_coverage: None,
     })
 }
 

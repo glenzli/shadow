@@ -6,13 +6,20 @@
 #include <QColorSpace>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QQuickTextureFactory>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 
 #include <cstdlib>
 #include <iostream>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -42,6 +49,159 @@ void require(const bool condition, const std::string& message) {
         bytes[index + 2] = static_cast<char>(color.blue());
     }
     return bytes;
+}
+
+class TestOwnedPreviewFrame final : public BackendEditPreviewFrame {
+  public:
+    TestOwnedPreviewFrame(
+        const QColor color,
+        const bool include_coverage,
+        std::shared_ptr<std::atomic_uint32_t> destructions
+    ) : rgb8_(12U), coverage_(include_coverage ? 4U : 0U), destructions_(std::move(destructions)) {
+        for (std::size_t index = 0; index < rgb8_.size(); index += 3U) {
+            rgb8_[index] = static_cast<std::uint8_t>(color.red());
+            rgb8_[index + 1U] = static_cast<std::uint8_t>(color.green());
+            rgb8_[index + 2U] = static_cast<std::uint8_t>(color.blue());
+        }
+        if (include_coverage) {
+            coverage_ = {0U, 64U, 128U, 255U};
+        }
+    }
+
+    ~TestOwnedPreviewFrame() override {
+        destructions_->fetch_add(1U, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] QSize dimensions() const noexcept override {
+        return {2, 2};
+    }
+
+    [[nodiscard]] std::size_t rowStrideBytes() const noexcept override {
+        return 6U;
+    }
+
+    [[nodiscard]] BackendEditPreviewStorage storageKind() const noexcept override {
+        return BackendEditPreviewStorage::HostRgb8;
+    }
+
+    [[nodiscard]] std::optional<BackendAppleMetalPreviewTexture>
+    appleMetalTexture() const noexcept override {
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::size_t materializedPixelBytes() const noexcept override {
+        return rgb8_.size();
+    }
+
+    [[nodiscard]] std::span<const std::uint8_t> materializeRgb8() const override {
+        materialization_count_.fetch_add(1U, std::memory_order_relaxed);
+        return rgb8_;
+    }
+
+    [[nodiscard]] std::optional<BackendEditMaskCoverageView>
+    maskCoverage() const noexcept override {
+        if (coverage_.empty()) {
+            return std::nullopt;
+        }
+        return BackendEditMaskCoverageView{
+            .samples = coverage_,
+            .version = EDIT_MASK_COVERAGE_VERSION,
+            .target_layer_index = 2U,
+            .selection_revision = 5U,
+            .dimensions = {2, 2},
+            .row_stride_bytes = 2U,
+        };
+    }
+
+    [[nodiscard]] std::uint64_t retainedBytes() const noexcept override {
+        return static_cast<std::uint64_t>(rgb8_.size() + coverage_.size());
+    }
+
+    [[nodiscard]] std::string presentationFallbackDiagnostic() const override {
+        return {};
+    }
+
+    [[nodiscard]] std::uint32_t materializationCount() const noexcept {
+        return materialization_count_.load(std::memory_order_relaxed);
+    }
+
+  private:
+    std::vector<std::uint8_t> rgb8_;
+    std::vector<std::uint8_t> coverage_;
+    std::shared_ptr<std::atomic_uint32_t> destructions_;
+    mutable std::atomic_uint32_t materialization_count_{0U};
+};
+
+class OversizedDescriptorFrame final : public BackendEditPreviewFrame {
+  public:
+    [[nodiscard]] QSize dimensions() const noexcept override {
+        return {
+            std::numeric_limits<int>::max(),
+            std::numeric_limits<int>::max(),
+        };
+    }
+
+    [[nodiscard]] std::size_t rowStrideBytes() const noexcept override {
+        return static_cast<std::size_t>(std::numeric_limits<int>::max()) * 3U;
+    }
+
+    [[nodiscard]] BackendEditPreviewStorage storageKind() const noexcept override {
+        return BackendEditPreviewStorage::HostRgb8;
+    }
+
+    [[nodiscard]] std::optional<BackendAppleMetalPreviewTexture>
+    appleMetalTexture() const noexcept override {
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::size_t materializedPixelBytes() const noexcept override {
+        return 0U;
+    }
+
+    [[nodiscard]] std::span<const std::uint8_t> materializeRgb8() const override {
+        return {};
+    }
+
+    [[nodiscard]] std::optional<BackendEditMaskCoverageView>
+    maskCoverage() const noexcept override {
+        return BackendEditMaskCoverageView{
+            .version = EDIT_MASK_COVERAGE_VERSION,
+            .target_layer_index = 2U,
+            .selection_revision = 5U,
+            .dimensions = dimensions(),
+            .row_stride_bytes = static_cast<std::size_t>(std::numeric_limits<int>::max()),
+        };
+    }
+
+    [[nodiscard]] std::uint64_t retainedBytes() const noexcept override {
+        return 0U;
+    }
+
+    [[nodiscard]] std::string presentationFallbackDiagnostic() const override {
+        return {};
+    }
+};
+
+[[nodiscard]] EditMaskCoveragePayload owner_coverage_descriptor() {
+    return {
+        .dimensions = QSize(2, 2),
+        .row_stride_bytes = 2U,
+        .version = EDIT_MASK_COVERAGE_VERSION,
+        .target_layer_index = 2U,
+        .selection_revision = 5U,
+    };
+}
+
+[[nodiscard]] QString mask_provider_request(const MaskCoverageGeneration generation) {
+    return QStringLiteral(
+               "scope/mask/current?photo=%1&recipe=%2&target=%3"
+               "&selection=%4&preview=%5"
+    )
+        .arg(generation.photo)
+        .arg(generation.recipe_revision)
+        .arg(generation.target_layer_index)
+        .arg(generation.selection_revision)
+        .arg(generation.paired_preview_generation);
 }
 
 void slots_have_independent_generations() {
@@ -122,6 +282,190 @@ void interactive_rgb8_overview_skips_image_decode_and_retains_store_pixels() {
     require(current.constBits() == stored_address,
             "interactive RGB8 overview must retain the immutable store bytes "
             "without a copy");
+}
+
+void owned_frame_survives_store_and_texture_factory_lifetimes() {
+    auto store = std::make_shared<EditPreviewStore>();
+    EditPreviewProvider provider(store);
+    require(
+        provider.imageType() == QQmlImageProviderBase::Texture,
+        "the production provider must route QML through requestTexture"
+    );
+
+    const auto destructions = std::make_shared<std::atomic_uint32_t>(0U);
+    auto frame = std::make_shared<TestOwnedPreviewFrame>(Qt::green, true, destructions);
+    std::weak_ptr<const BackendEditPreviewFrame> weak_frame = frame;
+    const auto* const rgb_pointer = frame->materializeRgb8().data();
+    require(
+        frame->materializationCount() == 1U,
+        "the explicit test inspection must account for one RGB materialization"
+    );
+    const auto* const coverage_pointer = frame->maskCoverage()->samples.data();
+    constexpr MaskCoverageGeneration generation{
+        .photo = 7U,
+        .recipe_revision = 11U,
+        .target_layer_index = 2U,
+        .selection_revision = 5U,
+        .paired_preview_generation = 17U,
+    };
+    store->expectMaskCoverage(generation);
+    store->publish(
+        EditPreviewSlot::Current,
+        {},
+        QSize(2, 2),
+        6,
+        {},
+        generation.paired_preview_generation,
+        frame
+    );
+    require(
+        store->publishMaskCoverage(owner_coverage_descriptor(), generation),
+        "paired mask coverage must publish from the current frame owner"
+    );
+
+    auto preview_snapshot =
+        store->snapshot(EditPreviewSlot::Current, generation.paired_preview_generation);
+    auto coverage_snapshot = store->maskCoverageSnapshot(generation);
+    require(
+        preview_snapshot.frame == frame && coverage_snapshot.frame == frame
+            && preview_snapshot.frame->materializeRgb8().data() == rgb_pointer
+            && coverage_snapshot.frame->maskCoverage()->samples.data() == coverage_pointer,
+        "RGB8 and R8 snapshots must retain the exact same owner and pointers"
+    );
+    preview_snapshot.frame.reset();
+    coverage_snapshot.frame.reset();
+
+    require(
+        provider.requestTexture(QStringLiteral("current?generation=16"), nullptr, {}) == nullptr,
+        "a stale preview generation cannot obtain a texture factory"
+    );
+    std::unique_ptr<QQuickTextureFactory> rgb_factory(
+        provider.requestTexture(QStringLiteral("current?generation=17"), nullptr, {})
+    );
+    std::unique_ptr<QQuickTextureFactory> mask_factory(
+        provider.requestTexture(mask_provider_request(generation), nullptr, {})
+    );
+    require(
+        rgb_factory != nullptr && mask_factory != nullptr
+            && rgb_factory->textureSize() == QSize(2, 2)
+            && mask_factory->textureSize() == QSize(2, 2),
+        "valid RGB8 and R8 requests must produce texture factories"
+    );
+    require(
+        frame->materializationCount() == 2U,
+        "loading-thread texture factory creation must not materialize RGB"
+    );
+    const QImage coverage_copy = mask_factory->image();
+    require(
+        frame->materializationCount() == 2U,
+        "R8 mask presentation must never materialize paired RGB"
+    );
+    const QImage rgb_copy = rgb_factory->image();
+    require(
+        frame->materializationCount() == 3U,
+        "factory image() is the explicit host compatibility materializer"
+    );
+    require(
+        rgb_copy.constBits() != rgb_pointer && coverage_copy.constBits() != coverage_pointer,
+        "factory image() must deep-copy borrowed storage"
+    );
+
+    store->clear(EditPreviewSlot::Current, 18U);
+    frame.reset();
+    require(
+        !weak_frame.expired(),
+        "texture factories must retain the old owner after store replacement"
+    );
+    rgb_factory.reset();
+    require(
+        !weak_frame.expired(),
+        "the paired mask factory must retain the shared owner independently"
+    );
+    mask_factory.reset();
+    require(
+        weak_frame.expired() && destructions->load(std::memory_order_relaxed) == 1U,
+        "the shared owner must release after its final factory"
+    );
+    require(
+        rgb_copy.pixelColor(0, 0) == QColor(Qt::green) && coverage_copy.constScanLine(1)[1] == 255U,
+        "factory image() copies must remain readable after owner destruction"
+    );
+
+    auto borrowed_frame = std::make_shared<TestOwnedPreviewFrame>(Qt::blue, false, destructions);
+    std::weak_ptr<const BackendEditPreviewFrame> weak_borrowed = borrowed_frame;
+    store->publish(EditPreviewSlot::Current, {}, QSize(2, 2), 6, {}, 19U, borrowed_frame);
+    const QImage borrowed =
+        provider.requestImage(QStringLiteral("current?generation=19"), nullptr, {});
+    store->clear(EditPreviewSlot::Current, 20U);
+    borrowed_frame.reset();
+    require(
+        !weak_borrowed.expired() && borrowed.pixelColor(0, 0) == QColor(Qt::blue),
+        "a borrowed QImage cleanup owner must survive store clear"
+    );
+}
+
+void texture_requests_are_safe_across_loading_threads() {
+    auto store = std::make_shared<EditPreviewStore>();
+    EditPreviewProvider provider(store);
+    const auto destructions = std::make_shared<std::atomic_uint32_t>(0U);
+    auto frame = std::make_shared<TestOwnedPreviewFrame>(Qt::red, false, destructions);
+    store->publish(EditPreviewSlot::Current, {}, QSize(2, 2), 6, {}, 30U, frame);
+
+    std::atomic_bool valid{true};
+    std::vector<std::thread> workers;
+    workers.reserve(8U);
+    for (std::size_t index = 0U; index < 8U; ++index) {
+        workers.emplace_back([&provider, &valid] {
+            std::unique_ptr<QQuickTextureFactory> factory(
+                provider.requestTexture(QStringLiteral("current?generation=30"), nullptr, {})
+            );
+            if (factory == nullptr || factory->textureSize() != QSize(2, 2)
+                || factory->image().pixelColor(0, 0) != QColor(Qt::red)) {
+                valid.store(false, std::memory_order_relaxed);
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+    require(
+        valid.load(std::memory_order_relaxed),
+        "parallel loading-thread requests must observe one immutable frame"
+    );
+}
+
+void oversized_mask_descriptor_fails_without_signed_overflow() {
+    EditPreviewStore store;
+    const auto frame = std::make_shared<OversizedDescriptorFrame>();
+    constexpr MaskCoverageGeneration generation{
+        .photo = 8U,
+        .recipe_revision = 12U,
+        .target_layer_index = 2U,
+        .selection_revision = 5U,
+        .paired_preview_generation = 31U,
+    };
+    store.expectMaskCoverage(generation);
+    store.publish(
+        EditPreviewSlot::Current,
+        {},
+        frame->dimensions(),
+        static_cast<qsizetype>(frame->rowStrideBytes()),
+        {},
+        generation.paired_preview_generation,
+        frame
+    );
+    EditMaskCoveragePayload descriptor{
+        .dimensions = frame->dimensions(),
+        .row_stride_bytes = static_cast<std::uint32_t>(std::numeric_limits<int>::max()),
+        .version = EDIT_MASK_COVERAGE_VERSION,
+        .target_layer_index = generation.target_layer_index,
+        .selection_revision = generation.selection_revision,
+    };
+    require(
+        !store.publishMaskCoverage(std::move(descriptor), generation),
+        "an allocation-free INT_MAX coverage descriptor must fail closed "
+        "without signed multiplication"
+    );
 }
 
 void detail_tiles_are_atomic_and_generation_guarded() {
@@ -396,6 +740,9 @@ int main() {
     slots_have_independent_generations();
     provider_routes_only_named_slots();
     interactive_rgb8_overview_skips_image_decode_and_retains_store_pixels();
+    owned_frame_survives_store_and_texture_factory_lifetimes();
+    texture_requests_are_safe_across_loading_threads();
+    oversized_mask_descriptor_fails_without_signed_overflow();
     detail_tiles_are_atomic_and_generation_guarded();
     stale_result_rules_are_kind_specific();
     before_waits_for_the_latest_current_preview();

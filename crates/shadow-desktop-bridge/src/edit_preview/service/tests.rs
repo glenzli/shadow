@@ -40,6 +40,38 @@ fn policy_controls_analysis_recipe_and_cache_admission() {
 }
 
 #[test]
+fn mask_coverage_request_is_strict_and_keeps_selection_metadata_transient() {
+    assert_eq!(
+        mask_coverage_request(false, 0, 0, 3, false).expect("empty request sentinel"),
+        None
+    );
+    assert!(mask_coverage_request(false, 1, 0, 3, true).is_err());
+    assert!(mask_coverage_request(false, 0, 1, 3, true).is_err());
+    assert!(mask_coverage_request(true, 3, 9, 3, true).is_err());
+    assert_eq!(
+        mask_coverage_request(true, 1, 9, 3, false).expect("legal layer without a mask"),
+        None
+    );
+
+    let first = mask_coverage_request(true, 1, 9, 3, true)
+        .expect("valid coverage request")
+        .expect("masked target");
+    let newer = mask_coverage_request(true, 1, 10, 3, true)
+        .expect("valid newer coverage request")
+        .expect("masked target");
+    assert_eq!(first.target_layer_index, newer.target_layer_index);
+    assert_ne!(first.mask_selection_revision, newer.mask_selection_revision);
+
+    // Durable admission is a property only of render policy and terminal.
+    // Selection revision cannot alter the cache path because it is absent
+    // from both this predicate and RecipePreviewStoreRequest.
+    assert!(admits_recipe_preview_cache(
+        EditPreviewPolicy::Settled,
+        PreviewTerminalClaim::Completed
+    ));
+}
+
+#[test]
 fn public_preview_entries_preserve_unique_terminal_ownership() {
     let root = std::env::temp_dir().join(format!(
         "shadow-edit-preview-service-{}-{}",

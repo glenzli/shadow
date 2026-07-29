@@ -84,68 +84,11 @@ ShadowAdjustmentSection {
     title: qsTr("POINT COLOR")
     toolTipText: qsTr("Use the eyedropper to build one or more precise Oklch color ranges from the image.")
 
-    RowLayout {
+    PrecisionPointColorSampleBar {
         Layout.fillWidth: true
-        Layout.leftMargin: 20
-        Layout.rightMargin: 20
-        Layout.topMargin: 5
-        Layout.bottomMargin: 6
-        spacing: 8
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 5
-
-            Repeater {
-                model: pointColorSection.editor.pointColors
-
-                delegate: Rectangle {
-                    required property var modelData
-
-                    Layout.preferredWidth: 20
-                    Layout.preferredHeight: 20
-                    radius: 10
-                    color: modelData.swatch
-                    border.width:
-                        pointColorSection.editor.selectedPointColorIndex
-                            === modelData.index ? 2 : 1
-                    border.color:
-                        pointColorSection.editor.selectedPointColorIndex
-                            === modelData.index
-                        ? pointColorSection.accent : Theme.borderStrong
-
-                    TapHandler {
-                        onTapped: pointColorSection.editor.selectPointColor(
-                            parent.modelData.index)
-                    }
-                }
-            }
-
-            Item { Layout.fillWidth: true }
-        }
-
-        ShadowIconButton {
-            buttonSize: 36
-            iconSize: 19
-            source: "qrc:/icons/eyedropper-add.svg"
-            selected: pointColorSection.editor.pointColorPickerActive
-            enabled: pointColorSection.pickerAvailable
-            toolTipText: qsTr("Add a Point Color sample from the image")
-            accessibleName: toolTipText
-            onClicked: pointColorSection.editor.setPointColorPickerActive(
-                !pointColorSection.editor.pointColorPickerActive)
-        }
-
-        ShadowIconButton {
-            buttonSize: 36
-            iconSize: 18
-            source: "qrc:/icons/trash.svg"
-            variant: ShadowIconButton.Danger
-            enabled: pointColorSection.editor.selectedPointColorIndex >= 0
-            toolTipText: qsTr("Remove selected Point Color sample")
-            accessibleName: toolTipText
-            onClicked: pointColorSection.editor.removeSelectedPointColor()
-        }
+        editor: pointColorSection.editor
+        pickerAvailable: pointColorSection.pickerAvailable
+        accent: pointColorSection.accent
     }
 
     RowLayout {

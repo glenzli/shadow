@@ -7,13 +7,17 @@
 //! modules under `recipe/`: `snapshot` owns complete editable state and stable
 //! identity; `history` owns immutable commits and refs; `edit_graph` owns the
 //! typed adjustment DAG; `value` and `validation_error` own shared boundary
-//! vocabulary; the remaining modules own their named photo-edit contracts.
+//! vocabulary; `condition_mask` owns bounded pixel predicates and copy-only
+//! presets; `mask_creation` freezes the current-node/new-node destination;
+//! the remaining modules own their named photo-edit contracts.
 
+mod condition_mask;
 mod edit_graph;
 mod history;
 mod input_settings;
 mod layer;
 mod local_mask;
+mod mask_creation;
 mod photo_geometry;
 mod retouch;
 mod snapshot;
@@ -23,6 +27,15 @@ mod value;
 #[cfg(test)]
 mod test_support;
 
+pub use condition_mask::{
+    CONDITION_HUE_RELATIVE_CHROMA_CONFIDENCE_LOWER, CONDITION_HUE_RELATIVE_CHROMA_CONFIDENCE_UPPER,
+    CURRENT_CONDITION_MASK_SCHEMA_VERSION, ConditionMaskExpression, ConditionMaskNode,
+    ConditionMaskPredicate, ConditionMaskPreset, ConditionMaskReferenceError,
+    ConditionMaskScalarSample, LOCAL_DETAIL_RESIDUAL_NORMALIZATION, LocalDetailAlgorithm,
+    LocalDetailFullRenderScale, LocalDetailInput, MAX_CONDITION_MASK_BRANCHES,
+    MAX_CONDITION_MASK_DEPTH, MAX_CONDITION_MASK_LEAVES, MAX_LOCAL_DETAIL_RADIUS_LEVEL_ZERO_PIXELS,
+    OKLCH_CHROMA_NORMALIZATION, local_detail_reference_response,
+};
 pub use edit_graph::{
     AdjustmentNode, EditGraph, GraphValidationError, ImageDomain, MaskCoordinateSpace, NodeInput,
     OperationDescriptor, ParameterBlock, ParameterValue, PortType, ProcessingStage,
@@ -35,6 +48,7 @@ pub use layer::{
 pub use local_mask::{
     MAX_MASK_BRUSH_POINTS, MaskBrushPoint, MaskDefinition, MaskReference, MaskRevision,
 };
+pub use mask_creation::{NodeLocalMaskCreationIntent, NodeLocalMaskCreationTarget};
 pub use photo_geometry::{PhotoGeometry, PhotoQuarterTurn};
 pub use retouch::{
     MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKE_POINTS, MAX_RETOUCH_STROKES_PER_RECIPE,

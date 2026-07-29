@@ -32,19 +32,27 @@ struct WarmPhotoGeometryParameters {
     float reserved_3;
 };
 
-kernel void warm_photo_geometry_v1(
-    device const float* input [[buffer(0)]],
-    device float* output [[buffer(1)]],
-    constant WarmPhotoGeometryParameters& parameters [[buffer(2)]],
-    device MetalAdjustmentStatus& status [[buffer(3)]],
-    uint2 position [[thread_position_in_grid]]
+struct WarmGeometryLookup {
+    uint source_x0;
+    uint source_y0;
+    uint source_x1;
+    uint source_y1;
+    float fraction_x;
+    float fraction_y;
+    uint state;
+    uint reserved;
+};
+
+inline WarmGeometryLookup warm_geometry_lookup(
+    constant WarmPhotoGeometryParameters& parameters,
+    device MetalAdjustmentStatus& status,
+    uint2 position
 ) {
-    if (position.x >= parameters.output_width || position.y >= parameters.output_height) {
-        return;
-    }
+    WarmGeometryLookup lookup{};
     if (parameters.quarter_turn > 3u) {
         report_adjustment_failure(status, status_bad_abi, 0u);
-        return;
+        lookup.state = 2u;
+        return lookup;
     }
 
     const bool transposed = parameters.quarter_turn == 1u
@@ -102,26 +110,22 @@ kernel void warm_photo_geometry_v1(
     const float crop_top = float(parameters.source_crop_origin_y);
     const float crop_right = crop_left + float(parameters.source_crop_width - 1u);
     const float crop_bottom = crop_top + float(parameters.source_crop_height - 1u);
-    const uint output_index =
-        (position.y * parameters.output_width + position.x) * 3u;
     if (source_x < crop_left || source_x > crop_right
         || source_y < crop_top || source_y > crop_bottom) {
-        output[output_index] = 0.0f;
-        output[output_index + 1u] = 0.0f;
-        output[output_index + 2u] = 0.0f;
-        return;
+        lookup.state = 1u;
+        return lookup;
     }
 
     const uint source_x0 = uint(floor(source_x));
     const uint source_y0 = uint(floor(source_y));
-    const float fraction_x = source_x - float(source_x0);
-    const float fraction_y = source_y - float(source_y0);
+    lookup.fraction_x = source_x - float(source_x0);
+    lookup.fraction_y = source_y - float(source_y0);
     const uint source_x1 = min(
-        fraction_x == 0.0f ? source_x0 : source_x0 + 1u,
+        lookup.fraction_x == 0.0f ? source_x0 : source_x0 + 1u,
         parameters.source_crop_origin_x + parameters.source_crop_width - 1u
     );
     const uint source_y1 = min(
-        fraction_y == 0.0f ? source_y0 : source_y0 + 1u,
+        lookup.fraction_y == 0.0f ? source_y0 : source_y0 + 1u,
         parameters.source_crop_origin_y + parameters.source_crop_height - 1u
     );
     if (source_x0 < parameters.source_tile_origin_x
@@ -129,27 +133,58 @@ kernel void warm_photo_geometry_v1(
         || source_x1 >= parameters.source_tile_origin_x + parameters.input_width
         || source_y1 >= parameters.source_tile_origin_y + parameters.input_height) {
         report_adjustment_failure(status, status_bad_resource, 0u);
+        lookup.state = 2u;
+        return lookup;
+    }
+    lookup.source_x0 = source_x0 - parameters.source_tile_origin_x;
+    lookup.source_y0 = source_y0 - parameters.source_tile_origin_y;
+    lookup.source_x1 = source_x1 - parameters.source_tile_origin_x;
+    lookup.source_y1 = source_y1 - parameters.source_tile_origin_y;
+    return lookup;
+}
+
+kernel void warm_photo_geometry_v1(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant WarmPhotoGeometryParameters& parameters [[buffer(2)]],
+    device MetalAdjustmentStatus& status [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.output_width || position.y >= parameters.output_height) {
         return;
     }
-    const uint local_x0 = source_x0 - parameters.source_tile_origin_x;
-    const uint local_y0 = source_y0 - parameters.source_tile_origin_y;
-    const uint local_x1 = source_x1 - parameters.source_tile_origin_x;
-    const uint local_y1 = source_y1 - parameters.source_tile_origin_y;
-    const uint index_00 = local_y0 * parameters.input_row_floats + local_x0 * 3u;
-    const uint index_10 = local_y0 * parameters.input_row_floats + local_x1 * 3u;
-    const uint index_01 = local_y1 * parameters.input_row_floats + local_x0 * 3u;
-    const uint index_11 = local_y1 * parameters.input_row_floats + local_x1 * 3u;
+    const WarmGeometryLookup lookup =
+        warm_geometry_lookup(parameters, status, position);
+    const uint output_index =
+        (position.y * parameters.output_width + position.x) * 3u;
+    if (lookup.state == 1u) {
+        output[output_index] = 0.0f;
+        output[output_index + 1u] = 0.0f;
+        output[output_index + 2u] = 0.0f;
+        return;
+    }
+    if (lookup.state != 0u) {
+        return;
+    }
+    const uint index_00 =
+        lookup.source_y0 * parameters.input_row_floats + lookup.source_x0 * 3u;
+    const uint index_10 =
+        lookup.source_y0 * parameters.input_row_floats + lookup.source_x1 * 3u;
+    const uint index_01 =
+        lookup.source_y1 * parameters.input_row_floats + lookup.source_x0 * 3u;
+    const uint index_11 =
+        lookup.source_y1 * parameters.input_row_floats + lookup.source_x1 * 3u;
     const float3 top = mix(
         float3(input[index_00], input[index_00 + 1u], input[index_00 + 2u]),
         float3(input[index_10], input[index_10 + 1u], input[index_10 + 2u]),
-        fraction_x
+        lookup.fraction_x
     );
     const float3 bottom = mix(
         float3(input[index_01], input[index_01 + 1u], input[index_01 + 2u]),
         float3(input[index_11], input[index_11 + 1u], input[index_11 + 2u]),
-        fraction_x
+        lookup.fraction_x
     );
-    const float3 sample = mix(top, bottom, fraction_y);
+    const float3 sample = mix(top, bottom, lookup.fraction_y);
     if (!all(isfinite(sample))) {
         report_adjustment_failure(status, status_non_finite, 0u);
         return;
@@ -157,6 +192,46 @@ kernel void warm_photo_geometry_v1(
     output[output_index] = sample.x;
     output[output_index + 1u] = sample.y;
     output[output_index + 2u] = sample.z;
+}
+
+kernel void warm_mask_coverage_geometry_v1(
+    device const float* input [[buffer(0)]],
+    device uchar* output [[buffer(1)]],
+    constant WarmPhotoGeometryParameters& parameters [[buffer(2)]],
+    device MetalAdjustmentStatus& status [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.output_width || position.y >= parameters.output_height) {
+        return;
+    }
+    const WarmGeometryLookup lookup =
+        warm_geometry_lookup(parameters, status, position);
+    const uint output_index =
+        position.y * parameters.output_width + position.x;
+    if (lookup.state == 1u) {
+        output[output_index] = uchar(0);
+        return;
+    }
+    if (lookup.state != 0u) {
+        return;
+    }
+    const uint index_00 =
+        lookup.source_y0 * parameters.input_width + lookup.source_x0;
+    const uint index_10 =
+        lookup.source_y0 * parameters.input_width + lookup.source_x1;
+    const uint index_01 =
+        lookup.source_y1 * parameters.input_width + lookup.source_x0;
+    const uint index_11 =
+        lookup.source_y1 * parameters.input_width + lookup.source_x1;
+    const float top = mix(input[index_00], input[index_10], lookup.fraction_x);
+    const float bottom = mix(input[index_01], input[index_11], lookup.fraction_x);
+    const float sample = mix(top, bottom, lookup.fraction_y);
+    if (!isfinite(sample)) {
+        report_adjustment_failure(status, status_non_finite, 0u);
+        return;
+    }
+    output[output_index] =
+        uchar(clamp(floor(sample * 255.0f + 0.5f), 0.0f, 255.0f));
 }
 
 )METAL";

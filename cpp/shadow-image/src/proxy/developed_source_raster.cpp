@@ -14,14 +14,12 @@ namespace shadow::image::proxy_detail {
 namespace {
 
 [[nodiscard]] std::size_t validated_source_row_stride(const PixelBuffer& source) {
-    if (
-        source.bits_per_channel != 16U || (source.channels != 1U && source.channels != 3U)
+    if (source.bits_per_channel != 16U || (source.channels != 1U && source.channels != 3U)
         || source.dimensions.width == 0U || source.dimensions.height == 0U
         || source.primaries != RgbPrimaries::srgb_rec709_d65
         || source.transfer_function != RgbTransferFunction::linear
         || (source.reference != RgbBufferReference::processed_raw
-            && source.reference != RgbBufferReference::decoded_raster)
-    ) {
+            && source.reference != RgbBufferReference::decoded_raster)) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
@@ -29,25 +27,19 @@ namespace {
             "sRGB/Rec.709-D65 primaries"
         );
     }
-    if (
-        static_cast<std::uint64_t>(source.dimensions.width) * source.channels
-        > std::numeric_limits<std::size_t>::max()
-    ) {
+    if (static_cast<std::uint64_t>(source.dimensions.width) * source.channels
+        > std::numeric_limits<std::size_t>::max()) {
         throw DecodeError(DecodeErrorCode::resource_limit, 0, "proxy source stride overflows");
     }
     const std::size_t minimum_stride =
         static_cast<std::size_t>(source.dimensions.width) * source.channels;
-    if (
-        source.row_stride_bytes % sizeof(std::uint16_t) != 0U
-        || source.row_stride_bytes / sizeof(std::uint16_t) < minimum_stride
-    ) {
+    if (source.row_stride_bytes % sizeof(std::uint16_t) != 0U
+        || source.row_stride_bytes / sizeof(std::uint16_t) < minimum_stride) {
         throw DecodeError(DecodeErrorCode::corrupt_data, 0, "proxy source row stride is invalid");
     }
     const std::size_t row_stride = source.row_stride_bytes / sizeof(std::uint16_t);
-    if (
-        static_cast<std::uint64_t>(row_stride) * source.dimensions.height
-        > std::numeric_limits<std::size_t>::max()
-    ) {
+    if (static_cast<std::uint64_t>(row_stride) * source.dimensions.height
+        > std::numeric_limits<std::size_t>::max()) {
         throw DecodeError(DecodeErrorCode::resource_limit, 0, "proxy source buffer overflows");
     }
     const std::size_t required_samples =
@@ -58,9 +50,7 @@ namespace {
     return row_stride;
 }
 
-[[nodiscard]] std::size_t validated_scene_linear_row_stride(
-    const SceneLinearRgbFrame& source
-) {
+[[nodiscard]] std::size_t validated_scene_linear_row_stride(const SceneLinearRgbFrame& source) {
     if (!source.valid() || source.row_stride_bytes % sizeof(float) != 0U) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,
@@ -85,11 +75,12 @@ namespace {
 [[nodiscard]] WorkingRgbSpace linear_srgb_working_space() {
     return WorkingRgbSpace{
         .id = "srgb-d65-linear",
-        .primaries = {
-            Chromaticity{0.6400, 0.3300},
-            Chromaticity{0.3000, 0.6000},
-            Chromaticity{0.1500, 0.0600},
-        },
+        .primaries =
+            {
+                Chromaticity{0.6400, 0.3300},
+                Chromaticity{0.3000, 0.6000},
+                Chromaticity{0.1500, 0.0600},
+            },
         .white_point = {0.3127, 0.3290},
         .luminance_coefficients = {0.2126, 0.7152, 0.0722},
     };
@@ -105,16 +96,10 @@ void validate_resize_target(const Dimensions target) {
     }
 }
 
-void validate_crop_rect(
-    const GeometryPixelRect rect,
-    const Dimensions source_dimensions
-) {
-    if (
-        rect.width == 0U || rect.height == 0U
-        || rect.x >= source_dimensions.width || rect.y >= source_dimensions.height
-        || rect.width > source_dimensions.width - rect.x
-        || rect.height > source_dimensions.height - rect.y
-    ) {
+void validate_crop_rect(const GeometryPixelRect rect, const Dimensions source_dimensions) {
+    if (rect.width == 0U || rect.height == 0U || rect.x >= source_dimensions.width
+        || rect.y >= source_dimensions.height || rect.width > source_dimensions.width - rect.x
+        || rect.height > source_dimensions.height - rect.y) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
@@ -123,10 +108,8 @@ void validate_crop_rect(
     }
 }
 
-[[nodiscard]] FloatRgbImage resize_processed_linear_to_working(
-    const PixelBuffer& source,
-    const Dimensions target
-) {
+[[nodiscard]] FloatRgbImage
+resize_processed_linear_to_working(const PixelBuffer& source, const Dimensions target) {
     const std::size_t source_stride = validated_source_row_stride(source);
     validate_resize_target(target);
     const std::size_t sample_count = checked_interleaved_rgb_sample_count(target);
@@ -155,13 +138,13 @@ void validate_crop_rect(
     // display-referred appearance. Both share the editable linear graph; only their output
     // boundary differs.
     output.reference = source.reference == RgbBufferReference::processed_raw
-        ? ImageReference::scene_referred
-        : ImageReference::display_referred;
+                           ? ImageReference::scene_referred
+                           : ImageReference::display_referred;
     output.working_space = linear_srgb_working_space();
-    output.level_zero_to_raster_scale_x = static_cast<double>(target.width)
-        / static_cast<double>(source.dimensions.width);
-    output.level_zero_to_raster_scale_y = static_cast<double>(target.height)
-        / static_cast<double>(source.dimensions.height);
+    output.level_zero_to_raster_scale_x =
+        static_cast<double>(target.width) / static_cast<double>(source.dimensions.width);
+    output.level_zero_to_raster_scale_y =
+        static_cast<double>(target.height) / static_cast<double>(source.dimensions.height);
     output.samples.resize(sample_count);
 
     const double scale_x =
@@ -188,14 +171,13 @@ void validate_crop_rect(
 
             for (std::size_t channel = 0; channel < 3U; ++channel) {
                 const auto linear_sample = [&, channel](const std::size_t x, const std::size_t y) {
-                    return static_cast<double>(
-                        source_sample(source, source_stride, x, y, channel)
-                    ) / 65'535.0;
+                    return static_cast<double>(source_sample(source, source_stride, x, y, channel))
+                           / 65'535.0;
                 };
-                const double top = linear_sample(x0, y0) * (1.0 - fraction_x)
-                    + linear_sample(x1, y0) * fraction_x;
-                const double bottom = linear_sample(x0, y1) * (1.0 - fraction_x)
-                    + linear_sample(x1, y1) * fraction_x;
+                const double top =
+                    linear_sample(x0, y0) * (1.0 - fraction_x) + linear_sample(x1, y0) * fraction_x;
+                const double bottom =
+                    linear_sample(x0, y1) * (1.0 - fraction_x) + linear_sample(x1, y1) * fraction_x;
                 output.samples[output_index + channel] =
                     static_cast<float>(top * (1.0 - fraction_y) + bottom * fraction_y);
             }
@@ -204,10 +186,8 @@ void validate_crop_rect(
     return output;
 }
 
-[[nodiscard]] FloatRgbImage resize_processed_linear_to_working(
-    const SceneLinearRgbFrame& source,
-    const Dimensions target
-) {
+[[nodiscard]] FloatRgbImage
+resize_processed_linear_to_working(const SceneLinearRgbFrame& source, const Dimensions target) {
     const std::size_t source_stride = validated_scene_linear_row_stride(source);
     validate_resize_target(target);
     const std::size_t sample_count = checked_interleaved_rgb_sample_count(target);
@@ -218,15 +198,15 @@ void validate_crop_rect(
     output.transfer_function = TransferFunction::linear;
     output.reference = ImageReference::scene_referred;
     output.working_space = linear_srgb_working_space();
-    output.level_zero_to_raster_scale_x = static_cast<double>(target.width)
-        / static_cast<double>(source.dimensions.width);
-    output.level_zero_to_raster_scale_y = static_cast<double>(target.height)
-        / static_cast<double>(source.dimensions.height);
+    output.level_zero_to_raster_scale_x =
+        static_cast<double>(target.width) / static_cast<double>(source.dimensions.width);
+    output.level_zero_to_raster_scale_y =
+        static_cast<double>(target.height) / static_cast<double>(source.dimensions.height);
     output.samples.resize(sample_count);
-    const double scale_x = static_cast<double>(source.dimensions.width)
-        / static_cast<double>(target.width);
-    const double scale_y = static_cast<double>(source.dimensions.height)
-        / static_cast<double>(target.height);
+    const double scale_x =
+        static_cast<double>(source.dimensions.width) / static_cast<double>(target.width);
+    const double scale_y =
+        static_cast<double>(source.dimensions.height) / static_cast<double>(target.height);
     for (std::uint32_t output_y = 0U; output_y < target.height; ++output_y) {
         const double source_y =
             std::max(0.0, (static_cast<double>(output_y) + 0.5) * scale_y - 0.5);
@@ -248,10 +228,10 @@ void validate_crop_rect(
                         source.samples[y * source_stride + x * 3U + channel]
                     );
                 };
-                const double top = sample(x0, y0) * (1.0 - fraction_x)
-                    + sample(x1, y0) * fraction_x;
-                const double bottom = sample(x0, y1) * (1.0 - fraction_x)
-                    + sample(x1, y1) * fraction_x;
+                const double top =
+                    sample(x0, y0) * (1.0 - fraction_x) + sample(x1, y0) * fraction_x;
+                const double bottom =
+                    sample(x0, y1) * (1.0 - fraction_x) + sample(x1, y1) * fraction_x;
                 output.samples[output_index + channel] =
                     static_cast<float>(top * (1.0 - fraction_y) + bottom * fraction_y);
             }
@@ -260,10 +240,8 @@ void validate_crop_rect(
     return output;
 }
 
-[[nodiscard]] FloatRgbImage crop_processed_linear_to_working(
-    const PixelBuffer& source,
-    const GeometryPixelRect rect
-) {
+[[nodiscard]] FloatRgbImage
+crop_processed_linear_to_working(const PixelBuffer& source, const GeometryPixelRect rect) {
     const std::size_t source_stride = validated_source_row_stride(source);
     validate_crop_rect(rect, source.dimensions);
     const Dimensions tile_dimensions{rect.width, rect.height};
@@ -290,8 +268,8 @@ void validate_crop_rect(
     output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
     output.transfer_function = TransferFunction::linear;
     output.reference = source.reference == RgbBufferReference::processed_raw
-        ? ImageReference::scene_referred
-        : ImageReference::display_referred;
+                           ? ImageReference::scene_referred
+                           : ImageReference::display_referred;
     output.working_space = linear_srgb_working_space();
     output.level_zero_to_raster_scale_x = 1.0;
     output.level_zero_to_raster_scale_y = 1.0;
@@ -304,9 +282,11 @@ void validate_crop_rect(
             const std::size_t output_index =
                 (static_cast<std::size_t>(output_y) * rect.width + output_x) * 3U;
             for (std::size_t channel = 0; channel < 3U; ++channel) {
-                const double linear = static_cast<double>(
-                    source_sample(source, source_stride, source_x, source_y, channel)
-                ) / 65'535.0;
+                const double linear =
+                    static_cast<double>(
+                        source_sample(source, source_stride, source_x, source_y, channel)
+                    )
+                    / 65'535.0;
                 output.samples[output_index + channel] = static_cast<float>(linear);
             }
         }
@@ -314,10 +294,8 @@ void validate_crop_rect(
     return output;
 }
 
-[[nodiscard]] FloatRgbImage crop_processed_linear_to_working(
-    const SceneLinearRgbFrame& source,
-    const GeometryPixelRect rect
-) {
+[[nodiscard]] FloatRgbImage
+crop_processed_linear_to_working(const SceneLinearRgbFrame& source, const GeometryPixelRect rect) {
     const std::size_t source_stride = validated_scene_linear_row_stride(source);
     validate_crop_rect(rect, source.dimensions);
     FloatRgbImage output;
@@ -346,11 +324,7 @@ void validate_crop_rect(
 std::size_t checked_interleaved_rgb_sample_count(const Dimensions dimensions) {
     const std::uint64_t pixels = dimensions.pixel_count();
     if (pixels > std::numeric_limits<std::uint64_t>::max() / 3U) {
-        throw DecodeError(
-            DecodeErrorCode::resource_limit,
-            0,
-            "proxy RGB sample count overflows"
-        );
+        throw DecodeError(DecodeErrorCode::resource_limit, 0, "proxy RGB sample count overflows");
     }
     const std::uint64_t samples = pixels * 3U;
     if (samples > std::numeric_limits<std::size_t>::max()) {
@@ -385,14 +359,10 @@ void validate_developed_source(const DevelopedSourcePixels& source) {
     );
 }
 
-FloatRgbImage resize_developed_source_to_working(
-    const DevelopedSourcePixels& source,
-    const Dimensions target
-) {
+FloatRgbImage
+resize_developed_source_to_working(const DevelopedSourcePixels& source, const Dimensions target) {
     return std::visit(
-        [&](const auto& value) {
-            return resize_processed_linear_to_working(value, target);
-        },
+        [&](const auto& value) { return resize_processed_linear_to_working(value, target); },
         source
     );
 }
@@ -402,11 +372,35 @@ FloatRgbImage crop_developed_source_to_working(
     const GeometryPixelRect rect
 ) {
     return std::visit(
-        [&](const auto& value) {
-            return crop_processed_linear_to_working(value, rect);
-        },
+        [&](const auto& value) { return crop_processed_linear_to_working(value, rect); },
         source
     );
+}
+
+FloatRgbImage
+take_scene_linear_region_to_working(SceneLinearRgbFrame region, const Dimensions full_dimensions) {
+    const std::size_t row_stride = validated_scene_linear_row_stride(region);
+    if (full_dimensions.width == 0U || full_dimensions.height == 0U
+        || region.dimensions.width > full_dimensions.width
+        || region.dimensions.height > full_dimensions.height
+        || row_stride != static_cast<std::size_t>(region.dimensions.width) * 3U) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "scene-linear region cannot enter the requested level-zero working space"
+        );
+    }
+    FloatRgbImage output;
+    output.dimensions = region.dimensions;
+    output.row_stride_bytes = region.row_stride_bytes;
+    output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
+    output.transfer_function = TransferFunction::linear;
+    output.reference = ImageReference::scene_referred;
+    output.working_space = linear_srgb_working_space();
+    output.level_zero_to_raster_scale_x = 1.0;
+    output.level_zero_to_raster_scale_y = 1.0;
+    output.samples = std::move(region.samples);
+    return output;
 }
 
 } // namespace shadow::image::proxy_detail

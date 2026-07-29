@@ -7,6 +7,7 @@
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include "../../src/proxy/warm_edit_gpu.hpp"
+#include "../../src/proxy/warm_edit_gpu_presentation_surface.hpp"
 
 #include <array>
 #include <chrono>
@@ -137,6 +138,31 @@ void resident_geometry_matches_the_cpu_oracle() {
             && gpu.output->analyzed_linear->level_zero_to_raster_scale_y == 0.5,
         "transposed geometry returns the authoritative output shape and swapped native scales"
     );
+
+    const auto host_context = geometry_context(source, geometry);
+    auto surface_context = host_context;
+    surface_context.output_intent =
+        image::detail::WarmEditGpuOutputIntent::metal_presentation_surface;
+    const auto host = preparation.session->render(
+        nodes,
+        plan,
+        false,
+        host_context
+    );
+    const auto surface = preparation.session->render(
+        nodes,
+        plan,
+        false,
+        surface_context
+    );
+    expect(
+        host.output.has_value() && surface.output.has_value()
+            && surface.output->rgb8.empty()
+            && surface.output->presentation_surface != nullptr
+            && surface.output->presentation_surface->materialize_packed_rgb8()
+                == host.output->rgb8,
+        "geometrized presentation surface is byte-exact with host RGB8"
+    );
 }
 
 void resident_layer_geometry_matches_the_cpu_oracle() {
@@ -182,6 +208,23 @@ void resident_layer_geometry_matches_the_cpu_oracle() {
         }
         expect(parity, "resident Metal layer geometry tracks the complete CPU oracle");
     }
+
+    const auto host_context = geometry_context(source, geometry);
+    auto surface_context = host_context;
+    surface_context.output_intent =
+        image::detail::WarmEditGpuOutputIntent::metal_presentation_surface;
+    const auto host =
+        preparation.session->render_layers(layers, false, host_context);
+    const auto surface =
+        preparation.session->render_layers(layers, false, surface_context);
+    expect(
+        host.output.has_value() && surface.output.has_value()
+            && surface.output->rgb8.empty()
+            && surface.output->presentation_surface != nullptr
+            && surface.output->presentation_surface->materialize_packed_rgb8()
+                == host.output->rgb8,
+        "layered geometrized presentation surface is byte-exact with host RGB8"
+    );
 }
 
 template <typename Callable>

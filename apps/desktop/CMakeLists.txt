@@ -51,7 +51,7 @@ file(
     "${PROJECT_SOURCE_DIR}/crates/*/src/*.rs"
     "${PROJECT_SOURCE_DIR}/crates/*/src/**/*.rs"
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/include/**/*.hpp"
-    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/bridge/cxx_bridge.cpp"
+    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/bridge/*.cpp"
 )
 
 set(
@@ -178,6 +178,18 @@ set(
     src/backend/rust_qt_projection.hpp
 )
 
+if(APPLE AND SHADOW_ENABLE_METAL)
+    set(
+        SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE
+        src/edit_preview_metal_texture_factory.mm
+    )
+else()
+    set(
+        SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE
+        src/edit_preview_metal_texture_factory_stub.cpp
+    )
+endif()
+
 qt_add_executable(
     shadow-desktop
     MACOSX_BUNDLE
@@ -189,6 +201,9 @@ qt_add_executable(
     src/desktop_backend_review.cpp
     src/desktop_backend.hpp
     src/backend/desktop_backend_private.hpp
+    src/backend/edit_preview_frame.hpp
+    src/backend/rust_owned_edit_preview_frame.cpp
+    src/backend/rust_owned_edit_preview_frame.hpp
     src/backend/review_projection.hpp
     src/backend/cache_types.hpp
     src/backend/edit_types.hpp
@@ -228,6 +243,9 @@ qt_add_executable(
     src/edit_history_controller.cpp
     src/edit_history_restore_projection.cpp
     src/edit_local_mask_controller.cpp
+    src/edit_mask_coverage_contract.hpp
+    src/edit_mask_coverage_controller.cpp
+    src/edit_mask_coverage_store.cpp
     src/edit_mask_assignment_controller.cpp
     src/edit_optics_controller.cpp
     src/edit_persistence_coordinator.cpp
@@ -238,8 +256,17 @@ qt_add_executable(
     src/edit_tone_curve_controller.cpp
     src/edit_history.hpp
     src/edit_preview_contract.hpp
+    src/edit_preview_metal_texture_factory.hpp
+    ${SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE}
+    src/edit_preview_presentation_context.cpp
+    src/edit_preview_presentation_context.hpp
+    src/edit_preview_presentation_registry.cpp
+    src/edit_preview_presentation_registry.hpp
     src/edit_preview_provider.cpp
     src/edit_preview_provider.hpp
+    src/edit_preview_store.cpp
+    src/edit_preview_texture_item.cpp
+    src/edit_preview_texture_item.hpp
     src/edit_stack.hpp
     src/edit_version_model.cpp
     src/edit_version_model.hpp
@@ -351,6 +378,7 @@ qt_add_resources(
         icons/mask.svg
         icons/mask-add.svg
         icons/mask-color-range.svg
+        icons/mask-create.svg
         icons/mask-intersect.svg
         icons/mask-linear.svg
         icons/mask-luminance-range.svg
@@ -360,6 +388,7 @@ qt_add_resources(
         icons/move-down.svg
         icons/move-up.svg
         icons/node-add.svg
+        icons/overlay-hide.svg
         icons/overlay-show.svg
         icons/pick.svg
         icons/redo.svg
@@ -396,7 +425,10 @@ if(APPLE)
             src/mac_titlebar.hpp
             src/mac_titlebar.mm
     )
-    target_link_libraries(shadow-desktop PRIVATE "-framework AppKit")
+    target_link_libraries(
+        shadow-desktop
+        PRIVATE "-framework AppKit" "-framework Metal"
+    )
 endif()
 
 set_source_files_properties(
@@ -449,6 +481,7 @@ qt_add_qml_module(
         qml/PrecisionResetAllDialog.qml
         qml/PrecisionLutSection.qml
         qml/PrecisionPointColorSection.qml
+        qml/PrecisionPointColorSampleBar.qml
         qml/PrecisionFoundationAdjustments.qml
         qml/PrecisionColorMixer.qml
         qml/PrecisionSelectiveColor.qml
@@ -459,6 +492,7 @@ qt_add_qml_module(
         qml/PrecisionGradeNodeMenus.qml
         qml/PrecisionGradeNodePane.qml
         qml/PrecisionLocalMaskOverlay.qml
+        qml/PrecisionMaskCoverageOverlay.qml
         qml/PrecisionCropOverlay.qml
         qml/PrecisionRetouchOverlay.qml
         qml/PrecisionRetouchSpotHandle.qml
@@ -467,6 +501,8 @@ qt_add_qml_module(
         qml/PrecisionLocalMaskTools.qml
         qml/PrecisionMaskCreateMenu.qml
         qml/PrecisionRetouchTools.qml
+        qml/PrecisionRetouchRegionInspector.qml
+        qml/PrecisionRetouchRegionPicker.qml
         qml/PrecisionDetailSection.qml
         qml/PrecisionEffectsSection.qml
         qml/PrecisionOpticsSection.qml
@@ -486,6 +522,7 @@ qt_add_qml_module(
         qml/ReviewImportProgressCard.qml
         qml/ReviewLibrarySidebar.qml
         qml/ReviewMetadataPresentation.qml
+        qml/ReviewPhotoAffinity.qml
         qml/ReviewSystemCollections.qml
         qml/ReviewSharedGradePicker.qml
         qml/ReviewPhotoCard.qml
@@ -503,6 +540,7 @@ qt_add_qml_module(
         qml/ShadowIcon.qml
         qml/ShadowIconButton.qml
         qml/ShadowInlineSlider.qml
+        qml/ShadowRoundedImage.qml
         qml/ShadowSlider.qml
         qml/ShadowSubsectionLabel.qml
         qml/ShadowTabButton.qml
@@ -1056,7 +1094,11 @@ if(BUILD_TESTING)
     add_executable(
         shadow-edit-preview-contract-test
         tests/edit_preview_contract_test.cpp
+        src/edit_mask_coverage_store.cpp
+        ${SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE}
+        src/edit_preview_presentation_context.cpp
         src/edit_preview_provider.cpp
+        src/edit_preview_store.cpp
     )
     target_compile_features(shadow-edit-preview-contract-test PRIVATE cxx_std_20)
     target_include_directories(
@@ -1078,6 +1120,113 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-edit-preview-contract
         COMMAND shadow-edit-preview-contract-test
+    )
+
+    add_executable(
+        shadow-edit-preview-presentation-context-contract-test
+        tests/edit_preview_presentation_context_contract_test.cpp
+        src/edit_preview_presentation_context.cpp
+    )
+    target_compile_features(
+        shadow-edit-preview-presentation-context-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-preview-presentation-context-contract-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-preview-presentation-context-contract-test
+        PRIVATE Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-preview-presentation-context-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-preview-presentation-context-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-preview-presentation-context-contract
+        COMMAND shadow-edit-preview-presentation-context-contract-test
+    )
+
+    add_executable(
+        shadow-edit-preview-texture-item-contract-test
+        tests/edit_preview_texture_item_contract_test.cpp
+        ${SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE}
+        src/edit_preview_presentation_context.cpp
+        src/edit_preview_presentation_registry.cpp
+        src/edit_preview_store.cpp
+        src/edit_preview_texture_item.cpp
+    )
+    target_compile_features(
+        shadow-edit-preview-texture-item-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-preview-texture-item-contract-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-preview-texture-item-contract-test
+        PRIVATE Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-preview-texture-item-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-preview-texture-item-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-preview-texture-item-contract
+        COMMAND shadow-edit-preview-texture-item-contract-test
+    )
+
+    add_executable(
+        shadow-edit-mask-coverage-store-contract-test
+        tests/edit_mask_coverage_store_contract_test.cpp
+        src/edit_mask_coverage_store.cpp
+        ${SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE}
+        src/edit_preview_presentation_context.cpp
+        src/edit_preview_provider.cpp
+        src/edit_preview_store.cpp
+    )
+    target_compile_features(
+        shadow-edit-mask-coverage-store-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-mask-coverage-store-contract-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-mask-coverage-store-contract-test
+        PRIVATE Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-mask-coverage-store-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-mask-coverage-store-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-mask-coverage-store-contract
+        COMMAND shadow-edit-mask-coverage-store-contract-test
     )
 
     add_executable(
@@ -1406,6 +1555,84 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-precision-mask-create-menu-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-mask-coverage-overlay-contract-test
+        tests/precision_mask_coverage_overlay_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-mask-coverage-overlay-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-mask-coverage-overlay-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    qt_add_qml_module(
+        shadow-precision-mask-coverage-overlay-contract-test
+        URI Shadow.MaskCoverageContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PrecisionMaskCoverageOverlay.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-mask-coverage-overlay-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-mask-coverage-overlay-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-mask-coverage-overlay-contract
+        COMMAND shadow-precision-mask-coverage-overlay-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-mask-coverage-overlay-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-retouch-tools-contract-test
+        tests/precision_retouch_tools_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-retouch-tools-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-precision-retouch-tools-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-precision-retouch-tools-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-retouch-tools-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-retouch-tools-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-retouch-tools-contract
+        COMMAND shadow-precision-retouch-tools-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-retouch-tools-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

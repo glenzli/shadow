@@ -33,10 +33,12 @@ namespace {
 EditController::EditController(
     std::shared_ptr<DesktopBackend> backend,
     std::shared_ptr<EditPreviewStore> preview_store,
+    std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context,
     QObject* parent
 ) :
     QObject(parent), backend_(std::move(backend)), preview_store_(std::move(preview_store)),
-    versions_(this), tone_curve_points_(this) {
+    preview_presentation_context_(std::move(preview_presentation_context)), versions_(this),
+    tone_curve_points_(this) {
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
@@ -44,6 +46,24 @@ EditController::EditController(
     detail_warmup_debounce_.setSingleShot(true);
     autosave_debounce_.setSingleShot(true);
     connect(&preview_debounce_, &QTimer::timeout, this, &EditController::startPreviewRender);
+    connect(
+        this,
+        &EditController::selectedGradeNodeChanged,
+        this,
+        &EditController::handleMaskSelectionChanged
+    );
+    connect(
+        this,
+        &EditController::parametersChanged,
+        this,
+        &EditController::handleMaskParametersChanged
+    );
+    connect(
+        this,
+        &EditController::sourceIdentityChanged,
+        this,
+        &EditController::handleMaskSourceIdentityChanged
+    );
     connect(
         &state_watcher_,
         &QFutureWatcher<EditStateTaskResult>::finished,

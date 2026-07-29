@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <iostream>
+#include <limits>
 #include <optional>
 #include <string_view>
 
@@ -30,11 +32,11 @@ using shadow::image::test_support::failures;
             // Red and blue are at sensor white, while green remains close enough to make the
             // old independent u16 clipping produce a magenta false highlight after a camera
             // matrix. This models the clipped-sun failure seen in real CR3 files.
-            frame.samples[static_cast<std::size_t>(y)
-                * frame.descriptor.storage_dimensions.width + x] = static_cast<std::uint16_t>(
-                colour == image::RawCfaColor::green
-                    ? 980U : frame.descriptor.white_levels[site]
-            );
+            frame.samples
+                [static_cast<std::size_t>(y) * frame.descriptor.storage_dimensions.width + x] =
+                static_cast<std::uint16_t>(
+                    colour == image::RawCfaColor::green ? 980U : frame.descriptor.white_levels[site]
+                );
         }
     }
     return frame;
@@ -46,11 +48,11 @@ using shadow::image::test_support::failures;
         for (std::uint32_t x = 0U; x < frame.descriptor.storage_dimensions.width; ++x) {
             const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
             const auto colour = frame.descriptor.bayer_2x2[site];
-            frame.samples[static_cast<std::size_t>(y)
-                * frame.descriptor.storage_dimensions.width + x] = static_cast<std::uint16_t>(
-                colour == image::RawCfaColor::red
-                    ? frame.descriptor.white_levels[site] : 970U
-            );
+            frame.samples
+                [static_cast<std::size_t>(y) * frame.descriptor.storage_dimensions.width + x] =
+                static_cast<std::uint16_t>(
+                    colour == image::RawCfaColor::red ? frame.descriptor.white_levels[site] : 970U
+                );
         }
     }
     return frame;
@@ -58,9 +60,15 @@ using shadow::image::test_support::failures;
 
 void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
     const image::RawFrameLinearTransform transform{{
-        1.60, -0.40, 0.00,
-        0.00, 0.85, 0.00,
-        0.10, -0.20, 1.50,
+        1.60,
+        -0.40,
+        0.00,
+        0.00,
+        0.85,
+        0.00,
+        0.10,
+        -0.20,
+        1.50,
     }};
     for (const auto max_edge : {
              std::optional<std::uint32_t>{},
@@ -100,7 +108,7 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         disabled.valid()
             && disabled.highlight_recovery == image::RawHighlightRecoveryIntent::disabled
             && image::raw_highlight_treatment_identity(disabled.highlight_recovery)
-                == "sensor-highlights=disabled",
+                   == "sensor-highlights=disabled",
         "disabled highlight treatment remains explicit in the fused result"
     );
     bool disabled_preserves_channel_difference = false;
@@ -131,7 +139,8 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         const auto max_channel = std::max({red, green, blue});
         expect(
             min_channel > 0.5F && max_channel - min_channel <= 0.25F,
-            "a single clipped CFA colour with near-white companions stays bounded before output mapping"
+            "a single clipped CFA colour with near-white companions stays bounded before output "
+            "mapping"
         );
     }
 
@@ -154,9 +163,41 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         std::nullopt,
         image::RawDevelopmentBackendMode::metal
     );
+    float maximum_enabled_difference = 0.0F;
+    float maximum_enabled_magnitude = 0.0F;
+    float maximum_metal_chroma = 0.0F;
+    for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); ++index) {
+        maximum_enabled_difference = std::max(
+            maximum_enabled_difference,
+            std::abs(cpu.scene_linear.samples[index] - metal.scene_linear.samples[index])
+        );
+        maximum_enabled_magnitude = std::max(
+            maximum_enabled_magnitude,
+            std::max(
+                std::abs(cpu.scene_linear.samples[index]),
+                std::abs(metal.scene_linear.samples[index])
+            )
+        );
+    }
+    for (std::size_t index = 0U; index < metal.scene_linear.samples.size(); index += 3U) {
+        const auto red = metal.scene_linear.samples[index];
+        const auto green = metal.scene_linear.samples[index + 1U];
+        const auto blue = metal.scene_linear.samples[index + 2U];
+        maximum_metal_chroma = std::max(
+            maximum_metal_chroma,
+            std::max({red, green, blue}) - std::min({red, green, blue})
+        );
+    }
+    const float enabled_parity_tolerance =
+        8.0F * std::numeric_limits<float>::epsilon() * std::max(1.0F, maximum_enabled_magnitude);
+    if (maximum_enabled_difference > enabled_parity_tolerance) {
+        std::cerr << "enabled highlight CPU/Metal maximum difference: "
+                  << maximum_enabled_difference << '\n';
+    }
     expect(
-        metal.scene_linear.samples == cpu.scene_linear.samples,
-        "Metal applies the same sensor-highlight neutralization as CPU"
+        maximum_metal_chroma <= enabled_parity_tolerance
+            && maximum_enabled_difference <= enabled_parity_tolerance,
+        "Metal applies neutral sensor-highlight recovery within bounded fp32 CPU parity"
     );
 
     const auto disabled_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -175,8 +216,7 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         maximum_disabled_difference = std::max(
             maximum_disabled_difference,
             std::abs(
-                disabled.scene_linear.samples[index]
-                - disabled_metal.scene_linear.samples[index]
+                disabled.scene_linear.samples[index] - disabled_metal.scene_linear.samples[index]
             )
         );
     }

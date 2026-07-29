@@ -126,9 +126,9 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         geometry: PhotoGeometry::identity(),
     };
 
-    let ffi_round_trip = decode_grade_stack_draft_recipe_v1(&encode_grade_stack_draft_recipe_v1(
-        grade_stack.clone(),
-    ))
+    let ffi_round_trip = decode_grade_stack_draft_recipe_v1(
+        &encode_grade_stack_draft_recipe_v1(grade_stack.clone()).expect("encode Grade Stack"),
+    )
     .expect("FFI fine controls round trip");
     assert_eq!(ffi_round_trip.fine, expected);
 
@@ -207,7 +207,7 @@ fn oklab_lightness_curve_has_one_stable_slot_and_rejects_invalid_geometry() {
             if compiled.as_ref() == &curve
     ));
 
-    let encoded = encode_grade_stack_draft_recipe_v1(draft);
+    let encoded = encode_grade_stack_draft_recipe_v1(draft).expect("encode Grade Stack");
     assert_eq!(
         encoded.grade_nodes[0].fine.oklab_lightness_curve_points,
         vec![0.0, 0.02, 0.5, 0.68, 1.0, 1.0]

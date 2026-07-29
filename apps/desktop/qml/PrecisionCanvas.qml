@@ -19,13 +19,17 @@ import QtQuick.Window
 // - no recipe, persistent state, or image algorithm is owned here.
 Rectangle {
     id: canvas
+    objectName: "precisionCanvas"
     Layout.fillWidth: true
     Layout.fillHeight: true
     color: Theme.photoCanvas
 
     required property var editor
+    required property var editPreviewPresentation
     required property int activeToolMode
     required property real cropAspectRatioLock
+    required property bool selectedRetouchContinuous
+    required property int selectedRetouchIndex
 
     readonly property int toolNone: 0
     readonly property int toolMask: 1
@@ -39,6 +43,7 @@ Rectangle {
     property bool comparisonActive: false
     property int comparisonMode: comparisonWipeVertical
     property real comparisonPosition: 0.5
+    property bool maskOverlayVisible: true
 
     // Public display-only diagnostic state. This never mutates the edit stack.
     property bool zebraEnabled: false
@@ -90,6 +95,11 @@ Rectangle {
         && readyPreviewGenerationState.length > 0
         && !showingProvisionalPreview
         && !comparisonActive
+        && Boolean(editor.histogram.valid)
+        && !Boolean(editor.histogram.updating)
+        && !Boolean(editor.histogram.stale)
+        && String(editor.histogram.generation)
+            === readyPreviewGenerationState
     readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
     readonly property real imagePixelWidth: editor.detailFullWidth > 0
         ? editor.detailFullWidth
@@ -120,6 +130,7 @@ Rectangle {
     signal previewFrameStateChanged()
     signal detailFrameStateChanged()
     signal neutralToolRequested()
+    signal retouchRegionSelectionRequested(bool continuous, int index)
 
     onZoomFactorChanged: viewStateChanged()
     onFitViewChanged: viewStateChanged()
@@ -429,7 +440,7 @@ Rectangle {
                         Image {
                             id: editedPreview
                             anchors.fill: parent
-                            source: canvas.visiblePreviewSource
+                            source: liveEditedPreview.fallbackSource
                             fillMode: Image.Stretch
                             asynchronous: true
                             cache: false
@@ -458,6 +469,33 @@ Rectangle {
                             }
                         }
 
+                        EditPreviewTextureItem {
+                            id: liveEditedPreview
+                            objectName: "liveEditedPreview"
+                            anchors.fill: parent
+                            z: 1
+                            presentationRegistry:
+                                canvas.editPreviewPresentation
+                            source: canvas.visiblePreviewSource
+                            liveAdmissionEnabled: !canvas.dualComparison
+                            fillMode: EditPreviewTextureItem.Stretch
+                            visible: !canvas.dualComparison
+                            onSourceChanged: {
+                                canvas.previewFrameReadyState = false
+                                canvas.readyPreviewGenerationState = ""
+                            }
+                            onPresentedGenerationChanged: {
+                                if (presentedGeneration.length > 0) {
+                                    canvas.previewFrameReadyState = true
+                                    canvas.readyPreviewGenerationState
+                                        = presentedGeneration
+                                } else {
+                                    canvas.previewFrameReadyState = false
+                                    canvas.readyPreviewGenerationState = ""
+                                }
+                            }
+                        }
+
                         Image {
                             id: displayZebraOverlay
                             anchors.fill: parent
@@ -481,6 +519,8 @@ Rectangle {
                             anchors.fill: parent
                             z: 20
                             editor: canvas.editor
+                            editPreviewPresentation:
+                                canvas.editPreviewPresentation
                             comparisonActive: canvas.comparisonActive
                             comparisonMode: canvas.comparisonMode
                             comparisonPosition: canvas.comparisonPosition
@@ -522,10 +562,27 @@ Rectangle {
                             }
                         }
 
+                        PrecisionMaskCoverageOverlay {
+                            id: maskCoverageOverlay
+                            anchors.fill: parent
+                            z: 94
+                            editor: canvas.editor
+                            readyPreviewGeneration:
+                                canvas.readyPreviewGeneration
+                            coverageVisible: canvas.maskOverlayVisible
+                            interactionEnabled: canvas.activeToolMode
+                                    === canvas.toolMask
+                                && !canvas.comparisonActive
+                                && canvas.previewFrameReady
+                        }
+
                         PrecisionLocalMaskOverlay {
                             anchors.fill: parent
                             z: 95
                             editor: canvas.editor
+                            nativeCoverageReady:
+                                maskCoverageOverlay.coverageReady
+                            coverageVisible: canvas.maskOverlayVisible
                             interactionEnabled: canvas.activeToolMode
                                     === canvas.toolMask
                                 && !canvas.comparisonActive
@@ -553,15 +610,24 @@ Rectangle {
                                 === canvas.toolRepair
                                 && !canvas.comparisonActive
                                 && canvas.previewFrameReady
+                            selectedContinuous:
+                                canvas.selectedRetouchContinuous
+                            selectedIndex: canvas.selectedRetouchIndex
                             levelZeroWidth: canvas.imagePixelWidth
                             levelZeroHeight: canvas.imagePixelHeight
+                            onRegionSelected:
+                                (continuous, index) =>
+                                    canvas.retouchRegionSelectionRequested(
+                                        continuous, index)
                         }
 
                         PrecisionCanvasPickerInput {
                             anchors.fill: parent
                             z: 100
                             editor: canvas.editor
-                            previewImage: editedPreview
+                            previewItem: photoSurface
+                            previewContentRect: Qt.rect(
+                                0, 0, photoSurface.width, photoSurface.height)
                             previewFrameReady: canvas.previewFrameReady
                             readyPreviewGeneration:
                                 canvas.readyPreviewGeneration

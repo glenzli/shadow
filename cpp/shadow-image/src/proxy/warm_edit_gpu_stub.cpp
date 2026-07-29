@@ -53,13 +53,23 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render_layers(
     const bool,
     const std::stop_token cancellation
 ) const {
-    return render_layers({}, false, WarmEditGpuRenderContext{}, cancellation);
+    return render_layers({}, false, WarmEditGpuRenderContext{}, std::nullopt, cancellation);
 }
 
 WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render_layers(
     std::span<const AdjustmentLayer>,
     const bool,
     const WarmEditGpuRenderContext,
+    const std::stop_token cancellation
+) const {
+    return render_layers({}, false, WarmEditGpuRenderContext{}, std::nullopt, cancellation);
+}
+
+WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render_layers(
+    std::span<const AdjustmentLayer>,
+    const bool,
+    const WarmEditGpuRenderContext,
+    const std::optional<std::uint32_t>,
     const std::stop_token cancellation
 ) const {
     return RenderAttempt{
@@ -80,6 +90,13 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage&) {
     return WarmEditGpuPreparation{
         .session = nullptr,
         .diagnostic = "session-resident Metal warm preview is unavailable on this platform",
+    };
+}
+
+WarmEditGpuPreparation prepare_warm_edit_gpu_session(const WarmEditGpuAdoptedSource&) {
+    return WarmEditGpuPreparation{
+        .session = nullptr,
+        .diagnostic = "adopted Metal warm-edit source is unavailable on this platform",
     };
 }
 

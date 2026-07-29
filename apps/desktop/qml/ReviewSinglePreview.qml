@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 
 // One-photo review with a horizontal filmstrip. It consumes the same filtered
 // model as the grid, so filtering and curation state stay identical across
@@ -189,20 +188,19 @@ Item {
                 height: filmstrip.height
                 radius: Theme.compactControlRadius
                 color: Theme.panelRaised
-                border.width: selected ? 2 : 1
-                border.color: selected ? Theme.accent : Theme.border
+                border.width: 0
                 clip: true
 
-                Image {
+                ShadowRoundedImage {
                     anchors.fill: parent
                     source: filmCard.visualSource
+                    radius: filmCard.radius
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: true
                     smooth: true
                     mipmap: true
-                    sourceSize.width: 256
-                    sourceSize.height: 256
+                    requestedSourceSize: Qt.size(256, 256)
                 }
 
                 Rectangle {
@@ -217,22 +215,44 @@ Item {
                     color: Theme.colorLabel(filmCard.colorLabel)
                 }
 
-                ShadowIcon {
+                ReviewPhotoAffinity {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.rightMargin: 5
                     anchors.topMargin: 5
-                    visible: filmCard.liked
-                    source: "qrc:/icons/heart-filled.svg"
-                    color: Theme.likeAccent
-                    size: 13
+                    liked: filmCard.liked
+                    showRating: false
+                    floating: true
+                    iconSize: 12
+                }
+
+                ReviewPhotoAffinity {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.rightMargin: 5
+                    anchors.bottomMargin: 5
+                    liked: false
+                    rating: filmCard.decisionRating
+                    showLike: false
+                    floating: true
+                    iconSize: 8
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: filmCard.radius
+                    color: Theme.transparent
+                    border.width: filmCard.selected ? 2 : 1
+                    border.color: filmCard.selected
+                        ? Theme.accent : Theme.border
                 }
 
                 MouseArea {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.review.selectPhoto(filmCard, mouse.modifiers)
+                    onClicked: mouse =>
+                        root.review.selectPhoto(filmCard, mouse.modifiers)
                     onDoubleClicked: {
                         root.review.selectPhoto(filmCard, 0)
                         root.review.openSelectedPhoto()

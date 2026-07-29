@@ -88,7 +88,7 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
         .expect("build expected queued Recipe");
     let expected_digest = shadow_domain::canonical_recipe_snapshot_digest(&expected_snapshot)
         .expect("identify expected queued Recipe");
-    let settings = encode_grade_stack_draft_recipe_v1(queued_draft);
+    let settings = encode_grade_stack_draft_recipe_v1(queued_draft).expect("encode Grade Stack");
 
     let resolved = resolve_recipe_render(
         &catalog,

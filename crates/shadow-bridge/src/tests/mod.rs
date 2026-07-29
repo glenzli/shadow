@@ -6,6 +6,7 @@
 mod adjustment_plan;
 mod detail_contract;
 mod display_luma;
+mod native_build_input_contract;
 mod oklab_color_warper_contract;
 mod perceptual_color_contract;
 mod preview_contract;

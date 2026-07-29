@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 class ExportBackend;
 
@@ -162,7 +163,8 @@ public:
         std::uint64_t render_token,
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality,
-        EditPreviewPolicy policy
+        EditPreviewPolicy policy,
+        std::optional<EditMaskCoverageRequest> mask_coverage_request
     ) const;
     [[nodiscard]] std::uint64_t beginEditPreviewRequest() const noexcept;
     [[nodiscard]] bool cancelEditPreviewRequest(

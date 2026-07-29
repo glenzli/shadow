@@ -1,7 +1,7 @@
 #include "warm_edit_gpu_resident_resources.hpp"
 
-#include "warm_edit_gpu_kernel_contract.hpp"
 #include "../edit/metal_adjustment_program.hpp"
+#include "warm_edit_gpu_kernel_contract.hpp"
 
 #include <shadow/image/warm_edit_preview.hpp>
 
@@ -38,11 +38,13 @@ inline constexpr std::size_t maximum_resident_selective_color_tables = 16U;
 inline constexpr std::size_t maximum_resident_brush_index_tables = 4U;
 inline constexpr std::size_t maximum_resident_retouch_geometry_tables = 4U;
 
-[[nodiscard]] bool checked_multiply(
-    const std::size_t left,
-    const std::size_t right,
-    std::size_t& result
-) noexcept {
+[[nodiscard]] std::size_t default_resident_allowance(id<MTLDevice> device) noexcept {
+    const auto recommended = static_cast<std::size_t>(device.recommendedMaxWorkingSetSize);
+    return recommended == 0U ? std::numeric_limits<std::size_t>::max() : recommended / 2U;
+}
+
+[[nodiscard]] bool
+checked_multiply(const std::size_t left, const std::size_t right, std::size_t& result) noexcept {
     if (left != 0U && right > std::numeric_limits<std::size_t>::max() / left) {
         return false;
     }
@@ -50,11 +52,8 @@ inline constexpr std::size_t maximum_resident_retouch_geometry_tables = 4U;
     return true;
 }
 
-[[nodiscard]] bool checked_add(
-    const std::size_t left,
-    const std::size_t right,
-    std::size_t& result
-) noexcept {
+[[nodiscard]] bool
+checked_add(const std::size_t left, const std::size_t right, std::size_t& result) noexcept {
     if (right > std::numeric_limits<std::size_t>::max() - left) {
         return false;
     }
@@ -72,6 +71,8 @@ struct WarmSlot final {
     id<MTLBuffer> local_contrast_a = nil;
     id<MTLBuffer> local_contrast_b = nil;
     id<MTLBuffer> layer_before = nil;
+    id<MTLBuffer> mask_coverage_linear = nil;
+    id<MTLBuffer> mask_coverage_r8 = nil;
     id<MTLBuffer> retouch_statistics = nil;
     id<MTLBuffer> retouch_summary = nil;
     id<MTLBuffer> rgb8 = nil;
@@ -87,9 +88,8 @@ struct SideBufferAttempt final {
     std::string diagnostic;
 };
 
-[[nodiscard]] std::uint64_t side_table_content_hash(
-    const std::span<const std::byte> bytes
-) noexcept {
+[[nodiscard]] std::uint64_t
+side_table_content_hash(const std::span<const std::byte> bytes) noexcept {
     // A transient accelerator only: exact bytes below remain authoritative against collisions.
     std::uint64_t hash = 14695981039346656037ULL;
     for (const std::byte byte : bytes) {
@@ -110,11 +110,8 @@ struct ResidentSideTable final {
         const std::uint64_t hash,
         id<MTLBuffer> owned_buffer,
         const std::uint64_t use
-    ) noexcept
-        : content(std::move(bytes)),
-          content_hash(hash),
-          buffer(owned_buffer),
-          last_use(use) {}
+    ) noexcept :
+        content(std::move(bytes)), content_hash(hash), buffer(owned_buffer), last_use(use) {}
 
     ~ResidentSideTable() {
         [buffer release];
@@ -123,11 +120,9 @@ struct ResidentSideTable final {
     ResidentSideTable(const ResidentSideTable&) = delete;
     ResidentSideTable& operator=(const ResidentSideTable&) = delete;
 
-    ResidentSideTable(ResidentSideTable&& other) noexcept
-        : content(std::move(other.content)),
-          content_hash(other.content_hash),
-          buffer(std::exchange(other.buffer, nil)),
-          last_use(other.last_use) {}
+    ResidentSideTable(ResidentSideTable&& other) noexcept :
+        content(std::move(other.content)), content_hash(other.content_hash),
+        buffer(std::exchange(other.buffer, nil)), last_use(other.last_use) {}
 
     ResidentSideTable& operator=(ResidentSideTable&& other) noexcept {
         if (this != &other) {
@@ -140,13 +135,10 @@ struct ResidentSideTable final {
         return *this;
     }
 
-    [[nodiscard]] bool matches(
-        const std::uint64_t hash,
-        const std::span<const std::byte> bytes
-    ) const noexcept {
+    [[nodiscard]] bool
+    matches(const std::uint64_t hash, const std::span<const std::byte> bytes) const noexcept {
         return content_hash == hash && content.size() == bytes.size()
-            && (bytes.empty()
-                || std::memcmp(content.data(), bytes.data(), bytes.size()) == 0);
+               && (bytes.empty() || std::memcmp(content.data(), bytes.data(), bytes.size()) == 0);
     }
 };
 
@@ -169,6 +161,8 @@ struct WarmGpuResidentResources::Impl final {
     std::vector<ResidentSideTable> brush_index_tables;
     std::vector<ResidentSideTable> retouch_geometry_tables;
     std::uint64_t side_table_use_sequence = 0U;
+    std::size_t external_resident_bytes = 0U;
+    std::size_t resident_allowance_bytes = std::numeric_limits<std::size_t>::max();
 
     mutable std::mutex mutex;
     mutable std::condition_variable_any available_slot;
@@ -182,6 +176,8 @@ struct WarmGpuResidentResources::Impl final {
             [slot.after_operations release];
             [slot.before_operations release];
             [slot.rgb8 release];
+            [slot.mask_coverage_r8 release];
+            [slot.mask_coverage_linear release];
             [slot.layer_before release];
             [slot.retouch_summary release];
             [slot.retouch_statistics release];
@@ -206,19 +202,27 @@ struct WarmGpuResidentResources::Impl final {
         [device release];
     }
 
+    [[nodiscard]] bool fits_resident_addition(const std::size_t addition) const noexcept {
+        std::size_t combined = 0U;
+        return static_cast<std::uint64_t>(stats.resident_bytes)
+                   <= std::numeric_limits<std::size_t>::max()
+               && checked_add(
+                   external_resident_bytes,
+                   static_cast<std::size_t>(stats.resident_bytes),
+                   combined
+               )
+               && checked_add(combined, addition, combined) && combined <= resident_allowance_bytes;
+    }
+
     template <typename Element>
-    [[nodiscard]] SideBufferAttempt acquire_side_buffer(
-        const std::vector<Element>& elements,
-        const std::stop_token cancellation
-    ) {
+    [[nodiscard]] SideBufferAttempt
+    acquire_side_buffer(const std::vector<Element>& elements, const std::stop_token cancellation) {
         static_assert(
-            std::is_same_v<Element, MetalCurveSegment>
-                || std::is_same_v<Element, MetalLutEntry>
-                || std::is_same_v<Element, MetalPerceptualMixerEntry>
-                || std::is_same_v<Element, MetalPerceptualRange>
-                || std::is_same_v<Element, MetalSelectiveColorEntry>
-                || std::is_same_v<Element, std::uint32_t>
-                || std::is_same_v<Element, WarmRetouchWord>
+            std::is_same_v<Element, MetalCurveSegment> || std::is_same_v<Element, MetalLutEntry>
+            || std::is_same_v<Element, MetalPerceptualMixerEntry>
+            || std::is_same_v<Element, MetalPerceptualRange>
+            || std::is_same_v<Element, MetalSelectiveColorEntry>
+            || std::is_same_v<Element, std::uint32_t> || std::is_same_v<Element, WarmRetouchWord>
         );
         if (cancellation.stop_requested()) {
             return SideBufferAttempt{.cancelled = true};
@@ -237,13 +241,9 @@ struct WarmGpuResidentResources::Impl final {
                 return curve_tables;
             } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
                 return lut_tables;
-            } else if constexpr (
-                std::is_same_v<Element, MetalPerceptualMixerEntry>
-            ) {
+            } else if constexpr (std::is_same_v<Element, MetalPerceptualMixerEntry>) {
                 return perceptual_mixer_tables;
-            } else if constexpr (
-                std::is_same_v<Element, MetalPerceptualRange>
-            ) {
+            } else if constexpr (std::is_same_v<Element, MetalPerceptualRange>) {
                 return perceptual_range_tables;
             } else if constexpr (std::is_same_v<Element, std::uint32_t>) {
                 return brush_index_tables;
@@ -258,13 +258,9 @@ struct WarmGpuResidentResources::Impl final {
                 return maximum_resident_curve_tables;
             } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
                 return maximum_resident_lut_tables;
-            } else if constexpr (
-                std::is_same_v<Element, MetalPerceptualMixerEntry>
-            ) {
+            } else if constexpr (std::is_same_v<Element, MetalPerceptualMixerEntry>) {
                 return maximum_resident_perceptual_mixer_tables;
-            } else if constexpr (
-                std::is_same_v<Element, MetalPerceptualRange>
-            ) {
+            } else if constexpr (std::is_same_v<Element, MetalPerceptualRange>) {
                 return maximum_resident_perceptual_range_tables;
             } else if constexpr (std::is_same_v<Element, std::uint32_t>) {
                 return maximum_resident_brush_index_tables;
@@ -292,20 +288,40 @@ struct WarmGpuResidentResources::Impl final {
             }
         }
 
-        const std::size_t maximum_buffer_bytes =
-            static_cast<std::size_t>(device.maxBufferLength);
+        const std::size_t maximum_buffer_bytes = static_cast<std::size_t>(device.maxBufferLength);
         if (bytes.size() > maximum_buffer_bytes) {
             return SideBufferAttempt{
                 .diagnostic = "warm-preview resident side table exceeds the Metal buffer limit",
             };
         }
+        const auto evict_oldest = [&]() {
+            const auto oldest = std::min_element(
+                cache.begin(),
+                cache.end(),
+                [](const ResidentSideTable& left, const ResidentSideTable& right) {
+                    return left.last_use < right.last_use;
+                }
+            );
+            stats.resident_bytes -= static_cast<std::uint64_t>(oldest->content.size());
+            cache.erase(oldest);
+        };
+        if (cache.size() >= capacity) {
+            evict_oldest();
+        }
+        while (!fits_resident_addition(bytes.size()) && !cache.empty()) {
+            evict_oldest();
+        }
+        if (!fits_resident_addition(bytes.size())) {
+            return SideBufferAttempt{
+                .diagnostic = "warm-preview resident side table exceeds the combined Metal budget",
+            };
+        }
         // Copy the immutable identity before allocating the Metal object. Cache publication is
         // a single step after both are complete; cancellation never exposes a partial entry.
         std::vector<std::byte> owned_bytes(bytes.begin(), bytes.end());
-        id<MTLBuffer> uploaded = [device
-            newBufferWithBytes:bytes.data()
-            length:bytes.size()
-            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> uploaded = [device newBufferWithBytes:bytes.data()
+                                                     length:bytes.size()
+                                                    options:MTLResourceStorageModeShared];
         if (uploaded == nil) {
             return SideBufferAttempt{
                 .diagnostic = "Metal could not upload a warm-preview resident side table",
@@ -316,32 +332,14 @@ struct WarmGpuResidentResources::Impl final {
             return SideBufferAttempt{.cancelled = true};
         }
 
-        if (cache.size() >= capacity) {
-            const auto oldest = std::min_element(
-                cache.begin(),
-                cache.end(),
-                [](const ResidentSideTable& left, const ResidentSideTable& right) {
-                    return left.last_use < right.last_use;
-                }
-            );
-            stats.resident_bytes -= static_cast<std::uint64_t>(oldest->content.size());
-            cache.erase(oldest);
-        }
-        cache.emplace_back(
-            std::move(owned_bytes),
-            content_hash,
-            uploaded,
-            side_table_use_sequence
-        );
+        cache.emplace_back(std::move(owned_bytes), content_hash, uploaded, side_table_use_sequence);
         ++stats.gpu_buffer_allocation_count;
         stats.resident_bytes += static_cast<std::uint64_t>(bytes.size());
         if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
             ++stats.curve_resource_upload_count;
         } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
             ++stats.lut_resource_upload_count;
-        } else if constexpr (
-            std::is_same_v<Element, MetalPerceptualMixerEntry>
-        ) {
+        } else if constexpr (std::is_same_v<Element, MetalPerceptualMixerEntry>) {
             ++stats.perceptual_mixer_resource_upload_count;
         } else if constexpr (std::is_same_v<Element, MetalPerceptualRange>) {
             ++stats.perceptual_range_resource_upload_count;
@@ -371,8 +369,8 @@ struct WarmGpuResidentResources::Impl final {
         }
         if (!curve.buffer) {
             result.diagnostic = curve.diagnostic.empty()
-                ? "session-resident Metal warm preview has no curve side table"
-                : std::move(curve.diagnostic);
+                                    ? "session-resident Metal warm preview has no curve side table"
+                                    : std::move(curve.diagnostic);
             return result;
         }
         result.buffers.curve = std::move(curve.buffer);
@@ -384,56 +382,50 @@ struct WarmGpuResidentResources::Impl final {
         }
         if (!lut.buffer) {
             result.diagnostic = lut.diagnostic.empty()
-                ? "session-resident Metal warm preview has no LUT side table"
-                : std::move(lut.diagnostic);
+                                    ? "session-resident Metal warm preview has no LUT side table"
+                                    : std::move(lut.diagnostic);
             return result;
         }
         result.buffers.lut = std::move(lut.buffer);
 
-        auto perceptual_mixer = acquire_side_buffer(
-            program.perceptual_mixer_entries,
-            cancellation
-        );
+        auto perceptual_mixer = acquire_side_buffer(program.perceptual_mixer_entries, cancellation);
         if (perceptual_mixer.cancelled) {
             result.cancelled = true;
             return result;
         }
         if (!perceptual_mixer.buffer) {
-            result.diagnostic = perceptual_mixer.diagnostic.empty()
-                ? "session-resident Metal warm preview has no perceptual mixer table"
-                : std::move(perceptual_mixer.diagnostic);
+            result.diagnostic =
+                perceptual_mixer.diagnostic.empty()
+                    ? "session-resident Metal warm preview has no perceptual mixer table"
+                    : std::move(perceptual_mixer.diagnostic);
             return result;
         }
         result.buffers.perceptual_mixer = std::move(perceptual_mixer.buffer);
 
-        auto perceptual_range = acquire_side_buffer(
-            program.perceptual_range_entries,
-            cancellation
-        );
+        auto perceptual_range = acquire_side_buffer(program.perceptual_range_entries, cancellation);
         if (perceptual_range.cancelled) {
             result.cancelled = true;
             return result;
         }
         if (!perceptual_range.buffer) {
-            result.diagnostic = perceptual_range.diagnostic.empty()
-                ? "session-resident Metal warm preview has no perceptual range table"
-                : std::move(perceptual_range.diagnostic);
+            result.diagnostic =
+                perceptual_range.diagnostic.empty()
+                    ? "session-resident Metal warm preview has no perceptual range table"
+                    : std::move(perceptual_range.diagnostic);
             return result;
         }
         result.buffers.perceptual_range = std::move(perceptual_range.buffer);
 
-        auto selective_color = acquire_side_buffer(
-            program.selective_color_entries,
-            cancellation
-        );
+        auto selective_color = acquire_side_buffer(program.selective_color_entries, cancellation);
         if (selective_color.cancelled) {
             result.cancelled = true;
             return result;
         }
         if (!selective_color.buffer) {
-            result.diagnostic = selective_color.diagnostic.empty()
-                ? "session-resident Metal warm preview has no Selective Color table"
-                : std::move(selective_color.diagnostic);
+            result.diagnostic =
+                selective_color.diagnostic.empty()
+                    ? "session-resident Metal warm preview has no Selective Color table"
+                    : std::move(selective_color.diagnostic);
             return result;
         }
         result.buffers.selective_color = std::move(selective_color.buffer);
@@ -464,14 +456,10 @@ struct WarmGpuResidentResources::Impl final {
         };
     }
 
-    [[nodiscard]] std::optional<std::size_t> acquire_slot(
-        const std::stop_token cancellation
-    ) {
+    [[nodiscard]] std::optional<std::size_t> acquire_slot(const std::stop_token cancellation) {
         std::unique_lock lock(mutex);
         const bool available = available_slot.wait(lock, cancellation, [this]() {
-            return std::ranges::any_of(slots, [](const WarmSlot& slot) {
-                return !slot.busy;
-            });
+            return std::ranges::any_of(slots, [](const WarmSlot& slot) { return !slot.busy; });
         });
         if (!available || cancellation.stop_requested()) {
             return std::nullopt;
@@ -503,9 +491,7 @@ struct WarmGpuResidentResources::Impl final {
         available_slot.notify_one();
     }
 
-    [[nodiscard]] std::string ensure_denoise_resources(
-        const std::size_t index
-    ) {
+    [[nodiscard]] std::string ensure_denoise_resources(const std::size_t index) {
         std::lock_guard lock(mutex);
         WarmSlot& slot = slots[index];
         if (slot.denoised != nil && slot.after_operations != nil) {
@@ -517,24 +503,16 @@ struct WarmGpuResidentResources::Impl final {
         std::size_t addition = 0U;
         if (!checked_add(layout.adjusted_bytes, operation_buffer_bytes, addition)
             || addition > std::numeric_limits<std::size_t>::max()
-                - static_cast<std::size_t>(stats.resident_bytes)) {
+                              - static_cast<std::size_t>(stats.resident_bytes)) {
             return "warm-preview denoise resource size overflowed";
         }
-        const auto recommended = static_cast<std::size_t>(
-            device.recommendedMaxWorkingSetSize
-        );
-        const std::size_t allowance = recommended / 2U;
-        if (recommended > 0U && (addition > allowance
-                || static_cast<std::size_t>(stats.resident_bytes)
-                    > allowance - addition)) {
-            return "warm-preview denoise resources exceed half the recommended Metal working set";
+        if (!fits_resident_addition(addition)) {
+            return "warm-preview denoise resources exceed the combined Metal budget";
         }
-        id<MTLBuffer> denoised = [device
-            newBufferWithLength:layout.adjusted_bytes
-            options:MTLResourceStorageModeShared];
-        id<MTLBuffer> after_operations = [device
-            newBufferWithLength:operation_buffer_bytes
-            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> denoised = [device newBufferWithLength:layout.adjusted_bytes
+                                                     options:MTLResourceStorageModeShared];
+        id<MTLBuffer> after_operations = [device newBufferWithLength:operation_buffer_bytes
+                                                             options:MTLResourceStorageModeShared];
         if (denoised == nil || after_operations == nil) {
             [denoised release];
             [after_operations release];
@@ -547,9 +525,7 @@ struct WarmGpuResidentResources::Impl final {
         return {};
     }
 
-    [[nodiscard]] std::string ensure_sharpen_resources(
-        const std::size_t index
-    ) {
+    [[nodiscard]] std::string ensure_sharpen_resources(const std::size_t index) {
         const std::string detail_diagnostic = ensure_denoise_resources(index);
         if (!detail_diagnostic.empty()) {
             return detail_diagnostic;
@@ -567,24 +543,16 @@ struct WarmGpuResidentResources::Impl final {
         std::size_t addition = 0U;
         if (!checked_add(scalar_bytes, scalar_bytes, addition)
             || addition > std::numeric_limits<std::size_t>::max()
-                - static_cast<std::size_t>(stats.resident_bytes)) {
+                              - static_cast<std::size_t>(stats.resident_bytes)) {
             return "warm-preview sharpen resource size overflowed";
         }
-        const auto recommended = static_cast<std::size_t>(
-            device.recommendedMaxWorkingSetSize
-        );
-        const std::size_t allowance = recommended / 2U;
-        if (recommended > 0U && (addition > allowance
-                || static_cast<std::size_t>(stats.resident_bytes)
-                    > allowance - addition)) {
-            return "warm-preview sharpen resources exceed half the recommended Metal working set";
+        if (!fits_resident_addition(addition)) {
+            return "warm-preview sharpen resources exceed the combined Metal budget";
         }
-        id<MTLBuffer> log_luminance = [device
-            newBufferWithLength:scalar_bytes
-            options:MTLResourceStorageModeShared];
-        id<MTLBuffer> horizontal = [device
-            newBufferWithLength:scalar_bytes
-            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> log_luminance = [device newBufferWithLength:scalar_bytes
+                                                          options:MTLResourceStorageModeShared];
+        id<MTLBuffer> horizontal = [device newBufferWithLength:scalar_bytes
+                                                       options:MTLResourceStorageModeShared];
         if (log_luminance == nil || horizontal == nil) {
             [log_luminance release];
             [horizontal release];
@@ -597,9 +565,7 @@ struct WarmGpuResidentResources::Impl final {
         return {};
     }
 
-    [[nodiscard]] std::string ensure_clarity_resources(
-        const std::size_t index
-    ) {
+    [[nodiscard]] std::string ensure_clarity_resources(const std::size_t index) {
         const std::string detail_diagnostic = ensure_sharpen_resources(index);
         if (!detail_diagnostic.empty()) {
             return detail_diagnostic;
@@ -611,21 +577,14 @@ struct WarmGpuResidentResources::Impl final {
         }
         const std::size_t scalar_bytes = layout.adjusted_bytes / 3U;
         if (scalar_bytes > std::numeric_limits<std::size_t>::max()
-                - static_cast<std::size_t>(stats.resident_bytes)) {
+                               - static_cast<std::size_t>(stats.resident_bytes)) {
             return "warm-preview clarity resource size overflowed";
         }
-        const auto recommended = static_cast<std::size_t>(
-            device.recommendedMaxWorkingSetSize
-        );
-        const std::size_t allowance = recommended / 2U;
-        if (recommended > 0U && (scalar_bytes > allowance
-                || static_cast<std::size_t>(stats.resident_bytes)
-                    > allowance - scalar_bytes)) {
-            return "warm-preview clarity resources exceed half the recommended Metal working set";
+        if (!fits_resident_addition(scalar_bytes)) {
+            return "warm-preview clarity resources exceed the combined Metal budget";
         }
-        id<MTLBuffer> small = [device
-            newBufferWithLength:scalar_bytes
-            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> small = [device newBufferWithLength:scalar_bytes
+                                                  options:MTLResourceStorageModeShared];
         if (small == nil) {
             return "Metal could not allocate a resident warm-preview clarity raster";
         }
@@ -635,9 +594,7 @@ struct WarmGpuResidentResources::Impl final {
         return {};
     }
 
-    [[nodiscard]] std::string ensure_texture_clarity_resources(
-        const std::size_t index
-    ) {
+    [[nodiscard]] std::string ensure_texture_clarity_resources(const std::size_t index) {
         const std::string detail_diagnostic = ensure_clarity_resources(index);
         if (!detail_diagnostic.empty()) {
             return detail_diagnostic;
@@ -649,20 +606,14 @@ struct WarmGpuResidentResources::Impl final {
         }
         const std::size_t scalar_bytes = layout.adjusted_bytes / 3U;
         if (scalar_bytes > std::numeric_limits<std::size_t>::max()
-                - static_cast<std::size_t>(stats.resident_bytes)) {
+                               - static_cast<std::size_t>(stats.resident_bytes)) {
             return "warm-preview texture-clarity resource size overflowed";
         }
-        const auto recommended = static_cast<std::size_t>(
-            device.recommendedMaxWorkingSetSize
-        );
-        const std::size_t allowance = recommended / 2U;
-        if (recommended > 0U && (scalar_bytes > allowance
-                || static_cast<std::size_t>(stats.resident_bytes)
-                    > allowance - scalar_bytes)) {
-            return "warm-preview texture-clarity resources exceed half the recommended Metal working set";
+        if (!fits_resident_addition(scalar_bytes)) {
+            return "warm-preview texture-clarity resources exceed the combined Metal budget";
         }
-        id<MTLBuffer> texture = [device
-            newBufferWithLength:scalar_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> texture = [device newBufferWithLength:scalar_bytes
+                                                    options:MTLResourceStorageModeShared];
         if (texture == nil) {
             return "Metal could not allocate a resident warm-preview texture raster";
         }
@@ -672,9 +623,7 @@ struct WarmGpuResidentResources::Impl final {
         return {};
     }
 
-    [[nodiscard]] std::string ensure_local_contrast_resources(
-        const std::size_t index
-    ) {
+    [[nodiscard]] std::string ensure_local_contrast_resources(const std::size_t index) {
         const std::string detail_diagnostic = ensure_clarity_resources(index);
         if (!detail_diagnostic.empty()) {
             return detail_diagnostic;
@@ -687,35 +636,29 @@ struct WarmGpuResidentResources::Impl final {
         }
         const std::size_t scalar_bytes = layout.adjusted_bytes / 3U;
         const std::size_t missing = (slot.perceptual_texture == nil ? 1U : 0U)
-            + (slot.local_contrast_a == nil ? 1U : 0U)
-            + (slot.local_contrast_b == nil ? 1U : 0U);
+                                    + (slot.local_contrast_a == nil ? 1U : 0U)
+                                    + (slot.local_contrast_b == nil ? 1U : 0U);
         std::size_t addition = 0U;
         if (!checked_multiply(scalar_bytes, missing, addition)
             || addition > std::numeric_limits<std::size_t>::max()
-                - static_cast<std::size_t>(stats.resident_bytes)) {
+                              - static_cast<std::size_t>(stats.resident_bytes)) {
             return "warm-preview local-contrast resource size overflowed";
         }
-        const auto recommended = static_cast<std::size_t>(
-            device.recommendedMaxWorkingSetSize
-        );
-        const std::size_t allowance = recommended / 2U;
-        if (recommended > 0U && (addition > allowance
-                || static_cast<std::size_t>(stats.resident_bytes)
-                    > allowance - addition)) {
-            return "warm-preview local-contrast resources exceed half the recommended Metal working set";
+        if (!fits_resident_addition(addition)) {
+            return "warm-preview local-contrast resources exceed the combined Metal budget";
         }
         id<MTLBuffer> texture = slot.perceptual_texture == nil
-            ? [device newBufferWithLength:scalar_bytes
-                options:MTLResourceStorageModeShared]
-            : nil;
+                                    ? [device newBufferWithLength:scalar_bytes
+                                                          options:MTLResourceStorageModeShared]
+                                    : nil;
         id<MTLBuffer> a = slot.local_contrast_a == nil
-            ? [device newBufferWithLength:scalar_bytes
-                options:MTLResourceStorageModeShared]
-            : nil;
+                              ? [device newBufferWithLength:scalar_bytes
+                                                    options:MTLResourceStorageModeShared]
+                              : nil;
         id<MTLBuffer> b = slot.local_contrast_b == nil
-            ? [device newBufferWithLength:scalar_bytes
-                options:MTLResourceStorageModeShared]
-            : nil;
+                              ? [device newBufferWithLength:scalar_bytes
+                                                    options:MTLResourceStorageModeShared]
+                              : nil;
         if ((slot.perceptual_texture == nil && texture == nil)
             || (slot.local_contrast_a == nil && a == nil)
             || (slot.local_contrast_b == nil && b == nil)) {
@@ -747,27 +690,56 @@ struct WarmGpuResidentResources::Impl final {
         const std::size_t bytes = layout.adjusted_bytes;
         if (bytes == 0U
             || bytes > std::numeric_limits<std::size_t>::max()
-                - static_cast<std::size_t>(stats.resident_bytes)) {
+                           - static_cast<std::size_t>(stats.resident_bytes)) {
             return "warm-preview layer snapshot size overflowed";
         }
-        const auto recommended = static_cast<std::size_t>(
-            device.recommendedMaxWorkingSetSize
-        );
-        const std::size_t allowance = recommended / 2U;
-        if (recommended > 0U
-            && (bytes > allowance
-                || static_cast<std::size_t>(stats.resident_bytes) > allowance - bytes)) {
-            return "warm-preview layer snapshot exceeds half the recommended Metal working set";
+        if (!fits_resident_addition(bytes)) {
+            return "warm-preview layer snapshot exceeds the combined Metal budget";
         }
-        id<MTLBuffer> buffer = [device
-            newBufferWithLength:bytes
-            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buffer = [device newBufferWithLength:bytes
+                                                   options:MTLResourceStorageModeShared];
         if (buffer == nil) {
             return "Metal could not allocate the resident warm-preview layer snapshot";
         }
         slot.layer_before = buffer;
         ++stats.gpu_buffer_allocation_count;
         stats.resident_bytes += static_cast<std::uint64_t>(bytes);
+        return {};
+    }
+
+    [[nodiscard]] std::string ensure_mask_coverage_resources(const std::size_t index) {
+        std::lock_guard lock(mutex);
+        WarmSlot& slot = slots[index];
+        if (slot.mask_coverage_linear != nil && slot.mask_coverage_r8 != nil) {
+            return {};
+        }
+        if (slot.mask_coverage_linear != nil || slot.mask_coverage_r8 != nil) {
+            return "warm-preview mask-coverage slot was only partially initialized";
+        }
+        const std::size_t linear_bytes = layout.adjusted_bytes / 3U;
+        const std::size_t r8_bytes = layout.rgb8_bytes / 3U;
+        std::size_t addition = 0U;
+        if (linear_bytes == 0U || r8_bytes == 0U || !checked_add(linear_bytes, r8_bytes, addition)
+            || addition > std::numeric_limits<std::size_t>::max()
+                              - static_cast<std::size_t>(stats.resident_bytes)) {
+            return "warm-preview mask-coverage resource size overflowed";
+        }
+        if (!fits_resident_addition(addition)) {
+            return "warm-preview mask-coverage resources exceed the combined Metal budget";
+        }
+        id<MTLBuffer> linear = [device newBufferWithLength:linear_bytes
+                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> r8 = [device newBufferWithLength:r8_bytes
+                                               options:MTLResourceStorageModeShared];
+        if (linear == nil || r8 == nil) {
+            [linear release];
+            [r8 release];
+            return "Metal could not allocate resident warm-preview mask coverage";
+        }
+        slot.mask_coverage_linear = linear;
+        slot.mask_coverage_r8 = r8;
+        stats.gpu_buffer_allocation_count += 2U;
+        stats.resident_bytes += static_cast<std::uint64_t>(addition);
         return {};
     }
 
@@ -779,14 +751,9 @@ struct WarmGpuResidentResources::Impl final {
         }
         constexpr std::size_t statistics_threads = 256U;
         const std::size_t group_count =
-            (layout.adjusted_sample_count / 3U + statistics_threads - 1U)
-            / statistics_threads;
+            (layout.adjusted_sample_count / 3U + statistics_threads - 1U) / statistics_threads;
         std::size_t statistics_bytes = 0U;
-        if (!checked_multiply(
-                group_count,
-                sizeof(WarmRetouchStatistics),
-                statistics_bytes
-            )
+        if (!checked_multiply(group_count, sizeof(WarmRetouchStatistics), statistics_bytes)
             || statistics_bytes == 0U) {
             return "warm-preview retouch statistics size overflowed";
         }
@@ -794,27 +761,20 @@ struct WarmGpuResidentResources::Impl final {
         std::size_t addition = 0U;
         if (!checked_add(statistics_bytes, summary_bytes, addition)
             || addition > std::numeric_limits<std::size_t>::max()
-                - static_cast<std::size_t>(stats.resident_bytes)) {
+                              - static_cast<std::size_t>(stats.resident_bytes)) {
             return "warm-preview retouch resource size overflowed";
         }
-        const auto recommended = static_cast<std::size_t>(
-            device.recommendedMaxWorkingSetSize
-        );
-        const std::size_t allowance = recommended / 2U;
-        if (recommended > 0U
-            && (addition > allowance
-                || static_cast<std::size_t>(stats.resident_bytes)
-                    > allowance - addition)) {
-            return "warm-preview retouch resources exceed half the recommended Metal working set";
+        if (!fits_resident_addition(addition)) {
+            return "warm-preview retouch resources exceed the combined Metal budget";
         }
         id<MTLBuffer> statistics = slot.retouch_statistics == nil
-            ? [device newBufferWithLength:statistics_bytes
-                options:MTLResourceStorageModeShared]
-            : nil;
+                                       ? [device newBufferWithLength:statistics_bytes
+                                                             options:MTLResourceStorageModeShared]
+                                       : nil;
         id<MTLBuffer> summary = slot.retouch_summary == nil
-            ? [device newBufferWithLength:summary_bytes
-                options:MTLResourceStorageModeShared]
-            : nil;
+                                    ? [device newBufferWithLength:summary_bytes
+                                                          options:MTLResourceStorageModeShared]
+                                    : nil;
         if ((slot.retouch_statistics == nil && statistics == nil)
             || (slot.retouch_summary == nil && summary == nil)) {
             [statistics release];
@@ -836,8 +796,7 @@ struct WarmGpuResidentResources::Impl final {
     }
 };
 
-RetainedMetalBuffer::RetainedMetalBuffer(id<MTLBuffer> value) noexcept
-    : value_(value) {
+RetainedMetalBuffer::RetainedMetalBuffer(id<MTLBuffer> value) noexcept : value_(value) {
     [value_ retain];
 }
 
@@ -845,12 +804,10 @@ RetainedMetalBuffer::~RetainedMetalBuffer() {
     [value_ release];
 }
 
-RetainedMetalBuffer::RetainedMetalBuffer(RetainedMetalBuffer&& other) noexcept
-    : value_(std::exchange(other.value_, nil)) {}
+RetainedMetalBuffer::RetainedMetalBuffer(RetainedMetalBuffer&& other) noexcept :
+    value_(std::exchange(other.value_, nil)) {}
 
-RetainedMetalBuffer& RetainedMetalBuffer::operator=(
-    RetainedMetalBuffer&& other
-) noexcept {
+RetainedMetalBuffer& RetainedMetalBuffer::operator=(RetainedMetalBuffer&& other) noexcept {
     if (this != &other) {
         [value_ release];
         value_ = std::exchange(other.value_, nil);
@@ -866,8 +823,8 @@ RetainedMetalBuffer::operator bool() const noexcept {
     return value_ != nil;
 }
 
-WarmGpuResidentResources::WarmGpuResidentResources(std::unique_ptr<Impl> impl)
-    : impl_(std::move(impl)) {}
+WarmGpuResidentResources::WarmGpuResidentResources(std::unique_ptr<Impl> impl) :
+    impl_(std::move(impl)) {}
 
 WarmGpuResidentResources::~WarmGpuResidentResources() = default;
 
@@ -904,9 +861,8 @@ WarmRetouchBufferAttempt WarmGpuResidentResources::acquire_retouch_geometry_buff
     return impl_->acquire_retouch_geometry_buffer(words, cancellation);
 }
 
-std::optional<WarmGpuSlotLease> WarmGpuResidentResources::acquire_slot(
-    const std::stop_token cancellation
-) {
+std::optional<WarmGpuSlotLease>
+WarmGpuResidentResources::acquire_slot(const std::stop_token cancellation) {
     const auto index = impl_->acquire_slot(cancellation);
     if (!index.has_value()) {
         return std::nullopt;
@@ -920,9 +876,22 @@ WarmEditPreviewGpuStats WarmGpuResidentResources::stats_snapshot() const noexcep
     return impl_->stats;
 }
 
-WarmGpuSlotBuffers WarmGpuResidentResources::slot_buffers(
-    const std::size_t index
-) const noexcept {
+void WarmGpuResidentResources::record_presentation_surface_request() noexcept {
+    std::lock_guard lock(impl_->mutex);
+    ++impl_->stats.presentation_surface_request_count;
+}
+
+void WarmGpuResidentResources::record_presentation_surface_publish() noexcept {
+    std::lock_guard lock(impl_->mutex);
+    ++impl_->stats.presentation_surface_publish_count;
+}
+
+void WarmGpuResidentResources::record_presentation_surface_fallback() noexcept {
+    std::lock_guard lock(impl_->mutex);
+    ++impl_->stats.presentation_surface_fallback_count;
+}
+
+WarmGpuSlotBuffers WarmGpuResidentResources::slot_buffers(const std::size_t index) const noexcept {
     const WarmSlot& slot = impl_->slots[index];
     return WarmGpuSlotBuffers{
         .adjusted = slot.adjusted,
@@ -934,6 +903,8 @@ WarmGpuSlotBuffers WarmGpuResidentResources::slot_buffers(
         .local_contrast_a = slot.local_contrast_a,
         .local_contrast_b = slot.local_contrast_b,
         .layer_before = slot.layer_before,
+        .mask_coverage_linear = slot.mask_coverage_linear,
+        .mask_coverage_r8 = slot.mask_coverage_r8,
         .retouch_statistics = slot.retouch_statistics,
         .retouch_summary = slot.retouch_summary,
         .rgb8 = slot.rgb8,
@@ -943,45 +914,35 @@ WarmGpuSlotBuffers WarmGpuResidentResources::slot_buffers(
     };
 }
 
-std::string WarmGpuResidentResources::ensure_denoise_resources(
-    const std::size_t index
-) {
+std::string WarmGpuResidentResources::ensure_denoise_resources(const std::size_t index) {
     return impl_->ensure_denoise_resources(index);
 }
 
-std::string WarmGpuResidentResources::ensure_sharpen_resources(
-    const std::size_t index
-) {
+std::string WarmGpuResidentResources::ensure_sharpen_resources(const std::size_t index) {
     return impl_->ensure_sharpen_resources(index);
 }
 
-std::string WarmGpuResidentResources::ensure_clarity_resources(
-    const std::size_t index
-) {
+std::string WarmGpuResidentResources::ensure_clarity_resources(const std::size_t index) {
     return impl_->ensure_clarity_resources(index);
 }
 
-std::string WarmGpuResidentResources::ensure_texture_clarity_resources(
-    const std::size_t index
-) {
+std::string WarmGpuResidentResources::ensure_texture_clarity_resources(const std::size_t index) {
     return impl_->ensure_texture_clarity_resources(index);
 }
 
-std::string WarmGpuResidentResources::ensure_local_contrast_resources(
-    const std::size_t index
-) {
+std::string WarmGpuResidentResources::ensure_local_contrast_resources(const std::size_t index) {
     return impl_->ensure_local_contrast_resources(index);
 }
 
-std::string WarmGpuResidentResources::ensure_layer_resources(
-    const std::size_t index
-) {
+std::string WarmGpuResidentResources::ensure_layer_resources(const std::size_t index) {
     return impl_->ensure_layer_resources(index);
 }
 
-std::string WarmGpuResidentResources::ensure_retouch_resources(
-    const std::size_t index
-) {
+std::string WarmGpuResidentResources::ensure_mask_coverage_resources(const std::size_t index) {
+    return impl_->ensure_mask_coverage_resources(index);
+}
+
+std::string WarmGpuResidentResources::ensure_retouch_resources(const std::size_t index) {
     return impl_->ensure_retouch_resources(index);
 }
 
@@ -995,14 +956,11 @@ void WarmGpuResidentResources::release_slot(
 WarmGpuSlotLease::WarmGpuSlotLease(
     WarmGpuResidentResources& owner,
     const std::size_t index
-) noexcept
-    : owner_(&owner),
-      index_(index) {}
+) noexcept : owner_(&owner), index_(index) {}
 
-WarmGpuSlotLease::WarmGpuSlotLease(WarmGpuSlotLease&& other) noexcept
-    : owner_(std::exchange(other.owner_, nullptr)),
-      index_(other.index_),
-      completed_(other.completed_) {}
+WarmGpuSlotLease::WarmGpuSlotLease(WarmGpuSlotLease&& other) noexcept :
+    owner_(std::exchange(other.owner_, nullptr)), index_(other.index_),
+    completed_(other.completed_) {}
 
 WarmGpuSlotLease::~WarmGpuSlotLease() {
     if (owner_ != nullptr) {
@@ -1038,13 +996,15 @@ std::string WarmGpuSlotLease::ensure_layer_resources() {
     return owner_->ensure_layer_resources(index_);
 }
 
+std::string WarmGpuSlotLease::ensure_mask_coverage_resources() {
+    return owner_->ensure_mask_coverage_resources(index_);
+}
+
 std::string WarmGpuSlotLease::ensure_retouch_resources() {
-    if (std::string diagnostic = owner_->ensure_denoise_resources(index_);
-        !diagnostic.empty()) {
+    if (std::string diagnostic = owner_->ensure_denoise_resources(index_); !diagnostic.empty()) {
         return diagnostic;
     }
-    if (std::string diagnostic = owner_->ensure_layer_resources(index_);
-        !diagnostic.empty()) {
+    if (std::string diagnostic = owner_->ensure_layer_resources(index_); !diagnostic.empty()) {
         return diagnostic;
     }
     return owner_->ensure_retouch_resources(index_);
@@ -1054,14 +1014,38 @@ void WarmGpuSlotLease::mark_completed() noexcept {
     completed_ = true;
 }
 
+WarmGpuResidentPreparation
+prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device) {
+    return prepare_warm_gpu_resident_resources(
+        source,
+        device,
+        nil,
+        0U,
+        static_cast<std::uint64_t>(default_resident_allowance(device))
+    );
+}
+
 WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     const FloatRgbImage& source,
-    id<MTLDevice> device
+    id<MTLDevice> device,
+    id<MTLBuffer> adopted_source,
+    const std::uint64_t external_resident_bytes,
+    const std::uint64_t requested_resident_allowance_bytes
 ) {
     if (device == nil) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
             .diagnostic = "no Metal device is available",
+        };
+    }
+    const bool adopting = adopted_source != nil;
+    if (adopting
+        && (adopted_source.device == nil
+            || static_cast<std::uint64_t>(adopted_source.device.registryID)
+                   != static_cast<std::uint64_t>(device.registryID))) {
+        return WarmGpuResidentPreparation{
+            .resources = nullptr,
+            .diagnostic = "adopted warm-preview source belongs to a different Metal device",
         };
     }
     if (source.dimensions.width == 0U || source.dimensions.height == 0U
@@ -1071,10 +1055,13 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
             && source.reference != ImageReference::display_referred)
         || source.row_stride_bytes % sizeof(float) != 0U
         || source.row_stride_bytes / sizeof(float)
-            < static_cast<std::size_t>(source.dimensions.width) * 3U
-        || source.row_stride_bytes / sizeof(float)
-            > std::numeric_limits<std::uint32_t>::max()
-        || source.dimensions.width > std::numeric_limits<std::uint32_t>::max() / 3U) {
+               < static_cast<std::size_t>(source.dimensions.width) * 3U
+        || source.row_stride_bytes / sizeof(float) > std::numeric_limits<std::uint32_t>::max()
+        || source.dimensions.width > std::numeric_limits<std::uint32_t>::max() / 3U
+        || !std::isfinite(source.level_zero_to_raster_scale_x)
+        || !std::isfinite(source.level_zero_to_raster_scale_y)
+        || source.level_zero_to_raster_scale_x <= 0.0
+        || source.level_zero_to_raster_scale_y <= 0.0) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
             .diagnostic = "warm-preview source does not satisfy the resident Metal layout",
@@ -1087,18 +1074,21 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
             static_cast<std::size_t>(source.dimensions.height),
             sample_count
         )
-        || source.samples.size() != sample_count) {
+        || (!adopting && source.samples.size() != sample_count)
+        || (adopting && !source.samples.empty())) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
             .diagnostic = "warm-preview source storage does not match its declared layout",
         };
     }
-    for (const float sample : source.samples) {
-        if (!std::isfinite(sample)) {
-            return WarmGpuResidentPreparation{
-                .resources = nullptr,
-                .diagnostic = "warm-preview source contains a non-finite sample",
-            };
+    if (!adopting) {
+        for (const float sample : source.samples) {
+            if (!std::isfinite(sample)) {
+                return WarmGpuResidentPreparation{
+                    .resources = nullptr,
+                    .diagnostic = "warm-preview source contains a non-finite sample",
+                };
+            }
         }
     }
 
@@ -1137,16 +1127,19 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     constexpr std::size_t operation_buffer_bytes =
         maximum_warm_adjustment_operations * sizeof(MetalAdjustmentOp);
     constexpr std::size_t empty_side_table_bytes = sizeof(MetalCurveSegment);
-    const std::size_t maximum_buffer_bytes =
-        static_cast<std::size_t>(device.maxBufferLength);
-    if (source_bytes > maximum_buffer_bytes
-        || adjusted_bytes > maximum_buffer_bytes
-        || rgb8_bytes > maximum_buffer_bytes
-        || operation_buffer_bytes > maximum_buffer_bytes
+    const std::size_t maximum_buffer_bytes = static_cast<std::size_t>(device.maxBufferLength);
+    if (source_bytes > maximum_buffer_bytes || adjusted_bytes > maximum_buffer_bytes
+        || rgb8_bytes > maximum_buffer_bytes || operation_buffer_bytes > maximum_buffer_bytes
         || empty_side_table_bytes > maximum_buffer_bytes) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
             .diagnostic = "warm-preview resident buffers exceed this Metal device's limit",
+        };
+    }
+    if (adopting && static_cast<std::size_t>(adopted_source.length) < source_bytes) {
+        return WarmGpuResidentPreparation{
+            .resources = nullptr,
+            .diagnostic = "adopted warm-preview source buffer is truncated",
         };
     }
 
@@ -1164,13 +1157,28 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
             .diagnostic = "warm-preview resident working-set size overflowed",
         };
     }
-    const std::uint64_t recommended = device.recommendedMaxWorkingSetSize;
-    if (recommended > 0U
-        && resident_bytes > static_cast<std::size_t>(recommended / 2U)) {
+    if (external_resident_bytes > std::numeric_limits<std::size_t>::max()
+        || requested_resident_allowance_bytes > std::numeric_limits<std::size_t>::max()) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
-            .diagnostic =
-                "warm-preview resident buffers exceed half the recommended Metal working set",
+            .diagnostic = "warm-preview combined Metal budget exceeds the address space",
+        };
+    }
+    const std::size_t resident_allowance_bytes = std::min(
+        static_cast<std::size_t>(requested_resident_allowance_bytes),
+        default_resident_allowance(device)
+    );
+    std::size_t combined_resident_bytes = 0U;
+    if (resident_allowance_bytes == 0U
+        || !checked_add(
+            static_cast<std::size_t>(external_resident_bytes),
+            resident_bytes,
+            combined_resident_bytes
+        )
+        || combined_resident_bytes > resident_allowance_bytes) {
+        return WarmGpuResidentPreparation{
+            .resources = nullptr,
+            .diagnostic = "warm-preview resident buffers exceed the combined Metal budget",
         };
     }
 
@@ -1193,44 +1201,39 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         .level_zero_to_raster_scale_y = source.level_zero_to_raster_scale_y,
     };
     impl->operation_buffer_bytes = operation_buffer_bytes;
+    impl->external_resident_bytes = static_cast<std::size_t>(external_resident_bytes);
+    impl->resident_allowance_bytes = resident_allowance_bytes;
     impl->curve_tables.reserve(maximum_resident_curve_tables);
     impl->lut_tables.reserve(maximum_resident_lut_tables);
-    impl->perceptual_mixer_tables.reserve(
-        maximum_resident_perceptual_mixer_tables
-    );
-    impl->perceptual_range_tables.reserve(
-        maximum_resident_perceptual_range_tables
-    );
-    impl->selective_color_tables.reserve(
-        maximum_resident_selective_color_tables
-    );
+    impl->perceptual_mixer_tables.reserve(maximum_resident_perceptual_mixer_tables);
+    impl->perceptual_range_tables.reserve(maximum_resident_perceptual_range_tables);
+    impl->selective_color_tables.reserve(maximum_resident_selective_color_tables);
     impl->brush_index_tables.reserve(maximum_resident_brush_index_tables);
-    impl->retouch_geometry_tables.reserve(
-        maximum_resident_retouch_geometry_tables
-    );
+    impl->retouch_geometry_tables.reserve(maximum_resident_retouch_geometry_tables);
     impl->stats = WarmEditPreviewGpuStats{
         .resident = true,
-        .source_upload_count = 1U,
-        .gpu_buffer_allocation_count = 2U + warm_slot_count * 4U,
+        .source_upload_count = adopting ? 0U : 1U,
+        .gpu_buffer_allocation_count = (adopting ? 1U : 2U) + warm_slot_count * 4U,
         .resident_bytes = resident_bytes,
     };
 
     @autoreleasepool {
-        impl->source = [device
-            newBufferWithBytes:source.samples.data()
-            length:source_bytes
-            options:MTLResourceStorageModeShared];
+        impl->source = adopting ? [adopted_source retain]
+                                : [device newBufferWithBytes:source.samples.data()
+                                                      length:source_bytes
+                                                     options:MTLResourceStorageModeShared];
         if (impl->source == nil) {
             return WarmGpuResidentPreparation{
                 .resources = nullptr,
-                .diagnostic = "Metal could not upload the immutable warm-preview source",
+                .diagnostic =
+                    adopting ? "Metal could not retain the adopted immutable warm-preview source"
+                             : "Metal could not upload the immutable warm-preview source",
             };
         }
         const MetalCurveSegment empty_side_table{};
-        impl->empty_side_table = [device
-            newBufferWithBytes:&empty_side_table
-            length:sizeof(empty_side_table)
-            options:MTLResourceStorageModeShared];
+        impl->empty_side_table = [device newBufferWithBytes:&empty_side_table
+                                                     length:sizeof(empty_side_table)
+                                                    options:MTLResourceStorageModeShared];
         if (impl->empty_side_table == nil) {
             return WarmGpuResidentPreparation{
                 .resources = nullptr,
@@ -1238,24 +1241,19 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
             };
         }
         for (auto& slot : impl->slots) {
-            slot.adjusted = [device
-                newBufferWithLength:adjusted_bytes
-                options:MTLResourceStorageModeShared];
-            slot.rgb8 = [device
-                newBufferWithLength:rgb8_bytes
-                options:MTLResourceStorageModeShared];
-            slot.before_operations = [device
-                newBufferWithLength:operation_buffer_bytes
-                options:MTLResourceStorageModeShared];
-            slot.status = [device
-                newBufferWithLength:sizeof(WarmStatus)
-                options:MTLResourceStorageModeShared];
-            if (slot.adjusted == nil || slot.rgb8 == nil
-                || slot.before_operations == nil || slot.status == nil) {
+            slot.adjusted = [device newBufferWithLength:adjusted_bytes
+                                                options:MTLResourceStorageModeShared];
+            slot.rgb8 = [device newBufferWithLength:rgb8_bytes
+                                            options:MTLResourceStorageModeShared];
+            slot.before_operations = [device newBufferWithLength:operation_buffer_bytes
+                                                         options:MTLResourceStorageModeShared];
+            slot.status = [device newBufferWithLength:sizeof(WarmStatus)
+                                              options:MTLResourceStorageModeShared];
+            if (slot.adjusted == nil || slot.rgb8 == nil || slot.before_operations == nil
+                || slot.status == nil) {
                 return WarmGpuResidentPreparation{
                     .resources = nullptr,
-                    .diagnostic =
-                        "Metal could not allocate both warm-preview execution slots",
+                    .diagnostic = "Metal could not allocate both warm-preview execution slots",
                 };
             }
         }

@@ -86,8 +86,8 @@ Popup {
     }
 
     parent: Overlay.overlay
-    width: 252
-    padding: 8
+    width: 268
+    padding: 10
     modal: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -122,9 +122,9 @@ Popup {
         required property int maskKind
 
         Layout.fillWidth: true
-        implicitHeight: 38
-        leftPadding: 9
-        rightPadding: 9
+        implicitHeight: 40
+        leftPadding: 10
+        rightPadding: 10
         hoverEnabled: enabled
         Accessible.name: text
 
@@ -136,7 +136,7 @@ Popup {
         }
 
         contentItem: RowLayout {
-            spacing: 9
+            spacing: 10
             ShadowIcon {
                 source: action.iconSource
                 color: action.enabled
@@ -175,7 +175,7 @@ Popup {
         Button {
             id: editCurrentMaskButton
             Layout.fillWidth: true
-            implicitHeight: visible ? 38 : 0
+            implicitHeight: visible ? 40 : 0
             visible: menu.currentMaskKind !== 0
             leftPadding: 9
             rightPadding: 9
@@ -190,9 +190,9 @@ Popup {
                         ? Theme.buttonGhostHover : Theme.transparent
             }
             contentItem: RowLayout {
-                spacing: 9
+                spacing: 10
                 ShadowIcon {
-                    source: "qrc:/icons/overlay-show.svg"
+                    source: "qrc:/icons/mask.svg"
                     color: Theme.textSecondary
                     size: 19
                 }
@@ -219,7 +219,85 @@ Popup {
             color: Theme.border
         }
 
+        Label {
+            Layout.fillWidth: true
+            leftPadding: 8
+            rightPadding: 8
+            topPadding: 3
+            bottomPadding: 1
+            text: qsTr("APPLY TO")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.7
+        }
+
+        Rectangle {
+            id: destinationSelector
+            objectName: "maskDestinationSelector"
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: 38
+            color: Theme.transparent
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 0
+
+                ShadowTabButton {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    active: menu.destination
+                        === menu.currentNodeDestination
+                    text: qsTr("CURRENT NODE")
+                    minimumTabWidth: 108
+                    underlineInset: 18
+                    enabled: menu.currentNodeAvailable
+                    toolTipText: menu.currentMaskKind === 0
+                        ? qsTr("Attach the mask to the selected Grade Node")
+                        : qsTr("The selected Grade Node already has a mask")
+                    onClicked: menu.destination =
+                        menu.currentNodeDestination
+                }
+
+                ShadowTabButton {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    active: menu.destination === menu.newNodeDestination
+                    text: qsTr("NEW NODE")
+                    minimumTabWidth: 108
+                    underlineInset: 18
+                    enabled: menu.newNodeAvailable
+                    toolTipText: qsTr("Create and select a new masked Grade Node")
+                    onClicked: menu.destination = menu.newNodeDestination
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.leftMargin: 6
+            Layout.rightMargin: 6
+            Layout.topMargin: 3
+            Layout.preferredHeight: 1
+            color: Theme.border
+        }
+
+        Label {
+            Layout.fillWidth: true
+            leftPadding: 8
+            rightPadding: 8
+            topPadding: 3
+            bottomPadding: 1
+            text: qsTr("MASK TYPE")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.7
+        }
+
         MaskAction {
+            objectName: "brushMaskAction"
             text: qsTr("Brush")
             iconSource: "qrc:/icons/brush.svg"
             maskKind: 3
@@ -281,52 +359,5 @@ Popup {
                 ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
 
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.leftMargin: 6
-            Layout.rightMargin: 6
-            Layout.topMargin: 4
-            Layout.preferredHeight: 1
-            color: Theme.border
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 34
-            color: Theme.transparent
-
-            RowLayout {
-                anchors.fill: parent
-                spacing: 0
-
-                ShadowTabButton {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    active: menu.destination
-                        === menu.currentNodeDestination
-                    text: qsTr("CURRENT NODE")
-                    minimumTabWidth: 100
-                    underlineInset: 20
-                    enabled: menu.currentNodeAvailable
-                    toolTipText: menu.currentMaskKind === 0
-                        ? qsTr("Attach the mask to the selected Grade Node")
-                        : qsTr("The selected Grade Node already has a mask")
-                    onClicked: menu.destination =
-                        menu.currentNodeDestination
-                }
-
-                ShadowTabButton {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    active: menu.destination === menu.newNodeDestination
-                    text: qsTr("NEW NODE")
-                    minimumTabWidth: 100
-                    underlineInset: 20
-                    enabled: menu.newNodeAvailable
-                    toolTipText: qsTr("Create and select a new masked Grade Node")
-                    onClicked: menu.destination = menu.newNodeDestination
-                }
-            }
-        }
     }
 }

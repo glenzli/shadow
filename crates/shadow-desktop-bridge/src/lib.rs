@@ -61,7 +61,7 @@ use crate::scan_service::ScanService;
 use crate::session_preview_store::SessionPreviewStore;
 use crate::{cache_maintenance_service::CacheMaintenanceService, library_service::LibraryService};
 use detail_tile_cache::EditDetailSessionCache;
-use edit_preview::WarmEditPreviewSessionCache;
+use edit_preview::{OwnedEditedPreview, WarmEditPreviewSessionCache};
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
@@ -661,9 +661,9 @@ mod ffi {
         shared_layer_id: String,
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
-        /// 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush. The common
-        /// normalized fields keep this CXX DTO stable while the domain owns
-        /// the authoritative typed shape validation.
+        /// 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
+        /// 4 = luminance range, 5 = color range. The common normalized fields
+        /// keep this CXX DTO stable while the domain owns authoritative shape validation.
         local_mask_kind: u8,
         local_mask_x0: f64,
         local_mask_y0: f64,
@@ -826,6 +826,13 @@ mod ffi {
         jpeg_quality: u8,
         policy: FfiEditPreviewPolicy,
         use_working_recipe: bool,
+        /// Optional zero-based authored Grade Node target. When false, both
+        /// target and selection revision must use their zero sentinels.
+        mask_coverage_requested: bool,
+        mask_coverage_target_layer_index: u32,
+        /// UI transaction metadata returned unchanged with available coverage.
+        /// It never enters native mask math or durable preview identity.
+        mask_selection_revision: u64,
     }
 
     /// One visible full-resolution viewport. Coordinates are normalized so the
@@ -915,6 +922,16 @@ mod ffi {
         /// display-sRGB RGB8 interactive pixels.
         row_stride_bytes: u32,
         bytes: Vec<u8>,
+        /// Optional, generation-paired, tightly packed R8 local-mask coverage.
+        /// Unavailable and cancelled responses use zero/empty sentinels.
+        mask_coverage_available: bool,
+        mask_coverage_version: u32,
+        mask_coverage_target_layer_index: u32,
+        mask_selection_revision: u64,
+        mask_coverage_width: u32,
+        mask_coverage_height: u32,
+        mask_coverage_row_stride_bytes: u32,
+        mask_coverage_samples: Vec<u8>,
         sensor_clipping_available: bool,
         sensor_clipping_width: u32,
         sensor_clipping_height: u32,
@@ -1058,6 +1075,25 @@ mod ffi {
 
     extern "Rust" {
         type DesktopSession;
+        type OwnedEditedPreview;
+
+        /// Descriptor projection for one retained edit-preview owner.
+        ///
+        /// Interactive RGB8 and R8 coverage payload vectors remain empty here;
+        /// borrow them through the owner accessors below.
+        fn projection(self: &OwnedEditedPreview) -> &FfiEditedPreview;
+        fn interactive_frame_available(self: &OwnedEditedPreview) -> bool;
+        fn interactive_storage_kind(self: &OwnedEditedPreview) -> u8;
+        fn interactive_native_texture_row_stride_bytes(self: &OwnedEditedPreview) -> u32;
+        fn interactive_native_texture_pixel_format(self: &OwnedEditedPreview) -> u8;
+        fn interactive_native_resource_id(self: &OwnedEditedPreview) -> u64;
+        fn interactive_native_texture_handle(self: &OwnedEditedPreview) -> usize;
+        fn interactive_native_device_handle(self: &OwnedEditedPreview) -> usize;
+        fn interactive_materialized_pixel_bytes(self: &OwnedEditedPreview) -> usize;
+        fn interactive_presentation_fallback_diagnostic(self: &OwnedEditedPreview) -> &str;
+        fn interactive_pixels(self: &OwnedEditedPreview) -> Result<&[u8]>;
+        fn interactive_mask_coverage_samples(self: &OwnedEditedPreview) -> &[u8];
+        fn interactive_retained_bytes(self: &OwnedEditedPreview) -> usize;
 
         fn new_basic_grade_node(label: &str) -> Result<FfiGradeNode>;
 
@@ -1247,6 +1283,14 @@ mod ffi {
             source_path: &str,
             request: &FfiEditPreviewRequest,
         ) -> Result<FfiEditedPreview>;
+        /// Retains interactive RGB8 and mask coverage in their native owner,
+        /// eliminating both large cross-language materializations.
+        fn render_basic_edit_preview_owned(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+        ) -> Result<Box<OwnedEditedPreview>>;
         /// Registers a preview and its native stop handle before Qt queues its
         /// worker. Zero means registration failed.
         fn begin_basic_edit_preview(self: &DesktopSession) -> u64;

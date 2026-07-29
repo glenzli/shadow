@@ -23,6 +23,7 @@ Item {
     property color trackEndColor: Theme.track
     property string startLabel: ""
     property string endLabel: ""
+    property int endpointLabelWidth: 38
     property color textPrimary: Theme.textPrimary
     property color textMuted: Theme.textMuted
     property string toolTipText: ""
@@ -32,6 +33,8 @@ Item {
     property int labelWidth: Math.max(56, Math.min(72, Math.round(width * 0.24)))
     property int valueWidth: 54
     property bool gestureActive: false
+    readonly property bool hasEndpointLabels:
+        startLabel.length > 0 || endLabel.length > 0
 
     readonly property string formattedValue: qsTr("%1%2")
         .arg(Number(slider.value * displayMultiplier).toLocaleString(
@@ -81,8 +84,7 @@ Item {
 
             Layout.preferredWidth: visible ? field.labelWidth : 0
             Layout.minimumWidth: 0
-            visible: field.startLabel.length === 0
-                && field.endLabel.length === 0
+            visible: !field.hasEndpointLabels
             text: field.label
             color: field.enabled ? field.textPrimary : Theme.textDisabled
             font.pixelSize: 10
@@ -97,8 +99,16 @@ Item {
             ToolTip.text: field.toolTipText.length > 0 ? field.toolTipText : field.label
         }
 
+        Item {
+            visible: field.hasEndpointLabels
+            Layout.preferredWidth: field.valueWidth
+            Layout.minimumWidth: field.valueWidth
+        }
+
         Label {
             visible: field.startLabel.length > 0
+            Layout.preferredWidth: field.endpointLabelWidth
+            Layout.minimumWidth: field.endpointLabelWidth
             text: field.startLabel
             color: field.enabled ? field.trackStartColor : Theme.textDisabled
             font.pixelSize: 9
@@ -142,6 +152,8 @@ Item {
 
         Label {
             visible: field.endLabel.length > 0
+            Layout.preferredWidth: field.endpointLabelWidth
+            Layout.minimumWidth: field.endpointLabelWidth
             text: field.endLabel
             color: field.enabled ? field.trackEndColor : Theme.textDisabled
             font.pixelSize: 9

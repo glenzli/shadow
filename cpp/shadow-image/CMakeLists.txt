@@ -61,6 +61,7 @@ add_library(
     src/edit/finishing_effects_cpu.cpp
     src/edit/guided_selective_tone.cpp
     src/edit/local_mask.cpp
+    src/edit/local_mask_coverage.cpp
     src/edit/local_mask_validation.cpp
     src/edit/metal_adjustment_program.cpp
     src/edit/oklab_color_warper.cpp
@@ -83,19 +84,30 @@ add_library(
     src/raw/fused_raw_development.cpp
     src/raw/raw_denoise.cpp
     src/raw/raw_denoise_plan.cpp
+    src/raw/raw_frame_development_plan.cpp
+    src/raw/raw_frame_region_development.cpp
+    src/raw/raw_frame_source_preparation.cpp
     src/raw/raw_frame_source_development.cpp
     src/raw/raw_pipeline.cpp
+    src/raw/resident_raw_source.cpp
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
+    src/optics/lensfun_cpu_reference.cpp
     src/optics/lensfun_profile_catalog.cpp
+    src/optics/lensfun_modifier_plan.cpp
+    src/optics/lensfun_region_plan.cpp
     src/optics/manual_optics.cpp
     src/optics/lensfun_optics.cpp
+    src/optics/scene_linear_region_optics.cpp
     src/proxy/developed_source_raster.cpp
     src/proxy/display_output.cpp
     src/proxy/edited_proxy_rendering.cpp
+    src/proxy/edit_preview_frame.cpp
     src/proxy/edit_preview_rendering.cpp
     src/proxy/full_edit_detail.cpp
     src/proxy/full_edit_detail_gpu_cache.cpp
+    src/proxy/full_edit_detail_gpu_cache_resident.cpp
+    src/proxy/full_edit_detail_source_preparation.cpp
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy_encoding.cpp
     src/proxy/proxy_rendering.cpp
@@ -103,6 +115,7 @@ add_library(
     src/proxy/warm_edit_gpu_brush_index.cpp
     src/proxy/warm_edit_gpu_geometry_plan.cpp
     src/proxy/warm_edit_gpu_layer_plan.cpp
+    src/proxy/warm_edit_gpu_mask_plan.cpp
     src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
     src/proxy/warm_edit_gpu_retouch_plan.cpp
     src/proxy/warm_edit_gpu_render_plan.cpp
@@ -116,17 +129,21 @@ if(APPLE AND SHADOW_ENABLE_METAL)
         PRIVATE
             src/edit/metal_adjustment.mm
             src/optics/metal_manual_optics.mm
+            src/optics/metal_scene_linear_region_optics.mm
             src/raw/metal_dcp_color_encoding.mm
             src/raw/metal_dcp_color_rendering.mm
+            src/raw/metal_resident_raw_source.mm
             src/raw/metal_raw_denoise_encoding.mm
             src/raw/metal_raw_denoise.mm
             src/raw/metal_raw_reconstruction.mm
             src/raw/metal_raw_runtime.mm
+            src/proxy/full_edit_detail_metal_source.mm
             src/proxy/metal_display_output.mm
             src/proxy/warm_edit_gpu_dispatcher.mm
             src/proxy/warm_edit_gpu_geometry_encoder.mm
             src/proxy/warm_edit_gpu_layer_dispatcher.mm
             src/proxy/warm_edit_gpu_pipeline_context.mm
+            src/proxy/warm_edit_gpu_presentation_surface.mm
             src/proxy/warm_edit_gpu_resident_resources.mm
             src/proxy/warm_edit_gpu_retouch_encoder.mm
             src/proxy/warm_edit_gpu_stage_encoder.mm
@@ -147,8 +164,12 @@ else()
         PRIVATE
             src/edit/metal_adjustment_stub.cpp
             src/optics/metal_manual_optics_stub.cpp
+            src/optics/metal_scene_linear_region_optics_stub.cpp
+            src/raw/metal_resident_raw_source_stub.cpp
             src/raw/metal_raw_development_stub.cpp
+            src/proxy/full_edit_detail_metal_source_stub.cpp
             src/proxy/metal_display_output_stub.cpp
+            src/proxy/warm_edit_gpu_presentation_surface_stub.cpp
             src/proxy/warm_edit_gpu_stub.cpp
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=0)
@@ -356,6 +377,16 @@ if(BUILD_TESTING)
         shadow-image-optics-preparation-contract
         tests/optics_preparation_contract_test.cpp
     )
+    shadow_image_add_contract(
+        shadow-image-optics-region-tests
+        shadow-image-optics-region-contract
+        tests/optics_region_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-lensfun-region-plan-tests
+        shadow-image-lensfun-region-plan-contract
+        tests/lensfun_region_plan_contract_test.cpp
+    )
     if(APPLE AND SHADOW_ENABLE_METAL)
         shadow_image_add_contract(
             shadow-image-manual-optics-metal-execution-tests
@@ -407,6 +438,7 @@ if(BUILD_TESTING)
             set_tests_properties(
                 shadow-image-optics-preparation-contract
                 shadow-image-lensfun-profile-catalog-contract
+                shadow-image-lensfun-region-plan-contract
                 PROPERTIES ENVIRONMENT
                     "SHADOW_TEST_LENSFUN_DB=$<SHELL_PATH:${SHADOW_LENSFUN_TEST_DATABASE}>"
             )
@@ -444,6 +476,11 @@ if(BUILD_TESTING)
         tests/edit_preview_session_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-edit-preview-frame-tests
+        shadow-image-edit-preview-frame-contract
+        tests/edit_preview_frame_contract_test.cpp
+    )
+    shadow_image_add_contract(
         shadow-image-edit-preview-execution-tests
         shadow-image-edit-preview-execution-contract
         tests/edit_preview_execution_contract_test.cpp
@@ -452,6 +489,11 @@ if(BUILD_TESTING)
         shadow-image-edit-preview-layer-execution-tests
         shadow-image-edit-preview-layer-execution-contract
         tests/edit_preview_layer_execution_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-local-mask-coverage-tests
+        shadow-image-local-mask-coverage-contract
+        tests/local_mask_coverage_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-edit-preview-geometry-execution-tests
@@ -687,6 +729,7 @@ if(BUILD_TESTING)
         tests/warm_edit_gpu_contract/selective_tone_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/composed_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/layer_composition_contract_test.cpp
+        tests/warm_edit_gpu_contract/mask_coverage_contract_test.cpp
         tests/warm_edit_gpu_contract/retouch_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/geometry_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/resident_resource_cache_contract_test.cpp
@@ -773,6 +816,49 @@ if(BUILD_TESTING)
         shadow-image-raw-sensor-preparation-contract
         tests/raw_sensor_preparation_contract_test.cpp
     )
+    shadow_image_add_contract(
+        shadow-image-raw-frame-development-plan-tests
+        shadow-image-raw-frame-development-plan-contract
+        tests/raw_frame_development_plan_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-resident-raw-source-tests
+        shadow-image-resident-raw-source-contract
+        tests/resident_raw_source_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-metal-resident-raw-source-tests
+        shadow-image-metal-resident-raw-source-contract
+        tests/metal_resident_raw_source_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-full-edit-detail-metal-raw-tests
+        shadow-image-full-edit-detail-metal-raw-contract
+        tests/full_edit_detail_metal_raw_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-metal-scene-linear-region-optics-tests
+        shadow-image-metal-scene-linear-region-optics-contract
+        tests/metal_scene_linear_region_optics_contract_test.cpp
+    )
+    if(APPLE AND SHADOW_ENABLE_METAL)
+        set(
+            SHADOW_METAL_SCENE_LINEAR_REGION_OPTICS_TEST_ENVIRONMENT
+            "SHADOW_TEST_REQUIRE_METAL=1"
+        )
+        if(SHADOW_LENSFUN_TEST_DATABASE)
+            list(
+                APPEND SHADOW_METAL_SCENE_LINEAR_REGION_OPTICS_TEST_ENVIRONMENT
+                "SHADOW_TEST_LENSFUN_DB=$<SHELL_PATH:${SHADOW_LENSFUN_TEST_DATABASE}>"
+            )
+        endif()
+        set_tests_properties(
+            shadow-image-metal-scene-linear-region-optics-contract
+            PROPERTIES
+                ENVIRONMENT "${SHADOW_METAL_SCENE_LINEAR_REGION_OPTICS_TEST_ENVIRONMENT}"
+                LABELS "metal-required"
+        )
+    endif()
 
     shadow_image_add_contract(
         shadow-image-fused-raw-cpu-development-tests
@@ -849,6 +935,13 @@ if(BUILD_TESTING)
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1"
+                LABELS "metal-required"
+        )
+        set_tests_properties(
+            shadow-image-metal-resident-raw-source-contract
+            shadow-image-full-edit-detail-metal-raw-contract
+            PROPERTIES
+                ENVIRONMENT "SHADOW_TEST_REQUIRE_METAL=1"
                 LABELS "metal-required"
         )
         # This aggregate owns both CPU reference cases and automatic Metal selection for eligible

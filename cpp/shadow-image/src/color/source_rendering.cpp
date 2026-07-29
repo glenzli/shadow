@@ -364,6 +364,19 @@ void apply_luminance_tone_curve(
     return stream.str();
 }
 
+[[nodiscard]] SourceRenderingReceipt
+shadow_standard_receipt(const RawPipelineReceipt& pipeline) {
+    SourceRenderingReceipt receipt;
+    receipt.profile_id = pipeline.camera_profile_status == RawCameraProfileStatus::applied
+        ? std::string(dcp_shadow_standard_profile_id)
+        : std::string(shadow_standard_profile_id);
+    receipt.profile_identity = pipeline.camera_profile_status == RawCameraProfileStatus::applied
+        ? std::string(shadow_standard_profile_identity) + ";dcp=" + pipeline.camera_profile_identity
+        : std::string(shadow_standard_profile_identity);
+    receipt.kind = SourceRenderingKind::shadow_standard;
+    return receipt;
+}
+
 } // namespace
 
 SourceRenderingReceipt resolve_source_rendering(
@@ -371,6 +384,28 @@ SourceRenderingReceipt resolve_source_rendering(
     const AssetMetadata& metadata
 ) {
     return resolve_source_rendering(source, metadata, load_local_source_profile_catalog());
+}
+
+SourceRenderingReceipt resolve_source_rendering(
+    const AssetMetadata& metadata,
+    const RawPipelineReceipt& pipeline
+) {
+    if (
+        !pipeline.valid() || pipeline.path != RawPipelinePath::shadow_raw_frame
+        || !pipeline.source_scene_luminance_percentile.has_value()
+    ) {
+        throw std::invalid_argument(
+            "source rendering received a RAW pipeline without source calibration"
+        );
+    }
+    SourceRenderingReceipt receipt = shadow_standard_receipt(pipeline);
+    if (has_valid_dng_baseline_exposure(metadata)) {
+        receipt.camera_baseline_exposure_stops = metadata.baseline_exposure;
+    } else {
+        receipt.standard_exposure_normalization_stops =
+            standard_exposure_normalization_stops(*pipeline.source_scene_luminance_percentile);
+    }
+    return receipt;
 }
 
 SourceRenderingReceipt resolve_source_rendering(
@@ -383,21 +418,21 @@ SourceRenderingReceipt resolve_source_rendering(
             "source rendering received an invalid scene-linear RAW source or pipeline receipt"
         );
     }
-    SourceRenderingReceipt receipt;
-    receipt.profile_id = pipeline.camera_profile_status == RawCameraProfileStatus::applied
-        ? std::string(dcp_shadow_standard_profile_id)
-        : std::string(shadow_standard_profile_id);
-    receipt.profile_identity = pipeline.camera_profile_status == RawCameraProfileStatus::applied
-        ? std::string(shadow_standard_profile_identity) + ";dcp=" + pipeline.camera_profile_identity
-        : std::string(shadow_standard_profile_identity);
-    receipt.kind = SourceRenderingKind::shadow_standard;
+    if (
+        pipeline.path == RawPipelinePath::shadow_raw_frame
+        && pipeline.source_scene_luminance_percentile.has_value()
+    ) {
+        return resolve_source_rendering(metadata, pipeline);
+    }
+
+    // Preserve the compatibility behavior for any non-RawFrame caller that supplies a
+    // scene-linear raster without source-wide calibration in its pipeline receipt.
+    SourceRenderingReceipt receipt = shadow_standard_receipt(pipeline);
     if (has_valid_dng_baseline_exposure(metadata)) {
         receipt.camera_baseline_exposure_stops = metadata.baseline_exposure;
     } else {
         receipt.standard_exposure_normalization_stops =
-            pipeline.source_scene_luminance_percentile.has_value()
-            ? standard_exposure_normalization_stops(*pipeline.source_scene_luminance_percentile)
-            : standard_exposure_normalization_stops(source);
+            standard_exposure_normalization_stops(source);
     }
     return receipt;
 }

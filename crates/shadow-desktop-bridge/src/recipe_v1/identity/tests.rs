@@ -1,4 +1,7 @@
-use shadow_domain::{LayerInstanceId, MaskBrushPoint, MaskDefinition, UnitInterval};
+use shadow_domain::{
+    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, ConditionMaskPreset,
+    LayerInstanceId, MaskBrushPoint, MaskDefinition, NodeLocalMaskCreationIntent, UnitInterval,
+};
 
 use super::recipe_v1_local_mask_revision;
 
@@ -73,4 +76,38 @@ fn condition_mask_identity_is_stable_distinct_and_uses_canonical_hue() {
     assert_eq!(identity(&color), identity(&wrapped_color));
     assert_ne!(identity(&color), identity(&changed_color));
     assert_ne!(identity(&luminance), identity(&color));
+}
+
+#[test]
+fn copied_presets_receive_node_local_mask_identities_without_a_live_link() {
+    let expression = ConditionMaskExpression::all(vec![
+        ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
+            unit(0.2),
+            unit(0.8),
+            unit(0.1),
+        )),
+        ConditionMaskNode::leaf(ConditionMaskPredicate::oklch_chroma_range(
+            unit(0.25),
+            unit(0.9),
+            unit(0.15),
+        )),
+    ])
+    .expect("expression");
+    let preset = ConditionMaskPreset::new("Foliage", expression).expect("preset");
+    let first =
+        NodeLocalMaskCreationIntent::from_preset_for_new_node_after(grade_node_id(), &preset)
+            .expect("first copy");
+    let second =
+        NodeLocalMaskCreationIntent::from_preset_for_new_node_after(grade_node_id(), &preset)
+            .expect("second copy");
+    let first_node_id = first.target().destination_node_id();
+    let second_node_id = second.target().destination_node_id();
+    assert_ne!(first_node_id, second_node_id);
+    assert_eq!(first.definition(), second.definition());
+
+    let first_revision =
+        recipe_v1_local_mask_revision(first_node_id, first.definition()).expect("first revision");
+    let second_revision = recipe_v1_local_mask_revision(second_node_id, second.definition())
+        .expect("second revision");
+    assert_ne!(first_revision.id(), second_revision.id());
 }

@@ -3,6 +3,9 @@
 //! Follow the responsibility-named children for editable drafts, Qt FFI
 //! translation, validation, stable identity, snapshot serialization, canonical
 //! persisted graph layout, and executable render-plan compilation.
+//! `shadow-domain` may persist bounded condition expressions before this
+//! adapter can execute them; `snapshot_decode` and `compiler` own the explicit
+//! fail-closed capability gates instead of flattening or dropping predicates.
 
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,

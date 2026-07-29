@@ -43,7 +43,7 @@ fn photo_geometry_round_trips_without_becoming_a_grade_node() {
     assert!(plan.geometry.flip_horizontal);
     assert!(!plan.geometry.flip_vertical);
 
-    let ffi = encode_grade_stack_draft_recipe_v1(grade_stack);
+    let ffi = encode_grade_stack_draft_recipe_v1(grade_stack).expect("encode Grade Stack");
     assert_eq!(ffi.geometry.quarter_turn, 1);
     assert!(ffi.geometry.flip_horizontal);
     assert!(!ffi.geometry.flip_vertical);

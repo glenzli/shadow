@@ -232,7 +232,8 @@ EditPreviewTaskResult renderPreview(
             render_token,
             max_edge,
             jpeg_quality,
-            generation.policy
+            generation.policy,
+            generation.mask_coverage_request
         );
         result.terminal = result.preview.terminal;
     } catch (const std::exception& error) {

@@ -5,15 +5,14 @@ fn unit(value: f64) -> UnitInterval {
 }
 
 fn proposal_artifact() -> GeneratedArtifactReference {
-    GeneratedArtifactReference {
-        contract_version: AI_GENERATED_ARTIFACT_CONTRACT_VERSION,
-        hash_algorithm: ArtifactHashAlgorithm::Blake3_256,
-        content_hash: "a".repeat(64),
-        byte_len: 1024,
-        media_type: "application/x-shadow-soft-mask".to_owned(),
-        encoding_version: 1,
-        storage_class: GeneratedArtifactStorageClass::RebuildableProposal,
-    }
+    GeneratedArtifactReference::new(
+        ArtifactHashAlgorithm::Blake3_256,
+        "a".repeat(64),
+        1024,
+        "application/x-shadow-soft-mask".to_owned(),
+        1,
+    )
+    .expect("valid proposal artifact")
 }
 
 #[test]

@@ -1,9 +1,10 @@
 use crate::{
-    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentLocalMask,
-    AdjustmentMaskBrushPoint, AdjustmentRenderNode, AdjustmentRenderOperation,
+    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
+    AdjustmentLocalMask, AdjustmentMaskBrushPoint, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentRenderPlan, EditPreviewMaskCoverageRequest,
 };
 
-use super::ffi_render_node;
+use super::{ffi_render_node, ffi_render_request_with_mask_coverage};
 
 fn layer_start(mask: Option<AdjustmentLocalMask>) -> AdjustmentRenderNode {
     AdjustmentRenderNode {
@@ -93,4 +94,27 @@ fn condition_masks_use_fixed_kind_four_and_five_wire_records() {
         [0.75, 5.0, 0.75, 0.0, 0.25, 0.0, 0.0, 0.0, 0.4, 0.0]
     );
     assert!(color.parameter_group_lengths.is_empty());
+}
+
+#[test]
+fn coverage_target_is_optional_native_input_and_selection_revision_stays_host_side() {
+    let plan = AdjustmentRenderPlan {
+        nodes: vec![layer_start(None)],
+        geometry: AdjustmentGeometry::identity(),
+    };
+    let without_coverage = ffi_render_request_with_mask_coverage(&plan, 2_048, 90, None);
+    assert!(!without_coverage.mask_coverage_requested);
+    assert_eq!(without_coverage.mask_coverage_target_layer_index, 0);
+
+    let with_coverage = ffi_render_request_with_mask_coverage(
+        &plan,
+        2_048,
+        90,
+        Some(EditPreviewMaskCoverageRequest {
+            target_layer_index: 0,
+            mask_selection_revision: u64::MAX,
+        }),
+    );
+    assert!(with_coverage.mask_coverage_requested);
+    assert_eq!(with_coverage.mask_coverage_target_layer_index, 0);
 }

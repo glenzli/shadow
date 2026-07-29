@@ -22,6 +22,86 @@ group-relative scoring. It does not create a second AI architecture beside
 No candidate model, provider, service, latency, or quality result in this
 document is an implemented fact.
 
+## Implemented foundation snapshot
+
+The repository now contains the first provider-neutral execution contract, not
+model-backed inference:
+
+- `AiJobRequest` is only application intent. It no longer carries a provider,
+  model, checkpoint, or service choice. Admission binds that intent to an exact
+  local artifact set, system-framework request revision, or remote service
+  identity. `AiObservation` is an exact-v1 result envelope constructed normally
+  only by consuming a successful lease output; duplicated request/task/target
+  fields must match runtime provenance, and explanation evidence is capped at
+  64 signals.
+- A move-only runtime lease supports cooperative cancellation, validated
+  monotonic progress, complete provider/model/framework/service route matching,
+  exact full-plan matching, and one terminal receipt. On success the consumed
+  lease, not the provider, creates a move-only payload envelope whose provenance
+  binds the complete request, input inventory, route, and execution plan.
+  The receipt records that plan, usage, and whether the route was primary or an
+  explicitly declared fallback. The application scheduler still owns unique
+  lease issuance and revocation; this portable value is not an authentication
+  token.
+- Local manifests identify a complete content-addressed artifact set. Core ML
+  packages are reproducible downloaded archives/blobs in that set. A
+  domain-separated, length-prefixed BLAKE3 digest of the canonical-path-sorted
+  inventory is the set identity, and installed availability must match it
+  exactly. Extracted `.mlpackage` trees, compiled `.mlmodelc`, and device
+  specialization are rebuildable runtime caches, not distributed model identity.
+  Exact-v1 manifest/request/route/plan/provenance decoding rejects unknown
+  nested fields, duplicate sets, unsupported versions, and oversized streamed
+  vectors. Portable package paths reject traversal, drive/UNC/ADS syntax,
+  reserved device names, leading/trailing-space, short-name `~`, and case
+  aliases, and Unicode normalization ambiguity before inventory hashing.
+- Remote provider manifests are separate from local model manifests. They
+  declare rendered-RGB/mask upload scope, privacy ceiling, retention, training
+  use, terms revision, offline behavior, idempotency, and cancellation. The
+  implemented path first requires application-store receipts for sanitized,
+  verified outbound objects, then accounts outbound rather than source bytes.
+  Its opaque expiring grant binds the complete request, manifest/legal facts,
+  policy and consent revisions, exact receipt inventory, and stable idempotency
+  key. Receipts are canonicalized by request input index before both identity
+  hashing and grant/transport inventory. RAW files, sensor mosaics,
+  scene-linear tiles, and frozen feature vectors fail closed. The legacy local
+  manifest planner cannot authorize `RemoteApi`.
+- Generated pixels still have no durable store in this crate. The implemented
+  promotion transaction consumes only a lease-issued successful-output envelope
+  and invokes an application-owned managed-store authority for the exact bytes
+  before a Recipe integration may consume them. Managed authority is move-only
+  and non-deserializable; a persisted descriptor must pass store verification
+  before reload reconstructs it.
+- The first culling boundary validates complete feature-print distance evidence,
+  applies a deterministic greedy complete-link partition, and suggests only a
+  similarity medoid as the first photo to review. It produces no Pick/Reject
+  mutation and does not claim the medoid is the sharpest, most aesthetic, or
+  otherwise “best” photo.
+- An Apple Vision FeaturePrint provider skeleton pins request revision 1 and
+  the OS build. The current Rust build does not link Vision, so it returns an
+  explicit `adapter_not_linked` terminal on macOS (or
+  `platform_unsupported` elsewhere) and never fabricates distances.
+
+These are pre-release v1 contract replacements. There is no persisted or
+cross-process `AiJobRequest`/`ModelManifest` consumer in the repository today;
+deserialization validates exact versions recursively, rejects unknown fields
+and oversized inventories, and fails closed on removed request fields instead
+of silently honoring stale model selection.
+
+## Current route decisions
+
+| Capability | Route and openness | Deployment/identity | Decision now |
+| --- | --- | --- | --- |
+| Similar burst grouping | Apple Vision FeaturePrint, closed system framework | Pinned Vision request revision + OS build; no weight claim | First native adapter to link and benchmark; similarity evidence only |
+| Promptable mask | Apple [SAM 2.1 Tiny Core ML](https://huggingface.co/apple/coreml-sam2.1-tiny), Apache-2.0 model card, float16 encoder/prompt/decoder set | Exact multi-archive artifact set; local Core ML | First universal mask prototype after package registry/runtime; Small is measured optional quality tier |
+| System foreground mask | Apple Vision foreground-instance mask, closed system framework | Pinned request/OS identity | Lower-cost supported-case comparison, not universal fallback |
+| Local model object remove | LaMa method/source is open; currently referenced checkpoint rights are unresolved | Side-loaded local prototype plus generated-raster provenance | Synthesized pixels require the same disclosure/promotion contract as a remote generator; do not bundle or auto-download before exact checkpoint/data audit |
+| Remote generative fill | Adobe async Fill, BFL FLUX.1 Fill, Stability inpaint; closed services | Separate remote manifest, explicit rendered crop/mask upload, provider request receipt | Opt-in comparison; never implicit Heal fallback and never RAW upload |
+| RGB denoise | NAFNet/Restormer open-source candidates | Exact local package, RGB working-domain receipt | Core ML bake-off only; never call it RAW denoise |
+| Mac system true-RAW render | Apple [Core Image RAW 9](https://developer.apple.com/videos/play/wwdc2026/305/), closed system framework on macOS 27 | `CIRAWFilter` decoder v9 + OS build + exact camera/support-property snapshot; OS-delivered tiled Core ML joint demosaic/denoise on ANE | First callable Mac-only true-RAW quality/performance benchmark; availability-gated, not a portable replacement |
+| Shadow-owned true RAW denoise | No product checkpoint selected; LED/PMN are research references | Future CFA/noise-profile model and benchmark identity | Longer-term portable/controllable route; deterministic RAW denoise remains fallback |
+| Fidelity 2x | Classical SwinIR x2 open-source candidate | Exact local package; deterministic fixed revision | First conservative baseline |
+| Creative/restorative upscale | Real-ESRGAN open-source candidate; Adobe/Stability closed services | Generated-raster provenance and promotion | Separate generative mode/comparison, never fidelity default; Imagen 4 preview is deferred |
+
 ## Product invariants
 
 Every AI capability must preserve these invariants:
@@ -29,8 +109,13 @@ Every AI capability must preserve these invariants:
 1. AI never deletes an original or writes the manual Pick/Reject/rating ledger.
 2. A generated result is rebuildable until the user accepts it. An accepted
    edit is an immutable, non-destructive dependency with exact provenance.
-3. Local processing is the default. Remote processing is capability-specific,
-   visibly opt-in, and never receives a RAW file by default.
+   Model-inpainted pixels remain synthesized when execution is local,
+   deterministic, or repeatable; fidelity-first model upscales remain derived
+   rasters with exact provenance.
+3. Local versus remote is a deployment, privacy, cost, and availability axis;
+   it does not weaken generated-content disclosure or provenance. Local
+   processing is the default. Remote processing is capability-specific, visibly
+   opt-in, and never receives a RAW file by default.
 4. A model result never hides its source revision, model revision, preprocessing
    contract, confidence, or fallback route.
 5. Manual protection and manual edits outrank model policy. Low confidence
@@ -51,10 +136,14 @@ inpaint, or RGB versus sensor-domain denoise.
 
 | Current owner | Current contract | Planned extension |
 | --- | --- | --- |
-| [`src/contract.rs`](src/contract.rs) | `AiCapability`, `AiTaskKind`, `AiJobRequest`, `AiObservation`, `TaskPriority`, and `PrivacyClass` | Wrap the current request/result values in a provider execution lifecycle without renaming their semantics |
-| [`src/manifest.rs`](src/manifest.rs) | Exact model artifacts, tensor contracts, execution targets, resource requirements, and license/distribution facts | Make a package registry and provider catalog consume the manifest instead of inventing package metadata |
-| [`src/resource.rs`](src/resource.rs) | Deterministic `admit()` policy, `RemoteExecutionPolicy`, and immutable `RunPlan` | Add runtime resource leases, cancellation, and measured usage around an admitted plan |
-| [`src/generated.rs`](src/generated.rs) | Typed subject-mask and denoise parameters, generated soft-mask/denoised-raster payloads, storage class, and `DenoiseDomainPolicy` | Add missing inpaint and super-resolution values; express mask, inpaint, and denoise variants as routes beneath the existing tasks |
+| [`src/contract.rs`](src/contract.rs) | Provider-neutral `AiJobRequest`, `AiCapability`, `AiTaskKind`, `AiObservation`, `TaskPriority`, and `PrivacyClass` | Keep application intent independent of route selection |
+| [`src/runtime/`](src/runtime/) | Exact admitted route and full plan, route-owned estimate, move-only lease, cancellation, monotonic progress, runtime-issued provenance envelope, terminal receipt, and explicit fallback disclosure | Add application scheduling/process isolation and real provider adapters |
+| [`src/manifest.rs`](src/manifest.rs) | Exact multi-blob artifact sets, including Core ML package archives, tensor contracts, execution targets, resource requirements, and license/distribution facts | Make a content-addressed package registry consume the manifest |
+| [`src/remote.rs`](src/remote.rs) | Index over exact remote-service manifests, prepared outbound-store receipts, and opaque fail-closed request grants | Add no transport adapter until legal/privacy/product approval |
+| [`src/resource.rs`](src/resource.rs) | Deterministic local RAM/VRAM/thread `admit()` policy and immutable `RunPlan`; `RemoteApi` is never locally admitted | Give scratch storage its own authority; feed measured route usage into estimates without trusting request hints as safety budgets |
+| [`src/generated.rs`](src/generated.rs) | Typed subject-mask and denoise parameters, rebuildable generated soft-mask/denoised-raster identities, and `DenoiseDomainPolicy` | Add missing inpaint and super-resolution values; express mask, inpaint, and denoise variants as routes beneath the existing tasks |
+| [`src/derived_raster.rs`](src/derived_raster.rs) | Lease-provenance-consuming store promotion plus store-verified reload of opaque managed authority | Implement the application-owned managed derived store and Recipe reference |
+| [`src/culling.rs`](src/culling.rs) | Complete pairwise feature-distance validation, deterministic greedy complete-link grouping, similarity-medoid review start | Calibrate Vision thresholds and combine only through separately evaluated evidence |
 | [`src/technical.rs`](src/technical.rs) and [`src/score.rs`](src/score.rs) | Model-free technical evidence and explainable group-relative selection | Admit model-derived defect, similarity, aesthetic, and uniqueness evidence without creating a generic “culling observation” capability |
 | [`src/feedback.rs`](src/feedback.rs) | Append-only presentation/decision evidence and explicit-only training admission | Feed only admitted local learning pipelines; do not let a provider infer implicit negatives |
 
@@ -70,21 +159,30 @@ The roadmap routes map onto the current taxonomy as follows:
 | `Denoise` / `Denoise` | RGB and sensor-domain routes selected through the current `DenoiseDomainPolicy` |
 | `SuperResolution` / `SuperResolve` | Fidelity-first enlargement with a future generated-raster payload contract |
 
-**Current:** `AiJobRequest` is a serializable envelope and `admit()` can return a
-deterministic `RunPlan`; no provider executes that plan. **Planned:** the first
-runtime milestone adds three provider-neutral lifecycle operations:
+The current unlinked Apple Vision route intentionally advertises only
+`BurstGrouping` / `ProposeBurstGroup`: it consumes a caller-selected photo
+window and would return a complete distance batch for the grouping owner. It
+does not export or persist Vision's feature-print bytes as a general
+`SimilarityEmbedding`, and it does not advertise `TechnicalQuality`.
+
+**Current:** `AiJobRequest` is a provider-neutral exact-v1 serializable intent,
+`admit_local_execution()` selects an exact artifact set using a provider-owned
+resource estimate, and a runtime lease defines three provider-neutral lifecycle
+operations:
 
 1. planning validates the current request and task parameters, chooses a
-   provider route, calls current resource admission, and returns an immutable
-   execution identity;
-2. execution consumes that admitted identity, reports monotonic progress, and
-   publishes exactly one terminal result or error;
+   provider route, calls current resource admission, and returns immutable route
+   and complete execution-plan identities;
+2. execution consumes that admitted identity, reports validated monotonic
+   progress, and publishes exactly one terminal result or error; success is
+   wrapped with runtime-issued request/input/route/plan provenance;
 3. cancellation stops new admission immediately and cooperatively stops
    in-flight work; late results retain their identity and are discarded by the
    caller.
 
-The application, not `shadow-ai`, owns job scheduling, process isolation,
-download UX, persistence, and Recipe integration.
+No provider performs inference today. The application, not `shadow-ai`, still
+owns scheduling, process isolation, download UX, durable storage, and Recipe
+integration.
 
 ### Stable job identity
 
@@ -109,8 +207,18 @@ pixels.
 The existing manifest is the source of truth. The planned package manager must
 download or side-load model packages outside the repository, address them by
 content, verify their signatures and exact hashes, and version them. Git must
-contain neither model binaries nor implicit download artifacts. There is no
-package manager, downloader, or signature verifier today.
+contain neither model binaries nor implicit download artifacts. Apple delivery
+should use Background Assets where product distribution fits and `URLSession`
+for an application-owned content-addressed registry; deprecated
+`MLModelCollection` is not a new architecture dependency. There is no package
+manager, downloader, or signature verifier today.
+
+A Core ML artifact set stores hashable downloaded blobs. When upstream ships a
+directory `.mlpackage`, Shadow first records a reproducible archive or a
+canonical per-file inventory, verifies extraction, then compiles it. The
+resulting `.mlmodelc`, its stable-path cache, and per-device specialization may
+be retained for speed but remain rebuildable and never replace source artifact
+identity.
 
 ### License ledger
 
@@ -138,11 +246,12 @@ Initial upstream classification:
 | [Depth Anything V2 Base/Large/Giant](https://github.com/DepthAnything/Depth-Anything-V2#license) | CC-BY-NC-4.0 in the upstream repository | Deferred for commercial distribution |
 | [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO/blob/main/LICENSE) | Apache-2.0 | Candidate after checkpoint/data audit |
 | [ViTMatte](https://github.com/hustvl/ViTMatte/blob/main/LICENSE) | MIT | Candidate after checkpoint/data audit |
-| [LaMa](https://github.com/advimman/lama/blob/main/LICENSE) | Apache-2.0 | Candidate after checkpoint/data audit |
+| [LaMa](https://github.com/advimman/lama/blob/main/LICENSE) | Source repository declares Apache-2.0; the currently linked checkpoint hosting/redistribution grant is not explicit enough | Side-load research prototype only until exact checkpoint rights and provenance are resolved |
 | [NAFNet](https://github.com/megvii-research/NAFNet/blob/main/LICENSE) | MIT for NAFNet code; dependency terms remain separate | Candidate only after complete package audit |
 | [Restormer](https://github.com/swz30/Restormer/blob/main/LICENSE.md) | MIT | Candidate after checkpoint/data audit |
-| [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE) | BSD-3-Clause | Candidate after checkpoint/data audit |
-| [SwinIR](https://github.com/JingyunLiang/SwinIR/blob/main/LICENSE) / [HAT](https://github.com/XPixelGroup/HAT/blob/main/LICENSE) | Apache-2.0 | Candidate after checkpoint/data audit |
+| [LED](https://github.com/Srameo/LED/blob/main/LICENSE) | Repository code is CC BY-NC 4.0 and requires formal permission for commercial use; exact weights and datasets still need independent terms and provenance audits | Deferred from product/commercial distribution unless formal commercial permission covers the admitted artifacts; research reference only |
+| [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE) | BSD-3-Clause repository; exact weights/data still require audit | Generative/restorative comparison, never the fidelity default |
+| [SwinIR](https://github.com/JingyunLiang/SwinIR/blob/main/LICENSE) / [HAT](https://github.com/XPixelGroup/HAT/blob/main/LICENSE) | Apache-2.0 repositories; exact weights/data still require audit | Classical SwinIR x2 is the first fidelity baseline; HAT remains measured follow-up |
 | [FLUX.1 Fill dev](https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev) | Black Forest Labs non-commercial terms | Deferred |
 | [SUPIR](https://github.com/Fanghua-Yu/SUPIR) | Non-commercial upstream terms | Deferred |
 
@@ -155,18 +264,20 @@ is enabled.
 
 **Current:** every request and input artifact uses one of the canonical
 `PrivacyClass` values from [`src/contract.rs`](src/contract.rs): `Public`,
-`Personal`, or `SensitiveBiometric`. Current deterministic admission applies
-`RemoteExecutionPolicy` from [`src/resource.rs`](src/resource.rs):
-`Disabled`, `PublicOnly`, `PersonalAllowed`, or
-`SensitiveBiometricAllowed`. Those values describe information sensitivity and
-remote-policy ceilings; they do not claim that a remote adapter exists.
+`Personal`, or `SensitiveBiometric`. The separate remote admission path applies
+`RemoteExecutionPolicy` from [`src/remote/admission.rs`](src/remote/admission.rs):
+`Disabled`, `PublicOnly`, or `PersonalAllowed`. `SensitiveBiometric` remains
+explicitly deferred. The deterministic local manifest planner does not inspect
+remote consent and can never authorize a `RemoteApi` backend.
 
-**Planned:** a remote adapter must record payload extent as an orthogonal upload
-scope, such as a bounded rendered crop or a full rendered image. Upload extent
-must not become another `PrivacyClass`, and an exact enum is not accepted until
-an adapter prototype establishes its contract. Remote execution must remain
-disabled by default and require capability-level consent plus a visible
-destination/provider.
+**Current contract:** an application-owned outbound store first strips and
+encodes the allowed material, persists it, and returns a move-only prepared
+receipt. That receipt binds the exact `AiJobRequest` source input to its
+sanitized outbound hash, byte length, media type, upload scope, and raster
+extent. Remote admission accounts the outbound lengths, not original source
+lengths, and consumes the receipts into one expiring request grant. Upload
+extent is not another `PrivacyClass`. RAW files, sensor mosaics, scene-linear
+tiles, and frozen feature vectors have no remotely admissible scope.
 
 Before any upload, the planned adapter must strip GPS and unrelated EXIF, apply
 orientation, encode only the admitted raster and mask, estimate cost, and
@@ -174,8 +285,10 @@ enforce the configured ceiling. Full RAW upload remains prohibited by default.
 Remote `SensitiveBiometric` inference is explicitly deferred pending a stronger
 product, privacy, and legal decision.
 
-No background task may upgrade a local job to remote execution. A remote failure
-may fall back only to a declared local route; it may not silently select another
+No background task may upgrade a local job to remote execution. Runtime
+validation rejects `RemoteApi` plans for local/system routes and rejects any
+fallback whose selected route is remote. A remote primary may therefore fall
+back only to a declared local/system route; it may not silently select another
 remote provider.
 
 ## Scheduling and GPU-resident pixels
@@ -249,15 +362,38 @@ model, automatic ranking, or automatic Pick/Reject writer.
 The first candidate is a local evidence ensemble:
 
 1. Partition a shoot using capture time and user-visible grouping controls.
-2. Cluster near-duplicates with Apple Vision
+2. Produce comparable distance evidence with Apple Vision
    [`VNFeaturePrintObservation`](https://developer.apple.com/documentation/vision/vnfeatureprintobservation)
    and its
-   [distance contract](https://developer.apple.com/documentation/vision/vnfeatureprintobservation/computedistance(_:to:)).
+   [distance contract](https://developer.apple.com/documentation/vision/vnfeatureprintobservation/computedistance(_:to:)),
+   then form threshold-calibrated groups. Apple documents only that shorter
+   distance means greater similarity; FeaturePrint is not a focus, expression,
+   aesthetic, or “best photo” model. The current deterministic greedy
+   complete-link partition and similarity medoid are review-navigation
+   proposals, not quality ranking.
 3. Add existing comparable technical evidence only when the complete analysis
    artifact and preprocessing revision match.
-4. For detected faces, add Vision
-   [face capture quality](https://developer.apple.com/documentation/vision/vndetectfacecapturequalityrequest)
-   as a separate signal, never as an identity embedding.
+4. For eligible, burst-local face tracks, add Vision
+   [face capture quality](https://developer.apple.com/documentation/vision/selecting-a-selfie-based-on-capture-quality)
+   as a separate signal, never as an identity embedding. Apple limits the score
+   to comparing captures of the same face and describes it as a holistic prior
+   over lighting, blur, occlusion, expression, pose, focus, positioning, and
+   other capture attributes—not as isolated sharpness evidence.
+
+   Same-face correspondence must come from an explicitly admitted ephemeral
+   track or user confirmation; the quality score cannot establish identity. A
+   multi-face comparison is eligible only when every caller-designated face
+   track is present and unambiguously corresponded in every candidate. Convert
+   each track's raw scores to within-comparison percentile ranks, retain the raw
+   values as evidence, then maximize the candidate tuple of lowest track
+   percentile followed by median track percentile. This prevents one poor face
+   from being hidden by several good ones without pretending scores from
+   different people are directly comparable. Without correspondence, complete
+   required track coverage, or at least one common eligible track, abstain from
+   a multi-face score and ranking and expose only per-face evidence. Expression,
+   pose, and occlusion remain opaque model priors that require subgroup review;
+   they are not user intent or defect truth and must not be folded into
+   FeaturePrint distance.
 5. Evaluate Vision
    [image aesthetics](https://developer.apple.com/documentation/vision/calculateimageaestheticsscoresrequest)
    and the published
@@ -272,10 +408,11 @@ The [LAION aesthetic predictor](https://github.com/LAION-AI/aesthetic-predictor)
 is research-only: its small aesthetic-label set and CLIP-derived prior create a
 material domain and cultural-bias risk. It is not a default candidate.
 
-The UI may propose a group representative, a duplicate fold, or a ranked review
-order. It cannot hide a manually protected or unique photo, write Reject, or
-claim that one global aesthetic score represents the user's intent. Each
-recommendation exposes reason categories and confidence.
+The UI may propose a group review start, a duplicate fold, or—only after
+separate quality evidence is admitted—a ranked review order. It cannot hide a
+manually protected or unique photo, write Reject, call a similarity medoid
+“best”, or claim that one global aesthetic score represents the user's intent.
+Each recommendation exposes its independent evidence categories and confidence.
 
 ### Data and acceptance
 
@@ -375,17 +512,25 @@ The provisional interactive gate on the minimum supported Mac is:
 Failure to meet an interactive gate keeps the provider experimental; it does not
 justify faking a synchronous result.
 
-## Local object removal and remote generative fill
+## Model-generated object removal: local and remote routes
 
-Clone and Heal remain deterministic correction tools. Generative fill is a
-separate capability because it may invent semantic content.
+Clone and Heal remain source-directed deterministic correction tools.
+Model-based inpaint is a separate capability because it synthesizes pixels and
+may invent semantic content. A fixed local checkpoint can make execution
+repeatable, but it does not make the output non-generated. Local versus remote
+therefore changes privacy, cost, network, and deployment policy—not the
+generated-raster provenance, visible disclosure, acceptance, undo, or comparison
+contract.
 
-### Local removal
+### Local model route
 
-[LaMa](https://github.com/advimman/lama) is the first local large-mask inpaint
-candidate. It should be evaluated as **Object Remove (Local)** without a text
-prompt. Before integration, its exact checkpoint, training-data provenance,
-color behavior, tile overlap, memory, and redistribution must pass admission.
+[LaMa](https://github.com/advimman/lama) is a useful local large-mask inpaint
+method reference. Its pixels are synthesized model output even without a text
+prompt, so it may be evaluated only as a visibly generated, **side-loaded Object
+Remove (Local)** prototype. The repository source license does not by itself
+establish the hosted checkpoint's redistribution or data rights, so LaMa cannot
+be bundled or automatically downloaded until the exact checkpoint, hosting
+chain, training-data provenance, and notices pass admission.
 
 The LaMa prototype must receive a bounded expanded context around the mask. Its
 result must be composited only inside an explicitly expanded and feathered edit
@@ -395,21 +540,24 @@ the proposal.
 
 ### Remote fill
 
-Two initial providers should be evaluated behind the same adapter contract:
+Current callable providers should be evaluated behind the same adapter
+contract, without confusing API availability with suitability as a default:
 
 - Adobe Firefly Services
-  [Photoshop API v2 GA](https://developer.adobe.com/firefly-services/docs/photoshop/getting-started/v2-ga/)
-  and the
-  [Photoshop API v2 reference](https://developer.adobe.com/firefly-services/docs/photoshop/api/photoshop-v2/),
-  where generative fill/expand is exposed through Actions;
+  [asynchronous API guide](https://developer.adobe.com/firefly-services/docs/firefly-api/guides/how-tos/using-async-apis/)
+  lists Fill Image Async. Adobe's
+  [changelog](https://developer.adobe.com/firefly-services/docs/firefly-api/getting-started/changelog/)
+  records removal of the synchronous Fill Image v3 route in October 2025, so
+  only the currently documented async route may enter a prototype;
 - Black Forest Labs
   [FLUX.1 Fill](https://docs.bfl.ml/flux_tools/flux_1_fill).
 
-Provider APIs and model names are volatile. The exact Adobe action schema and
-BFL service/model endpoint must be selected and revalidated when the adapter
-prototype starts; this shortlist is not a frozen wire contract.
+Provider APIs and model names are volatile. The exact Adobe async endpoint,
+schema, model/header revision, and BFL service/model endpoint must be selected
+and revalidated when the adapter prototype starts; this shortlist is not a
+frozen wire contract.
 
-[Stability inpaint](https://platform.stability.ai/docs/api-reference) and
+[Stability v2beta inpaint](https://platform.stability.ai/docs/api-reference) and
 [Vertex Imagen editing](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/image/edit-images-overview)
 remain comparison candidates. Vertex's published model/endpoint migration
 notices mean the exact supported route must also be reselected at prototype
@@ -427,10 +575,14 @@ regional availability, deletion guarantees, cost ceiling, ICC/color behavior,
 and retry/idempotency behavior. Remote fill is never a silent fallback from
 local Heal or LaMa.
 
-Every candidate version must record source revision, context crop, mask digest,
-prompt, seed when available, provider/model version, request identity, and
-output digest. Accepted pixels must be promoted to managed derived storage
-before a Recipe can depend on them.
+Stability's fast/conservative/creative upscale routes remain generated outputs:
+even “conservative” accepts prompt/creativity controls and does not become a
+fidelity default by name.
+
+Every local or remote candidate version must record source revision, context
+crop, mask digest, prompt, seed when available, provider/model version, request
+identity, and output digest. Accepted pixels must be promoted to managed derived
+storage before a Recipe can depend on them.
 
 Acceptance reports outside-region invariance, boundary gradient discontinuity,
 seam color difference, LPIPS/DISTS inside the context, face/text/identity
@@ -457,8 +609,58 @@ review; they do not enter the RAW CFA pipeline.
 
 ### True RAW denoise direction
 
-Product-quality RAW denoise needs a Shadow-owned sensor-domain model conditioned
-on:
+#### Mac-first closed-system RAW 9 benchmark
+
+Apple's official
+[WWDC26 Core Image RAW session](https://developer.apple.com/videos/play/wwdc2026/305/)
+documents a callable, opt-in version 9 `CIRAWFilter` decoder on macOS 27. RAW 9
+uses a tiled Core ML pipeline that jointly demosaics and denoises on the Apple
+Neural Engine. This is a genuine sensor-mosaic route, not an RGB restoration
+model, and therefore becomes the first closed-system true-RAW benchmark on
+supported Macs.
+
+Admission must first observe `supportedDecoderVersions` containing version 9
+and verify the camera through `supportedCameraModels(for:)`. Apple says the
+initial list covers hundreds of models across major vendors, native-DNG cameras
+are supported automatically, and the list can change through OS over-the-air
+updates. Consequently, “decoder 9” alone is not a reproducible route identity.
+A future system-framework adapter and result receipt must also bind:
+
+- normalized camera make/model and native-DNG status;
+- exact OS build plus decoder version 9;
+- a digest of the observed version-9 supported-camera list;
+- the exact supported calibrated-property set for that filter instance;
+- every applied calibrated value, including
+  `luminanceNoiseReductionAmount`, exposure, sharpness, and contrast;
+- scale factor, output extent/domain/color contract, and interactive versus
+  export context policy.
+
+RAW 9 removes or ignores some older controls, including the old color-noise,
+detail, and moiré adjustments, so the adapter must query property support
+instead of projecting Shadow controls by name. The current generic
+`SystemFramework` identity is not sufficient for this camera- and
+property-sensitive route; extending that identity is a prerequisite to linking
+the adapter.
+
+The benchmark must treat RAW 9 as one end-to-end demosaic/denoise/render route,
+not claim that its denoise stage can be isolated. Compare cold first render,
+warm parameter edits, full-resolution export, memory, power, color, detail,
+noise, and camera coverage against Shadow's current deterministic RAW path.
+Interactive evaluation follows Apple's documented fast path: reduced
+`scaleFactor`, one caching `CIContext` per view, and direct Metal-backed
+presentation. Export evaluation uses a non-caching context and records the
+explicit memory limit. Unsupported cameras, pre-macOS-27 systems, or a changed
+support snapshot fall back visibly to Shadow's existing pipeline.
+
+RAW 9 remains closed, Apple-platform-only, OS-delivered, and outside Shadow's
+weight, training-data, and update control. It is therefore a Mac-first product
+candidate and comparison ceiling—not the universal Windows/Linux route and not
+a substitute for the longer-term Shadow-owned model below.
+
+#### Shadow-owned portable direction
+
+Product-quality portable RAW denoise needs a Shadow-owned sensor-domain model
+conditioned on:
 
 - CFA pattern and phase;
 - black and white levels;
@@ -473,24 +675,35 @@ Poisson-Gaussian, banding, and hot-pixel augmentation. The
 method reference for paired real and physics-guided noise synthesis, not a
 universal pretrained product model. Public datasets such as SIDD, SID, ELD, and
 DND require separate use and redistribution review before they enter training
-or release evidence.
+or release evidence. Current RAW restoration challenges still treat
+cross-camera real RAW denoise as an open problem: an SIDD RGB checkpoint or
+one-camera low-light checkpoint must not be packaged as universal RAW denoise.
+LED/PMN are research baselines only until their exact weights/data rights and
+Shadow's CFA, phase, black/white-level, and noise-profile contract have been
+evaluated.
 
 Evaluation includes sensor-domain PSNR/SSIM, post-color Delta E 2000,
 LPIPS/DISTS, MTF/detail retention, residual noise power spectrum, hot pixels,
 banding, demosaic artifacts, and tile seams. Stars, fur, hair, text, skin, and
 fine repeating texture explicitly test waxiness and hallucinated detail.
 
-No RAW AI denoise ships until the model beats the current deterministic path on
-held-out cameras without unacceptable color shift, texture loss, or
-camera-domain regression.
+The first productizable step is therefore the runtime plus immutable benchmark
+harness. RAW 9 can enter that harness immediately on supported macOS 27
+hardware; the current deterministic RAW path remains its explicit fallback.
+The Shadow-owned model stays a longer-term portable program rather than a
+prematurely selected checkpoint. Neither route becomes default until it beats
+the deterministic path on held-out cameras without unacceptable color shift,
+texture loss, camera-domain regression, or support instability.
 
 ## 2x super-resolution
 
-[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) is the first 2x Core ML
-candidate because its convolutional path is comparatively conversion-friendly.
-[SwinIR](https://github.com/JingyunLiang/SwinIR) and
-[HAT](https://github.com/XPixelGroup/HAT) are measured alternatives when their
-quality gain justifies latency and memory.
+[SwinIR](https://github.com/JingyunLiang/SwinIR)'s classical x2 route is the
+first conservative fidelity baseline, subject to exact checkpoint/data audit
+and Core ML conversion. [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)
+is a separate generative/restorative comparison because its adversarial
+real-world prior can invent texture; it cannot be the fidelity default.
+[HAT](https://github.com/XPixelGroup/HAT) is a measured follow-up when quality
+gain justifies latency and memory.
 
 The planned first product mode is **Fidelity 2x**:
 
@@ -502,8 +715,19 @@ The planned first product mode is **Fidelity 2x**:
   scene-linear RAW truth.
 
 A future **Creative Detail** route is separate, visibly generative, and disabled
-by default. Topaz or another cloud service may define a comparison ceiling, but
-does not become the default without the same privacy and provenance contract.
+by default. Adobe's current
+[Upscale guide](https://developer.adobe.com/firefly-services/docs/firefly-api/guides/how-tos/upscale/)
+documents the asynchronous `/v1/images/upsample-async` route. Its
+[April 2026 GA changelog](https://developer.adobe.com/firefly-services/docs/firefly-api/getting-started/changelog/)
+names `precise_upsampler_v1` as the only supported model-header value. This is a
+remote reference, not a frozen integration: Shadow must reselect and record the
+exact endpoint, schema, model/header, and service terms when the prototype
+starts. Adobe's source-fidelity positioning and 2x guidance still require
+held-out evaluation; larger scales require additional hallucination review.
+Stability upscale is also generative. Google Imagen 4 upscale remains preview
+and cannot define a stable release route. Topaz or another cloud service may
+define a comparison ceiling, but no service becomes the default without the
+same privacy, cost, provenance, retention, and held-out fidelity contract.
 
 Evaluate 12, 24, and 45 megapixel sources using synthetic and real degradation.
 Report PSNR/SSIM, LPIPS/DISTS, Delta E, ringing/halo measures, OCR correctness,
@@ -515,25 +739,34 @@ demonstrated value.
 
 ### Phase 0: runtime and evidence foundation
 
-1. Freeze provider plan/execute/cancel values and stable job/result identity.
+1. **Current contract:** freeze provider plan/execute/cancel/progress values,
+   stable route plus full-plan identity, lease-issued provenance envelope, and
+   terminal receipt. **Remaining:** application scheduler, process isolation,
+   and real provider execution.
 2. Add signed model-package registry, exact artifact audit, download/side-load,
    and versioned eviction outside the repository.
 3. Implement local worker isolation, resource leases, cancellation, crash
    recovery, and truthful fallback receipts.
-4. Establish the Metal/CVPixelBuffer/Core ML resident-pixel path.
+4. Establish the Metal/CVPixelBuffer/Core ML resident-pixel path. On macOS 27,
+   add a read-only Core Image RAW 9 capability probe that records decoder,
+   camera-list, calibrated-property, and OS-build identity without yet changing
+   the default decode route.
 5. Build the benchmark harness, rights-cleared golden corpus, and immutable
    result format.
-6. Implement managed derived-raster storage plus an immutable promotion and
-   revision contract for generated raster masks before accepted generated
-   pixels can enter a Recipe. Recipe-local vector/spatial mask revisions already
-   exist and are not reimplemented by this phase.
+6. **Current contract:** consume only a lease-issued output, run promotion
+   through an application managed-store authority, and reconstruct opaque
+   managed authority only after exact-byte store verification. **Remaining:**
+   implement that durable store plus its immutable Recipe reference before
+   accepted generated pixels can enter a Recipe. Recipe-local vector/spatial
+   mask revisions already exist and are not reimplemented by this phase.
 
 No user-visible model feature should bypass this phase.
 
 ### Phase 1: bounded local assistance
 
-1. Benchmark Vision FeaturePrint, face quality, and aesthetics with the existing
-   culling evidence path; expose recommendations only after held-out gates pass.
+1. Link and benchmark Vision FeaturePrint (the current provider is explicitly
+   unavailable), face quality, and aesthetics with the existing culling evidence
+   path; expose recommendations only after held-out gates pass.
 2. Integrate SAM 2.1 Tiny as an editable promptable-mask prototype; compare
    Small and Vision routes.
 3. Add deterministic tone, color, structure, geometry, and composition
@@ -541,10 +774,15 @@ No user-visible model feature should bypass this phase.
 
 ### Phase 2: pixel-generating local tools
 
-1. Benchmark LaMa local object removal.
-2. Benchmark NAFNet and Restormer as RGB-domain denoise only.
-3. Benchmark Real-ESRGAN 2x, then compare SwinIR/HAT-S.
-4. Promote only accepted outputs through managed derived storage and Recipe
+1. Link and benchmark Core Image RAW 9 on supported Macs as a closed,
+   availability-gated system route; preserve the existing pipeline for
+   unsupported cameras/platforms and as the cross-platform baseline.
+2. Benchmark side-loaded LaMa local object removal only after checkpoint-rights
+   audit.
+3. Benchmark NAFNet and Restormer as RGB-domain denoise only.
+4. Benchmark classical SwinIR x2 as the fidelity baseline, then compare
+   HAT-S and generative/restorative Real-ESRGAN separately.
+5. Promote only accepted outputs through managed derived storage and Recipe
    provenance.
 
 ### Phase 3: semantic depth and optional services
@@ -563,6 +801,9 @@ Each candidate uses the same immutable benchmark record:
 - repository revision, provider/model/artifact/preprocessing revisions;
 - exact fixture identities and rights classification;
 - hardware, OS, runtime, compute units, power state, and thermal state;
+- for OS-delivered system routes, decoder/request revision, normalized camera
+  identity, supported-camera-list digest, supported calibrated-property digest,
+  applied property values, and whether the system support snapshot changed;
 - input size/domain and cold/warm state;
 - P50/P95 latency, throughput, peak RSS/unified/device memory, energy, and
   cancellation/unload latency;
@@ -628,7 +869,7 @@ Primary sources used by this plan:
 - Apple Vision:
   [overview](https://developer.apple.com/documentation/vision),
   [aesthetics](https://developer.apple.com/documentation/vision/calculateimageaestheticsscoresrequest),
-  [face capture quality](https://developer.apple.com/documentation/vision/vndetectfacecapturequalityrequest),
+  [face capture quality](https://developer.apple.com/documentation/vision/selecting-a-selfie-based-on-capture-quality),
   [feature prints](https://developer.apple.com/documentation/vision/vnfeatureprintobservation),
   [foreground masks](https://developer.apple.com/documentation/vision/generateforegroundinstancemaskrequest),
   and
@@ -639,6 +880,8 @@ Primary sources used by this plan:
   [typed execution](https://apple.github.io/coremltools/docs-guides/source/typed-execution.html),
   and
   [palettization](https://apple.github.io/coremltools/docs-guides/source/opt-palettization-overview.html).
+- Apple Core Image RAW:
+  [WWDC26: Explore the new Core Image RAW pipeline](https://developer.apple.com/videos/play/wwdc2026/305/).
 - Promptable and conditional masks:
   [SAM 2](https://github.com/facebookresearch/sam2),
   [Apple SAM 2.1 Tiny](https://huggingface.co/apple/coreml-sam2.1-tiny),
@@ -650,12 +893,17 @@ Primary sources used by this plan:
   [LaMa](https://github.com/advimman/lama),
   [NAFNet](https://github.com/megvii-research/NAFNet),
   [Restormer](https://github.com/swz30/Restormer),
+  [LED repository and license](https://github.com/Srameo/LED/blob/main/LICENSE),
   [PMN](https://github.com/megvii-research/PMN),
   [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN),
   [SwinIR](https://github.com/JingyunLiang/SwinIR),
   and [HAT](https://github.com/XPixelGroup/HAT).
 - Remote APIs:
-  [Adobe Photoshop API v2](https://developer.adobe.com/firefly-services/docs/photoshop/api/photoshop-v2/),
+  Adobe Firefly
+  [async APIs](https://developer.adobe.com/firefly-services/docs/firefly-api/guides/how-tos/using-async-apis/),
+  [changelog](https://developer.adobe.com/firefly-services/docs/firefly-api/getting-started/changelog/),
+  and
+  [Upscale guide](https://developer.adobe.com/firefly-services/docs/firefly-api/guides/how-tos/upscale/);
   [BFL FLUX.1 Fill](https://docs.bfl.ml/flux_tools/flux_1_fill),
   [Stability](https://platform.stability.ai/docs/api-reference),
   [Vertex Imagen editing](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/image/edit-images-overview),

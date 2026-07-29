@@ -15,9 +15,7 @@ void run_coalescing_failure_lifetime_contracts() {
         coordinator.refresh(first, 1);
         {
             std::unique_lock lock(state->mutex);
-            state->condition.wait(lock, [state]() {
-                return state->first_entered;
-            });
+            state->condition.wait(lock, [state]() { return state->first_entered; });
         }
         BackendLibraryPhotoFilter latest;
         latest.camera_key = QStringLiteral("latest");
@@ -29,16 +27,13 @@ void run_coalescing_failure_lifetime_contracts() {
         }
         state->condition.notify_all();
         wait_until(
-            [&coordinator, &state]() {
-                return !coordinator.busy() && call_count(state) == 6;
-            },
+            [&coordinator, &state]() { return !coordinator.busy() && call_count(state) == 12; },
             "stale batch is replaced by one coalesced latest-generation batch"
         );
         require(
-            coordinator.cameras().front().toMap()
-                    .value(QStringLiteral("key"))
-                == QStringLiteral("latest-camera")
-                && call_count(state) == 6,
+            coordinator.cameras().front().toMap().value(QStringLiteral("key"))
+                    == QStringLiteral("latest-camera")
+                && call_count(state) == 12,
             "only the latest generation reaches the visible projection"
         );
     }
@@ -63,15 +58,11 @@ void run_coalescing_failure_lifetime_contracts() {
     {
         auto state = std::make_shared<FacetBackendState>();
         state->block_first = true;
-        auto coordinator = std::make_unique<ReviewLibraryFacetCoordinator>(
-            operations(state)
-        );
+        auto coordinator = std::make_unique<ReviewLibraryFacetCoordinator>(operations(state));
         coordinator->refresh({}, 1);
         {
             std::unique_lock lock(state->mutex);
-            state->condition.wait(lock, [state]() {
-                return state->first_entered;
-            });
+            state->condition.wait(lock, [state]() { return state->first_entered; });
         }
         std::thread releaser([state]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(40));
@@ -85,10 +76,7 @@ void run_coalescing_failure_lifetime_contracts() {
         timer.start();
         coordinator.reset();
         releaser.join();
-        require(
-            timer.elapsed() >= 25,
-            "destruction waits for the active three-facet batch"
-        );
+        require(timer.elapsed() >= 25, "destruction waits for the active three-facet batch");
     }
 }
 

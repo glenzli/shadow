@@ -1,7 +1,10 @@
 #pragma once
 
+#include "edit_mask_coverage_contract.hpp"
+
 #include <compare>
 #include <cstdint>
+#include <optional>
 
 enum class EditPreviewKind : std::uint8_t {
     Current,
@@ -21,6 +24,26 @@ enum class EditPreviewTerminal : std::uint8_t {
     Completed,
     Cancelled,
     Failed,
+};
+
+enum class EditPreviewPresentationApi : std::uint8_t {
+    Unavailable = 0U,
+    Software = 1U,
+    Metal = 2U,
+    Other = 3U,
+};
+
+// One immutable scene-graph capability observation. It is runtime-only
+// presentation state: it follows a preview generation into the store/factory,
+// but never participates in Recipe or renderer cache identity.
+struct EditPreviewPresentationBinding final {
+    std::uint64_t epoch = 0U;
+    std::uintptr_t window_identity = 0U;
+    EditPreviewPresentationApi api = EditPreviewPresentationApi::Unavailable;
+    std::uintptr_t device_handle = 0U;
+    bool initialized = false;
+
+    auto operator<=>(const EditPreviewPresentationBinding&) const = default;
 };
 
 [[nodiscard]] constexpr bool edit_preview_terminal_admits_publication(
@@ -60,6 +83,11 @@ struct EditPreviewGeneration final {
     std::uint64_t current_revision = 0;
     /// Session-issued cancellation/publication terminal claim.
     std::uint64_t render_token = 0;
+    /// Recipe mutation identity, intentionally independent from a preview
+    /// generation advanced only to request another selected-node coverage.
+    std::uint64_t recipe_revision = 0;
+    std::optional<EditMaskCoverageRequest> mask_coverage_request;
+    EditPreviewPresentationBinding presentation_binding;
 
     [[nodiscard]] constexpr EditPreviewKind kind() const noexcept {
         return edit_preview_kind(policy);

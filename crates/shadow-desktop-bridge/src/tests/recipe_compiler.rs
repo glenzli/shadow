@@ -53,7 +53,8 @@ fn grade_node_bypass_preserves_the_complete_recipe_and_disables_every_render_op(
         decode_grade_stack_draft_from_recipe_v1_snapshot(&disabled).unwrap(),
         disabled_settings
     );
-    let outgoing = encode_grade_stack_draft_recipe_v1(disabled_settings.clone());
+    let outgoing =
+        encode_grade_stack_draft_recipe_v1(disabled_settings.clone()).expect("encode Grade Stack");
     assert!(!outgoing.enabled);
     assert_eq!(
         outgoing.grade_nodes[0].fine.oklab_lightness_curve_points,

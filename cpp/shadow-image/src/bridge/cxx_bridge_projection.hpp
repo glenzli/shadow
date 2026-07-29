@@ -16,6 +16,9 @@ namespace shadow::bridge::cxx_bridge_projection {
 [[nodiscard]] FfiAnalyzedEditPreview analyzed_edit_preview(
     const image::AnalyzedEditPreview& preview
 );
+[[nodiscard]] FfiEditPreviewMaskCoverage edit_preview_mask_coverage(
+    const std::optional<image::EditPreviewMaskCoverage>& coverage
+);
 [[nodiscard]] image::DetailTileRect detail_tile_rect(
     const FfiDetailTileRect& value
 ) noexcept;

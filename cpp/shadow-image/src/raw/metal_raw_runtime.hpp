@@ -35,12 +35,15 @@ private:
 [[nodiscard]] id<MTLDevice> metal_raw_device() noexcept;
 [[nodiscard]] id<MTLCommandQueue> metal_raw_command_queue() noexcept;
 [[nodiscard]] id<MTLComputePipelineState> metal_raw_reconstruction_pipeline() noexcept;
+[[nodiscard]] id<MTLComputePipelineState> metal_raw_resident_reconstruction_pipeline() noexcept;
 [[nodiscard]] id<MTLComputePipelineState> metal_raw_area_preview_pipeline() noexcept;
 [[nodiscard]] id<MTLComputePipelineState> metal_raw_denoise_pipeline() noexcept;
 [[nodiscard]] id<MTLComputePipelineState> metal_dcp_color_pipeline() noexcept;
 
+[[nodiscard]] bool metal_raw_resident_reconstruction_available() noexcept;
 [[nodiscard]] bool metal_raw_area_preview_available() noexcept;
 [[nodiscard]] const std::string& metal_raw_runtime_diagnostic() noexcept;
+[[nodiscard]] const std::string& metal_raw_resident_reconstruction_diagnostic() noexcept;
 [[nodiscard]] const std::string& metal_raw_area_preview_diagnostic() noexcept;
 [[nodiscard]] const std::string& metal_raw_denoise_diagnostic() noexcept;
 [[nodiscard]] const std::string& metal_dcp_color_diagnostic() noexcept;

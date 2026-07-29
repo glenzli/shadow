@@ -34,6 +34,8 @@ struct PendingPhotoOpen final {
     QString provisional_preview_source;
 };
 
+class EditPreviewPresentationContext;
+
 class EditController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
@@ -127,6 +129,14 @@ class EditController final : public QObject {
     // shareable adjustment graph. The compact map keeps QML insulated from
     // the persisted backend layout while all shape values remain normalized.
     Q_PROPERTY(QVariantMap selectedLocalMask READ selectedLocalMask NOTIFY parametersChanged)
+    Q_PROPERTY(
+        bool maskToolActive READ maskToolActive WRITE setMaskToolActive
+        NOTIFY maskToolActiveChanged
+    )
+    Q_PROPERTY(
+        QString maskCoverageSource READ maskCoverageSource
+        NOTIFY maskCoverageSourceChanged
+    )
     // This is an in-session geometry clipboard, not a Recipe asset. A paste
     // creates the selected node's own one-mask attachment on the current photo.
     Q_PROPERTY(bool hasCopiedNodeMask READ hasCopiedNodeMask NOTIFY nodeMaskClipboardChanged)
@@ -213,6 +223,7 @@ class EditController final : public QObject {
     explicit EditController(
         std::shared_ptr<DesktopBackend> backend,
         std::shared_ptr<EditPreviewStore> preview_store,
+        std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context,
         QObject* parent = nullptr
     );
     ~EditController() override;
@@ -267,6 +278,8 @@ class EditController final : public QObject {
     [[nodiscard]] QString opticsCameraProfile() const;
     [[nodiscard]] QString opticsLensProfile() const;
     [[nodiscard]] QVariantMap selectedLocalMask() const;
+    [[nodiscard]] bool maskToolActive() const noexcept;
+    [[nodiscard]] QString maskCoverageSource() const;
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
@@ -355,6 +368,7 @@ class EditController final : public QObject {
     appendSelectedLocalMaskBrushPoint(double normalized_x, double normalized_y, bool begins_stroke);
     Q_INVOKABLE void clearSelectedLocalMaskBrush();
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
+    Q_INVOKABLE void setMaskToolActive(bool active);
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
     Q_INVOKABLE void addRetouchSpotFromPreview(double normalized_x, double normalized_y);
@@ -502,6 +516,8 @@ class EditController final : public QObject {
     void gradeNodeEnabledChanged();
     void parametersChanged();
     void nodeMaskClipboardChanged();
+    void maskToolActiveChanged();
+    void maskCoverageSourceChanged();
     void toneCurveChanged();
     void pointColorScopeChanged();
     void pointColorPickerActiveChanged();
@@ -593,12 +609,28 @@ class EditController final : public QObject {
     void parameterEdited(const QString& key, const BackendGradeStack& before);
     void opticsEdited(const QString& key, const BackendGradeStack& before);
     void notifyParametersChanged();
+    void handleMaskSelectionChanged();
+    void handleMaskParametersChanged();
+    void handleMaskSourceIdentityChanged();
+    void invalidateMaskCoverage();
+    void handleSelectedLocalMaskMutation();
+    void scheduleMaskCoverageRefresh();
+    [[nodiscard]] std::optional<EditMaskCoverageRequest>
+    currentMaskCoverageRequest(const BackendGradeStack& grade_stack) const;
+    [[nodiscard]] MaskCoverageGeneration maskCoverageGeneration(
+        const EditPreviewGeneration& preview_generation
+    ) const;
+    void publishMaskCoverage(
+        BackendMaskCoverage coverage,
+        const EditPreviewGeneration& preview_generation
+    );
     void toneCurveEdited(const QString& key, const BackendGradeStack& before, int preview_delay_ms);
     [[nodiscard]] bool
     acceptParameter(double value, double minimum, double maximum, const char* label_source);
 
     std::shared_ptr<DesktopBackend> backend_;
     std::shared_ptr<EditPreviewStore> preview_store_;
+    std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
     EditVersionModel versions_;
     ToneCurvePointModel tone_curve_points_;
     QFutureWatcher<EditStateTaskResult> state_watcher_;
@@ -627,6 +659,7 @@ class EditController final : public QObject {
     QString preview_source_;
     QString provisional_preview_source_;
     QString before_preview_source_;
+    QString mask_coverage_source_;
     std::optional<PendingPhotoOpen> pending_photo_open_;
     // An explicit named Version requested while the non-blocking autosave
     // transaction owns the state task slot. It keeps interaction locked until
@@ -655,6 +688,7 @@ class EditController final : public QObject {
     quint64 detail_render_token_ = 0;
     quint64 detail_warmup_token_ = 0;
     quint64 preview_render_token_ = 0;
+    quint64 mask_selection_revision_ = 0;
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;
     quint64 detail_retained_bytes_ = 0;
@@ -696,5 +730,7 @@ class EditController final : public QObject {
     int active_retouch_stroke_index_ = -1;
     bool white_balance_picker_active_ = false;
     bool crop_tool_active_ = false;
+    bool mask_tool_active_ = false;
+    bool mask_coverage_refresh_pending_ = false;
     quint64 parameter_revision_ = 0;
 };

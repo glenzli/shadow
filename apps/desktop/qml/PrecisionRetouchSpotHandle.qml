@@ -9,6 +9,9 @@ Item {
     required property var editor
     required property var modelData
     required property real pixelScale
+    required property bool selected
+
+    signal selectedRequested()
 
     property bool targetGestureActive: false
     property bool sourceGestureActive: false
@@ -79,6 +82,7 @@ Item {
     Rectangle {
         id: targetCircle
 
+        z: 1
         x: repairHandle.targetX - width / 2
         y: repairHandle.targetY - height / 2
         width: repairHandle.radiusPixels * 2
@@ -91,7 +95,8 @@ Item {
             0.16
         )
         border.width: 2
-        border.color: Theme.accent
+        border.color: repairHandle.selected
+            ? Theme.accent : Theme.previewCompareDivider
 
         Rectangle {
             anchors.centerIn: parent
@@ -106,6 +111,8 @@ Item {
         }
 
         MouseArea {
+            objectName: "retouchSpotTargetHitArea"
+
             anchors.fill: parent
             anchors.margins: -5
             acceptedButtons: Qt.LeftButton
@@ -114,6 +121,7 @@ Item {
             cursorShape: Qt.SizeAllCursor
 
             onPressed: {
+                repairHandle.selectedRequested()
                 repairHandle.targetGestureActive = true
                 repairHandle.editor.beginParameterEdit(
                     "retouch/" + repairHandle.modelData.index + "/center")
@@ -139,6 +147,7 @@ Item {
     Rectangle {
         id: sourceCircle
 
+        z: 2
         x: repairHandle.sourceX - width / 2
         y: repairHandle.sourceY - height / 2
         width: repairHandle.radiusPixels * 2
@@ -151,7 +160,8 @@ Item {
             0.12
         )
         border.width: 1
-        border.color: Theme.previewCompareDivider
+        border.color: repairHandle.selected
+            ? Theme.accent : Theme.previewCompareDivider
 
         Rectangle {
             anchors.centerIn: parent
@@ -162,14 +172,21 @@ Item {
         }
 
         MouseArea {
+            objectName: "retouchSpotSourceHitArea"
+
             anchors.fill: parent
             anchors.margins: -5
+            // Keep every donor visible, but only the selected repair owns
+            // donor input. Unselected donors must not steal target selection
+            // or a new paint gesture from the lower canvas input.
+            enabled: repairHandle.selected
             acceptedButtons: Qt.LeftButton
             hoverEnabled: true
             preventStealing: true
             cursorShape: Qt.CrossCursor
 
             onPressed: {
+                repairHandle.selectedRequested()
                 repairHandle.sourceGestureActive = true
                 repairHandle.editor.beginParameterEdit(
                     "retouch/" + repairHandle.modelData.index + "/source")

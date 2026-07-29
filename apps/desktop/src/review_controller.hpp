@@ -36,201 +36,102 @@ class ReviewController final : public QObject {
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(QVariantMap scanProgress READ scanProgress NOTIFY scanProgressChanged)
     Q_PROPERTY(int itemCount READ itemCount NOTIFY itemCountChanged)
+    Q_PROPERTY(QVariantMap photoInspection READ photoInspection NOTIFY photoInspectionChanged)
+    Q_PROPERTY(bool photoInspectionBusy READ photoInspectionBusy NOTIFY photoInspectionChanged)
+    Q_PROPERTY(bool photoInspectionFailed READ photoInspectionFailed NOTIFY photoInspectionChanged)
+    Q_PROPERTY(bool comparisonBusy READ comparisonBusy NOTIFY comparisonStateChanged)
+    Q_PROPERTY(bool canUndoComparison READ canUndoComparison NOTIFY comparisonStateChanged)
+    Q_PROPERTY(int sessionEvidenceCount READ sessionEvidenceCount NOTIFY comparisonStateChanged)
     Q_PROPERTY(
-        QVariantMap photoInspection
-        READ photoInspection
-        NOTIFY photoInspectionChanged
-    )
-    Q_PROPERTY(
-        bool photoInspectionBusy
-        READ photoInspectionBusy
-        NOTIFY photoInspectionChanged
-    )
-    Q_PROPERTY(
-        bool photoInspectionFailed
-        READ photoInspectionFailed
-        NOTIFY photoInspectionChanged
-    )
-    Q_PROPERTY(
-        bool comparisonBusy
-        READ comparisonBusy
-        NOTIFY comparisonStateChanged
-    )
-    Q_PROPERTY(
-        bool canUndoComparison
-        READ canUndoComparison
-        NOTIFY comparisonStateChanged
-    )
-    Q_PROPERTY(
-        int sessionEvidenceCount
-        READ sessionEvidenceCount
-        NOTIFY comparisonStateChanged
-    )
-    Q_PROPERTY(
-        QString comparisonStatusText
-        READ comparisonStatusText
-        NOTIFY comparisonStatusTextChanged
+        QString comparisonStatusText READ comparisonStatusText NOTIFY comparisonStatusTextChanged
     )
     Q_PROPERTY(bool decisionBusy READ decisionBusy NOTIFY decisionStateChanged)
+    Q_PROPERTY(bool canUndoDecision READ canUndoDecision NOTIFY decisionStateChanged)
+    Q_PROPERTY(QString decisionStatusText READ decisionStatusText NOTIFY decisionStatusTextChanged)
+    Q_PROPERTY(QString filterFlag READ filterFlag WRITE setFilterFlag NOTIFY filtersChanged)
     Q_PROPERTY(
-        bool canUndoDecision
-        READ canUndoDecision
-        NOTIFY decisionStateChanged
+        int filterMinimumRating READ filterMinimumRating WRITE setFilterMinimumRating NOTIFY
+            filtersChanged
     )
     Q_PROPERTY(
-        QString decisionStatusText
-        READ decisionStatusText
-        NOTIFY decisionStatusTextChanged
+        QString filterColorLabel READ filterColorLabel WRITE setFilterColorLabel NOTIFY
+            filtersChanged
     )
     Q_PROPERTY(
-        QString filterFlag
-        READ filterFlag
-        WRITE setFilterFlag
-        NOTIFY filtersChanged
+        QString filterEditState READ filterEditState WRITE setFilterEditState NOTIFY filtersChanged
+    )
+    Q_PROPERTY(QString filterLiked READ filterLiked WRITE setFilterLiked NOTIFY filtersChanged)
+    Q_PROPERTY(
+        QString filterExcludedFlag READ filterExcludedFlag WRITE setFilterExcludedFlag NOTIFY
+            filtersChanged
     )
     Q_PROPERTY(
-        int filterMinimumRating
-        READ filterMinimumRating
-        WRITE setFilterMinimumRating
-        NOTIFY filtersChanged
+        QString filterExcludedColorLabel READ filterExcludedColorLabel WRITE
+            setFilterExcludedColorLabel NOTIFY filtersChanged
     )
     Q_PROPERTY(
-        QString filterColorLabel
-        READ filterColorLabel
-        WRITE setFilterColorLabel
-        NOTIFY filtersChanged
+        QString filterCaptureMonth READ filterCaptureMonth WRITE setFilterCaptureMonth NOTIFY
+            filtersChanged
     )
     Q_PROPERTY(
-        QString filterEditState
-        READ filterEditState
-        WRITE setFilterEditState
-        NOTIFY filtersChanged
+        QString filterCameraKey READ filterCameraKey WRITE setFilterCameraKey NOTIFY filtersChanged
     )
     Q_PROPERTY(
-        QString filterLiked
-        READ filterLiked
-        WRITE setFilterLiked
-        NOTIFY filtersChanged
+        QString filterLensKey READ filterLensKey WRITE setFilterLensKey NOTIFY filtersChanged
     )
     Q_PROPERTY(
-        QString filterExcludedFlag
-        READ filterExcludedFlag
-        WRITE setFilterExcludedFlag
-        NOTIFY filtersChanged
+        QVariantList libraryCaptureMonthFacets READ libraryCaptureMonthFacets NOTIFY
+            libraryFacetsChanged
     )
     Q_PROPERTY(
-        QString filterExcludedColorLabel
-        READ filterExcludedColorLabel
-        WRITE setFilterExcludedColorLabel
-        NOTIFY filtersChanged
+        QVariantList libraryCameraFacets READ libraryCameraFacets NOTIFY libraryFacetsChanged
+    )
+    Q_PROPERTY(QVariantList libraryLensFacets READ libraryLensFacets NOTIFY libraryFacetsChanged)
+    Q_PROPERTY(bool libraryFacetsBusy READ libraryFacetsBusy NOTIFY libraryFacetsChanged)
+    Q_PROPERTY(
+        QVariantMap librarySystemCollectionCounts READ librarySystemCollectionCounts NOTIFY
+            libraryFacetsChanged
     )
     Q_PROPERTY(
-        QString filterCaptureMonth
-        READ filterCaptureMonth
-        WRITE setFilterCaptureMonth
-        NOTIFY filtersChanged
+        QString libraryAlbumId READ libraryAlbumId WRITE setLibraryAlbumId NOTIFY
+            libraryAlbumChanged
+    )
+    Q_PROPERTY(QVariantList libraryAlbums READ libraryAlbums NOTIFY libraryAlbumsChanged)
+    Q_PROPERTY(bool libraryAlbumsBusy READ libraryAlbumsBusy NOTIFY libraryAlbumsChanged)
+    Q_PROPERTY(
+        QVariantList librarySourceHealth READ librarySourceHealth NOTIFY librarySourceHealthChanged
     )
     Q_PROPERTY(
-        QString filterCameraKey
-        READ filterCameraKey
-        WRITE setFilterCameraKey
-        NOTIFY filtersChanged
+        bool librarySourceHealthBusy READ librarySourceHealthBusy NOTIFY librarySourceHealthChanged
     )
     Q_PROPERTY(
-        QString filterLensKey
-        READ filterLensKey
-        WRITE setFilterLensKey
-        NOTIFY filtersChanged
+        QVariantList missingSourceLocations READ missingSourceLocations NOTIFY
+            missingSourceLocationReviewChanged
     )
     Q_PROPERTY(
-        QVariantList libraryCaptureMonthFacets
-        READ libraryCaptureMonthFacets
-        NOTIFY libraryFacetsChanged
+        QString missingSourceLocationScanId READ missingSourceLocationScanId NOTIFY
+            missingSourceLocationReviewChanged
     )
     Q_PROPERTY(
-        QVariantList libraryCameraFacets
-        READ libraryCameraFacets
-        NOTIFY libraryFacetsChanged
+        bool missingSourceLocationsBusy READ missingSourceLocationsBusy NOTIFY
+            missingSourceLocationReviewChanged
     )
     Q_PROPERTY(
-        QVariantList libraryLensFacets
-        READ libraryLensFacets
-        NOTIFY libraryFacetsChanged
+        bool missingSourceLocationsHasMore READ missingSourceLocationsHasMore NOTIFY
+            missingSourceLocationReviewChanged
     )
     Q_PROPERTY(
-        bool libraryFacetsBusy
-        READ libraryFacetsBusy
-        NOTIFY libraryFacetsChanged
+        bool sourceRelinkBusy READ sourceRelinkBusy NOTIFY missingSourceLocationReviewChanged
     )
     Q_PROPERTY(
-        QString libraryAlbumId
-        READ libraryAlbumId
-        WRITE setLibraryAlbumId
-        NOTIFY libraryAlbumChanged
+        QString sourceRelinkStatusText READ sourceRelinkStatusText NOTIFY
+            missingSourceLocationReviewChanged
     )
-    Q_PROPERTY(
-        QVariantList libraryAlbums
-        READ libraryAlbums
-        NOTIFY libraryAlbumsChanged
-    )
-    Q_PROPERTY(
-        bool libraryAlbumsBusy
-        READ libraryAlbumsBusy
-        NOTIFY libraryAlbumsChanged
-    )
-    Q_PROPERTY(
-        QVariantList librarySourceHealth
-        READ librarySourceHealth
-        NOTIFY librarySourceHealthChanged
-    )
-    Q_PROPERTY(
-        bool librarySourceHealthBusy
-        READ librarySourceHealthBusy
-        NOTIFY librarySourceHealthChanged
-    )
-    Q_PROPERTY(
-        QVariantList missingSourceLocations
-        READ missingSourceLocations
-        NOTIFY missingSourceLocationReviewChanged
-    )
-    Q_PROPERTY(
-        QString missingSourceLocationScanId
-        READ missingSourceLocationScanId
-        NOTIFY missingSourceLocationReviewChanged
-    )
-    Q_PROPERTY(
-        bool missingSourceLocationsBusy
-        READ missingSourceLocationsBusy
-        NOTIFY missingSourceLocationReviewChanged
-    )
-    Q_PROPERTY(
-        bool missingSourceLocationsHasMore
-        READ missingSourceLocationsHasMore
-        NOTIFY missingSourceLocationReviewChanged
-    )
-    Q_PROPERTY(
-        bool sourceRelinkBusy
-        READ sourceRelinkBusy
-        NOTIFY missingSourceLocationReviewChanged
-    )
-    Q_PROPERTY(
-        QString sourceRelinkStatusText
-        READ sourceRelinkStatusText
-        NOTIFY missingSourceLocationReviewChanged
-    )
-    Q_PROPERTY(
-        int filteredItemCount
-        READ filteredItemCount
-        NOTIFY filtersChanged
-    )
-    Q_PROPERTY(
-        QVariantList sharedGradeNodes
-        READ sharedGradeNodes
-        NOTIFY sharedGradeNodesChanged
-    )
+    Q_PROPERTY(int filteredItemCount READ filteredItemCount NOTIFY filtersChanged)
+    Q_PROPERTY(QVariantList sharedGradeNodes READ sharedGradeNodes NOTIFY sharedGradeNodesChanged)
     Q_PROPERTY(QAbstractItemModel* model READ model CONSTANT)
 
-public:
+  public:
     explicit ReviewController(
         std::shared_ptr<DesktopBackend> backend,
         const QString& isolated_settings_file = {},
@@ -271,6 +172,7 @@ public:
     [[nodiscard]] QVariantList libraryCameraFacets() const;
     [[nodiscard]] QVariantList libraryLensFacets() const;
     [[nodiscard]] bool libraryFacetsBusy() const noexcept;
+    [[nodiscard]] QVariantMap librarySystemCollectionCounts() const;
     [[nodiscard]] QString libraryAlbumId() const;
     [[nodiscard]] QVariantList libraryAlbums() const;
     [[nodiscard]] bool libraryAlbumsBusy() const noexcept;
@@ -302,10 +204,8 @@ public:
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void cancelScan();
     Q_INVOKABLE void loadMore();
-    Q_INVOKABLE void requestPhotoInspection(
-        const QString& photo_id,
-        const QString& representation_id
-    );
+    Q_INVOKABLE void
+    requestPhotoInspection(const QString& photo_id, const QString& representation_id);
     Q_INVOKABLE void retryPhotoInspection();
     Q_INVOKABLE void clearPhotoInspection();
     /// Returns the inclusive, currently filtered Library range between two
@@ -317,10 +217,8 @@ public:
         const QString& photo_id,
         const QString& representation_id
     ) const;
-    Q_INVOKABLE QVariantMap prepareComparison(
-        const QString& left_visual_handle,
-        const QString& right_visual_handle
-    );
+    Q_INVOKABLE QVariantMap
+    prepareComparison(const QString& left_visual_handle, const QString& right_visual_handle);
     Q_INVOKABLE bool confirmComparisonReady(
         const QString& presentation_id,
         const QString& left_request_ticket,
@@ -331,10 +229,7 @@ public:
     Q_INVOKABLE void undoLastComparison();
     Q_INVOKABLE void setPhotoFlag(const QString& photo_id, const QString& flag);
     Q_INVOKABLE void setPhotoRating(const QString& photo_id, int rating);
-    Q_INVOKABLE void setPhotoColorLabel(
-        const QString& photo_id,
-        const QString& color_label
-    );
+    Q_INVOKABLE void setPhotoColorLabel(const QString& photo_id, const QString& color_label);
     Q_INVOKABLE void setPhotoLiked(const QString& photo_id, bool liked);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
@@ -346,34 +241,23 @@ public:
     Q_INVOKABLE void openMissingSourceLocationReview(const QString& scan_session_id);
     Q_INVOKABLE void closeMissingSourceLocationReview();
     Q_INVOKABLE void loadMoreMissingSourceLocations();
-    Q_INVOKABLE void relinkMissingSourceLocation(
-        const QString& location_id,
-        const QUrl& candidate_url
-    );
+    Q_INVOKABLE void
+    relinkMissingSourceLocation(const QString& location_id, const QUrl& candidate_url);
     Q_INVOKABLE void createManualLibraryAlbum(const QString& name);
     Q_INVOKABLE void createSmartLibraryAlbum(const QString& name);
-    Q_INVOKABLE void renameLibraryAlbum(
-        const QString& album_id,
-        const QString& name
-    );
+    Q_INVOKABLE void renameLibraryAlbum(const QString& album_id, const QString& name);
     Q_INVOKABLE void deleteLibraryAlbum(const QString& album_id);
-    Q_INVOKABLE void addPhotosToManualLibraryAlbum(
-        const QString& album_id,
-        const QVariantList& targets
-    );
-    Q_INVOKABLE void removePhotosFromManualLibraryAlbum(
-        const QString& album_id,
-        const QVariantList& targets
-    );
+    Q_INVOKABLE void
+    addPhotosToManualLibraryAlbum(const QString& album_id, const QVariantList& targets);
+    Q_INVOKABLE void
+    removePhotosFromManualLibraryAlbum(const QString& album_id, const QVariantList& targets);
     Q_INVOKABLE void refreshSharedGradeNodes();
-    Q_INVOKABLE QVariantMap applySharedGradeNode(
-        const QString& layer_id,
-        const QVariantList& targets
-    );
+    Q_INVOKABLE QVariantMap
+    applySharedGradeNode(const QString& layer_id, const QVariantList& targets);
     Q_INVOKABLE void undoLastDecision();
-  Q_INVOKABLE void retranslateUi();
+    Q_INVOKABLE void retranslateUi();
 
-signals:
+  signals:
     void busyChanged();
     void scanningChanged();
     void refreshingChanged();
@@ -407,12 +291,12 @@ signals:
     void sharedGradeNodesChanged();
     void decisionUndone();
 
-private:
+  private:
     void initializeCoordinatorWiring();
     void requestLibraryReset();
     void scheduleFilterQuery();
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
-    bool eventFilter(QObject *watched, QEvent *event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void setStatusMessage(LocalizedUiMessage status);
     void updateReadyStatus();
     void setDecisionStatusMessage(LocalizedUiMessage status);
@@ -424,17 +308,17 @@ private:
     ReviewLibraryAlbumCoordinator album_coordinator_;
     ReviewLibraryFacetCoordinator facet_coordinator_;
     ReviewImportCoordinator import_coordinator_;
-  LocalizedUiMessage status_message_{
-      "ReviewController",
-      QT_TRANSLATE_NOOP("ReviewController",
-                        "Choose a folder to build your Review library"),
-  };
-  LocalizedUiMessage decision_status_message_{
-      "ReviewController",
-      QT_TRANSLATE_NOOP("ReviewController",
-                        "Flags and stars are explicit local library decisions"
-    ),
-  };
+    LocalizedUiMessage status_message_{
+        "ReviewController",
+        QT_TRANSLATE_NOOP("ReviewController", "Choose a folder to build your Review library"),
+    };
+    LocalizedUiMessage decision_status_message_{
+        "ReviewController",
+        QT_TRANSLATE_NOOP(
+            "ReviewController",
+            "Flags and stars are explicit local library decisions"
+        ),
+    };
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
     ReviewLibraryQueryCoordinator query_coordinator_;

@@ -1,6 +1,7 @@
 use shadow_bridge::{
-    EDIT_PREVIEW_HDR_HEADROOM_BIN_COUNT, EDIT_PREVIEW_HISTOGRAM_BIN_COUNT, EditPreviewAnalysis,
-    OpticsReceipt, SensorClippingMask,
+    EDIT_PREVIEW_HDR_HEADROOM_BIN_COUNT, EDIT_PREVIEW_HISTOGRAM_BIN_COUNT,
+    EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, EDIT_PREVIEW_MASK_COVERAGE_VERSION,
+    EditPreviewAnalysis, EditPreviewMaskCoverage, OpticsReceipt, SensorClippingMask,
 };
 use shadow_domain::{ImageDimensions, PreviewCodec, ProxyPayload};
 
@@ -15,11 +16,14 @@ fn cancelled_response_is_an_empty_terminal_sentinel() {
     assert_eq!((response.width, response.height), (0, 0));
     assert!(response.bytes.is_empty());
     assert!(!response.analysis_available);
+    assert!(!response.mask_coverage_available);
+    assert!(response.mask_coverage_samples.is_empty());
     assert!(!response.sensor_clipping_available);
     assert!(response.optics_status.is_empty());
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One sentinel-filled whole CXX projection contract.
 fn completed_response_projects_settled_diagnostics_and_hides_them_interactively() {
     let dimensions = ImageDimensions {
         width: 2,
@@ -67,10 +71,19 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
         vignetting_used_distance_fallback: false,
         applied_scaling: true,
     };
+    let mask_coverage = EditPreviewMaskCoverage {
+        version: EDIT_PREVIEW_MASK_COVERAGE_VERSION.to_owned(),
+        target_layer_index: 1,
+        mask_selection_revision: 73,
+        dimensions,
+        row_stride_bytes: 2,
+        samples: vec![0, 255],
+    };
 
     let settled = completed_edited_preview(
         proxy(dimensions),
         Some(&analysis),
+        Some(mask_coverage.clone()),
         &optics,
         &sensor,
         EditPreviewPolicy::Settled,
@@ -85,10 +98,21 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     assert_eq!(settled.sensor_clipping_mask, [1, 2]);
     assert_eq!(settled.optics_provider_id, "lensfun");
     assert!(settled.optics_applied_scaling);
+    assert!(settled.mask_coverage_available);
+    assert_eq!(
+        settled.mask_coverage_version,
+        EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION
+    );
+    assert_eq!(settled.mask_coverage_target_layer_index, 1);
+    assert_eq!(settled.mask_selection_revision, 73);
+    assert_eq!(settled.mask_coverage_row_stride_bytes, 2);
+    assert_eq!(settled.mask_coverage_samples, [0, 255]);
 
+    let mask_coverage_allocation = mask_coverage.samples.as_ptr();
     let interactive = completed_edited_preview(
         rgb8_proxy(dimensions),
         None,
+        Some(mask_coverage),
         &optics,
         &sensor,
         EditPreviewPolicy::Interactive,
@@ -99,6 +123,13 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     assert!(interactive.sensor_clipping_mask.is_empty());
     assert_eq!(interactive.optics_status, "applied");
     assert_eq!(interactive.row_stride_bytes, 6);
+    assert!(interactive.mask_coverage_available);
+    assert_eq!(interactive.mask_coverage_samples, [0, 255]);
+    assert_eq!(
+        interactive.mask_coverage_samples.as_ptr(),
+        mask_coverage_allocation,
+        "desktop response must move the R8 allocation instead of cloning it"
+    );
 }
 
 fn rgb8_proxy(dimensions: ImageDimensions) -> ProxyPayload {
@@ -107,7 +138,12 @@ fn rgb8_proxy(dimensions: ImageDimensions) -> ProxyPayload {
         codec: PreviewCodec::Bitmap,
         bits_per_channel: 8,
         channels: 3,
-        bytes: vec![0; dimensions.pixel_count() as usize * 3],
+        bytes: vec![
+            0;
+            usize::try_from(dimensions.pixel_count())
+                .expect("small test dimensions fit the host")
+                * 3
+        ],
     }
 }
 

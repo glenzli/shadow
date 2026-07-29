@@ -21,6 +21,9 @@ Rectangle {
     required property string readyPreviewGeneration
     required property bool previewFrameReady
     required property bool comparisonActive
+    required property bool maskOverlayVisible
+    required property bool selectedRetouchContinuous
+    required property int selectedRetouchIndex
     required property real currentPhotoAspect
     required property real workspaceWidth
     required property color panel
@@ -35,6 +38,8 @@ Rectangle {
     signal openOpticsProfileLibraryRequested()
     signal toolModeRequested(int mode)
     signal cropAspectRatioRequested(real ratio)
+    signal maskOverlayVisibilityRequested(bool visible)
+    signal retouchRegionSelectionRequested(bool continuous, int index)
 
     readonly property int toolNone: 0
     readonly property int toolMask: 1
@@ -125,7 +130,9 @@ Rectangle {
                     id: maskToolButton
                     buttonSize: 34
                     iconSize: 19
-                    source: "qrc:/icons/mask-add.svg"
+                    source: selected
+                        ? "qrc:/icons/mask.svg"
+                        : "qrc:/icons/mask-create.svg"
                     selected: inspector.activeToolMode === inspector.toolMask
                     toolTipText: selected
                         ? qsTr("Finish mask editing")
@@ -181,11 +188,29 @@ Rectangle {
                 }
 
                 ShadowIconButton {
-                    visible: inspector.activeToolMode !== inspector.toolNone
+                    visible: inspector.activeToolMode === inspector.toolMask
                     buttonSize: 34
                     iconSize: 19
+                    source: inspector.maskOverlayVisible
+                        ? "qrc:/icons/overlay-show.svg"
+                        : "qrc:/icons/overlay-hide.svg"
+                    selected: inspector.maskOverlayVisible
+                    toolTipText: inspector.maskOverlayVisible
+                        ? qsTr("Hide mask overlay · O")
+                        : qsTr("Show mask overlay · O")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active
+                    onClicked: inspector.maskOverlayVisibilityRequested(
+                        !inspector.maskOverlayVisible)
+                }
+
+                ShadowIconButton {
+                    visible: inspector.activeToolMode !== inspector.toolNone
+                    buttonSize: 34
+                    iconSize: 20
                     source: "qrc:/icons/check.svg"
-                    variant: ShadowIconButton.Tinted
+                    variant: ShadowIconButton.Ghost
+                    foregroundColor: inspector.accent
                     toolTipText: qsTr("Exit this tool and keep its adjustments")
                     accessibleName: toolTipText
                     onClicked: inspector.toolModeRequested(
@@ -197,7 +222,9 @@ Rectangle {
                     buttonSize: 34
                     iconSize: 19
                     source: "qrc:/icons/reset-all.svg"
-                    toolTipText: qsTr("Reset all adjustments · Undo available")
+                    variant: ShadowIconButton.Ghost
+                    foregroundColor: Theme.dangerText
+                    toolTipText: qsTr("Reset all adjustments…")
                     accessibleName: toolTipText
                     enabled: inspector.editor.active
                         && !inspector.editor.stateBusy
@@ -489,6 +516,14 @@ Rectangle {
                             visible: inspector.activeToolMode === inspector.toolRepair
                             inspector: inspector
                             currentTabIndex: 0
+                            selectedRegionContinuous:
+                                inspector.selectedRetouchContinuous
+                            selectedRegionIndex:
+                                inspector.selectedRetouchIndex
+                            onRegionSelectionRequested:
+                                (continuous, index) =>
+                                    inspector.retouchRegionSelectionRequested(
+                                        continuous, index)
                         }
 
                         Item { Layout.preferredHeight: 14 }

@@ -1,5 +1,6 @@
 #include "backend/desktop_backend_private.hpp"
 #include "backend/edit_settings_projection.hpp"
+#include "backend/rust_owned_edit_preview_frame.hpp"
 #include "backend/rust_qt_projection.hpp"
 #include "preview_diagnostics.hpp"
 
@@ -129,7 +130,8 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     const std::uint64_t render_token,
     const std::uint32_t max_edge,
     const std::uint8_t jpeg_quality,
-    const EditPreviewPolicy policy
+    const EditPreviewPolicy policy,
+    const std::optional<EditMaskCoverageRequest> mask_coverage_request
 ) const {
     shadow::desktop::FfiEditPreviewRequest request;
     std::string ffi_photo_id;
@@ -143,6 +145,14 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         request.policy = ffi_edit_preview_policy(policy);
         request.use_working_recipe =
             edit_preview_kind(policy) == EditPreviewKind::Current;
+        request.mask_coverage_requested =
+            mask_coverage_request.has_value();
+        request.mask_coverage_target_layer_index =
+            mask_coverage_request.has_value()
+            ? mask_coverage_request->target_layer_index : 0U;
+        request.mask_selection_revision =
+            mask_coverage_request.has_value()
+            ? mask_coverage_request->selection_revision : 0U;
         ffi_photo_id = photo_id.toStdString();
         ffi_source_path = source_path.toStdString();
     } catch (...) {
@@ -160,11 +170,9 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         }
         std::rethrow_exception(construction_error);
     }
-    const auto payload = impl_->session->render_basic_edit_preview(
-        ffi_photo_id,
-        ffi_source_path,
-        request
-    );
+    auto owned_payload =
+        impl_->session->render_basic_edit_preview_owned(ffi_photo_id, ffi_source_path, request);
+    const auto& payload = owned_payload->projection();
     if (payload.terminal == shadow::desktop::FfiEditPreviewTerminal::Cancelled) {
         return {
             .terminal = EditPreviewTerminal::Cancelled,
@@ -173,21 +181,57 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     if (payload.terminal != shadow::desktop::FfiEditPreviewTerminal::Completed) {
         throw std::runtime_error("edit preview returned an unknown terminal state");
     }
-    const QByteArray preview_bytes = qbytes(payload.bytes);
+    const bool interactive = policy == EditPreviewPolicy::Interactive;
+    if (owned_payload->interactive_frame_available() != interactive) {
+        throw std::runtime_error("edit preview ownership is inconsistent with its explicit policy");
+    }
+    const QByteArray preview_bytes = interactive ? QByteArray{} : qbytes(payload.bytes);
     const QSize preview_dimensions(
         static_cast<int>(payload.width),
         static_cast<int>(payload.height)
     );
     const std::uint64_t expected_rgb8_stride = static_cast<std::uint64_t>(payload.width) * 3U;
-    const std::uint64_t expected_rgb8_bytes =
-        expected_rgb8_stride * static_cast<std::uint64_t>(payload.height);
-    const bool interactive = policy == EditPreviewPolicy::Interactive;
-    if ((interactive &&
-         (payload.row_stride_bytes != expected_rgb8_stride ||
-          expected_rgb8_bytes != static_cast<std::uint64_t>(preview_bytes.size()))) ||
-        (!interactive && payload.row_stride_bytes != 0U)) {
+    if ((interactive
+         && (payload.row_stride_bytes != expected_rgb8_stride || !payload.bytes.empty()))
+        || (!interactive && payload.row_stride_bytes != 0U)) {
         throw std::runtime_error("edit preview returned a payload layout "
                                  "inconsistent with its explicit policy");
+    }
+    const auto interactive_mask_coverage_samples =
+        owned_payload->interactive_mask_coverage_samples();
+    const QByteArray mask_coverage_samples =
+        interactive ? QByteArray{} : qbytes(payload.mask_coverage_samples);
+    const bool empty_mask_coverage_sentinel =
+        payload.mask_coverage_version == 0U && payload.mask_coverage_target_layer_index == 0U
+        && payload.mask_selection_revision == 0U && payload.mask_coverage_width == 0U
+        && payload.mask_coverage_height == 0U && payload.mask_coverage_row_stride_bytes == 0U
+        && mask_coverage_samples.isEmpty() && interactive_mask_coverage_samples.empty();
+    if (!payload.mask_coverage_available) {
+        if (!empty_mask_coverage_sentinel) {
+            throw std::runtime_error(
+                "unavailable mask coverage returned non-empty sentinels"
+            );
+        }
+    } else {
+        const std::uint64_t expected_mask_bytes =
+            static_cast<std::uint64_t>(payload.mask_coverage_width)
+            * static_cast<std::uint64_t>(payload.mask_coverage_height);
+        if (!mask_coverage_request.has_value()
+            || payload.mask_coverage_version != EDIT_MASK_COVERAGE_VERSION
+            || payload.mask_coverage_target_layer_index != mask_coverage_request->target_layer_index
+            || payload.mask_selection_revision != mask_coverage_request->selection_revision
+            || payload.mask_coverage_width != payload.width
+            || payload.mask_coverage_height != payload.height
+            || payload.mask_coverage_row_stride_bytes != payload.mask_coverage_width
+            || expected_mask_bytes
+                   != static_cast<std::uint64_t>(
+                       interactive ? interactive_mask_coverage_samples.size()
+                                   : static_cast<std::size_t>(mask_coverage_samples.size())
+                   )) {
+            throw std::runtime_error(
+                "edit preview returned mask coverage inconsistent with its request"
+            );
+        }
     }
     const PreviewSensorClippingMask sensor_clipping{
         .available = payload.sensor_clipping_available,
@@ -204,64 +248,70 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             "edit preview returned analysis inconsistent with its explicit policy"
         );
     }
-    return {
+    BackendEditedPreview result{
         .bytes = preview_bytes,
         .row_stride_bytes = payload.row_stride_bytes,
-        .analysis = {
-            .available = payload.analysis_available,
-            .version = qstring(payload.analysis_version),
-            .red = qcounts(payload.red_histogram, "red_histogram"),
-            .green = qcounts(payload.green_histogram, "green_histogram"),
-            .blue = qcounts(payload.blue_histogram, "blue_histogram"),
-            .luma = qcounts(payload.luma_histogram, "luma_histogram"),
-            .below_zero_samples = qcounts(
-                payload.below_zero_samples,
-                "below_zero_samples"
-            ),
-            .above_one_samples = qcounts(
-                payload.above_one_samples,
-                "above_one_samples"
-            ),
-            .hdr_headroom_bins = qcounts(
-                payload.hdr_headroom_bins,
-                "hdr_headroom_bins"
-            ),
-            .hdr_headroom_pixels = payload.hdr_headroom_pixels,
-            .hdr_peak_headroom_ev = payload.hdr_peak_headroom_ev,
-            .width = payload.analysis_width,
-            .height = payload.analysis_height,
-            .pixel_count = payload.pixel_count,
-            .shadow_clipped_pixels = payload.shadow_clipped_pixels,
-            .highlight_clipped_pixels = payload.highlight_clipped_pixels,
-        },
+        .analysis =
+            {
+                .available = payload.analysis_available,
+                .version = qstring(payload.analysis_version),
+                .red = qcounts(payload.red_histogram, "red_histogram"),
+                .green = qcounts(payload.green_histogram, "green_histogram"),
+                .blue = qcounts(payload.blue_histogram, "blue_histogram"),
+                .luma = qcounts(payload.luma_histogram, "luma_histogram"),
+                .below_zero_samples = qcounts(payload.below_zero_samples, "below_zero_samples"),
+                .above_one_samples = qcounts(payload.above_one_samples, "above_one_samples"),
+                .hdr_headroom_bins = qcounts(payload.hdr_headroom_bins, "hdr_headroom_bins"),
+                .hdr_headroom_pixels = payload.hdr_headroom_pixels,
+                .hdr_peak_headroom_ev = payload.hdr_peak_headroom_ev,
+                .width = payload.analysis_width,
+                .height = payload.analysis_height,
+                .pixel_count = payload.pixel_count,
+                .shadow_clipped_pixels = payload.shadow_clipped_pixels,
+                .highlight_clipped_pixels = payload.highlight_clipped_pixels,
+            },
         // Interactive frames intentionally avoid decoding their just-encoded
         // JPEG a second time merely to build a transient zebra raster.
-        .display_zebra = edit_preview_requires_display_diagnostics(policy)
-            ? make_clipping_zebra_overlay(
-                  preview_dimensions,
-                  preview_bytes,
-                  sensor_clipping
-              )
-            : QImage{},
-        .optics = {
-            .status = qstring(payload.optics_status),
-            .provider_id = qstring(payload.optics_provider_id),
-            .provider_version = qstring(payload.optics_provider_version),
-            .camera_profile = qstring(payload.optics_camera_profile),
-            .lens_profile = qstring(payload.optics_lens_profile),
-            .distortion_available = payload.optics_distortion_available,
-            .tca_available = payload.optics_tca_available,
-            .vignetting_available = payload.optics_vignetting_available,
-            .applied_distortion = payload.optics_applied_distortion,
-            .applied_tca = payload.optics_applied_tca,
-            .applied_vignetting = payload.optics_applied_vignetting,
-            .vignetting_used_distance_fallback = payload.optics_vignetting_used_distance_fallback,
-            .applied_scaling = payload.optics_applied_scaling,
-        },
+        .display_zebra =
+            edit_preview_requires_display_diagnostics(policy)
+                ? make_clipping_zebra_overlay(preview_dimensions, preview_bytes, sensor_clipping)
+                : QImage{},
+        .mask_coverage =
+            {
+                .samples = mask_coverage_samples,
+                .version = payload.mask_coverage_version,
+                .target_layer_index = payload.mask_coverage_target_layer_index,
+                .selection_revision = payload.mask_selection_revision,
+                .width = payload.mask_coverage_width,
+                .height = payload.mask_coverage_height,
+                .row_stride_bytes = payload.mask_coverage_row_stride_bytes,
+                .available = payload.mask_coverage_available,
+            },
+        .optics =
+            {
+                .status = qstring(payload.optics_status),
+                .provider_id = qstring(payload.optics_provider_id),
+                .provider_version = qstring(payload.optics_provider_version),
+                .camera_profile = qstring(payload.optics_camera_profile),
+                .lens_profile = qstring(payload.optics_lens_profile),
+                .distortion_available = payload.optics_distortion_available,
+                .tca_available = payload.optics_tca_available,
+                .vignetting_available = payload.optics_vignetting_available,
+                .applied_distortion = payload.optics_applied_distortion,
+                .applied_tca = payload.optics_applied_tca,
+                .applied_vignetting = payload.optics_applied_vignetting,
+                .vignetting_used_distance_fallback =
+                    payload.optics_vignetting_used_distance_fallback,
+                .applied_scaling = payload.optics_applied_scaling,
+            },
         .width = payload.width,
         .height = payload.height,
         .terminal = EditPreviewTerminal::Completed,
     };
+    if (interactive) {
+        result.frame = makeRustOwnedEditPreviewFrame(std::move(owned_payload));
+    }
+    return result;
 }
 
 std::uint64_t DesktopBackend::beginEditPreviewRequest() const noexcept {

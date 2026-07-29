@@ -40,8 +40,8 @@ type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>
 // Keep the complete mask sum-type projection together: every alternative
 // participates in one atomic CXX Grade Node record.
 #[allow(clippy::too_many_lines)]
-fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
-    match mask {
+fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> AnyResult<FfiLocalMaskFields> {
+    Ok(match mask {
         None => (
             LOCAL_MASK_NONE,
             0.0,
@@ -151,7 +151,12 @@ fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
             *invert,
             Vec::new(),
         ),
-    }
+        Some(MaskDefinition::ConditionExpression { .. }) => {
+            bail!(
+                "the current Qt Grade Node DTO cannot represent composite, chroma-qualified, or local-detail condition masks"
+            )
+        }
+    })
 }
 
 fn local_mask_definition_from_ffi(
@@ -364,7 +369,7 @@ pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> 
         geometry: PhotoGeometry::identity(),
     };
     grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate new Basic Grade Node")?;
-    Ok(encode_grade_node_draft_recipe_v1(grade_node))
+    encode_grade_node_draft_recipe_v1(grade_node)
 }
 
 pub(crate) fn decode_grade_stack_draft_recipe_v1(
@@ -834,14 +839,14 @@ pub(crate) fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFi
 
 pub(crate) fn encode_grade_stack_draft_recipe_v1(
     grade_stack: GradeStackDraft,
-) -> ffi::FfiEditSettings {
-    ffi::FfiEditSettings {
+) -> AnyResult<ffi::FfiEditSettings> {
+    Ok(ffi::FfiEditSettings {
         optics: ffi_optics_settings(&grade_stack.optics),
         grade_nodes: grade_stack
             .grade_nodes
             .into_iter()
             .map(encode_grade_node_draft_recipe_v1)
-            .collect(),
+            .collect::<AnyResult<Vec<_>>>()?,
         retouch_spots: grade_stack
             .retouch_spots
             .into_iter()
@@ -881,13 +886,15 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
             })
             .collect(),
         geometry: ffi_photo_geometry(grade_stack.geometry),
-    }
+    })
 }
 
 // The x/y names mirror the stable FFI schema; renaming only one side would
 // make the projection harder to audit than the intentional similarity.
 #[allow(clippy::similar_names)]
-pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> ffi::FfiGradeNode {
+pub(crate) fn encode_grade_node_draft_recipe_v1(
+    grade_node: GradeNodeDraft,
+) -> AnyResult<ffi::FfiGradeNode> {
     let identity = grade_node.recipe_v1_identity;
     let (shared_layer_id, shared_revision_id) = grade_node.shared.map_or_else(
         || (String::new(), String::new()),
@@ -904,8 +911,8 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> f
         local_mask_feather,
         local_mask_invert,
         local_mask_brush_points,
-    ) = ffi_local_mask_fields(grade_node.local_mask.as_ref());
-    ffi::FfiGradeNode {
+    ) = ffi_local_mask_fields(grade_node.local_mask.as_ref())?;
+    Ok(ffi::FfiGradeNode {
         grade_node_id: identity.grade_node_id.to_string(),
         shared_layer_id,
         shared_revision_id,
@@ -931,7 +938,7 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> f
         sharpen_render_op_id: identity.sharpen_render_op_id.to_string(),
         basic: ffi_basic_parameters(grade_node.basic),
         fine: ffi_fine_parameters(&grade_node.fine),
-    }
+    })
 }
 
 #[cfg(test)]

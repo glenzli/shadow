@@ -4,6 +4,7 @@
 #include <shadow/image/dcp_color_development.hpp>
 
 #include "raw_frame_source_development.hpp"
+#include "raw_frame_source_preparation.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -20,9 +21,6 @@ namespace shadow::image {
 namespace {
 
 inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELINE";
-inline constexpr std::string_view raw_frame_pipeline_identity =
-    "shadow-raw-frame-developer-v1:bayer-area-preview+bayer-bilinear:"
-    "raw-denoise-cfa-bilateral-v1:as-shot-neutral:camera-matrix:scene-linear-f32";
 
 [[nodiscard]] const char* path_name(const RawPipelinePath path) noexcept {
     switch (path) {
@@ -327,99 +325,15 @@ DevelopedSourceReference develop_source_reference(
     }
 
     try {
-        const auto negotiation = negotiate_shadow_raw_frame_development_plan(plan);
-        if (!negotiation.accepted()) {
-            throw DecodeError(
-                DecodeErrorCode::unsupported,
-                0,
-                "Shadow's RawFrame developer cannot honor the requested development plan"
-            );
-        }
-        RawFrame frame = session.decode_raw_frame();
-        const auto source_provider_id = frame.descriptor.provider_id;
-        const auto source_provider_version = frame.descriptor.provider_version;
-        const auto camera_profile = match_camera_profile(camera_profiles, session.metadata());
-        std::optional<DcpColorTransform> dcp_transform;
-        RawCameraProfileStatus camera_profile_status = RawCameraProfileStatus::no_match;
-        std::string camera_profile_identity;
-        std::string camera_profile_name;
-        std::string camera_profile_diagnostic;
-        if (camera_profile != nullptr) {
-            camera_profile_identity = camera_profile->content_identity;
-            camera_profile_name = camera_profile->profile.profile_name.empty()
-                ? camera_profile->profile.unique_camera_model
-                : camera_profile->profile.profile_name;
-            try {
-                dcp_transform = compile_dcp_color_transform(*camera_profile, frame.descriptor);
-                camera_profile_status = RawCameraProfileStatus::applied;
-            } catch (const DcpColorDevelopmentError& profile_error) {
-                // Optional local profiles are an enhancement, not a prerequisite for decoding.
-                // Keep the generic provider matrix and record the full diagnostic rather than
-                // silently claiming camera rendering that the local DCP could not compile.
-                camera_profile_status = RawCameraProfileStatus::matched_not_applied;
-                camera_profile_diagnostic = profile_error.what();
-            }
-        }
-        raw_pipeline_detail::DevelopedRawFrame developed =
-            raw_pipeline_detail::develop_raw_frame(
-                std::move(frame),
-                negotiation.effective,
-                preview_max_edge,
-                dcp_transform.has_value() ? &*dcp_transform : nullptr,
-                session.metadata().iso_speed
-            );
-        RawDevelopmentReceipt raw_development_receipt = std::move(
-            developed.raw_development_receipt
+        auto prepared = raw_pipeline_detail::prepare_raw_frame_source(
+            session,
+            plan,
+            preview_max_edge,
+            camera_profiles
         );
-        raw_development_receipt.requested_plan = plan;
-        raw_development_receipt.requested_plan_identity =
-            raw_development_plan_identity(plan);
-        raw_development_receipt.effective_plan = negotiation.effective;
-        raw_development_receipt.effective_plan_identity =
-            raw_development_plan_identity(negotiation.effective);
-        raw_development_receipt.plan_negotiation_status = negotiation.status;
-        RawPipelineReceipt pipeline;
-        pipeline.path = RawPipelinePath::shadow_raw_frame;
-        pipeline.pipeline_identity = std::string(raw_frame_pipeline_identity);
-        pipeline.pipeline_identity += ";backend="
-            + std::string(raw_development_backend_identity(developed.backend));
-        pipeline.pipeline_identity += ";"
-            + std::string(raw_highlight_treatment_identity(developed.highlight_recovery));
-        pipeline.pipeline_identity += ";" + developed.raw_denoise_cache_identity;
-        pipeline.source_provider_id = source_provider_id;
-        pipeline.source_provider_version = source_provider_version;
-        pipeline.raw_frame_schema_version = raw_frame_schema_version;
-        pipeline.raw_developer_version = shadow_raw_frame_developer_version;
-        pipeline.source_scene_luminance_percentile =
-            developed.source_scene_luminance_percentile;
-        pipeline.requested_plan = plan;
-        pipeline.effective_plan = negotiation.effective;
-        pipeline.camera_profile_status = camera_profile_status;
-        pipeline.camera_profile_catalog_identity = camera_profiles.identity;
-        pipeline.camera_profile_identity = std::move(camera_profile_identity);
-        pipeline.camera_profile_name = std::move(camera_profile_name);
-        pipeline.camera_profile_diagnostic = std::move(camera_profile_diagnostic);
-        pipeline.camera_profile_developer_version = dcp_color_developer_version;
-        pipeline.pipeline_identity += ";camera-profile-status="
-            + std::string(camera_profile_status_name(pipeline.camera_profile_status))
-            + ";camera-profile-catalog=" + pipeline.camera_profile_catalog_identity;
-        if (!pipeline.camera_profile_identity.empty()) {
-            pipeline.pipeline_identity += ";camera-profile="
-                + pipeline.camera_profile_identity;
-        }
-        if (!pipeline.valid()) {
-            throw DecodeError(
-                DecodeErrorCode::internal,
-                0,
-                "Shadow RawFrame development produced an invalid pipeline receipt"
-            );
-        }
-        return DevelopedSourceReference{
-            .source = std::move(developed.source),
-            .raw_development_receipt = std::move(raw_development_receipt),
-            .pipeline_receipt = std::move(pipeline),
-            .sensor_clipping_mask = std::move(developed.sensor_clipping_mask),
-        };
+        return raw_pipeline_detail::materialize_prepared_raw_frame_source(
+            std::move(prepared)
+        );
     } catch (const DecodeError& error) {
         if (
             policy.mode == RawPipelineMode::require_shadow_raw_frame

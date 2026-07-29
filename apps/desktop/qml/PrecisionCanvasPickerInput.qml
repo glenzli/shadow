@@ -3,14 +3,16 @@ pragma ComponentBehavior: Bound
 import QtQuick
 
 // Direct-manipulation owner for preview sampling and repair-stroke authoring.
-// The canvas supplies one generation-verified preview image; this component
-// owns coordinate normalization, picker routing, stroke sampling, terminal
+// The canvas supplies one generation-verified preview surface and its painted
+// content rectangle; this component owns coordinate normalization, picker
+// routing, stroke sampling, terminal
 // gesture cleanup, and the pointer affordance as one interaction lifecycle.
 Item {
     id: pickerInput
 
     required property var editor
-    required property Image previewImage
+    required property Item previewItem
+    required property rect previewContentRect
     required property bool previewFrameReady
     required property string readyPreviewGeneration
     required property real displayScale
@@ -21,14 +23,15 @@ Item {
 
     function normalizedPreviewPoint(sourceItem, sourceX, sourceY) {
         if (!previewFrameReady || readyPreviewGeneration.length === 0
-                || previewImage.status !== Image.Ready) {
+                || previewContentRect.width <= 0
+                || previewContentRect.height <= 0) {
             return null
         }
-        const mapped = previewImage.mapFromItem(sourceItem, sourceX, sourceY)
-        const paintedWidth = Math.max(1, previewImage.paintedWidth)
-        const paintedHeight = Math.max(1, previewImage.paintedHeight)
-        const paintedX = (previewImage.width - paintedWidth) / 2
-        const paintedY = (previewImage.height - paintedHeight) / 2
+        const mapped = previewItem.mapFromItem(sourceItem, sourceX, sourceY)
+        const paintedWidth = Math.max(1, previewContentRect.width)
+        const paintedHeight = Math.max(1, previewContentRect.height)
+        const paintedX = previewContentRect.x
+        const paintedY = previewContentRect.y
         if (mapped.x < paintedX || mapped.y < paintedY
                 || mapped.x > paintedX + paintedWidth
                 || mapped.y > paintedY + paintedHeight) {

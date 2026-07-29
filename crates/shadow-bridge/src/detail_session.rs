@@ -30,7 +30,7 @@ pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
 
 /// Hard bound for the largest complete immutable source retained by one detail session.
 ///
-/// Packed u16 raster sources retain at most 512 MiB. Owned RawFrame development retains fp32
+/// Packed u16 raster sources retain at most 512 MiB. Owned `RawFrame` development retains fp32
 /// scene-linear RGB and is independently capped at 1 GiB by the native session.
 pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 1_024 * 1_024 * 1_024;
 
@@ -341,10 +341,7 @@ impl LibRawEditDetailSession {
                 ));
             }
         };
-        let valid_version = match backend {
-            DetailTileRenderBackend::Cpu => rendered.execution_backend_version == 1,
-            DetailTileRenderBackend::Metal => rendered.execution_backend_version == 1,
-        };
+        let valid_version = rendered.execution_backend_version == 1;
         let diagnostic = (!rendered.diagnostic.is_empty()).then_some(rendered.diagnostic);
         if !valid_version
             || (backend == DetailTileRenderBackend::Cpu && rendered.source_cache_hit)

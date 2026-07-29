@@ -91,21 +91,22 @@ Item {
         radius: card.surfaceRadius
         clip: true
         color: Theme.panelRaised
-        border.width: 1
-        border.color: card.selected ? Theme.accentBorder : Theme.border
+        border.width: 0
         scale: cardMouse.pressed ? 0.995 : 1.0
 
         Behavior on scale {
             NumberAnimation { duration: 80 }
         }
 
-        Image {
+        ShadowRoundedImage {
             id: thumbnail
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: caption.top
+            anchors.bottomMargin: -card.surfaceRadius
             source: card.visualSource
+            radius: card.surfaceRadius
             // The layout width itself is derived from visualWidth/visualHeight.
             // Fitting is a defensive guarantee for imperfect/late metadata, never
             // a photo crop mode.
@@ -122,8 +123,7 @@ Item {
             // dragged: that defeats both Qt's image cache and Shadow's local
             // proxy cache. A fixed 1024px presentation layer remains sharp at
             // the allowed gallery scale and reuses one decoded cache entry.
-            sourceSize.width: 1024
-            sourceSize.height: 1024
+            requestedSourceSize: Qt.size(1024, 1024)
         }
 
         Rectangle {
@@ -162,6 +162,17 @@ Item {
             }
         }
 
+        ReviewPhotoAffinity {
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.topMargin: 10
+            anchors.rightMargin: card.decisionFlag === "unflagged" ? 10 : 42
+            liked: card.liked
+            showRating: false
+            floating: true
+            iconSize: 13
+        }
+
         Rectangle {
             anchors.fill: thumbnail
             visible: card.visualSource.length === 0
@@ -193,6 +204,11 @@ Item {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: card.captionHeight
+            z: 1
+            topLeftRadius: 0
+            topRightRadius: 0
+            bottomLeftRadius: card.surfaceRadius
+            bottomRightRadius: card.surfaceRadius
             color: card.selected
                 ? Theme.accentSelectionSurface : Theme.thumbnailCaptionOverlay
 
@@ -243,19 +259,12 @@ Item {
                     size: 12
                 }
 
-                Row {
+                ReviewPhotoAffinity {
                     anchors.right: parent.right
-                    visible: card.decisionRating > 0
-                    spacing: 1
-                    Repeater {
-                        model: card.decisionRating
-                        ShadowIcon {
-                            required property int index
-                            source: "qrc:/icons/star-filled.svg"
-                            color: Theme.accent
-                            size: 8
-                        }
-                    }
+                    liked: false
+                    rating: card.decisionRating
+                    showLike: false
+                    iconSize: 8
                 }
             }
         }
@@ -274,9 +283,9 @@ Item {
                 const preserveSelection = mouse.button === Qt.RightButton
                     && card.selected
                 if (!preserveSelection)
-                    workspace.selectPhoto(card, mouse.modifiers)
+                    card.workspace.selectPhoto(card, mouse.modifiers)
                 if (mouse.button === Qt.RightButton) {
-                    workspace.controller.refreshSharedGradeNodes()
+                    card.workspace.controller.refreshSharedGradeNodes()
                     cardMenu.openAt(
                         cardMouse, mouse.x, mouse.y, card.workspace,
                         card.photoId, card.liked, card.decisionFlag)
@@ -285,8 +294,8 @@ Item {
             onDoubleClicked: mouse => {
                 if (mouse.button !== Qt.LeftButton)
                     return
-                workspace.selectPhoto(card, 0)
-                workspace.openSelectedPhoto()
+                card.workspace.selectPhoto(card, 0)
+                card.workspace.openSelectedPhoto()
             }
         }
     }
@@ -295,10 +304,9 @@ Item {
         anchors.fill: parent
         anchors.margins: 0
         z: 2
-        visible: card.selected
         radius: card.surfaceRadius
         color: Theme.transparent
-        border.width: 3
-        border.color: Theme.accent
+        border.width: card.selected ? 3 : 1
+        border.color: card.selected ? Theme.accent : Theme.border
     }
 }

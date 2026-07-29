@@ -8,14 +8,14 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
-#include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/source_rendering.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include "../edit/local_mask_validation.hpp"
+#include "../raw/resident_raw_source.hpp"
 #include "developed_source_raster.hpp"
 #include "full_edit_detail_gpu_cache.hpp"
-#include "proxy_render_request_validation.hpp"
+#include "full_edit_detail_source_preparation.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -26,7 +26,6 @@
 #include <span>
 #include <string>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace shadow::image {
@@ -169,135 +168,6 @@ required_detail_apron(const std::span<const AdjustmentNode> nodes) {
     return receipt;
 }
 
-[[nodiscard]] std::uint64_t checked_detail_retained_bytes(const PixelBuffer& source) {
-    if (source.samples.capacity()
-        > std::numeric_limits<std::uint64_t>::max() / sizeof(std::uint16_t)) {
-        throw DecodeError(
-            DecodeErrorCode::resource_limit,
-            0,
-            "full edit detail retained byte count overflows"
-        );
-    }
-    const std::uint64_t bytes =
-        static_cast<std::uint64_t>(source.samples.capacity()) * sizeof(std::uint16_t);
-    if (bytes > maximum_full_edit_detail_retained_bytes) {
-        throw DecodeError(
-            DecodeErrorCode::resource_limit,
-            0,
-            "full edit detail source exceeds the 512 MiB retained limit"
-        );
-    }
-    return bytes;
-}
-
-[[nodiscard]] std::uint64_t checked_detail_retained_bytes(const SceneLinearRgbFrame& source) {
-    proxy_detail::validate_developed_source(source);
-    const std::uint64_t bytes = static_cast<std::uint64_t>(source.samples.size()) * sizeof(float);
-    if (bytes > maximum_full_edit_scene_linear_retained_bytes) {
-        throw DecodeError(
-            DecodeErrorCode::resource_limit,
-            0,
-            "full edit scene-linear RAW source exceeds the 1 GiB retained-buffer limit"
-        );
-    }
-    return bytes;
-}
-
-void preflight_detail_metadata(const AssetMetadata& metadata) {
-    const std::uint64_t pixels =
-        std::max(metadata.raw_dimensions.pixel_count(), metadata.image_dimensions.pixel_count());
-    constexpr std::uint64_t scene_linear_bytes_per_pixel = 3U * sizeof(float);
-    if (pixels == 0U
-        || pixels > maximum_full_edit_scene_linear_retained_bytes / scene_linear_bytes_per_pixel) {
-        throw DecodeError(
-            DecodeErrorCode::resource_limit,
-            0,
-            "full edit detail metadata exceeds the 1 GiB worst-case scene-linear RGB limit"
-        );
-    }
-}
-
-struct PreparedReferenceRgb final {
-    DevelopedSourcePixels source;
-    RawDevelopmentReceipt raw_development_receipt;
-    RawPipelineReceipt raw_pipeline_receipt;
-    OpticsProfileReceipt optics_receipt;
-    SourceRenderingReceipt source_rendering;
-};
-
-[[nodiscard]] PreparedReferenceRgb prepare_reference_rgb(
-    const DecodeSession& session,
-    const RawDevelopmentPlan& raw_development_plan,
-    const OpticsProvider* optics_provider,
-    const OpticsSettings& optics_settings
-) {
-    DevelopedSourceReference developed = develop_source_reference(
-        session,
-        raw_development_plan,
-        std::nullopt,
-        raw_pipeline_policy_from_environment()
-    );
-    DevelopedSourcePixels source = std::move(developed.source);
-    // Validate the provider source before source-render normalization inspects its luminance.
-    // That preserves the renderer's public typed-error contract for malformed decoded rasters
-    // and keeps an invalid transfer/primaries declaration from escaping as std::invalid_argument.
-    proxy_detail::validate_developed_source(source);
-    // Decoder provenance belongs to the source render, not to a later optical remap. Preserve it
-    // independently before passing the buffer to arbitrary provider implementations, which may
-    // correctly allocate a new PixelBuffer without knowing Shadow's future sidecar fields.
-    RawDevelopmentReceipt raw_development_receipt = std::move(developed.raw_development_receipt);
-    // Resolve the source profile from the decoder's standardized raster before handing it to a
-    // pluggable optics implementation. Optical adapters are permitted to return an independent
-    // pixel allocation; they must not become accidental owners of source-profile provenance.
-    const SourceRenderingReceipt source_rendering = std::visit(
-        [&](const auto& value) {
-            return resolve_source_rendering(value, session.metadata(), developed.pipeline_receipt);
-        },
-        source
-    );
-    OpticsProfileReceipt receipt;
-    if (optics_provider == nullptr) {
-        receipt.status = OpticsProfileStatus::disabled;
-        receipt.provider_id = "none";
-        receipt.provider_version = "none";
-        return {
-            .source = std::move(source),
-            .raw_development_receipt = std::move(raw_development_receipt),
-            .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
-            .optics_receipt = std::move(receipt),
-            .source_rendering = source_rendering,
-        };
-    }
-    if (std::holds_alternative<PixelBuffer>(source)) {
-        auto corrected = optics_provider->correct_reference_rgb(
-            std::get<PixelBuffer>(source),
-            session.metadata(),
-            optics_settings
-        );
-        receipt = std::move(corrected.receipt);
-        if (corrected.corrected_reference_rgb.has_value()) {
-            source = std::move(*corrected.corrected_reference_rgb);
-        }
-    } else {
-        auto corrected = optics_provider->correct_scene_linear_reference(
-            std::get<SceneLinearRgbFrame>(source),
-            session.metadata(),
-            optics_settings
-        );
-        receipt = std::move(corrected.receipt);
-        if (corrected.corrected_scene_linear_rgb.has_value()) {
-            source = std::move(*corrected.corrected_scene_linear_rgb);
-        }
-    }
-    return {
-        .source = std::move(source),
-        .raw_development_receipt = std::move(raw_development_receipt),
-        .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
-        .optics_receipt = std::move(receipt),
-        .source_rendering = source_rendering,
-    };
-}
-
 } // namespace
 
 bool DetailTileExecutionReceipt::valid() const noexcept {
@@ -333,6 +203,28 @@ FullEditDetailSession::FullEditDetailSession(
     optics_receipt_(std::move(optics_receipt)), source_rendering_(std::move(source_rendering)),
     gpu_cache_(std::make_unique<detail::FullEditDetailGpuCache>()) {}
 
+FullEditDetailSession::FullEditDetailSession(
+    std::unique_ptr<raw_pipeline_detail::ResidentRawSource> resident_raw_source,
+    const std::uint64_t retained_bytes,
+    RawDevelopmentReceipt raw_development_receipt,
+    RawPipelineReceipt raw_pipeline_receipt,
+    OpticsProfileReceipt optics_receipt,
+    SourceRenderingReceipt source_rendering
+) :
+    resident_raw_source_(std::move(resident_raw_source)), retained_bytes_(retained_bytes),
+    raw_development_receipt_(std::move(raw_development_receipt)),
+    raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
+    optics_receipt_(std::move(optics_receipt)), source_rendering_(std::move(source_rendering)),
+    gpu_cache_(std::make_unique<detail::FullEditDetailGpuCache>()) {
+    if (resident_raw_source_ == nullptr) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "full edit detail received an empty resident RAW source"
+        );
+    }
+}
+
 FullEditDetailSession::FullEditDetailSession(FullEditDetailSession&&) noexcept = default;
 
 FullEditDetailSession& FullEditDetailSession::operator=(FullEditDetailSession&&) noexcept = default;
@@ -340,6 +232,9 @@ FullEditDetailSession& FullEditDetailSession::operator=(FullEditDetailSession&&)
 FullEditDetailSession::~FullEditDetailSession() = default;
 
 Dimensions FullEditDetailSession::dimensions() const noexcept {
+    if (resident_raw_source_ != nullptr) {
+        return resident_raw_source_->dimensions();
+    }
     return proxy_detail::developed_source_dimensions(reference_source_);
 }
 
@@ -385,15 +280,33 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu = gpu_cache_->render(
-            reference_source_,
-            source_rendering_,
-            nodes,
-            rect,
-            working_rect,
-            full_dimensions,
-            gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
-        );
+        auto gpu =
+            resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
+                ? gpu_cache_->render_resident(
+                      *resident_raw_source_,
+                      source_rendering_,
+                      nodes,
+                      rect,
+                      working_rect,
+                      full_dimensions,
+                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                  )
+            : resident_raw_source_ == nullptr
+                ? gpu_cache_->render(
+                      reference_source_,
+                      source_rendering_,
+                      nodes,
+                      rect,
+                      working_rect,
+                      full_dimensions,
+                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                  )
+                : detail::FullEditDetailGpuCache::RenderAttempt{
+                      .bytes = std::nullopt,
+                      .source_cache_hit = false,
+                      .diagnostic =
+                          "resident RAW detail was prepared for the forced CPU development path",
+                  };
         if (gpu.bytes.has_value()) {
             return RenderedDetailTile{
                 .rect = rect,
@@ -409,19 +322,35 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             };
         }
         fallback_diagnostic = std::move(gpu.diagnostic);
+        if (resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()) {
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
+        }
         if (requested_backend == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }
+    } else if (resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()) {
+        throw EditError(
+            EditErrorCode::backend_failure,
+            std::nullopt,
+            "a published Metal-resident RAW source cannot be replayed through the CPU tile path"
+        );
     }
-    FloatRgbImage tile = proxy_detail::crop_developed_source_to_working(
-        reference_source_,
-        GeometryPixelRect{
-            .x = working_rect.x,
-            .y = working_rect.y,
-            .width = working_rect.width,
-            .height = working_rect.height,
-        }
-    );
+    const GeometryPixelRect working_geometry{
+        .x = working_rect.x,
+        .y = working_rect.y,
+        .width = working_rect.width,
+        .height = working_rect.height,
+    };
+    FloatRgbImage tile;
+    if (resident_raw_source_ != nullptr) {
+        auto developed = resident_raw_source_->develop_region(working_geometry);
+        tile = proxy_detail::take_scene_linear_region_to_working(
+            std::move(developed.scene_linear),
+            full_dimensions
+        );
+    } else {
+        tile = proxy_detail::crop_developed_source_to_working(reference_source_, working_geometry);
+    }
     apply_source_rendering(tile, source_rendering_);
     const FloatRgbImage edited_working = execute_adjustment_nodes(
         tile,
@@ -501,15 +430,33 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu = gpu_cache_->render_layers(
-            reference_source_,
-            source_rendering_,
-            layers,
-            rect,
-            working_rect,
-            full_dimensions,
-            gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
-        );
+        auto gpu =
+            resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
+                ? gpu_cache_->render_resident_layers(
+                      *resident_raw_source_,
+                      source_rendering_,
+                      layers,
+                      rect,
+                      working_rect,
+                      full_dimensions,
+                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                  )
+            : resident_raw_source_ == nullptr
+                ? gpu_cache_->render_layers(
+                      reference_source_,
+                      source_rendering_,
+                      layers,
+                      rect,
+                      working_rect,
+                      full_dimensions,
+                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                  )
+                : detail::FullEditDetailGpuCache::RenderAttempt{
+                      .bytes = std::nullopt,
+                      .source_cache_hit = false,
+                      .diagnostic =
+                          "resident RAW detail was prepared for the forced CPU development path",
+                  };
         if (gpu.bytes.has_value()) {
             return RenderedDetailTile{
                 .rect = rect,
@@ -525,19 +472,35 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
             };
         }
         fallback_diagnostic = std::move(gpu.diagnostic);
+        if (resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()) {
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
+        }
         if (requested_backend == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }
+    } else if (resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()) {
+        throw EditError(
+            EditErrorCode::backend_failure,
+            std::nullopt,
+            "a published Metal-resident RAW source cannot be replayed through the CPU layer path"
+        );
     }
-    FloatRgbImage tile = proxy_detail::crop_developed_source_to_working(
-        reference_source_,
-        GeometryPixelRect{
-            .x = working_rect.x,
-            .y = working_rect.y,
-            .width = working_rect.width,
-            .height = working_rect.height,
-        }
-    );
+    const GeometryPixelRect working_geometry{
+        .x = working_rect.x,
+        .y = working_rect.y,
+        .width = working_rect.width,
+        .height = working_rect.height,
+    };
+    FloatRgbImage tile;
+    if (resident_raw_source_ != nullptr) {
+        auto developed = resident_raw_source_->develop_region(working_geometry);
+        tile = proxy_detail::take_scene_linear_region_to_working(
+            std::move(developed.scene_linear),
+            full_dimensions
+        );
+    } else {
+        tile = proxy_detail::crop_developed_source_to_working(reference_source_, working_geometry);
+    }
     apply_source_rendering(tile, source_rendering_);
     const FloatRgbImage edited_working = execute_adjustment_layers(
         tile,
@@ -602,34 +565,31 @@ FullEditDetailSession prepare_full_edit_detail(
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    preflight_detail_metadata(session.metadata());
-    if (raw_development_plan.intent != RawDevelopmentIntent::detail
-        && raw_development_plan.intent != RawDevelopmentIntent::export_image) {
-        throw DecodeError(
-            DecodeErrorCode::invalid_request,
-            0,
-            "full-resolution edit source requires detail or export-image intent"
+    auto prepared = proxy_detail::prepare_full_edit_detail_source(
+        session,
+        raw_development_plan,
+        optics_provider,
+        optics_settings
+    );
+    if (prepared.resident()) {
+        return FullEditDetailSession(
+            std::make_unique<raw_pipeline_detail::ResidentRawSource>(
+                std::move(std::get<raw_pipeline_detail::ResidentRawSource>(prepared.source))
+            ),
+            prepared.retained_bytes,
+            std::move(prepared.raw_development_receipt),
+            std::move(prepared.raw_pipeline_receipt),
+            std::move(prepared.optics_receipt),
+            std::move(prepared.source_rendering)
         );
     }
-    proxy_detail::validate_raw_development_plan_intent(
-        raw_development_plan,
-        raw_development_plan.intent,
-        raw_development_plan.intent == RawDevelopmentIntent::detail ? "full edit detail"
-                                                                    : "full image export"
-    );
-    auto reference =
-        prepare_reference_rgb(session, raw_development_plan, optics_provider, optics_settings);
-    const std::uint64_t retained_bytes = std::visit(
-        [](const auto& value) { return checked_detail_retained_bytes(value); },
-        reference.source
-    );
     return FullEditDetailSession(
-        std::move(reference.source),
-        retained_bytes,
-        std::move(reference.raw_development_receipt),
-        std::move(reference.raw_pipeline_receipt),
-        std::move(reference.optics_receipt),
-        std::move(reference.source_rendering)
+        std::move(std::get<DevelopedSourcePixels>(prepared.source)),
+        prepared.retained_bytes,
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
+        std::move(prepared.optics_receipt),
+        std::move(prepared.source_rendering)
     );
 }
 

@@ -25,11 +25,12 @@ presentation, SQLite schema details, or native image algorithms.
 | Bounded persistent grid-proxy identity from the complete RAW plan and optional isolated-helper graph | [`src/photo_provider/grid_proxy_identity.rs`](src/photo_provider/grid_proxy_identity.rs) |
 | Preview identity, cancellation, and session-local reuse | [`src/preview_cache_identity.rs`](src/preview_cache_identity.rs), [`src/preview_render_registry.rs`](src/preview_render_registry.rs), [`src/session_preview_store.rs`](src/session_preview_store.rs), [`src/edit_preview/warm_session_cache.rs`](src/edit_preview/warm_session_cache.rs) |
 | 1:1 detail tile geometry and reuse | [`src/detail_viewport.rs`](src/detail_viewport.rs), [`src/detail_tile_cache.rs`](src/detail_tile_cache.rs) |
-| Interactive RGB8 preview transaction, settled JPEG/analysis policy, terminal linearization, durable-publication call, and FFI response | [`src/edit_preview/service.rs`](src/edit_preview/service.rs), [`src/edit_preview/response.rs`](src/edit_preview/response.rs) |
+| Interactive RGB8 preview transaction, settled JPEG/analysis policy, terminal linearization, durable-publication call, stable cross-language payload lifetime, and descriptor projection | [`src/edit_preview/service.rs`](src/edit_preview/service.rs), [`src/edit_preview/owned_response.rs`](src/edit_preview/owned_response.rs), [`src/edit_preview/response.rs`](src/edit_preview/response.rs) |
 | Desktop-session full-detail viewport and prepared-source lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |
 | Settled Recipe-preview identity, blob storage, and Catalog publication | [`src/edit_preview/recipe_preview_store.rs`](src/edit_preview/recipe_preview_store.rs) |
 | Working drafts, named versions, checkout, and edit-reference publication | [`src/session_edit_history.rs`](src/session_edit_history.rs) |
 | Recipe v1 draft model and FFI translation, validation, stable identity, snapshot codec and layout, render-plan compilation, and version summaries | [`src/recipe_v1.rs`](src/recipe_v1.rs), [`src/recipe_v1/draft.rs`](src/recipe_v1/draft.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/validation.rs`](src/recipe_v1/validation.rs), [`src/recipe_v1/identity.rs`](src/recipe_v1/identity.rs), [`src/recipe_v1/snapshot_encode.rs`](src/recipe_v1/snapshot_encode.rs), [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/snapshot_layout.rs`](src/recipe_v1/snapshot_layout.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs), [`src/edit_version_diff.rs`](src/edit_version_diff.rs) |
+| Condition-mask executability gate between persistent Recipe values, the flat Qt DTO, and native render plans | [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs) |
 | Shared Grade Node library, application, and desktop-session orchestration | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs), [`src/session_shared_grade.rs`](src/session_shared_grade.rs) |
 | Export execution and queueing | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs) |
 | Cache ownership and explicit maintenance | [`src/cache_maintenance_service.rs`](src/cache_maintenance_service.rs) |
@@ -39,6 +40,28 @@ Add behavior to the module that owns its lifecycle and failure policy. Change `l
 the CXX contract, session composition, or a narrow delegation must change. A new independent
 desktop workflow should begin in a responsibility-named service and be wired through the facade
 after its contract is stable.
+
+The interactive response is an ownership transaction, not a pixel-vector return. On a native
+Metal warm session, `owned_response.rs` retains the opaque bridge owner and `response.rs` projects
+only the validated storage kind, texture/device handles, row stride, pixel format, resource
+identity, and optional paired mask view. Host materialization remains an explicit fallback method.
+Settled output continues to publish encoded JPEG plus analysis; the native presentation descriptor
+is transient and never enters Catalog or cache identity.
+
+Recipe v1 keeps existing single Oklab-lightness and zero-minimum-chroma Oklch-hue masks on their
+byte-stable, GPU-executable representation. The domain can also persist bounded `all`/`any`/`not`
+condition expressions, chroma-qualified predicates, and a scale-explicit local-detail predicate.
+Those richer values currently fail before Qt projection and before render-plan execution; they are
+not flattened, silently omitted, or advertised as active UI features. The next execution slice must
+extend the Qt/native mask protocol and prove CPU/Metal parity before removing either gate.
+
+The persistent soft-mask math is closed in `shadow-domain`'s condition-mask `reference` owner.
+`all`, `any`, and `not` mean exact minimum, maximum, and `1 - x`; scalar ranges retain the quintic
+smootherstep feather. Hue retains the current relative-chroma confidence curve and relative
+half-width feather, while a nonzero absolute minimum-chroma gate has its own cubic feather. Local
+detail uses a complete-render, edge-clamped `(2r + 1)²` Oklab-lightness box, fixed residual
+normalization, and rational full-render scale with round-half-up radius conversion; tile dimensions
+do not alter its footprint.
 
 ## Test layout
 

@@ -252,6 +252,9 @@ void EditController::setGradeStack(
     grade_stack_ = std::move(grade_stack);
     active_retouch_stroke_index_ = -1;
     selected_grade_node_index_ = new_selected_index;
+    if (local_mask_changed && !selection_changed) {
+        handleSelectedLocalMaskMutation();
+    }
     const int new_point_color_count =
         selectedGradeNode() == nullptr ? 0 : PointColorModel::count(selectedGradeNode()->fine);
     selected_point_color_index_ =
@@ -333,6 +336,9 @@ void EditController::recordWorkingTransition(const QString& key, const BackendGr
 void EditController::parameterEdited(const QString& key, const BackendGradeStack& before) {
     if (!active_ || interactionLocked()) {
         return;
+    }
+    if (invalidates_mask_coverage_for_edit(key)) {
+        handleSelectedLocalMaskMutation();
     }
     recordWorkingTransition(gradeNodeHistoryKey(key), before);
     notifyParametersChanged();

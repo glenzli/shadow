@@ -56,30 +56,33 @@ pub struct HardwareProfile {
     pub backends: Vec<ExecutionBackend>,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelAvailability {
     pub local: LocalModelAvailability,
-    pub remote: RemoteModelAvailability,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "state")]
 pub enum LocalModelAvailability {
     Missing,
+    /// Bytes are present but no package authority has verified the complete
+    /// canonical inventory.
+    PresentUnverified,
     Installed {
-        digest_verified: bool,
+        /// Exact inventory identity verified by the package authority.
+        artifact_set_blake3: String,
         license_accepted: bool,
     },
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "state")]
-pub enum RemoteModelAvailability {
-    Unavailable,
-    Available { license_accepted: bool },
-}
-
+/// Provider estimate used by the runtime and scheduling contracts.
+///
+/// Current deterministic resource admission budgets only peak system RAM,
+/// peak device memory, and CPU threads. Scratch bytes, upload bytes, and
+/// duration remain route metadata until their own storage/network schedulers
+/// admit them; a [`RunPlan`] never claims to reserve those values.
 #[derive(Debug, Copy, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceEstimate {
     pub peak_system_ram_bytes: u64,
     pub peak_device_memory_bytes: u64,
@@ -96,17 +99,7 @@ pub struct ResourcePolicy {
     pub maximum_ai_cpu_threads: u32,
     /// Percent of currently available device memory that one new task may reserve.
     pub maximum_device_memory_percent: u8,
-    pub remote_execution: RemoteExecutionPolicy,
     pub on_battery: OnBatteryPolicy,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RemoteExecutionPolicy {
-    Disabled,
-    PublicOnly,
-    PersonalAllowed,
-    SensitiveBiometricAllowed,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -116,7 +109,7 @@ pub enum OnBatteryPolicy {
     PauseBackground,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdmissionRequest {
     pub priority: TaskPriority,
     pub privacy: PrivacyClass,
@@ -124,7 +117,8 @@ pub struct AdmissionRequest {
     pub availability: ModelAvailability,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunPlan {
     pub backend_id: String,
     pub backend_kind: BackendKind,
@@ -141,11 +135,13 @@ pub enum AdmissionBlocker {
     InvalidEstimate,
     ModelMissing,
     ArtifactDigestUnverified,
+    ArtifactSetIdentityMismatch {
+        expected: String,
+        installed: String,
+    },
     LicenseAcceptanceRequired,
     BackgroundPausedOnBattery,
-    RemoteExecutionDisabled,
-    PersonalRemoteUploadDisabled,
-    SensitiveBiometricRemoteUploadDisabled,
+    RemoteExecutionRequiresGrant,
     BackendUnavailable {
         kind: BackendKind,
     },
@@ -185,13 +181,15 @@ struct AdmissionCapacity {
 
 /// Selects an execution backend and admits a job without loading or running a model.
 ///
-/// The result is deterministic for the supplied snapshots. Hardware detection,
-/// model installation, and actual inference belong to platform/provider adapters.
+/// The result is deterministic for the supplied snapshots. It reserves only
+/// RAM, device memory, and CPU threads. Hardware detection, exact artifact
+/// installation, scratch/upload admission, and actual inference belong to
+/// their respective application/provider authorities.
 pub fn admit(
     manifest: &ModelManifest,
     hardware: &HardwareProfile,
     policy: ResourcePolicy,
-    request: AdmissionRequest,
+    request: &AdmissionRequest,
 ) -> AdmissionDecision {
     let capacity = match admission_capacity(manifest, hardware, policy, request) {
         Ok(capacity) => capacity,
@@ -199,7 +197,7 @@ pub fn admit(
     };
     let mut blockers = Vec::new();
     for target in &manifest.execution_targets {
-        if let Some(blocker) = availability_blocker(target, manifest, policy, request) {
+        if let Some(blocker) = availability_blocker(target, manifest, request) {
             push_unique(&mut blockers, blocker);
             continue;
         }
@@ -225,7 +223,7 @@ fn admission_capacity(
     manifest: &ModelManifest,
     hardware: &HardwareProfile,
     policy: ResourcePolicy,
-    request: AdmissionRequest,
+    request: &AdmissionRequest,
 ) -> Result<AdmissionCapacity, AdmissionDecision> {
     if policy.maximum_device_memory_percent == 0
         || policy.maximum_device_memory_percent > 100
@@ -282,23 +280,30 @@ fn admission_capacity(
 fn availability_blocker(
     target: &BackendRequirement,
     manifest: &ModelManifest,
-    policy: ResourcePolicy,
-    request: AdmissionRequest,
+    request: &AdmissionRequest,
 ) -> Option<AdmissionBlocker> {
     if target.kind.is_remote() {
-        return remote_blocker(policy, request);
+        return Some(AdmissionBlocker::RemoteExecutionRequiresGrant);
     }
-    match request.availability.local {
+    match &request.availability.local {
         LocalModelAvailability::Missing => Some(AdmissionBlocker::ModelMissing),
-        LocalModelAvailability::Installed {
-            digest_verified: false,
-            ..
-        } => Some(AdmissionBlocker::ArtifactDigestUnverified),
+        LocalModelAvailability::PresentUnverified => {
+            Some(AdmissionBlocker::ArtifactDigestUnverified)
+        }
         LocalModelAvailability::Installed {
             license_accepted: false,
             ..
         } if manifest.licensing.access == ModelAccess::GatedWithAcceptance => {
             Some(AdmissionBlocker::LicenseAcceptanceRequired)
+        }
+        LocalModelAvailability::Installed {
+            artifact_set_blake3,
+            ..
+        } if artifact_set_blake3 != &manifest.artifact_set.inventory_blake3 => {
+            Some(AdmissionBlocker::ArtifactSetIdentityMismatch {
+                expected: manifest.artifact_set.inventory_blake3.clone(),
+                installed: artifact_set_blake3.clone(),
+            })
         }
         LocalModelAvailability::Installed { .. } => None,
     }
@@ -308,7 +313,7 @@ fn plan_for_target(
     target: &BackendRequirement,
     hardware: &HardwareProfile,
     policy: ResourcePolicy,
-    request: AdmissionRequest,
+    request: &AdmissionRequest,
     capacity: AdmissionCapacity,
 ) -> Result<RunPlan, Vec<AdmissionBlocker>> {
     let matching_backends: Vec<_> = hardware
@@ -365,42 +370,6 @@ fn plan_for_target(
         });
     }
     Err(blockers)
-}
-
-fn remote_blocker(policy: ResourcePolicy, request: AdmissionRequest) -> Option<AdmissionBlocker> {
-    if policy.remote_execution == RemoteExecutionPolicy::Disabled {
-        return Some(AdmissionBlocker::RemoteExecutionDisabled);
-    }
-    match request.availability.remote {
-        RemoteModelAvailability::Available {
-            license_accepted: false,
-        } => return Some(AdmissionBlocker::LicenseAcceptanceRequired),
-        RemoteModelAvailability::Available { .. } => {}
-        RemoteModelAvailability::Unavailable => {
-            return Some(AdmissionBlocker::ModelMissing);
-        }
-    }
-    match request.privacy {
-        PrivacyClass::Public => None,
-        PrivacyClass::Personal
-            if matches!(
-                policy.remote_execution,
-                RemoteExecutionPolicy::PersonalAllowed
-                    | RemoteExecutionPolicy::SensitiveBiometricAllowed
-            ) =>
-        {
-            None
-        }
-        PrivacyClass::Personal => Some(AdmissionBlocker::PersonalRemoteUploadDisabled),
-        PrivacyClass::SensitiveBiometric
-            if policy.remote_execution == RemoteExecutionPolicy::SensitiveBiometricAllowed =>
-        {
-            None
-        }
-        PrivacyClass::SensitiveBiometric => {
-            Some(AdmissionBlocker::SensitiveBiometricRemoteUploadDisabled)
-        }
-    }
 }
 
 fn defer(blocker: AdmissionBlocker) -> AdmissionDecision {

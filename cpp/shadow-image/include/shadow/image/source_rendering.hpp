@@ -106,6 +106,14 @@ struct SourceRenderingReceipt final {
     const RawPipelineReceipt& pipeline
 );
 
+// A prepared owned-RawFrame source already records its source-wide scene-luminance percentile in
+// the pipeline receipt. Resident development can therefore resolve identical source rendering
+// before materializing any complete scene-linear raster.
+[[nodiscard]] SourceRenderingReceipt resolve_source_rendering(
+    const AssetMetadata& metadata,
+    const RawPipelineReceipt& pipeline
+);
+
 // Applies a previously resolved receipt to a linear working image. Calling it
 // with a receipt resolved for a different source-rendering schema is an error;
 // silently interpreting future profile data would poison preview caches.

@@ -16,51 +16,31 @@ ReviewController::ReviewController(
     std::shared_ptr<DesktopBackend> backend,
     const QString& isolated_settings_file,
     QObject* parent
-)
-    : QObject(parent),
-      backend_(std::move(backend)),
-      photo_inspection_coordinator_(backend_),
-      source_health_coordinator_(
-          BackendOperations::source_health_operations(backend_)
-      ),
-      album_coordinator_(BackendOperations::album_operations(backend_)),
-      facet_coordinator_(BackendOperations::facet_operations(backend_)),
-      import_coordinator_(BackendOperations::import_operations(backend_)),
-      model_(this),
-      filtered_model_(this),
-      query_coordinator_(
-          BackendOperations::query_operations(backend_),
-          model_
-      ),
-      organization_coordinator_(
-          BackendOperations::organization_operations(backend_, model_)
-      ),
-      shared_grade_coordinator_(
-          BackendOperations::shared_grade_operations(backend_)
-      ),
-      comparison_coordinator_(
-          BackendOperations::comparison_operations(backend_),
-          [this](const QString& ticket) {
-              return model_.visualSourceFor(ticket);
-          }
-      ),
-      decision_coordinator_(
-          BackendOperations::decision_operations(backend_),
-          [this](const QString& photo_id)
-              -> std::optional<BackendReviewDecisionState> {
-              const auto current = model_.decisionFor(photo_id);
-              if (!current) {
-                  return std::nullopt;
-              }
-              return BackendOperations::backend_decision_state(
-                  photo_id,
-                  *current
-              );
-          },
-          [this](const BackendReviewDecisionState& state) {
-              projectDecisionState(state);
-          }
-      ) {
+) :
+    QObject(parent), backend_(std::move(backend)), photo_inspection_coordinator_(backend_),
+    source_health_coordinator_(BackendOperations::source_health_operations(backend_)),
+    album_coordinator_(BackendOperations::album_operations(backend_)),
+    facet_coordinator_(BackendOperations::facet_operations(backend_)),
+    import_coordinator_(BackendOperations::import_operations(backend_)), model_(this),
+    filtered_model_(this),
+    query_coordinator_(BackendOperations::query_operations(backend_), model_),
+    organization_coordinator_(BackendOperations::organization_operations(backend_, model_)),
+    shared_grade_coordinator_(BackendOperations::shared_grade_operations(backend_)),
+    comparison_coordinator_(
+        BackendOperations::comparison_operations(backend_),
+        [this](const QString& ticket) { return model_.visualSourceFor(ticket); }
+    ),
+    decision_coordinator_(
+        BackendOperations::decision_operations(backend_),
+        [this](const QString& photo_id) -> std::optional<BackendReviewDecisionState> {
+            const auto current = model_.decisionFor(photo_id);
+            if (!current) {
+                return std::nullopt;
+            }
+            return BackendOperations::backend_decision_state(photo_id, *current);
+        },
+        [this](const BackendReviewDecisionState& state) { projectDecisionState(state); }
+    ) {
     // Keep the constructor shape for existing test/application call sites.
     // Library state is Catalog-backed now, so the former desktop-local
     // settings file is deliberately not consulted.
@@ -202,6 +182,10 @@ bool ReviewController::libraryFacetsBusy() const noexcept {
     return facet_coordinator_.busy();
 }
 
+QVariantMap ReviewController::librarySystemCollectionCounts() const {
+    return facet_coordinator_.systemCollectionCounts();
+}
+
 QString ReviewController::libraryAlbumId() const {
     return album_coordinator_.albumId();
 }
@@ -262,12 +246,8 @@ ReviewModel* ReviewController::reviewModel() noexcept {
     return &model_;
 }
 
-bool ReviewController::eventFilter(
-    QObject* const watched,
-    QEvent* const event
-) {
-    if (watched == QCoreApplication::instance()
-        && event->type() == QEvent::LanguageChange) {
+bool ReviewController::eventFilter(QObject* const watched, QEvent* const event) {
+    if (watched == QCoreApplication::instance() && event->type() == QEvent::LanguageChange) {
         retranslateUi();
     }
     return QObject::eventFilter(watched, event);

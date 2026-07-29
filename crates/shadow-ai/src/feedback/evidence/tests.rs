@@ -2,6 +2,13 @@ use shadow_domain::EntityId;
 
 use super::*;
 use crate::feedback::test_support::event;
+use crate::{
+    AI_JOB_REQUEST_CONTRACT_VERSION, AdmittedModelIdentity, AiJobRequest, AiTaskKind,
+    AiTaskParameters, ArtifactReference, BackendKind, EXECUTION_ROUTE_IDENTITY_CONTRACT_VERSION,
+    ExecutionPlanIdentity, ExecutionRouteIdentity, InputRole, ModelProvenance, NumericPrecision,
+    ObservationTarget, PrivacyClass, ProviderExecutionClass, ProviderIdentity, ResourceEstimate,
+    RunPlan, TaskPriority,
+};
 
 fn presented_visual(representation_id: RepresentationId) -> PresentedVisualProvenance {
     PresentedVisualProvenance {
@@ -41,6 +48,73 @@ fn presented_visual(representation_id: RepresentationId) -> PresentedVisualProve
             pixel_hash_hex: "a".repeat(64),
         },
     }
+}
+
+fn model_provenance() -> ModelProvenance {
+    let request = AiJobRequest {
+        contract_version: AI_JOB_REQUEST_CONTRACT_VERSION,
+        request_id: "preference-request-1".into(),
+        generation: 3,
+        task: AiTaskKind::ExtractSimilarityEmbedding,
+        target: ObservationTarget::Library,
+        priority: TaskPriority::CurrentCollectionAnalysis,
+        privacy: PrivacyClass::Personal,
+        inputs: vec![ArtifactReference {
+            role: InputRole::DisplayProxy,
+            content_hash: "c".repeat(64),
+            byte_len: 4096,
+            media_type: "image/jpeg".into(),
+            privacy: PrivacyClass::Personal,
+        }],
+        parameters: AiTaskParameters::None,
+        estimate: ResourceEstimate {
+            peak_system_ram_bytes: 64,
+            peak_device_memory_bytes: 0,
+            cpu_threads: 1,
+            scratch_disk_bytes: 0,
+            upload_bytes: 0,
+            estimated_duration_ms: Some(10),
+        },
+    };
+    let route = ExecutionRouteIdentity {
+        contract_version: EXECUTION_ROUTE_IDENTITY_CONTRACT_VERSION,
+        provider: ProviderIdentity {
+            provider_id: "shadow.preference".into(),
+            adapter_revision: "linear-head-v1".into(),
+            execution_class: ProviderExecutionClass::LocalModel,
+        },
+        model: AdmittedModelIdentity::LocalArtifactSet {
+            model_id: "preference".into(),
+            exact_revision: "r1".into(),
+            artifact_set_blake3: "b".repeat(64),
+            preprocessing_version: "features-v1".into(),
+        },
+    };
+    let plan = ExecutionPlanIdentity::from_plan(RunPlan {
+        backend_id: "cpu".into(),
+        backend_kind: BackendKind::Cpu,
+        precision: NumericPrecision::Float32,
+        cpu_threads: 1,
+        reserved_system_ram_bytes: 64,
+        reserved_device_memory_bytes: 0,
+    })
+    .expect("valid execution plan");
+    ModelProvenance::from_test_request(&request, route, plan).expect("valid runtime provenance")
+}
+
+fn assert_tampered_model_is_rejected(value: serde_json::Value) {
+    let Ok(provenance) = serde_json::from_value::<ModelProvenance>(value) else {
+        // The exact-v1 wire decoder may reject the tampering before feedback
+        // validation sees it, which is the stronger fail-closed outcome.
+        return;
+    };
+    let photo_id = PhotoId::new_v7();
+    let mut evidence = event(FeedbackAction::Exported { photo_id });
+    evidence.presentation.active_model = Some(provenance);
+    assert_eq!(
+        evidence.validate(),
+        Err(FeedbackValidationError::InvalidModelRoute)
+    );
 }
 
 #[test]
@@ -143,4 +217,26 @@ fn presented_visual_rejects_tampered_or_incomplete_identity() {
             maximum: MAX_IDENTIFIER_LENGTH
         })
     ));
+}
+
+#[test]
+fn active_model_accepts_runtime_issued_provenance() {
+    let photo_id = PhotoId::new_v7();
+    let mut evidence = event(FeedbackAction::Exported { photo_id });
+    evidence.presentation.active_model = Some(model_provenance());
+    evidence.validate().expect("runtime provenance");
+}
+
+#[test]
+fn active_model_rejects_a_tampered_execution_route() {
+    let mut value = serde_json::to_value(model_provenance()).expect("serialize provenance");
+    value["execution_route"]["provider"]["adapter_revision"] = serde_json::json!("");
+    assert_tampered_model_is_rejected(value);
+}
+
+#[test]
+fn active_model_rejects_a_tampered_input_digest() {
+    let mut value = serde_json::to_value(model_provenance()).expect("serialize provenance");
+    value["input_source_blake3"] = serde_json::json!("C".repeat(64));
+    assert_tampered_model_is_rejected(value);
 }

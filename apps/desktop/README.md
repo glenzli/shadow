@@ -126,6 +126,11 @@ Its implementation follows the same navigation:
   presentation, in-session clipboard semantics, the enumerable scalar-parameter contract,
   geometry/condition validation, and brush strokes. Ordinary photo-local masks are not named or
   persisted as a separate reusable asset library.
+- [`src/edit_mask_coverage_controller.cpp`](src/edit_mask_coverage_controller.cpp) owns the
+  selected-node coverage request lifecycle: tool, photo, node, and mask invalidation; monotonic
+  selection identity; exact preview pairing; and transient provider publication. Renderer-owned
+  coverage samples and their generation contract live in
+  [`src/edit_mask_coverage_contract.hpp`](src/edit_mask_coverage_contract.hpp).
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
@@ -139,12 +144,48 @@ Its implementation follows the same navigation:
   state interaction locked; it must never be accepted by the UI and then silently discarded.
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns current and neutral
   preview scheduling, cancellation, diagnostics, and presentation. During interaction it
-  publishes the bridge's tightly packed RGB8 payload directly; settled and neutral frames retain
-  their encoded proxy contract for analysis and durable publication.
-- [`src/edit_preview_provider.*`](src/edit_preview_provider.hpp) owns immutable preview
-  publications and their Qt image lifetime. Tightly packed interactive RGB8 and detail tiles are
-  wrapped as display-sRGB images without an encoded-image decode or pixel copy; settled JPEGs
-  retain the encoded provider path.
+  publishes the bridge's shared immutable frame owner; settled and neutral frames retain their
+  encoded proxy contract for analysis and durable publication.
+- [`src/backend/edit_preview_frame.hpp`](src/backend/edit_preview_frame.hpp) is the small read-only
+  RGB8/paired-R8 owner contract. [`src/backend/rust_owned_edit_preview_frame.cpp`](src/backend/rust_owned_edit_preview_frame.cpp)
+  is its only Rust-Box adapter, so presentation tests do not depend on generated bridge types.
+- [`src/edit_preview_store.cpp`](src/edit_preview_store.cpp) owns generation-guarded immutable
+  preview snapshots. [`src/edit_preview_presentation_context.*`](src/edit_preview_presentation_context.hpp)
+  atomically publishes the root scene graph's window, graphics API, device, and epoch from render-
+  thread lifecycle signals. [`src/edit_preview_presentation_registry.*`](src/edit_preview_presentation_registry.hpp)
+  is the explicit application-composition owner for those two services: `Main` passes it through
+  required QML properties to every live preview item. It has no process-global lookup, can be
+  cleared or reconfigured, and existing items fail closed when its composition disappears. Each
+  configuration has a monotonic runtime revision so a same-generation replacement cannot reuse a
+  texture created for the prior composition.
+- [`src/edit_preview_texture_item.*`](src/edit_preview_texture_item.hpp) owns only live interactive
+  RGB presentation. Its custom QSG texture node resolves an immutable frame on the GUI thread,
+  validates the scene-graph epoch/window/API/device and imports the owned Metal texture on the
+  render thread without calling `QQuickTextureFactory::image()`, materializing RGB, or uploading
+  through the CPU. The texture's child guard retains the native frame after the temporary factory
+  is destroyed. Host storage, software rendering, stale epochs, and invalid native descriptors use
+  the named materialize/upload fallback. A QSG node cache hit requires the same source, frame
+  owner, presentation binding, and registry revision; a changed identity destroys the stale
+  texture before publishing readiness for its replacement. A monotonic source-binding revision
+  also prevents a hidden node from being reused after a suspend/resume roundtrip. Item resource
+  release and window scene-graph invalidation synchronously or atomically invalidate that identity,
+  revoke presented readiness, and retain the live owner plus settled fallback for reconstruction.
+  The queued readiness receipt carries that complete identity as well, so a same-generation
+  replacement or destroyed node cannot be acknowledged by an older render callback. Both
+  comparison items track the current source, but explicit live
+  admission is mutually exclusive: entering dual comparison suspends the main item without
+  discarding its last settled fallback, and leaving dual comparison waits for a fresh main-item
+  import above that fallback. This dedicated item is
+  necessary because Qt Quick
+  `Image` may inspect a texture factory through `image()` while resolving color space, which would
+  force a full-frame readback before native import.
+- [`src/edit_preview_provider.*`](src/edit_preview_provider.hpp) retains settled JPEG, scope/R8,
+  full-detail, and explicit image-readback responsibilities. The last settled `Image` remains
+  underneath the live item during interaction, so fallback and generation transitions do not
+  expose an empty canvas. [`src/edit_mask_coverage_store.cpp`](src/edit_mask_coverage_store.cpp)
+  publishes paired Alpha8
+  coverage from that exact same owner only when preview, recipe, node, and selection generations
+  agree.
 - [`src/edit_detail_render_controller.cpp`](src/edit_detail_render_controller.cpp) owns
   full-resolution viewport admission, cancellation, tile validation and publication, idle warmup,
   memory/readiness state, and Recipe-change invalidation.
@@ -178,7 +219,14 @@ Precision presentation follows the same responsibility tree:
   clone-source gesture in
   [`qml/PrecisionRetouchStrokeHandle.qml`](qml/PrecisionRetouchStrokeHandle.qml), and legacy
   point-repair target/source interaction in
-  [`qml/PrecisionRetouchSpotHandle.qml`](qml/PrecisionRetouchSpotHandle.qml).
+  [`qml/PrecisionRetouchSpotHandle.qml`](qml/PrecisionRetouchSpotHandle.qml). The overlay and
+  [`qml/PrecisionRetouchTools.qml`](qml/PrecisionRetouchTools.qml) share one transient
+  stroke-or-spot selection through the workspace composition boundary.
+  [`qml/PrecisionRetouchRegionPicker.qml`](qml/PrecisionRetouchRegionPicker.qml) owns compact
+  collection navigation, while
+  [`qml/PrecisionRetouchRegionInspector.qml`](qml/PrecisionRetouchRegionInspector.qml) owns the
+  selected region's size, feather, mode, and removal gestures. Any number of authored regions
+  therefore feeds one inspector rather than one repeated control tree per region.
 - [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,
   clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
 - [`qml/PrecisionGradeNodePane.qml`](qml/PrecisionGradeNodePane.qml) owns Grade Node navigation,
@@ -191,6 +239,12 @@ Precision presentation follows the same responsibility tree:
 - [`qml/PrecisionLocalMaskTools.qml`](qml/PrecisionLocalMaskTools.qml) owns only the selected
   node mask's semantic geometry/range parameters, inversion, removal, and in-session copy/paste
   controls; QML never interprets the compact condition-mask transport slots.
+- [`qml/PrecisionMaskCoverageOverlay.qml`](qml/PrecisionMaskCoverageOverlay.qml) presents the
+  renderer's exact selected-node R8 coverage with the theme mask tint and rejects a texture whose
+  paired preview identity is no longer visible. Its view-only `O` toggle hides the tint without
+  discarding that exact coverage or changing the mask. [`qml/PrecisionLocalMaskOverlay.qml`](qml/PrecisionLocalMaskOverlay.qml)
+  retains direct-manipulation handles plus only a temporary continuous brush capsule while exact
+  native coverage is unavailable.
 - [`qml/PrecisionComparisonSurface.qml`](qml/PrecisionComparisonSurface.qml) owns the complete
   visual comparison transaction inside that viewport: original-frame receipt, whole/wipe/dual
   layouts, divider input, and BEFORE/AFTER labels.
@@ -204,10 +258,12 @@ Precision presentation follows the same responsibility tree:
   browser: recursive directory projection, preview-provider identities, browser expansion,
   selection and clear actions, and the LUT-intensity gesture. An empty library contributes no
   synthetic explanation row; management remains an explicit adjacent action.
-- [`qml/PrecisionPointColorSection.qml`](qml/PrecisionPointColorSection.qml) owns Point Color
-  sampling and selection, Skin Check pending/locked scope transitions, tone-coherence admission,
-  the bounded undoable hue nudge, and all six parameter gestures. The Inspector supplies the
-  analysis surface but does not reopen that interaction lifecycle.
+- [`qml/PrecisionPointColorSection.qml`](qml/PrecisionPointColorSection.qml) owns Skin Check
+  pending/locked scope transitions, tone-coherence admission, the bounded undoable hue nudge, and
+  all six Point Color parameter gestures.
+  [`qml/PrecisionPointColorSampleBar.qml`](qml/PrecisionPointColorSampleBar.qml) owns the sampled
+  range collection, picker admission action, selection, removal, and visible sampling guidance.
+  The Inspector supplies the analysis surface but does not reopen either interaction lifecycle.
 - [`qml/PrecisionCanvasPickerInput.qml`](qml/PrecisionCanvasPickerInput.qml) owns point-color and
   white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
   composition surface.
@@ -239,6 +295,11 @@ Review presentation keeps the workspace focused on selection and orchestration:
   import/refresh receipt, and
   [`qml/ReviewComparisonEvidence.qml`](qml/ReviewComparisonEvidence.qml) owns session evidence
   summary and undo.
+- [`qml/ReviewPhotoCard.qml`](qml/ReviewPhotoCard.qml) and
+  [`qml/ReviewSinglePreview.qml`](qml/ReviewSinglePreview.qml) own grid-card and filmstrip
+  geometry. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
+  evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
+  clipping, so the two browsing modes keep one visual contract without sharing interaction state.
 - [`qml/ReviewPhotoInspector.qml`](qml/ReviewPhotoInspector.qml) is the selected-photo scrolling
   index. [`qml/ReviewPhotoSummary.qml`](qml/ReviewPhotoSummary.qml) owns visual identity,
   [`qml/ReviewExifSection.qml`](qml/ReviewExifSection.qml) owns configurable metadata and retry,
@@ -560,6 +621,17 @@ Library. Release builds never embed or scan this repository-local path.
 Adding `SHADOW_DESKTOP_STREAMING_SCAN_SMOKE=1` proves that both the Review model and QML Grid become non-empty while `scanning` is still true, then requires `refreshing` to settle only after the terminal stable-prefix refresh. `SHADOW_DESKTOP_CANCEL_SCAN_SMOKE=1` requests cooperative cancellation after live progress begins and likewise waits for the final Library refresh before accepting a `cancelled` terminal snapshot. After a completed scan, launch the same isolated data root without `SHADOW_DESKTOP_SCAN_FOLDER` and add `SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE=1` to prove that the persisted Library appears without rescanning.
 
 Adding `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` to a smoke run waits for the first scanned Review item, opens it through the real Precision controller, renders its processed linear-light RGB edit preview, validates all four 256-bin histogram sums and clipping bounds, and fails after 30 seconds if no generation-matched preview and analysis reach QML.
+
+Adding `SHADOW_DESKTOP_METAL_PREVIEW_SMOKE=1` to that edit smoke performs two real slider
+transactions around a root scene-graph invalidation/recreation. Both live generations must import
+owned Metal textures, retain their frame owners after factory destruction, advance to the recreated
+epoch, and record exactly one import for the one active surface in each epoch, with zero RGB
+materializations, CPU uploads, or fallback reasons before the gesture ends. The phase reset
+distinguishes that legal post-recreation import from an illegal hidden same-epoch duplicate.
+`SHADOW_DESKTOP_SOFTWARE_PREVIEW_SMOKE=1` is the corresponding software-adaptation contract:
+Qt retains its CPU scene graph across `releaseResources()`, so the smoke re-shows the window and
+requires exactly one named materialize/upload fallback for the active surface in each phase, with
+no native import.
 
 Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested neutral-import baseline and its independent analysis sidecar. This exercises the same warm decoded session without treating the baseline as unprocessed sensor data.
 

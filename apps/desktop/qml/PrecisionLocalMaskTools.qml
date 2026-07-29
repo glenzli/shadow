@@ -36,7 +36,7 @@ ColumnLayout {
         : kind === 3 ? "qrc:/icons/brush.svg"
         : kind === 4 ? "qrc:/icons/mask-luminance-range.svg"
         : kind === 5 ? "qrc:/icons/mask-color-range.svg"
-        : "qrc:/icons/mask-add.svg"
+        : "qrc:/icons/mask-create.svg"
 
     spacing: 8
 

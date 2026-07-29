@@ -111,7 +111,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         },
     };
     let decoded = decode_grade_stack_draft_recipe_v1(&incoming).expect("decode Grade Stack");
-    let outgoing = encode_grade_stack_draft_recipe_v1(decoded);
+    let outgoing = encode_grade_stack_draft_recipe_v1(decoded).expect("encode Grade Stack");
     assert_eq!(outgoing.grade_nodes.len(), 1);
     assert_eq!(
         outgoing.grade_nodes[0].grade_node_id,
@@ -178,7 +178,8 @@ fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
     .expect("Recipe with externally allocated fine-edit identities");
     let recipe_decoded = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
         .expect("decode Recipe before crossing Qt FFI");
-    let ffi_settings = encode_grade_stack_draft_recipe_v1(recipe_decoded);
+    let ffi_settings =
+        encode_grade_stack_draft_recipe_v1(recipe_decoded).expect("encode Grade Stack");
     assert_eq!(
         ffi_settings.grade_nodes[0].selective_tone_render_op_id,
         selective_tone_id.to_string()

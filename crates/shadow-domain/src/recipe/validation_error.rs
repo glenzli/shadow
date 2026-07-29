@@ -51,6 +51,41 @@ pub enum RecipeValidationError {
     InvalidColorMaskHue(f64),
     #[error("color-range mask width {0}° must be between 1° and 180°")]
     InvalidColorMaskWidth(f64),
+    #[error("condition-mask expression supports schema {expected}, received {actual}")]
+    UnsupportedConditionMaskSchemaVersion { expected: u32, actual: u32 },
+    #[error("condition-mask expression depth {0} exceeds the fixed maximum of 4")]
+    ConditionMaskDepthExceeded(usize),
+    #[error("condition-mask expression contains {0} leaves, but at most 8 are supported")]
+    TooManyConditionMaskLeaves(usize),
+    #[error(
+        "condition-mask {operator} operator contains {count} children; expected between 2 and 4"
+    )]
+    InvalidConditionMaskBranchCount {
+        operator: &'static str,
+        count: usize,
+    },
+    #[error("condition-mask {kind} lower bound {lower} must not exceed upper bound {upper}")]
+    InvalidConditionMaskRange {
+        kind: &'static str,
+        lower: f64,
+        upper: f64,
+    },
+    #[error("condition-mask hue {0}° must use the canonical interval [0, 360)")]
+    InvalidConditionMaskHue(f64),
+    #[error("condition-mask hue half-width {0}° must be between 1° and 180°")]
+    InvalidConditionMaskHueWidth(f64),
+    #[error(
+        "condition-mask minimum-chroma feather must be zero when the minimum-chroma gate is disabled"
+    )]
+    UnusedConditionMaskChromaFeather,
+    #[error("condition-mask local-detail radius {0} must be between 1 and 64 level-zero pixels")]
+    InvalidLocalDetailMaskRadius(u16),
+    #[error("new local-mask destination node {0} cannot also be its insertion anchor")]
+    SelfAnchoredMaskDestination(LayerInstanceId),
+    #[error(
+        "a single executable condition leaf must use the legacy luminance/color mask representation"
+    )]
+    NonCanonicalConditionMaskExpression,
     #[error("mask {mask_id} revision {revision} appears more than once")]
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]

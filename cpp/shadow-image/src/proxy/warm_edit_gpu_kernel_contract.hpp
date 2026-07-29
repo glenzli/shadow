@@ -88,13 +88,14 @@ enum class WarmLayerMaskKind : std::uint32_t {
     brush = 3U,
     luminance_range = 4U,
     color_range = 5U,
+    empty = 6U,
 };
 
 struct WarmLayerBlendParameters final {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
     std::uint32_t input_row_floats = 0U;
-    std::uint32_t reserved = 0U;
+    std::uint32_t use_precomputed_coverage = 0U;
     std::uint32_t origin_x = 0U;
     std::uint32_t origin_y = 0U;
     std::uint32_t full_width = 0U;
