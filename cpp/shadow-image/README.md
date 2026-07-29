@@ -203,10 +203,15 @@ tile.
 Lensfun optics has three production owners behind the stable `OpticsProvider` API.
 `src/optics/lensfun_profile_catalog.*` owns database selection and loading, normalized camera
 identity lookup, compatible-lens projection, explicit/manual profile resolution, synchronization,
-and the match cache. `src/optics/manual_optics.*` owns settings validation plus provider-independent
-manual distortion, transverse chromatic aberration, vignetting, and packed/scene-linear fallback
-execution. `src/optics/lensfun_optics.cpp` consumes an immutable profile match and owns Lensfun
-modifier configuration, automatic correction, receipt projection, and third-party pixel remapping.
+and the match cache. `src/optics/manual_optics.*` owns settings validation plus
+provider-independent manual distortion, transverse chromatic aberration, vignetting, and CPU
+fallback execution. `src/optics/metal_manual_optics.*` owns the bounded scene-linear fp32 Metal
+executor; automatic mode uses it for full-resolution manual optics while explicit CPU mode retains
+the f64 coordinate oracle. `src/optics/lensfun_optics.cpp` consumes an immutable profile match and
+owns Lensfun modifier configuration, automatic correction, receipt projection, and third-party
+pixel remapping. `src/acceleration/image_acceleration_policy.*` is the single parser for
+`SHADOW_IMAGE_ACCELERATION`; RAW, edit, display, and optics boundaries project its neutral choice
+into their own typed backend errors.
 
 Decoder contract tests follow the production responsibilities instead of one aggregate executable:
 
@@ -232,6 +237,9 @@ Decoder contract tests follow the production responsibilities instead of one agg
   missing camera/lens statuses.
 - `tests/optics_preparation_contract_test.cpp` owns manual/Lensfun pixel correction and its
   position before warm-preview and full-detail preparation.
+- `tests/manual_optics_metal_execution_contract_test.cpp` owns real-device CPU/Metal parity,
+  forced tiled execution, determinism, and the opt-in
+  `SHADOW_TEST_MANUAL_OPTICS_METAL_BENCHMARK` timing.
 - `tests/proxy_output_contract_test.cpp` owns encoded proxy limits and the explicit display-sRGB
   output boundary.
 - `tests/edit_preview_session_contract_test.cpp` owns immutable warm-preview preparation, receipt

@@ -2,6 +2,9 @@
 
 #include <shadow/image/decoder_error.hpp>
 
+#include "../acceleration/image_acceleration_policy.hpp"
+#include "metal_manual_optics.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -60,27 +63,22 @@ void validate_settings(const OpticsSettings& settings) {
 namespace {
 
 [[nodiscard]] bool has_manual_optics(const OpticsSettings& settings) noexcept {
-    return settings.manual_distortion != 0
-        || settings.manual_tca_red_cyan != 0
-        || settings.manual_tca_blue_yellow != 0
-        || settings.manual_vignetting_amount != 0;
+    return settings.manual_distortion != 0 || settings.manual_tca_red_cyan != 0
+           || settings.manual_tca_blue_yellow != 0 || settings.manual_vignetting_amount != 0;
 }
 
 [[nodiscard]] bool has_manual_geometry(const OpticsSettings& settings) noexcept {
-    return settings.manual_distortion != 0
-        || settings.manual_tca_red_cyan != 0
-        || settings.manual_tca_blue_yellow != 0;
+    return settings.manual_distortion != 0 || settings.manual_tca_red_cyan != 0
+           || settings.manual_tca_blue_yellow != 0;
 }
 
 void validate_manual_input(const PixelBuffer& input) {
-    if (
-        input.dimensions.width == 0U || input.dimensions.height == 0U
+    if (input.dimensions.width == 0U || input.dimensions.height == 0U
         || input.bits_per_channel != 16U || input.channels != rgb_channels
         || input.transfer_function != RgbTransferFunction::linear
         || input.primaries != RgbPrimaries::srgb_rec709_d65
         || (input.reference != RgbBufferReference::processed_raw
-            && input.reference != RgbBufferReference::decoded_raster)
-    ) {
+            && input.reference != RgbBufferReference::decoded_raster)) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
@@ -89,10 +87,8 @@ void validate_manual_input(const PixelBuffer& input) {
     }
     const auto width = static_cast<std::size_t>(input.dimensions.width);
     const auto height = static_cast<std::size_t>(input.dimensions.height);
-    if (
-        width > std::numeric_limits<std::size_t>::max() / rgb_channels
-        || height > std::numeric_limits<std::size_t>::max() / (width * rgb_channels)
-    ) {
+    if (width > std::numeric_limits<std::size_t>::max() / rgb_channels
+        || height > std::numeric_limits<std::size_t>::max() / (width * rgb_channels)) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,
@@ -100,10 +96,8 @@ void validate_manual_input(const PixelBuffer& input) {
         );
     }
     const auto expected_samples = width * height * rgb_channels;
-    if (
-        input.row_stride_bytes != width * rgb_channels * sizeof(std::uint16_t)
-        || input.samples.size() != expected_samples
-    ) {
+    if (input.row_stride_bytes != width * rgb_channels * sizeof(std::uint16_t)
+        || input.samples.size() != expected_samples) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,
             0,
@@ -121,11 +115,9 @@ void validate_manual_input(const PixelBuffer& input) {
 ) noexcept {
     const auto width = static_cast<std::size_t>(dimensions.width);
     const auto height = static_cast<std::size_t>(dimensions.height);
-    if (
-        !std::isfinite(source_x) || !std::isfinite(source_y) || source_x < 0.0F
-        || source_y < 0.0F || source_x > static_cast<float>(dimensions.width - 1U)
-        || source_y > static_cast<float>(dimensions.height - 1U)
-    ) {
+    if (!std::isfinite(source_x) || !std::isfinite(source_y) || source_x < 0.0F || source_y < 0.0F
+        || source_x > static_cast<float>(dimensions.width - 1U)
+        || source_y > static_cast<float>(dimensions.height - 1U)) {
         return 0U;
     }
     const auto x0 = static_cast<std::size_t>(std::floor(source_x));
@@ -149,11 +141,10 @@ void validate_manual_input(const PixelBuffer& input) {
 
 } // namespace
 
-[[nodiscard]] std::optional<PixelBuffer> apply_manual_optics(
-    const PixelBuffer& input,
-    const OpticsSettings& settings
-) {
-    if (!has_manual_optics(settings)) return std::nullopt;
+[[nodiscard]] std::optional<PixelBuffer>
+apply_manual_optics(const PixelBuffer& input, const OpticsSettings& settings) {
+    if (!has_manual_optics(settings))
+        return std::nullopt;
     validate_manual_input(input);
 
     PixelBuffer output = input;
@@ -167,36 +158,31 @@ void validate_manual_input(const PixelBuffer& input) {
     // A positive residual samples farther from the optical center. Crop just
     // enough to keep that radial expansion inside the source frame when the
     // photographer has asked for automatic crop.
-    const double crop_scale = settings.automatic_scale && distortion > 0.0
-        ? 1.0 + distortion : 1.0;
-    const double red_scale = 1.0
-        + static_cast<double>(settings.manual_tca_red_cyan) * 0.00055;
-    const double blue_scale = 1.0
-        + static_cast<double>(settings.manual_tca_blue_yellow) * 0.00055;
-    const double vignette_amount =
-        static_cast<double>(settings.manual_vignetting_amount) / 100.0;
+    const double crop_scale = settings.automatic_scale && distortion > 0.0 ? 1.0 + distortion : 1.0;
+    const double red_scale = 1.0 + static_cast<double>(settings.manual_tca_red_cyan) * 0.00055;
+    const double blue_scale = 1.0 + static_cast<double>(settings.manual_tca_blue_yellow) * 0.00055;
+    const double vignette_amount = static_cast<double>(settings.manual_vignetting_amount) / 100.0;
     const double vignette_midpoint =
         static_cast<double>(settings.manual_vignetting_midpoint) / 100.0;
 
-    const auto corrected_sample = [&](const double source_x, const double source_y,
-                                      const std::size_t channel) {
-        return manual_bilinear_sample_channel(
-            input.samples,
-            input.dimensions,
-            static_cast<float>(source_x),
-            static_cast<float>(source_y),
-            channel
-        );
-    };
+    const auto corrected_sample =
+        [&](const double source_x, const double source_y, const std::size_t channel) {
+            return manual_bilinear_sample_channel(
+                input.samples,
+                input.dimensions,
+                static_cast<float>(source_x),
+                static_cast<float>(source_y),
+                channel
+            );
+        };
     for (std::size_t y = 0U; y < height; ++y) {
         for (std::size_t x = 0U; x < width; ++x) {
             const auto output_index = (y * width + x) * rgb_channels;
-            const double normalized_x = (static_cast<double>(x) - center_x)
-                / (radius_scale * crop_scale);
-            const double normalized_y = (static_cast<double>(y) - center_y)
-                / (radius_scale * crop_scale);
-            const double radius_squared = normalized_x * normalized_x
-                + normalized_y * normalized_y;
+            const double normalized_x =
+                (static_cast<double>(x) - center_x) / (radius_scale * crop_scale);
+            const double normalized_y =
+                (static_cast<double>(y) - center_y) / (radius_scale * crop_scale);
+            const double radius_squared = normalized_x * normalized_x + normalized_y * normalized_y;
             const double radial_scale = 1.0 + distortion * radius_squared;
             const auto source_coordinate = [&](const double chromatic_scale) {
                 return std::pair{
@@ -212,17 +198,15 @@ void validate_manual_input(const PixelBuffer& input) {
             if (vignette_amount != 0.0) {
                 const double radius = std::min(1.0, std::sqrt(radius_squared));
                 const double denominator = std::max(1e-6, 1.0 - vignette_midpoint);
-                const double progress = std::clamp(
-                    (radius - vignette_midpoint) / denominator, 0.0, 1.0
-                );
+                const double progress =
+                    std::clamp((radius - vignette_midpoint) / denominator, 0.0, 1.0);
                 const double feathered = progress * progress * (3.0 - 2.0 * progress);
                 vignette_gain = std::exp2(vignette_amount * feathered * 1.15);
             }
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 const auto [source_x, source_y] = coordinates[channel];
-                const auto source_value = remap
-                    ? corrected_sample(source_x, source_y, channel)
-                    : input.samples[output_index + channel];
+                const auto source_value = remap ? corrected_sample(source_x, source_y, channel)
+                                                : input.samples[output_index + channel];
                 output.samples[output_index + channel] = static_cast<std::uint16_t>(std::clamp(
                     std::llround(static_cast<double>(source_value) * vignette_gain),
                     0LL,
@@ -255,10 +239,8 @@ void validate_manual_scene_linear_input(const SceneLinearRgbFrame& input) {
     }
     const auto width = static_cast<std::size_t>(input.dimensions.width);
     const auto height = static_cast<std::size_t>(input.dimensions.height);
-    if (
-        width > std::numeric_limits<std::size_t>::max() / rgb_channels
-        || height > std::numeric_limits<std::size_t>::max() / (width * rgb_channels)
-    ) {
+    if (width > std::numeric_limits<std::size_t>::max() / rgb_channels
+        || height > std::numeric_limits<std::size_t>::max() / (width * rgb_channels)) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,
@@ -266,10 +248,8 @@ void validate_manual_scene_linear_input(const SceneLinearRgbFrame& input) {
         );
     }
     const auto expected_samples = width * height * rgb_channels;
-    if (
-        input.row_stride_bytes != width * rgb_channels * sizeof(float)
-        || input.samples.size() != expected_samples
-    ) {
+    if (input.row_stride_bytes != width * rgb_channels * sizeof(float)
+        || input.samples.size() != expected_samples) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,
             0,
@@ -289,11 +269,9 @@ namespace {
 ) noexcept {
     const auto width = static_cast<std::size_t>(dimensions.width);
     const auto height = static_cast<std::size_t>(dimensions.height);
-    if (
-        !std::isfinite(source_x) || !std::isfinite(source_y) || source_x < 0.0F
-        || source_y < 0.0F || source_x > static_cast<float>(dimensions.width - 1U)
-        || source_y > static_cast<float>(dimensions.height - 1U)
-    ) {
+    if (!std::isfinite(source_x) || !std::isfinite(source_y) || source_x < 0.0F || source_y < 0.0F
+        || source_x > static_cast<float>(dimensions.width - 1U)
+        || source_y > static_cast<float>(dimensions.height - 1U)) {
         return 0.0F;
     }
     const auto x0 = static_cast<std::size_t>(std::floor(source_x));
@@ -313,12 +291,34 @@ namespace {
 
 } // namespace
 
-[[nodiscard]] std::optional<SceneLinearRgbFrame> apply_manual_optics(
-    const SceneLinearRgbFrame& input,
-    const OpticsSettings& settings
-) {
-    if (!has_manual_optics(settings)) return std::nullopt;
+[[nodiscard]] std::optional<SceneLinearRgbFrame>
+apply_manual_optics(const SceneLinearRgbFrame& input, const OpticsSettings& settings) {
+    if (!has_manual_optics(settings))
+        return std::nullopt;
     validate_manual_scene_linear_input(input);
+
+    const auto acceleration = image_acceleration_preference_from_environment();
+    if (!acceleration.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
+        );
+    }
+    if (*acceleration != ImageAccelerationPreference::cpu) {
+        auto metal = try_apply_manual_scene_linear_optics_metal(input, settings);
+        if (metal.corrected.has_value()) {
+            return std::move(metal.corrected);
+        }
+        if (*acceleration == ImageAccelerationPreference::metal) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported,
+                0,
+                metal.diagnostic.empty() ? "Metal manual scene-linear optics is unavailable"
+                                         : std::move(metal.diagnostic)
+            );
+        }
+    }
 
     SceneLinearRgbFrame output = input;
     const auto width = static_cast<std::size_t>(input.dimensions.width);
@@ -328,36 +328,31 @@ namespace {
     const double center_y = (static_cast<double>(height) - 1.0) * 0.5;
     const double radius_scale = std::max(1.0, std::hypot(center_x, center_y));
     const double distortion = static_cast<double>(settings.manual_distortion) * 0.0022;
-    const double crop_scale = settings.automatic_scale && distortion > 0.0
-        ? 1.0 + distortion : 1.0;
-    const double red_scale = 1.0
-        + static_cast<double>(settings.manual_tca_red_cyan) * 0.00055;
-    const double blue_scale = 1.0
-        + static_cast<double>(settings.manual_tca_blue_yellow) * 0.00055;
-    const double vignette_amount =
-        static_cast<double>(settings.manual_vignetting_amount) / 100.0;
+    const double crop_scale = settings.automatic_scale && distortion > 0.0 ? 1.0 + distortion : 1.0;
+    const double red_scale = 1.0 + static_cast<double>(settings.manual_tca_red_cyan) * 0.00055;
+    const double blue_scale = 1.0 + static_cast<double>(settings.manual_tca_blue_yellow) * 0.00055;
+    const double vignette_amount = static_cast<double>(settings.manual_vignetting_amount) / 100.0;
     const double vignette_midpoint =
         static_cast<double>(settings.manual_vignetting_midpoint) / 100.0;
 
-    const auto corrected_sample = [&](const double source_x, const double source_y,
-                                      const std::size_t channel) {
-        return manual_bilinear_scene_linear_sample_channel(
-            input.samples,
-            input.dimensions,
-            static_cast<float>(source_x),
-            static_cast<float>(source_y),
-            channel
-        );
-    };
+    const auto corrected_sample =
+        [&](const double source_x, const double source_y, const std::size_t channel) {
+            return manual_bilinear_scene_linear_sample_channel(
+                input.samples,
+                input.dimensions,
+                static_cast<float>(source_x),
+                static_cast<float>(source_y),
+                channel
+            );
+        };
     for (std::size_t y = 0U; y < height; ++y) {
         for (std::size_t x = 0U; x < width; ++x) {
             const auto output_index = (y * width + x) * rgb_channels;
-            const double normalized_x = (static_cast<double>(x) - center_x)
-                / (radius_scale * crop_scale);
-            const double normalized_y = (static_cast<double>(y) - center_y)
-                / (radius_scale * crop_scale);
-            const double radius_squared = normalized_x * normalized_x
-                + normalized_y * normalized_y;
+            const double normalized_x =
+                (static_cast<double>(x) - center_x) / (radius_scale * crop_scale);
+            const double normalized_y =
+                (static_cast<double>(y) - center_y) / (radius_scale * crop_scale);
+            const double radius_squared = normalized_x * normalized_x + normalized_y * normalized_y;
             const double radial_scale = 1.0 + distortion * radius_squared;
             const auto source_coordinate = [&](const double chromatic_scale) {
                 return std::pair{
@@ -366,23 +361,24 @@ namespace {
                 };
             };
             const std::array coordinates{
-                source_coordinate(red_scale), source_coordinate(1.0), source_coordinate(blue_scale)
+                source_coordinate(red_scale),
+                source_coordinate(1.0),
+                source_coordinate(blue_scale)
             };
             double vignette_gain = 1.0;
             if (vignette_amount != 0.0) {
                 const double radius = std::min(1.0, std::sqrt(radius_squared));
                 const double denominator = std::max(1e-6, 1.0 - vignette_midpoint);
-                const double progress = std::clamp(
-                    (radius - vignette_midpoint) / denominator, 0.0, 1.0
-                );
+                const double progress =
+                    std::clamp((radius - vignette_midpoint) / denominator, 0.0, 1.0);
                 const double feathered = progress * progress * (3.0 - 2.0 * progress);
                 vignette_gain = std::exp2(vignette_amount * feathered * 1.15);
             }
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 const auto [source_x, source_y] = coordinates[channel];
-                const double source_value = remap
-                    ? static_cast<double>(corrected_sample(source_x, source_y, channel))
-                    : static_cast<double>(input.samples[output_index + channel]);
+                const double source_value =
+                    remap ? static_cast<double>(corrected_sample(source_x, source_y, channel))
+                          : static_cast<double>(input.samples[output_index + channel]);
                 const double corrected = source_value * vignette_gain;
                 if (!std::isfinite(corrected)
                     || corrected < -static_cast<double>(std::numeric_limits<float>::max())

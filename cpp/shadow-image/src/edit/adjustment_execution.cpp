@@ -6,16 +6,15 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include "../acceleration/image_acceleration_policy.hpp"
 #include "metal_adjustment_execution.hpp"
 
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <span>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <variant>
 
@@ -23,13 +22,8 @@ namespace shadow::image {
 
 namespace {
 
-inline constexpr std::string_view image_acceleration_environment =
-    "SHADOW_IMAGE_ACCELERATION";
-
-[[nodiscard]] std::optional<std::string> metal_ineligibility(
-    const EditExecutionPlan& plan,
-    const std::span<const AdjustmentNode> nodes
-) {
+[[nodiscard]] std::optional<std::string>
+metal_ineligibility(const EditExecutionPlan& plan, const std::span<const AdjustmentNode> nodes) {
     for (const auto& segment : plan.segments) {
         if (segment.locality != AdjustmentLocality::pixel_local) {
             return "Metal adjustment requires every active node to be pixel-local";
@@ -50,32 +44,29 @@ inline constexpr std::string_view image_acceleration_environment =
             case AdjustmentOperation::lut_3d:
                 break;
             case AdjustmentOperation::perceptual_color: {
-                const auto* parameters = std::get_if<PerceptualColorAdjustment>(
-                    &nodes[step.node_index].parameters
-                );
+                const auto* parameters =
+                    std::get_if<PerceptualColorAdjustment>(&nodes[step.node_index].parameters);
                 if (parameters == nullptr) {
                     return "Metal adjustment plan has an invalid perceptual color node";
                 }
                 break;
             }
             case AdjustmentOperation::sharpen: {
-                const auto* parameters = std::get_if<SharpenAdjustment>(
-                    &nodes[step.node_index].parameters
-                );
+                const auto* parameters =
+                    std::get_if<SharpenAdjustment>(&nodes[step.node_index].parameters);
                 if (parameters == nullptr
-                    || parameters->execution_pass
-                        != DetailEffectsExecutionPass::color_grading
+                    || parameters->execution_pass != DetailEffectsExecutionPass::color_grading
                     || parameters->clarity != 0.0 || parameters->texture != 0.0
                     || parameters->local_contrast != 0.0) {
                     return "Metal adjustment supports only pixel-local color grading "
-                        "from the Detail & Effects node";
+                           "from the Detail & Effects node";
                 }
                 break;
             }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::spot_heal:
                 return "Metal adjustment does not support active operation "
-                    + std::string(operation_id(step.operation));
+                       + std::string(operation_id(step.operation));
             }
         }
     }
@@ -121,8 +112,8 @@ std::string_view adjustment_backend_identity(const AdjustmentBackend backend) no
         return "shadow-adjustment-cpu-v1;math=f64";
     case AdjustmentBackend::metal:
         return "shadow-adjustment-metal-v1;abi=1;math=f32-safe;"
-            "ops=wb,exposure,contrast,saturation,perceptual,opponent-balance,selective-color,"
-            "curve,opponent-curves,grading,lut";
+               "ops=wb,exposure,contrast,saturation,perceptual,opponent-balance,selective-color,"
+               "curve,opponent-curves,grading,lut";
     }
     return "shadow-adjustment-unknown";
 }
@@ -138,32 +129,30 @@ bool adjustment_backend_available(const AdjustmentBackend backend) noexcept {
 }
 
 AdjustmentBackendMode adjustment_backend_mode_from_environment() {
-    const auto* configured = std::getenv(image_acceleration_environment.data());
-    if (configured == nullptr || *configured == '\0'
-        || std::string_view(configured) == "auto") {
+    const auto preference = detail::image_acceleration_preference_from_environment();
+    if (!preference.has_value()) {
+        throw EditError(
+            EditErrorCode::invalid_parameter,
+            std::nullopt,
+            "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
+        );
+    }
+    if (*preference == detail::ImageAccelerationPreference::automatic) {
         return AdjustmentBackendMode::automatic;
     }
-    if (std::string_view(configured) == "cpu") {
+    if (*preference == detail::ImageAccelerationPreference::cpu) {
         return AdjustmentBackendMode::cpu;
     }
-    if (std::string_view(configured) == "metal") {
-        return AdjustmentBackendMode::metal;
-    }
-    throw EditError(
-        EditErrorCode::invalid_parameter,
-        std::nullopt,
-        "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
-    );
+    return AdjustmentBackendMode::metal;
 }
 
 bool AdjustmentExecutionResult::valid() const noexcept {
     const bool known_backend =
         backend == AdjustmentBackend::cpu || backend == AdjustmentBackend::metal;
-    if (!known_backend
-        || pixels.dimensions.width == 0U || pixels.dimensions.height == 0U
+    if (!known_backend || pixels.dimensions.width == 0U || pixels.dimensions.height == 0U
         || pixels.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
-        || pixels.row_stride_bytes < static_cast<std::size_t>(pixels.dimensions.width)
-                * 3U * sizeof(float)
+        || pixels.row_stride_bytes
+               < static_cast<std::size_t>(pixels.dimensions.width) * 3U * sizeof(float)
         || pixels.row_stride_bytes % sizeof(float) != 0U
         || (fell_back && (backend != AdjustmentBackend::cpu || diagnostic.empty()))
         || (!fell_back && !diagnostic.empty())) {
@@ -171,15 +160,14 @@ bool AdjustmentExecutionResult::valid() const noexcept {
     }
     const std::size_t row_floats = pixels.row_stride_bytes / sizeof(float);
     if (row_floats > std::numeric_limits<std::size_t>::max()
-            / static_cast<std::size_t>(pixels.dimensions.height)) {
+                         / static_cast<std::size_t>(pixels.dimensions.height)) {
         return false;
     }
     // Finiteness is an execution contract, not a post-hoc extra raster pass: the CPU oracle
     // validates its immutable input and checked-converts every node result, while Metal validates
     // the same input during shared host preparation and raises an atomic failure after every GPU
     // operation. Re-scanning here would add a full memory-bandwidth pass to every slider update.
-    return pixels.samples.size()
-        == row_floats * static_cast<std::size_t>(pixels.dimensions.height);
+    return pixels.samples.size() == row_floats * static_cast<std::size_t>(pixels.dimensions.height);
 }
 
 AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
@@ -216,12 +204,7 @@ AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
         return execute_on_cpu(input, nodes, context, true, *ineligible);
     }
 
-    auto preparation = detail::prepare_metal_adjustment(
-        input,
-        nodes,
-        plan,
-        context
-    );
+    auto preparation = detail::prepare_metal_adjustment(input, nodes, plan, context);
     if (!preparation.program.has_value()) {
         if (backend_mode == AdjustmentBackendMode::metal) {
             throw_forced_metal_failure(std::move(preparation.diagnostic));
@@ -231,16 +214,12 @@ AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
             nodes,
             context,
             true,
-            preparation.diagnostic.empty()
-                ? "Metal adjustment could not prepare the complete stage"
-                : std::move(preparation.diagnostic)
+            preparation.diagnostic.empty() ? "Metal adjustment could not prepare the complete stage"
+                                           : std::move(preparation.diagnostic)
         );
     }
 
-    auto attempt = detail::try_execute_adjustments_metal(
-        input,
-        *preparation.program
-    );
+    auto attempt = detail::try_execute_adjustments_metal(input, *preparation.program);
     if (attempt.output.has_value()) {
         AdjustmentExecutionResult result{
             .pixels = std::move(*attempt.output),

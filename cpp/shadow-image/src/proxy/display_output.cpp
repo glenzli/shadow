@@ -4,20 +4,19 @@
 #include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/working_rgb.hpp>
 
-#include "metal_display_output.hpp"
+#include "../acceleration/image_acceleration_policy.hpp"
 #include "../concurrency/row_scheduler.hpp"
+#include "metal_display_output.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <limits>
 #include <numeric>
 #include <ranges>
 #include <string>
-#include <string_view>
 #include <utility>
 
 namespace shadow::image {
@@ -32,10 +31,7 @@ struct OklabColor final {
     double b = 0.0;
 };
 
-inline constexpr std::string_view image_acceleration_environment =
-    "SHADOW_IMAGE_ACCELERATION";
-inline constexpr std::uint64_t maximum_display_rgb8_bytes =
-    512ULL * 1'024ULL * 1'024ULL;
+inline constexpr std::uint64_t maximum_display_rgb8_bytes = 512ULL * 1'024ULL * 1'024ULL;
 
 [[nodiscard]] std::size_t checked_output_size(const Dimensions dimensions) {
     const std::uint64_t pixels = dimensions.pixel_count();
@@ -49,10 +45,7 @@ inline constexpr std::uint64_t maximum_display_rgb8_bytes =
     return static_cast<std::size_t>(pixels * 3U);
 }
 
-void validate_source_and_request(
-    const FloatRgbImage& source,
-    const DisplayOutputRequest request
-) {
+void validate_source_and_request(const FloatRgbImage& source, const DisplayOutputRequest request) {
     constexpr double coordinate_tolerance = 1.0e-9;
     const auto close = [](const double actual, const double expected) {
         return std::abs(actual - expected) <= coordinate_tolerance;
@@ -118,8 +111,7 @@ void validate_source_and_request(
     for (std::uint32_t y = 0U; y < source.dimensions.height; ++y) {
         detail::throw_if_row_cancelled();
         const std::size_t row = static_cast<std::size_t>(y) * stride_samples;
-        const std::size_t active_samples =
-            static_cast<std::size_t>(source.dimensions.width) * 3U;
+        const std::size_t active_samples = static_cast<std::size_t>(source.dimensions.width) * 3U;
         for (std::size_t index = 0U; index < active_samples; ++index) {
             if (!std::isfinite(source.samples[row + index])) {
                 throw DecodeError(
@@ -134,15 +126,12 @@ void validate_source_and_request(
 }
 
 [[nodiscard]] OklabColor linear_srgb_to_oklab(const LinearRgb& rgb) noexcept {
-    const double l = std::cbrt(
-        0.4122214708 * rgb[0] + 0.5363325363 * rgb[1] + 0.0514459929 * rgb[2]
-    );
-    const double m = std::cbrt(
-        0.2119034982 * rgb[0] + 0.6806995451 * rgb[1] + 0.1073969566 * rgb[2]
-    );
-    const double s = std::cbrt(
-        0.0883024619 * rgb[0] + 0.2817188376 * rgb[1] + 0.6299787005 * rgb[2]
-    );
+    const double l =
+        std::cbrt(0.4122214708 * rgb[0] + 0.5363325363 * rgb[1] + 0.0514459929 * rgb[2]);
+    const double m =
+        std::cbrt(0.2119034982 * rgb[0] + 0.6806995451 * rgb[1] + 0.1073969566 * rgb[2]);
+    const double s =
+        std::cbrt(0.0883024619 * rgb[0] + 0.2817188376 * rgb[1] + 0.6299787005 * rgb[2]);
     return OklabColor{
         .lightness = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
         .a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
@@ -170,9 +159,7 @@ void validate_source_and_request(
     });
 }
 
-[[nodiscard]] double scene_luminance_to_display_luminance(
-    const double luminance
-) noexcept {
+[[nodiscard]] double scene_luminance_to_display_luminance(const double luminance) noexcept {
     if (!(luminance > 0.0)) {
         return 0.0;
     }
@@ -189,9 +176,7 @@ void validate_source_and_request(
     return std::clamp(curve(scene) / (a / c), 0.0, 1.0);
 }
 
-[[nodiscard]] LinearRgb apply_neutral_scene_display_curve(
-    const LinearRgb& input
-) noexcept {
+[[nodiscard]] LinearRgb apply_neutral_scene_display_curve(const LinearRgb& input) noexcept {
     const double luminance = input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722;
     if (!(luminance > 0.0)) {
         return input;
@@ -200,13 +185,10 @@ void validate_source_and_request(
     return {input[0] * gain, input[1] * gain, input[2] * gain};
 }
 
-[[nodiscard]] LinearRgb map_linear_srgb_to_display_gamut(
-    const LinearRgb& input,
-    const bool apply_scene_curve
-) noexcept {
-    const LinearRgb display_linear = apply_scene_curve
-        ? apply_neutral_scene_display_curve(input)
-        : input;
+[[nodiscard]] LinearRgb
+map_linear_srgb_to_display_gamut(const LinearRgb& input, const bool apply_scene_curve) noexcept {
+    const LinearRgb display_linear =
+        apply_scene_curve ? apply_neutral_scene_display_curve(input) : input;
     if (is_inside_display_srgb(display_linear)) {
         return display_linear;
     }
@@ -226,15 +208,16 @@ void validate_source_and_request(
     const double b_direction = lab.b / chroma;
     double lower = 0.0;
     double upper = std::min(chroma, display_srgb8_maximum_oklab_chroma);
-    for (std::uint32_t iteration = 0U;
-         iteration < display_srgb8_gamut_search_iterations;
+    for (std::uint32_t iteration = 0U; iteration < display_srgb8_gamut_search_iterations;
          ++iteration) {
         const double candidate_chroma = std::midpoint(lower, upper);
-        const LinearRgb candidate = oklab_to_linear_srgb(OklabColor{
-            .lightness = lab.lightness,
-            .a = a_direction * candidate_chroma,
-            .b = b_direction * candidate_chroma,
-        });
+        const LinearRgb candidate = oklab_to_linear_srgb(
+            OklabColor{
+                .lightness = lab.lightness,
+                .a = a_direction * candidate_chroma,
+                .b = b_direction * candidate_chroma,
+            }
+        );
         if (is_inside_display_srgb(candidate)) {
             lower = candidate_chroma;
             best = candidate;
@@ -248,43 +231,36 @@ void validate_source_and_request(
     return best;
 }
 
-[[nodiscard]] double display_quantization_dither(
-    const std::uint32_t x,
-    const std::uint32_t y
-) noexcept {
+[[nodiscard]] double
+display_quantization_dither(const std::uint32_t x, const std::uint32_t y) noexcept {
     std::uint32_t state = x * 0x9e3779b9U ^ y * 0x85ebca6bU;
     state ^= state >> 16U;
     state *= 0x7feb352dU;
     state ^= state >> 15U;
     state *= 0x846ca68bU;
     state ^= state >> 16U;
-    const double unit = static_cast<double>(state)
-        / static_cast<double>(std::numeric_limits<std::uint32_t>::max());
+    const double unit =
+        static_cast<double>(state) / static_cast<double>(std::numeric_limits<std::uint32_t>::max());
     return (unit - 0.5) * 0.90;
 }
 
-[[nodiscard]] std::uint8_t linear_display_sample_to_srgb8(
-    const double linear_sample,
-    const double dither
-) noexcept {
+[[nodiscard]] std::uint8_t
+linear_display_sample_to_srgb8(const double linear_sample, const double dither) noexcept {
     const double linear = std::clamp(linear_sample, 0.0, 1.0);
     constexpr double srgb_linear_threshold = 0.0031308;
     const double encoded = linear <= srgb_linear_threshold
-        ? 12.92 * linear
-        : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
+                               ? 12.92 * linear
+                               : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
     return static_cast<std::uint8_t>(
         std::clamp(std::floor(encoded * 255.0 + dither + 0.5), 0.0, 255.0)
     );
 }
 
-[[nodiscard]] DisplayRgb8Image render_on_cpu(
-    const FloatRgbImage& source,
-    const DisplayOutputRequest request
-) {
+[[nodiscard]] DisplayRgb8Image
+render_on_cpu(const FloatRgbImage& source, const DisplayOutputRequest request) {
     DisplayRgb8Image output{
         .dimensions = request.target_dimensions,
-        .row_stride_bytes =
-            static_cast<std::size_t>(request.target_dimensions.width) * 3U,
+        .row_stride_bytes = static_cast<std::size_t>(request.target_dimensions.width) * 3U,
         .bytes = std::vector<std::uint8_t>(checked_output_size(request.target_dimensions)),
         .backend = DisplayOutputBackend::cpu,
         .fell_back = false,
@@ -294,20 +270,17 @@ void validate_source_and_request(
     detail::parallel_for_rows(
         source.dimensions.height,
         16U,
-        [&source, request, source_stride, &output](
-            const std::uint32_t first_row,
-            const std::uint32_t last_row
-        ) {
+        [&source,
+         request,
+         source_stride,
+         &output](const std::uint32_t first_row, const std::uint32_t last_row) {
             for (std::uint32_t y = first_row; y < last_row; ++y) {
-                const std::size_t source_row =
-                    static_cast<std::size_t>(y) * source_stride;
+                const std::size_t source_row = static_cast<std::size_t>(y) * source_stride;
                 const std::size_t output_row =
                     static_cast<std::size_t>(y) * output.row_stride_bytes;
                 for (std::uint32_t x = 0U; x < source.dimensions.width; ++x) {
-                    const std::size_t source_index =
-                        source_row + static_cast<std::size_t>(x) * 3U;
-                    const std::size_t output_index =
-                        output_row + static_cast<std::size_t>(x) * 3U;
+                    const std::size_t source_index = source_row + static_cast<std::size_t>(x) * 3U;
+                    const std::size_t output_index = output_row + static_cast<std::size_t>(x) * 3U;
                     const LinearRgb mapped = map_linear_srgb_to_display_gamut(
                         {
                             source.samples[source_index],
@@ -333,9 +306,7 @@ void validate_source_and_request(
 
 } // namespace
 
-std::string_view display_output_backend_identity(
-    const DisplayOutputBackend backend
-) noexcept {
+std::string_view display_output_backend_identity(const DisplayOutputBackend backend) noexcept {
     switch (backend) {
     case DisplayOutputBackend::cpu:
         return "shadow-display-output-cpu-v1;math=f64";
@@ -356,41 +327,38 @@ bool display_output_backend_available(const DisplayOutputBackend backend) noexce
 }
 
 DisplayOutputBackendMode display_output_backend_mode_from_environment() {
-    const auto* configured = std::getenv(image_acceleration_environment.data());
-    if (configured == nullptr || *configured == '\0'
-        || std::string_view(configured) == "auto") {
+    const auto preference = detail::image_acceleration_preference_from_environment();
+    if (!preference.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
+        );
+    }
+    if (*preference == detail::ImageAccelerationPreference::automatic) {
         return DisplayOutputBackendMode::automatic;
     }
-    if (std::string_view(configured) == "cpu") {
+    if (*preference == detail::ImageAccelerationPreference::cpu) {
         return DisplayOutputBackendMode::cpu;
     }
-    if (std::string_view(configured) == "metal") {
-        return DisplayOutputBackendMode::metal;
-    }
-    throw DecodeError(
-        DecodeErrorCode::invalid_request,
-        0,
-        "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
-    );
+    return DisplayOutputBackendMode::metal;
 }
 
 bool DisplayRgb8Image::valid() const noexcept {
-    const std::uint64_t row_bytes =
-        static_cast<std::uint64_t>(dimensions.width) * 3U;
+    const std::uint64_t row_bytes = static_cast<std::uint64_t>(dimensions.width) * 3U;
     const std::uint64_t pixels = dimensions.pixel_count();
     if (dimensions.width == 0U || dimensions.height == 0U
         || row_bytes > std::numeric_limits<std::size_t>::max()
         || row_stride_bytes != static_cast<std::size_t>(row_bytes)
         || pixels > std::numeric_limits<std::uint64_t>::max() / 3U
-        || (backend != DisplayOutputBackend::cpu
-            && backend != DisplayOutputBackend::metal)
+        || (backend != DisplayOutputBackend::cpu && backend != DisplayOutputBackend::metal)
         || (fell_back && (backend != DisplayOutputBackend::cpu || diagnostic.empty()))
         || (!fell_back && !diagnostic.empty())) {
         return false;
     }
     const std::uint64_t expected = pixels * 3U;
     return expected <= std::numeric_limits<std::size_t>::max()
-        && bytes.size() == static_cast<std::size_t>(expected);
+           && bytes.size() == static_cast<std::size_t>(expected);
 }
 
 DisplayRgb8Image render_linear_srgb_to_display_srgb8_cpu_reference(
@@ -425,16 +393,14 @@ DisplayRgb8Image render_linear_srgb_to_display_srgb8_with_backend(
         );
     }
     if (backend_mode != DisplayOutputBackendMode::cpu) {
-        auto attempt = detail::try_render_linear_srgb_to_display_srgb8_metal(
-            source,
-            request
-        );
+        auto attempt = detail::try_render_linear_srgb_to_display_srgb8_metal(source, request);
         if (attempt.output.has_value()) {
             return std::move(*attempt.output);
         }
         if (backend_mode == DisplayOutputBackendMode::metal) {
             const std::string diagnostic = attempt.diagnostic.empty()
-                ? "Metal display output is unavailable" : std::move(attempt.diagnostic);
+                                               ? "Metal display output is unavailable"
+                                               : std::move(attempt.diagnostic);
             throw DecodeError(DecodeErrorCode::internal, 0, diagnostic);
         }
         auto result = render_on_cpu(source, request);
@@ -446,8 +412,8 @@ DisplayRgb8Image render_linear_srgb_to_display_srgb8_with_backend(
             );
         }
         result.fell_back = true;
-        result.diagnostic = attempt.diagnostic.empty()
-            ? "Metal display output declined the request" : std::move(attempt.diagnostic);
+        result.diagnostic = attempt.diagnostic.empty() ? "Metal display output declined the request"
+                                                       : std::move(attempt.diagnostic);
         return result;
     }
     auto result = render_on_cpu(source, request);

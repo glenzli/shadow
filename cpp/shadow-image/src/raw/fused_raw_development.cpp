@@ -3,19 +3,18 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 
+#include "../acceleration/image_acceleration_policy.hpp"
+#include "../concurrency/row_scheduler.hpp"
 #include "bayer_sampling.hpp"
 #include "metal_raw_development.hpp"
-#include "../concurrency/row_scheduler.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <limits>
 #include <string>
-#include <string_view>
 #include <utility>
 
 namespace shadow::image {
@@ -23,8 +22,6 @@ namespace shadow::image {
 namespace {
 
 using CameraRgbSample = detail::CameraRgbSample;
-inline constexpr std::string_view raw_acceleration_environment =
-    "SHADOW_IMAGE_ACCELERATION";
 
 void validate_request(
     const RawFrame& frame,
@@ -56,21 +53,16 @@ void validate_request(
             "fused Bayer preview max edge must be non-zero"
         );
     }
-    if (
-        quality != RawDevelopmentQuality::fast
-        && quality != RawDevelopmentQuality::balanced
-        && quality != RawDevelopmentQuality::high
-    ) {
+    if (quality != RawDevelopmentQuality::fast && quality != RawDevelopmentQuality::balanced
+        && quality != RawDevelopmentQuality::high) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
             "fused Bayer development received an unknown RAW quality tier"
         );
     }
-    if (
-        highlight_recovery != RawHighlightRecoveryIntent::provider_default
-        && highlight_recovery != RawHighlightRecoveryIntent::disabled
-    ) {
+    if (highlight_recovery != RawHighlightRecoveryIntent::provider_default
+        && highlight_recovery != RawHighlightRecoveryIntent::disabled) {
         throw DecodeError(
             DecodeErrorCode::unsupported,
             0,
@@ -79,13 +71,10 @@ void validate_request(
     }
 }
 
-[[nodiscard]] Dimensions oriented_dimensions(
-    const Dimensions dimensions,
-    const std::int32_t orientation
-) noexcept {
-    return orientation == 5 || orientation == 6
-        ? Dimensions{dimensions.height, dimensions.width}
-        : dimensions;
+[[nodiscard]] Dimensions
+oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation) noexcept {
+    return orientation == 5 || orientation == 6 ? Dimensions{dimensions.height, dimensions.width}
+                                                : dimensions;
 }
 
 // Maps one display-oriented output coordinate back to the un-oriented reconstruction raster.
@@ -109,11 +98,8 @@ void validate_request(
     }
 }
 
-[[nodiscard]] double smoothstep(
-    const double edge0,
-    const double edge1,
-    const double value
-) noexcept {
+[[nodiscard]] double
+smoothstep(const double edge0, const double edge1, const double value) noexcept {
     const double normalized = std::clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
     return normalized * normalized * (3.0 - 2.0 * normalized);
 }
@@ -137,8 +123,9 @@ void neutralize_sensor_clipped_highlight(
         static_cast<double>(camera.sensor_clip_coverage[2]),
     });
     const double second_highest = static_cast<double>(camera.sensor_clip_coverage[0])
-        + static_cast<double>(camera.sensor_clip_coverage[1])
-        + static_cast<double>(camera.sensor_clip_coverage[2]) - lowest - highest;
+                                  + static_cast<double>(camera.sensor_clip_coverage[1])
+                                  + static_cast<double>(camera.sensor_clip_coverage[2]) - lowest
+                                  - highest;
     const double camera_lowest = std::min({
         static_cast<double>(camera.values[0]),
         static_cast<double>(camera.values[1]),
@@ -149,12 +136,12 @@ void neutralize_sensor_clipped_highlight(
         static_cast<double>(camera.values[1]),
         static_cast<double>(camera.values[2]),
     });
-    const double camera_second_highest = static_cast<double>(camera.values[0])
-        + static_cast<double>(camera.values[1])
+    const double camera_second_highest =
+        static_cast<double>(camera.values[0]) + static_cast<double>(camera.values[1])
         + static_cast<double>(camera.values[2]) - camera_lowest - camera_highest;
     const double multi_channel_clip = smoothstep(0.15, 0.75, second_highest);
-    const double single_channel_white = smoothstep(0.40, 0.90, highest)
-        * smoothstep(0.84, 0.98, camera_second_highest);
+    const double single_channel_white =
+        smoothstep(0.40, 0.90, highest) * smoothstep(0.84, 0.98, camera_second_highest);
     const double clipped_ratio = std::max(multi_channel_clip, single_channel_white);
     const double peak = std::max({scene_linear[0], scene_linear[1], scene_linear[2]});
     const double highlight_ratio = smoothstep(0.85, 1.05, peak);
@@ -179,7 +166,7 @@ void write_transformed_pixel(
         double value = 0.0;
         for (std::size_t input = 0U; input < 3U; ++input) {
             value += transform.camera_to_linear_srgb_d65[output * 3U + input]
-                * static_cast<double>(camera.values[input]);
+                     * static_cast<double>(camera.values[input]);
         }
         scene_linear[output] = value;
     }
@@ -192,8 +179,7 @@ void write_transformed_pixel(
 }
 
 [[nodiscard]] SceneLinearRgbFrame allocate_output(const Dimensions dimensions) {
-    const auto sample_count = static_cast<std::uint64_t>(dimensions.width)
-        * dimensions.height * 3U;
+    const auto sample_count = static_cast<std::uint64_t>(dimensions.width) * dimensions.height * 3U;
     if (sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
@@ -203,16 +189,13 @@ void write_transformed_pixel(
     }
     SceneLinearRgbFrame output;
     output.dimensions = dimensions;
-    output.row_stride_bytes =
-        static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float);
+    output.row_stride_bytes = static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float);
     output.samples.resize(static_cast<std::size_t>(sample_count));
     return output;
 }
 
-[[nodiscard]] RawDemosaicReceipt make_demosaic_receipt(
-    const RawFrame& frame,
-    const RawDemosaicAlgorithm algorithm
-) noexcept {
+[[nodiscard]] RawDemosaicReceipt
+make_demosaic_receipt(const RawFrame& frame, const RawDemosaicAlgorithm algorithm) noexcept {
     return RawDemosaicReceipt{
         .schema_version = raw_demosaic_receipt_schema_version,
         .source_raw_frame_schema_version = frame.descriptor.schema_version,
@@ -226,11 +209,9 @@ void write_transformed_pixel(
 
 [[nodiscard]] bool valid_demosaic_receipt(const RawDemosaicReceipt& receipt) noexcept {
     return receipt.schema_version == raw_demosaic_receipt_schema_version
-        && receipt.source_raw_frame_schema_version == raw_frame_schema_version
-        && receipt.black_subtraction_applied
-        && receipt.white_level_normalization_applied
-        && !receipt.white_balance_applied
-        && !receipt.dng_opcodes_applied;
+           && receipt.source_raw_frame_schema_version == raw_frame_schema_version
+           && receipt.black_subtraction_applied && receipt.white_level_normalization_applied
+           && !receipt.white_balance_applied && !receipt.dng_opcodes_applied;
 }
 
 [[nodiscard]] FusedRawFrameDevelopment develop_on_cpu(
@@ -241,19 +222,18 @@ void write_transformed_pixel(
     const RawHighlightRecoveryIntent highlight_recovery
 ) {
     const auto& descriptor = frame.descriptor;
-    const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
-        ? proxy_dimensions(descriptor.active_dimensions, *preview_max_edge)
-        : descriptor.active_dimensions;
+    const Dimensions reconstruction_dimensions =
+        preview_max_edge.has_value()
+            ? proxy_dimensions(descriptor.active_dimensions, *preview_max_edge)
+            : descriptor.active_dimensions;
     const bool area_preview = reconstruction_dimensions != descriptor.active_dimensions;
-    const auto area_sampling = area_preview
-        ? std::optional<detail::BayerAreaSamplingGrid>(
-            detail::make_bayer_area_sampling_grid(frame, reconstruction_dimensions)
-        )
-        : std::nullopt;
-    const Dimensions output_dimensions = oriented_dimensions(
-        reconstruction_dimensions,
-        descriptor.orientation
-    );
+    const auto area_sampling =
+        area_preview ? std::optional<detail::BayerAreaSamplingGrid>(
+                           detail::make_bayer_area_sampling_grid(frame, reconstruction_dimensions)
+                       )
+                     : std::nullopt;
+    const Dimensions output_dimensions =
+        oriented_dimensions(reconstruction_dimensions, descriptor.orientation);
     SceneLinearRgbFrame output = allocate_output(output_dimensions);
 
     detail::parallel_for_rows(
@@ -267,46 +247,40 @@ void write_transformed_pixel(
          area_preview,
          area_sampling,
          quality,
-         highlight_recovery](
-            const std::uint32_t first_row,
-            const std::uint32_t last_row
-        ) {
+         highlight_recovery](const std::uint32_t first_row, const std::uint32_t last_row) {
             for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
-                for (std::uint32_t output_x = 0U;
-                     output_x < output_dimensions.width;
-                     ++output_x) {
+                for (std::uint32_t output_x = 0U; output_x < output_dimensions.width; ++output_x) {
                     const auto [source_x, source_y] = source_coordinate(
                         output_x,
                         output_y,
                         reconstruction_dimensions,
                         frame.descriptor.orientation
                     );
-                    const CameraRgbSample camera = area_preview
-                        ? detail::area_camera_rgb_sample_at(
-                            frame,
-                            *area_sampling,
-                            source_x,
-                            source_y
-                        )
+                    const CameraRgbSample camera =
+                        area_preview ? detail::area_camera_rgb_sample_at(
+                                           frame,
+                                           *area_sampling,
+                                           source_x,
+                                           source_y
+                                       )
                         : quality == RawDevelopmentQuality::high
                             ? detail::edge_aware_camera_rgb_sample_at(
-                                frame,
-                                frame.descriptor.active_margins.left + source_x,
-                                frame.descriptor.active_margins.top + source_y
-                            )
+                                  frame,
+                                  frame.descriptor.active_margins.left + source_x,
+                                  frame.descriptor.active_margins.top + source_y
+                              )
                             : detail::bilinear_camera_rgb_sample_at(
-                                frame,
-                                frame.descriptor.active_margins.left + source_x,
-                                frame.descriptor.active_margins.top + source_y
-                            );
+                                  frame,
+                                  frame.descriptor.active_margins.left + source_x,
+                                  frame.descriptor.active_margins.top + source_y
+                              );
                     const auto output_index =
                         (static_cast<std::size_t>(output_y) * output_dimensions.width + output_x)
                         * 3U;
                     write_transformed_pixel(
                         camera,
                         transform,
-                        highlight_recovery
-                            == RawHighlightRecoveryIntent::provider_default,
+                        highlight_recovery == RawHighlightRecoveryIntent::provider_default,
                         output.samples.data() + output_index
                     );
                 }
@@ -318,11 +292,9 @@ void write_transformed_pixel(
         .scene_linear = std::move(output),
         .demosaic_receipt = make_demosaic_receipt(
             frame,
-            area_preview
-                ? RawDemosaicAlgorithm::bayer_area_preview_v1
-                : quality == RawDevelopmentQuality::high
-                    ? RawDemosaicAlgorithm::bayer_edge_aware_v1
-                    : RawDemosaicAlgorithm::bayer_bilinear_v1
+            area_preview                             ? RawDemosaicAlgorithm::bayer_area_preview_v1
+            : quality == RawDevelopmentQuality::high ? RawDemosaicAlgorithm::bayer_edge_aware_v1
+                                                     : RawDemosaicAlgorithm::bayer_bilinear_v1
         ),
         .backend = RawDevelopmentBackend::cpu,
         .highlight_recovery = highlight_recovery,
@@ -339,23 +311,20 @@ void write_transformed_pixel(
 
 } // namespace
 
-std::string_view raw_development_backend_identity(
-    const RawDevelopmentBackend backend
-) noexcept {
+std::string_view raw_development_backend_identity(const RawDevelopmentBackend backend) noexcept {
     switch (backend) {
     case RawDevelopmentBackend::cpu:
         return "shadow-fused-raw-cpu-v1;demosaic=plan-selected;"
-            "sensor-highlight-policy=explicit";
+               "sensor-highlight-policy=explicit";
     case RawDevelopmentBackend::metal:
         return "shadow-fused-raw-metal-v1;math=f32-precise;"
-            "demosaic=plan-selected;sensor-highlight-policy=explicit";
+               "demosaic=plan-selected;sensor-highlight-policy=explicit";
     }
     return "shadow-fused-raw-unknown";
 }
 
-std::string_view raw_highlight_treatment_identity(
-    const RawHighlightRecoveryIntent intent
-) noexcept {
+std::string_view
+raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
         return "sensor-highlights=neutral-v1";
@@ -379,22 +348,21 @@ bool raw_development_backend_available(const RawDevelopmentBackend backend) noex
 }
 
 RawDevelopmentBackendMode raw_development_backend_mode_from_environment() {
-    const auto* configured = std::getenv(raw_acceleration_environment.data());
-    if (configured == nullptr || *configured == '\0'
-        || std::string_view(configured) == "auto") {
+    const auto preference = detail::image_acceleration_preference_from_environment();
+    if (!preference.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
+        );
+    }
+    if (*preference == detail::ImageAccelerationPreference::automatic) {
         return RawDevelopmentBackendMode::automatic;
     }
-    if (std::string_view(configured) == "cpu") {
+    if (*preference == detail::ImageAccelerationPreference::cpu) {
         return RawDevelopmentBackendMode::cpu;
     }
-    if (std::string_view(configured) == "metal") {
-        return RawDevelopmentBackendMode::metal;
-    }
-    throw DecodeError(
-        DecodeErrorCode::invalid_request,
-        0,
-        "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
-    );
+    return RawDevelopmentBackendMode::metal;
 }
 
 bool RawFrameLinearTransform::valid() const noexcept {
@@ -411,14 +379,13 @@ bool RawFrameLinearTransform::valid() const noexcept {
 bool FusedRawFrameDevelopment::valid() const noexcept {
     const auto width = static_cast<std::uint64_t>(scene_linear.dimensions.width);
     const auto height = static_cast<std::uint64_t>(scene_linear.dimensions.height);
-    const bool known_backend = backend == RawDevelopmentBackend::cpu
-        || backend == RawDevelopmentBackend::metal;
+    const bool known_backend =
+        backend == RawDevelopmentBackend::cpu || backend == RawDevelopmentBackend::metal;
     const bool known_highlight_treatment =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
         || highlight_recovery == RawHighlightRecoveryIntent::disabled;
-    if (!known_backend || !known_highlight_treatment
-        || width == 0U || height == 0U || !scene_linear.valid()
-        || !valid_demosaic_receipt(demosaic_receipt)) {
+    if (!known_backend || !known_highlight_treatment || width == 0U || height == 0U
+        || !scene_linear.valid() || !valid_demosaic_receipt(demosaic_receipt)) {
         return false;
     }
     return true;
@@ -463,12 +430,9 @@ FusedRawFrameDevelopment develop_bayer_linear_srgb_f32_fused_with_backend(
         }
         if (backend_mode == RawDevelopmentBackendMode::metal) {
             const std::string diagnostic = attempt.diagnostic.empty()
-                ? "Metal RAW development is unavailable" : std::move(attempt.diagnostic);
-            throw DecodeError(
-                DecodeErrorCode::internal,
-                0,
-                diagnostic
-            );
+                                               ? "Metal RAW development is unavailable"
+                                               : std::move(attempt.diagnostic);
+            throw DecodeError(DecodeErrorCode::internal, 0, diagnostic);
         }
     }
     auto result = develop_on_cpu(frame, transform, preview_max_edge, quality, highlight_recovery);

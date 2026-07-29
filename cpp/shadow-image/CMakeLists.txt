@@ -33,6 +33,7 @@ endfunction()
 
 add_library(
     shadow-image STATIC
+    src/acceleration/image_acceleration_policy.cpp
     src/decoder/decoder_error.cpp
     src/decoder/decoder_metadata.cpp
     src/decoder/decoder_types.cpp
@@ -113,6 +114,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
         shadow-image
         PRIVATE
             src/edit/metal_adjustment.mm
+            src/optics/metal_manual_optics.mm
             src/raw/metal_dcp_color_encoding.mm
             src/raw/metal_dcp_color_rendering.mm
             src/raw/metal_raw_denoise_encoding.mm
@@ -143,6 +145,7 @@ else()
         shadow-image
         PRIVATE
             src/edit/metal_adjustment_stub.cpp
+            src/optics/metal_manual_optics_stub.cpp
             src/raw/metal_raw_development_stub.cpp
             src/proxy/metal_display_output_stub.cpp
             src/proxy/warm_edit_gpu_stub.cpp
@@ -352,6 +355,24 @@ if(BUILD_TESTING)
         shadow-image-optics-preparation-contract
         tests/optics_preparation_contract_test.cpp
     )
+    if(APPLE AND SHADOW_ENABLE_METAL)
+        shadow_image_add_contract(
+            shadow-image-manual-optics-metal-execution-tests
+            shadow-image-manual-optics-metal-execution-contract
+            tests/manual_optics_metal_execution_contract_test.cpp
+        )
+        target_include_directories(
+            shadow-image-manual-optics-metal-execution-tests
+            PRIVATE
+                "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+        )
+        set_tests_properties(
+            shadow-image-manual-optics-metal-execution-contract
+            PROPERTIES
+                ENVIRONMENT "SHADOW_TEST_REQUIRE_METAL=1"
+                LABELS "metal-required"
+        )
+    endif()
     shadow_image_add_contract(
         shadow-image-lensfun-profile-catalog-tests
         shadow-image-lensfun-profile-catalog-contract

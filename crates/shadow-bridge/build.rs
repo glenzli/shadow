@@ -49,6 +49,7 @@ const BRIDGE_INPUTS: &[&str] = &[
 ];
 
 const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
+    "src/acceleration/image_acceleration_policy.cpp",
     "src/decoder/decoder_error.cpp",
     "src/decoder/decoder_metadata.cpp",
     "src/decoder/decoder_types.cpp",
@@ -125,6 +126,7 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
 
 const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
     "src/edit/metal_adjustment.mm",
+    "src/optics/metal_manual_optics.mm",
     "src/raw/metal_dcp_color_encoding.mm",
     "src/raw/metal_dcp_color_rendering.mm",
     "src/raw/metal_raw_denoise_encoding.mm",
@@ -146,6 +148,7 @@ const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
 
 const EMBEDDED_IMAGE_STUB_SOURCES: &[&str] = &[
     "src/edit/metal_adjustment_stub.cpp",
+    "src/optics/metal_manual_optics_stub.cpp",
     "src/raw/metal_raw_development_stub.cpp",
     "src/proxy/metal_display_output_stub.cpp",
     "src/proxy/warm_edit_gpu_stub.cpp",
@@ -153,6 +156,7 @@ const EMBEDDED_IMAGE_STUB_SOURCES: &[&str] = &[
 
 const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "include/shadow/image/neutral_balance.hpp",
+    "src/acceleration/image_acceleration_policy.hpp",
     "src/concurrency/row_scheduler.hpp",
     "src/decoder/decode_session_isolation.hpp",
     "src/decoder/heif_decoder.hpp",
@@ -179,6 +183,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/edit/working_color_math.hpp",
     "src/optics/lensfun_profile_catalog.hpp",
     "src/optics/manual_optics.hpp",
+    "src/optics/metal_manual_optics.hpp",
     "src/proxy/developed_source_raster.hpp",
     "src/proxy/display_rgb_math.hpp",
     "src/proxy/edit_preview_rendering.hpp",
