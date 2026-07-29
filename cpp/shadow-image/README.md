@@ -104,15 +104,18 @@ The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` owns the complete MSL reconstruction, CFA denoise, area
 preview, and DCP post-processing program. Host execution is split by transaction:
 `src/raw/metal_raw_runtime.*` owns the process-wide device, command queue, compiled pipelines,
-bounded arithmetic, and diagnostics; `metal_raw_denoise.mm` owns same-CFA denoise;
-`metal_raw_reconstruction.mm` owns tiled reconstruction and its optional same-command DCP
-continuation; `metal_dcp_color_encoding.*` owns the compact mirrored DCP ABI, table buffers, and
-reusable encoder; `metal_dcp_color_rendering.mm` owns the standalone fallback-facing whole-frame
-execution. A DCP-backed RawFrame therefore applies each tile's camera rendering before its only
-host readback instead of uploading the complete fp32 frame again. `metal_raw_development.hpp`
-remains the narrow fallback-facing contract. Editing a host executor requires checking its local
-layout assertions and corresponding shader entry-point; editing the runtime requires checking all
-four entry-point names.
+bounded arithmetic, and diagnostics; `raw_denoise_plan.*` owns cache-visible denoise intent,
+calibration, and receipts, while `raw_denoise.cpp` owns standalone CPU/Metal fallback execution;
+`metal_raw_denoise_encoding.*` owns the mirrored denoise ABI plus its GPU source-copy/dispatch,
+while `metal_raw_denoise.mm` owns only the standalone materialized-frame transaction;
+`metal_raw_reconstruction.mm` owns tiled reconstruction and its optional resident denoise and
+same-command DCP continuations; `metal_dcp_color_encoding.*` owns the compact mirrored DCP ABI,
+table buffers, and reusable encoder; `metal_dcp_color_rendering.mm` owns the standalone
+fallback-facing whole-frame execution. An eligible RawFrame is therefore uploaded once, keeps its
+denoised CFA resident through reconstruction, and applies each tile's camera rendering before its
+only host readback. `metal_raw_development.hpp` remains the narrow fallback-facing contract.
+Editing a host executor requires checking its local layout assertions and corresponding shader
+entry-point; editing the runtime requires checking all four entry-point names.
 
 DCP color development has a one-way internal owner graph.
 `src/raw/dcp_color_matrix_math.hpp` owns the shared 3×3 algebra, standard white points, and
@@ -257,7 +260,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   footprint, active-sensor bounds, and high-quality reconstruction against the two-stage oracle.
 - `tests/fused_raw_metal_execution_contract_test.cpp` owns Metal determinism and numerical
   agreement for full-resolution and CFA-area preview execution, byte-identical staged-versus-
-  fused DCP tiles, and the opt-in `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK`.
+  fused DCP tiles, byte-identical staged-versus-resident CFA denoise, and the opt-in
+  `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK` / `SHADOW_TEST_FUSED_RAW_SENSOR_BENCHMARK` timings.
 - `tests/fused_raw_highlight_treatment_contract_test.cpp` owns clipped-sensor neutralization,
   explicit disablement, and CPU/Metal policy agreement.
 - `tests/fused_raw_input_validation_contract_test.cpp` owns typed rejection of unsupported

@@ -8,6 +8,7 @@
 #include <shadow/image/raw_denoise.hpp>
 
 #include "metal_raw_development.hpp"
+#include "raw_denoise_plan.hpp"
 
 #include <algorithm>
 #include <array>
@@ -396,43 +397,50 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
             : reconstruction_dimensions;
     SensorClippingMask sensor_clipping_mask =
         project_sensor_clipping_mask(frame, diagnostic_dimensions);
-    RawBayerDenoiseResult denoised = denoise_bayer_raw_frame(
-        std::move(frame),
-        RawBayerDenoiseRequest{
-            .intent = plan.noise_reduction,
-            .iso_sensitivity = iso_sensitivity,
-            .preview = preview_max_edge.has_value(),
-        }
-    );
+    const RawBayerDenoiseRequest raw_denoise_request{
+        .intent = plan.noise_reduction,
+        .iso_sensitivity = iso_sensitivity,
+        .preview = preview_max_edge.has_value(),
+    };
+    const auto prepared_raw_denoise = detail::prepare_raw_bayer_denoise(frame, raw_denoise_request);
     std::optional<FusedRawFrameDevelopment> prepared_development;
+    std::optional<RawBayerDenoiseResult> materialized_raw_denoise;
+    RawBayerDenoiseReceipt raw_denoise_receipt;
     bool fused_dcp_applied = false;
     const RawDevelopmentBackendMode requested_backend =
         raw_development_backend_mode_from_environment();
-    if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()
-        && requested_backend != RawDevelopmentBackendMode::cpu) {
+    const bool dcp_requested =
+        camera_profile != nullptr && camera_profile->has_post_matrix_stages();
+    if (requested_backend != RawDevelopmentBackendMode::cpu
+        && (prepared_raw_denoise.applied() || dcp_requested)) {
         auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
-            denoised.frame,
+            frame,
             transform,
             preview_max_edge,
             plan.highlight_recovery,
             plan.quality,
-            camera_profile
+            dcp_requested ? camera_profile : nullptr,
+            prepared_raw_denoise.applied() ? &prepared_raw_denoise : nullptr
         );
-        if (fused_attempt.development.has_value() && fused_attempt.dcp_applied) {
+        if (fused_attempt.development.has_value()
+            && fused_attempt.raw_denoise_applied == prepared_raw_denoise.applied()
+            && fused_attempt.dcp_applied == dcp_requested) {
             prepared_development = std::move(fused_attempt.development);
-            fused_dcp_applied = true;
-        } else if (requested_backend == RawDevelopmentBackendMode::metal) {
-            throw DecodeError(
-                DecodeErrorCode::internal,
-                0,
-                fused_attempt.diagnostic.empty() ? "Metal fused RAW/DCP development is unavailable"
-                                                 : std::move(fused_attempt.diagnostic)
+            fused_dcp_applied = fused_attempt.dcp_applied;
+            raw_denoise_receipt = detail::finalize_raw_bayer_denoise_receipt(
+                frame,
+                prepared_raw_denoise,
+                prepared_raw_denoise.applied() ? RawBayerDenoiseBackend::metal
+                                               : RawBayerDenoiseBackend::cpu
             );
         }
     }
     if (!prepared_development.has_value()) {
+        materialized_raw_denoise =
+            detail::execute_prepared_raw_bayer_denoise(std::move(frame), prepared_raw_denoise);
+        raw_denoise_receipt = materialized_raw_denoise->receipt;
         prepared_development = develop_bayer_linear_srgb_f32_fused(
-            denoised.frame,
+            materialized_raw_denoise->frame,
             transform,
             preview_max_edge,
             plan.highlight_recovery,
@@ -440,14 +448,17 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
         );
     }
     FusedRawFrameDevelopment developed = std::move(*prepared_development);
+    const RawFrameDescriptor& developed_descriptor =
+        materialized_raw_denoise.has_value() ? materialized_raw_denoise->frame.descriptor
+                                             : frame.descriptor;
     RawDevelopmentReceipt receipt = raw_frame_development_receipt(
-        denoised.frame.descriptor,
+        developed_descriptor,
         plan,
         developed.scene_linear.dimensions,
         developed.demosaic_receipt,
         developed.backend,
         camera_profile,
-        denoised.receipt
+        raw_denoise_receipt
     );
     DevelopedSourcePixels output = std::move(developed.scene_linear);
     DcpColorExecutionBackend dcp_execution_backend =
@@ -477,7 +488,7 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
         .sensor_clipping_mask = std::move(sensor_clipping_mask),
         .backend = developed.backend,
         .highlight_recovery = developed.highlight_recovery,
-        .raw_denoise_cache_identity = denoised.receipt.cache_identity,
+        .raw_denoise_cache_identity = raw_denoise_receipt.cache_identity,
         .source_scene_luminance_percentile = source_scene_luminance,
     };
 }

@@ -28,10 +28,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const std::optional<std::uint32_t>,
     const RawHighlightRecoveryIntent,
     const RawDevelopmentQuality,
-    const DcpColorTransform*
+    const DcpColorTransform*,
+    const PreparedRawBayerDenoise*
 ) {
     return MetalRawDevelopmentAttempt{
         .development = std::nullopt,
+        .raw_denoise_applied = false,
         .dcp_applied = false,
         .diagnostic = "Metal RAW development is not compiled for this platform",
     };

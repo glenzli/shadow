@@ -5,8 +5,10 @@
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/raw_denoise.hpp>
 
 #include "../src/raw/metal_raw_development.hpp"
+#include "../src/raw/raw_denoise_plan.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -366,6 +368,78 @@ void metal_reconstruction_and_dcp_share_one_tiled_transaction() {
     );
 }
 
+void metal_denoise_reconstruction_and_dcp_share_one_resident_transaction() {
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        return;
+    }
+    const auto frame = synthetic_frame(5);
+    const auto dcp = fused_dcp_transform(frame.descriptor);
+    const image::RawFrameLinearTransform transform{dcp.camera_to_linear_srgb_d65};
+    const auto denoise = image::detail::prepare_raw_bayer_denoise(
+        frame,
+        image::RawBayerDenoiseRequest{
+            .intent = image::RawNoiseReductionIntent::noise_robust,
+            .iso_sensitivity = 1'600.0,
+            .preview = false,
+        }
+    );
+    auto staged_frame = frame;
+    const auto staged_denoise = image::detail::try_denoise_bayer_raw_frame_metal(
+        staged_frame,
+        denoise.mode,
+        denoise.iso_sensitivity
+    );
+    auto staged = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+        staged_frame,
+        transform,
+        std::nullopt,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::balanced,
+        &dcp
+    );
+    const auto fused = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+        frame,
+        transform,
+        std::nullopt,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::balanced,
+        &dcp,
+        &denoise
+    );
+    const auto repeated = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+        frame,
+        transform,
+        std::nullopt,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::balanced,
+        &dcp,
+        &denoise
+    );
+    expect(
+        staged_denoise.applied && staged.development.has_value() && staged.dcp_applied
+            && !staged.raw_denoise_applied,
+        "the staged control materializes Metal denoise before its RAW/DCP transaction"
+    );
+    expect(
+        fused.development.has_value() && fused.raw_denoise_applied && fused.dcp_applied
+            && repeated.development.has_value() && repeated.raw_denoise_applied
+            && repeated.dcp_applied,
+        "same-CFA denoise remains resident through RAW reconstruction and DCP rendering"
+    );
+    if (!staged.development.has_value() || !fused.development.has_value()
+        || !repeated.development.has_value()) {
+        return;
+    }
+    expect(
+        fused.development->scene_linear.samples == staged.development->scene_linear.samples,
+        "resident RAW denoise is byte-identical to the same Metal kernels staged separately"
+    );
+    expect(
+        fused.development->scene_linear.samples == repeated.development->scene_linear.samples,
+        "resident RAW sensor development remains byte deterministic"
+    );
+}
+
 void benchmark_fused_raw_dcp_when_requested() {
     if (!environment_enabled("SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK")) {
         return;
@@ -426,12 +500,87 @@ void benchmark_fused_raw_dcp_when_requested() {
               << " speedup=" << staged / fused << 'x' << " checksum=" << checksum << '\n';
 }
 
+void benchmark_fused_raw_sensor_development_when_requested() {
+    if (!environment_enabled("SHADOW_TEST_FUSED_RAW_SENSOR_BENCHMARK")) {
+        return;
+    }
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        throw std::runtime_error("Metal is unavailable for the fused RAW sensor benchmark");
+    }
+    constexpr image::Dimensions dimensions{3'000U, 2'000U};
+    const auto frame = benchmark_frame(dimensions);
+    const auto dcp = fused_dcp_transform(frame.descriptor);
+    const image::RawFrameLinearTransform transform{dcp.camera_to_linear_srgb_d65};
+    const auto denoise = image::detail::prepare_raw_bayer_denoise(
+        frame,
+        image::RawBayerDenoiseRequest{
+            .intent = image::RawNoiseReductionIntent::noise_robust,
+            .iso_sensitivity = 1'600.0,
+            .preview = false,
+        }
+    );
+    std::uint64_t checksum = 0U;
+    constexpr std::size_t iterations = 3U;
+    const double staged = median_milliseconds(iterations, [&]() {
+        auto staged_frame = frame;
+        const auto denoise_attempt = image::detail::try_denoise_bayer_raw_frame_metal(
+            staged_frame,
+            denoise.mode,
+            denoise.iso_sensitivity
+        );
+        auto attempt = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+            staged_frame,
+            transform,
+            std::nullopt,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::balanced,
+            &dcp
+        );
+        if (!denoise_attempt.applied || !attempt.development.has_value() || !attempt.dcp_applied) {
+            throw std::runtime_error(
+                denoise_attempt.diagnostic.empty() ? attempt.diagnostic : denoise_attempt.diagnostic
+            );
+        }
+        checksum += static_cast<std::uint64_t>(
+            attempt.development->scene_linear
+                .samples[attempt.development->scene_linear.samples.size() / 2U]
+            * 1'000.0F
+        );
+    });
+    const double fused = median_milliseconds(iterations, [&]() {
+        auto attempt = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::balanced,
+            &dcp,
+            &denoise
+        );
+        if (!attempt.development.has_value() || !attempt.raw_denoise_applied
+            || !attempt.dcp_applied) {
+            throw std::runtime_error(attempt.diagnostic);
+        }
+        checksum += static_cast<std::uint64_t>(
+            attempt.development->scene_linear
+                .samples[attempt.development->scene_linear.samples.size() / 2U]
+            * 1'000.0F
+        );
+    });
+    std::cout << std::fixed << std::setprecision(3) << "BENCH fused RAW sensor " << dimensions.width
+              << 'x' << dimensions.height << " staged-Metal=" << staged << "ms"
+              << " fused-Metal=" << fused << "ms"
+              << " speedup=" << staged / fused << 'x' << " checksum=" << checksum << '\n';
+}
+
 } // namespace
 
 int main() {
     metal_full_resolution_stays_within_the_linear_u16_contract();
     metal_area_preview_preserves_the_cfa_footprint_contract();
     metal_reconstruction_and_dcp_share_one_tiled_transaction();
+    metal_denoise_reconstruction_and_dcp_share_one_resident_transaction();
     benchmark_fused_raw_dcp_when_requested();
+    benchmark_fused_raw_sensor_development_when_requested();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

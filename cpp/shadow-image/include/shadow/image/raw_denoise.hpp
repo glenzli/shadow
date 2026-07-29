@@ -61,22 +61,19 @@ struct RawBayerDenoiseResult final {
     RawBayerDenoiseReceipt receipt;
 };
 
-[[nodiscard]] const char* raw_bayer_denoise_mode_identity(
-    RawBayerDenoiseMode mode
-) noexcept;
+[[nodiscard]] const char* raw_bayer_denoise_mode_identity(RawBayerDenoiseMode mode) noexcept;
 
-[[nodiscard]] const char* raw_bayer_denoise_backend_identity(
-    RawBayerDenoiseBackend backend
-) noexcept;
+[[nodiscard]] const char*
+raw_bayer_denoise_backend_identity(RawBayerDenoiseBackend backend) noexcept;
 
-// Uses a per-CFA bilateral estimator only when the request makes that truthful: automatic mode
-// is intentionally limited to high-ISO detail/export work, while explicit conservative/robust
+// Uses a per-CFA bilateral estimator only when the request makes that truthful: automatic mode is
+// intentionally limited to high-ISO detail/export work, while explicit conservative/robust
 // requests are honored for both preview and full-resolution development. A validated numeric
 // sensor model is preferred; otherwise the stage uses its documented ISO-scaled fallback rather
-// than reading opaque provider calibration data.
-[[nodiscard]] RawBayerDenoiseResult denoise_bayer_raw_frame(
-    RawFrame frame,
-    const RawBayerDenoiseRequest& request
-);
+// than reading opaque provider calibration data. The public operation materializes a RawFrame;
+// the owned RawFrame developer may consume the same prepared semantics inside one resident Metal
+// transaction and records the identical backend-aware receipt.
+[[nodiscard]] RawBayerDenoiseResult
+denoise_bayer_raw_frame(RawFrame frame, const RawBayerDenoiseRequest& request);
 
 } // namespace shadow::image

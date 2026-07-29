@@ -80,6 +80,7 @@ add_library(
     src/raw/dcp_parser.cpp
     src/raw/fused_raw_development.cpp
     src/raw/raw_denoise.cpp
+    src/raw/raw_denoise_plan.cpp
     src/raw/raw_frame_source_development.cpp
     src/raw/raw_pipeline.cpp
     src/raw/sensor_clipping.cpp
@@ -114,6 +115,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             src/edit/metal_adjustment.mm
             src/raw/metal_dcp_color_encoding.mm
             src/raw/metal_dcp_color_rendering.mm
+            src/raw/metal_raw_denoise_encoding.mm
             src/raw/metal_raw_denoise.mm
             src/raw/metal_raw_reconstruction.mm
             src/raw/metal_raw_runtime.mm

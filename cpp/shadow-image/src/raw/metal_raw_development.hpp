@@ -5,6 +5,8 @@
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_frame.hpp>
 
+#include "raw_denoise_plan.hpp"
+
 #include <optional>
 #include <string>
 
@@ -16,6 +18,7 @@ namespace detail {
 
 struct MetalRawDevelopmentAttempt final {
     std::optional<FusedRawFrameDevelopment> development;
+    bool raw_denoise_applied = false;
     bool dcp_applied = false;
     std::string diagnostic;
 };
@@ -61,7 +64,8 @@ struct MetalDcpColorDevelopmentAttempt final {
     std::optional<std::uint32_t> preview_max_edge,
     RawHighlightRecoveryIntent highlight_recovery,
     RawDevelopmentQuality quality,
-    const DcpColorTransform* dcp_color_transform = nullptr
+    const DcpColorTransform* dcp_color_transform = nullptr,
+    const PreparedRawBayerDenoise* raw_denoise = nullptr
 );
 
 [[nodiscard]] MetalDcpColorDevelopmentAttempt try_apply_dcp_color_rendering_stages_metal(

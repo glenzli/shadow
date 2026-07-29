@@ -3,6 +3,7 @@
 
 #include "metal_dcp_color_encoding.hpp"
 #include "metal_raw_development.hpp"
+#include "metal_raw_denoise_encoding.hpp"
 #include "metal_raw_runtime.hpp"
 
 #include <algorithm>
@@ -188,7 +189,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const std::optional<std::uint32_t> preview_max_edge,
     const RawHighlightRecoveryIntent highlight_recovery,
     const RawDevelopmentQuality quality,
-    const DcpColorTransform* dcp_color_transform
+    const DcpColorTransform* dcp_color_transform,
+    const PreparedRawBayerDenoise* raw_denoise
 ) {
     if (!preview_max_edge.has_value() && quality == RawDevelopmentQuality::high) {
         return MetalRawDevelopmentAttempt{
@@ -226,6 +228,24 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             .development = std::nullopt,
             .diagnostic = "RAW sensor plane exceeds this Metal device's buffer limit",
         };
+    }
+    std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding;
+    if (raw_denoise != nullptr && raw_denoise->applied()) {
+        std::string diagnostic;
+        raw_denoise_encoding = MetalRawDenoiseEncoding::prepare(
+            frame,
+            raw_denoise->mode,
+            raw_denoise->iso_sensitivity,
+            diagnostic
+        );
+        if (!raw_denoise_encoding.has_value()) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = diagnostic.empty()
+                    ? "Metal could not prepare fused RAW denoise"
+                    : std::move(diagnostic),
+            };
+        }
     }
 
     const Dimensions output_dimensions = oriented_dimensions(
@@ -305,6 +325,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
 
     std::size_t gpu_resource_bytes = 0U;
     if (!checked_add(input_bytes, tile_buffer_bytes, gpu_resource_bytes)
+        || (raw_denoise_encoding
+            && !checked_add(
+                gpu_resource_bytes,
+                raw_denoise_encoding->sample_bytes(),
+                gpu_resource_bytes
+            ))
         || (dcp_encoding
             && !checked_add(
                 gpu_resource_bytes,
@@ -344,6 +370,19 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             return MetalRawDevelopmentAttempt{
                 .development = std::nullopt,
                 .diagnostic = "Metal could not allocate the RAW sensor buffer",
+            };
+        }
+        OwnedObjectiveCObject denoised_buffer(
+            raw_denoise_encoding
+                ? [metal_raw_device()
+                    newBufferWithLength:raw_denoise_encoding->sample_bytes()
+                    options:MTLResourceStorageModeShared]
+                : nil
+        );
+        if (raw_denoise_encoding && !denoised_buffer) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = "Metal could not allocate the resident denoised sensor plane",
             };
         }
         OwnedObjectiveCObject tile_buffer(
@@ -393,15 +432,40 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                 output_dimensions.height - first_row
             );
             id<MTLCommandBuffer> command_buffer = [metal_raw_command_queue() commandBuffer];
-            id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
-            if (command_buffer == nil || encoder == nil) {
+            if (command_buffer == nil) {
                 return MetalRawDevelopmentAttempt{
                     .development = std::nullopt,
                     .diagnostic = "Metal could not create a RAW compute command",
                 };
             }
+            if (first_row == 0U && raw_denoise_encoding) {
+                std::string diagnostic;
+                if (!raw_denoise_encoding->encode(
+                        command_buffer,
+                        static_cast<id<MTLBuffer>>(input_buffer.get()),
+                        static_cast<id<MTLBuffer>>(denoised_buffer.get()),
+                        diagnostic
+                    )) {
+                    return MetalRawDevelopmentAttempt{
+                        .development = std::nullopt,
+                        .diagnostic = diagnostic.empty()
+                            ? "Metal could not encode fused RAW denoise"
+                            : std::move(diagnostic),
+                    };
+                }
+            }
+            id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+            if (encoder == nil) {
+                return MetalRawDevelopmentAttempt{
+                    .development = std::nullopt,
+                    .diagnostic = "Metal could not create a RAW reconstruction command",
+                };
+            }
             [encoder setComputePipelineState:pipeline];
-            [encoder setBuffer:static_cast<id<MTLBuffer>>(input_buffer.get())
+            [encoder setBuffer:static_cast<id<MTLBuffer>>(
+                                   raw_denoise_encoding ? denoised_buffer.get()
+                                                        : input_buffer.get()
+                               )
                         offset:0U
                        atIndex:0U];
             [encoder setBuffer:static_cast<id<MTLBuffer>>(tile_buffer.get())
@@ -484,6 +548,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     }
     return MetalRawDevelopmentAttempt{
         .development = std::move(development),
+        .raw_denoise_applied = raw_denoise_encoding.has_value(),
         .dcp_applied = dcp_encoding != nullptr,
         .diagnostic = {},
     };
