@@ -15,6 +15,10 @@ ColumnLayout {
     required property var inspector
     required property int currentTabIndex
 
+    readonly property bool controlsEnabled:
+        retouch.inspector.editor.active
+        && !retouch.inspector.editor.stateBusy
+
     spacing: 0
 
     component RetouchRegionControls: ColumnLayout {
@@ -26,7 +30,10 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.leftMargin: 14
         Layout.rightMargin: 14
-        spacing: 3
+        Layout.topMargin: 8
+        Layout.bottomMargin: 4
+        enabled: retouch.controlsEnabled
+        spacing: 6
 
         function setMode(mode) {
             if (regionControls.continuous) {
@@ -70,37 +77,48 @@ ColumnLayout {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 4
+            spacing: 8
 
             Label {
                 Layout.fillWidth: true
                 text: qsTr("Region %1").arg(
                     regionControls.displayIndex + 1)
-                color: Theme.textSecondary
+                color: regionControls.enabled
+                    ? Theme.textSecondary : Theme.textDisabled
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
             }
 
-            ShadowButton {
-                compact: true
-                minimumButtonWidth: 42
-                text: qsTr("Heal")
+            ShadowIconButton {
+                buttonSize: 30
+                iconSize: 17
+                source: "qrc:/icons/heal.svg"
                 selected: Number(regionControls.region.mode) === 0
+                toolTipText: qsTr(
+                    "Blend a defect from its surrounding pixels")
+                accessibleName: qsTr("Heal") + " · "
+                    + qsTr("Region %1").arg(
+                        regionControls.displayIndex + 1)
                 onClicked: regionControls.setMode(0)
             }
 
-            ShadowButton {
-                compact: true
-                minimumButtonWidth: 45
-                text: qsTr("Clone")
+            ShadowIconButton {
+                buttonSize: 30
+                iconSize: 17
+                source: "qrc:/icons/clone.svg"
                 selected: Number(regionControls.region.mode) === 1
+                toolTipText: qsTr("Copy a same-shaped nearby source")
+                accessibleName: qsTr("Clone") + " · "
+                    + qsTr("Region %1").arg(
+                        regionControls.displayIndex + 1)
                 onClicked: regionControls.setMode(1)
             }
 
             ShadowIconButton {
-                buttonSize: 24
-                iconSize: 15
+                buttonSize: 30
+                iconSize: 16
                 source: "qrc:/icons/trash.svg"
+                variant: ShadowIconButton.Danger
                 toolTipText: qsTr("Remove region %1").arg(
                     regionControls.displayIndex + 1)
                 accessibleName: toolTipText
@@ -161,8 +179,10 @@ ColumnLayout {
             Layout.fillWidth: true
             visible: Number(regionControls.region.mode) === 1
             text: qsTr("Drag the linked source region on the image.")
-            color: Theme.textMuted
+            color: regionControls.enabled
+                ? Theme.textMuted : Theme.textDisabled
             font.pixelSize: 9
+            lineHeight: 1.2
         }
     }
 
@@ -175,62 +195,82 @@ ColumnLayout {
             ? qsTr("Painted")
             : qsTr("None")
         toolTipText: qsTr("Remove small distractions with a feathered heal or a nearby clone source.")
-        sectionEnabled: retouch.inspector.editor.active
-            && !retouch.inspector.editor.stateBusy
+        sectionEnabled: retouch.controlsEnabled
 
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            spacing: 6
+            Layout.topMargin: 4
+            spacing: 8
 
-            ShadowButton {
-                Layout.fillWidth: true
-                compact: true
-                text: qsTr("Heal")
+            ShadowIconButton {
+                buttonSize: 36
+                iconSize: 19
+                source: "qrc:/icons/heal.svg"
                 selected: retouch.inspector.editor.retouchCreationMode === 0
                 toolTipText: qsTr("Blend a defect from its surrounding pixels")
+                accessibleName: qsTr("Heal")
+                enabled: retouch.controlsEnabled
                 onClicked: {
                     retouch.inspector.editor.setRetouchCreationMode(0)
                     retouch.inspector.editor.setRetouchPickerActive(true)
                 }
             }
 
-            ShadowButton {
-                Layout.fillWidth: true
-                compact: true
-                text: qsTr("Clone")
+            ShadowIconButton {
+                buttonSize: 36
+                iconSize: 19
+                source: "qrc:/icons/clone.svg"
                 selected: retouch.inspector.editor.retouchCreationMode === 1
                 toolTipText: qsTr("Copy a same-shaped nearby source")
+                accessibleName: qsTr("Clone")
+                enabled: retouch.controlsEnabled
                 onClicked: {
                     retouch.inspector.editor.setRetouchCreationMode(1)
                     retouch.inspector.editor.setRetouchPickerActive(true)
                 }
             }
 
+            Rectangle {
+                Layout.preferredWidth: 1
+                Layout.preferredHeight: 22
+                color: Theme.border
+            }
+
             ShadowIconButton {
-                source: "qrc:/icons/retouch.svg"
+                buttonSize: 36
+                iconSize: 19
+                source: "qrc:/icons/brush.svg"
                 selected: retouch.inspector.editor.retouchPickerActive
                 toolTipText: retouch.inspector.editor.retouchPickerActive
                     ? qsTr("Stop painting")
                     : qsTr("Start painting")
                 accessibleName: toolTipText
+                enabled: retouch.controlsEnabled
                 onClicked: retouch.inspector.editor.setRetouchPickerActive(
                     !retouch.inspector.editor.retouchPickerActive)
             }
+
+            Item { Layout.fillWidth: true }
         }
 
         Label {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
+            Layout.topMargin: 6
+            Layout.bottomMargin: 10
             text: retouch.inspector.editor.retouchPickerActive
                 ? qsTr("Drag across the image to paint repair regions.")
                 : qsTr("Select a repair region on the image to refine it.")
-            color: retouch.inspector.editor.retouchPickerActive
-                ? Theme.accentTextMuted : Theme.textMuted
+            color: !retouch.controlsEnabled
+                ? Theme.textDisabled
+                : retouch.inspector.editor.retouchPickerActive
+                    ? Theme.accentTextMuted : Theme.textMuted
             font.pixelSize: 10
             wrapMode: Text.WordWrap
+            lineHeight: 1.25
         }
 
         Repeater {

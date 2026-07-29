@@ -125,7 +125,9 @@ ShadowAdjustmentSection {
         }
 
         ShadowIconButton {
-            source: "qrc:/icons/eyedropper.svg"
+            buttonSize: 36
+            iconSize: 19
+            source: "qrc:/icons/eyedropper-add.svg"
             selected: pointColorSection.editor.pointColorPickerActive
             enabled: pointColorSection.pickerAvailable
             toolTipText: qsTr("Add a Point Color sample from the image")
@@ -135,6 +137,8 @@ ShadowAdjustmentSection {
         }
 
         ShadowIconButton {
+            buttonSize: 36
+            iconSize: 18
             source: "qrc:/icons/trash.svg"
             variant: ShadowIconButton.Danger
             enabled: pointColorSection.editor.selectedPointColorIndex >= 0
@@ -150,15 +154,17 @@ ShadowAdjustmentSection {
         Layout.rightMargin: 14
         Layout.topMargin: 2
         Layout.bottomMargin: 2
-        spacing: 5
+        spacing: 8
 
         ShadowIconButton {
-            buttonSize: 24
-            iconSize: 15
+            buttonSize: 30
+            iconSize: 16
             source: "qrc:/icons/scopes.svg"
             selected: pointColorSection.editor.pointColorScopeActive
             toolTipText: qsTr("Sample a representative skin midtone, freeze its diagnostic pixels, and inspect shadow, midtone, and highlight alignment in the Vectorscope.")
-            accessibleName: toolTipText
+            accessibleName: selected
+                ? qsTr("SKIN REFERENCE LOCKED")
+                : qsTr("SKIN CHECK")
             onClicked: pointColorSection.toggleSkinCheck()
         }
 
@@ -262,7 +268,7 @@ ShadowAdjustmentSection {
 
             RowLayout {
                 visible: skinGuideNudge.nudgeAvailable
-                spacing: 2
+                spacing: 4
 
                 Label {
                     text: (skinGuideNudge.roundedHueNudge > 0 ? "+" : "")
@@ -273,8 +279,8 @@ ShadowAdjustmentSection {
                 }
 
                 ShadowIconButton {
-                    buttonSize: 24
-                    iconSize: 14
+                    buttonSize: 30
+                    iconSize: 16
                     source: "qrc:/icons/edit.svg"
                     enabled: !pointColorSection.editor.stateBusy
                     toolTipText: qsTr("Apply the guide direction as a limited starting hue correction for this Point Color. It is undoable and does not change the node mask or global color.")
