@@ -879,7 +879,7 @@ std::optional<WarmGpuNeighbourhoodStage> prepare_warm_gpu_neighbourhood_stage(
         if (retouch == nullptr) {
             return std::nullopt;
         }
-        auto stage = prepare_warm_retouch_clone_stage(
+        auto stage = prepare_warm_retouch_stage(
             *retouch,
             dimensions,
             level_zero_to_raster_scale_x,

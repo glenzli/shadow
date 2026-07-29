@@ -24,18 +24,21 @@ constexpr std::size_t poisson_iterations = 28U;
 constexpr double screening_weight = 4.0;
 
 [[noreturn]] void invalid_heal(const std::string& detail) {
-    throw EditError(EditErrorCode::invalid_parameter, std::nullopt,
-                    "spot-heal texture blending " + detail);
+    throw EditError(
+        EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "spot-heal texture blending " + detail
+    );
 }
 
-[[nodiscard]] std::size_t sample_index(const FloatRgbImage& image, const std::uint32_t x,
-                                       const std::uint32_t y) {
-    return static_cast<std::size_t>(y) * (image.row_stride_bytes / sizeof(float)) +
-           static_cast<std::size_t>(x) * rgb_channels;
+[[nodiscard]] std::size_t
+sample_index(const FloatRgbImage& image, const std::uint32_t x, const std::uint32_t y) {
+    return static_cast<std::size_t>(y) * (image.row_stride_bytes / sizeof(float))
+           + static_cast<std::size_t>(x) * rgb_channels;
 }
 
-[[nodiscard]] std::array<float, rgb_channels> sample_bilinear(const FloatRgbImage& image,
-                                                              const double x, const double y) {
+[[nodiscard]] std::array<float, rgb_channels>
+sample_bilinear(const FloatRgbImage& image, const double x, const double y) {
     const double clamped_x = std::clamp(x, 0.0, static_cast<double>(image.dimensions.width - 1U));
     const double clamped_y = std::clamp(y, 0.0, static_cast<double>(image.dimensions.height - 1U));
     const auto x0 = static_cast<std::uint32_t>(std::floor(clamped_x));
@@ -51,59 +54,89 @@ constexpr double screening_weight = 4.0;
 
     std::array<float, rgb_channels> result{};
     for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-        const double top =
-            std::lerp(static_cast<double>(image.samples[top_left + channel]),
-                      static_cast<double>(image.samples[top_right + channel]), blend_x);
-        const double bottom =
-            std::lerp(static_cast<double>(image.samples[bottom_left + channel]),
-                      static_cast<double>(image.samples[bottom_right + channel]), blend_x);
+        const double top = std::lerp(
+            static_cast<double>(image.samples[top_left + channel]),
+            static_cast<double>(image.samples[top_right + channel]),
+            blend_x
+        );
+        const double bottom = std::lerp(
+            static_cast<double>(image.samples[bottom_left + channel]),
+            static_cast<double>(image.samples[bottom_right + channel]),
+            blend_x
+        );
         result[channel] = static_cast<float>(std::lerp(top, bottom, blend_y));
     }
     return result;
 }
 
-[[nodiscard]] std::size_t local_index(const std::uint32_t x, const std::uint32_t y,
-                                      const std::uint32_t width) {
+[[nodiscard]] std::size_t
+local_index(const std::uint32_t x, const std::uint32_t y, const std::uint32_t width) {
     return static_cast<std::size_t>(y) * width + x;
 }
 
-[[nodiscard]] float robust_median(std::vector<float>& values) {
+[[nodiscard]] float robust_location(const std::vector<float>& values) {
     if (values.empty()) {
         return 0.0F;
     }
-    const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2U);
-    std::nth_element(values.begin(), middle, values.end());
-    const float upper = *middle;
-    if (values.size() % 2U != 0U) {
-        return upper;
+    const double sum = std::accumulate(
+        values.begin(),
+        values.end(),
+        0.0,
+        [](const double total, const float value) { return total + static_cast<double>(value); }
+    );
+    const double mean = sum / static_cast<double>(values.size());
+    double square_sum = 0.0;
+    for (const float value : values) {
+        const double delta = static_cast<double>(value) - mean;
+        square_sum = std::fma(delta, delta, square_sum);
     }
-    const float lower = *std::max_element(values.begin(), middle);
-    return std::midpoint(lower, upper);
+    const double standard_deviation = std::sqrt(square_sum / static_cast<double>(values.size()));
+    const double lower = mean - 2.5 * standard_deviation;
+    const double upper = mean + 2.5 * standard_deviation;
+    const double clipped_sum = std::accumulate(
+        values.begin(),
+        values.end(),
+        0.0,
+        [lower, upper](const double total, const float value) {
+            return total + std::clamp(static_cast<double>(value), lower, upper);
+        }
+    );
+    return static_cast<float>(clipped_sum / static_cast<double>(values.size()));
 }
 
-[[nodiscard]] bool covered(const std::span<const float> coverage, const std::uint32_t width,
-                           const std::uint32_t x, const std::uint32_t y) {
+[[nodiscard]] bool covered(
+    const std::span<const float> coverage,
+    const std::uint32_t width,
+    const std::uint32_t x,
+    const std::uint32_t y
+) {
     return coverage[local_index(x, y, width)] > minimum_coverage;
 }
 
 } // namespace
 
-void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
-                        const std::span<const float> coverage, const std::int64_t coverage_origin_x,
-                        const std::int64_t coverage_origin_y, const std::uint32_t coverage_width,
-                        const std::uint32_t coverage_height, const double source_offset_x_pixels,
-                        const double source_offset_y_pixels) {
+void apply_texture_heal(
+    FloatRgbImage& destination,
+    const FloatRgbImage& source,
+    const std::span<const float> coverage,
+    const std::int64_t coverage_origin_x,
+    const std::int64_t coverage_origin_y,
+    const std::uint32_t coverage_width,
+    const std::uint32_t coverage_height,
+    const double source_offset_x_pixels,
+    const double source_offset_y_pixels
+) {
     const std::uint64_t coverage_pixels =
         static_cast<std::uint64_t>(coverage_width) * coverage_height;
-    if (destination.dimensions != source.dimensions ||
-        destination.samples.size() != source.samples.size() || coverage_width == 0U ||
-        coverage_height == 0U || coverage_pixels != coverage.size() || coverage_origin_x < 0 ||
-        coverage_origin_y < 0 ||
-        static_cast<std::uint64_t>(coverage_origin_x) + coverage_width >
-            destination.dimensions.width ||
-        static_cast<std::uint64_t>(coverage_origin_y) + coverage_height >
-            destination.dimensions.height ||
-        !std::isfinite(source_offset_x_pixels) || !std::isfinite(source_offset_y_pixels)) {
+    if (destination.dimensions != source.dimensions
+        || destination.samples.size() != source.samples.size() || coverage_width == 0U
+        || coverage_height == 0U || coverage_pixels != coverage.size() || coverage_origin_x < 0
+        || coverage_origin_y < 0
+        || static_cast<std::uint64_t>(coverage_origin_x) + coverage_width
+               > destination.dimensions.width
+        || static_cast<std::uint64_t>(coverage_origin_y) + coverage_height
+               > destination.dimensions.height
+        || !std::isfinite(source_offset_x_pixels) || !std::isfinite(source_offset_y_pixels)) {
         invalid_heal("received an invalid source or coverage layout");
     }
 
@@ -124,9 +157,11 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
             const auto raster_x = static_cast<std::uint32_t>(coverage_origin_x + local_x);
             const auto raster_y = static_cast<std::uint32_t>(coverage_origin_y + local_y);
             const std::size_t pixel = local_index(local_x, local_y, coverage_width);
-            const auto donor_sample =
-                sample_bilinear(source, static_cast<double>(raster_x) + source_offset_x_pixels,
-                                static_cast<double>(raster_y) + source_offset_y_pixels);
+            const auto donor_sample = sample_bilinear(
+                source,
+                static_cast<double>(raster_x) + source_offset_x_pixels,
+                static_cast<double>(raster_y) + source_offset_y_pixels
+            );
             const std::size_t raster_sample = sample_index(source, raster_x, raster_y);
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 donor[pixel * rgb_channels + channel] = donor_sample[channel];
@@ -140,12 +175,12 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
                 continue;
             }
             const bool boundary =
-                (local_x > 0U && covered(coverage, coverage_width, local_x - 1U, local_y)) ||
-                (local_x + 1U < coverage_width &&
-                 covered(coverage, coverage_width, local_x + 1U, local_y)) ||
-                (local_y > 0U && covered(coverage, coverage_width, local_x, local_y - 1U)) ||
-                (local_y + 1U < coverage_height &&
-                 covered(coverage, coverage_width, local_x, local_y + 1U));
+                (local_x > 0U && covered(coverage, coverage_width, local_x - 1U, local_y))
+                || (local_x + 1U < coverage_width
+                    && covered(coverage, coverage_width, local_x + 1U, local_y))
+                || (local_y > 0U && covered(coverage, coverage_width, local_x, local_y - 1U))
+                || (local_y + 1U < coverage_height
+                    && covered(coverage, coverage_width, local_x, local_y + 1U));
             if (!boundary) {
                 continue;
             }
@@ -160,8 +195,8 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
     }
     std::array<float, rgb_channels> boundary_shift{};
     for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-        boundary_shift[channel] = robust_median(target_boundary_samples[channel]) -
-                                  robust_median(donor_region_samples[channel]);
+        boundary_shift[channel] = robust_location(target_boundary_samples[channel])
+                                  - robust_location(donor_region_samples[channel]);
     }
     for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
         for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
@@ -176,6 +211,7 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
         {{0, -1}},
         {{0, 1}},
     }};
+    std::vector<float> next_solution = solution;
     for (std::size_t iteration = 0U; iteration < poisson_iterations; ++iteration) {
         for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
             for (std::uint32_t local_x = 0U; local_x < coverage_width; ++local_x) {
@@ -192,9 +228,9 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
                             static_cast<std::int64_t>(local_x) + neighbor[0];
                         const std::int64_t neighbor_y =
                             static_cast<std::int64_t>(local_y) + neighbor[1];
-                        if (neighbor_x < 0 || neighbor_y < 0 ||
-                            neighbor_x >= static_cast<std::int64_t>(coverage_width) ||
-                            neighbor_y >= static_cast<std::int64_t>(coverage_height)) {
+                        if (neighbor_x < 0 || neighbor_y < 0
+                            || neighbor_x >= static_cast<std::int64_t>(coverage_width)
+                            || neighbor_y >= static_cast<std::int64_t>(coverage_height)) {
                             continue;
                         }
                         const auto adjacent_x = static_cast<std::uint32_t>(neighbor_x);
@@ -210,32 +246,35 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
                                 static_cast<std::uint32_t>(coverage_origin_x + adjacent_x);
                             const auto adjacent_raster_y =
                                 static_cast<std::uint32_t>(coverage_origin_y + adjacent_y);
-                            neighbor_sum += source.samples[sample_index(source, adjacent_raster_x,
-                                                                        adjacent_raster_y) +
-                                                           channel];
+                            neighbor_sum +=
+                                source.samples
+                                    [sample_index(source, adjacent_raster_x, adjacent_raster_y)
+                                     + channel];
                         }
                         donor_laplacian +=
-                            static_cast<double>(donor[pixel * rgb_channels + channel]) -
-                            static_cast<double>(donor[adjacent * rgb_channels + channel]);
+                            static_cast<double>(donor[pixel * rgb_channels + channel])
+                            - static_cast<double>(donor[adjacent * rgb_channels + channel]);
                         ++neighbor_count;
                     }
                     if (neighbor_count == 0U) {
                         continue;
                     }
-                    const double value =
-                        (neighbor_sum + donor_laplacian +
-                         screening_weight *
-                             static_cast<double>(screened_target[pixel * rgb_channels + channel])) /
-                        (static_cast<double>(neighbor_count) + screening_weight);
-                    if (!std::isfinite(value) ||
-                        value < static_cast<double>(std::numeric_limits<float>::lowest()) ||
-                        value > static_cast<double>(std::numeric_limits<float>::max())) {
+                    const double value = (neighbor_sum + donor_laplacian
+                                          + screening_weight
+                                                * static_cast<double>(
+                                                    screened_target[pixel * rgb_channels + channel]
+                                                ))
+                                         / (static_cast<double>(neighbor_count) + screening_weight);
+                    if (!std::isfinite(value)
+                        || value < static_cast<double>(std::numeric_limits<float>::lowest())
+                        || value > static_cast<double>(std::numeric_limits<float>::max())) {
                         invalid_heal("produced a non-finite gradient-domain sample");
                     }
-                    solution[pixel * rgb_channels + channel] = static_cast<float>(value);
+                    next_solution[pixel * rgb_channels + channel] = static_cast<float>(value);
                 }
             }
         }
+        solution.swap(next_solution);
     }
 
     for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
@@ -251,7 +290,9 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 destination.samples[raster_sample + channel] = static_cast<float>(std::lerp(
                     static_cast<double>(source.samples[raster_sample + channel]),
-                    static_cast<double>(solution[pixel * rgb_channels + channel]), alpha));
+                    static_cast<double>(solution[pixel * rgb_channels + channel]),
+                    alpha
+                ));
             }
         }
     }

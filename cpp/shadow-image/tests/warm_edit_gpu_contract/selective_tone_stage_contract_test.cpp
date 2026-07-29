@@ -145,26 +145,6 @@ void resident_gpu_selective_tone_is_complete_or_declines() {
             "composed neighbourhood stages preserve CPU operation order and numerical parity"
         );
     }
-
-    composed.push_back(
-        image::AdjustmentNode{
-            .node_id = "unsupported-retouch-stage",
-            .parameters = image::SpotHealAdjustment{
-                .spots = {{
-                    .center_x = 0.5,
-                    .center_y = 0.5,
-                    .radius_level_zero_pixels = 2U,
-                }},
-            },
-        }
-    );
-    const auto unsupported_plan = image::compile_edit_execution_plan(composed);
-    const auto unsupported = preparation.session->render(composed, unsupported_plan, false);
-    expect(
-        unsupported.status == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value() && !unsupported.diagnostic.empty(),
-        "one unsupported neighbourhood stage still declines the complete GPU transaction"
-    );
 }
 
 template <typename Callable>

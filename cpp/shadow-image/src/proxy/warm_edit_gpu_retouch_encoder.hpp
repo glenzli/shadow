@@ -6,13 +6,13 @@
 
 namespace shadow::image::detail {
 
-[[nodiscard]] id<MTLBuffer> encode_warm_retouch_clone_stage(
+[[nodiscard]] id<MTLBuffer> encode_warm_retouch_stage(
     id<MTLComputeCommandEncoder> encoder,
     WarmMetalContext& context,
     const WarmGpuResidentLayout& layout,
     const WarmGpuSlotBuffers& slot,
     id<MTLBuffer> input,
-    const WarmRetouchCloneStage& stage,
+    const WarmRetouchStage& stage,
     id<MTLBuffer> geometry
 );
 

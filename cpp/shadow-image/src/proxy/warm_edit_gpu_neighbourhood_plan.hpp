@@ -76,7 +76,7 @@ struct WarmSelectiveToneStage final {
 };
 
 using WarmGpuNeighbourhoodStage = std::variant<
-    WarmRetouchCloneStage,
+    WarmRetouchStage,
     WarmTechnicalDetailStage,
     WarmTextureClarityStage,
     WarmLocalContrastStage,

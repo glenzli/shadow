@@ -35,7 +35,15 @@ WarmMetalContext::WarmMetalContext() {
         MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
         options.mathMode = MTLMathModeSafe;
         NSError* error = nil;
-        const std::string metal_source = make_metal_adjustment_source(warm_kernel_source);
+        std::string warm_source;
+        warm_source.reserve(
+            warm_kernel_source_prefix.size() + warm_retouch_kernel_source.size()
+            + warm_kernel_source_suffix.size()
+        );
+        warm_source.append(warm_kernel_source_prefix);
+        warm_source.append(warm_retouch_kernel_source);
+        warm_source.append(warm_kernel_source_suffix);
+        const std::string metal_source = make_metal_adjustment_source(warm_source);
         NSString* source = [[NSString alloc] initWithBytes:metal_source.data()
                                                     length:metal_source.size()
                                                   encoding:NSUTF8StringEncoding];
@@ -305,13 +313,28 @@ WarmMetalContext::WarmMetalContext() {
             [library newFunctionWithName:@"warm_layer_blend_v1"];
         id<MTLFunction> retouch_clone_function =
             [library newFunctionWithName:@"warm_retouch_clone_v1"];
+        id<MTLFunction> retouch_heal_statistics_function =
+            [library newFunctionWithName:@"warm_retouch_heal_statistics_v1"];
+        id<MTLFunction> retouch_heal_reduce_function =
+            [library newFunctionWithName:@"warm_retouch_heal_reduce_v1"];
+        id<MTLFunction> retouch_heal_initialize_function =
+            [library newFunctionWithName:@"warm_retouch_heal_initialize_v1"];
+        id<MTLFunction> retouch_heal_jacobi_function =
+            [library newFunctionWithName:@"warm_retouch_heal_jacobi_v1"];
+        id<MTLFunction> retouch_heal_blend_function =
+            [library newFunctionWithName:@"warm_retouch_heal_blend_v1"];
         if (box_horizontal_function == nil || box_vertical_function == nil ||
             scalar_square_function == nil || guided_coefficients_function == nil ||
             guided_combine_function == nil || selective_tone_guide_function == nil
             || reflect_box_horizontal_function == nil ||
             reflect_box_vertical_function == nil || selective_tone_apply_function == nil ||
             layer_copy_function == nil || layer_blend_function == nil
-            || retouch_clone_function == nil) {
+            || retouch_clone_function == nil
+            || retouch_heal_statistics_function == nil
+            || retouch_heal_reduce_function == nil
+            || retouch_heal_initialize_function == nil
+            || retouch_heal_jacobi_function == nil
+            || retouch_heal_blend_function == nil) {
             [box_horizontal_function release];
             [box_vertical_function release];
             [scalar_square_function release];
@@ -324,6 +347,11 @@ WarmMetalContext::WarmMetalContext() {
             [layer_copy_function release];
             [layer_blend_function release];
             [retouch_clone_function release];
+            [retouch_heal_statistics_function release];
+            [retouch_heal_reduce_function release];
+            [retouch_heal_initialize_function release];
+            [retouch_heal_jacobi_function release];
+            [retouch_heal_blend_function release];
             [library release];
             diagnostic_ =
                 "Metal warm-preview guided-stage shader entry point is unavailable";
@@ -369,13 +397,38 @@ WarmMetalContext::WarmMetalContext() {
         retouch_clone_pipeline_ =
             [device_ newComputePipelineStateWithFunction:retouch_clone_function error:&error];
         [retouch_clone_function release];
+        retouch_heal_statistics_pipeline_ = [device_
+            newComputePipelineStateWithFunction:retouch_heal_statistics_function
+            error:&error];
+        [retouch_heal_statistics_function release];
+        retouch_heal_reduce_pipeline_ = [device_
+            newComputePipelineStateWithFunction:retouch_heal_reduce_function
+            error:&error];
+        [retouch_heal_reduce_function release];
+        retouch_heal_initialize_pipeline_ = [device_
+            newComputePipelineStateWithFunction:retouch_heal_initialize_function
+            error:&error];
+        [retouch_heal_initialize_function release];
+        retouch_heal_jacobi_pipeline_ = [device_
+            newComputePipelineStateWithFunction:retouch_heal_jacobi_function
+            error:&error];
+        [retouch_heal_jacobi_function release];
+        retouch_heal_blend_pipeline_ = [device_
+            newComputePipelineStateWithFunction:retouch_heal_blend_function
+            error:&error];
+        [retouch_heal_blend_function release];
         [library release];
         if (box_horizontal_pipeline_ == nil || box_vertical_pipeline_ == nil ||
             scalar_square_pipeline_ == nil || guided_coefficients_pipeline_ == nil ||
             guided_combine_pipeline_ == nil || selective_tone_guide_pipeline_ == nil ||
             reflect_box_horizontal_pipeline_ == nil || reflect_box_vertical_pipeline_ == nil ||
             selective_tone_apply_pipeline_ == nil || layer_copy_pipeline_ == nil ||
-            layer_blend_pipeline_ == nil || retouch_clone_pipeline_ == nil) {
+            layer_blend_pipeline_ == nil || retouch_clone_pipeline_ == nil
+            || retouch_heal_statistics_pipeline_ == nil
+            || retouch_heal_reduce_pipeline_ == nil
+            || retouch_heal_initialize_pipeline_ == nil
+            || retouch_heal_jacobi_pipeline_ == nil
+            || retouch_heal_blend_pipeline_ == nil) {
             diagnostic_ = "Metal warm-preview guided/layer pipeline creation failed: " +
                           error_description(error);
         }
@@ -383,6 +436,11 @@ WarmMetalContext::WarmMetalContext() {
 }
 
 WarmMetalContext::~WarmMetalContext() {
+    [retouch_heal_blend_pipeline_ release];
+    [retouch_heal_jacobi_pipeline_ release];
+    [retouch_heal_initialize_pipeline_ release];
+    [retouch_heal_reduce_pipeline_ release];
+    [retouch_heal_statistics_pipeline_ release];
     [retouch_clone_pipeline_ release];
     [layer_blend_pipeline_ release];
     [layer_copy_pipeline_ release];
@@ -416,6 +474,11 @@ bool WarmMetalContext::valid() const noexcept {
     return device_ != nil && queue_ != nil && display_pipeline_ != nil &&
            adjustment_pipeline_ != nil && layer_copy_pipeline_ != nil &&
            layer_blend_pipeline_ != nil && retouch_clone_pipeline_ != nil &&
+           retouch_heal_statistics_pipeline_ != nil
+           && retouch_heal_reduce_pipeline_ != nil
+           && retouch_heal_initialize_pipeline_ != nil
+           && retouch_heal_jacobi_pipeline_ != nil
+           && retouch_heal_blend_pipeline_ != nil &&
            denoise_pipeline_ != nil &&
            sharpen_log_pipeline_ != nil && sharpen_horizontal_pipeline_ != nil &&
            sharpen_apply_pipeline_ != nil && texture_lightness_pipeline_ != nil &&
@@ -451,6 +514,31 @@ id<MTLComputePipelineState> WarmMetalContext::layer_blend_pipeline() const noexc
 
 id<MTLComputePipelineState> WarmMetalContext::retouch_clone_pipeline() const noexcept {
     return retouch_clone_pipeline_;
+}
+
+id<MTLComputePipelineState>
+WarmMetalContext::retouch_heal_statistics_pipeline() const noexcept {
+    return retouch_heal_statistics_pipeline_;
+}
+
+id<MTLComputePipelineState>
+WarmMetalContext::retouch_heal_reduce_pipeline() const noexcept {
+    return retouch_heal_reduce_pipeline_;
+}
+
+id<MTLComputePipelineState>
+WarmMetalContext::retouch_heal_initialize_pipeline() const noexcept {
+    return retouch_heal_initialize_pipeline_;
+}
+
+id<MTLComputePipelineState>
+WarmMetalContext::retouch_heal_jacobi_pipeline() const noexcept {
+    return retouch_heal_jacobi_pipeline_;
+}
+
+id<MTLComputePipelineState>
+WarmMetalContext::retouch_heal_blend_pipeline() const noexcept {
+    return retouch_heal_blend_pipeline_;
 }
 
 id<MTLComputePipelineState> WarmMetalContext::denoise_pipeline() const noexcept {

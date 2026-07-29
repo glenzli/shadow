@@ -102,7 +102,12 @@ static_assert(sizeof(WarmBrushCellRange) == 8U);
 // already expressed in the current raster's pixel coordinates. One compact grid is prepared per
 // authored region so a clone kernel can preserve sequential source-snapshot semantics without
 // scanning every point of a long stroke at every pixel.
-struct WarmRetouchCloneParameters final {
+enum class WarmRetouchMode : std::uint32_t {
+    clone = 0U,
+    heal = 1U,
+};
+
+struct WarmRetouchRegionParameters final {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
     std::uint32_t input_row_floats = 0U;
@@ -115,12 +120,16 @@ struct WarmRetouchCloneParameters final {
     std::uint32_t grid_rows = 0U;
     std::uint32_t capsule_count = 0U;
     std::uint32_t reference_count = 0U;
+    WarmRetouchMode mode = WarmRetouchMode::clone;
+    std::uint32_t statistics_group_count = 0U;
+    std::uint32_t poisson_iterations = 0U;
+    std::uint32_t robust_pass = 0U;
     float radius_x = 1.0F;
     float radius_y = 1.0F;
     float donor_offset_x = 0.0F;
     float donor_offset_y = 0.0F;
     float feather = 0.0F;
-    float reserved_1 = 0.0F;
+    float screening_weight = 4.0F;
     float reserved_2 = 0.0F;
     float reserved_3 = 0.0F;
 };
@@ -141,10 +150,18 @@ struct WarmRetouchWord final {
     std::uint32_t value = 0U;
 };
 
-static_assert(sizeof(WarmRetouchCloneParameters) == 80U);
+struct WarmRetouchStatistics final {
+    std::array<float, 4U> donor_sum_count{};
+    std::array<float, 4U> boundary_sum_count{};
+    std::array<float, 4U> donor_square_sum{};
+    std::array<float, 4U> boundary_square_sum{};
+};
+
+static_assert(sizeof(WarmRetouchRegionParameters) == 96U);
 static_assert(sizeof(WarmRetouchCapsule) == 16U);
 static_assert(sizeof(WarmRetouchCellRange) == 8U);
 static_assert(sizeof(WarmRetouchWord) == 4U);
+static_assert(sizeof(WarmRetouchStatistics) == 64U);
 
 // Capture sharpening is evaluated in log luminance, matching the CPU technical-detail
 // contract. The two scalar buffers required by its separable Gaussian stay resident beside the
@@ -286,10 +303,11 @@ static_assert(warm_kernel_record<WarmStatus>);
 static_assert(warm_kernel_record<WarmLayerBlendParameters>);
 static_assert(warm_kernel_record<WarmBrushCapsule>);
 static_assert(warm_kernel_record<WarmBrushCellRange>);
-static_assert(warm_kernel_record<WarmRetouchCloneParameters>);
+static_assert(warm_kernel_record<WarmRetouchRegionParameters>);
 static_assert(warm_kernel_record<WarmRetouchCapsule>);
 static_assert(warm_kernel_record<WarmRetouchCellRange>);
 static_assert(warm_kernel_record<WarmRetouchWord>);
+static_assert(warm_kernel_record<WarmRetouchStatistics>);
 static_assert(warm_kernel_record<WarmDenoiseParameters>);
 static_assert(warm_kernel_record<WarmSharpenParameters>);
 static_assert(warm_kernel_record<WarmTextureParameters>);
@@ -306,10 +324,11 @@ static_assert(alignof(WarmStatus) == alignof(std::uint32_t));
 static_assert(alignof(WarmLayerBlendParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCapsule) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCellRange) == alignof(std::uint32_t));
-static_assert(alignof(WarmRetouchCloneParameters) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchRegionParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmRetouchCapsule) == alignof(std::uint32_t));
 static_assert(alignof(WarmRetouchCellRange) == alignof(std::uint32_t));
 static_assert(alignof(WarmRetouchWord) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchStatistics) == alignof(std::uint32_t));
 static_assert(alignof(WarmDenoiseParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmSharpenParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmTextureParameters) == alignof(std::uint32_t));
@@ -327,10 +346,11 @@ static_assert(offsetof(WarmStatus, earliest_step) == 4U);
 static_assert(offsetof(WarmLayerBlendParameters, full_width) == 24U);
 static_assert(offsetof(WarmLayerBlendParameters, opacity) == 40U);
 static_assert(offsetof(WarmLayerBlendParameters, brush_grid_columns) == 72U);
-static_assert(offsetof(WarmRetouchCloneParameters, bounds_origin_x) == 16U);
-static_assert(offsetof(WarmRetouchCloneParameters, grid_columns) == 32U);
-static_assert(offsetof(WarmRetouchCloneParameters, radius_x) == 48U);
-static_assert(offsetof(WarmRetouchCloneParameters, feather) == 64U);
+static_assert(offsetof(WarmRetouchRegionParameters, bounds_origin_x) == 16U);
+static_assert(offsetof(WarmRetouchRegionParameters, grid_columns) == 32U);
+static_assert(offsetof(WarmRetouchRegionParameters, mode) == 48U);
+static_assert(offsetof(WarmRetouchRegionParameters, radius_x) == 64U);
+static_assert(offsetof(WarmRetouchRegionParameters, feather) == 80U);
 static_assert(offsetof(WarmDenoiseParameters, luminance_strength) == 16U);
 static_assert(offsetof(WarmDenoiseParameters, red_luminance) == 32U);
 static_assert(offsetof(WarmSharpenParameters, sigma_x) == 16U);

@@ -4,7 +4,7 @@
 
 namespace shadow::image::detail {
 
-inline constexpr std::string_view warm_kernel_source = R"METAL(
+inline constexpr std::string_view warm_kernel_source_prefix = R"METAL(
 struct WarmDisplayParameters {
     uint output_origin_x;
     uint output_origin_y;
@@ -49,7 +49,7 @@ struct WarmBrushCellRange {
     uint count;
 };
 
-struct WarmRetouchCloneParameters {
+struct WarmRetouchRegionParameters {
     uint width;
     uint height;
     uint input_row_floats;
@@ -62,12 +62,16 @@ struct WarmRetouchCloneParameters {
     uint grid_rows;
     uint capsule_count;
     uint reference_count;
+    uint mode;
+    uint statistics_group_count;
+    uint poisson_iterations;
+    uint robust_pass;
     float radius_x;
     float radius_y;
     float donor_offset_x;
     float donor_offset_y;
     float feather;
-    float reserved_1;
+    float screening_weight;
     float reserved_2;
     float reserved_3;
 };
@@ -82,6 +86,13 @@ struct WarmRetouchCapsule {
 struct WarmRetouchCellRange {
     uint offset;
     uint count;
+};
+
+struct WarmRetouchStatistics {
+    float4 donor_sum_count;
+    float4 boundary_sum_count;
+    float4 donor_square_sum;
+    float4 boundary_square_sum;
 };
 
 // This first Metal neighbourhood stage deliberately keeps the working image in scene-linear
@@ -604,6 +615,12 @@ kernel void warm_layer_blend_v1(
     after[index + 2u] = mixed.z;
 }
 
+)METAL";
+
+// Repair/Clone is a distinct runtime-compiled language module. Keeping its fragment separate
+// prevents the general warm-adjustment source from becoming one over-limit string literal and
+// gives retouch kernels one searchable semantic owner even though all fragments share a library.
+inline constexpr std::string_view warm_retouch_kernel_source = R"METAL(
 inline float warm_retouch_capsule_distance(
     float2 point,
     WarmRetouchCapsule capsule,
@@ -623,7 +640,7 @@ inline float warm_retouch_capsule_distance(
 inline float3 warm_retouch_sample_bilinear(
     device const float* input,
     float2 point,
-    constant WarmRetouchCloneParameters& parameters
+    constant WarmRetouchRegionParameters& parameters
 ) {
     const float x = clamp(point.x, 0.0f, float(parameters.width - 1u));
     const float y = clamp(point.y, 0.0f, float(parameters.height - 1u));
@@ -654,10 +671,75 @@ inline float3 warm_retouch_sample_bilinear(
     return mix(top, bottom, blend_y);
 }
 
+inline float warm_retouch_coverage(
+    int2 signed_position,
+    constant WarmRetouchRegionParameters& parameters,
+    device const WarmRetouchCapsule* capsules,
+    device const WarmRetouchCellRange* cells,
+    device const uint* references
+) {
+    if (signed_position.x < 0 || signed_position.y < 0
+        || signed_position.x >= int(parameters.width)
+        || signed_position.y >= int(parameters.height)) {
+        return 0.0f;
+    }
+    const uint2 position = uint2(signed_position);
+    const bool inside_bounds =
+        position.x >= parameters.bounds_origin_x
+        && position.y >= parameters.bounds_origin_y
+        && position.x - parameters.bounds_origin_x < parameters.bounds_width
+        && position.y - parameters.bounds_origin_y < parameters.bounds_height;
+    if (!inside_bounds) {
+        return 0.0f;
+    }
+    if (parameters.grid_columns == 0u || parameters.grid_rows == 0u
+        || parameters.capsule_count == 0u
+        || !(parameters.radius_x > 0.0f) || !(parameters.radius_y > 0.0f)) {
+        return -1.0f;
+    }
+    const uint local_x = position.x - parameters.bounds_origin_x;
+    const uint local_y = position.y - parameters.bounds_origin_y;
+    const uint column = min(
+        local_x * parameters.grid_columns / parameters.bounds_width,
+        parameters.grid_columns - 1u
+    );
+    const uint row = min(
+        local_y * parameters.grid_rows / parameters.bounds_height,
+        parameters.grid_rows - 1u
+    );
+    const WarmRetouchCellRange range =
+        cells[row * parameters.grid_columns + column];
+    if (range.offset > parameters.reference_count
+        || range.count > parameters.reference_count - range.offset) {
+        return -1.0f;
+    }
+    float distance = 3.402823466e+38f;
+    for (uint candidate = 0u; candidate < range.count; ++candidate) {
+        const uint capsule_index = references[range.offset + candidate];
+        if (capsule_index >= parameters.capsule_count) {
+            return -1.0f;
+        }
+        distance = min(
+            distance,
+            warm_retouch_capsule_distance(
+                float2(position),
+                capsules[capsule_index],
+                float2(parameters.radius_x, parameters.radius_y)
+            )
+        );
+    }
+    if (distance > 1.0f) {
+        return 0.0f;
+    }
+    return parameters.feather <= 0.0f
+        ? 1.0f
+        : 1.0f - smoothstep(1.0f - parameters.feather, 1.0f, distance);
+}
+
 kernel void warm_retouch_clone_v1(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
-    constant WarmRetouchCloneParameters& parameters [[buffer(2)]],
+    constant WarmRetouchRegionParameters& parameters [[buffer(2)]],
     device MetalAdjustmentStatus& status [[buffer(3)]],
     device const WarmRetouchCapsule* capsules [[buffer(4)]],
     device const WarmRetouchCellRange* cells [[buffer(5)]],
@@ -676,57 +758,16 @@ kernel void warm_retouch_clone_v1(
         input[input_index + 1u],
         input[input_index + 2u]
     );
-    float coverage = 0.0f;
-    const bool inside_bounds =
-        position.x >= parameters.bounds_origin_x
-        && position.y >= parameters.bounds_origin_y
-        && position.x - parameters.bounds_origin_x < parameters.bounds_width
-        && position.y - parameters.bounds_origin_y < parameters.bounds_height;
-    if (inside_bounds) {
-        if (parameters.grid_columns == 0u || parameters.grid_rows == 0u
-            || parameters.capsule_count == 0u
-            || !(parameters.radius_x > 0.0f) || !(parameters.radius_y > 0.0f)) {
-            report_adjustment_failure(status, status_bad_resource, 0u);
-            return;
-        }
-        const uint local_x = position.x - parameters.bounds_origin_x;
-        const uint local_y = position.y - parameters.bounds_origin_y;
-        const uint column = min(
-            local_x * parameters.grid_columns / parameters.bounds_width,
-            parameters.grid_columns - 1u
-        );
-        const uint row = min(
-            local_y * parameters.grid_rows / parameters.bounds_height,
-            parameters.grid_rows - 1u
-        );
-        const WarmRetouchCellRange range =
-            cells[row * parameters.grid_columns + column];
-        if (range.offset > parameters.reference_count
-            || range.count > parameters.reference_count - range.offset) {
-            report_adjustment_failure(status, status_bad_resource, 0u);
-            return;
-        }
-        float distance = 3.402823466e+38f;
-        for (uint candidate = 0u; candidate < range.count; ++candidate) {
-            const uint capsule_index = references[range.offset + candidate];
-            if (capsule_index >= parameters.capsule_count) {
-                report_adjustment_failure(status, status_bad_resource, 0u);
-                return;
-            }
-            distance = min(
-                distance,
-                warm_retouch_capsule_distance(
-                    float2(position),
-                    capsules[capsule_index],
-                    float2(parameters.radius_x, parameters.radius_y)
-                )
-            );
-        }
-        if (distance <= 1.0f) {
-            coverage = parameters.feather <= 0.0f
-                ? 1.0f
-                : 1.0f - smoothstep(1.0f - parameters.feather, 1.0f, distance);
-        }
+    const float coverage = warm_retouch_coverage(
+        int2(position),
+        parameters,
+        capsules,
+        cells,
+        references
+    );
+    if (coverage < 0.0f) {
+        report_adjustment_failure(status, status_bad_resource, 0u);
+        return;
     }
     float3 result = original;
     if (coverage > 0.0f) {
@@ -747,6 +788,418 @@ kernel void warm_retouch_clone_v1(
     output[output_index + 2u] = result.z;
 }
 
+kernel void warm_retouch_heal_statistics_v1(
+    device const float* source [[buffer(0)]],
+    constant WarmRetouchRegionParameters& parameters [[buffer(1)]],
+    device MetalAdjustmentStatus& status [[buffer(2)]],
+    device const WarmRetouchCapsule* capsules [[buffer(3)]],
+    device const WarmRetouchCellRange* cells [[buffer(4)]],
+    device const uint* references [[buffer(5)]],
+    device WarmRetouchStatistics* partials [[buffer(6)]],
+    device const WarmRetouchStatistics& summary [[buffer(7)]],
+    uint index [[thread_position_in_grid]],
+    uint group_index [[threadgroup_position_in_grid]],
+    ushort lane [[thread_index_in_threadgroup]],
+    ushort group_size [[threads_per_threadgroup]]
+) {
+    threadgroup float4 donor_values[256];
+    threadgroup float4 boundary_values[256];
+    threadgroup float4 donor_squares[256];
+    threadgroup float4 boundary_squares[256];
+    float4 donor = float4(0.0f);
+    float4 boundary = float4(0.0f);
+    float4 donor_square = float4(0.0f);
+    float4 boundary_square = float4(0.0f);
+    const uint pixel_count = parameters.bounds_width * parameters.bounds_height;
+    if (index < pixel_count) {
+        const uint2 position = uint2(
+            parameters.bounds_origin_x + index % parameters.bounds_width,
+            parameters.bounds_origin_y + index / parameters.bounds_width
+        );
+        const float coverage = warm_retouch_coverage(
+            int2(position),
+            parameters,
+            capsules,
+            cells,
+            references
+        );
+        if (coverage < 0.0f) {
+            report_adjustment_failure(status, status_bad_resource, 0u);
+        } else {
+            const float minimum_coverage = 1.0e-4f;
+            const float3 donor_sample = warm_retouch_sample_bilinear(
+                source,
+                float2(position)
+                    + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+                parameters
+            );
+            if (coverage > minimum_coverage) {
+                float3 retained = donor_sample;
+                if (parameters.robust_pass != 0u && summary.donor_sum_count.w > 0.0f) {
+                    retained = clamp(
+                        retained,
+                        summary.donor_sum_count.xyz
+                            - 2.5f * summary.donor_square_sum.xyz,
+                        summary.donor_sum_count.xyz
+                            + 2.5f * summary.donor_square_sum.xyz
+                    );
+                }
+                donor = float4(retained, 1.0f);
+                donor_square = float4(retained * retained, 0.0f);
+            } else {
+                const int2 signed_position = int2(position);
+                const float left = warm_retouch_coverage(
+                    signed_position + int2(-1, 0),
+                    parameters,
+                    capsules,
+                    cells,
+                    references
+                );
+                const float right = warm_retouch_coverage(
+                    signed_position + int2(1, 0),
+                    parameters,
+                    capsules,
+                    cells,
+                    references
+                );
+                const float up = warm_retouch_coverage(
+                    signed_position + int2(0, -1),
+                    parameters,
+                    capsules,
+                    cells,
+                    references
+                );
+                const float down = warm_retouch_coverage(
+                    signed_position + int2(0, 1),
+                    parameters,
+                    capsules,
+                    cells,
+                    references
+                );
+                if (min(min(left, right), min(up, down)) < 0.0f) {
+                    report_adjustment_failure(status, status_bad_resource, 0u);
+                } else if (max(max(left, right), max(up, down)) > minimum_coverage) {
+                    const uint sample =
+                        position.y * parameters.input_row_floats + position.x * 3u;
+                    float3 retained = float3(
+                        source[sample],
+                        source[sample + 1u],
+                        source[sample + 2u]
+                    );
+                    if (parameters.robust_pass != 0u
+                        && summary.boundary_sum_count.w > 0.0f) {
+                        retained = clamp(
+                            retained,
+                            summary.boundary_sum_count.xyz
+                                - 2.5f * summary.boundary_square_sum.xyz,
+                            summary.boundary_sum_count.xyz
+                                + 2.5f * summary.boundary_square_sum.xyz
+                        );
+                    }
+                    boundary = float4(retained, 1.0f);
+                    boundary_square = float4(retained * retained, 0.0f);
+                }
+            }
+        }
+    }
+    donor_values[lane] = donor;
+    boundary_values[lane] = boundary;
+    donor_squares[lane] = donor_square;
+    boundary_squares[lane] = boundary_square;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (ushort stride = group_size / 2; stride > 0; stride /= 2) {
+        if (lane < stride) {
+            donor_values[lane] += donor_values[lane + stride];
+            boundary_values[lane] += boundary_values[lane + stride];
+            donor_squares[lane] += donor_squares[lane + stride];
+            boundary_squares[lane] += boundary_squares[lane + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        partials[group_index] = WarmRetouchStatistics{
+            donor_values[0],
+            boundary_values[0],
+            donor_squares[0],
+            boundary_squares[0]
+        };
+    }
+}
+
+kernel void warm_retouch_heal_reduce_v1(
+    device const WarmRetouchStatistics* partials [[buffer(0)]],
+    device WarmRetouchStatistics& summary [[buffer(1)]],
+    constant WarmRetouchRegionParameters& parameters [[buffer(2)]],
+    uint index [[thread_position_in_grid]]
+) {
+    if (index != 0u) {
+        return;
+    }
+    WarmRetouchStatistics total{
+        float4(0.0f),
+        float4(0.0f),
+        float4(0.0f),
+        float4(0.0f)
+    };
+    for (uint group = 0u; group < parameters.statistics_group_count; ++group) {
+        total.donor_sum_count += partials[group].donor_sum_count;
+        total.boundary_sum_count += partials[group].boundary_sum_count;
+        total.donor_square_sum += partials[group].donor_square_sum;
+        total.boundary_square_sum += partials[group].boundary_square_sum;
+    }
+    const float donor_count = total.donor_sum_count.w;
+    const float boundary_count = total.boundary_sum_count.w;
+    const float3 donor_mean =
+        donor_count > 0.0f ? total.donor_sum_count.xyz / donor_count : float3(0.0f);
+    const float3 boundary_mean = boundary_count > 0.0f
+        ? total.boundary_sum_count.xyz / boundary_count
+        : float3(0.0f);
+    const float3 donor_standard_deviation =
+        parameters.robust_pass == 0u && donor_count > 0.0f
+        ? sqrt(max(
+            total.donor_square_sum.xyz / donor_count - donor_mean * donor_mean,
+            float3(0.0f)
+        ))
+        : float3(0.0f);
+    const float3 boundary_standard_deviation =
+        parameters.robust_pass == 0u && boundary_count > 0.0f
+        ? sqrt(max(
+            total.boundary_square_sum.xyz / boundary_count
+                - boundary_mean * boundary_mean,
+            float3(0.0f)
+        ))
+        : float3(0.0f);
+    summary = WarmRetouchStatistics{
+        float4(donor_mean, donor_count),
+        float4(boundary_mean, boundary_count),
+        float4(donor_standard_deviation, 0.0f),
+        float4(boundary_standard_deviation, 0.0f)
+    };
+}
+
+kernel void warm_retouch_heal_initialize_v1(
+    device const float* source [[buffer(0)]],
+    device float* solution [[buffer(1)]],
+    constant WarmRetouchRegionParameters& parameters [[buffer(2)]],
+    device MetalAdjustmentStatus& status [[buffer(3)]],
+    device const WarmRetouchCapsule* capsules [[buffer(4)]],
+    device const WarmRetouchCellRange* cells [[buffer(5)]],
+    device const uint* references [[buffer(6)]],
+    device const WarmRetouchStatistics& summary [[buffer(7)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint source_index =
+        position.y * parameters.input_row_floats + position.x * 3u;
+    const uint output_index = (position.y * parameters.width + position.x) * 3u;
+    const float3 original = float3(
+        source[source_index],
+        source[source_index + 1u],
+        source[source_index + 2u]
+    );
+    const float coverage = warm_retouch_coverage(
+        int2(position),
+        parameters,
+        capsules,
+        cells,
+        references
+    );
+    if (coverage < 0.0f) {
+        report_adjustment_failure(status, status_bad_resource, 0u);
+        return;
+    }
+    float3 result = original;
+    if (coverage > 1.0e-4f && summary.donor_sum_count.w > 0.0f
+        && summary.boundary_sum_count.w > 0.0f) {
+        result = warm_retouch_sample_bilinear(
+            source,
+            float2(position)
+                + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+            parameters
+        ) + summary.boundary_sum_count.xyz - summary.donor_sum_count.xyz;
+    }
+    if (!all(isfinite(result))) {
+        report_adjustment_failure(status, status_non_finite, 0u);
+        return;
+    }
+    solution[output_index] = result.x;
+    solution[output_index + 1u] = result.y;
+    solution[output_index + 2u] = result.z;
+}
+
+kernel void warm_retouch_heal_jacobi_v1(
+    device const float* source [[buffer(0)]],
+    device const float* current [[buffer(1)]],
+    device float* next [[buffer(2)]],
+    constant WarmRetouchRegionParameters& parameters [[buffer(3)]],
+    device MetalAdjustmentStatus& status [[buffer(4)]],
+    device const WarmRetouchCapsule* capsules [[buffer(5)]],
+    device const WarmRetouchCellRange* cells [[buffer(6)]],
+    device const uint* references [[buffer(7)]],
+    device const WarmRetouchStatistics& summary [[buffer(8)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint source_index =
+        position.y * parameters.input_row_floats + position.x * 3u;
+    const uint packed_index = (position.y * parameters.width + position.x) * 3u;
+    const float3 original = float3(
+        source[source_index],
+        source[source_index + 1u],
+        source[source_index + 2u]
+    );
+    const float coverage = warm_retouch_coverage(
+        int2(position),
+        parameters,
+        capsules,
+        cells,
+        references
+    );
+    if (coverage < 0.0f) {
+        report_adjustment_failure(status, status_bad_resource, 0u);
+        return;
+    }
+    if (coverage <= 1.0e-4f || summary.donor_sum_count.w <= 0.0f
+        || summary.boundary_sum_count.w <= 0.0f) {
+        next[packed_index] = original.x;
+        next[packed_index + 1u] = original.y;
+        next[packed_index + 2u] = original.z;
+        return;
+    }
+
+    const float3 donor_center = warm_retouch_sample_bilinear(
+        source,
+        float2(position) + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+        parameters
+    );
+    float3 neighbor_sum = float3(0.0f);
+    float3 donor_laplacian = float3(0.0f);
+    uint neighbor_count = 0u;
+    const int2 signed_position = int2(position);
+    constexpr int2 offsets[4] = {
+        int2(-1, 0),
+        int2(1, 0),
+        int2(0, -1),
+        int2(0, 1)
+    };
+    for (uint neighbor = 0u; neighbor < 4u; ++neighbor) {
+        const int2 adjacent = signed_position + offsets[neighbor];
+        if (adjacent.x < 0 || adjacent.y < 0
+            || adjacent.x >= int(parameters.width)
+            || adjacent.y >= int(parameters.height)) {
+            continue;
+        }
+        const float adjacent_coverage = warm_retouch_coverage(
+            adjacent,
+            parameters,
+            capsules,
+            cells,
+            references
+        );
+        if (adjacent_coverage < 0.0f) {
+            report_adjustment_failure(status, status_bad_resource, 0u);
+            return;
+        }
+        const uint adjacent_source =
+            uint(adjacent.y) * parameters.input_row_floats + uint(adjacent.x) * 3u;
+        const uint adjacent_packed =
+            (uint(adjacent.y) * parameters.width + uint(adjacent.x)) * 3u;
+        neighbor_sum += adjacent_coverage > 1.0e-4f
+            ? float3(
+                current[adjacent_packed],
+                current[adjacent_packed + 1u],
+                current[adjacent_packed + 2u]
+            )
+            : float3(
+                source[adjacent_source],
+                source[adjacent_source + 1u],
+                source[adjacent_source + 2u]
+            );
+        donor_laplacian += donor_center - warm_retouch_sample_bilinear(
+            source,
+            float2(adjacent)
+                + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+            parameters
+        );
+        ++neighbor_count;
+    }
+    const float3 screened_target = donor_center
+        + summary.boundary_sum_count.xyz - summary.donor_sum_count.xyz;
+    const float denominator =
+        float(neighbor_count) + parameters.screening_weight;
+    const float3 result = neighbor_count == 0u
+        ? screened_target
+        : (neighbor_sum + donor_laplacian
+            + parameters.screening_weight * screened_target) / denominator;
+    if (!all(isfinite(result))) {
+        report_adjustment_failure(status, status_non_finite, 0u);
+        return;
+    }
+    next[packed_index] = result.x;
+    next[packed_index + 1u] = result.y;
+    next[packed_index + 2u] = result.z;
+}
+
+kernel void warm_retouch_heal_blend_v1(
+    device const float* source [[buffer(0)]],
+    device const float* solution [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    constant WarmRetouchRegionParameters& parameters [[buffer(3)]],
+    device MetalAdjustmentStatus& status [[buffer(4)]],
+    device const WarmRetouchCapsule* capsules [[buffer(5)]],
+    device const WarmRetouchCellRange* cells [[buffer(6)]],
+    device const uint* references [[buffer(7)]],
+    device const WarmRetouchStatistics& summary [[buffer(8)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint source_index =
+        position.y * parameters.input_row_floats + position.x * 3u;
+    const uint packed_index = (position.y * parameters.width + position.x) * 3u;
+    const float3 original = float3(
+        source[source_index],
+        source[source_index + 1u],
+        source[source_index + 2u]
+    );
+    const float coverage = warm_retouch_coverage(
+        int2(position),
+        parameters,
+        capsules,
+        cells,
+        references
+    );
+    if (coverage < 0.0f) {
+        report_adjustment_failure(status, status_bad_resource, 0u);
+        return;
+    }
+    const float alpha = summary.donor_sum_count.w > 0.0f
+            && summary.boundary_sum_count.w > 0.0f
+        ? clamp(coverage, 0.0f, 1.0f)
+        : 0.0f;
+    const float3 healed = float3(
+        solution[packed_index],
+        solution[packed_index + 1u],
+        solution[packed_index + 2u]
+    );
+    const float3 result = mix(original, healed, alpha);
+    if (!all(isfinite(result))) {
+        report_adjustment_failure(status, status_non_finite, 0u);
+        return;
+    }
+    output[packed_index] = result.x;
+    output[packed_index + 1u] = result.y;
+    output[packed_index + 2u] = result.z;
+}
+
+)METAL";
+
+inline constexpr std::string_view warm_kernel_source_suffix = R"METAL(
 kernel void guided_denoise_warm_v1(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],

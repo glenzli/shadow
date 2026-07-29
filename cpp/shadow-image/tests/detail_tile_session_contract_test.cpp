@@ -99,64 +99,10 @@ void adjustments_apply_only_to_the_requested_crop() {
     );
 }
 
-void unsupported_gpu_nodes_report_whole_tile_cpu_fallback() {
-    constexpr image::Dimensions dimensions{24, 18};
-    SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
-    const auto session = image::prepare_full_edit_detail(decoder);
-    const std::array plan{
-        image::AdjustmentNode{
-            .node_id = "unsupported-spot-heal",
-            .parameters = image::SpotHealAdjustment{
-                .spots = {{
-                    .center_x = 0.5,
-                    .center_y = 0.5,
-                    .radius_level_zero_pixels = 2U,
-                }},
-            },
-        },
-    };
-    const image::DetailTileRect rect{4, 3, 12, 10};
-    std::vector<std::uint8_t> automatic_bytes;
-    {
-        const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
-        const auto rendered = session.render_rgb8(plan, rect);
-        automatic_bytes = rendered.bytes;
-        expect(
-            rendered.execution.valid()
-                && rendered.execution.backend == image::DetailTileRenderBackend::cpu
-                && rendered.execution.fell_back && !rendered.execution.diagnostic.empty(),
-            "an unsupported Metal node records a whole-tile CPU fallback"
-        );
-    }
-    {
-        const ScopedEnvironment forced_cpu("SHADOW_IMAGE_ACCELERATION", "cpu");
-        const auto rendered = session.render_rgb8(plan, rect);
-        expect(
-            rendered.bytes == automatic_bytes && rendered.execution.valid()
-                && rendered.execution.backend == image::DetailTileRenderBackend::cpu
-                && !rendered.execution.fell_back && rendered.execution.diagnostic.empty(),
-            "automatic fallback replays the exact forced-CPU tile from the immutable source"
-        );
-    }
-    {
-        const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
-        try {
-            static_cast<void>(session.render_rgb8(plan, rect));
-            expect(false, "forced Metal rejects an unsupported full-detail node");
-        } catch (const image::EditError& error) {
-            expect(
-                error.code() == image::EditErrorCode::backend_failure,
-                "forced unsupported full-detail Metal reports a typed backend failure"
-            );
-        }
-    }
-}
-
 } // namespace
 
 int main() {
     preparation_retains_one_immutable_source_and_tiles_exactly();
     adjustments_apply_only_to_the_requested_crop();
-    unsupported_gpu_nodes_report_whole_tile_cpu_fallback();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

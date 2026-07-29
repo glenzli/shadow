@@ -83,7 +83,7 @@ void expect(const bool condition, const std::string_view message) {
     };
 }
 
-void resident_gpu_clone_matches_the_cpu_or_declines() {
+void resident_gpu_retouch_matches_the_cpu_or_declines() {
     const auto source = make_random_image(193U, 113U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
     if (!preparation.session) {
@@ -135,13 +135,67 @@ void resident_gpu_clone_matches_the_cpu_or_declines() {
     auto heal = nodes;
     std::get<image::SpotHealAdjustment>(heal[1U].parameters).spots.front().mode =
         image::SpotRepairMode::heal;
-    const auto unsupported =
-        preparation.session->render(heal, image::compile_edit_execution_plan(heal), false);
+    const auto healed =
+        preparation.session->render(heal, image::compile_edit_execution_plan(heal), true);
     expect(
-        unsupported.status == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value() && !unsupported.diagnostic.empty(),
-        "Heal still declines the complete GPU transaction until its gradient solver is available"
+        healed.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && healed.output.has_value() && healed.output->analyzed_linear.has_value(),
+        "mixed ordered Heal and Clone regions remain inside one resident Metal transaction"
     );
+    if (healed.output && healed.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            heal,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool parity =
+            linear_close(*healed.output->analyzed_linear, cpu.pixels, maximum_error, 3.5e-3);
+        if (!parity) {
+            std::cerr << "Heal warm linear parity max=" << maximum_error << '\n';
+            double observed = 0.0;
+            std::uint32_t observed_x = 0U;
+            std::uint32_t observed_y = 0U;
+            std::size_t observed_channel = 0U;
+            const std::size_t gpu_row =
+                healed.output->analyzed_linear->row_stride_bytes / sizeof(float);
+            const std::size_t cpu_row = cpu.pixels.row_stride_bytes / sizeof(float);
+            for (std::uint32_t y = 0U; y < source.dimensions.height; ++y) {
+                for (std::uint32_t x = 0U; x < source.dimensions.width; ++x) {
+                    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                        const double error = std::abs(
+                            static_cast<double>(healed.output->analyzed_linear->samples
+                                                    [static_cast<std::size_t>(y) * gpu_row
+                                                     + static_cast<std::size_t>(x) * 3U + channel])
+                            - static_cast<double>(
+                                cpu.pixels.samples
+                                    [static_cast<std::size_t>(y) * cpu_row
+                                     + static_cast<std::size_t>(x) * 3U + channel]
+                            )
+                        );
+                        if (error > observed) {
+                            observed = error;
+                            observed_x = x;
+                            observed_y = y;
+                            observed_channel = channel;
+                        }
+                    }
+                }
+            }
+            const std::size_t gpu_index = static_cast<std::size_t>(observed_y) * gpu_row
+                                          + static_cast<std::size_t>(observed_x) * 3U
+                                          + observed_channel;
+            const std::size_t cpu_index = static_cast<std::size_t>(observed_y) * cpu_row
+                                          + static_cast<std::size_t>(observed_x) * 3U
+                                          + observed_channel;
+            std::cerr << "Heal max x=" << observed_x << " y=" << observed_y
+                      << " channel=" << observed_channel
+                      << " GPU=" << healed.output->analyzed_linear->samples[gpu_index]
+                      << " CPU=" << cpu.pixels.samples[cpu_index] << '\n';
+        }
+        expect(parity, "resident Metal Heal tracks the robust screened-Poisson CPU oracle");
+    }
 }
 
 template <typename Callable>
@@ -158,7 +212,7 @@ template <typename Callable>
     return samples[samples.size() / 2U];
 }
 
-void benchmark_clone_when_requested() {
+void benchmark_retouch_when_requested() {
     if (std::getenv("SHADOW_TEST_WARM_RETOUCH_BENCHMARK") == nullptr) {
         return;
     }
@@ -209,14 +263,59 @@ void benchmark_clone_when_requested() {
               << " first-resident-Metal=" << first_resident << "ms"
               << " resident-Metal=" << resident << "ms"
               << " speedup=" << cpu / resident << 'x' << " checksum=" << checksum << '\n';
+
+    auto heal_nodes = nodes;
+    auto& repair = std::get<image::SpotHealAdjustment>(heal_nodes[1U].parameters);
+    for (auto& spot : repair.spots) {
+        spot.mode = image::SpotRepairMode::heal;
+    }
+    for (auto& stroke : repair.strokes) {
+        stroke.mode = image::SpotRepairMode::heal;
+    }
+    const auto heal_plan = image::compile_edit_execution_plan(heal_nodes);
+    const double first_resident_heal = median_milliseconds(1U, [&]() {
+        auto rendered = preparation.session->render(heal_nodes, heal_plan, false);
+        if (!rendered.output.has_value()) {
+            throw std::runtime_error(rendered.diagnostic);
+        }
+        checksum += rendered.output->rgb8[rendered.output->rgb8.size() / 2U];
+    });
+    constexpr std::size_t heal_iterations = 2U;
+    const double cpu_heal = median_milliseconds(heal_iterations, [&]() {
+        auto adjusted = image::execute_adjustment_nodes_with_backend(
+            source,
+            heal_nodes,
+            {.full_dimensions = dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        auto displayed = image::render_linear_srgb_to_display_srgb8_with_backend(
+            adjusted.pixels,
+            {.target_dimensions = dimensions},
+            image::DisplayOutputBackendMode::cpu
+        );
+        checksum += displayed.bytes[displayed.bytes.size() / 2U];
+    });
+    const double resident_heal = median_milliseconds(heal_iterations, [&]() {
+        auto rendered = preparation.session->render(heal_nodes, heal_plan, false);
+        if (!rendered.output.has_value()) {
+            throw std::runtime_error(rendered.diagnostic);
+        }
+        checksum += rendered.output->rgb8[rendered.output->rgb8.size() / 2U];
+    });
+    std::cout << std::fixed << std::setprecision(3) << "BENCH continuous Heal " << dimensions.width
+              << 'x' << dimensions.height << " points=96"
+              << " CPU-adjust+display=" << cpu_heal << "ms"
+              << " first-resident-Metal=" << first_resident_heal << "ms"
+              << " resident-Metal=" << resident_heal << "ms"
+              << " speedup=" << cpu_heal / resident_heal << 'x' << " checksum=" << checksum << '\n';
 }
 
 } // namespace
 
 int run_resident_gpu_retouch_contract() {
     failures = 0;
-    resident_gpu_clone_matches_the_cpu_or_declines();
-    benchmark_clone_when_requested();
+    resident_gpu_retouch_matches_the_cpu_or_declines();
+    benchmark_retouch_when_requested();
     return failures;
 }
 

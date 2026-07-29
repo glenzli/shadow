@@ -22,6 +22,8 @@ namespace {
 
 constexpr std::uint32_t maximum_grid_extent = 32U;
 constexpr std::size_t maximum_reference_count = 4U * 1'024U * 1'024U;
+constexpr std::uint32_t retouch_statistics_thread_count = 256U;
+constexpr std::uint32_t heal_poisson_iterations = 28U;
 
 struct RasterPoint final {
     double x = 0.0;
@@ -39,6 +41,7 @@ struct RegionGeometry final {
     double radius_y = 0.0;
     SourceOffset donor_offset;
     double feather = 0.0;
+    WarmRetouchMode mode = WarmRetouchMode::clone;
 };
 
 struct IntegerBounds final {
@@ -99,9 +102,6 @@ struct IntegerBounds final {
     const double scale_x,
     const double scale_y
 ) {
-    if (target.mode != SpotRepairMode::clone) {
-        return std::nullopt;
-    }
     const double radius_x = static_cast<double>(target.radius_level_zero_pixels) * scale_x;
     const double radius_y = static_cast<double>(target.radius_level_zero_pixels) * scale_y;
     const RasterPoint center =
@@ -119,6 +119,8 @@ struct IntegerBounds final {
             target.center_y
         ),
         .feather = target.feather,
+        .mode =
+            target.mode == SpotRepairMode::heal ? WarmRetouchMode::heal : WarmRetouchMode::clone,
     };
 }
 
@@ -129,13 +131,12 @@ struct IntegerBounds final {
     const double scale_x,
     const double scale_y
 ) {
-    if (stroke.mode != SpotRepairMode::clone) {
-        return std::nullopt;
-    }
     RegionGeometry result{
         .radius_x = static_cast<double>(stroke.radius_level_zero_pixels) * scale_x,
         .radius_y = static_cast<double>(stroke.radius_level_zero_pixels) * scale_y,
         .feather = stroke.feather,
+        .mode =
+            stroke.mode == SpotRepairMode::heal ? WarmRetouchMode::heal : WarmRetouchMode::clone,
     };
     result.points.reserve(stroke.points.size());
     double lower_x = 1.0;
@@ -250,7 +251,7 @@ append_records(std::vector<WarmRetouchWord>& words, const std::span<const Record
 }
 
 [[nodiscard]] bool append_region(
-    WarmRetouchCloneStage& stage,
+    WarmRetouchStage& stage,
     const RegionGeometry& geometry,
     const Dimensions dimensions
 ) {
@@ -314,8 +315,12 @@ append_records(std::vector<WarmRetouchWord>& words, const std::span<const Record
         }
     }
 
-    WarmRetouchCloneRegion region{
-        .parameters = WarmRetouchCloneParameters{
+    const std::uint64_t bounds_pixels = static_cast<std::uint64_t>(width) * height;
+    const auto statistics_groups = static_cast<std::uint32_t>(
+        (bounds_pixels + retouch_statistics_thread_count - 1U) / retouch_statistics_thread_count
+    );
+    WarmRetouchRegion region{
+        .parameters = WarmRetouchRegionParameters{
             .width = dimensions.width,
             .height = dimensions.height,
             .input_row_floats = dimensions.width * 3U,
@@ -327,11 +332,15 @@ append_records(std::vector<WarmRetouchWord>& words, const std::span<const Record
             .grid_rows = rows,
             .capsule_count = static_cast<std::uint32_t>(region_capsules.size()),
             .reference_count = static_cast<std::uint32_t>(references.size()),
+            .mode = geometry.mode,
+            .statistics_group_count = statistics_groups,
+            .poisson_iterations = heal_poisson_iterations,
             .radius_x = static_cast<float>(geometry.radius_x),
             .radius_y = static_cast<float>(geometry.radius_y),
             .donor_offset_x = static_cast<float>(geometry.donor_offset.x),
             .donor_offset_y = static_cast<float>(geometry.donor_offset.y),
             .feather = static_cast<float>(geometry.feather),
+            .screening_weight = 4.0F,
         },
     };
     region.capsule_offset_bytes =
@@ -346,12 +355,12 @@ append_records(std::vector<WarmRetouchWord>& words, const std::span<const Record
 
 } // namespace
 
-bool WarmRetouchCloneStage::valid() const noexcept {
+bool WarmRetouchStage::valid() const noexcept {
     if (regions.empty() || packed_geometry.empty()) {
         return false;
     }
     const std::size_t bytes = packed_geometry.size() * sizeof(std::uint32_t);
-    return std::ranges::all_of(regions, [bytes](const WarmRetouchCloneRegion& region) {
+    return std::ranges::all_of(regions, [bytes](const WarmRetouchRegion& region) {
         const auto& parameters = region.parameters;
         const std::size_t capsule_bytes =
             static_cast<std::size_t>(parameters.capsule_count) * sizeof(WarmRetouchCapsule);
@@ -367,9 +376,14 @@ bool WarmRetouchCloneStage::valid() const noexcept {
                && parameters.bounds_origin_y <= parameters.height
                && parameters.bounds_height <= parameters.height - parameters.bounds_origin_y
                && parameters.grid_columns > 0U && parameters.grid_rows > 0U
-               && parameters.capsule_count > 0U && std::isfinite(parameters.radius_x)
-               && parameters.radius_x > 0.0F && std::isfinite(parameters.radius_y)
-               && parameters.radius_y > 0.0F && std::isfinite(parameters.donor_offset_x)
+               && parameters.capsule_count > 0U
+               && (parameters.mode == WarmRetouchMode::clone
+                   || parameters.mode == WarmRetouchMode::heal)
+               && parameters.statistics_group_count > 0U
+               && parameters.poisson_iterations == heal_poisson_iterations
+               && std::isfinite(parameters.radius_x) && parameters.radius_x > 0.0F
+               && std::isfinite(parameters.radius_y) && parameters.radius_y > 0.0F
+               && std::isfinite(parameters.donor_offset_x)
                && std::isfinite(parameters.donor_offset_y) && std::isfinite(parameters.feather)
                && region.capsule_offset_bytes <= bytes
                && capsule_bytes <= bytes - region.capsule_offset_bytes
@@ -380,7 +394,7 @@ bool WarmRetouchCloneStage::valid() const noexcept {
     });
 }
 
-std::optional<WarmRetouchCloneStage> prepare_warm_retouch_clone_stage(
+std::optional<WarmRetouchStage> prepare_warm_retouch_stage(
     const SpotHealAdjustment& adjustment,
     const Dimensions dimensions,
     const double level_zero_to_raster_scale_x,
@@ -397,7 +411,7 @@ std::optional<WarmRetouchCloneStage> prepare_warm_retouch_clone_stage(
         || !std::isfinite(level_zero_to_raster_scale_y) || level_zero_to_raster_scale_y <= 0.0) {
         return std::nullopt;
     }
-    WarmRetouchCloneStage result;
+    WarmRetouchStage result;
     for (const SpotHealTarget& target : adjustment.spots) {
         const auto geometry = target_geometry(
             target,
@@ -428,7 +442,7 @@ std::optional<WarmRetouchCloneStage> prepare_warm_retouch_clone_stage(
             return std::nullopt;
         }
     }
-    return result.valid() ? std::optional<WarmRetouchCloneStage>{std::move(result)} : std::nullopt;
+    return result.valid() ? std::optional<WarmRetouchStage>{std::move(result)} : std::nullopt;
 }
 
 } // namespace shadow::image::detail

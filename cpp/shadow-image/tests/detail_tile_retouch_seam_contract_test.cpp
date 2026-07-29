@@ -28,13 +28,23 @@ void continuous_clone_crosses_irregular_detail_tiles_without_seams() {
         image::AdjustmentNode{
             .node_id = "continuous-clone-across-tiles",
             .parameters = image::SpotHealAdjustment{
+                .spots = {{
+                    .center_x = 0.50,
+                    .center_y = 0.39,
+                    .radius_level_zero_pixels = 6U,
+                    .mode = image::SpotRepairMode::heal,
+                    .source_offset_x_radii = 2.5,
+                    .source_offset_y_radii = 1.0,
+                    .feather = 0.22,
+                }},
                 .strokes = {{
-                    .points = {
-                        {.x = 0.16, .y = 0.28},
-                        {.x = 0.39, .y = 0.47},
-                        {.x = 0.63, .y = 0.51},
-                        {.x = 0.84, .y = 0.72},
-                    },
+                    .points =
+                        {
+                            {.x = 0.16, .y = 0.28},
+                            {.x = 0.39, .y = 0.47},
+                            {.x = 0.63, .y = 0.51},
+                            {.x = 0.84, .y = 0.72},
+                        },
                     .radius_level_zero_pixels = 5U,
                     .mode = image::SpotRepairMode::clone,
                     .source_offset_x_radii = 2.0,
@@ -44,8 +54,7 @@ void continuous_clone_crosses_irregular_detail_tiles_without_seams() {
             },
         },
     };
-    const auto full =
-        session.render_rgb8(plan, {0U, 0U, dimensions.width, dimensions.height});
+    const auto full = session.render_rgb8(plan, {0U, 0U, dimensions.width, dimensions.height});
     bool all_used_metal = full.execution.backend == image::DetailTileRenderBackend::metal;
     std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
     constexpr std::array tiles{
@@ -74,12 +83,11 @@ void continuous_clone_crosses_irregular_detail_tiles_without_seams() {
     }
     expect(
         stitched == full.bytes,
-        "continuous Clone produces identical full-frame and donor-apron tile output"
+        "ordered Heal and continuous Clone produce identical full-frame and donor-apron tile output"
     );
     expect(
-        !image::adjustment_backend_available(image::AdjustmentBackend::metal)
-            || all_used_metal,
-        "the full-resolution continuous Clone seam contract executes on resident Metal"
+        !image::adjustment_backend_available(image::AdjustmentBackend::metal) || all_used_metal,
+        "the full-resolution Heal/Clone seam contract executes on resident Metal"
     );
 }
 

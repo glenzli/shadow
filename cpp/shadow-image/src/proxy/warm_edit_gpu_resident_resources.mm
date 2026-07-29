@@ -72,6 +72,8 @@ struct WarmSlot final {
     id<MTLBuffer> local_contrast_a = nil;
     id<MTLBuffer> local_contrast_b = nil;
     id<MTLBuffer> layer_before = nil;
+    id<MTLBuffer> retouch_statistics = nil;
+    id<MTLBuffer> retouch_summary = nil;
     id<MTLBuffer> rgb8 = nil;
     id<MTLBuffer> before_operations = nil;
     id<MTLBuffer> after_operations = nil;
@@ -181,6 +183,8 @@ struct WarmGpuResidentResources::Impl final {
             [slot.before_operations release];
             [slot.rgb8 release];
             [slot.layer_before release];
+            [slot.retouch_summary release];
+            [slot.retouch_statistics release];
             [slot.local_contrast_b release];
             [slot.local_contrast_a release];
             [slot.perceptual_texture release];
@@ -766,6 +770,70 @@ struct WarmGpuResidentResources::Impl final {
         stats.resident_bytes += static_cast<std::uint64_t>(bytes);
         return {};
     }
+
+    [[nodiscard]] std::string ensure_retouch_resources(const std::size_t index) {
+        std::lock_guard lock(mutex);
+        WarmSlot& slot = slots[index];
+        if (slot.retouch_statistics != nil && slot.retouch_summary != nil) {
+            return {};
+        }
+        constexpr std::size_t statistics_threads = 256U;
+        const std::size_t group_count =
+            (layout.adjusted_sample_count / 3U + statistics_threads - 1U)
+            / statistics_threads;
+        std::size_t statistics_bytes = 0U;
+        if (!checked_multiply(
+                group_count,
+                sizeof(WarmRetouchStatistics),
+                statistics_bytes
+            )
+            || statistics_bytes == 0U) {
+            return "warm-preview retouch statistics size overflowed";
+        }
+        const std::size_t summary_bytes = sizeof(WarmRetouchStatistics);
+        std::size_t addition = 0U;
+        if (!checked_add(statistics_bytes, summary_bytes, addition)
+            || addition > std::numeric_limits<std::size_t>::max()
+                - static_cast<std::size_t>(stats.resident_bytes)) {
+            return "warm-preview retouch resource size overflowed";
+        }
+        const auto recommended = static_cast<std::size_t>(
+            device.recommendedMaxWorkingSetSize
+        );
+        const std::size_t allowance = recommended / 2U;
+        if (recommended > 0U
+            && (addition > allowance
+                || static_cast<std::size_t>(stats.resident_bytes)
+                    > allowance - addition)) {
+            return "warm-preview retouch resources exceed half the recommended Metal working set";
+        }
+        id<MTLBuffer> statistics = slot.retouch_statistics == nil
+            ? [device newBufferWithLength:statistics_bytes
+                options:MTLResourceStorageModeShared]
+            : nil;
+        id<MTLBuffer> summary = slot.retouch_summary == nil
+            ? [device newBufferWithLength:summary_bytes
+                options:MTLResourceStorageModeShared]
+            : nil;
+        if ((slot.retouch_statistics == nil && statistics == nil)
+            || (slot.retouch_summary == nil && summary == nil)) {
+            [statistics release];
+            [summary release];
+            return "Metal could not allocate resident warm-preview retouch statistics";
+        }
+        std::size_t allocations = 0U;
+        if (slot.retouch_statistics == nil) {
+            slot.retouch_statistics = statistics;
+            ++allocations;
+        }
+        if (slot.retouch_summary == nil) {
+            slot.retouch_summary = summary;
+            ++allocations;
+        }
+        stats.gpu_buffer_allocation_count += allocations;
+        stats.resident_bytes += static_cast<std::uint64_t>(addition);
+        return {};
+    }
 };
 
 RetainedMetalBuffer::RetainedMetalBuffer(id<MTLBuffer> value) noexcept
@@ -866,6 +934,8 @@ WarmGpuSlotBuffers WarmGpuResidentResources::slot_buffers(
         .local_contrast_a = slot.local_contrast_a,
         .local_contrast_b = slot.local_contrast_b,
         .layer_before = slot.layer_before,
+        .retouch_statistics = slot.retouch_statistics,
+        .retouch_summary = slot.retouch_summary,
         .rgb8 = slot.rgb8,
         .before_operations = slot.before_operations,
         .after_operations = slot.after_operations,
@@ -907,6 +977,12 @@ std::string WarmGpuResidentResources::ensure_layer_resources(
     const std::size_t index
 ) {
     return impl_->ensure_layer_resources(index);
+}
+
+std::string WarmGpuResidentResources::ensure_retouch_resources(
+    const std::size_t index
+) {
+    return impl_->ensure_retouch_resources(index);
 }
 
 void WarmGpuResidentResources::release_slot(
@@ -960,6 +1036,18 @@ std::string WarmGpuSlotLease::ensure_local_contrast_resources() {
 
 std::string WarmGpuSlotLease::ensure_layer_resources() {
     return owner_->ensure_layer_resources(index_);
+}
+
+std::string WarmGpuSlotLease::ensure_retouch_resources() {
+    if (std::string diagnostic = owner_->ensure_denoise_resources(index_);
+        !diagnostic.empty()) {
+        return diagnostic;
+    }
+    if (std::string diagnostic = owner_->ensure_layer_resources(index_);
+        !diagnostic.empty()) {
+        return diagnostic;
+    }
+    return owner_->ensure_retouch_resources(index_);
 }
 
 void WarmGpuSlotLease::mark_completed() noexcept {

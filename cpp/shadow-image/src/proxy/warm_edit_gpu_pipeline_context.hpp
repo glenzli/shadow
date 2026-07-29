@@ -28,6 +28,11 @@ class WarmMetalContext final {
     [[nodiscard]] id<MTLComputePipelineState> layer_copy_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> layer_blend_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> retouch_clone_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> retouch_heal_statistics_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> retouch_heal_reduce_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> retouch_heal_initialize_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> retouch_heal_jacobi_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> retouch_heal_blend_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> denoise_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> sharpen_log_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> sharpen_horizontal_pipeline() const noexcept;
@@ -58,6 +63,11 @@ class WarmMetalContext final {
     id<MTLComputePipelineState> layer_copy_pipeline_ = nil;
     id<MTLComputePipelineState> layer_blend_pipeline_ = nil;
     id<MTLComputePipelineState> retouch_clone_pipeline_ = nil;
+    id<MTLComputePipelineState> retouch_heal_statistics_pipeline_ = nil;
+    id<MTLComputePipelineState> retouch_heal_reduce_pipeline_ = nil;
+    id<MTLComputePipelineState> retouch_heal_initialize_pipeline_ = nil;
+    id<MTLComputePipelineState> retouch_heal_jacobi_pipeline_ = nil;
+    id<MTLComputePipelineState> retouch_heal_blend_pipeline_ = nil;
     id<MTLComputePipelineState> denoise_pipeline_ = nil;
     id<MTLComputePipelineState> sharpen_log_pipeline_ = nil;
     id<MTLComputePipelineState> sharpen_horizontal_pipeline_ = nil;

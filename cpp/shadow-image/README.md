@@ -407,13 +407,14 @@ contract.
 capsules (retaining point capsules only for isolated strokes) and builds one bounded CSR grid in
 full-image coordinates. The exact packed words are cacheable as one immutable resident buffer;
 per-pixel Metal work examines only the current cell's candidates instead of every authored point.
-`src/proxy/warm_edit_gpu_retouch_plan.*` independently lowers each ordered continuous Clone
-region into raster-space capsules and a bounded CSR grid. Its immutable packed geometry is cached
-by the resident-resource owner, while `warm_edit_gpu_retouch_encoder.*` alternates two resident
-RGB buffers so every region samples the previous region's complete source snapshot exactly as the
-CPU oracle does. Clone therefore stays inside the same command transaction as surrounding
-pixel-local and neighborhood stages; unsupported Heal still declines the complete transaction
-until its gradient-domain solver has a GPU implementation.
+`src/proxy/warm_edit_gpu_retouch_plan.*` independently lowers each ordered continuous Heal or
+Clone region into raster-space capsules and a bounded CSR grid. Its immutable packed geometry is
+cached by the resident-resource owner, while `warm_edit_gpu_retouch_encoder.*` preserves every
+region's complete source snapshot in resident RGB buffers exactly as the CPU oracle does. Clone
+copies through the indexed continuous coverage directly. Heal computes a deterministic two-pass
+robust donor statistic, initializes the correction field, runs a screened-Poisson Jacobi solve,
+and feathers the result without leaving Metal. Mixed ordered Heal and Clone therefore remain in
+the same command transaction as surrounding pixel-local and neighborhood stages.
 `src/proxy/warm_edit_gpu_layer_plan.*` is the portable layer-composition admission and lowering
 owner. It maps opacity, unmasked layers, normalized linear/radial gradients, and indexed
 continuous brushes to the mirrored Metal blend ABI. `src/proxy/warm_edit_gpu_layer_dispatcher.*`
@@ -431,10 +432,10 @@ seams.
 contract. Its responsibility-named children mirror resident session lifecycle, technical and
 creative detail dispatch, guided Selective Tone, composed neighborhood order, and resident
 side-table caches; their only shared fixture owns CPU-oracle parity inputs and comparisons.
-The retouch child owns continuous Clone parity, ordered source snapshots, geometry-cache reuse,
-and the opt-in `SHADOW_TEST_WARM_RETOUCH_BENCHMARK`; its portable plan contract proves
-tile-coordinate mapping and indexed-candidate completeness, while the focused retouch seam
-contract crosses irregular full-detail tiles on real Metal.
+The retouch child owns mixed continuous Heal/Clone parity, ordered source snapshots,
+geometry-cache reuse, and the opt-in `SHADOW_TEST_WARM_RETOUCH_BENCHMARK`; its portable plan
+contract proves tile-coordinate mapping and indexed-candidate completeness, while the focused
+retouch seam contract crosses irregular full-detail tiles on real Metal.
 Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal benchmarks, while
 the detail-tile seam contract proves both one guided mask and a composed Selective Tone,
 capture-sharpening, and full-resolution Texture/Clarity/Local Contrast plan remain invariant across

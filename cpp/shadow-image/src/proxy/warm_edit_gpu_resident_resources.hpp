@@ -96,6 +96,8 @@ struct WarmGpuSlotBuffers final {
     id<MTLBuffer> local_contrast_a = nil;
     id<MTLBuffer> local_contrast_b = nil;
     id<MTLBuffer> layer_before = nil;
+    id<MTLBuffer> retouch_statistics = nil;
+    id<MTLBuffer> retouch_summary = nil;
     id<MTLBuffer> rgb8 = nil;
     id<MTLBuffer> before_operations = nil;
     id<MTLBuffer> after_operations = nil;
@@ -119,6 +121,7 @@ class WarmGpuSlotLease final {
     [[nodiscard]] std::string ensure_texture_clarity_resources();
     [[nodiscard]] std::string ensure_local_contrast_resources();
     [[nodiscard]] std::string ensure_layer_resources();
+    [[nodiscard]] std::string ensure_retouch_resources();
     void mark_completed() noexcept;
 
   private:
@@ -167,6 +170,7 @@ class WarmGpuResidentResources final {
     [[nodiscard]] std::string ensure_texture_clarity_resources(std::size_t index);
     [[nodiscard]] std::string ensure_local_contrast_resources(std::size_t index);
     [[nodiscard]] std::string ensure_layer_resources(std::size_t index);
+    [[nodiscard]] std::string ensure_retouch_resources(std::size_t index);
     void release_slot(std::size_t index, bool completed) noexcept;
 
     std::unique_ptr<Impl> impl_;

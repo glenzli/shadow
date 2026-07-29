@@ -176,7 +176,7 @@ WarmTransactionPreparation prepare_warm_gpu_transaction(
             .plan_index = index,
             .before = PreparedWarmProgram{.program = std::move(*before)},
         };
-        if (const auto* retouch = std::get_if<WarmRetouchCloneStage>(
+        if (const auto* retouch = std::get_if<WarmRetouchStage>(
                 &pass.neighbourhood
             )) {
             auto resource = resident.acquire_retouch_geometry_buffer(

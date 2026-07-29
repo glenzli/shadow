@@ -28,7 +28,7 @@ void expect(const bool condition, const std::string_view message) {
 
 template <typename Record>
 [[nodiscard]] std::vector<Record> records(
-    const image::detail::WarmRetouchCloneStage& stage,
+    const image::detail::WarmRetouchStage& stage,
     const std::size_t offset,
     const std::size_t count
 ) {
@@ -77,7 +77,7 @@ void continuous_clone_geometry_has_complete_bounded_candidates() {
             .feather = 0.25,
         }},
     };
-    const auto prepared = image::detail::prepare_warm_retouch_clone_stage(
+    const auto prepared = image::detail::prepare_warm_retouch_stage(
         adjustment,
         {320U, 180U},
         1.0,
@@ -160,7 +160,7 @@ void continuous_clone_geometry_has_complete_bounded_candidates() {
     );
 }
 
-void tile_context_and_unsupported_heal_fail_closed() {
+void tile_context_and_heal_mode_are_preserved() {
     const image::SpotHealAdjustment clone{
         .spots = {{
             .center_x = 0.50,
@@ -170,7 +170,7 @@ void tile_context_and_unsupported_heal_fail_closed() {
             .source_offset_x_radii = 2.0,
         }},
     };
-    const auto tile = image::detail::prepare_warm_retouch_clone_stage(
+    const auto tile = image::detail::prepare_warm_retouch_stage(
         clone,
         {40U, 30U},
         1.0,
@@ -195,10 +195,13 @@ void tile_context_and_unsupported_heal_fail_closed() {
             .mode = image::SpotRepairMode::heal,
         }},
     };
+    const auto prepared_heal =
+        image::detail::prepare_warm_retouch_stage(heal, {80U, 60U}, 1.0, 1.0, {});
     expect(
-        !image::detail::prepare_warm_retouch_clone_stage(heal, {80U, 60U}, 1.0, 1.0, {})
-             .has_value(),
-        "the clone-only GPU stage declines Heal instead of silently changing its algorithm"
+        prepared_heal.has_value()
+            && prepared_heal->regions.front().parameters.mode
+                   == image::detail::WarmRetouchMode::heal,
+        "Heal lowers through the same ordered retouch geometry without changing its mode"
     );
 }
 
@@ -206,6 +209,6 @@ void tile_context_and_unsupported_heal_fail_closed() {
 
 int main() {
     continuous_clone_geometry_has_complete_bounded_candidates();
-    tile_context_and_unsupported_heal_fail_closed();
+    tile_context_and_heal_mode_are_preserved();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

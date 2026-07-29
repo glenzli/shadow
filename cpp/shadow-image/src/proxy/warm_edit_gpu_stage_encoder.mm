@@ -26,8 +26,8 @@ std::string ensure_warm_gpu_stage_resources(
     return std::visit(
         [&slot](const auto& value) {
             using Stage = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<Stage, WarmRetouchCloneStage>) {
-                return slot.ensure_denoise_resources();
+            if constexpr (std::is_same_v<Stage, WarmRetouchStage>) {
+                return slot.ensure_retouch_resources();
             } else if constexpr (std::is_same_v<Stage, WarmTechnicalDetailStage>) {
                 return value.sharpen.has_value()
                     ? slot.ensure_sharpen_resources()
@@ -91,8 +91,8 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
     return std::visit(
         [&](const auto& value) {
             using Stage = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<Stage, WarmRetouchCloneStage>) {
-                return encode_warm_retouch_clone_stage(
+            if constexpr (std::is_same_v<Stage, WarmRetouchStage>) {
+                return encode_warm_retouch_stage(
                     encoder,
                     context,
                     layout,
