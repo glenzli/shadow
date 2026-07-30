@@ -29,7 +29,7 @@ duplicates them.
 - When adding, extracting, or renaming a responsibility, update the nearest code-owned index in the
   same change. Describe ownership and the next navigation step; do not duplicate implementation
   narratives across several documents.
-- Before a substantial edit to a growing hub, apply `$maintain-ai-cohesive-code` and record the
+- Before a substantial edit to a growing hub, apply `$maintain-source-cohesion` and record the
   keep-or-extract decision. Known review targets include both bridge `lib.rs` files, desktop
   controllers, and large Precision QML surfaces.
 - Keep private-invariant tests adjacent to their implementation but outside production source
