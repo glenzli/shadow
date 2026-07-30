@@ -1,7 +1,7 @@
 //! Recipe v1 allocation and round-trip identity contracts.
 
 use shadow_bridge::{OklabLightnessToneCurve, ToneCurvePoint};
-use shadow_domain::{EntityId, NodeId, PhotoGeometry, RecipeOpticsSettings};
+use shadow_domain::{EntityId, NodeId, PhotoFoundationNode, PhotoGeometry};
 use uuid::Uuid;
 
 use crate::{
@@ -31,25 +31,31 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         assert_eq!(id.get_version_num(), 7);
     }
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi::FfiEditSettings {
-        optics: ffi::FfiOpticsSettings {
-            enabled: true,
-            correct_distortion: true,
-            correct_tca: true,
-            correct_vignetting: true,
-            automatic_scale: true,
-            manual_distortion: 0,
-            manual_tca_red_cyan: 0,
-            manual_tca_blue_yellow: 0,
-            manual_vignetting_amount: 0,
-            manual_vignetting_midpoint: 50,
-            camera_profile_maker: String::new(),
-            camera_profile_model: String::new(),
-            lens_profile_maker: String::new(),
-            lens_profile_model: String::new(),
+        foundation: ffi::FfiPhotoFoundationSettings {
+            optics: ffi::FfiOpticsSettings {
+                enabled: true,
+                correct_distortion: true,
+                correct_tca: true,
+                correct_vignetting: true,
+                automatic_scale: true,
+                manual_distortion: 0,
+                manual_tca_red_cyan: 0,
+                manual_tca_blue_yellow: 0,
+                manual_vignetting_amount: 0,
+                manual_vignetting_midpoint: 50,
+                camera_profile_maker: String::new(),
+                camera_profile_model: String::new(),
+                lens_profile_maker: String::new(),
+                lens_profile_model: String::new(),
+            },
+            raw_white_balance_mode: 0,
+            camera_neutral_red_millionths: 1_000_000,
+            camera_neutral_blue_millionths: 1_000_000,
         },
         grade_nodes: vec![created.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
             crop_left: 0.0,
             crop_top: 0.0,
@@ -80,25 +86,31 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     assert!(created.fine.oklab_lightness_curve_points.is_empty());
 
     let incoming = ffi::FfiEditSettings {
-        optics: ffi::FfiOpticsSettings {
-            enabled: true,
-            correct_distortion: false,
-            correct_tca: true,
-            correct_vignetting: false,
-            automatic_scale: true,
-            manual_distortion: 0,
-            manual_tca_red_cyan: 0,
-            manual_tca_blue_yellow: 0,
-            manual_vignetting_amount: 0,
-            manual_vignetting_midpoint: 50,
-            camera_profile_maker: "Pentax".to_owned(),
-            camera_profile_model: "K10D".to_owned(),
-            lens_profile_maker: "smc Pentax".to_owned(),
-            lens_profile_model: "DA 35mm".to_owned(),
+        foundation: ffi::FfiPhotoFoundationSettings {
+            optics: ffi::FfiOpticsSettings {
+                enabled: true,
+                correct_distortion: false,
+                correct_tca: true,
+                correct_vignetting: false,
+                automatic_scale: true,
+                manual_distortion: 0,
+                manual_tca_red_cyan: 0,
+                manual_tca_blue_yellow: 0,
+                manual_vignetting_amount: 0,
+                manual_vignetting_midpoint: 50,
+                camera_profile_maker: "Pentax".to_owned(),
+                camera_profile_model: "K10D".to_owned(),
+                lens_profile_maker: "smc Pentax".to_owned(),
+                lens_profile_model: "DA 35mm".to_owned(),
+            },
+            raw_white_balance_mode: 1,
+            camera_neutral_red_millionths: 825_000,
+            camera_neutral_blue_millionths: 1_375_000,
         },
         grade_nodes: vec![created],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
             crop_left: 0.0,
             crop_top: 0.0,
@@ -130,13 +142,19 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         incoming.grade_nodes[0].sharpen_render_op_id
     );
     assert_eq!(outgoing.grade_nodes[0].label, "Portrait foundation");
-    assert!(outgoing.optics.enabled);
-    assert!(!outgoing.optics.correct_distortion);
-    assert!(outgoing.optics.correct_tca);
-    assert!(!outgoing.optics.correct_vignetting);
-    assert!(outgoing.optics.automatic_scale);
-    assert_eq!(outgoing.optics.camera_profile_model, "K10D");
-    assert_eq!(outgoing.optics.lens_profile_model, "DA 35mm");
+    assert!(outgoing.foundation.optics.enabled);
+    assert!(!outgoing.foundation.optics.correct_distortion);
+    assert!(outgoing.foundation.optics.correct_tca);
+    assert!(!outgoing.foundation.optics.correct_vignetting);
+    assert!(outgoing.foundation.optics.automatic_scale);
+    assert_eq!(outgoing.foundation.optics.camera_profile_model, "K10D");
+    assert_eq!(outgoing.foundation.optics.lens_profile_model, "DA 35mm");
+    assert_eq!(outgoing.foundation.raw_white_balance_mode, 1);
+    assert_eq!(outgoing.foundation.camera_neutral_red_millionths, 825_000);
+    assert_eq!(
+        outgoing.foundation.camera_neutral_blue_millionths,
+        1_375_000
+    );
 }
 
 #[test]
@@ -167,10 +185,11 @@ fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
 
     let snapshot = grade_stack_recipe_v1_snapshot(
         &GradeStackDraft {
-            optics: RecipeOpticsSettings::default(),
+            foundation: PhotoFoundationNode::default(),
             grade_nodes: vec![grade_node],
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            liquify: None,
             geometry: PhotoGeometry::identity(),
         },
         None,
@@ -291,10 +310,11 @@ fn current_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
     let mut grade_node = GradeNodeDraft::neutral("Custom grade");
     grade_node.basic.exposure_stops = 0.75;
     let grade_stack = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("current snapshot");

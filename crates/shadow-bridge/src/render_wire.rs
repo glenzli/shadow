@@ -2,7 +2,7 @@
 
 use super::{
     adjustment::{
-        AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentLocalMask,
+        AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentLiquify, AdjustmentLocalMask,
         AdjustmentQuarterTurn, AdjustmentRenderNode, AdjustmentRenderOperation,
         AdjustmentRenderPlan, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
     },
@@ -28,6 +28,7 @@ pub(super) fn ffi_render_request_with_mask_coverage(
 ) -> ffi::FfiAdjustmentRenderRequest {
     ffi::FfiAdjustmentRenderRequest {
         nodes: plan.nodes.iter().map(ffi_render_node).collect(),
+        liquify: ffi_photo_liquify(plan.liquify.as_ref()),
         geometry: ffi_photo_geometry(plan.geometry),
         max_edge,
         jpeg_quality,
@@ -42,8 +43,45 @@ pub(super) fn ffi_detail_tile_request(
 ) -> ffi::FfiAdjustmentDetailTileRequest {
     ffi::FfiAdjustmentDetailTileRequest {
         nodes: plan.nodes.iter().map(ffi_render_node).collect(),
+        liquify: ffi_photo_liquify(plan.liquify.as_ref()),
         geometry: ffi_photo_geometry(plan.geometry),
         rect: ffi_detail_tile_rect(request.rect),
+    }
+}
+
+fn ffi_photo_liquify(liquify: Option<&AdjustmentLiquify>) -> ffi::FfiPhotoLiquify {
+    let Some(liquify) = liquify else {
+        return ffi::FfiPhotoLiquify {
+            present: false,
+            points: Vec::new(),
+            stroke_point_counts: Vec::new(),
+            stroke_parameters: Vec::new(),
+        };
+    };
+    let point_count = liquify
+        .strokes
+        .iter()
+        .map(|stroke| stroke.points.len())
+        .sum();
+    let mut points = Vec::with_capacity(point_count);
+    let mut stroke_point_counts = Vec::with_capacity(liquify.strokes.len());
+    let mut stroke_parameters = Vec::with_capacity(liquify.strokes.len() * 3);
+    for stroke in &liquify.strokes {
+        stroke_point_counts.push(
+            u32::try_from(stroke.points.len()).expect("validated Liquify point count fits u32"),
+        );
+        points.extend(stroke.points.iter().map(|point| ffi::FfiPhotoLiquifyPoint {
+            x: point.x,
+            y: point.y,
+            pressure: point.pressure,
+        }));
+        stroke_parameters.extend([stroke.radius, stroke.strength, stroke.hardness]);
+    }
+    ffi::FfiPhotoLiquify {
+        present: true,
+        points,
+        stroke_point_counts,
+        stroke_parameters,
     }
 }
 

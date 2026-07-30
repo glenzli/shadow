@@ -34,6 +34,34 @@ pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
 /// scene-linear RGB and is independently capped at 1 GiB by the native session.
 pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 1_024 * 1_024 * 1_024;
 
+/// Runtime source capabilities required by a complete full-detail render plan.
+///
+/// This is execution policy, not authored Recipe state. The current Metal
+/// structural path does not implement Liquify, so those plans require a
+/// retained source that can be replayed through the portable CPU executor.
+/// Once Metal Liquify reaches parity, this derivation can admit a
+/// Metal-resident source without changing the Recipe or render-plan schema.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub struct DetailSessionRequirements {
+    requires_cpu_replay: bool,
+}
+
+impl DetailSessionRequirements {
+    /// Derives source-admission requirements from the complete executable plan.
+    #[must_use]
+    pub const fn for_render_plan(plan: &AdjustmentRenderPlan) -> Self {
+        Self {
+            requires_cpu_replay: plan.liquify.is_some(),
+        }
+    }
+
+    /// Whether the retained source must support complete CPU replay.
+    #[must_use]
+    pub const fn requires_cpu_replay(self) -> bool {
+        self.requires_cpu_replay
+    }
+}
+
 /// One exact rectangle in the processed full-resolution image coordinate space.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct DetailTileRect {
@@ -113,6 +141,7 @@ pub struct LibRawEditDetailSession {
     handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
     dimensions: ImageDimensions,
     retained_bytes: u64,
+    cpu_replay_available: bool,
     raw_development_receipt: RawDevelopmentReceipt,
     raw_pipeline_receipt: RawPipelineReceipt,
     optics_receipt: OpticsReceipt,
@@ -129,6 +158,7 @@ impl std::fmt::Debug for LibRawEditDetailSession {
             .debug_struct("LibRawEditDetailSession")
             .field("dimensions", &self.dimensions)
             .field("retained_bytes", &self.retained_bytes)
+            .field("cpu_replay_available", &self.cpu_replay_available)
             .field("raw_development_receipt", &self.raw_development_receipt)
             .field("raw_pipeline_receipt", &self.raw_pipeline_receipt)
             .field("optics_receipt", &self.optics_receipt)
@@ -193,6 +223,30 @@ impl LibRawEditDetailSession {
         raw_development_plan: RawDevelopmentPlan,
         optics: &OpticsSettings,
     ) -> Result<Self, BridgeError> {
+        Self::open_with_requirements(
+            path,
+            raw_development_plan,
+            optics,
+            DetailSessionRequirements::default(),
+        )
+    }
+
+    /// Opens a native-detail session after negotiating the source capabilities
+    /// required by the complete render plan.
+    ///
+    /// Requirement satisfaction is checked again on the prepared native
+    /// session before it becomes observable to callers.
+    ///
+    /// # Errors
+    ///
+    /// Returns a plan/optics validation, path, decoder, resource-limit,
+    /// admission, or invalid bridge-output error when preparation fails.
+    pub fn open_with_requirements(
+        path: &Path,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+        requirements: DetailSessionRequirements,
+    ) -> Result<Self, BridgeError> {
         raw_development_plan.validate()?;
         if !matches!(
             raw_development_plan.intent,
@@ -216,10 +270,14 @@ impl LibRawEditDetailSession {
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let handle = decode_handle.prepare_edit_detail_with_raw_development_plan(
             &ffi_raw_development_plan(raw_development_plan),
+            &ffi::FfiDetailSessionRequirements {
+                requires_cpu_replay: requirements.requires_cpu_replay(),
+            },
         )?;
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let retained_bytes = prepared.retained_bytes();
+        let cpu_replay_available = prepared.cpu_replay_available();
         let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
         let raw_pipeline_receipt = raw_pipeline_receipt(prepared.raw_pipeline_receipt()?)?;
         let optics_receipt = optics_receipt(prepared.optics_receipt());
@@ -233,10 +291,16 @@ impl LibRawEditDetailSession {
                 "retained bytes must be in 1..=1 GiB",
             ));
         }
+        if requirements.requires_cpu_replay() && !cpu_replay_available {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "prepared detail source does not satisfy the required CPU replay capability",
+            ));
+        }
         Ok(Self {
             handle,
             dimensions: prepared_dimensions,
             retained_bytes,
+            cpu_replay_available,
             raw_development_receipt,
             raw_pipeline_receipt,
             optics_receipt,
@@ -254,6 +318,20 @@ impl LibRawEditDetailSession {
     #[must_use]
     pub const fn retained_bytes(&self) -> u64 {
         self.retained_bytes
+    }
+
+    /// Whether this retained source can execute a complete tile through the
+    /// portable CPU adjustment and structural path.
+    #[must_use]
+    pub const fn cpu_replay_available(&self) -> bool {
+        self.cpu_replay_available
+    }
+
+    /// Reports whether this prepared source satisfies a later plan's runtime
+    /// requirements and is therefore safe to reuse from a session cache.
+    #[must_use]
+    pub const fn satisfies_requirements(&self, requirements: DetailSessionRequirements) -> bool {
+        !requirements.requires_cpu_replay() || self.cpu_replay_available
     }
 
     /// Returns immutable provenance for the exact full-resolution RAW development, if any,

@@ -20,6 +20,12 @@
 
 namespace shadow::image::proxy_detail {
 
+bool full_detail_source_allows_metal_publication(
+    const FullEditDetailSourceRequirements& requirements
+) noexcept {
+    return !requirements.requires_cpu_replay;
+}
+
 void validate_full_detail_source_preflight(
     const AssetMetadata& metadata,
     const FullDetailSourceStorage storage
@@ -226,6 +232,7 @@ raw_frame_route_candidate(const DecodeSession& session, const RawPipelinePolicy&
 PreparedFullEditDetailSource prepare_full_edit_detail_source(
     const DecodeSession& session,
     const RawDevelopmentPlan& raw_development_plan,
+    const FullEditDetailSourceRequirements& requirements,
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
@@ -279,7 +286,8 @@ PreparedFullEditDetailSource prepare_full_edit_detail_source(
                 );
                 return prepare_resident_source(std::move(resident), session.metadata());
             }
-            if (prepared->development().requested_backend() != RawDevelopmentBackendMode::cpu) {
+            if (prepared->development().requested_backend() != RawDevelopmentBackendMode::cpu
+                && full_detail_source_allows_metal_publication(requirements)) {
                 auto metal_resident = raw_pipeline_detail::try_prepare_metal_resident_raw_source(
                     std::move(*prepared),
                     std::move(region_optics)

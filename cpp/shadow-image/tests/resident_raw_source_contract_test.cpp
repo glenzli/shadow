@@ -452,6 +452,23 @@ void metadata_preflight_uses_the_actual_retained_representation() {
     }
 }
 
+void structural_requirements_gate_metal_only_source_publication() {
+    expect(
+        image::proxy_detail::full_detail_source_allows_metal_publication(
+            image::FullEditDetailSourceRequirements{}
+        ),
+        "an unrestricted render plan admits the resident Metal RAW source"
+    );
+    expect(
+        !image::proxy_detail::full_detail_source_allows_metal_publication(
+            image::FullEditDetailSourceRequirements{
+                .requires_cpu_replay = true,
+            }
+        ),
+        "a CPU-replay render plan rejects Metal-only source publication before residency"
+    );
+}
+
 void cpu_resident_source_rejects_unbound_and_cross_source_optics() {
     const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "cpu");
     const image::CameraProfileCatalog catalog{
@@ -638,7 +655,13 @@ void public_full_detail_session_uses_the_resident_source() {
     const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "cpu");
     const ScopedEnvironment pipeline_mode("SHADOW_RAW_PIPELINE", "raw-frame");
     SyntheticRawSession decoder(padded_bayer_frame());
-    const auto session = image::prepare_full_edit_detail(decoder);
+    const auto session = image::prepare_full_edit_detail(
+        decoder,
+        image::default_raw_development_plan(),
+        image::FullEditDetailSourceRequirements{
+            .requires_cpu_replay = true,
+        }
+    );
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "resident-neutral",
@@ -653,8 +676,9 @@ void public_full_detail_session_uses_the_resident_source() {
     );
     expect(
         session.retained_bytes() < static_cast<std::uint64_t>(4U * 4U * 3U * sizeof(float))
+            && session.cpu_replay_available()
             && session.raw_pipeline_receipt().path == image::RawPipelinePath::shadow_raw_frame,
-        "public CPU detail retains CFA storage instead of a complete fp32 RGB raster"
+        "required CPU-replay detail retains capable CFA storage instead of complete fp32 RGB"
     );
     expect(
         first.bytes == second.bytes
@@ -720,6 +744,7 @@ int main() {
     region_plan_names_denoise_preimage_and_clamps_boundaries();
     unsupported_orientation_fails_closed_during_region_preparation();
     metadata_preflight_uses_the_actual_retained_representation();
+    structural_requirements_gate_metal_only_source_publication();
     cpu_resident_source_rejects_unbound_and_cross_source_optics();
     resident_aggregate_reuses_one_preparation_and_matches_materialization();
     robust_cfa_denoise_is_retained_once_and_matches_materialization();

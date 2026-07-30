@@ -33,6 +33,7 @@ fn color_warper_plan_validates_and_flattens_fixed_lattice() {
                 parameters: Box::new(parameters),
             },
         }],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
 
@@ -65,6 +66,7 @@ fn color_warper_rejects_invalid_strength_and_control_offsets() {
                 parameters: Box::new(parameters),
             },
         }],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
     let invalid_strength = OklabColorWarperParameters {

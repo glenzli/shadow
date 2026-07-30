@@ -1,6 +1,6 @@
 use super::*;
 use crate::recipe_v1::GradeNodeDraft;
-use shadow_domain::{EntityId, LayerId, LayerRevisionId, PhotoGeometry, RecipeOpticsSettings};
+use shadow_domain::{EntityId, LayerId, LayerRevisionId, PhotoFoundationNode, PhotoGeometry};
 
 fn shared_node(layer_id: LayerId, revision_id: LayerRevisionId) -> GradeNodeDraft {
     let mut node = GradeNodeDraft::neutral("Shared");
@@ -18,10 +18,11 @@ fn merge_replaces_an_older_revision_in_place_and_preserves_bypass() {
     existing.enabled = false;
     let replacement = shared_node(layer_id, LayerRevisionId::new_v7());
     let mut stack = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![GradeNodeDraft::neutral("Local"), existing],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
 
@@ -38,10 +39,11 @@ fn merge_replaces_an_older_revision_in_place_and_preserves_bypass() {
 fn merge_is_idempotent_for_the_same_materialized_revision() {
     let shared = shared_node(LayerId::new_v7(), LayerRevisionId::new_v7());
     let mut stack = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![shared.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
 

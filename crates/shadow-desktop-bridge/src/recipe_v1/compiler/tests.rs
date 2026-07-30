@@ -1,10 +1,12 @@
-use shadow_bridge::AdjustmentLocalMask;
+use shadow_bridge::{
+    AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask,
+};
 use shadow_domain::{
-    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, MaskDefinition,
-    UnitInterval,
+    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
+    LiquifyStroke, MaskDefinition, PhotoLiquifyNode, UnitInterval,
 };
 
-use super::adjustment_local_mask;
+use super::{adjustment_liquify, adjustment_local_mask};
 
 #[test]
 fn condition_masks_compile_without_changing_authored_units() {
@@ -66,5 +68,46 @@ fn composite_condition_masks_fail_at_the_executability_boundary() {
         error
             .to_string()
             .contains("persists bounded condition-mask expressions")
+    );
+}
+
+#[test]
+fn liquify_compilation_preserves_authored_paths_and_brush_units_exactly() {
+    let unit = |value| UnitInterval::new(value).expect("unit interval");
+    let node = PhotoLiquifyNode::new(vec![
+        LiquifyStroke::push(
+            vec![
+                LiquifyPoint::with_pressure(unit(0.1), unit(0.2), unit(0.3)),
+                LiquifyPoint::with_pressure(unit(0.7), unit(0.8), unit(0.9)),
+            ],
+            unit(0.12),
+            unit(0.65),
+            unit(0.4),
+        )
+        .expect("push gesture"),
+    ])
+    .expect("Liquify node");
+
+    assert_eq!(
+        adjustment_liquify(&node),
+        AdjustmentLiquify {
+            strokes: vec![AdjustmentLiquifyPushStroke {
+                points: vec![
+                    AdjustmentLiquifyPoint {
+                        x: 0.1,
+                        y: 0.2,
+                        pressure: 0.3,
+                    },
+                    AdjustmentLiquifyPoint {
+                        x: 0.7,
+                        y: 0.8,
+                        pressure: 0.9,
+                    },
+                ],
+                radius: 0.12,
+                strength: 0.65,
+                hardness: 0.4,
+            }],
+        }
     );
 }

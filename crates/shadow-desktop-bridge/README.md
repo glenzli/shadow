@@ -22,6 +22,9 @@ presentation, SQLite schema details, or native image algorithms.
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
 | Exact selected-photo EXIF and technical inspection, independent from virtualized Review pages | [`src/photo_inspection_service.rs`](src/photo_inspection_service.rs), [`src/session_photo_inspection.rs`](src/session_photo_inspection.rs) |
 | Photo source admission, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
+| Exact SAM 2.1 installation/application admission, resident provider session, and proposal staging | [`src/subject_mask_runtime.rs`](src/subject_mask_runtime.rs) |
+| Subject-mask preview, registration, apply, and discard authority | [`src/subject_mask_service.rs`](src/subject_mask_service.rs) |
+| Edit-session subject-mask prompt, refinement, and apply orchestration | [`src/session_subject_mask.rs`](src/session_subject_mask.rs) |
 | Bounded persistent grid-proxy identity from the complete RAW plan and optional isolated-helper graph | [`src/photo_provider/grid_proxy_identity.rs`](src/photo_provider/grid_proxy_identity.rs) |
 | Preview identity, cancellation, and session-local reuse | [`src/preview_cache_identity.rs`](src/preview_cache_identity.rs), [`src/preview_render_registry.rs`](src/preview_render_registry.rs), [`src/session_preview_store.rs`](src/session_preview_store.rs), [`src/edit_preview/warm_session_cache.rs`](src/edit_preview/warm_session_cache.rs) |
 | 1:1 detail tile geometry and reuse | [`src/detail_viewport.rs`](src/detail_viewport.rs), [`src/detail_tile_cache.rs`](src/detail_tile_cache.rs) |
@@ -30,6 +33,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Settled Recipe-preview identity, blob storage, and Catalog publication | [`src/edit_preview/recipe_preview_store.rs`](src/edit_preview/recipe_preview_store.rs) |
 | Working drafts, named versions, checkout, and edit-reference publication | [`src/session_edit_history.rs`](src/session_edit_history.rs) |
 | Recipe v1 draft model and FFI translation, validation, stable identity, snapshot codec and layout, render-plan compilation, and version summaries | [`src/recipe_v1.rs`](src/recipe_v1.rs), [`src/recipe_v1/draft.rs`](src/recipe_v1/draft.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/validation.rs`](src/recipe_v1/validation.rs), [`src/recipe_v1/identity.rs`](src/recipe_v1/identity.rs), [`src/recipe_v1/snapshot_encode.rs`](src/recipe_v1/snapshot_encode.rs), [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/snapshot_layout.rs`](src/recipe_v1/snapshot_layout.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs), [`src/edit_version_diff.rs`](src/edit_version_diff.rs) |
+| Strict flat Liquify DTO decoding and bounded node construction | [`src/recipe_v1/ffi_adapter/liquify.rs`](src/recipe_v1/ffi_adapter/liquify.rs) |
 | Condition-mask executability gate between persistent Recipe values, the flat Qt DTO, and native render plans | [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs) |
 | Shared Grade Node library, application, and desktop-session orchestration | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs), [`src/session_shared_grade.rs`](src/session_shared_grade.rs) |
 | Export execution and queueing | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs) |
@@ -54,6 +58,13 @@ condition expressions, chroma-qualified predicates, and a scale-explicit local-d
 Those richer values currently fail before Qt projection and before render-plan execution; they are
 not flattened, silently omitted, or advertised as active UI features. The next execution slice must
 extend the Qt/native mask protocol and prove CPU/Metal parity before removing either gate.
+
+The Recipe draft and flat Qt DTO expose the optional, photo-private Liquify structural node as one
+ordered push-stroke vector: empty is the canonical absent node, while every non-empty vector
+materializes exactly one validated `PhotoLiquifyNode`. Points retain original-image normalized
+coordinates and pressure; radius, strength, and hardness round-trip exactly. Snapshot encoding uses
+that editable projection directly, so clearing Liquify removes it even when a base Recipe contained
+one, while unrelated Canvas and Grade Node edits preserve the decoded value.
 
 The persistent soft-mask math is closed in `shadow-domain`'s condition-mask `reference` owner.
 `all`, `any`, and `not` mean exact minimum, maximum, and `1 - x`; scalar ranges retain the quintic

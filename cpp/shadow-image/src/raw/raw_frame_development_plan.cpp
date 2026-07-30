@@ -33,8 +33,27 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     return dimensions;
 }
 
-[[nodiscard]] std::array<double, 3U>
-canonical_camera_neutral(const RawFrameDescriptor& descriptor) {
+[[nodiscard]] std::array<double, 3U> canonical_camera_neutral(
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance
+) {
+    if (!valid_raw_white_balance(white_balance)) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "RAW frame development requires a canonical white balance"
+        );
+    }
+    if (white_balance.mode == RawWhiteBalanceMode::camera_neutral) {
+        return {
+            static_cast<double>(white_balance.camera_neutral_red_millionths)
+                / static_cast<double>(raw_camera_neutral_millionths),
+            1.0,
+            static_cast<double>(white_balance.camera_neutral_blue_millionths)
+                / static_cast<double>(raw_camera_neutral_millionths),
+        };
+    }
+
     std::array<double, 3U> totals{};
     std::array<std::uint32_t, 3U> counts{};
     for (std::size_t site = 0U; site < descriptor.bayer_2x2.size(); ++site) {
@@ -81,9 +100,11 @@ canonical_camera_neutral(const RawFrameDescriptor& descriptor) {
     return result;
 }
 
-[[nodiscard]] std::array<double, 3U>
-white_balance_multipliers(const RawFrameDescriptor& descriptor) {
-    const auto neutral = canonical_camera_neutral(descriptor);
+[[nodiscard]] std::array<double, 3U> white_balance_multipliers(
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance
+) {
+    const auto neutral = canonical_camera_neutral(descriptor, white_balance);
     std::array<double, 3U> multipliers{
         1.0 / neutral[0],
         1.0 / neutral[1],
@@ -117,8 +138,10 @@ using Matrix3 = std::array<double, 9U>;
     return result;
 }
 
-[[nodiscard]] RawFrameLinearTransform
-generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
+[[nodiscard]] RawFrameLinearTransform generic_raw_frame_transform(
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance
+) {
     Matrix3 camera_to_srgb{};
     if (descriptor.has_camera_to_linear_srgb_d65) {
         camera_to_srgb = descriptor.camera_to_linear_srgb_d65;
@@ -166,11 +189,11 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
             multiply_matrix(xyz_d65_to_srgb, multiply_matrix(d50_to_d65, camera_to_xyz_d50));
     }
 
-    const auto white_balance = white_balance_multipliers(descriptor);
+    const auto multipliers = white_balance_multipliers(descriptor, white_balance);
     // Fold WB into the input columns so the hot loop performs one matrix multiply.
     for (std::size_t output = 0U; output < 3U; ++output) {
         for (std::size_t input = 0U; input < 3U; ++input) {
-            camera_to_srgb[output * 3U + input] *= white_balance[input];
+            camera_to_srgb[output * 3U + input] *= multipliers[input];
         }
     }
     return RawFrameLinearTransform{camera_to_srgb};
@@ -365,7 +388,7 @@ PreparedRawFrameDevelopment prepare_raw_frame_development(
     const RawFrameLinearTransform transform =
         camera_profile.has_value()
             ? RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65}
-            : generic_raw_frame_transform(frame.descriptor);
+            : generic_raw_frame_transform(frame.descriptor, development_plan.white_balance);
     const DcpColorTransform* camera_profile_ptr =
         camera_profile.has_value() ? &*camera_profile : nullptr;
     // Measure the source once before preview downsampling, CFA denoise, and the detail branch.
@@ -442,7 +465,10 @@ RawDevelopmentReceipt finalize_raw_frame_development_receipt(
         receipt.development_settings_signature +=
             ";" + std::string(dcp_color_execution_backend_identity(dcp_execution_backend));
     } else {
-        receipt.development_settings_signature += ";wb=as-shot;matrix=provider-generic";
+        receipt.development_settings_signature +=
+            development_plan.white_balance.mode == RawWhiteBalanceMode::as_shot
+                ? ";wb=as-shot;matrix=provider-generic"
+                : ";wb=camera-neutral;matrix=provider-generic";
     }
     receipt.requested_plan_identity = raw_development_plan_identity(development_plan);
     receipt.effective_plan_identity = receipt.requested_plan_identity;

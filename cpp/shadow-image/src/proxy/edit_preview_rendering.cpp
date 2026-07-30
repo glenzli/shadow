@@ -5,6 +5,7 @@
 #include <shadow/image/display_output.hpp>
 #include <shadow/image/edit_error.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/photo_structural_rendering.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/working_rgb.hpp>
 
@@ -194,6 +195,7 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
     const std::string_view warm_gpu_diagnostic,
     const std::span<const AdjustmentNode> nodes,
     const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify,
     const bool retain_linear_for_analysis,
     const std::stop_token cancellation,
     const detail::WarmEditGpuOutputIntent output_intent
@@ -201,6 +203,8 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
     if (cancellation.stop_requested()) {
         return std::nullopt;
     }
+    const PreparedPhotoStructuralRendering structural =
+        prepare_photo_structural_rendering(working_proxy.dimensions, geometry, liquify);
     const AdjustmentBackendMode backend_mode = adjustment_backend_mode_from_environment();
     if (backend_mode != AdjustmentBackendMode::cpu) {
         // Compile before inspecting runtime availability so disabled malformed nodes and source
@@ -217,8 +221,10 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
             .geometry = warm_gpu_geometry_context(working_proxy, geometry),
             .output_intent = output_intent,
         };
-        std::string diagnostic(warm_gpu_diagnostic);
-        if (warm_gpu_session) {
+        std::string diagnostic = liquify == nullptr
+            ? std::string(warm_gpu_diagnostic)
+            : "photo Liquify requires the portable CPU structural sampler";
+        if (warm_gpu_session && liquify == nullptr) {
             auto attempt =
                 warm_gpu_session
                     ->render(nodes, plan, retain_linear_for_analysis, render_context, cancellation);
@@ -291,7 +297,8 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
                 AdjustmentBackendMode::cpu
             );
             detail::throw_if_row_cancelled();
-            geometry_applied = apply_photo_geometry(adjustment.pixels, geometry);
+            geometry_applied =
+                apply_photo_structural_rendering(adjustment.pixels, structural);
             display = render_linear_srgb_to_display_srgb8_with_backend(
                 geometry_applied,
                 DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},
@@ -340,7 +347,8 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
             AdjustmentBackendMode::cpu
         );
         detail::throw_if_row_cancelled();
-        geometry_applied = apply_photo_geometry(adjustment.pixels, geometry);
+        geometry_applied =
+            apply_photo_structural_rendering(adjustment.pixels, structural);
         display = render_linear_srgb_to_display_srgb8_with_backend(
             geometry_applied,
             DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},
@@ -370,6 +378,7 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
     const std::string_view warm_gpu_diagnostic,
     const std::span<const AdjustmentLayer> layers,
     const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify,
     const bool retain_linear_for_analysis,
     const std::stop_token cancellation,
     const std::optional<std::uint32_t> target_layer_index,
@@ -378,6 +387,15 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
     if (cancellation.stop_requested()) {
         return std::nullopt;
     }
+    if (liquify != nullptr && target_layer_index.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "paired mask coverage is unavailable while photo Liquify is active"
+        );
+    }
+    const PreparedPhotoStructuralRendering structural =
+        prepare_photo_structural_rendering(working_proxy.dimensions, geometry, liquify);
 
     const AdjustmentBackendMode backend_mode = adjustment_backend_mode_from_environment();
     if (target_layer_index.has_value()
@@ -399,8 +417,10 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
             .geometry = warm_gpu_geometry_context(working_proxy, geometry),
             .output_intent = output_intent,
         };
-        fallback_diagnostic = std::string(warm_gpu_diagnostic);
-        if (warm_gpu_session) {
+        fallback_diagnostic = liquify == nullptr
+            ? std::string(warm_gpu_diagnostic)
+            : "photo Liquify requires the portable CPU structural sampler";
+        if (warm_gpu_session && liquify == nullptr) {
             auto attempt = warm_gpu_session->render_layers(
                 layers,
                 retain_linear_for_analysis,
@@ -502,7 +522,8 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
             }
         }
         detail::throw_if_row_cancelled();
-        geometry_applied = apply_photo_geometry(adjustment.pixels, geometry);
+        geometry_applied =
+            apply_photo_structural_rendering(adjustment.pixels, structural);
         display = render_linear_srgb_to_display_srgb8_with_backend(
             geometry_applied,
             DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},

@@ -17,8 +17,6 @@ namespace shadow::image {
 
 namespace {
 
-using detail::dcp_color_matrix_math::Matrix3;
-using detail::dcp_color_matrix_math::Vector3;
 using detail::dcp_color_matrix_math::chromatic_adaptation;
 using detail::dcp_color_matrix_math::d50_xyz;
 using detail::dcp_color_matrix_math::d65_xyz;
@@ -26,20 +24,36 @@ using detail::dcp_color_matrix_math::finite_matrix;
 using detail::dcp_color_matrix_math::from_dcp;
 using detail::dcp_color_matrix_math::interpolate;
 using detail::dcp_color_matrix_math::invert;
+using detail::dcp_color_matrix_math::Matrix3;
 using detail::dcp_color_matrix_math::multiply;
 using detail::dcp_color_matrix_math::scale_matrix;
+using detail::dcp_color_matrix_math::Vector3;
 using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
 
-[[noreturn]] void fail(
-    const DcpColorDevelopmentErrorCode code,
-    const std::string_view message
-) {
+[[noreturn]] void fail(const DcpColorDevelopmentErrorCode code, const std::string_view message) {
     throw DcpColorDevelopmentError(code, std::string(message));
 }
 
 [[nodiscard]] Vector3 canonical_camera_neutral(
-    const RawFrameDescriptor& descriptor
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance
 ) {
+    if (!valid_raw_white_balance(white_balance)) {
+        fail(
+            DcpColorDevelopmentErrorCode::invalid_input,
+            "DCP development requires a canonical RAW white balance"
+        );
+    }
+    if (white_balance.mode == RawWhiteBalanceMode::camera_neutral) {
+        return {
+            static_cast<double>(white_balance.camera_neutral_red_millionths)
+                / static_cast<double>(raw_camera_neutral_millionths),
+            1.0,
+            static_cast<double>(white_balance.camera_neutral_blue_millionths)
+                / static_cast<double>(raw_camera_neutral_millionths),
+        };
+    }
+
     std::array<double, 3U> totals{};
     std::array<std::uint32_t, 3U> counts{};
     for (std::size_t site = 0U; site < descriptor.bayer_2x2.size(); ++site) {
@@ -90,8 +104,7 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
 }
 
 [[nodiscard]] Vector3 xy_to_xyz(const double x, const double y) {
-    if (!std::isfinite(x) || !std::isfinite(y) || x <= 0.0 || y <= 0.0
-        || x + y >= 1.0) {
+    if (!std::isfinite(x) || !std::isfinite(y) || x <= 0.0 || y <= 0.0 || x + y >= 1.0) {
         fail(
             DcpColorDevelopmentErrorCode::invalid_white_point,
             "DCP white chromaticity is outside the finite visible triangle"
@@ -114,10 +127,7 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
     return {x, y};
 }
 
-[[nodiscard]] double correlated_color_temperature(
-    const double x,
-    const double y
-) {
+[[nodiscard]] double correlated_color_temperature(const double x, const double y) {
     // McCamy's compact approximation is deterministic and sufficiently accurate for choosing
     // the reciprocal-temperature interpolation weight between standard DCP illuminants.
     const double denominator = 0.1858 - y;
@@ -128,8 +138,7 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
         );
     }
     const double n = (x - 0.3320) / denominator;
-    const double temperature =
-        -449.0 * n * n * n + 3525.0 * n * n - 6823.3 * n + 5520.33;
+    const double temperature = -449.0 * n * n * n + 3525.0 * n * n - 6823.3 * n + 5520.33;
     if (!std::isfinite(temperature) || temperature < 1'500.0 || temperature > 25'000.0) {
         fail(
             DcpColorDevelopmentErrorCode::invalid_white_point,
@@ -139,9 +148,8 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
     return temperature;
 }
 
-[[nodiscard]] std::optional<double> illuminant_temperature(
-    const std::uint16_t illuminant
-) noexcept {
+[[nodiscard]] std::optional<double>
+illuminant_temperature(const std::uint16_t illuminant) noexcept {
     switch (illuminant) {
     case 1U: // Daylight
     case 4U: // Flash
@@ -192,9 +200,8 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
     if (temperature1 == temperature2) {
         return 1.0;
     }
-    const double weight =
-        ((1.0 / temperature) - (1.0 / temperature2))
-        / ((1.0 / temperature1) - (1.0 / temperature2));
+    const double weight = ((1.0 / temperature) - (1.0 / temperature2))
+                          / ((1.0 / temperature1) - (1.0 / temperature2));
     return std::clamp(weight, 0.0, 1.0);
 }
 
@@ -206,10 +213,8 @@ struct ResolvedCalibration final {
     double calibration1_weight = 1.0;
 };
 
-[[nodiscard]] ResolvedCalibration resolve_calibration(
-    const DcpProfile& profile,
-    const Vector3& camera_neutral
-) {
+[[nodiscard]] ResolvedCalibration
+resolve_calibration(const DcpProfile& profile, const Vector3& camera_neutral) {
     const Matrix3 color1 = from_dcp(profile.calibration1.color_matrix);
     if (!profile.calibration2.has_value()) {
         const Vector3 source_xyz = multiply(invert(color1), camera_neutral);
@@ -217,9 +222,10 @@ struct ResolvedCalibration final {
         const double temperature = correlated_color_temperature(xy[0], xy[1]);
         return ResolvedCalibration{
             .color_matrix = color1,
-            .forward_matrix = profile.calibration1.forward_matrix.has_value()
-                ? std::optional<Matrix3>(from_dcp(*profile.calibration1.forward_matrix))
-                : std::nullopt,
+            .forward_matrix =
+                profile.calibration1.forward_matrix.has_value()
+                    ? std::optional<Matrix3>(from_dcp(*profile.calibration1.forward_matrix))
+                    : std::nullopt,
             .white_xyz = xy_to_xyz(xy[0], xy[1]),
             .temperature = temperature,
             .calibration1_weight = 1.0,
@@ -337,18 +343,14 @@ struct ResolvedCalibration final {
 DcpColorDevelopmentError::DcpColorDevelopmentError(
     const DcpColorDevelopmentErrorCode code,
     std::string message
-)
-    : std::invalid_argument(std::move(message)),
-      code_(code) {
-}
+) : std::invalid_argument(std::move(message)), code_(code) {}
 
 DcpColorDevelopmentErrorCode DcpColorDevelopmentError::code() const noexcept {
     return code_;
 }
 
-std::string_view dcp_color_execution_backend_identity(
-    const DcpColorExecutionBackend backend
-) noexcept {
+std::string_view
+dcp_color_execution_backend_identity(const DcpColorExecutionBackend backend) noexcept {
     switch (backend) {
     case DcpColorExecutionBackend::cpu:
         return "dcp-executor=cpu-v1;math=f64-reference";
@@ -360,25 +362,24 @@ std::string_view dcp_color_execution_backend_identity(
 
 bool DcpColorDevelopmentReceipt::valid() const noexcept {
     return schema_version == dcp_color_receipt_schema_version
-        && developer_version == dcp_color_developer_version
-        && !profile_content_identity.empty() && !normalized_camera_model.empty()
-        && std::isfinite(calibration1_weight) && calibration1_weight >= 0.0
-        && calibration1_weight <= 1.0 && std::isfinite(estimated_white_x)
-        && std::isfinite(estimated_white_y) && estimated_white_x > 0.0
-        && estimated_white_y > 0.0 && estimated_white_x + estimated_white_y < 1.0
-        && std::isfinite(estimated_correlated_color_temperature)
-        && estimated_correlated_color_temperature > 0.0
-        && std::isfinite(baseline_exposure_offset_ev);
+           && developer_version == dcp_color_developer_version && !profile_content_identity.empty()
+           && !normalized_camera_model.empty() && std::isfinite(calibration1_weight)
+           && calibration1_weight >= 0.0 && calibration1_weight <= 1.0
+           && std::isfinite(estimated_white_x) && std::isfinite(estimated_white_y)
+           && estimated_white_x > 0.0 && estimated_white_y > 0.0
+           && estimated_white_x + estimated_white_y < 1.0
+           && std::isfinite(estimated_correlated_color_temperature)
+           && estimated_correlated_color_temperature > 0.0
+           && std::isfinite(baseline_exposure_offset_ev);
 }
 
 bool DcpColorTransform::valid() const noexcept {
     return receipt.valid() && finite_matrix(camera_to_linear_srgb_d65)
-        && detail::dcp_rendering_stages_valid(*this);
+           && detail::dcp_rendering_stages_valid(*this);
 }
 
-std::array<double, 3U> DcpColorTransform::apply(
-    const std::array<double, 3U>& camera_rgb
-) const noexcept {
+std::array<double, 3U>
+DcpColorTransform::apply(const std::array<double, 3U>& camera_rgb) const noexcept {
     return multiply(camera_to_linear_srgb_d65, camera_rgb);
 }
 
@@ -390,6 +391,14 @@ DcpColorTransform compile_dcp_color_transform(
     const CameraProfileDefinition& definition,
     const RawFrameDescriptor& descriptor
 ) {
+    return compile_dcp_color_transform(definition, descriptor, RawWhiteBalance{});
+}
+
+DcpColorTransform compile_dcp_color_transform(
+    const CameraProfileDefinition& definition,
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance
+) {
     if (definition.content_identity.empty() || definition.normalized_camera_model.empty()
         || descriptor.cfa_layout != RawFrameCfaLayout::bayer_2x2) {
         fail(
@@ -398,15 +407,12 @@ DcpColorTransform compile_dcp_color_transform(
         );
     }
     const DcpProfile& profile = definition.profile;
-    const Vector3 neutral = canonical_camera_neutral(descriptor);
+    const Vector3 neutral = canonical_camera_neutral(descriptor, white_balance);
     const ResolvedCalibration calibration = resolve_calibration(profile, neutral);
     DcpMatrixRoute route = DcpMatrixRoute::inverse_color_matrix;
     Matrix3 camera_to_d50 = normalized_camera_to_xyz_d50(calibration, neutral, route);
     const Matrix3 d50_to_d65 = chromatic_adaptation(d50_xyz, d65_xyz);
-    Matrix3 camera_to_srgb = multiply(
-        xyz_d65_to_linear_srgb,
-        multiply(d50_to_d65, camera_to_d50)
-    );
+    Matrix3 camera_to_srgb = multiply(xyz_d65_to_linear_srgb, multiply(d50_to_d65, camera_to_d50));
     const double exposure_offset = profile.baseline_exposure_offset_ev.value_or(0.0);
     if (!std::isfinite(exposure_offset) || std::abs(exposure_offset) > 16.0) {
         fail(
@@ -417,10 +423,7 @@ DcpColorTransform compile_dcp_color_transform(
     camera_to_srgb = scale_matrix(camera_to_srgb, std::exp2(exposure_offset));
     const auto white_xy = xyz_to_xy(calibration.white_xyz);
     const detail::PreparedDcpRenderingStages rendering_stages =
-        detail::prepare_dcp_rendering_stages(
-            profile,
-            calibration.calibration1_weight
-        );
+        detail::prepare_dcp_rendering_stages(profile, calibration.calibration1_weight);
 
     DcpColorTransform result{
         .camera_to_linear_srgb_d65 = camera_to_srgb,
@@ -436,7 +439,8 @@ DcpColorTransform compile_dcp_color_transform(
             .matrix_route = route,
             .calibration_illuminant1 = profile.calibration1.illuminant,
             .calibration_illuminant2 = profile.calibration2.has_value()
-                ? profile.calibration2->illuminant : static_cast<std::uint16_t>(0U),
+                                           ? profile.calibration2->illuminant
+                                           : static_cast<std::uint16_t>(0U),
             .calibration1_weight = calibration.calibration1_weight,
             .estimated_white_x = white_xy[0],
             .estimated_white_y = white_xy[1],
@@ -468,8 +472,7 @@ std::string dcp_color_receipt_identity(const DcpColorDevelopmentReceipt& receipt
              << ";illuminant1=" << receipt.calibration_illuminant1
              << ";illuminant2=" << receipt.calibration_illuminant2
              << ";weight1=" << std::setprecision(17) << receipt.calibration1_weight
-             << ";white-x=" << receipt.estimated_white_x
-             << ";white-y=" << receipt.estimated_white_y
+             << ";white-x=" << receipt.estimated_white_x << ";white-y=" << receipt.estimated_white_y
              << ";cct=" << receipt.estimated_correlated_color_temperature
              << ";baseline-ev=" << receipt.baseline_exposure_offset_ev
              << ";huesat=" << (receipt.hue_sat_map_applied ? "applied" : "none")

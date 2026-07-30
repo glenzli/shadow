@@ -18,6 +18,7 @@ fn perceptual_plan(parameters: PerceptualColorParameters, enabled: bool) -> Adju
                 parameters: Box::new(parameters),
             },
         }],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     }
 }

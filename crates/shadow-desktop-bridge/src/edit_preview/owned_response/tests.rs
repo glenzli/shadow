@@ -275,6 +275,7 @@ fn single_masked_layer_plan() -> AdjustmentRenderPlan {
             ),
             node("layer-end", AdjustmentRenderOperation::LocalMaskLayerEnd),
         ],
+        liquify: None,
         geometry: AdjustmentGeometry::default(),
     }
 }

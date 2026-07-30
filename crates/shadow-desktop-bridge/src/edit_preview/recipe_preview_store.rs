@@ -34,6 +34,7 @@ pub(crate) struct RecipePreviewStoreRequest<'a> {
     pub(crate) recipe_snapshot_digest: [u8; 32],
     pub(crate) max_edge: u32,
     pub(crate) jpeg_quality: u8,
+    pub(crate) raw_development_plan: RawDevelopmentPlan,
     pub(crate) raw_pipeline_receipt: &'a RawPipelineReceipt,
     pub(crate) edit_execution_receipt: &'a EditPreviewExecutionReceipt,
     pub(crate) source_environment_cache_identity: &'a str,
@@ -50,11 +51,16 @@ pub(crate) fn store_recipe_preview(
     loader: &CachedArtifactLoader,
     request: RecipePreviewStoreRequest<'_>,
 ) -> AnyResult<()> {
+    if request.raw_pipeline_receipt.requested_plan != request.raw_development_plan {
+        anyhow::bail!(
+            "Recipe preview publication RAW plan does not match its prepared-source receipt"
+        );
+    }
     let raw_pipeline = prepared_raw_pipeline_cache_identity(request.raw_pipeline_receipt)
         .context("identify prepared Recipe-preview source pipeline")?;
     let edit_execution = prepared_edit_execution_cache_identity(request.edit_execution_receipt)
         .context("identify completed Recipe-preview edit/display execution")?;
-    let raw_plan_identity = raw_development_plan_identity(RawDevelopmentPlan::preview())
+    let raw_plan_identity = raw_development_plan_identity(request.raw_development_plan)
         .context("build Recipe-preview RAW-development cache identity")?;
     let variant_key = format!(
         "shadow-recipe-preview:jpeg-{}-q{}-444-v1;{raw_plan_identity};\

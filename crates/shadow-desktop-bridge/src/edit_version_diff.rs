@@ -352,7 +352,7 @@ pub(super) fn changed_grade_parameters_recipe_v1(
         .map(|grade_node| (grade_node.recipe_v1_identity.grade_node_id, grade_node))
         .collect::<HashMap<_, _>>();
     let mut changed = HashSet::new();
-    if before.optics != after.optics {
+    if before.foundation.optics() != after.foundation.optics() {
         changed.insert("optics".to_owned());
     }
     for after_grade_node in &after.grade_nodes {
@@ -420,6 +420,16 @@ pub(super) fn has_other_recipe_changes(
         || !diff.removed_layers().is_empty()
         || !diff.moved_layers().is_empty()
     {
+        return true;
+    }
+    if diff.input_settings().is_some()
+        && before.foundation_node().raw_white_balance()
+            != after.foundation_node().raw_white_balance()
+    {
+        // Absolute camera-space Foundation white balance must not reuse the
+        // creative Grade temperature/tint labels. Until the desktop exposes a
+        // dedicated Foundation history label, report it honestly as an
+        // additional Recipe change.
         return true;
     }
 

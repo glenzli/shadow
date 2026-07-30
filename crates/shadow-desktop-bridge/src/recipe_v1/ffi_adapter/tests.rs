@@ -1,12 +1,15 @@
 use shadow_domain::{
-    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, MaskBrushPoint,
-    MaskDefinition, UnitInterval,
+    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
+    LiquifyStroke, MaskBrushPoint, MaskDefinition, PhotoLiquifyNode, UnitInterval,
 };
+
+use crate::ffi;
 
 use super::{
     GradeStackDraft, LOCAL_MASK_BRUSH, LOCAL_MASK_COLOR_RANGE, LOCAL_MASK_LINEAR_GRADIENT,
-    LOCAL_MASK_LUMINANCE_RANGE, LOCAL_MASK_RADIAL_GRADIENT, encode_grade_stack_draft_recipe_v1,
-    ffi_local_mask_fields, local_mask_definition_from_ffi, new_basic_grade_node,
+    LOCAL_MASK_LUMINANCE_RANGE, LOCAL_MASK_RADIAL_GRADIENT, decode_grade_stack_draft_recipe_v1,
+    encode_grade_stack_draft_recipe_v1, ffi_local_mask_fields, local_mask_definition_from_ffi,
+    new_basic_grade_node,
 };
 
 fn unit(value: f64) -> UnitInterval {
@@ -206,5 +209,64 @@ fn current_qt_dto_rejects_persisted_composite_condition_masks() {
         projection_error
             .to_string()
             .contains("current Qt Grade Node DTO cannot represent")
+    );
+}
+
+#[test]
+#[allow(clippy::float_cmp)] // The normalized FFI slots are an exact persistence boundary.
+fn singleton_liquify_round_trips_exactly_through_the_desktop_dto() {
+    let stroke = LiquifyStroke::push(
+        vec![
+            LiquifyPoint::with_pressure(unit(0.2), unit(0.3), unit(0.4)),
+            LiquifyPoint::with_pressure(unit(0.6), unit(0.7), unit(0.8)),
+        ],
+        unit(0.12),
+        unit(0.55),
+        unit(0.72),
+    )
+    .expect("valid push stroke");
+    let node = PhotoLiquifyNode::new(vec![stroke]).expect("singleton Liquify");
+    let draft = GradeStackDraft {
+        liquify: Some(node.clone()),
+        ..GradeStackDraft::default()
+    };
+
+    let wire = encode_grade_stack_draft_recipe_v1(draft).expect("encode Liquify");
+    assert_eq!(wire.liquify_strokes.len(), 1);
+    assert_eq!(wire.liquify_strokes[0].points.len(), 2);
+    assert_eq!(wire.liquify_strokes[0].points[0].x, 0.2);
+    assert_eq!(wire.liquify_strokes[0].points[0].y, 0.3);
+    assert_eq!(wire.liquify_strokes[0].points[0].pressure, 0.4);
+    assert_eq!(wire.liquify_strokes[0].radius, 0.12);
+    assert_eq!(wire.liquify_strokes[0].strength, 0.55);
+    assert_eq!(wire.liquify_strokes[0].hardness, 0.72);
+
+    let decoded = decode_grade_stack_draft_recipe_v1(&wire).expect("decode Liquify");
+    assert_eq!(decoded.liquify, Some(node));
+
+    let absent =
+        encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("encode absence");
+    assert!(absent.liquify_strokes.is_empty());
+}
+
+#[test]
+fn malformed_liquify_strokes_fail_closed_at_the_desktop_boundary() {
+    let mut wire =
+        encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("neutral wire");
+    wire.liquify_strokes.push(ffi::FfiLiquifyPushStroke {
+        points: vec![ffi::FfiLiquifyPoint {
+            x: 0.5,
+            y: 0.5,
+            pressure: 1.0,
+        }],
+        radius: 0.1,
+        strength: 0.5,
+        hardness: 0.5,
+    });
+    assert!(
+        decode_grade_stack_draft_recipe_v1(&wire)
+            .expect_err("one-point Liquify stroke must fail")
+            .to_string()
+            .contains("Liquify stroke 0 is invalid")
     );
 }

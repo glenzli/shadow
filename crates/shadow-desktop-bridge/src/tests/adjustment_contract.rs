@@ -12,8 +12,8 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph, ImageDomain,
-    LayerContent, LayerInstance, PhotoGeometry, PortType, RecipeOpticsSettings, RecipeSnapshot,
-    UnitInterval, diff_recipe_snapshots,
+    LayerContent, LayerInstance, PhotoFoundationNode, PhotoGeometry, PortType, RawCameraNeutral,
+    RawWhiteBalance, RecipeInputSettings, RecipeSnapshot, UnitInterval, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -116,13 +116,14 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         },
     };
     let grade_stack = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![GradeNodeDraft {
             fine: expected.clone(),
             ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
         }],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
 
@@ -251,6 +252,34 @@ fn oklab_lightness_curve_versions_report_only_the_perceptual_control() {
 }
 
 #[test]
+fn absolute_foundation_white_balance_is_not_reported_as_grade_temperature_or_tint() {
+    let before = GradeStackDraft::default();
+    let mut after = before.clone();
+    after.foundation = PhotoFoundationNode::new(
+        RecipeInputSettings::new(after.foundation.optics().clone()).with_raw_white_balance(
+            RawWhiteBalance::camera_neutral(
+                RawCameraNeutral::from_millionths(850_000, 1_300_000)
+                    .expect("manual camera neutral"),
+            ),
+        ),
+    );
+
+    assert!(
+        changed_grade_parameters_recipe_v1(&before, &after).is_empty(),
+        "absolute Foundation white balance is not a Grade parameter"
+    );
+    let before_snapshot =
+        grade_stack_recipe_v1_snapshot(&before, None).expect("persist As Shot Foundation");
+    let after_snapshot =
+        grade_stack_recipe_v1_snapshot(&after, None).expect("persist manual Foundation");
+    assert!(has_other_recipe_changes(
+        &diff_recipe_snapshots(&before_snapshot, &after_snapshot),
+        &before_snapshot,
+        &after_snapshot,
+    ));
+}
+
+#[test]
 fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
     let root = std::env::temp_dir().join(format!(
         "shadow-managed-lut-test-{}-{}",
@@ -271,10 +300,11 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
         intensity: 0.37,
     };
     let grade_stack = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
     let snapshot =

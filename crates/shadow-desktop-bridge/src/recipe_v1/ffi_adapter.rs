@@ -13,8 +13,9 @@ use shadow_bridge::{
 };
 use shadow_domain::{
     LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS, MaskBrushPoint,
-    MaskDefinition, NodeId, PhotoGeometry, PhotoQuarterTurn, RecipeOpticsSettings, RetouchMode,
-    RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
+    MaskDefinition, NodeId, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn, RawCameraNeutral,
+    RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RetouchMode, RetouchPoint,
+    RetouchSpot, RetouchStroke, UnitInterval,
 };
 
 use crate::ffi;
@@ -28,12 +29,19 @@ use super::{
     validate_basic_parameters, validate_fine_parameters, validate_grade_stack_draft_recipe_v1,
 };
 
+mod liquify;
+
+use liquify::photo_liquify_from_ffi;
+
 const LOCAL_MASK_NONE: u8 = 0;
 const LOCAL_MASK_LINEAR_GRADIENT: u8 = 1;
 const LOCAL_MASK_RADIAL_GRADIENT: u8 = 2;
 const LOCAL_MASK_BRUSH: u8 = 3;
 const LOCAL_MASK_LUMINANCE_RANGE: u8 = 4;
 const LOCAL_MASK_COLOR_RANGE: u8 = 5;
+const RAW_WHITE_BALANCE_AS_SHOT: u8 = 0;
+const RAW_WHITE_BALANCE_CAMERA_NEUTRAL: u8 = 1;
+const CAMERA_NEUTRAL_MILLIONTHS: u32 = 1_000_000;
 
 type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>);
 
@@ -340,6 +348,46 @@ pub(crate) fn ffi_optics_settings(settings: &RecipeOpticsSettings) -> ffi::FfiOp
     }
 }
 
+fn raw_white_balance_from_ffi(
+    foundation: &ffi::FfiPhotoFoundationSettings,
+) -> AnyResult<RawWhiteBalance> {
+    match foundation.raw_white_balance_mode {
+        RAW_WHITE_BALANCE_AS_SHOT => Ok(RawWhiteBalance::AsShot),
+        RAW_WHITE_BALANCE_CAMERA_NEUTRAL => Ok(RawWhiteBalance::camera_neutral(
+            RawCameraNeutral::from_millionths(
+                foundation.camera_neutral_red_millionths,
+                foundation.camera_neutral_blue_millionths,
+            )
+            .context("RAW Foundation CameraNeutral")?,
+        )),
+        other => bail!("RAW Foundation has unsupported white-balance mode {other}"),
+    }
+}
+
+pub(crate) fn ffi_photo_foundation_settings(
+    foundation: &PhotoFoundationNode,
+) -> ffi::FfiPhotoFoundationSettings {
+    let (raw_white_balance_mode, camera_neutral_red_millionths, camera_neutral_blue_millionths) =
+        match foundation.raw_white_balance() {
+            RawWhiteBalance::AsShot => (
+                RAW_WHITE_BALANCE_AS_SHOT,
+                CAMERA_NEUTRAL_MILLIONTHS,
+                CAMERA_NEUTRAL_MILLIONTHS,
+            ),
+            RawWhiteBalance::CameraNeutral { neutral } => (
+                RAW_WHITE_BALANCE_CAMERA_NEUTRAL,
+                neutral.red_millionths(),
+                neutral.blue_millionths(),
+            ),
+        };
+    ffi::FfiPhotoFoundationSettings {
+        optics: ffi_optics_settings(foundation.optics()),
+        raw_white_balance_mode,
+        camera_neutral_red_millionths,
+        camera_neutral_blue_millionths,
+    }
+}
+
 pub(crate) fn bridge_optics_settings(settings: &ffi::FfiOpticsSettings) -> OpticsSettings {
     OpticsSettings {
         enabled: settings.enabled,
@@ -362,10 +410,11 @@ pub(crate) fn bridge_optics_settings(settings: &ffi::FfiOpticsSettings) -> Optic
 pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> {
     let grade_node = GradeNodeDraft::neutral(label);
     let grade_stack = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
     grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate new Basic Grade Node")?;
@@ -379,7 +428,10 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
         bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
     let grade_stack = GradeStackDraft {
-        optics: recipe_optics_settings(&settings.optics),
+        foundation: PhotoFoundationNode::new(
+            RecipeInputSettings::new(recipe_optics_settings(&settings.foundation.optics))
+                .with_raw_white_balance(raw_white_balance_from_ffi(&settings.foundation)?),
+        ),
         grade_nodes: settings
             .grade_nodes
             .iter()
@@ -457,6 +509,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     .with_context(|| format!("retouch stroke {index} is invalid"))
             })
             .collect::<AnyResult<Vec<_>>>()?,
+        liquify: photo_liquify_from_ffi(&settings.liquify_strokes)?,
         geometry: photo_geometry_from_ffi(&settings.geometry)?,
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
@@ -841,7 +894,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
     grade_stack: GradeStackDraft,
 ) -> AnyResult<ffi::FfiEditSettings> {
     Ok(ffi::FfiEditSettings {
-        optics: ffi_optics_settings(&grade_stack.optics),
+        foundation: ffi_photo_foundation_settings(&grade_stack.foundation),
         grade_nodes: grade_stack
             .grade_nodes
             .into_iter()
@@ -885,6 +938,28 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 feather: stroke.feather().get(),
             })
             .collect(),
+        liquify_strokes: grade_stack
+            .liquify
+            .map(|node| {
+                node.strokes()
+                    .iter()
+                    .map(|stroke| ffi::FfiLiquifyPushStroke {
+                        points: stroke
+                            .points()
+                            .iter()
+                            .map(|point| ffi::FfiLiquifyPoint {
+                                x: point.x().get(),
+                                y: point.y().get(),
+                                pressure: point.pressure().get(),
+                            })
+                            .collect(),
+                        radius: stroke.radius().get(),
+                        strength: stroke.strength().get(),
+                        hardness: stroke.hardness().get(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         geometry: ffi_photo_geometry(grade_stack.geometry),
     })
 }

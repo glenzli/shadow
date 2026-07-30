@@ -7,7 +7,8 @@ use std::{
 
 use anyhow::{Result as AnyResult, anyhow};
 use shadow_bridge::{
-    AdjustmentRenderPlan, DetailTileRect, DetailTileRequest, OpticsSettings, PhotoEditDetailSession,
+    AdjustmentRenderPlan, DetailSessionRequirements, DetailTileRect, DetailTileRequest,
+    OpticsSettings, PhotoEditDetailSession,
 };
 use shadow_catalog::RepresentationFingerprint;
 use shadow_domain::RepresentationId;
@@ -72,13 +73,14 @@ impl Default for EditDetailSessionCache {
 }
 
 impl EditDetailSessionCache {
-    pub(super) fn get(
+    pub(super) fn get_with_requirements(
         &mut self,
         representation_id: RepresentationId,
         source: RepresentationFingerprint,
         source_environment_cache_identity: &str,
         requested_raw_development_plan_identity: &str,
         optics: &OpticsSettings,
+        requirements: DetailSessionRequirements,
     ) -> Option<Arc<CachedDetailSource>> {
         let position = self.entries.iter().position(|entry| {
             entry.representation_id == representation_id
@@ -89,6 +91,7 @@ impl EditDetailSessionCache {
                     requested_raw_development_plan_identity,
                 )
                 && &entry.optics == optics
+                && entry.session.session.satisfies_requirements(requirements)
         })?;
         let entry = self.entries.remove(position)?;
         let session = Arc::clone(&entry.session);

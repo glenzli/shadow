@@ -4,7 +4,7 @@ use shadow_bridge::{
 use shadow_catalog::{CatalogActor, RegisterAsset};
 use shadow_domain::{
     AssetLocation, EntityId, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec,
-    ProxyPayload, RepresentationId, RepresentationKind,
+    ProxyPayload, RawCameraNeutral, RawWhiteBalance, RepresentationId, RepresentationKind,
 };
 
 use super::*;
@@ -49,7 +49,12 @@ fn publication_preserves_recipe_preview_storage_and_reader_identity_contract() {
         channels: 3,
         bytes: vec![0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9],
     };
-    let raw_pipeline_receipt = raw_pipeline_receipt("fixture-raw-pipeline-v1");
+    let raw_development_plan =
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::camera_neutral(
+            RawCameraNeutral::from_millionths(750_000, 1_500_000).expect("fixture camera neutral"),
+        ));
+    let raw_pipeline_receipt =
+        raw_pipeline_receipt("fixture-raw-pipeline-v1", raw_development_plan);
     let edit_execution_receipt = edit_execution_receipt("fixture-edit-execution-v1");
     let recipe_snapshot_digest = [0xab; 32];
     let source_environment_cache_identity = "source-environment-v1-fixture";
@@ -64,6 +69,7 @@ fn publication_preserves_recipe_preview_storage_and_reader_identity_contract() {
             recipe_snapshot_digest,
             max_edge: 2_048,
             jpeg_quality: 90,
+            raw_development_plan,
             raw_pipeline_receipt: &raw_pipeline_receipt,
             edit_execution_receipt: &edit_execution_receipt,
             source_environment_cache_identity,
@@ -81,7 +87,7 @@ fn publication_preserves_recipe_preview_storage_and_reader_identity_contract() {
         .expect("fixture RAW pipeline identity");
     let edit_execution = prepared_edit_execution_cache_identity(&edit_execution_receipt)
         .expect("fixture edit execution identity");
-    let raw_plan_identity = raw_development_plan_identity(RawDevelopmentPlan::preview())
+    let raw_plan_identity = raw_development_plan_identity(raw_development_plan)
         .expect("fixture preview RAW-plan identity");
     assert_eq!(record.representation_id, registered.representation_id);
     assert_eq!(record.source, source);
@@ -125,8 +131,7 @@ fn publication_preserves_recipe_preview_storage_and_reader_identity_contract() {
     std::fs::remove_dir_all(root).expect("remove Recipe-preview store fixture");
 }
 
-fn raw_pipeline_receipt(cache_identity: &str) -> RawPipelineReceipt {
-    let plan = RawDevelopmentPlan::preview();
+fn raw_pipeline_receipt(cache_identity: &str, plan: RawDevelopmentPlan) -> RawPipelineReceipt {
     RawPipelineReceipt {
         schema_version: RawPipelineReceipt::CURRENT_SCHEMA_VERSION,
         path: RawPipelinePath::ShadowRawFrame,

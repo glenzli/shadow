@@ -183,9 +183,8 @@ analyzed_edit_preview(const image::AnalyzedEditPreview& preview) {
     return result;
 }
 
-[[nodiscard]] FfiEditPreviewMaskCoverage edit_preview_mask_coverage(
-    const std::optional<image::EditPreviewMaskCoverage>& coverage
-) {
+[[nodiscard]] FfiEditPreviewMaskCoverage
+edit_preview_mask_coverage(const std::optional<image::EditPreviewMaskCoverage>& coverage) {
     FfiEditPreviewMaskCoverage result{};
     if (!coverage.has_value()) {
         return result;
@@ -472,6 +471,30 @@ raw_highlight_recovery_intent(const FfiRawHighlightRecoveryIntent value) {
     throw_invalid_raw_development_plan("RAW highlight-recovery intent is unsupported");
 }
 
+[[nodiscard]] FfiRawWhiteBalanceMode
+raw_white_balance_mode(const image::RawWhiteBalanceMode value) {
+    switch (value) {
+    case image::RawWhiteBalanceMode::as_shot:
+        return FfiRawWhiteBalanceMode::AsShot;
+    case image::RawWhiteBalanceMode::camera_neutral:
+        return FfiRawWhiteBalanceMode::CameraNeutral;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported white-balance mode"
+    );
+}
+
+[[nodiscard]] image::RawWhiteBalanceMode
+raw_white_balance_mode(const FfiRawWhiteBalanceMode value) {
+    switch (value) {
+    case FfiRawWhiteBalanceMode::AsShot:
+        return image::RawWhiteBalanceMode::as_shot;
+    case FfiRawWhiteBalanceMode::CameraNeutral:
+        return image::RawWhiteBalanceMode::camera_neutral;
+    }
+    throw_invalid_raw_development_plan("RAW white-balance mode is unsupported");
+}
+
 [[nodiscard]] FfiRawDevelopmentPlan raw_development_plan(const image::RawDevelopmentPlan& plan) {
     return FfiRawDevelopmentPlan{
         plan.schema_version,
@@ -480,6 +503,9 @@ raw_highlight_recovery_intent(const FfiRawHighlightRecoveryIntent value) {
         dng_opcode_policy(plan.dng_opcode_policy),
         raw_noise_reduction_intent(plan.noise_reduction),
         raw_highlight_recovery_intent(plan.highlight_recovery),
+        raw_white_balance_mode(plan.white_balance.mode),
+        plan.white_balance.camera_neutral_red_millionths,
+        plan.white_balance.camera_neutral_blue_millionths,
     };
 }
 
@@ -491,6 +517,11 @@ raw_highlight_recovery_intent(const FfiRawHighlightRecoveryIntent value) {
         .dng_opcode_policy = dng_opcode_policy(plan.dng_opcode_policy),
         .noise_reduction = raw_noise_reduction_intent(plan.noise_reduction),
         .highlight_recovery = raw_highlight_recovery_intent(plan.highlight_recovery),
+        .white_balance = image::RawWhiteBalance{
+            .mode = raw_white_balance_mode(plan.white_balance_mode),
+            .camera_neutral_red_millionths = plan.camera_neutral_red_millionths,
+            .camera_neutral_blue_millionths = plan.camera_neutral_blue_millionths,
+        },
     };
 }
 

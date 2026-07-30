@@ -2,7 +2,7 @@
 
 use shadow_bridge::AdjustmentRenderOperation;
 use shadow_domain::{
-    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, NodeId, PhotoGeometry, RecipeOpticsSettings,
+    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, NodeId, PhotoFoundationNode, PhotoGeometry,
     RecipeSnapshot, diff_recipe_snapshots,
 };
 
@@ -61,10 +61,11 @@ fn grade_stack_rejects_cross_grade_node_render_op_identity_reuse() {
     second.recipe_v1_identity.exposure_render_op_id =
         first.recipe_v1_identity.exposure_render_op_id;
     let invalid = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![first.clone(), second.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
 
@@ -186,10 +187,11 @@ fn template_rejects_retained_identity_rewrite_and_deleted_node_reuse() {
     let mut replacement = GradeNodeDraft::neutral("Replacement Basic");
     replacement.recipe_v1_identity.exposure_render_op_id = deleted_exposure_id;
     let replacement_settings = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![base_settings.grade_nodes[1].clone(), replacement],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
     assert!(
@@ -205,10 +207,11 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
     assert!(
         grade_stack_recipe_v1_snapshot(
             &GradeStackDraft {
-                optics: RecipeOpticsSettings::default(),
+                foundation: PhotoFoundationNode::default(),
                 grade_nodes: Vec::new(),
                 retouch_spots: Vec::new(),
                 retouch_strokes: Vec::new(),
+                liquify: None,
                 geometry: PhotoGeometry::identity(),
             },
             None
@@ -218,12 +221,13 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
         .contains("1 through 16")
     );
     let sixteen = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
+        foundation: PhotoFoundationNode::default(),
         grade_nodes: (0..MAX_GRADE_NODES)
             .map(|index| GradeNodeDraft::neutral(format!("Basic {index}")))
             .collect(),
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify: None,
         geometry: PhotoGeometry::identity(),
     };
     let snapshot = grade_stack_recipe_v1_snapshot(&sixteen, None).expect("sixteen-node snapshot");

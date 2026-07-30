@@ -18,7 +18,9 @@ use crate::{
     DesktopSession, ffi,
     preview_cache_identity::current_source_environment_cache_identity,
     preview_render_registry::{PreviewAdmission, PreviewRenderRegistryError, PreviewTerminalClaim},
-    recipe_v1::{bridge_optics_settings, resolve_recipe_render},
+    recipe_v1::{
+        bridge_optics_settings, preview_foundation_development_plan, resolve_recipe_render,
+    },
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -174,11 +176,14 @@ impl DesktopSession {
                 &request.settings,
                 request.use_working_recipe,
             )?;
+            let raw_development_plan =
+                preview_foundation_development_plan(recipe.raw_white_balance);
             let session = self.warm_edit_preview_sessions.get_or_prepare(
                 &self.cache_root,
                 &source,
                 request.max_edge,
-                &bridge_optics_settings(&request.settings.optics),
+                raw_development_plan,
+                &bridge_optics_settings(&request.settings.foundation.optics),
                 &source_environment_cache_identity,
             )?;
             if self
@@ -276,6 +281,7 @@ impl DesktopSession {
                         recipe_snapshot_digest: recipe.snapshot_digest,
                         max_edge: request.max_edge,
                         jpeg_quality: request.jpeg_quality,
+                        raw_development_plan,
                         raw_pipeline_receipt: session.raw_pipeline_receipt(),
                         edit_execution_receipt: &rendered.execution,
                         source_environment_cache_identity: &source_environment_cache_identity,

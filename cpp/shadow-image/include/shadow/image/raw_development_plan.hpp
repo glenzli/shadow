@@ -8,6 +8,12 @@
 
 namespace shadow::image {
 
+inline constexpr std::uint32_t raw_camera_neutral_millionths = 1'000'000U;
+inline constexpr std::uint32_t minimum_raw_camera_neutral_millionths =
+    raw_camera_neutral_millionths / 64U;
+inline constexpr std::uint32_t maximum_raw_camera_neutral_millionths =
+    raw_camera_neutral_millionths * 64U;
+
 // A RAW-development plan is deliberately expressed in photographic intent rather than in a
 // particular decoder's switches.  For example, a future provider may map `noise_robust` to an
 // LMMSE-like Bayer path while LibRaw may only be able to decline it; neither case leaks a
@@ -60,14 +66,49 @@ enum class RawHighlightRecoveryIntent : std::uint8_t {
     aggressive,
 };
 
+// Absolute RAW white balance is a source-development policy, not the
+// processed-RGB temperature/tint offset available to repeatable Grade nodes.
+// CameraNeutral is scale-invariant, so green is implicit at exactly one
+// million and only canonical red/blue integer ratios cross the ABI.
+enum class RawWhiteBalanceMode : std::uint8_t {
+    as_shot,
+    camera_neutral,
+};
+
+struct RawWhiteBalance final {
+    RawWhiteBalanceMode mode = RawWhiteBalanceMode::as_shot;
+    std::uint32_t camera_neutral_red_millionths = raw_camera_neutral_millionths;
+    std::uint32_t camera_neutral_blue_millionths = raw_camera_neutral_millionths;
+
+    auto operator<=>(const RawWhiteBalance&) const = default;
+};
+
+[[nodiscard]] constexpr bool
+valid_raw_white_balance(const RawWhiteBalance& white_balance) noexcept {
+    switch (white_balance.mode) {
+    case RawWhiteBalanceMode::as_shot:
+        return white_balance.camera_neutral_red_millionths == raw_camera_neutral_millionths
+               && white_balance.camera_neutral_blue_millionths == raw_camera_neutral_millionths;
+    case RawWhiteBalanceMode::camera_neutral:
+        return white_balance.camera_neutral_red_millionths >= minimum_raw_camera_neutral_millionths
+               && white_balance.camera_neutral_red_millionths
+                      <= maximum_raw_camera_neutral_millionths
+               && white_balance.camera_neutral_blue_millionths
+                      >= minimum_raw_camera_neutral_millionths
+               && white_balance.camera_neutral_blue_millionths
+                      <= maximum_raw_camera_neutral_millionths;
+    }
+    return false;
+}
+
 struct RawDevelopmentPlan final {
     std::uint32_t schema_version = raw_development_plan_schema_version;
     RawDevelopmentIntent intent = RawDevelopmentIntent::detail;
     RawDevelopmentQuality quality = RawDevelopmentQuality::balanced;
     DngOpcodePolicy dng_opcode_policy = DngOpcodePolicy::provider_default;
     RawNoiseReductionIntent noise_reduction = RawNoiseReductionIntent::provider_default;
-    RawHighlightRecoveryIntent highlight_recovery =
-        RawHighlightRecoveryIntent::provider_default;
+    RawHighlightRecoveryIntent highlight_recovery = RawHighlightRecoveryIntent::provider_default;
+    RawWhiteBalance white_balance{};
 
     auto operator<=>(const RawDevelopmentPlan&) const = default;
 };
@@ -80,6 +121,7 @@ struct RawDevelopmentPlan final {
         .dng_opcode_policy = DngOpcodePolicy::provider_default,
         .noise_reduction = RawNoiseReductionIntent::provider_default,
         .highlight_recovery = RawHighlightRecoveryIntent::provider_default,
+        .white_balance = {},
     };
 }
 
@@ -100,21 +142,18 @@ enum class RawDevelopmentPlanAspect : std::uint32_t {
     dng_opcode_policy = 1U << 3U,
     noise_reduction = 1U << 4U,
     highlight_recovery = 1U << 5U,
+    white_balance = 1U << 6U,
 };
 
-[[nodiscard]] constexpr RawDevelopmentPlanAspect operator|(
-    const RawDevelopmentPlanAspect left,
-    const RawDevelopmentPlanAspect right
-) noexcept {
+[[nodiscard]] constexpr RawDevelopmentPlanAspect
+operator|(const RawDevelopmentPlanAspect left, const RawDevelopmentPlanAspect right) noexcept {
     return static_cast<RawDevelopmentPlanAspect>(
         static_cast<std::uint32_t>(left) | static_cast<std::uint32_t>(right)
     );
 }
 
-constexpr RawDevelopmentPlanAspect& operator|=(
-    RawDevelopmentPlanAspect& left,
-    const RawDevelopmentPlanAspect right
-) noexcept {
+constexpr RawDevelopmentPlanAspect&
+operator|=(RawDevelopmentPlanAspect& left, const RawDevelopmentPlanAspect right) noexcept {
     left = left | right;
     return left;
 }
@@ -129,9 +168,8 @@ constexpr RawDevelopmentPlanAspect& operator|=(
 // Bit masks make the capability contract forward-compatible: a provider built against a newer
 // header can advertise only the enum values it understands while an older host fails closed on
 // unknown schema/values. Use the helpers rather than constructing shifts from enum ordinals.
-[[nodiscard]] constexpr std::uint32_t raw_development_intent_mask(
-    const RawDevelopmentIntent intent
-) noexcept {
+[[nodiscard]] constexpr std::uint32_t
+raw_development_intent_mask(const RawDevelopmentIntent intent) noexcept {
     switch (intent) {
     case RawDevelopmentIntent::preview:
         return 1U << 0U;
@@ -143,9 +181,8 @@ constexpr RawDevelopmentPlanAspect& operator|=(
     return 0U;
 }
 
-[[nodiscard]] constexpr std::uint32_t raw_development_quality_mask(
-    const RawDevelopmentQuality quality
-) noexcept {
+[[nodiscard]] constexpr std::uint32_t
+raw_development_quality_mask(const RawDevelopmentQuality quality) noexcept {
     switch (quality) {
     case RawDevelopmentQuality::fast:
         return 1U << 0U;
@@ -157,9 +194,8 @@ constexpr RawDevelopmentPlanAspect& operator|=(
     return 0U;
 }
 
-[[nodiscard]] constexpr std::uint32_t dng_opcode_policy_mask(
-    const DngOpcodePolicy policy
-) noexcept {
+[[nodiscard]] constexpr std::uint32_t
+dng_opcode_policy_mask(const DngOpcodePolicy policy) noexcept {
     switch (policy) {
     case DngOpcodePolicy::provider_default:
         return 1U << 0U;
@@ -171,9 +207,8 @@ constexpr RawDevelopmentPlanAspect& operator|=(
     return 0U;
 }
 
-[[nodiscard]] constexpr std::uint32_t raw_noise_reduction_intent_mask(
-    const RawNoiseReductionIntent intent
-) noexcept {
+[[nodiscard]] constexpr std::uint32_t
+raw_noise_reduction_intent_mask(const RawNoiseReductionIntent intent) noexcept {
     switch (intent) {
     case RawNoiseReductionIntent::provider_default:
         return 1U << 0U;
@@ -187,9 +222,8 @@ constexpr RawDevelopmentPlanAspect& operator|=(
     return 0U;
 }
 
-[[nodiscard]] constexpr std::uint32_t raw_highlight_recovery_intent_mask(
-    const RawHighlightRecoveryIntent intent
-) noexcept {
+[[nodiscard]] constexpr std::uint32_t
+raw_highlight_recovery_intent_mask(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
         return 1U << 0U;
@@ -205,9 +239,8 @@ constexpr RawDevelopmentPlanAspect& operator|=(
 
 namespace detail {
 
-[[nodiscard]] constexpr std::string_view raw_development_intent_identity_name(
-    const RawDevelopmentIntent intent
-) noexcept {
+[[nodiscard]] constexpr std::string_view
+raw_development_intent_identity_name(const RawDevelopmentIntent intent) noexcept {
     switch (intent) {
     case RawDevelopmentIntent::preview:
         return "preview";
@@ -219,9 +252,8 @@ namespace detail {
     return {};
 }
 
-[[nodiscard]] constexpr std::string_view raw_development_quality_identity_name(
-    const RawDevelopmentQuality quality
-) noexcept {
+[[nodiscard]] constexpr std::string_view
+raw_development_quality_identity_name(const RawDevelopmentQuality quality) noexcept {
     switch (quality) {
     case RawDevelopmentQuality::fast:
         return "fast";
@@ -233,9 +265,8 @@ namespace detail {
     return {};
 }
 
-[[nodiscard]] constexpr std::string_view dng_opcode_policy_identity_name(
-    const DngOpcodePolicy policy
-) noexcept {
+[[nodiscard]] constexpr std::string_view
+dng_opcode_policy_identity_name(const DngOpcodePolicy policy) noexcept {
     switch (policy) {
     case DngOpcodePolicy::provider_default:
         return "provider-default";
@@ -247,9 +278,8 @@ namespace detail {
     return {};
 }
 
-[[nodiscard]] constexpr std::string_view raw_noise_reduction_identity_name(
-    const RawNoiseReductionIntent intent
-) noexcept {
+[[nodiscard]] constexpr std::string_view
+raw_noise_reduction_identity_name(const RawNoiseReductionIntent intent) noexcept {
     switch (intent) {
     case RawNoiseReductionIntent::provider_default:
         return "provider-default";
@@ -263,9 +293,8 @@ namespace detail {
     return {};
 }
 
-[[nodiscard]] constexpr std::string_view raw_highlight_recovery_identity_name(
-    const RawHighlightRecoveryIntent intent
-) noexcept {
+[[nodiscard]] constexpr std::string_view
+raw_highlight_recovery_identity_name(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
         return "provider-default";
@@ -277,6 +306,20 @@ namespace detail {
         return "aggressive";
     }
     return {};
+}
+
+[[nodiscard]] inline std::string raw_white_balance_identity(const RawWhiteBalance& white_balance) {
+    if (!valid_raw_white_balance(white_balance)) {
+        throw std::invalid_argument("RAW development plan contains an invalid white balance");
+    }
+    switch (white_balance.mode) {
+    case RawWhiteBalanceMode::as_shot:
+        return "as-shot";
+    case RawWhiteBalanceMode::camera_neutral:
+        return "camera-neutral:" + std::to_string(white_balance.camera_neutral_red_millionths) + ":"
+               + std::to_string(white_balance.camera_neutral_blue_millionths);
+    }
+    throw std::invalid_argument("RAW development plan contains an unknown white-balance mode");
 }
 
 } // namespace detail
@@ -293,21 +336,17 @@ namespace detail {
     const auto quality = detail::raw_development_quality_identity_name(plan.quality);
     const auto opcode_policy = detail::dng_opcode_policy_identity_name(plan.dng_opcode_policy);
     const auto noise_reduction = detail::raw_noise_reduction_identity_name(plan.noise_reduction);
-    const auto highlight_recovery = detail::raw_highlight_recovery_identity_name(
-        plan.highlight_recovery
-    );
-    if (
-        intent.empty() || quality.empty() || opcode_policy.empty() || noise_reduction.empty()
-        || highlight_recovery.empty()
-    ) {
+    const auto highlight_recovery =
+        detail::raw_highlight_recovery_identity_name(plan.highlight_recovery);
+    if (intent.empty() || quality.empty() || opcode_policy.empty() || noise_reduction.empty()
+        || highlight_recovery.empty()) {
         throw std::invalid_argument("RAW development plan contains an unknown enum value");
     }
     return "shadow-raw-plan-v" + std::to_string(plan.schema_version)
-        + ";intent=" + std::string(intent)
-        + ";quality=" + std::string(quality)
-        + ";opcodes=" + std::string(opcode_policy)
-        + ";nr=" + std::string(noise_reduction)
-        + ";highlights=" + std::string(highlight_recovery);
+           + ";intent=" + std::string(intent) + ";quality=" + std::string(quality)
+           + ";opcodes=" + std::string(opcode_policy) + ";nr=" + std::string(noise_reduction)
+           + ";highlights=" + std::string(highlight_recovery)
+           + ";wb=" + detail::raw_white_balance_identity(plan.white_balance);
 }
 
 inline constexpr std::uint32_t raw_development_capabilities_schema_version = 1U;
@@ -326,6 +365,11 @@ struct RawDevelopmentCapabilities final {
     // DNG opcode list in RawDevelopmentReceipt. A `provider_default` status alone is useful
     // provenance, but does not qualify: LibRaw v1 therefore leaves this false.
     bool dng_opcode_execution_receipt = false;
+    // True only when this exact development owner consumes the canonical
+    // CameraNeutral plan. `raw_frame` alone is not sufficient: a provider may
+    // expose CFA data to Shadow while its own processed-RGB fallback still
+    // supports only AsShot.
+    bool camera_neutral_white_balance = false;
     std::uint32_t supported_intents = 0U;
     std::uint32_t supported_qualities = 0U;
     std::uint32_t supported_dng_opcode_policies = 0U;
@@ -334,17 +378,20 @@ struct RawDevelopmentCapabilities final {
 
     [[nodiscard]] bool supports(const RawDevelopmentPlan& plan) const noexcept {
         return plan.schema_version == raw_development_plan_schema_version
-            && schema_version == raw_development_capabilities_schema_version && available
-            && (supported_intents & raw_development_intent_mask(plan.intent)) != 0U
-            && (supported_qualities & raw_development_quality_mask(plan.quality)) != 0U
-            && (supported_dng_opcode_policies & dng_opcode_policy_mask(plan.dng_opcode_policy))
-                != 0U
-            && (supported_noise_reduction_intents
-                    & raw_noise_reduction_intent_mask(plan.noise_reduction))
-                != 0U
-            && (supported_highlight_recovery_intents
-                    & raw_highlight_recovery_intent_mask(plan.highlight_recovery))
-                != 0U;
+               && schema_version == raw_development_capabilities_schema_version && available
+               && (supported_intents & raw_development_intent_mask(plan.intent)) != 0U
+               && (supported_qualities & raw_development_quality_mask(plan.quality)) != 0U
+               && (supported_dng_opcode_policies & dng_opcode_policy_mask(plan.dng_opcode_policy))
+                      != 0U
+               && (supported_noise_reduction_intents
+                   & raw_noise_reduction_intent_mask(plan.noise_reduction))
+                      != 0U
+               && (supported_highlight_recovery_intents
+                   & raw_highlight_recovery_intent_mask(plan.highlight_recovery))
+                      != 0U
+               && valid_raw_white_balance(plan.white_balance)
+               && (plan.white_balance.mode == RawWhiteBalanceMode::as_shot
+                   || camera_neutral_white_balance);
     }
     auto operator<=>(const RawDevelopmentCapabilities&) const = default;
 };
@@ -388,12 +435,10 @@ struct RawDevelopmentPlanNegotiation final {
         negotiation.unresolved |= RawDevelopmentPlanAspect::schema;
     }
 
-    const auto supports = [&capabilities](
-                              const std::uint32_t advertised,
-                              const std::uint32_t requested
-                          ) noexcept {
-        return capabilities.available && requested != 0U && (advertised & requested) != 0U;
-    };
+    const auto supports =
+        [&capabilities](const std::uint32_t advertised, const std::uint32_t requested) noexcept {
+            return capabilities.available && requested != 0U && (advertised & requested) != 0U;
+        };
     if (!supports(capabilities.supported_intents, raw_development_intent_mask(plan.intent))) {
         negotiation.unresolved |= RawDevelopmentPlanAspect::intent;
     }
@@ -417,6 +462,11 @@ struct RawDevelopmentPlanNegotiation final {
             raw_highlight_recovery_intent_mask(plan.highlight_recovery)
         )) {
         negotiation.unresolved |= RawDevelopmentPlanAspect::highlight_recovery;
+    }
+    if (!valid_raw_white_balance(plan.white_balance)
+        || (plan.white_balance.mode == RawWhiteBalanceMode::camera_neutral
+            && !capabilities.camera_neutral_white_balance)) {
+        negotiation.unresolved |= RawDevelopmentPlanAspect::white_balance;
     }
     if (negotiation.unresolved == RawDevelopmentPlanAspect::none) {
         negotiation.status = RawDevelopmentPlanNegotiationStatus::accepted;

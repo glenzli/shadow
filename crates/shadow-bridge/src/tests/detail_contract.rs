@@ -3,9 +3,73 @@
 use shadow_domain::ImageDimensions;
 
 use crate::{
-    BridgeError, DetailTileRect, DetailTileRequest, LibRawEditDetailSession,
-    MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE, PhotoEditDetailSession,
+    AdjustmentGeometry, AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
+    AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan, BridgeError,
+    DetailSessionRequirements, DetailTileRect, DetailTileRequest, LibRawEditDetailSession,
+    MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE, OpticsSettings,
+    PhotoEditDetailSession, RawDevelopmentPlan,
 };
+
+fn liquify() -> AdjustmentLiquify {
+    AdjustmentLiquify {
+        strokes: vec![AdjustmentLiquifyPushStroke {
+            points: vec![
+                AdjustmentLiquifyPoint {
+                    x: 0.25,
+                    y: 0.5,
+                    pressure: 1.0,
+                },
+                AdjustmentLiquifyPoint {
+                    x: 0.75,
+                    y: 0.5,
+                    pressure: 1.0,
+                },
+            ],
+            radius: 0.1,
+            strength: 0.75,
+            hardness: 0.5,
+        }],
+    }
+}
+
+fn plan(liquify: Option<AdjustmentLiquify>) -> AdjustmentRenderPlan {
+    AdjustmentRenderPlan {
+        nodes: vec![AdjustmentRenderNode {
+            node_id: "neutral-exposure".to_owned(),
+            parameter_schema_version: 1,
+            implementation_version: 1,
+            enabled: true,
+            operation: AdjustmentRenderOperation::Exposure { stops: 0.0 },
+        }],
+        liquify,
+        geometry: AdjustmentGeometry::identity(),
+    }
+}
+
+#[test]
+fn detail_source_requirements_are_derived_from_the_complete_structural_plan() {
+    let ordinary = DetailSessionRequirements::for_render_plan(&plan(None));
+    assert!(!ordinary.requires_cpu_replay());
+
+    let structural = DetailSessionRequirements::for_render_plan(&plan(Some(liquify())));
+    assert!(structural.requires_cpu_replay());
+}
+
+#[test]
+fn prepared_raster_detail_source_reports_the_required_cpu_replay_capability() {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/desktop/assets/lut-preview-reference.jpg");
+    let requirements = DetailSessionRequirements::for_render_plan(&plan(Some(liquify())));
+    let session = PhotoEditDetailSession::open_with_requirements(
+        &source,
+        RawDevelopmentPlan::detail(),
+        &OpticsSettings::default(),
+        requirements,
+    )
+    .expect("tracked raster fixture prepares one CPU-replay-capable detail session");
+    assert!(session.cpu_replay_available());
+    assert!(session.satisfies_requirements(requirements));
+}
 
 #[test]
 fn full_edit_detail_contract_is_send_sync_and_rejects_invalid_rectangles_locally() {

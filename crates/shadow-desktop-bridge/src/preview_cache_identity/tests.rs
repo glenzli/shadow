@@ -13,6 +13,7 @@ fn receipt(canonical_identity: &str) -> RawPipelineReceipt {
         dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
         noise_reduction: RawNoiseReductionIntent::ProviderDefault,
         highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+        white_balance: shadow_domain::RawWhiteBalance::AsShot,
     };
     RawPipelineReceipt {
         schema_version: RawPipelineReceipt::CURRENT_SCHEMA_VERSION,

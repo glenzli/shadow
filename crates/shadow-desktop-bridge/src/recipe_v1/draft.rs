@@ -5,8 +5,8 @@ use shadow_bridge::{
     PerceptualColorParameters, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
-    LayerId, LayerRevisionId, MaskDefinition, PhotoGeometry, RecipeOpticsSettings, RetouchSpot,
-    RetouchStroke, operation::BASIC_LAYER_LABEL,
+    LayerId, LayerRevisionId, MaskDefinition, PhotoFoundationNode, PhotoGeometry, PhotoLiquifyNode,
+    RetouchSpot, RetouchStroke, operation::BASIC_LAYER_LABEL,
 };
 
 use super::GradeNodeRecipeV1Identity;
@@ -90,7 +90,9 @@ impl GradeNodeDraft {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GradeStackDraft {
-    pub(crate) optics: RecipeOpticsSettings,
+    /// Mandatory photo-private source-development state. The desktop optics
+    /// controls are currently only one projection of this singleton.
+    pub(crate) foundation: PhotoFoundationNode,
     pub(crate) grade_nodes: Vec<GradeNodeDraft>,
     /// Photo-local small repairs run after all Grade Nodes. They deliberately
     /// remain outside a reusable Grade Node graph.
@@ -98,19 +100,21 @@ pub(crate) struct GradeStackDraft {
     /// Photo-local continuous repair/clone brush strokes. These remain
     /// separate from legacy circular spots so one drag is one durable edit.
     pub(crate) retouch_strokes: Vec<RetouchStroke>,
-    /// Final-canvas crop and orientation. This is photo-local for the same
-    /// reason retouch is: a reusable Grade Node cannot decide another photo's
-    /// framing.
+    /// Optional singleton photo-private Liquify node. It is structural,
+    /// non-shareable, and always evaluates immediately before Canvas.
+    pub(crate) liquify: Option<PhotoLiquifyNode>,
+    /// Editable projection of the mandatory photo-private Canvas node.
     pub(crate) geometry: PhotoGeometry,
 }
 
 impl Default for GradeStackDraft {
     fn default() -> Self {
         Self {
-            optics: RecipeOpticsSettings::default(),
+            foundation: PhotoFoundationNode::default(),
             grade_nodes: vec![GradeNodeDraft::neutral(BASIC_LAYER_LABEL)],
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            liquify: None,
             geometry: PhotoGeometry::identity(),
         }
     }

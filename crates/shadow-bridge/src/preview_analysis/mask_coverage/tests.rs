@@ -106,6 +106,7 @@ fn request_target_must_name_a_compiled_layer_boundary() {
             layer_start("second"),
             layer_end("second"),
         ],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
     assert!(

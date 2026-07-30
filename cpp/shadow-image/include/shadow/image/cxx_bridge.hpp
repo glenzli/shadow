@@ -8,7 +8,7 @@ class EditPreviewHandle;
 class EditPreviewCancellationHandle;
 class InteractiveEditPreviewFrameHandle;
 class FullEditDetailHandle;
-}
+} // namespace shadow::bridge
 
 #include "shadow-bridge/src/lib.rs.h"
 
@@ -28,7 +28,7 @@ class FullEditDetailHandle;
 namespace shadow::bridge {
 
 class DecodeHandle final {
-public:
+  public:
     DecodeHandle(
         std::unique_ptr<image::DecoderProvider> provider,
         std::unique_ptr<image::DecodeSession> session,
@@ -43,9 +43,8 @@ public:
     [[nodiscard]] FfiMetadataSnapshot metadata() const;
     [[nodiscard]] FfiCapabilitySnapshot capabilities() const;
     [[nodiscard]] FfiRawDevelopmentCapabilities raw_development_capabilities() const;
-    [[nodiscard]] FfiRawDevelopmentPlanNegotiation negotiate_raw_development_plan(
-        const FfiRawDevelopmentPlan& plan
-    ) const;
+    [[nodiscard]] FfiRawDevelopmentPlanNegotiation
+    negotiate_raw_development_plan(const FfiRawDevelopmentPlan& plan) const;
     // The last prepared RAW source render. It is explicitly empty until a render-backed edit
     // session is prepared, rather than causing a hidden second RAW decode merely for metadata.
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
@@ -56,28 +55,24 @@ public:
     [[nodiscard]] rust::Vec<FfiPreviewSnapshot> previews() const;
     [[nodiscard]] FfiPreviewPayload decode_best_preview();
     void configure_optics(const FfiOpticsSettings& settings);
-    [[nodiscard]] FfiEncodedProxy render_reference_proxy(
-        std::uint32_t max_edge,
-        std::uint8_t jpeg_quality
-    ) const;
-    [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
-        const FfiAdjustmentRenderRequest& request
-    ) const;
-    [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview(
-        std::uint32_t max_edge
-    ) const;
+    [[nodiscard]] FfiEncodedProxy
+    render_reference_proxy(std::uint32_t max_edge, std::uint8_t jpeg_quality) const;
+    [[nodiscard]] FfiEncodedProxy
+    render_adjustment_plan(const FfiAdjustmentRenderRequest& request) const;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle>
-    prepare_edit_preview_with_raw_development_plan(
+    prepare_edit_preview(std::uint32_t max_edge) const;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview_with_raw_development_plan(
         std::uint32_t max_edge,
         const FfiRawDevelopmentPlan& plan
     ) const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle> prepare_edit_detail() const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
     prepare_edit_detail_with_raw_development_plan(
-        const FfiRawDevelopmentPlan& plan
+        const FfiRawDevelopmentPlan& plan,
+        const FfiDetailSessionRequirements& requirements
     ) const;
 
-private:
+  private:
     std::unique_ptr<image::DecoderProvider> provider_;
     std::unique_ptr<image::DecodeSession> session_;
     std::shared_ptr<const image::OpticsProvider> optics_provider_;
@@ -90,7 +85,7 @@ private:
 // is immutable after preparation and render_adjustment_plan() uses only call-local state, so const
 // calls may safely run concurrently on different worker threads.
 class EditPreviewHandle final {
-public:
+  public:
     explicit EditPreviewHandle(image::WarmEditPreviewSession session);
     ~EditPreviewHandle();
 
@@ -103,12 +98,10 @@ public:
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
     [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiSensorClippingMask sensor_clipping_mask() const;
-    [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
-        const FfiAdjustmentRenderRequest& request
-    ) const;
-    [[nodiscard]] FfiAnalyzedEditPreview render_adjustment_plan_with_analysis(
-        const FfiAdjustmentRenderRequest& request
-    ) const;
+    [[nodiscard]] FfiEncodedProxy
+    render_adjustment_plan(const FfiAdjustmentRenderRequest& request) const;
+    [[nodiscard]] FfiAnalyzedEditPreview
+    render_adjustment_plan_with_analysis(const FfiAdjustmentRenderRequest& request) const;
     [[nodiscard]] FfiCancellableEncodedProxy render_adjustment_plan_cancellable(
         const FfiAdjustmentRenderRequest& request,
         const EditPreviewCancellationHandle& cancellation
@@ -128,7 +121,7 @@ public:
         const EditPreviewCancellationHandle& cancellation
     ) const;
 
-private:
+  private:
     image::WarmEditPreviewSession session_;
 };
 
@@ -136,7 +129,7 @@ private:
 // idempotent and thread-safe; a token is copied into each native render without borrowing this
 // handle past the call.
 class EditPreviewCancellationHandle final {
-public:
+  public:
     EditPreviewCancellationHandle() = default;
     ~EditPreviewCancellationHandle() = default;
 
@@ -146,14 +139,14 @@ public:
     [[nodiscard]] bool cancel() const noexcept;
     [[nodiscard]] std::stop_token token() const noexcept;
 
-private:
+  private:
     mutable std::stop_source source_;
 };
 
 // The complete retained source is immutable and contains no decoder. Every tile render owns its
 // float working buffer and packed RGB8 result, so const calls may safely run concurrently.
 class FullEditDetailHandle final {
-public:
+  public:
     explicit FullEditDetailHandle(image::FullEditDetailSession session);
     ~FullEditDetailHandle();
 
@@ -162,46 +155,36 @@ public:
 
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+    [[nodiscard]] bool cpu_replay_available() const noexcept;
     [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
     [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
-    [[nodiscard]] FfiRenderedDetailTile render_adjustment_plan_tile(
-        const FfiAdjustmentDetailTileRequest& request
-    ) const;
+    [[nodiscard]] FfiRenderedDetailTile
+    render_adjustment_plan_tile(const FfiAdjustmentDetailTileRequest& request) const;
 
-private:
+  private:
     image::FullEditDetailSession session_;
 };
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_photo_utf8(rust::Str path);
-[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_libraw_optics_profiles_utf8(
-    rust::Str path
-);
-[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(
-    rust::Str path
-);
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
+query_libraw_optics_profiles_utf8(rust::Str path);
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(rust::Str path);
 // Enumerates RAW optical profiles from metadata already persisted by the Catalog. This path is
 // deliberately independent from pixel decode: an unsupported RAW compression may still expose
 // complete camera/lens EXIF through an earlier metadata inspection or a private provider.
-[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_optics_profiles_for_metadata(
-    const FfiMetadataSnapshot& metadata
-);
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
+query_optics_profiles_for_metadata(const FfiMetadataSnapshot& metadata);
 [[nodiscard]] rust::String libraw_provider_version();
 [[nodiscard]] rust::String photo_provider_version();
 [[nodiscard]] rust::String edit_preview_generator_implementation_identity();
-[[nodiscard]] std::shared_ptr<EditPreviewCancellationHandle>
-new_edit_preview_cancellation();
+[[nodiscard]] std::shared_ptr<EditPreviewCancellationHandle> new_edit_preview_cancellation();
 [[nodiscard]] rust::Vec<rust::String> photo_supported_raster_extensions();
 [[nodiscard]] rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan);
-[[nodiscard]] FfiEncodedProxy render_photo_reference_proxy(
-    rust::Str path,
-    std::uint32_t max_edge,
-    std::uint8_t jpeg_quality
-);
-[[nodiscard]] FfiDisplayLuma decode_jpeg_display_luma(
-    rust::Slice<const std::uint8_t> encoded,
-    std::uint32_t max_edge
-);
+[[nodiscard]] FfiEncodedProxy
+render_photo_reference_proxy(rust::Str path, std::uint32_t max_edge, std::uint8_t jpeg_quality);
+[[nodiscard]] FfiDisplayLuma
+decode_jpeg_display_luma(rust::Slice<const std::uint8_t> encoded, std::uint32_t max_edge);
 
 } // namespace shadow::bridge

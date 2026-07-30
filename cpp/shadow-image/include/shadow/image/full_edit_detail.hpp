@@ -20,6 +20,7 @@
 namespace shadow::image {
 
 class DecodeSession;
+struct PhotoLiquify;
 namespace detail {
 class FullEditDetailGpuCache;
 }
@@ -41,6 +42,16 @@ inline constexpr std::uint64_t maximum_full_edit_scene_linear_retained_bytes =
 inline constexpr std::uint32_t maximum_edit_detail_tile_side = 1'024;
 inline constexpr std::uint32_t maximum_edit_detail_total_apron = 512;
 inline constexpr std::uint32_t maximum_edit_detail_working_side = 2'048;
+
+// Runtime-only source admission policy derived from the complete render plan.
+// It is deliberately absent from Recipe and pixel-cache identities: the flag
+// describes which retained representations can execute the plan, not authored
+// image semantics.
+struct FullEditDetailSourceRequirements final {
+    bool requires_cpu_replay = false;
+
+    auto operator<=>(const FullEditDetailSourceRequirements&) const = default;
+};
 
 struct DetailTileRect final {
     std::uint32_t x = 0;
@@ -100,18 +111,21 @@ class FullEditDetailSession final {
 
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+    [[nodiscard]] bool cpu_replay_available() const noexcept;
     [[nodiscard]] const RawDevelopmentReceipt& raw_development_receipt() const noexcept;
     [[nodiscard]] const RawPipelineReceipt& raw_pipeline_receipt() const noexcept;
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] RenderedDetailTile render_rgb8(
         std::span<const AdjustmentNode> nodes,
         DetailTileRect rect,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] RenderedDetailTile render_rgb8_layers(
         std::span<const AdjustmentLayer> layers,
         DetailTileRect rect,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
 
   private:
@@ -162,6 +176,13 @@ class FullEditDetailSession final {
         const OpticsProvider* optics_provider,
         const OpticsSettings& optics_settings
     );
+    friend FullEditDetailSession prepare_full_edit_detail(
+        const DecodeSession& session,
+        const RawDevelopmentPlan& raw_development_plan,
+        const FullEditDetailSourceRequirements& requirements,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
 };
 
 // Checks provider metadata against the route-specific resident-CFA or materialized-RGB bound
@@ -179,6 +200,17 @@ class FullEditDetailSession final {
 [[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
     const DecodeSession& session,
     const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// Applies plan-derived source requirements before resident RAW publication.
+// A CPU-replay requirement may still use Metal while preparing a materialized
+// source, but the retained session itself cannot be Metal-only.
+[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const FullEditDetailSourceRequirements& requirements,
     const OpticsProvider* optics_provider = nullptr,
     const OpticsSettings& optics_settings = default_optics_settings()
 );

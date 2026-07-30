@@ -421,9 +421,10 @@ WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
 
 EncodedProxy WarmEditPreviewSession::render_rgb8(
     const std::span<const AdjustmentNode> nodes,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
-    auto rendered = render_rgb8_cancellable(nodes, {}, geometry);
+    auto rendered = render_rgb8_cancellable(nodes, {}, geometry, liquify);
     if (rendered.cancelled()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -436,9 +437,10 @@ EncodedProxy WarmEditPreviewSession::render_rgb8(
 
 EncodedProxy WarmEditPreviewSession::render_rgb8_layers(
     const std::span<const AdjustmentLayer> layers,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
-    auto rendered = render_rgb8_layers_cancellable(layers, {}, geometry);
+    auto rendered = render_rgb8_layers_cancellable(layers, {}, geometry, liquify);
     if (rendered.cancelled()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -452,9 +454,10 @@ EncodedProxy WarmEditPreviewSession::render_rgb8_layers(
 EncodedProxy WarmEditPreviewSession::render_jpeg(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
-    auto rendered = render_jpeg_cancellable(nodes, jpeg_quality, {}, geometry);
+    auto rendered = render_jpeg_cancellable(nodes, jpeg_quality, {}, geometry, liquify);
     if (rendered.cancelled()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -468,9 +471,11 @@ EncodedProxy WarmEditPreviewSession::render_jpeg(
 AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
-    auto rendered = render_jpeg_with_analysis_cancellable(nodes, jpeg_quality, {}, geometry);
+    auto rendered =
+        render_jpeg_with_analysis_cancellable(nodes, jpeg_quality, {}, geometry, liquify);
     if (rendered.cancelled()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -484,7 +489,8 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
 EncodedProxy WarmEditPreviewSession::render_jpeg_layers(
     const std::span<const AdjustmentLayer> layers,
     const std::uint8_t jpeg_quality,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_layer_pixels(
@@ -493,6 +499,7 @@ EncodedProxy WarmEditPreviewSession::render_jpeg_layers(
         warm_gpu_diagnostic_,
         layers,
         geometry,
+        liquify,
         false,
         {},
         std::nullopt,
@@ -514,7 +521,8 @@ EncodedProxy WarmEditPreviewSession::render_jpeg_layers(
 AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
     const std::span<const AdjustmentLayer> layers,
     const std::uint8_t jpeg_quality,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_layer_pixels(
@@ -523,6 +531,7 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
         warm_gpu_diagnostic_,
         layers,
         geometry,
+        liquify,
         true,
         {},
         std::nullopt,
@@ -561,7 +570,8 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
 CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_cancellable(
     const std::span<const AdjustmentNode> nodes,
     const std::stop_token cancellation,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     auto prepared = prepare_edit_preview_pixels(
         working_proxy_,
@@ -569,6 +579,7 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_c
         warm_gpu_diagnostic_,
         nodes,
         geometry,
+        liquify,
         false,
         cancellation,
         detail::WarmEditGpuOutputIntent::host_rgb8
@@ -585,7 +596,8 @@ CancellableEditPreviewResult<InteractiveEditPreviewFrame>
 WarmEditPreviewSession::render_interactive_frame_cancellable(
     const std::span<const AdjustmentNode> nodes,
     const std::stop_token cancellation,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     auto prepared = prepare_edit_preview_pixels(
         working_proxy_,
@@ -593,6 +605,7 @@ WarmEditPreviewSession::render_interactive_frame_cancellable(
         warm_gpu_diagnostic_,
         nodes,
         geometry,
+        liquify,
         false,
         cancellation,
         detail::WarmEditGpuOutputIntent::metal_presentation_surface
@@ -630,7 +643,8 @@ WarmEditPreviewSession::render_interactive_frame_cancellable(
 CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_layers_cancellable(
     const std::span<const AdjustmentLayer> layers,
     const std::stop_token cancellation,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     auto prepared = prepare_edit_preview_layer_pixels(
         working_proxy_,
@@ -638,6 +652,7 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_l
         warm_gpu_diagnostic_,
         layers,
         geometry,
+        liquify,
         false,
         cancellation,
         std::nullopt,
@@ -656,7 +671,8 @@ WarmEditPreviewSession::render_rgb8_layers_with_mask_coverage_cancellable(
     const std::span<const AdjustmentLayer> layers,
     const std::optional<std::uint32_t> target_layer_index,
     const std::stop_token cancellation,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     auto prepared = prepare_edit_preview_layer_pixels(
         working_proxy_,
@@ -664,6 +680,7 @@ WarmEditPreviewSession::render_rgb8_layers_with_mask_coverage_cancellable(
         warm_gpu_diagnostic_,
         layers,
         geometry,
+        liquify,
         false,
         cancellation,
         target_layer_index,
@@ -687,7 +704,8 @@ WarmEditPreviewSession::
         const std::span<const AdjustmentLayer> layers,
         const std::optional<std::uint32_t> target_layer_index,
         const std::stop_token cancellation,
-        const PhotoGeometry& geometry
+        const PhotoGeometry& geometry,
+        const PhotoLiquify* liquify
     ) const {
     auto prepared = prepare_edit_preview_layer_pixels(
         working_proxy_,
@@ -695,6 +713,7 @@ WarmEditPreviewSession::
         warm_gpu_diagnostic_,
         layers,
         geometry,
+        liquify,
         false,
         cancellation,
         target_layer_index,
@@ -734,7 +753,8 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_jpeg_c
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
     const std::stop_token cancellation,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
@@ -743,6 +763,7 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_jpeg_c
         warm_gpu_diagnostic_,
         nodes,
         geometry,
+        liquify,
         false,
         cancellation,
         detail::WarmEditGpuOutputIntent::host_rgb8
@@ -772,7 +793,8 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
     const std::stop_token cancellation,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
@@ -781,6 +803,7 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
         warm_gpu_diagnostic_,
         nodes,
         geometry,
+        liquify,
         true,
         cancellation,
         detail::WarmEditGpuOutputIntent::host_rgb8
@@ -828,7 +851,8 @@ WarmEditPreviewSession::
         const std::optional<std::uint32_t> target_layer_index,
         const std::uint8_t jpeg_quality,
         const std::stop_token cancellation,
-        const PhotoGeometry& geometry
+        const PhotoGeometry& geometry,
+        const PhotoLiquify* liquify
     ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_layer_pixels(
@@ -837,6 +861,7 @@ WarmEditPreviewSession::
         warm_gpu_diagnostic_,
         layers,
         geometry,
+        liquify,
         true,
         cancellation,
         target_layer_index,

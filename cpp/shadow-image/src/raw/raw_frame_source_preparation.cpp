@@ -17,7 +17,7 @@ namespace {
 
 inline constexpr std::string_view raw_frame_pipeline_identity =
     "shadow-raw-frame-developer-v1:bayer-area-preview+bayer-bilinear:"
-    "raw-denoise-cfa-bilateral-v1:as-shot-neutral:camera-matrix:scene-linear-f32";
+    "raw-denoise-cfa-bilateral-v1:plan-camera-neutral:camera-matrix:scene-linear-f32";
 
 [[nodiscard]] const char* camera_profile_status_name(const RawCameraProfileStatus status) noexcept {
     switch (status) {
@@ -113,7 +113,11 @@ PreparedRawFrameSource prepare_raw_frame_source(
                                            ? camera_profile->profile.unique_camera_model
                                            : camera_profile->profile.profile_name;
         try {
-            dcp_transform = compile_dcp_color_transform(*camera_profile, frame.descriptor);
+            dcp_transform = compile_dcp_color_transform(
+                *camera_profile,
+                frame.descriptor,
+                negotiation.effective.white_balance
+            );
             pipeline.camera_profile_status = RawCameraProfileStatus::applied;
         } catch (const DcpColorDevelopmentError& profile_error) {
             // A matching optional profile remains auditable but cannot partially change the

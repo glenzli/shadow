@@ -2,7 +2,9 @@ use shadow_catalog::{
     CatalogActor, CommitRecipe, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget, RegisterAsset,
 };
 use shadow_domain::{
-    AssetLocation, EntityId, Platform, RecipeCommit, RecipeCommitId, RecipeId, RepresentationKind,
+    AssetLocation, EntityId, PhotoFoundationNode, Platform, RawCameraNeutral, RawWhiteBalance,
+    RecipeCommit, RecipeCommitId, RecipeId, RecipeInputSettings, RecipeOpticsSettings,
+    RepresentationKind,
 };
 
 use super::*;
@@ -11,6 +13,7 @@ use crate::recipe_v1::{
 };
 
 #[test]
+#[allow(clippy::too_many_lines)] // One queued-base race contract is intentionally end to end.
 fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
     let root = std::env::temp_dir().join(format!(
         "shadow-recipe-render-request-{}-{}",
@@ -34,7 +37,16 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
         })
         .expect("register render-request photo");
 
-    let base_draft = GradeStackDraft::default();
+    let manual_white_balance = RawWhiteBalance::camera_neutral(
+        RawCameraNeutral::from_millionths(875_000, 1_250_000).expect("manual camera neutral"),
+    );
+    let base_draft = GradeStackDraft {
+        foundation: PhotoFoundationNode::new(
+            RecipeInputSettings::new(RecipeOpticsSettings::default())
+                .with_raw_white_balance(manual_white_balance),
+        ),
+        ..GradeStackDraft::default()
+    };
     let base_snapshot =
         grade_stack_recipe_v1_snapshot(&base_draft, None).expect("build queued base Recipe");
     let recipe_id = RecipeId::new_v7();
@@ -100,6 +112,7 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
     .expect("resolve queued Recipe");
 
     assert_eq!(resolved.snapshot_digest, expected_digest);
+    assert_eq!(resolved.raw_white_balance, manual_white_balance);
     assert_eq!(
         catalog
             .recipe_ref(registered.photo_id, "working")

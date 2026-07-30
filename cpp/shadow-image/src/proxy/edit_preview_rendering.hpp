@@ -3,6 +3,7 @@
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/photo_geometry.hpp>
+#include <shadow/image/photo_liquify.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include <cstdint>
@@ -38,6 +39,7 @@ struct PreparedEditPreviewPixels final {
     std::string_view warm_gpu_diagnostic,
     std::span<const AdjustmentNode> nodes,
     const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify,
     bool retain_linear_for_analysis,
     std::stop_token cancellation,
     detail::WarmEditGpuOutputIntent output_intent
@@ -49,6 +51,7 @@ struct PreparedEditPreviewPixels final {
     std::string_view warm_gpu_diagnostic,
     std::span<const AdjustmentLayer> layers,
     const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify,
     bool retain_linear_for_analysis,
     std::stop_token cancellation,
     std::optional<std::uint32_t> target_layer_index,

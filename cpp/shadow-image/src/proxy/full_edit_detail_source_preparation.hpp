@@ -3,6 +3,7 @@
 #include "../raw/resident_raw_source.hpp"
 
 #include <shadow/image/decoder_metadata.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/optics.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_development_receipt.hpp>
@@ -22,6 +23,10 @@ enum class FullDetailSourceStorage : std::uint8_t {
     materialized_scene_linear,
     resident_raw_candidate,
 };
+
+[[nodiscard]] bool full_detail_source_allows_metal_publication(
+    const FullEditDetailSourceRequirements& requirements
+) noexcept;
 
 // Metadata admission follows the source representation that may actually be retained. Resident
 // RAW candidates are bounded as uint16 CFA storage; any path that can materialize complete
@@ -55,6 +60,7 @@ struct PreparedFullEditDetailSource final {
 [[nodiscard]] PreparedFullEditDetailSource prepare_full_edit_detail_source(
     const DecodeSession& session,
     const RawDevelopmentPlan& raw_development_plan,
+    const FullEditDetailSourceRequirements& requirements,
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 );

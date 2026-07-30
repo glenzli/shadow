@@ -10,6 +10,7 @@ use super::{BridgeError, MAX_WARM_EDIT_PREVIEW_EDGE};
 
 mod detail_effects;
 mod geometry;
+mod liquify;
 mod local_mask;
 mod lut;
 mod oklab_color_warper;
@@ -26,6 +27,10 @@ pub use detail_effects::{
     TECHNICAL_DETAIL_IMPLEMENTATION_VERSION, TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION,
 };
 pub use geometry::{AdjustmentGeometry, AdjustmentQuarterTurn};
+pub use liquify::{
+    AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
+    MAX_ADJUSTMENT_LIQUIFY_POINTS_PER_STROKE, MAX_ADJUSTMENT_LIQUIFY_STROKES,
+};
 pub use local_mask::{AdjustmentLocalMask, AdjustmentMaskBrushPoint};
 pub use lut::MAX_LUT_DOCUMENT_BYTES;
 pub use oklab_color_warper::{
@@ -152,8 +157,12 @@ pub struct AdjustmentRenderNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustmentRenderPlan {
     pub nodes: Vec<AdjustmentRenderNode>,
+    /// Optional, photo-private displacement authored in original-image
+    /// coordinates. Execution order is fixed after `nodes` and before
+    /// `geometry`; it is not a shareable or reorderable adjustment node.
+    pub liquify: Option<AdjustmentLiquify>,
     /// Photo-local final-canvas geometry compiled independently from the
-    /// original-coordinate adjustment stream.
+    /// original-coordinate adjustment stream and applied after Liquify.
     pub geometry: AdjustmentGeometry,
 }
 
@@ -168,6 +177,9 @@ impl AdjustmentRenderPlan {
     /// plans, duplicate/invalid node ids, unsupported versions, malformed Tone
     /// Curves, or non-finite values.
     pub fn validate(&self) -> Result<(), BridgeError> {
+        if let Some(liquify) = &self.liquify {
+            liquify.validate()?;
+        }
         self.geometry.validate()?;
         if self.nodes.is_empty() || self.nodes.len() > MAX_ADJUSTMENT_RENDER_NODES {
             return Err(BridgeError::InvalidEditRequest(
@@ -426,6 +438,7 @@ pub fn basic_adjustment_render_plan(
                 },
             ),
         ],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
     plan.validate()?;

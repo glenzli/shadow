@@ -1,7 +1,7 @@
-#include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/camera_profile_catalog.hpp>
-#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/dcp_color_development.hpp>
+#include <shadow/image/decoder_error.hpp>
+#include <shadow/image/raw_pipeline.hpp>
 
 #include "raw_frame_source_development.hpp"
 #include "raw_frame_source_preparation.hpp"
@@ -46,9 +46,7 @@ inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELIN
     return "unknown";
 }
 
-[[nodiscard]] const char* camera_profile_status_name(
-    const RawCameraProfileStatus status
-) noexcept {
+[[nodiscard]] const char* camera_profile_status_name(const RawCameraProfileStatus status) noexcept {
     switch (status) {
     case RawCameraProfileStatus::not_considered:
         return "not-considered";
@@ -62,7 +60,6 @@ inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELIN
     return "unknown";
 }
 
-
 [[nodiscard]] DevelopedSourceReference provider_processed_source(
     const DecodeSession& session,
     const RawDevelopmentPlan& plan,
@@ -70,19 +67,28 @@ inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELIN
     const RawPipelinePath path,
     std::string fallback_reason
 ) {
+    if (plan.white_balance.mode != RawWhiteBalanceMode::as_shot) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "provider-processed RAW fallback cannot honor a manual camera neutral"
+        );
+    }
     PixelBuffer pixels = preview_max_edge.has_value()
-        ? session.render_reference_rgb_for_preview(*preview_max_edge, plan)
-        : session.render_reference_rgb(plan);
+                             ? session.render_reference_rgb_for_preview(*preview_max_edge, plan)
+                             : session.render_reference_rgb(plan);
     RawPipelineReceipt pipeline;
     pipeline.path = path;
     pipeline.pipeline_identity = path == RawPipelinePath::decoded_raster
-        ? "shadow-decoded-raster-v1" : "shadow-provider-processed-compatibility-v1";
+                                     ? "shadow-decoded-raster-v1"
+                                     : "shadow-provider-processed-compatibility-v1";
     pipeline.source_provider_id = pixels.raw_development_receipt.provider_id;
     pipeline.source_provider_version = pixels.raw_development_receipt.provider_version;
     pipeline.fallback_reason = std::move(fallback_reason);
     pipeline.requested_plan = plan;
     pipeline.effective_plan = pixels.raw_development_receipt.recorded()
-        ? pixels.raw_development_receipt.effective_plan : plan;
+                                  ? pixels.raw_development_receipt.effective_plan
+                                  : plan;
     if (!pipeline.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -100,7 +106,7 @@ inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELIN
 
 [[nodiscard]] bool can_fallback_from(const DecodeError& error) noexcept {
     return error.code() == DecodeErrorCode::unsupported
-        || error.code() == DecodeErrorCode::unsupported_layout;
+           || error.code() == DecodeErrorCode::unsupported_layout;
 }
 
 } // namespace
@@ -109,13 +115,13 @@ RawDevelopmentCapabilities shadow_raw_frame_development_capabilities() noexcept 
     RawDevelopmentCapabilities capabilities;
     capabilities.available = true;
     capabilities.raw_frame = true;
+    capabilities.camera_neutral_white_balance = true;
     capabilities.supported_intents =
         raw_development_intent_mask(RawDevelopmentIntent::preview)
         | raw_development_intent_mask(RawDevelopmentIntent::detail)
         | raw_development_intent_mask(RawDevelopmentIntent::export_image);
-    capabilities.supported_qualities =
-        raw_development_quality_mask(RawDevelopmentQuality::balanced)
-        | raw_development_quality_mask(RawDevelopmentQuality::high);
+    capabilities.supported_qualities = raw_development_quality_mask(RawDevelopmentQuality::balanced)
+                                       | raw_development_quality_mask(RawDevelopmentQuality::high);
     capabilities.supported_dng_opcode_policies =
         dng_opcode_policy_mask(DngOpcodePolicy::provider_default);
     capabilities.supported_noise_reduction_intents =
@@ -129,9 +135,8 @@ RawDevelopmentCapabilities shadow_raw_frame_development_capabilities() noexcept 
     return capabilities;
 }
 
-RawDevelopmentPlanNegotiation negotiate_shadow_raw_frame_development_plan(
-    const RawDevelopmentPlan& requested
-) noexcept {
+RawDevelopmentPlanNegotiation
+negotiate_shadow_raw_frame_development_plan(const RawDevelopmentPlan& requested) noexcept {
     return shadow::image::negotiate_raw_development_plan(
         requested,
         shadow_raw_frame_development_capabilities()
@@ -139,11 +144,9 @@ RawDevelopmentPlanNegotiation negotiate_shadow_raw_frame_development_plan(
 }
 
 bool RawPipelineReceipt::valid() const noexcept {
-    if (
-        schema_version != raw_pipeline_receipt_schema_version || pipeline_identity.empty()
+    if (schema_version != raw_pipeline_receipt_schema_version || pipeline_identity.empty()
         || requested_plan.schema_version != raw_development_plan_schema_version
-        || effective_plan.schema_version != raw_development_plan_schema_version
-    ) {
+        || effective_plan.schema_version != raw_development_plan_schema_version) {
         return false;
     }
     if (path == RawPipelinePath::shadow_raw_frame) {
@@ -160,29 +163,26 @@ bool RawPipelineReceipt::valid() const noexcept {
         case RawCameraProfileStatus::not_considered:
             return false;
         case RawCameraProfileStatus::no_match:
-            return !camera_profile_catalog_identity.empty()
-                && camera_profile_identity.empty() && camera_profile_name.empty()
-                && camera_profile_diagnostic.empty()
-                && camera_profile_developer_version == dcp_color_developer_version;
+            return !camera_profile_catalog_identity.empty() && camera_profile_identity.empty()
+                   && camera_profile_name.empty() && camera_profile_diagnostic.empty()
+                   && camera_profile_developer_version == dcp_color_developer_version;
         case RawCameraProfileStatus::applied:
-            return !camera_profile_catalog_identity.empty()
-                && !camera_profile_identity.empty() && !camera_profile_name.empty()
-                && camera_profile_diagnostic.empty()
-                && camera_profile_developer_version == dcp_color_developer_version;
+            return !camera_profile_catalog_identity.empty() && !camera_profile_identity.empty()
+                   && !camera_profile_name.empty() && camera_profile_diagnostic.empty()
+                   && camera_profile_developer_version == dcp_color_developer_version;
         case RawCameraProfileStatus::matched_not_applied:
-            return !camera_profile_catalog_identity.empty()
-                && !camera_profile_identity.empty() && !camera_profile_name.empty()
-                && !camera_profile_diagnostic.empty()
-                && camera_profile_developer_version == dcp_color_developer_version;
+            return !camera_profile_catalog_identity.empty() && !camera_profile_identity.empty()
+                   && !camera_profile_name.empty() && !camera_profile_diagnostic.empty()
+                   && camera_profile_developer_version == dcp_color_developer_version;
         }
         return false;
     }
     return raw_frame_schema_version == 0U && raw_developer_version == 0U
-        && !source_scene_luminance_percentile.has_value()
-        && camera_profile_status == RawCameraProfileStatus::not_considered
-        && camera_profile_catalog_identity.empty() && camera_profile_identity.empty()
-        && camera_profile_name.empty() && camera_profile_diagnostic.empty()
-        && camera_profile_developer_version == 0U;
+           && !source_scene_luminance_percentile.has_value()
+           && camera_profile_status == RawCameraProfileStatus::not_considered
+           && camera_profile_catalog_identity.empty() && camera_profile_identity.empty()
+           && camera_profile_name.empty() && camera_profile_diagnostic.empty()
+           && camera_profile_developer_version == 0U;
 }
 
 RawPipelinePolicy raw_pipeline_policy_from_environment() {
@@ -236,8 +236,7 @@ std::string raw_pipeline_receipt_identity(const RawPipelineReceipt& receipt) {
         identity << ";camera-profile-status="
                  << camera_profile_status_name(receipt.camera_profile_status)
                  << ";camera-profile-catalog=" << receipt.camera_profile_catalog_identity
-                 << ";camera-profile-developer="
-                 << receipt.camera_profile_developer_version;
+                 << ";camera-profile-developer=" << receipt.camera_profile_developer_version;
     }
     if (!receipt.camera_profile_identity.empty()) {
         identity << ";camera-profile=" << receipt.camera_profile_identity;
@@ -270,11 +269,9 @@ DevelopedSourceReference develop_source_reference(
     const RawPipelinePolicy& policy,
     const CameraProfileCatalog& camera_profiles
 ) {
-    if (
-        policy.schema_version != raw_pipeline_policy_schema_version
+    if (policy.schema_version != raw_pipeline_policy_schema_version
         || plan.schema_version != raw_development_plan_schema_version
-        || (preview_max_edge.has_value() && *preview_max_edge == 0U)
-    ) {
+        || (preview_max_edge.has_value() && *preview_max_edge == 0U)) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
@@ -331,14 +328,9 @@ DevelopedSourceReference develop_source_reference(
             preview_max_edge,
             camera_profiles
         );
-        return raw_pipeline_detail::materialize_prepared_raw_frame_source(
-            std::move(prepared)
-        );
+        return raw_pipeline_detail::materialize_prepared_raw_frame_source(std::move(prepared));
     } catch (const DecodeError& error) {
-        if (
-            policy.mode == RawPipelineMode::require_shadow_raw_frame
-            || !can_fallback_from(error)
-        ) {
+        if (policy.mode == RawPipelineMode::require_shadow_raw_frame || !can_fallback_from(error)) {
             throw;
         }
         return provider_processed_source(

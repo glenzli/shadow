@@ -3,7 +3,9 @@
 //! This protocol owns decode intent and provenance before photographer-authored RGB adjustments.
 
 use serde::{Deserialize, Serialize};
-use shadow_domain::ImageDimensions;
+use shadow_domain::{
+    ImageDimensions, RAW_CAMERA_NEUTRAL_MILLIONTHS, RawCameraNeutral, RawWhiteBalance,
+};
 
 use super::{BridgeError, decoder::dimensions, ffi};
 
@@ -65,6 +67,8 @@ pub struct RawDevelopmentPlan {
     pub dng_opcode_policy: DngOpcodePolicy,
     pub noise_reduction: RawNoiseReductionIntent,
     pub highlight_recovery: RawHighlightRecoveryIntent,
+    #[serde(default)]
+    pub white_balance: RawWhiteBalance,
 }
 
 impl Default for RawDevelopmentPlan {
@@ -85,6 +89,7 @@ impl RawDevelopmentPlan {
             dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
             noise_reduction: RawNoiseReductionIntent::ProviderDefault,
             highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+            white_balance: RawWhiteBalance::AsShot,
         }
     }
 
@@ -97,6 +102,7 @@ impl RawDevelopmentPlan {
             dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
             noise_reduction: RawNoiseReductionIntent::ProviderDefault,
             highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+            white_balance: RawWhiteBalance::AsShot,
         }
     }
 
@@ -109,7 +115,16 @@ impl RawDevelopmentPlan {
             dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
             noise_reduction: RawNoiseReductionIntent::ProviderDefault,
             highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+            white_balance: RawWhiteBalance::AsShot,
         }
+    }
+
+    /// Binds the photo's absolute Foundation white balance to this
+    /// intent/quality-specific source-development request.
+    #[must_use]
+    pub const fn with_white_balance(mut self, white_balance: RawWhiteBalance) -> Self {
+        self.white_balance = white_balance;
+        self
     }
 
     pub(super) fn validate(self) -> Result<(), BridgeError> {
@@ -466,7 +481,55 @@ fn raw_highlight_recovery_intent(
     }
 }
 
+fn ffi_raw_white_balance(value: RawWhiteBalance) -> (ffi::FfiRawWhiteBalanceMode, u32, u32) {
+    match value {
+        RawWhiteBalance::AsShot => (
+            ffi::FfiRawWhiteBalanceMode::AsShot,
+            RAW_CAMERA_NEUTRAL_MILLIONTHS,
+            RAW_CAMERA_NEUTRAL_MILLIONTHS,
+        ),
+        RawWhiteBalance::CameraNeutral { neutral } => (
+            ffi::FfiRawWhiteBalanceMode::CameraNeutral,
+            neutral.red_millionths(),
+            neutral.blue_millionths(),
+        ),
+    }
+}
+
+fn raw_white_balance(
+    mode: ffi::FfiRawWhiteBalanceMode,
+    red_millionths: u32,
+    blue_millionths: u32,
+) -> Result<RawWhiteBalance, BridgeError> {
+    match mode {
+        ffi::FfiRawWhiteBalanceMode::AsShot => {
+            if red_millionths != RAW_CAMERA_NEUTRAL_MILLIONTHS
+                || blue_millionths != RAW_CAMERA_NEUTRAL_MILLIONTHS
+            {
+                return Err(BridgeError::InvalidRawDevelopmentPlan(
+                    "decoder returned non-canonical AsShot RAW white balance",
+                ));
+            }
+            Ok(RawWhiteBalance::AsShot)
+        }
+        ffi::FfiRawWhiteBalanceMode::CameraNeutral => {
+            let neutral = RawCameraNeutral::from_millionths(red_millionths, blue_millionths)
+                .map_err(|_| {
+                    BridgeError::InvalidRawDevelopmentPlan(
+                        "decoder returned an invalid RAW camera neutral",
+                    )
+                })?;
+            Ok(RawWhiteBalance::camera_neutral(neutral))
+        }
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported RAW white-balance mode",
+        )),
+    }
+}
+
 pub(super) fn ffi_raw_development_plan(plan: RawDevelopmentPlan) -> ffi::FfiRawDevelopmentPlan {
+    let (white_balance_mode, camera_neutral_red_millionths, camera_neutral_blue_millionths) =
+        ffi_raw_white_balance(plan.white_balance);
     ffi::FfiRawDevelopmentPlan {
         schema_version: plan.schema_version,
         intent: ffi_raw_development_intent(plan.intent),
@@ -474,6 +537,9 @@ pub(super) fn ffi_raw_development_plan(plan: RawDevelopmentPlan) -> ffi::FfiRawD
         dng_opcode_policy: ffi_dng_opcode_policy(plan.dng_opcode_policy),
         noise_reduction: ffi_raw_noise_reduction_intent(plan.noise_reduction),
         highlight_recovery: ffi_raw_highlight_recovery_intent(plan.highlight_recovery),
+        white_balance_mode,
+        camera_neutral_red_millionths,
+        camera_neutral_blue_millionths,
     }
 }
 
@@ -487,6 +553,11 @@ fn raw_development_plan(
         dng_opcode_policy: dng_opcode_policy(plan.dng_opcode_policy)?,
         noise_reduction: raw_noise_reduction_intent(plan.noise_reduction)?,
         highlight_recovery: raw_highlight_recovery_intent(plan.highlight_recovery)?,
+        white_balance: raw_white_balance(
+            plan.white_balance_mode,
+            plan.camera_neutral_red_millionths,
+            plan.camera_neutral_blue_millionths,
+        )?,
     })
 }
 

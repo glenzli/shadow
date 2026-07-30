@@ -9,14 +9,16 @@ use shadow_domain::operation::{
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph, EntityId,
     FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerInstanceId, NodeId, NodeInput,
-    OperationDescriptor, OperationId, ParameterBlock, ParameterValue, PortType, ProcessingStage,
-    RecipeOpticsSettings, RecipeSnapshot, UnitInterval,
+    OperationDescriptor, OperationId, ParameterBlock, ParameterValue, PhotoFoundationNode,
+    PortType, ProcessingStage, RecipeSnapshot, UnitInterval,
 };
 use uuid::Uuid;
 
 use crate::{
     ffi,
-    recipe_v1::{ffi_optics_settings, new_basic_grade_node, parameter_block, recipe_v1_render_op},
+    recipe_v1::{
+        ffi_photo_foundation_settings, new_basic_grade_node, parameter_block, recipe_v1_render_op,
+    },
 };
 
 impl Deref for ffi::FfiEditSettings {
@@ -65,10 +67,11 @@ pub(in crate::tests) fn ffi_parameters(
         saturation_factor,
     };
     ffi::FfiEditSettings {
-        optics: ffi_optics_settings(&RecipeOpticsSettings::default()),
+        foundation: ffi_photo_foundation_settings(&PhotoFoundationNode::default()),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
             crop_left: 0.0,
             crop_top: 0.0,

@@ -42,7 +42,8 @@ use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
     FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskRevision,
     NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey,
-    ParameterValue, PortType, ProcessingStage, RecipeInputSettings, RecipeSnapshot, UnitInterval,
+    ParameterValue, PhotoCanvasNode, PhotoStructuralNodes, PortType, ProcessingStage,
+    RecipeSnapshot, UnitInterval,
 };
 
 use super::{
@@ -95,13 +96,17 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
             })
         })
         .collect::<AnyResult<Vec<_>>>()?;
-    RecipeSnapshot::new_with_input_settings_masks_retouch_strokes_and_geometry(
+    let structural_nodes = PhotoStructuralNodes::new(
+        grade_stack.liquify.clone(),
+        PhotoCanvasNode::new(grade_stack.geometry),
+    )?;
+    RecipeSnapshot::new_with_foundation_masks_retouch_strokes_and_structural_nodes(
         CURRENT_RECIPE_SCHEMA_VERSION,
-        RecipeInputSettings::new(grade_stack.optics.clone()),
+        grade_stack.foundation.clone(),
         recipe_v1_masks,
         grade_stack.retouch_spots.clone(),
         grade_stack.retouch_strokes.clone(),
-        grade_stack.geometry,
+        structural_nodes,
         recipe_v1_layers,
     )
     .map_err(Into::into)

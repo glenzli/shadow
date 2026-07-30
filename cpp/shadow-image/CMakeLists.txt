@@ -69,6 +69,8 @@ add_library(
     src/edit/perceptual_hue_selection.cpp
     src/edit/perceptual_contrast.cpp
     src/edit/photo_geometry.cpp
+    src/edit/photo_liquify.cpp
+    src/edit/photo_structural_rendering.cpp
     src/edit/retouch.cpp
     src/edit/retouch_heal_blending.cpp
     src/edit/scalar_neighborhood_filters.cpp
@@ -501,6 +503,11 @@ if(BUILD_TESTING)
         tests/edit_preview_geometry_execution_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-edit-preview-liquify-execution-tests
+        shadow-image-edit-preview-liquify-execution-contract
+        tests/edit_preview_liquify_execution_contract_test.cpp
+    )
+    shadow_image_add_contract(
         shadow-image-warm-edit-gpu-render-plan-tests
         shadow-image-warm-edit-gpu-render-plan-contract
         tests/warm_edit_gpu_render_plan_contract_test.cpp
@@ -620,6 +627,16 @@ if(BUILD_TESTING)
         shadow-image-lut-execution-tests
         shadow-image-lut-execution-contract
         tests/lut_execution_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-photo-liquify-tests
+        shadow-image-photo-liquify-contract
+        tests/photo_liquify_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-photo-structural-rendering-tests
+        shadow-image-photo-structural-rendering-contract
+        tests/photo_structural_rendering_contract_test.cpp
     )
 
     add_executable(

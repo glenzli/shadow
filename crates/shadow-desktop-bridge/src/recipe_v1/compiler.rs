@@ -4,8 +4,9 @@ use std::{collections::HashSet, path::Path};
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentLocalMask,
-    AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan, AdjustmentRetouchStroke,
+    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentLiquify,
+    AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask, AdjustmentRenderNode,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, AdjustmentRetouchStroke,
     AdjustmentRetouchStrokePoint, AdjustmentSpotHealTarget,
     COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     ColorRangeParameters,
@@ -52,8 +53,9 @@ use shadow_domain::operation::{
     WHITE_BALANCE_TINT_PARAMETER_KEY, WHITES_PARAMETER_KEY,
 };
 use shadow_domain::{
-    AdjustmentNode, CURRENT_RECIPE_SCHEMA_VERSION, ImageDomain, LayerInstanceId,
-    MaskCoordinateSpace, MaskDefinition, PortType, ProcessingStage, RecipeSnapshot, RetouchMode,
+    AdjustmentNode, CURRENT_RECIPE_SCHEMA_VERSION, ImageDomain, LayerInstanceId, LiquifyStroke,
+    MaskCoordinateSpace, MaskDefinition, PhotoLiquifyNode, PortType, ProcessingStage,
+    RecipeSnapshot, RetouchMode,
 };
 
 use super::{
@@ -166,7 +168,11 @@ pub(crate) fn compile_recipe_render_plan(
     }
     let plan = AdjustmentRenderPlan {
         nodes: compiled,
-        geometry: adjustment_geometry(snapshot.geometry()),
+        liquify: snapshot
+            .structural_nodes()
+            .liquify()
+            .map(adjustment_liquify),
+        geometry: adjustment_geometry(snapshot.canvas_node().geometry()),
     };
     plan.validate()
         .context("validate compiled Recipe render plan")?;
@@ -188,6 +194,35 @@ fn validate_recipe_compilation_contract(snapshot: &RecipeSnapshot) -> AnyResult<
         bail!("Recipe v1 render compiler supports 1 through 16 Grade Nodes");
     }
     Ok(())
+}
+
+fn adjustment_liquify(liquify: &PhotoLiquifyNode) -> AdjustmentLiquify {
+    AdjustmentLiquify {
+        strokes: liquify
+            .strokes()
+            .iter()
+            .map(|stroke| match stroke {
+                LiquifyStroke::Push {
+                    points,
+                    radius,
+                    strength,
+                    hardness,
+                } => AdjustmentLiquifyPushStroke {
+                    points: points
+                        .iter()
+                        .map(|point| AdjustmentLiquifyPoint {
+                            x: point.x().get(),
+                            y: point.y().get(),
+                            pressure: point.pressure().get(),
+                        })
+                        .collect(),
+                    radius: radius.get(),
+                    strength: strength.get(),
+                    hardness: hardness.get(),
+                },
+            })
+            .collect(),
+    }
 }
 
 /// Appends the photo-local repair stage after every Grade Node. Retouch owns a

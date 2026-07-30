@@ -69,6 +69,7 @@ fn typed_plan_rejects_duplicate_ids_and_malformed_curves() {
                 AdjustmentRenderOperation::Saturation { factor: 1.0 },
             ),
         ],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
     assert!(matches!(
@@ -97,6 +98,7 @@ fn typed_plan_rejects_duplicate_ids_and_malformed_curves() {
                     curve: Box::new(OklabLightnessToneCurve { lightness: points }),
                 },
             }],
+            liquify: None,
             geometry: AdjustmentGeometry::identity(),
         };
         assert!(matches!(
@@ -125,6 +127,7 @@ fn typed_plan_rejects_duplicate_ids_and_malformed_curves() {
                 enabled: true,
                 operation,
             }],
+            liquify: None,
             geometry: AdjustmentGeometry::identity(),
         };
         assert!(matches!(
@@ -172,6 +175,7 @@ fn selective_tone_and_detail_flatten_the_stable_ffi_contract() {
                 },
             },
         ],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
 
@@ -210,6 +214,7 @@ fn selective_tone_and_detail_reject_non_finite_and_out_of_range_values() {
             enabled: true,
             operation,
         }],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
 
@@ -286,6 +291,7 @@ fn typed_plan_rejects_unsupported_contract_versions() {
                 enabled: true,
                 operation: AdjustmentRenderOperation::Exposure { stops: 0.0 },
             }],
+            liquify: None,
             geometry: AdjustmentGeometry::identity(),
         };
 
@@ -310,6 +316,7 @@ fn typed_plan_rejects_unsupported_contract_versions() {
                 },
             },
         }],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
     assert!(matches!(

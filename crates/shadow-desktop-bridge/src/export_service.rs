@@ -9,8 +9,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    AdjustmentRenderPlan, DetailTileRect, DetailTileRequest, OpticsSettings,
-    PhotoEditDetailSession, RawDevelopmentPlan,
+    AdjustmentRenderPlan, DetailSessionRequirements, DetailTileRect, DetailTileRequest,
+    OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
 };
 use shadow_core::fingerprint_source;
 
@@ -20,7 +20,11 @@ use crate::isolated_proxy::{
 use crate::{
     DesktopSession, ffi,
     photo_provider::isolated_edit_raster,
-    recipe_v1::{bridge_optics_settings, resolve_recipe_render},
+    recipe_v1::{
+        bridge_optics_settings, ensure_foundation_allows_rgb_fallback,
+        ensure_foundation_development_receipt, export_foundation_development_plan,
+        resolve_recipe_render,
+    },
     session_photo_source::catalog_native_path,
 };
 
@@ -47,9 +51,17 @@ impl DesktopSession {
             &request.settings,
             request.use_working_recipe,
         )?;
-        let optics = bridge_optics_settings(&request.settings.optics);
+        let optics = bridge_optics_settings(&request.settings.foundation.optics);
+        let raw_development_plan = export_foundation_development_plan(recipe.raw_white_balance);
+        let requirements = DetailSessionRequirements::for_render_plan(&recipe.plan);
         ensure_known_quarantined_raw_does_not_open_for_export(&self.cache_root, &native_path)?;
-        let session = open_export_session(&self.cache_root, &native_path, &optics)?;
+        let session = open_export_session(
+            &self.cache_root,
+            &native_path,
+            raw_development_plan,
+            &optics,
+            requirements,
+        )?;
         let raster = render_export_raster(&session, &recipe.plan)?;
         if fingerprint_source(&native_path).context("re-read export source metadata")?
             != source.source
@@ -63,16 +75,27 @@ impl DesktopSession {
 fn open_export_session(
     cache_root: &Path,
     native_path: &Path,
+    raw_plan: RawDevelopmentPlan,
     optics: &OpticsSettings,
+    requirements: DetailSessionRequirements,
 ) -> AnyResult<PhotoEditDetailSession> {
-    let raw_plan = RawDevelopmentPlan::export_image();
-    match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
+    match PhotoEditDetailSession::open_with_requirements(
         native_path,
         raw_plan,
         optics,
+        requirements,
     ) {
-        Ok(session) => Ok(session),
+        Ok(session) => {
+            ensure_foundation_development_receipt(raw_plan, session.raw_pipeline_receipt())?;
+            Ok(session)
+        }
         Err(public_decoder_error) => {
+            if let Err(policy_error) = ensure_foundation_allows_rgb_fallback(raw_plan) {
+                return Err(anyhow!(
+                    "{policy_error}; public decoder could not prepare export for {}: {public_decoder_error}",
+                    native_path.display()
+                ));
+            }
             let temporary_raster =
                 isolated_edit_raster(cache_root, native_path, 16_384).with_context(|| {
                     format!(
@@ -80,18 +103,21 @@ fn open_export_session(
                         native_path.display()
                     )
                 })?;
-            let isolated_result = PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
+            let isolated_result = PhotoEditDetailSession::open_with_requirements(
                 &temporary_raster,
                 raw_plan,
                 optics,
+                requirements,
             );
             let _ = std::fs::remove_file(&temporary_raster);
-            isolated_result.with_context(|| {
+            let session = isolated_result.with_context(|| {
                 format!(
                     "public decoder could not prepare export for {}; isolated decoder fallback also failed: {public_decoder_error}",
                     native_path.display()
                 )
-            })
+            })?;
+            ensure_foundation_development_receipt(raw_plan, session.raw_pipeline_receipt())?;
+            Ok(session)
         }
     }
 }

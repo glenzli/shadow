@@ -21,6 +21,7 @@ use shadow_domain::RepresentationId;
 use crate::{
     photo_provider::isolated_edit_raster,
     preview_cache_identity::requested_raw_development_plan_cache_matches,
+    recipe_v1::{ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt},
     session_photo_source::{catalog_native_path, ensure_native_decode_is_admitted},
 };
 
@@ -76,13 +77,13 @@ impl WarmEditPreviewSessionCache {
         runtime_cache_root: &Path,
         source: &ReviewItemRecord,
         max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
         optics: &OpticsSettings,
         source_environment_cache_identity: &str,
     ) -> AnyResult<Arc<PhotoEditPreviewSession>> {
         // RAW development is immutable prepared-source provenance, not a
         // Recipe color operation. Its requested identity must participate in
         // the key before any warm reuse decision.
-        let raw_development_plan = RawDevelopmentPlan::preview();
         let requested_raw_development_plan_identity =
             raw_development_plan_identity(raw_development_plan)
                 .context("build requested preview RAW-development cache identity")?;
@@ -210,15 +211,34 @@ where
     Isolate: FnOnce(&Path, &Path, u32) -> AnyResult<PathBuf>,
 {
     let public_decoder_error = match open(native_path, max_edge, raw_development_plan, optics) {
-        Ok(prepared) => return Ok(prepared),
+        Ok(prepared) => {
+            ensure_foundation_development_receipt(
+                raw_development_plan,
+                prepared.raw_pipeline_receipt(),
+            )?;
+            return Ok(prepared);
+        }
         Err(error) => error,
     };
+    if let Err(policy_error) = ensure_foundation_allows_rgb_fallback(raw_development_plan) {
+        return Err(anyhow!(
+            "{policy_error}; public decoder could not prepare {}: {public_decoder_error}",
+            native_path.display()
+        ));
+    }
 
     // Private providers stay outside the desktop process. The isolated helper
     // produces a short-lived RGB JPEG which re-enters the normal public raster
     // edit path, so all adjustments continue to execute in the parent.
     let temporary_raster = isolate(runtime_cache_root, native_path, max_edge)?;
-    let isolated_result = open(&temporary_raster, max_edge, raw_development_plan, optics);
+    let isolated_result =
+        open(&temporary_raster, max_edge, raw_development_plan, optics).and_then(|prepared| {
+            ensure_foundation_development_receipt(
+                raw_development_plan,
+                prepared.raw_pipeline_receipt(),
+            )?;
+            Ok(prepared)
+        });
     // Prepared sessions retain decoded pixels rather than an open descriptor.
     // Cleanup is best-effort but happens after both successful and failed
     // public-raster opens.

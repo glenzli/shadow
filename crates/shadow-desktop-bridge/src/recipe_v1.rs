@@ -6,6 +6,9 @@
 //! `shadow-domain` may persist bounded condition expressions before this
 //! adapter can execute them; `snapshot_decode` and `compiler` own the explicit
 //! fail-closed capability gates instead of flattening or dropping predicates.
+//! `foundation_development` binds the same absolute RAW white balance to each
+//! render intent and rejects lossy RGB compatibility routes for manual values.
+//! `ffi_adapter::liquify` owns strict decoding of the bounded flat Liquify DTO.
 
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
@@ -20,6 +23,7 @@ use shadow_domain::operation::{
 mod compiler;
 mod draft;
 mod ffi_adapter;
+mod foundation_development;
 mod identity;
 mod render_request;
 mod snapshot_decode;
@@ -30,6 +34,7 @@ mod validation;
 pub(crate) use compiler::*;
 pub(crate) use draft::*;
 pub(crate) use ffi_adapter::*;
+pub(crate) use foundation_development::*;
 pub(crate) use identity::*;
 pub(crate) use render_request::*;
 pub(crate) use snapshot_decode::*;

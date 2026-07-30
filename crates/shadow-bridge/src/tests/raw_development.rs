@@ -1,6 +1,8 @@
 //! RAW development plans, receipts, pipeline provenance, and cache identity contracts.
 
-use shadow_domain::ImageDimensions;
+use shadow_domain::{
+    ImageDimensions, RAW_CAMERA_NEUTRAL_MILLIONTHS, RawCameraNeutral, RawWhiteBalance,
+};
 
 use crate::{
     BridgeError, DngOpcodeExecutionStatus, DngOpcodePolicy, RawCameraProfileStatus,
@@ -19,6 +21,9 @@ fn ffi_detail_raw_development_plan() -> ffi::FfiRawDevelopmentPlan {
         dng_opcode_policy: ffi::FfiDngOpcodePolicy::ProviderDefault,
         noise_reduction: ffi::FfiRawNoiseReductionIntent::ProviderDefault,
         highlight_recovery: ffi::FfiRawHighlightRecoveryIntent::ProviderDefault,
+        white_balance_mode: ffi::FfiRawWhiteBalanceMode::AsShot,
+        camera_neutral_red_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
+        camera_neutral_blue_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
     }
 }
 
@@ -38,6 +43,9 @@ fn recorded_ffi_raw_development_receipt() -> ffi::FfiRawDevelopmentReceipt {
             dng_opcode_policy: ffi::FfiDngOpcodePolicy::ProviderDefault,
             noise_reduction: ffi::FfiRawNoiseReductionIntent::ProviderDefault,
             highlight_recovery: ffi::FfiRawHighlightRecoveryIntent::ProviderDefault,
+            white_balance_mode: ffi::FfiRawWhiteBalanceMode::AsShot,
+            camera_neutral_red_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
+            camera_neutral_blue_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
         },
         effective_plan: ffi_detail_raw_development_plan(),
         plan_negotiation_status: ffi::FfiRawDevelopmentPlanNegotiationStatus::Adjusted,
@@ -182,6 +190,7 @@ fn raw_development_receipt_bridge_preserves_default_and_recorded_fields() {
                 dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
                 noise_reduction: RawNoiseReductionIntent::ProviderDefault,
                 highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+                white_balance: RawWhiteBalance::AsShot,
             },
             effective_plan: RawDevelopmentPlan::detail(),
             plan_negotiation_status: RawDevelopmentPlanNegotiationStatus::Adjusted,
@@ -404,6 +413,15 @@ fn raw_development_plan_identities_are_native_canonical_and_intent_specific() {
     assert_ne!(preview, detail);
     assert_ne!(detail, export);
     assert!(preview.starts_with("shadow-raw-plan-v1;"));
+    assert!(preview.contains(";wb=as-shot"));
+
+    let neutral = RawCameraNeutral::new(0.5, 1.0, 0.25).expect("manual camera neutral");
+    let manual =
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::camera_neutral(neutral));
+    let manual_identity =
+        raw_development_plan_identity(manual).expect("manual RAW white-balance identity");
+    assert!(manual_identity.contains(";wb=camera-neutral:500000:250000"));
+    assert_ne!(manual_identity, preview);
 
     let invalid = RawDevelopmentPlan {
         schema_version: RawDevelopmentPlan::CURRENT_SCHEMA_VERSION + 1,
@@ -411,6 +429,40 @@ fn raw_development_plan_identities_are_native_canonical_and_intent_specific() {
     };
     assert!(matches!(
         raw_development_plan_identity(invalid),
+        Err(BridgeError::InvalidRawDevelopmentPlan(_))
+    ));
+}
+
+#[test]
+fn raw_white_balance_bridge_round_trips_and_rejects_noncanonical_payloads() {
+    let neutral = RawCameraNeutral::new(0.75, 1.0, 0.5).expect("manual camera neutral");
+    let manual =
+        RawDevelopmentPlan::detail().with_white_balance(RawWhiteBalance::camera_neutral(neutral));
+    let ffi_manual = crate::raw_development::ffi_raw_development_plan(manual);
+    assert!(matches!(
+        ffi_manual.white_balance_mode,
+        ffi::FfiRawWhiteBalanceMode::CameraNeutral
+    ));
+    assert_eq!(ffi_manual.camera_neutral_red_millionths, 750_000);
+    assert_eq!(ffi_manual.camera_neutral_blue_millionths, 500_000);
+
+    let receipt = raw_development_receipt(ffi::FfiRawDevelopmentReceipt {
+        requested_plan: ffi_manual,
+        effective_plan: ffi_manual,
+        ..recorded_ffi_raw_development_receipt()
+    })
+    .expect("manual RAW white balance receipt");
+    assert_eq!(receipt.requested_plan, manual);
+    assert_eq!(receipt.effective_plan, manual);
+
+    let mut noncanonical_as_shot = ffi_detail_raw_development_plan();
+    noncanonical_as_shot.camera_neutral_red_millionths = 750_000;
+    let invalid = raw_development_receipt(ffi::FfiRawDevelopmentReceipt {
+        requested_plan: noncanonical_as_shot,
+        ..recorded_ffi_raw_development_receipt()
+    });
+    assert!(matches!(
+        invalid,
         Err(BridgeError::InvalidRawDevelopmentPlan(_))
     ));
 }

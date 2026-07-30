@@ -339,7 +339,7 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
         bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
     let grade_stack = GradeStackDraft {
-        optics: snapshot.input_settings().optics().clone(),
+        foundation: snapshot.foundation_node().clone(),
         grade_nodes: snapshot
             .layers()
             .iter()
@@ -350,7 +350,8 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
             .collect::<AnyResult<Vec<_>>>()?,
         retouch_spots: snapshot.retouch_spots().to_vec(),
         retouch_strokes: snapshot.retouch_strokes().to_vec(),
-        geometry: snapshot.geometry(),
+        liquify: snapshot.structural_nodes().liquify().cloned(),
+        geometry: snapshot.canvas_node().geometry(),
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     Ok(grade_stack)

@@ -148,6 +148,12 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    enum FfiRawWhiteBalanceMode {
+        AsShot,
+        CameraNeutral,
+    }
+
+    #[derive(Debug)]
     enum FfiRawDevelopmentPlanNegotiationStatus {
         Accepted,
         Adjusted,
@@ -172,6 +178,9 @@ mod ffi {
         dng_opcode_policy: FfiDngOpcodePolicy,
         noise_reduction: FfiRawNoiseReductionIntent,
         highlight_recovery: FfiRawHighlightRecoveryIntent,
+        white_balance_mode: FfiRawWhiteBalanceMode,
+        camera_neutral_red_millionths: u32,
+        camera_neutral_blue_millionths: u32,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -515,9 +524,29 @@ mod ffi {
         flip_vertical: bool,
     }
 
+    #[derive(Debug, Clone, Copy)]
+    struct FfiPhotoLiquifyPoint {
+        x: f64,
+        y: f64,
+        pressure: f64,
+    }
+
+    /// Flat, explicitly present structural-node payload. Stroke parameters
+    /// contain radius/strength/hardness triples in stroke order; point counts
+    /// partition the single authored-point vector without nested bridge
+    /// allocation.
+    #[derive(Debug)]
+    struct FfiPhotoLiquify {
+        present: bool,
+        points: Vec<FfiPhotoLiquifyPoint>,
+        stroke_point_counts: Vec<u32>,
+        stroke_parameters: Vec<f64>,
+    }
+
     #[derive(Debug)]
     struct FfiAdjustmentRenderRequest {
         nodes: Vec<FfiAdjustmentNode>,
+        liquify: FfiPhotoLiquify,
         geometry: FfiPhotoGeometry,
         max_edge: u32,
         jpeg_quality: u8,
@@ -536,8 +565,16 @@ mod ffi {
     #[derive(Debug)]
     struct FfiAdjustmentDetailTileRequest {
         nodes: Vec<FfiAdjustmentNode>,
+        liquify: FfiPhotoLiquify,
         geometry: FfiPhotoGeometry,
         rect: FfiDetailTileRect,
+    }
+
+    /// Runtime-only source admission requirements for a prepared full-detail
+    /// session. These flags never enter Recipe persistence or image identity.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiDetailSessionRequirements {
+        requires_cpu_replay: bool,
     }
 
     #[derive(Debug)]
@@ -627,6 +664,7 @@ mod ffi {
         fn prepare_edit_detail_with_raw_development_plan(
             self: &DecodeHandle,
             plan: &FfiRawDevelopmentPlan,
+            requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
         fn max_edge(self: &EditPreviewHandle) -> u32;
@@ -683,6 +721,7 @@ mod ffi {
             cancellation: &EditPreviewCancellationHandle,
         ) -> Result<FfiCancellableAnalyzedEditPreview>;
         fn dimensions(self: &FullEditDetailHandle) -> FfiDimensions;
+        fn cpu_replay_available(self: &FullEditDetailHandle) -> bool;
         fn retained_bytes(self: &FullEditDetailHandle) -> u64;
         fn optics_receipt(self: &FullEditDetailHandle) -> FfiOpticsReceipt;
         fn raw_development_receipt(self: &FullEditDetailHandle)

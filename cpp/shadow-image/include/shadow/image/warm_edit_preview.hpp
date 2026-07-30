@@ -30,6 +30,7 @@
 namespace shadow::image {
 
 class DecodeSession;
+struct PhotoLiquify;
 
 // A square proxy at this limit occupies at most 192 MiB as interleaved RGB float32.
 // Typical 3:2 photos at the UI's 1600/2048 edge use substantially less memory.
@@ -205,41 +206,52 @@ class WarmEditPreviewSession final {
     // skips JPEG encoding. It remains transient and is never a durable cache
     // artifact.
     [[nodiscard]] EncodedProxy
-    render_rgb8(std::span<const AdjustmentNode> nodes, const PhotoGeometry& geometry = {}) const;
+    render_rgb8(
+        std::span<const AdjustmentNode> nodes,
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
+    ) const;
     [[nodiscard]] EncodedProxy render_rgb8_layers(
         std::span<const AdjustmentLayer> layers,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] EncodedProxy render_jpeg(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality = 95,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] EncodedProxy render_jpeg_layers(
         std::span<const AdjustmentLayer> layers,
         std::uint8_t jpeg_quality = 95,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] AnalyzedEditPreview render_jpeg_with_analysis(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality = 95,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] AnalyzedEditPreview render_jpeg_with_analysis_layers(
         std::span<const AdjustmentLayer> layers,
         std::uint8_t jpeg_quality = 95,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_jpeg_cancellable(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_rgb8_cancellable(
         std::span<const AdjustmentNode> nodes,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     // Opaque-owner interactive route. On compatible Metal systems the returned frame owns a
     // native presentation surface and has no materialized host RGB8 bytes. CPU and named
@@ -248,33 +260,38 @@ class WarmEditPreviewSession final {
     render_interactive_frame_cancellable(
         std::span<const AdjustmentNode> nodes,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_rgb8_layers_cancellable(
         std::span<const AdjustmentLayer> layers,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<EditPreviewRgb8WithMaskCoverage>
     render_rgb8_layers_with_mask_coverage_cancellable(
         std::span<const AdjustmentLayer> layers,
         std::optional<std::uint32_t> target_layer_index,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<InteractiveEditPreviewFrame>
     render_interactive_frame_layers_with_mask_coverage_cancellable(
         std::span<const AdjustmentLayer> layers,
         std::optional<std::uint32_t> target_layer_index,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreview>
     render_jpeg_with_analysis_cancellable(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreviewWithMaskCoverage>
     render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
@@ -282,7 +299,8 @@ class WarmEditPreviewSession final {
         std::optional<std::uint32_t> target_layer_index,
         std::uint8_t jpeg_quality,
         std::stop_token cancellation,
-        const PhotoGeometry& geometry = {}
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
     ) const;
 
   private:

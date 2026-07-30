@@ -4,8 +4,8 @@ use std::sync::{Arc, atomic::Ordering};
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan, photo_provider_version,
-    raw_development_plan_identity,
+    DetailSessionRequirements, OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
+    photo_provider_version, raw_development_plan_identity,
 };
 use shadow_catalog::{RepresentationFingerprint, ReviewItemRecord};
 use shadow_core::fingerprint_source;
@@ -20,7 +20,11 @@ use super::{
     ffi,
     photo_provider::isolated_edit_raster,
     preview_cache_identity::current_source_environment_cache_identity,
-    recipe_v1::{bridge_optics_settings, resolve_recipe_render},
+    recipe_v1::{
+        bridge_optics_settings, detail_foundation_development_plan,
+        ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt,
+        resolve_recipe_render,
+    },
     session_photo_source::{catalog_native_path, ensure_native_decode_is_admitted},
 };
 
@@ -52,10 +56,14 @@ impl DesktopSession {
             request.use_working_recipe,
         )?;
         self.ensure_current_edit_detail_render(request.render_token)?;
+        let raw_development_plan = detail_foundation_development_plan(recipe.raw_white_balance);
+        let requirements = DetailSessionRequirements::for_render_plan(&recipe.plan);
         let session = self.edit_detail_session(
             &source,
             request.render_token,
-            bridge_optics_settings(&request.settings.optics),
+            raw_development_plan,
+            bridge_optics_settings(&request.settings.foundation.optics),
+            requirements,
         )?;
         self.ensure_current_edit_detail_render(request.render_token)?;
         let full_dimensions = session.session.dimensions();
@@ -102,12 +110,13 @@ impl DesktopSession {
         &self,
         source: &ReviewItemRecord,
         render_token: u64,
+        raw_development_plan: RawDevelopmentPlan,
         optics: OpticsSettings,
+        requirements: DetailSessionRequirements,
     ) -> AnyResult<Arc<CachedDetailSource>> {
         const SOURCE_CHANGED: &str = "full detail source changed since Catalog registration";
         const SOURCE_METADATA_CONTEXT: &str = "read full detail source metadata";
         let native_path = catalog_native_path(source)?;
-        let raw_development_plan = RawDevelopmentPlan::detail();
         let source_environment_cache_identity =
             current_source_environment_cache_identity(&photo_provider_version());
         let requested_raw_development_plan_identity =
@@ -128,47 +137,64 @@ impl DesktopSession {
         // A newer request may have arrived while this worker waited for the
         // single cold-decode gate. Refuse stale work before opening the source router.
         self.ensure_current_edit_detail_render(render_token)?;
-        if let Some(session) = cached.get(
+        if let Some(session) = cached.get_with_requirements(
             source.representation_id,
             source.source,
             &source_environment_cache_identity,
             &requested_raw_development_plan_identity,
             &optics,
+            requirements,
         ) {
             return Ok(session);
         }
         ensure_native_decode_is_admitted(&self.cache_root, &native_path)?;
-        let prepared_session =
-            match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
-                &native_path,
-                raw_development_plan,
-                &optics,
-            ) {
-                Ok(prepared) => prepared,
-                Err(public_decoder_error) => {
-                    // Preserve the same safety contract as warm previews. This is an RGB fallback,
-                    // so it may not provide native sensor-resolution detail, but it remains fully
-                    // editable and never requires a private SDK in the desktop process.
-                    let temporary_raster = isolated_edit_raster(
-                        &self.cache_root,
-                        &native_path,
-                        MAX_DETAIL_VIEWPORT_SIDE,
-                    )?;
-                    let isolated_result =
-                        PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
-                            &temporary_raster,
-                            raw_development_plan,
-                            &optics,
-                        );
-                    let _ = std::fs::remove_file(&temporary_raster);
-                    isolated_result.with_context(|| {
-                    format!(
-                        "public decoder could not prepare detail for {}; isolated decoder fallback also failed: {public_decoder_error}",
+        let prepared_session = match PhotoEditDetailSession::open_with_requirements(
+            &native_path,
+            raw_development_plan,
+            &optics,
+            requirements,
+        ) {
+            Ok(prepared) => {
+                ensure_foundation_development_receipt(
+                    raw_development_plan,
+                    prepared.raw_pipeline_receipt(),
+                )?;
+                prepared
+            }
+            Err(public_decoder_error) => {
+                if let Err(policy_error) =
+                    ensure_foundation_allows_rgb_fallback(raw_development_plan)
+                {
+                    return Err(anyhow!(
+                        "{policy_error}; public decoder could not prepare detail for {}: {public_decoder_error}",
                         native_path.display()
-                    )
-                })?
+                    ));
                 }
-            };
+                // Preserve the same safety contract as warm previews. This is an RGB fallback,
+                // so it may not provide native sensor-resolution detail, but it remains fully
+                // editable and never requires a private SDK in the desktop process.
+                let temporary_raster =
+                    isolated_edit_raster(&self.cache_root, &native_path, MAX_DETAIL_VIEWPORT_SIDE)?;
+                let isolated_result = PhotoEditDetailSession::open_with_requirements(
+                    &temporary_raster,
+                    raw_development_plan,
+                    &optics,
+                    requirements,
+                );
+                let _ = std::fs::remove_file(&temporary_raster);
+                let prepared = isolated_result.with_context(|| {
+                        format!(
+                            "public decoder could not prepare detail for {}; isolated decoder fallback also failed: {public_decoder_error}",
+                            native_path.display()
+                        )
+                    })?;
+                ensure_foundation_development_receipt(
+                    raw_development_plan,
+                    prepared.raw_pipeline_receipt(),
+                )?;
+                prepared
+            }
+        };
         let prepared = Arc::new(CachedDetailSource::new(prepared_session));
         let decoded_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
         if decoded_source != source.source {

@@ -3,8 +3,9 @@
 use rusqlite::{Connection, params};
 use shadow_catalog::{CommitRecipe, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget};
 use shadow_domain::{
-    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, PhotoId, RecipeCommit, RecipeCommitId, RecipeId,
-    RecipeSnapshot,
+    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, PhotoFoundationNode, PhotoId, RawCameraNeutral,
+    RawWhiteBalance, RecipeCommit, RecipeCommitId, RecipeId, RecipeInputSettings,
+    RecipeOpticsSettings, RecipeSnapshot,
 };
 
 use crate::{
@@ -95,6 +96,145 @@ fn autosave_advances_working_without_creating_a_named_version() {
 
     drop(reopened);
     std::fs::remove_dir_all(root).expect("remove autosave fixture");
+}
+
+#[test]
+#[allow(clippy::float_cmp, clippy::too_many_lines)] // Exact FFI values across one save/reopen transaction.
+fn autosave_and_reopen_preserve_authored_foundation_white_balance() {
+    let (root, session, photo_id_text, source_path) = test_edit_session();
+    let photo_id: PhotoId = photo_id_text.parse().expect("photo id");
+    let manual_white_balance = RawWhiteBalance::camera_neutral(
+        RawCameraNeutral::from_millionths(775_000, 1_425_000).expect("manual camera neutral"),
+    );
+    let initial_draft = GradeStackDraft {
+        foundation: PhotoFoundationNode::new(
+            RecipeInputSettings::new(RecipeOpticsSettings::default())
+                .with_raw_white_balance(manual_white_balance),
+        ),
+        ..GradeStackDraft::default()
+    };
+    let initial_snapshot =
+        grade_stack_recipe_v1_snapshot(&initial_draft, None).expect("manual Foundation Recipe");
+    let recipe_id = RecipeId::new_v7();
+    let initial_commit_id = RecipeCommitId::new_v7();
+    session
+        .catalog
+        .commit_recipe(&CommitRecipe {
+            photo_id,
+            commit: RecipeCommit::new(
+                initial_commit_id,
+                recipe_id,
+                Vec::new(),
+                initial_snapshot,
+                None,
+                1_000,
+            )
+            .expect("manual Foundation commit"),
+            update_refs: vec![RecipeRefTarget {
+                name: WORKING_RECIPE_REF.to_owned(),
+                kind: RecipeRefKind::Working,
+                expectation: Some(RecipeRefExpectation::Missing),
+            }],
+        })
+        .expect("persist manual Foundation working Recipe");
+
+    let mut state = session
+        .photo_edit_state(&photo_id_text, &source_path)
+        .expect("open manual Foundation state");
+    assert_eq!(state.settings.foundation.raw_white_balance_mode, 1);
+    assert_eq!(
+        state.settings.foundation.camera_neutral_red_millionths,
+        775_000
+    );
+    assert_eq!(
+        state.settings.foundation.camera_neutral_blue_millionths,
+        1_425_000
+    );
+    state.settings.foundation.camera_neutral_red_millionths = 700_000;
+    state.settings.foundation.camera_neutral_blue_millionths = 1_200_000;
+    let authored_white_balance = RawWhiteBalance::camera_neutral(
+        RawCameraNeutral::from_millionths(700_000, 1_200_000).expect("authored camera neutral"),
+    );
+    state.settings.grade_nodes[0]
+        .basic
+        .white_balance_temperature = -0.3;
+    state.settings.grade_nodes[0].basic.white_balance_tint = 0.2;
+    let autosaved = session
+        .autosave_basic_edit_working_at(
+            &photo_id_text,
+            &source_path,
+            &state.working_commit_id,
+            &state.working_commit_id,
+            &state.settings,
+            1_500,
+        )
+        .expect("autosave Grade edit without flattening Foundation");
+    let autosaved_commit_id: RecipeCommitId = autosaved
+        .working_commit_id
+        .parse()
+        .expect("autosaved commit id");
+    let autosaved_record = session
+        .catalog
+        .recipe_commit(photo_id, autosaved_commit_id)
+        .expect("read autosaved Recipe")
+        .expect("autosaved Recipe exists");
+    assert_eq!(
+        autosaved_record
+            .commit
+            .snapshot()
+            .foundation_node()
+            .raw_white_balance(),
+        authored_white_balance
+    );
+
+    drop(session);
+    let reopened = open_desktop_session(
+        root.join("catalog.sqlite").to_str().expect("catalog path"),
+        root.join("cache").to_str().expect("cache path"),
+    )
+    .expect("reopen manual Foundation fixture");
+    let restored = reopened
+        .photo_edit_state(&photo_id_text, &source_path)
+        .expect("restore manual Foundation autosave");
+    assert_eq!(
+        restored.settings.grade_nodes[0]
+            .basic
+            .white_balance_temperature,
+        -0.3
+    );
+    assert_eq!(
+        restored.settings.grade_nodes[0].basic.white_balance_tint,
+        0.2
+    );
+    assert_eq!(restored.settings.foundation.raw_white_balance_mode, 1);
+    assert_eq!(
+        restored.settings.foundation.camera_neutral_red_millionths,
+        700_000
+    );
+    assert_eq!(
+        restored.settings.foundation.camera_neutral_blue_millionths,
+        1_200_000
+    );
+    let restored_commit_id: RecipeCommitId = restored
+        .working_commit_id
+        .parse()
+        .expect("restored commit id");
+    let restored_record = reopened
+        .catalog
+        .recipe_commit(photo_id, restored_commit_id)
+        .expect("read restored Recipe")
+        .expect("restored Recipe exists");
+    assert_eq!(
+        restored_record
+            .commit
+            .snapshot()
+            .foundation_node()
+            .raw_white_balance(),
+        authored_white_balance
+    );
+
+    drop(reopened);
+    std::fs::remove_dir_all(root).expect("remove manual Foundation autosave fixture");
 }
 
 #[test]

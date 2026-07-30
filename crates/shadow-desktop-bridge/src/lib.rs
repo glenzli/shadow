@@ -736,6 +736,27 @@ mod ffi {
         feather: f64,
     }
 
+    /// One pressure-bearing point in a photo-private Liquify push gesture.
+    /// Coordinates stay normalized to the uncropped original image so a
+    /// later Canvas crop or orientation edit never moves the authored intent.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiLiquifyPoint {
+        x: f64,
+        y: f64,
+        pressure: f64,
+    }
+
+    /// One durable push-brush gesture in the singleton Liquify node. An empty
+    /// `liquify_strokes` vector on `FfiEditSettings` canonically means that
+    /// the optional node is absent.
+    #[derive(Debug, Clone)]
+    struct FfiLiquifyPushStroke {
+        points: Vec<FfiLiquifyPoint>,
+        radius: f64,
+        strength: f64,
+        hardness: f64,
+    }
+
     /// Photo-local final-canvas geometry. The field is intentionally separate
     /// from the Grade Node list because crop/orientation is never shareable.
     #[derive(Debug, Clone, Copy)]
@@ -768,14 +789,27 @@ mod ffi {
         errors: Vec<String>,
     }
 
-    /// Complete ordered editable Grade Stack. Grade Node zero is evaluated
-    /// first and the final Grade Node is nearest the output.
+    /// Singleton source-development settings. These are photo-local and
+    /// evaluated before the ordered, repeatable Grade Node list.
+    #[derive(Debug, Clone)]
+    struct FfiPhotoFoundationSettings {
+        optics: FfiOpticsSettings,
+        /// 0 = source As Shot metadata; 1 = the exact camera-space neutral.
+        raw_white_balance_mode: u8,
+        /// Green is canonically fixed at 1,000,000.
+        camera_neutral_red_millionths: u32,
+        camera_neutral_blue_millionths: u32,
+    }
+
+    /// Complete editable photo stack. Foundation is evaluated first, followed
+    /// by Grade Node zero through the final output-nearest Grade Node.
     #[derive(Debug, Clone)]
     struct FfiEditSettings {
-        optics: FfiOpticsSettings,
+        foundation: FfiPhotoFoundationSettings,
         grade_nodes: Vec<FfiGradeNode>,
         retouch_spots: Vec<FfiRetouchSpot>,
         retouch_strokes: Vec<FfiRetouchStroke>,
+        liquify_strokes: Vec<FfiLiquifyPushStroke>,
         geometry: FfiPhotoGeometry,
     }
 

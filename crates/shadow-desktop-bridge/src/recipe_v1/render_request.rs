@@ -7,7 +7,7 @@
 use anyhow::{Context, Result as AnyResult, anyhow};
 use shadow_bridge::AdjustmentRenderPlan;
 use shadow_catalog::CatalogHandle;
-use shadow_domain::{PhotoId, RecipeCommitId};
+use shadow_domain::{PhotoId, RawWhiteBalance, RecipeCommitId};
 
 use crate::ffi;
 
@@ -19,6 +19,9 @@ use super::{
 pub(crate) struct ResolvedRecipeRender {
     pub(crate) plan: AdjustmentRenderPlan,
     pub(crate) snapshot_digest: [u8; 32],
+    /// Absolute source interpretation captured from the same immutable
+    /// snapshot as the downstream Grade render plan.
+    pub(crate) raw_white_balance: RawWhiteBalance,
 }
 
 pub(crate) fn resolve_recipe_render(
@@ -49,9 +52,11 @@ pub(crate) fn resolve_recipe_render(
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, template)?;
     let snapshot_digest = shadow_domain::canonical_recipe_snapshot_digest(&snapshot)
         .context("serialize exact Recipe render identity")?;
+    let raw_white_balance = snapshot.foundation_node().raw_white_balance();
     Ok(ResolvedRecipeRender {
         plan: compile_recipe_render_plan(&snapshot)?,
         snapshot_digest,
+        raw_white_balance,
     })
 }
 

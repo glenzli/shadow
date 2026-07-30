@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Result as AnyResult, anyhow};
-use shadow_domain::EntityId;
+use shadow_domain::{EntityId, RawCameraNeutral, RawWhiteBalance};
 
 use super::*;
 
@@ -342,5 +342,37 @@ fn failed_isolated_raster_open_is_cleaned_and_retains_public_error() {
     assert!(message.contains(&source.display().to_string()));
     assert!(message.contains("original public decoder failure"));
     assert!(!temporary_raster.exists());
+    std::fs::remove_dir_all(root).expect("remove warm-preview fixture");
+}
+
+#[test]
+fn manual_foundation_white_balance_never_enters_rgb_isolation() {
+    let root = fixture_root("manual-white-balance-no-rgb-fallback");
+    let source = root.join("source.raw");
+    let plan = RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::camera_neutral(
+        RawCameraNeutral::from_millionths(800_000, 1_400_000).expect("manual camera neutral"),
+    ));
+    let isolate_count = AtomicUsize::new(0);
+
+    let error = prepare_preview_session_with_routes(
+        &root,
+        &source,
+        64,
+        plan,
+        &OpticsSettings::default(),
+        |_, _, _, _| Err(anyhow!("public RawFrame route unavailable")),
+        |_, _, _| {
+            isolate_count.fetch_add(1, Ordering::SeqCst);
+            Err(anyhow!("manual white balance must stop before isolation"))
+        },
+    )
+    .expect_err("manual RAW white balance must fail closed");
+
+    assert_eq!(isolate_count.load(Ordering::SeqCst), 0);
+    assert!(
+        error
+            .to_string()
+            .contains("cannot use an isolated provider-processed RGB fallback")
+    );
     std::fs::remove_dir_all(root).expect("remove warm-preview fixture");
 }

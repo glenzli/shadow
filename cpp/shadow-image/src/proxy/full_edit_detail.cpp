@@ -8,6 +8,7 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
+#include <shadow/image/photo_structural_rendering.hpp>
 #include <shadow/image/source_rendering.hpp>
 #include <shadow/image/working_rgb.hpp>
 
@@ -242,6 +243,10 @@ std::uint64_t FullEditDetailSession::retained_bytes() const noexcept {
     return retained_bytes_;
 }
 
+bool FullEditDetailSession::cpu_replay_available() const noexcept {
+    return resident_raw_source_ == nullptr || !resident_raw_source_->metal_resident();
+}
+
 const RawDevelopmentReceipt& FullEditDetailSession::raw_development_receipt() const noexcept {
     return raw_development_receipt_;
 }
@@ -257,15 +262,18 @@ const OpticsProfileReceipt& FullEditDetailSession::optics_receipt() const noexce
 RenderedDetailTile FullEditDetailSession::render_rgb8(
     const std::span<const AdjustmentNode> nodes,
     const DetailTileRect rect,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     validate_adjustment_nodes(nodes);
     const Dimensions full_dimensions = dimensions();
-    const PhotoGeometryLayout geometry_layout = photo_geometry_layout(full_dimensions, geometry);
+    const PreparedPhotoStructuralRendering structural =
+        prepare_photo_structural_rendering(full_dimensions, geometry, liquify);
+    const PhotoGeometryLayout& geometry_layout = structural.geometry_layout;
     validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
     const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
     const GeometryPixelRect source_core =
-        photo_geometry_source_rect_for_output(geometry_layout, geometry, output_rect);
+        photo_structural_source_rect_for_output(structural, output_rect);
     const AdjustmentFootprint apron = required_detail_apron(nodes);
     const DetailTileRect working_rect = expanded_detail_rect(
         DetailTileRect{
@@ -280,7 +288,13 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu =
+        auto gpu = liquify != nullptr
+            ? detail::FullEditDetailGpuCache::RenderAttempt{
+                  .bytes = std::nullopt,
+                  .source_cache_hit = false,
+                  .diagnostic = "photo Liquify requires the portable CPU structural sampler",
+              }
+            :
             resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
                 ? gpu_cache_->render_resident(
                       *resident_raw_source_,
@@ -361,7 +375,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             .full_dimensions = full_dimensions,
         }
     );
-    const FloatRgbImage edited = apply_photo_geometry_tile(
+    const FloatRgbImage edited = apply_photo_structural_rendering_tile(
         edited_working,
         GeometryPixelRect{
             .x = working_rect.x,
@@ -369,8 +383,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             .width = working_rect.width,
             .height = working_rect.height,
         },
-        geometry_layout,
-        geometry,
+        structural,
         output_rect
     );
     auto rendered = render_linear_srgb_to_display_srgb8_with_backend(
@@ -399,7 +412,8 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
 RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const std::span<const AdjustmentLayer> layers,
     const DetailTileRect rect,
-    const PhotoGeometry& geometry
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
 ) const {
     const Dimensions full_dimensions = dimensions();
     static_cast<void>(detail::validate_adjustment_layer_plan(
@@ -407,11 +421,13 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
         layers,
         AdjustmentExecutionContext{.full_dimensions = full_dimensions}
     ));
-    const PhotoGeometryLayout geometry_layout = photo_geometry_layout(full_dimensions, geometry);
+    const PreparedPhotoStructuralRendering structural =
+        prepare_photo_structural_rendering(full_dimensions, geometry, liquify);
+    const PhotoGeometryLayout& geometry_layout = structural.geometry_layout;
     validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
     const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
     const GeometryPixelRect source_core =
-        photo_geometry_source_rect_for_output(geometry_layout, geometry, output_rect);
+        photo_structural_source_rect_for_output(structural, output_rect);
     std::vector<AdjustmentNode> flattened_nodes;
     for (const auto& layer : layers) {
         flattened_nodes.insert(flattened_nodes.end(), layer.nodes.begin(), layer.nodes.end());
@@ -430,7 +446,13 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu =
+        auto gpu = liquify != nullptr
+            ? detail::FullEditDetailGpuCache::RenderAttempt{
+                  .bytes = std::nullopt,
+                  .source_cache_hit = false,
+                  .diagnostic = "photo Liquify requires the portable CPU structural sampler",
+              }
+            :
             resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
                 ? gpu_cache_->render_resident_layers(
                       *resident_raw_source_,
@@ -511,7 +533,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
             .full_dimensions = full_dimensions,
         }
     );
-    const FloatRgbImage edited = apply_photo_geometry_tile(
+    const FloatRgbImage edited = apply_photo_structural_rendering_tile(
         edited_working,
         GeometryPixelRect{
             .x = working_rect.x,
@@ -519,8 +541,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
             .width = working_rect.width,
             .height = working_rect.height,
         },
-        geometry_layout,
-        geometry,
+        structural,
         output_rect
     );
     auto rendered = render_linear_srgb_to_display_srgb8_with_backend(
@@ -565,12 +586,37 @@ FullEditDetailSession prepare_full_edit_detail(
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    auto prepared = proxy_detail::prepare_full_edit_detail_source(
+    return prepare_full_edit_detail(
         session,
         raw_development_plan,
+        FullEditDetailSourceRequirements{},
         optics_provider,
         optics_settings
     );
+}
+
+FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    auto prepared = proxy_detail::prepare_full_edit_detail_source(
+        session,
+        raw_development_plan,
+        requirements,
+        optics_provider,
+        optics_settings
+    );
+    if (requirements.requires_cpu_replay && prepared.resident()
+        && std::get<raw_pipeline_detail::ResidentRawSource>(prepared.source).metal_resident()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "full edit detail source admission published a Metal-only source for a CPU-replay plan"
+        );
+    }
     if (prepared.resident()) {
         return FullEditDetailSession(
             std::make_unique<raw_pipeline_detail::ResidentRawSource>(

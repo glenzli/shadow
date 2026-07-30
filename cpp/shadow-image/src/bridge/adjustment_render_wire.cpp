@@ -4,6 +4,7 @@
 #include <shadow/image/cxx_bridge.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/lut.hpp>
+#include <shadow/image/photo_liquify.hpp>
 #include <shadow/image/retouch.hpp>
 #include <shadow/image/tone_curve.hpp>
 
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -607,6 +609,66 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
         throw_invalid_adjustment_plan("local-mask layer stream is incomplete or exceeds 17 layers");
     }
     return layers;
+}
+
+std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) {
+    if (!source.present) {
+        if (!source.points.empty() || !source.stroke_point_counts.empty()
+            || !source.stroke_parameters.empty()) {
+            throw_invalid_adjustment_plan(
+                "absent photo liquify must use the canonical empty payload"
+            );
+        }
+        return std::nullopt;
+    }
+    if (source.stroke_point_counts.empty()
+        || source.stroke_point_counts.size() > image::maximum_photo_liquify_strokes
+        || source.stroke_parameters.size() != source.stroke_point_counts.size() * 3U) {
+        throw_invalid_adjustment_plan(
+            "photo liquify contains invalid stroke partitions or parameters"
+        );
+    }
+
+    std::size_t expected_point_count = 0U;
+    for (const std::uint32_t point_count : source.stroke_point_counts) {
+        if (point_count < 2U || point_count > image::maximum_photo_liquify_points_per_stroke) {
+            throw_invalid_adjustment_plan("photo liquify push gesture has an invalid point count");
+        }
+        expected_point_count += point_count;
+    }
+    if (expected_point_count != source.points.size()) {
+        throw_invalid_adjustment_plan(
+            "photo liquify point payload does not match its stroke partitions"
+        );
+    }
+
+    image::PhotoLiquify result;
+    result.strokes.reserve(source.stroke_point_counts.size());
+    std::size_t point_offset = 0U;
+    for (std::size_t stroke_index = 0U; stroke_index < source.stroke_point_counts.size();
+         ++stroke_index) {
+        image::PhotoLiquifyPushStroke stroke{
+            .radius = source.stroke_parameters[stroke_index * 3U],
+            .strength = source.stroke_parameters[stroke_index * 3U + 1U],
+            .hardness = source.stroke_parameters[stroke_index * 3U + 2U],
+        };
+        const std::size_t point_count = source.stroke_point_counts[stroke_index];
+        stroke.points.reserve(point_count);
+        for (std::size_t point_index = 0U; point_index < point_count; ++point_index) {
+            const auto& point = source.points[point_offset + point_index];
+            stroke.points.push_back(
+                image::PhotoLiquifyPoint{
+                    .x = point.x,
+                    .y = point.y,
+                    .pressure = point.pressure,
+                }
+            );
+        }
+        point_offset += point_count;
+        result.strokes.push_back(std::move(stroke));
+    }
+    image::validate_photo_liquify(result);
+    return result;
 }
 
 } // namespace shadow::bridge::adjustment_render_wire

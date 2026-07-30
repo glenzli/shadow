@@ -2,6 +2,7 @@
 
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/raw_development.hpp>
+#include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_frame.hpp>
 #include <shadow/image/reference_pixels.hpp>
 
@@ -110,6 +111,12 @@ struct DcpColorTransform final {
 [[nodiscard]] DcpColorTransform compile_dcp_color_transform(
     const CameraProfileDefinition& definition,
     const RawFrameDescriptor& descriptor
+);
+
+[[nodiscard]] DcpColorTransform compile_dcp_color_transform(
+    const CameraProfileDefinition& definition,
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance
 );
 
 // Applies the compiled DCP HSV/LUT/tone stages to a canonical linear-sRGB RAW output. DCP remains

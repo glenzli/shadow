@@ -1,10 +1,11 @@
 use crate::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
-    AdjustmentLocalMask, AdjustmentMaskBrushPoint, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask,
+    AdjustmentMaskBrushPoint, AdjustmentRenderNode, AdjustmentRenderOperation,
     AdjustmentRenderPlan, EditPreviewMaskCoverageRequest,
 };
 
-use super::{ffi_render_node, ffi_render_request_with_mask_coverage};
+use super::{ffi_render_node, ffi_render_request, ffi_render_request_with_mask_coverage};
 
 fn layer_start(mask: Option<AdjustmentLocalMask>) -> AdjustmentRenderNode {
     AdjustmentRenderNode {
@@ -100,6 +101,7 @@ fn condition_masks_use_fixed_kind_four_and_five_wire_records() {
 fn coverage_target_is_optional_native_input_and_selection_revision_stays_host_side() {
     let plan = AdjustmentRenderPlan {
         nodes: vec![layer_start(None)],
+        liquify: None,
         geometry: AdjustmentGeometry::identity(),
     };
     let without_coverage = ffi_render_request_with_mask_coverage(&plan, 2_048, 90, None);
@@ -117,4 +119,86 @@ fn coverage_target_is_optional_native_input_and_selection_revision_stays_host_si
     );
     assert!(with_coverage.mask_coverage_requested);
     assert_eq!(with_coverage.mask_coverage_target_layer_index, 0);
+}
+
+#[test]
+#[allow(clippy::float_cmp)] // This is the exact flat CXX structural-node protocol.
+fn liquify_presence_paths_and_stroke_partitions_cross_the_flat_wire_exactly() {
+    let plan = AdjustmentRenderPlan {
+        nodes: vec![layer_start(None)],
+        liquify: Some(AdjustmentLiquify {
+            strokes: vec![
+                AdjustmentLiquifyPushStroke {
+                    points: vec![
+                        AdjustmentLiquifyPoint {
+                            x: 0.1,
+                            y: 0.2,
+                            pressure: 0.3,
+                        },
+                        AdjustmentLiquifyPoint {
+                            x: 0.4,
+                            y: 0.5,
+                            pressure: 0.6,
+                        },
+                    ],
+                    radius: 0.07,
+                    strength: 0.8,
+                    hardness: 0.25,
+                },
+                AdjustmentLiquifyPushStroke {
+                    points: vec![
+                        AdjustmentLiquifyPoint {
+                            x: 0.7,
+                            y: 0.8,
+                            pressure: 0.9,
+                        },
+                        AdjustmentLiquifyPoint {
+                            x: 0.9,
+                            y: 0.6,
+                            pressure: 1.0,
+                        },
+                        AdjustmentLiquifyPoint {
+                            x: 0.8,
+                            y: 0.4,
+                            pressure: 0.5,
+                        },
+                    ],
+                    radius: 0.12,
+                    strength: 0.4,
+                    hardness: 0.75,
+                },
+            ],
+        }),
+        geometry: AdjustmentGeometry::identity(),
+    };
+    plan.validate().expect("bounded Liquify plan");
+
+    let request = ffi_render_request(&plan, 2_048, 90);
+    assert!(request.liquify.present);
+    assert_eq!(request.liquify.stroke_point_counts, [2, 3]);
+    assert_eq!(
+        request.liquify.stroke_parameters,
+        [0.07, 0.8, 0.25, 0.12, 0.4, 0.75]
+    );
+    assert_eq!(request.liquify.points.len(), 5);
+    assert_eq!(request.liquify.points[0].x, 0.1);
+    assert_eq!(request.liquify.points[0].y, 0.2);
+    assert_eq!(request.liquify.points[0].pressure, 0.3);
+    assert_eq!(request.liquify.points[4].x, 0.8);
+    assert_eq!(request.liquify.points[4].y, 0.4);
+    assert_eq!(request.liquify.points[4].pressure, 0.5);
+}
+
+#[test]
+fn absent_liquify_uses_an_explicit_empty_wire_payload() {
+    let plan = AdjustmentRenderPlan {
+        nodes: vec![layer_start(None)],
+        liquify: None,
+        geometry: AdjustmentGeometry::identity(),
+    };
+    let request = ffi_render_request(&plan, 2_048, 90);
+    assert!(!request.liquify.present);
+    assert!(request.liquify.points.is_empty());
+    assert!(request.liquify.stroke_point_counts.is_empty());
+    assert!(request.liquify.stroke_parameters.is_empty());
 }
