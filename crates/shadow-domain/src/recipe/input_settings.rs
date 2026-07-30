@@ -1,15 +1,16 @@
-//! Persistent input-stage optical corrections and their validation policy.
+//! Recipe v1 source-setting payloads retained inside the Photo Foundation.
 
 use serde::{Deserialize, Serialize};
 
-use super::RecipeValidationError;
 use super::value::{MAX_LABEL_BYTES, display_name_character, validate_text};
+use super::{RawWhiteBalance, RecipeValidationError};
 
-/// Input-stage optical corrections applied before creative Grade Nodes.
+/// Foundation-owned optical corrections applied before creative Grade Nodes.
 ///
-/// These switches belong to the Recipe rather than an individual layer:
-/// changing geometry after a local edit would invalidate every downstream
-/// coordinate and cache identity.
+/// Profile selection and the profile-independent manual residuals form one
+/// ordered singleton pipeline for the photo. They never belong to a reusable
+/// Grade Node; a deliberately creative, stackable lens distortion would need
+/// a separately named Grade operation.
 const fn default_manual_vignetting_midpoint() -> u8 {
     50
 }
@@ -216,18 +217,38 @@ impl RecipeOpticsSettings {
     }
 }
 
+/// Recipe v1 compatibility payload stored by [`super::PhotoFoundationNode`].
+///
+/// New aggregate code should model the mandatory Foundation role explicitly.
+/// This value remains public because desktop and persistence adapters still
+/// project the unchanged `input_settings` JSON shape.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecipeInputSettings {
     optics: RecipeOpticsSettings,
+    #[serde(default, skip_serializing_if = "RawWhiteBalance::is_as_shot")]
+    raw_white_balance: RawWhiteBalance,
 }
 
 impl RecipeInputSettings {
     pub const fn new(optics: RecipeOpticsSettings) -> Self {
-        Self { optics }
+        Self {
+            optics,
+            raw_white_balance: RawWhiteBalance::AsShot,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_raw_white_balance(mut self, raw_white_balance: RawWhiteBalance) -> Self {
+        self.raw_white_balance = raw_white_balance;
+        self
     }
 
     pub const fn optics(&self) -> &RecipeOpticsSettings {
         &self.optics
+    }
+
+    pub const fn raw_white_balance(&self) -> RawWhiteBalance {
+        self.raw_white_balance
     }
 
     pub(super) fn is_default(&self) -> bool {

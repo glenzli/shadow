@@ -16,6 +16,12 @@ pub const CPU_REFERENCE_IMPLEMENTATION_VERSION: &str = "cpu-reference-v1";
 /// its original executor revision instead of silently adopting a future one.
 pub const CPU_REFERENCE_IMPLEMENTATION_REVISION: u32 = 1;
 
+/// Grade-local relative exposure compensation in stops.
+///
+/// The renderer applies a scene-linear gain of `2^stops`. Adjacent operations
+/// with the same domain, mask, and blend context may therefore be fused by
+/// adding stops, but their authored node values and ordering remain distinct
+/// across curves or other non-linear operations.
 pub const EXPOSURE_OPERATION_ID: &str = "shadow.exposure";
 pub const EXPOSURE_STOPS_PARAMETER_KEY: &str = "stops";
 
@@ -32,6 +38,11 @@ pub const OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 1;
 pub const OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION: &str =
     "shadow-cpu-oklab-lightness-tone-curve-v1";
 
+/// Processed-RGB creative white-balance offset owned by a Grade Node.
+///
+/// This is deliberately not absolute RAW white balance: Foundation owns the
+/// eventual as-shot/auto/manual sensor interpretation, while these normalized
+/// temperature and tint offsets remain repeatable and shareable.
 pub const RGB_WHITE_BALANCE_OPERATION_ID: &str = "shadow.rgb_white_balance";
 pub const WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY: &str = "temperature";
 pub const WHITE_BALANCE_TINT_PARAMETER_KEY: &str = "tint";

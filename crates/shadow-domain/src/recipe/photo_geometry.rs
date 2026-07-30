@@ -1,4 +1,4 @@
-//! Photo-local crop, orientation, mirror, and straighten recipe contracts.
+//! Photo-local crop, orientation, mirror, straighten, and final-canvas node contracts.
 
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +38,56 @@ pub struct PhotoGeometry {
     straighten_degrees: FiniteF64,
     flip_horizontal: bool,
     flip_vertical: bool,
+}
+
+/// The mandatory, photo-local final-canvas node.
+///
+/// Every Recipe owns exactly one of these nodes. An unedited photo keeps the
+/// node in its identity state; resetting or "deleting" Crop in the UI means
+/// replacing its geometry with [`PhotoGeometry::identity`], not removing a
+/// structural slot. The role itself is the stable identity, so it deliberately
+/// has no user-generated node id and can never be shared as a Grade Node.
+///
+/// The transparent representation preserves the existing Recipe v1
+/// `geometry` payload while making the singleton node explicit in memory.
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PhotoCanvasNode {
+    geometry: PhotoGeometry,
+}
+
+impl Default for PhotoCanvasNode {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
+impl PhotoCanvasNode {
+    /// Returns the mandatory canvas node in its no-op state.
+    pub const fn identity() -> Self {
+        Self {
+            geometry: PhotoGeometry::identity(),
+        }
+    }
+
+    /// Wraps one validated crop/orientation value in the singleton canvas role.
+    pub const fn new(geometry: PhotoGeometry) -> Self {
+        Self { geometry }
+    }
+
+    /// Returns the crop/orientation parameters owned by this node.
+    pub const fn geometry(self) -> PhotoGeometry {
+        self.geometry
+    }
+
+    /// Returns whether this mandatory node currently changes no pixels.
+    pub const fn is_identity(&self) -> bool {
+        self.geometry.is_identity()
+    }
+
+    pub(super) fn validate(self) -> Result<(), RecipeValidationError> {
+        self.geometry.validate()
+    }
 }
 
 impl Default for PhotoGeometry {

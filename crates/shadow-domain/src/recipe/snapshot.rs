@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     LayerInstance, MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKES_PER_RECIPE, MaskReference,
-    MaskRevision, PhotoGeometry, RecipeInputSettings, RecipeValidationError, RetouchSpot,
-    RetouchStroke,
+    MaskRevision, PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoStructuralNodes,
+    RecipeInputSettings, RecipeValidationError, RetouchSpot, RetouchStroke,
 };
 
 // Shadow is still in its pre-release development phase. Keep the persisted
@@ -19,8 +19,15 @@ pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecipeSnapshot {
     schema_version: u32,
-    #[serde(default, skip_serializing_if = "RecipeInputSettings::is_default")]
-    input_settings: RecipeInputSettings,
+    /// Mandatory, photo-local source interpretation. The field keeps its
+    /// historical Recipe v1 name while the domain model makes the singleton
+    /// Foundation role explicit.
+    #[serde(
+        rename = "input_settings",
+        default,
+        skip_serializing_if = "PhotoFoundationNode::is_default"
+    )]
+    foundation: PhotoFoundationNode,
     /// Immutable local-mask definitions needed to reproduce this exact
     /// snapshot. Empty remains intentionally omitted from serialized legacy
     /// recipes until a layer actually uses a local spatial mask.
@@ -35,11 +42,12 @@ pub struct RecipeSnapshot {
     /// remain byte-for-byte compatible and independently editable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     retouch_strokes: Vec<RetouchStroke>,
-    /// Photo-local crop and lossless orientation. This intentionally sits
-    /// outside input/decode settings and reusable Grade Nodes: it describes
-    /// the final canvas after the common RGB edit graph.
-    #[serde(default, skip_serializing_if = "PhotoGeometry::is_identity")]
-    geometry: PhotoGeometry,
+    /// Fixed, photo-private structural topology. Flattening retains the
+    /// existing top-level Recipe v1 `geometry` field while adding an optional
+    /// `liquify` field. The in-memory type makes duplicate or reordered
+    /// structural nodes unrepresentable.
+    #[serde(flatten)]
+    structural_nodes: PhotoStructuralNodes,
     layers: Vec<LayerInstance>,
 }
 
@@ -55,10 +63,33 @@ impl RecipeSnapshot {
         schema_version: u32,
         layers: Vec<LayerInstance>,
     ) -> Result<Self, RecipeValidationError> {
-        Self::new_with_input_settings(schema_version, RecipeInputSettings::default(), layers)
+        Self::new_with_foundation(schema_version, PhotoFoundationNode::default(), layers)
     }
 
-    /// Creates a complete recipe with input-stage settings and validates all nested invariants.
+    /// Creates a complete Recipe around its mandatory Foundation node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid Foundation settings, layers, graphs, or
+    /// duplicate instances.
+    pub fn new_with_foundation(
+        schema_version: u32,
+        foundation: PhotoFoundationNode,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_foundation_masks_retouch_strokes_and_structural_nodes(
+            schema_version,
+            foundation,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            PhotoStructuralNodes::default(),
+            layers,
+        )
+    }
+
+    /// Recipe v1 compatibility constructor for callers that still project the
+    /// Foundation as input-stage settings.
     ///
     /// # Errors
     ///
@@ -69,7 +100,7 @@ impl RecipeSnapshot {
         input_settings: RecipeInputSettings,
         layers: Vec<LayerInstance>,
     ) -> Result<Self, RecipeValidationError> {
-        Self::new_with_input_settings_and_masks(schema_version, input_settings, Vec::new(), layers)
+        Self::new_with_foundation(schema_version, input_settings.into(), layers)
     }
 
     /// Creates a complete recipe with its input-stage settings and immutable
@@ -170,13 +201,71 @@ impl RecipeSnapshot {
         geometry: PhotoGeometry,
         layers: Vec<LayerInstance>,
     ) -> Result<Self, RecipeValidationError> {
-        let recipe = Self {
+        Self::new_with_input_settings_masks_retouch_strokes_and_structural_nodes(
             schema_version,
             input_settings,
             masks,
             retouch_spots,
             retouch_strokes,
-            geometry,
+            PhotoStructuralNodes::with_canvas(PhotoCanvasNode::new(geometry)),
+            layers,
+        )
+    }
+
+    /// Creates a complete recipe with photo-local repair and its fixed
+    /// structural-node topology.
+    ///
+    /// This is the authoritative constructor for new structural features.
+    /// The geometry-named constructor remains as the Recipe v1 compatibility
+    /// boundary and delegates here with no Liquify node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any nested Recipe value is invalid, a collection
+    /// exceeds its bound, or an identity is duplicated.
+    pub fn new_with_input_settings_masks_retouch_strokes_and_structural_nodes(
+        schema_version: u32,
+        input_settings: RecipeInputSettings,
+        masks: Vec<MaskRevision>,
+        retouch_spots: Vec<RetouchSpot>,
+        retouch_strokes: Vec<RetouchStroke>,
+        structural_nodes: PhotoStructuralNodes,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_foundation_masks_retouch_strokes_and_structural_nodes(
+            schema_version,
+            input_settings.into(),
+            masks,
+            retouch_spots,
+            retouch_strokes,
+            structural_nodes,
+            layers,
+        )
+    }
+
+    /// Authoritative constructor for the fixed Foundation and structural-node
+    /// roles around the repeatable Grade stack.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any nested Recipe value is invalid, a collection
+    /// exceeds its bound, or an identity is duplicated.
+    pub fn new_with_foundation_masks_retouch_strokes_and_structural_nodes(
+        schema_version: u32,
+        foundation: PhotoFoundationNode,
+        masks: Vec<MaskRevision>,
+        retouch_spots: Vec<RetouchSpot>,
+        retouch_strokes: Vec<RetouchStroke>,
+        structural_nodes: PhotoStructuralNodes,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
+        let recipe = Self {
+            schema_version,
+            foundation,
+            masks,
+            retouch_spots,
+            retouch_strokes,
+            structural_nodes,
             layers,
         };
         recipe.validate()?;
@@ -186,11 +275,11 @@ impl RecipeSnapshot {
     pub fn empty() -> Self {
         Self {
             schema_version: CURRENT_RECIPE_SCHEMA_VERSION,
-            input_settings: RecipeInputSettings::default(),
+            foundation: PhotoFoundationNode::default(),
             masks: Vec::new(),
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
-            geometry: PhotoGeometry::identity(),
+            structural_nodes: PhotoStructuralNodes::default(),
             layers: Vec::new(),
         }
     }
@@ -199,8 +288,14 @@ impl RecipeSnapshot {
         self.schema_version
     }
 
+    /// Returns the mandatory, photo-local source-development node.
+    pub const fn foundation_node(&self) -> &PhotoFoundationNode {
+        &self.foundation
+    }
+
+    /// Recipe v1 compatibility projection of the Foundation parameters.
     pub const fn input_settings(&self) -> &RecipeInputSettings {
-        &self.input_settings
+        self.foundation.input_settings()
     }
 
     pub fn layers(&self) -> &[LayerInstance] {
@@ -224,9 +319,22 @@ impl RecipeSnapshot {
         &self.retouch_strokes
     }
 
+    /// Returns the complete fixed-order, photo-local structural topology.
+    pub const fn structural_nodes(&self) -> &PhotoStructuralNodes {
+        &self.structural_nodes
+    }
+
+    /// Returns the mandatory final-canvas node.
+    pub const fn canvas_node(&self) -> &PhotoCanvasNode {
+        self.structural_nodes.canvas()
+    }
+
     /// Returns the photo-local final-canvas geometry.
+    ///
+    /// This compatibility accessor projects the mandatory Canvas node for
+    /// existing Recipe v1 renderer and desktop callers.
     pub const fn geometry(&self) -> PhotoGeometry {
-        self.geometry
+        self.structural_nodes.canvas().geometry()
     }
 
     /// Resolves one snapshot-local mask revision exactly. The coordinate
@@ -249,7 +357,7 @@ impl RecipeSnapshot {
         if self.schema_version == 0 {
             return Err(RecipeValidationError::ZeroRecipeSchemaVersion);
         }
-        self.input_settings.optics().validate()?;
+        self.foundation.validate()?;
         let mut mask_revisions = HashSet::with_capacity(self.masks.len());
         for mask in &self.masks {
             mask.validate()?;
@@ -276,7 +384,7 @@ impl RecipeSnapshot {
         for stroke in &self.retouch_strokes {
             stroke.validate()?;
         }
-        self.geometry.validate()?;
+        self.structural_nodes.validate()?;
         let mut ids = HashSet::with_capacity(self.layers.len());
         for layer in &self.layers {
             if !ids.insert(layer.id()) {

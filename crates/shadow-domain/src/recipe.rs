@@ -9,7 +9,11 @@
 //! typed adjustment DAG; `value` and `validation_error` own shared boundary
 //! vocabulary; `condition_mask` owns bounded pixel predicates and copy-only
 //! presets; `mask_creation` freezes the current-node/new-node destination;
-//! the remaining modules own their named photo-edit contracts.
+//! `photo_foundation` owns the mandatory source-development node;
+//! `photo_structural_nodes` fixes the photo-private Liquify/Canvas topology;
+//! `photo_liquify` owns authored deformation gestures; `photo_geometry` owns
+//! the mandatory final-canvas parameters; the remaining modules own their
+//! named photo-edit contracts.
 
 mod condition_mask;
 mod edit_graph;
@@ -18,7 +22,10 @@ mod input_settings;
 mod layer;
 mod local_mask;
 mod mask_creation;
+mod photo_foundation;
 mod photo_geometry;
+mod photo_liquify;
+mod photo_structural_nodes;
 mod retouch;
 mod snapshot;
 mod validation_error;
@@ -49,7 +56,15 @@ pub use local_mask::{
     MAX_MASK_BRUSH_POINTS, MaskBrushPoint, MaskDefinition, MaskReference, MaskRevision,
 };
 pub use mask_creation::{NodeLocalMaskCreationIntent, NodeLocalMaskCreationTarget};
-pub use photo_geometry::{PhotoGeometry, PhotoQuarterTurn};
+pub use photo_foundation::{
+    PhotoFoundationNode, RAW_CAMERA_NEUTRAL_MILLIONTHS, RawCameraNeutral, RawWhiteBalance,
+};
+pub use photo_geometry::{PhotoCanvasNode, PhotoGeometry, PhotoQuarterTurn};
+pub use photo_liquify::{
+    LiquifyPoint, LiquifyStroke, MAX_LIQUIFY_POINTS_PER_STROKE, MAX_LIQUIFY_STROKES_PER_NODE,
+    PhotoLiquifyNode,
+};
+pub use photo_structural_nodes::{PhotoStructuralNodeRef, PhotoStructuralNodes};
 pub use retouch::{
     MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKE_POINTS, MAX_RETOUCH_STROKES_PER_RECIPE,
     RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke,

@@ -106,6 +106,20 @@ pub enum RecipeValidationError {
     DegeneratePhotoCrop,
     #[error("photo straighten angle {0}° is outside the supported -45°..45° range")]
     InvalidPhotoStraightenDegrees(f64),
+    #[error("a persisted liquify node must contain at least one gesture")]
+    EmptyLiquifyNode,
+    #[error("liquify gesture contains {0} points; at least two are required")]
+    TooFewLiquifyStrokePoints(usize),
+    #[error("liquify gesture contains {0} points, but at most 2048 are supported")]
+    TooManyLiquifyStrokePoints(usize),
+    #[error("liquify gesture must contain pressured movement")]
+    DegenerateLiquifyStroke,
+    #[error("liquify brush radius must be greater than zero")]
+    DegenerateLiquifyBrushRadius,
+    #[error("liquify brush strength must be greater than zero")]
+    DegenerateLiquifyStrength,
+    #[error("liquify node contains {0} gestures, but at most 128 are supported")]
+    TooManyLiquifyStrokes(usize),
     #[error("inline layer {layer_id} must have PHOTO scope")]
     InlineLayerMustBePhotoScoped { layer_id: LayerInstanceId },
     #[error("layer revision must be non-zero")]
@@ -121,6 +135,10 @@ pub enum RecipeValidationError {
     },
     #[error("recipe schema version must be non-zero")]
     ZeroRecipeSchemaVersion,
+    #[error(
+        "RAW camera-neutral {component} component {value} must be finite, positive, and within 1/64..=64 after green normalization"
+    )]
+    InvalidRawCameraNeutral { component: &'static str, value: f64 },
     #[error("manual optics profile must identify both a camera and a lens")]
     IncompleteOpticsProfile,
     #[error("{kind} is {value}; expected an integer in [-100, 100]")]

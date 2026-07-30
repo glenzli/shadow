@@ -3,8 +3,9 @@ use crate::recipe::test_support::inline_layer;
 use crate::recipe::{
     AdjustmentNode, AdjustmentScope, BlendMode, ConditionMaskExpression, ConditionMaskNode,
     ConditionMaskPredicate, EditGraph, FiniteF64, ImageDomain, LayerContent, LayerRevisionSelector,
-    MaskCoordinateSpace, MaskDefinition, NodeInput, OperationDescriptor, OperationId, ParameterKey,
-    ParameterValue, PhotoQuarterTurn, PortType, ProcessingStage, RecipeCommit, RetouchMode,
+    LiquifyPoint, LiquifyStroke, MaskCoordinateSpace, MaskDefinition, NodeInput,
+    OperationDescriptor, OperationId, ParameterKey, ParameterValue, PhotoLiquifyNode,
+    PhotoQuarterTurn, PortType, ProcessingStage, RecipeCommit, RecipeOpticsSettings, RetouchMode,
     RetouchPoint, UnitInterval,
 };
 use crate::{
@@ -238,15 +239,150 @@ fn photo_geometry_is_recipe_local() {
         vec![inline_layer()],
     )
     .expect("geometry belongs to a valid snapshot");
+    assert_eq!(snapshot.canvas_node().geometry(), geometry);
     assert_eq!(snapshot.geometry(), geometry);
     assert_eq!(
         snapshot.geometry().straighten_degrees().to_bits(),
         (-3.25_f64).to_bits()
     );
+    assert!({
+        let encoded = serde_json::to_string(&snapshot).expect("serialize geometry");
+        encoded.contains("\"geometry\"")
+            && encoded.contains("quarter_turn")
+            && !encoded.contains("structural_nodes")
+            && !encoded.contains("\"canvas\"")
+    });
+}
+
+#[test]
+fn liquify_is_optional_before_the_mandatory_canvas_and_round_trips_flattened() {
+    let point = |x, y| {
+        LiquifyPoint::new(
+            UnitInterval::new(x).expect("normalized x"),
+            UnitInterval::new(y).expect("normalized y"),
+        )
+    };
+    let liquify = PhotoLiquifyNode::new(vec![
+        LiquifyStroke::push(
+            vec![point(0.4, 0.4), point(0.45, 0.5)],
+            UnitInterval::new(0.12).expect("radius"),
+            UnitInterval::new(0.8).expect("strength"),
+            UnitInterval::new(0.5).expect("hardness"),
+        )
+        .expect("push stroke"),
+    ])
+    .expect("liquify node");
+    let structural_nodes =
+        PhotoStructuralNodes::new(Some(liquify.clone()), PhotoCanvasNode::identity())
+            .expect("fixed topology");
+    let snapshot =
+        RecipeSnapshot::new_with_input_settings_masks_retouch_strokes_and_structural_nodes(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            RecipeInputSettings::default(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            structural_nodes,
+            vec![inline_layer()],
+        )
+        .expect("structural Recipe");
+
+    assert_eq!(snapshot.structural_nodes().liquify(), Some(&liquify));
+    assert!(snapshot.canvas_node().is_identity());
+    let encoded = serde_json::to_string(&snapshot).expect("serialize structural nodes");
+    assert!(encoded.contains("\"liquify\""));
+    assert!(!encoded.contains("\"geometry\""));
+    assert!(!encoded.contains("structural_nodes"));
+    let decoded: RecipeSnapshot =
+        serde_json::from_str(&encoded).expect("deserialize structural nodes");
+    decoded.validate().expect("validate structural nodes");
+    assert_eq!(decoded, snapshot);
+}
+
+#[test]
+fn duplicate_persisted_canvas_slots_are_rejected() {
+    let duplicate_canvas = r#"{
+        "schema_version": 1,
+        "geometry": {
+            "crop_left": 0.0,
+            "crop_top": 0.0,
+            "crop_right": 1.0,
+            "crop_bottom": 1.0,
+            "quarter_turn": "zero",
+            "straighten_degrees": 0.0,
+            "flip_horizontal": false,
+            "flip_vertical": false
+        },
+        "geometry": {
+            "crop_left": 0.1,
+            "crop_top": 0.1,
+            "crop_right": 0.9,
+            "crop_bottom": 0.9,
+            "quarter_turn": "zero",
+            "straighten_degrees": 0.0,
+            "flip_horizontal": false,
+            "flip_vertical": false
+        },
+        "layers": []
+    }"#;
+
     assert!(
-        serde_json::to_string(&snapshot)
-            .expect("serialize geometry")
-            .contains("quarter_turn")
+        serde_json::from_str::<RecipeSnapshot>(duplicate_canvas).is_err(),
+        "one persisted photo cannot smuggle two Canvas nodes through duplicate JSON fields"
+    );
+}
+
+#[test]
+fn foundation_is_mandatory_in_memory_and_retains_the_input_settings_json_shape() {
+    let input_settings =
+        RecipeInputSettings::new(RecipeOpticsSettings::new(true, false, true, false, true));
+    let foundation = PhotoFoundationNode::new(input_settings.clone());
+    let snapshot = RecipeSnapshot::new_with_foundation(
+        CURRENT_RECIPE_SCHEMA_VERSION,
+        foundation.clone(),
+        vec![inline_layer()],
+    )
+    .expect("Recipe with a Foundation node");
+
+    assert_eq!(snapshot.foundation_node(), &foundation);
+    assert_eq!(snapshot.input_settings(), &input_settings);
+    let encoded = serde_json::to_string(&snapshot).expect("serialize Foundation Recipe");
+    assert!(encoded.contains("\"input_settings\""));
+    assert!(!encoded.contains("\"foundation\""));
+    let decoded: RecipeSnapshot =
+        serde_json::from_str(&encoded).expect("deserialize Foundation Recipe");
+    assert_eq!(decoded, snapshot);
+
+    let legacy_without_input_settings = r#"{"schema_version":1,"layers":[]}"#;
+    let legacy: RecipeSnapshot =
+        serde_json::from_str(legacy_without_input_settings).expect("legacy default Foundation");
+    assert_eq!(legacy.foundation_node(), &PhotoFoundationNode::default());
+}
+
+#[test]
+fn duplicate_persisted_foundation_slots_are_rejected() {
+    let duplicate_foundation = r#"{
+        "schema_version": 1,
+        "input_settings": {"optics": {
+            "enabled": true,
+            "correct_distortion": true,
+            "correct_tca": true,
+            "correct_vignetting": true,
+            "automatic_scale": true
+        }},
+        "input_settings": {"optics": {
+            "enabled": false,
+            "correct_distortion": false,
+            "correct_tca": false,
+            "correct_vignetting": false,
+            "automatic_scale": false
+        }},
+        "layers": []
+    }"#;
+
+    assert!(
+        serde_json::from_str::<RecipeSnapshot>(duplicate_foundation).is_err(),
+        "one persisted photo cannot contain two Foundation nodes"
     );
 }
 
