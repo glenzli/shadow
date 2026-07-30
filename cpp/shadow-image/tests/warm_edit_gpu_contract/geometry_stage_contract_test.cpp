@@ -4,6 +4,8 @@
 #include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/display_output.hpp>
 #include <shadow/image/photo_geometry.hpp>
+#include <shadow/image/photo_liquify.hpp>
+#include <shadow/image/photo_structural_rendering.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include "../../src/proxy/warm_edit_gpu.hpp"
@@ -51,7 +53,11 @@ void expect(const bool condition, const std::string_view message) {
 }
 
 [[nodiscard]] image::detail::WarmEditGpuRenderContext
-geometry_context(const image::FloatRgbImage& source, const image::PhotoGeometry& geometry) {
+geometry_context(
+    const image::FloatRgbImage& source,
+    const image::PhotoGeometry& geometry,
+    const image::PreparedPhotoLiquify* const liquify = nullptr
+) {
     const auto layout = image::photo_geometry_layout(source.dimensions, geometry);
     return image::detail::WarmEditGpuRenderContext{
         .geometry = image::detail::WarmEditGpuGeometryContext{
@@ -66,6 +72,7 @@ geometry_context(const image::FloatRgbImage& source, const image::PhotoGeometry&
                 .width = layout.output_dimensions.width,
                 .height = layout.output_dimensions.height,
             },
+            .liquify = liquify,
         },
     };
 }
@@ -79,6 +86,33 @@ geometry_context(const image::FloatRgbImage& source, const image::PhotoGeometry&
         image::AdjustmentNode{
             .node_id = "geometry-saturation",
             .parameters = image::SaturationAdjustment{.factor = 0.87},
+        },
+    };
+}
+
+[[nodiscard]] image::PhotoLiquify test_liquify() {
+    return image::PhotoLiquify{
+        .strokes = {
+            image::PhotoLiquifyPushStroke{
+                .points = {
+                    {.x = 0.16, .y = 0.31, .pressure = 0.42},
+                    {.x = 0.37, .y = 0.38, .pressure = 0.78},
+                    {.x = 0.61, .y = 0.35, .pressure = 1.0},
+                },
+                .radius = 0.14,
+                .strength = 0.66,
+                .hardness = 0.27,
+            },
+            image::PhotoLiquifyPushStroke{
+                .points = {
+                    {.x = 0.72, .y = 0.73, .pressure = 0.83},
+                    {.x = 0.53, .y = 0.59, .pressure = 0.56},
+                    {.x = 0.43, .y = 0.48, .pressure = 0.91},
+                },
+                .radius = 0.1,
+                .strength = 0.48,
+                .hardness = 0.71,
+            },
         },
     };
 }
@@ -162,6 +196,86 @@ void resident_geometry_matches_the_cpu_oracle() {
             && surface.output->presentation_surface->materialize_packed_rgb8()
                 == host.output->rgb8,
         "geometrized presentation surface is byte-exact with host RGB8"
+    );
+}
+
+void resident_liquify_and_canvas_match_the_cpu_oracle() {
+    const auto source = make_random_image(193U, 127U, false);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU Liquify was required but no resident Metal session could be prepared"
+        );
+        return;
+    }
+
+    const auto geometry = test_geometry();
+    const auto liquify = test_liquify();
+    const auto prepared = image::prepare_photo_liquify(source.dimensions, liquify);
+    const auto nodes = photographic_nodes();
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    const auto gpu = preparation.session->render(
+        nodes,
+        plan,
+        true,
+        geometry_context(source, geometry, &prepared)
+    );
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value(),
+        "pressure-bearing Liquify and Canvas stay in one resident Metal geometry dispatch"
+    );
+    if (!gpu.output || !gpu.output->analyzed_linear) {
+        return;
+    }
+
+    const auto adjusted = image::execute_adjustment_nodes_with_backend(
+        source,
+        nodes,
+        {.full_dimensions = source.dimensions},
+        image::AdjustmentBackendMode::cpu
+    );
+    const auto structural =
+        image::prepare_photo_structural_rendering(source.dimensions, geometry, &liquify);
+    const auto cpu = image::apply_photo_structural_rendering(adjusted.pixels, structural);
+    double maximum_error = 0.0;
+    const bool parity =
+        linear_close(*gpu.output->analyzed_linear, cpu, maximum_error, 8.0e-4);
+    if (!parity) {
+        std::cerr << "Liquify warm linear parity max=" << maximum_error << '\n';
+    }
+    expect(
+        parity,
+        "resident Metal Liquify tracks the CPU reverse-stamp and fused Canvas oracle"
+    );
+    const auto cpu_display = image::render_linear_srgb_to_display_srgb8_with_backend(
+        cpu,
+        {.target_dimensions = cpu.dimensions},
+        image::DisplayOutputBackendMode::cpu
+    );
+    const auto display_difference = rgb8_difference(gpu.output->rgb8, cpu_display.bytes);
+    expect(
+        display_difference.maximum <= 1U,
+        "Liquify display output remains within one encoded level of the CPU oracle"
+    );
+
+    const auto first_stats = preparation.session->stats();
+    const auto repeated = preparation.session->render(
+        nodes,
+        plan,
+        false,
+        geometry_context(source, geometry, &prepared)
+    );
+    const auto repeated_stats = preparation.session->stats();
+    expect(
+        repeated.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && repeated.output.has_value()
+            && repeated_stats.gpu_buffer_allocation_count
+                == first_stats.gpu_buffer_allocation_count
+            && repeated_stats.resource_cache_hit_count
+                > first_stats.resource_cache_hit_count,
+        "repeated Liquify renders reuse the immutable resident candidate table"
     );
 }
 
@@ -300,6 +414,7 @@ void benchmark_geometry_when_requested() {
 int run_resident_gpu_geometry_contract() {
     failures = 0;
     resident_geometry_matches_the_cpu_oracle();
+    resident_liquify_and_canvas_match_the_cpu_oracle();
     resident_layer_geometry_matches_the_cpu_oracle();
     benchmark_geometry_when_requested();
     return failures;

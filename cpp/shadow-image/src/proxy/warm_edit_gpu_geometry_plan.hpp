@@ -5,6 +5,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace shadow::image::detail {
 
@@ -12,6 +13,8 @@ namespace shadow::image::detail {
 // the rounding authority; this plan only seals its validated coordinates into the Metal ABI.
 struct WarmGpuGeometryPlan final {
     WarmPhotoGeometryParameters parameters;
+    WarmPhotoLiquifyParameters liquify_parameters;
+    std::vector<WarmPhotoLiquifyWord> liquify_words;
     Dimensions output_dimensions;
     double output_level_zero_to_raster_scale_x = 1.0;
     double output_level_zero_to_raster_scale_y = 1.0;

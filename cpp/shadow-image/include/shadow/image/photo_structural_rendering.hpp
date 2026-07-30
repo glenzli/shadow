@@ -33,6 +33,15 @@ struct PreparedPhotoStructuralRendering final {
     GeometryPixelRect output_rect
 );
 
+/// View form used by native backends that already retain the authoritative
+/// Canvas layout and an optional prepared Liquify plan.
+[[nodiscard]] GeometryPixelRect photo_structural_source_rect_for_output(
+    const PhotoGeometryLayout& geometry_layout,
+    const PhotoGeometry& geometry,
+    const PreparedPhotoLiquify* liquify,
+    GeometryPixelRect output_rect
+);
+
 /// Executes optional Liquify and mandatory Canvas through one bilinear RGB
 /// sample per output pixel.
 [[nodiscard]] FloatRgbImage apply_photo_structural_rendering(

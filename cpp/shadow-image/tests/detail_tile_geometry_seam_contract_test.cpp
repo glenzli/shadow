@@ -100,7 +100,7 @@ void transformed_irregular_tiles_match_the_full_geometry_canvas() {
     );
 }
 
-void transformed_layer_tiles_match_the_full_geometry_canvas() {
+void transformed_layer_tiles_match_the_full_liquify_canvas() {
     constexpr image::Dimensions dimensions{144U, 96U};
     SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
     const auto session = image::prepare_full_edit_detail(decoder);
@@ -113,6 +113,19 @@ void transformed_layer_tiles_match_the_full_geometry_canvas() {
         .quarter_turn = image::PhotoQuarterTurn::clockwise_270,
         .straighten_degrees = 4.25,
         .flip_horizontal = true,
+    };
+    const image::PhotoLiquify liquify{
+        .strokes = {
+            image::PhotoLiquifyPushStroke{
+                .points = {
+                    {.x = 0.23, .y = 0.36, .pressure = 0.45},
+                    {.x = 0.59, .y = 0.52, .pressure = 1.0},
+                },
+                .radius = 0.13,
+                .strength = 0.38,
+                .hardness = 0.62,
+            },
+        },
     };
     const auto layout = image::photo_geometry_layout(dimensions, geometry);
     const std::array layers{
@@ -140,7 +153,8 @@ void transformed_layer_tiles_match_the_full_geometry_canvas() {
         layout.output_dimensions.width,
         layout.output_dimensions.height,
     };
-    const auto full = session.render_rgb8_layers(layers, full_rect, geometry);
+    const auto full =
+        session.render_rgb8_layers(layers, full_rect, geometry, &liquify);
     bool all_used_metal = full.execution.backend == image::DetailTileRenderBackend::metal;
     std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
     const std::uint32_t split = layout.output_dimensions.width / 2U;
@@ -154,7 +168,8 @@ void transformed_layer_tiles_match_the_full_geometry_canvas() {
         },
     };
     for (const auto rect : tiles) {
-        const auto tile = session.render_rgb8_layers(layers, rect, geometry);
+        const auto tile =
+            session.render_rgb8_layers(layers, rect, geometry, &liquify);
         all_used_metal =
             all_used_metal && tile.execution.backend == image::DetailTileRenderBackend::metal;
         for (std::uint32_t row = 0U; row < rect.height; ++row) {
@@ -171,15 +186,15 @@ void transformed_layer_tiles_match_the_full_geometry_canvas() {
     }
     expect(
         stitched == full.bytes,
-        "transformed layer composition is invariant across full-detail tile boundaries"
+        "Liquified layer composition is invariant across full-detail tile boundaries"
     );
     expect(
         !image::adjustment_backend_available(image::AdjustmentBackend::metal) || all_used_metal,
-        "transformed full-detail layer tiles stay on resident Metal"
+        "Liquified full-detail layer tiles stay on resident Metal"
     );
 }
 
-void liquify_and_canvas_are_seam_free_across_cpu_detail_tiles() {
+void liquify_and_canvas_are_seam_free_across_accelerated_detail_tiles() {
     constexpr image::Dimensions dimensions{160U, 112U};
     SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
     const auto session = image::prepare_full_edit_detail(decoder);
@@ -220,6 +235,7 @@ void liquify_and_canvas_are_seam_free_across_cpu_detail_tiles() {
         layout.output_dimensions.height,
     };
     const auto full = session.render_rgb8(plan, full_rect, geometry, &liquify);
+    bool all_used_the_full_backend = true;
     std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
     const std::uint32_t split_x = layout.output_dimensions.width / 2U;
     const std::uint32_t split_y = layout.output_dimensions.height / 2U;
@@ -241,10 +257,8 @@ void liquify_and_canvas_are_seam_free_across_cpu_detail_tiles() {
     };
     for (const auto rect : tiles) {
         const auto tile = session.render_rgb8(plan, rect, geometry, &liquify);
-        expect(
-            tile.execution.backend == image::DetailTileRenderBackend::cpu,
-            "Liquify detail explicitly uses the portable CPU backend"
-        );
+        all_used_the_full_backend =
+            all_used_the_full_backend && tile.execution.backend == full.execution.backend;
         for (std::uint32_t row = 0U; row < rect.height; ++row) {
             const auto begin =
                 tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
@@ -262,13 +276,22 @@ void liquify_and_canvas_are_seam_free_across_cpu_detail_tiles() {
         stitched == full.bytes,
         "Liquify plus Canvas remains invariant across conservative detail-tile preimages"
     );
+    expect(
+        all_used_the_full_backend,
+        "Liquify detail tiles retain one consistent structural backend"
+    );
+    expect(
+        !image::adjustment_backend_available(image::AdjustmentBackend::metal)
+            || full.execution.backend == image::DetailTileRenderBackend::metal,
+        "Liquify detail stays on resident Metal when the backend is available"
+    );
 }
 
 } // namespace
 
 int main() {
     transformed_irregular_tiles_match_the_full_geometry_canvas();
-    transformed_layer_tiles_match_the_full_geometry_canvas();
-    liquify_and_canvas_are_seam_free_across_cpu_detail_tiles();
+    transformed_layer_tiles_match_the_full_liquify_canvas();
+    liquify_and_canvas_are_seam_free_across_accelerated_detail_tiles();
     return failures == 0 ? 0 : 1;
 }

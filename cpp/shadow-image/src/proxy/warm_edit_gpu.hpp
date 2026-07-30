@@ -5,6 +5,7 @@
 #include <shadow/image/decoder_types.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/photo_geometry.hpp>
+#include <shadow/image/photo_liquify.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include <cstddef>
@@ -35,6 +36,9 @@ struct WarmEditGpuGeometryContext final {
     PhotoGeometry geometry;
     GeometryPixelRect source_tile_rect;
     GeometryPixelRect output_rect;
+    // Borrowed only for the synchronous render call. When present, the
+    // geometry stage executes the fixed structural order Liquify -> Canvas.
+    const PreparedPhotoLiquify* liquify = nullptr;
 };
 
 // One resident raster may represent either a complete warm proxy or a bounded full-detail

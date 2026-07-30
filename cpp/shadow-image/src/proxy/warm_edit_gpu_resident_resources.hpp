@@ -87,6 +87,12 @@ struct WarmRetouchBufferAttempt final {
     std::string diagnostic;
 };
 
+struct WarmLiquifyBufferAttempt final {
+    RetainedMetalBuffer buffer;
+    bool cancelled = false;
+    std::string diagnostic;
+};
+
 struct WarmGpuSlotBuffers final {
     id<MTLBuffer> adjusted = nil;
     id<MTLBuffer> denoised = nil;
@@ -158,6 +164,10 @@ class WarmGpuResidentResources final {
     );
     [[nodiscard]] WarmRetouchBufferAttempt acquire_retouch_geometry_buffer(
         const std::vector<WarmRetouchWord>& words,
+        std::stop_token cancellation
+    );
+    [[nodiscard]] WarmLiquifyBufferAttempt acquire_liquify_geometry_buffer(
+        const std::vector<WarmPhotoLiquifyWord>& words,
         std::stop_token cancellation
     );
     [[nodiscard]] std::optional<WarmGpuSlotLease> acquire_slot(std::stop_token cancellation);

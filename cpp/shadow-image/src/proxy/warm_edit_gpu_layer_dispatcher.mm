@@ -111,6 +111,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
     const std::uint32_t packed_row_floats =
         static_cast<std::uint32_t>(layout.adjusted_row_stride_bytes / sizeof(float));
     std::optional<WarmGpuGeometryPlan> geometry_plan;
+    RetainedMetalBuffer geometry_liquify_buffer;
     if (render_context.geometry.has_value()) {
         auto geometry = prepare_warm_gpu_geometry_plan(
             layout.dimensions,
@@ -127,6 +128,21 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             );
         }
         geometry_plan = std::move(*geometry.plan);
+        auto buffer = resident.acquire_liquify_geometry_buffer(
+            geometry_plan->liquify_words,
+            cancellation
+        );
+        if (buffer.cancelled) {
+            return cancelled();
+        }
+        if (!buffer.buffer) {
+            return failed(
+                buffer.diagnostic.empty()
+                    ? "session-resident Metal layer render has no photo Liquify side table"
+                    : std::move(buffer.diagnostic)
+            );
+        }
+        geometry_liquify_buffer = std::move(buffer.buffer);
     }
     std::size_t operation_count = 0U;
     std::vector<PreparedWarmLayer> prepared_layers;
@@ -441,8 +457,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         if (geometry_plan.has_value()) {
             id<MTLBuffer> geometry_output =
                 current == slot.adjusted ? slot.denoised : slot.adjusted;
-            WarmGpuGeometryPlan encoded_geometry = *geometry_plan;
-            encoded_geometry.parameters.input_row_floats =
+            const std::uint32_t geometry_input_row_floats =
                 current == resident.source_buffer() ? source_row_floats : packed_row_floats;
             encode_warm_gpu_geometry(
                 encoder,
@@ -450,7 +465,9 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                 current,
                 geometry_output,
                 slot.status,
-                encoded_geometry
+                geometry_liquify_buffer.get(),
+                geometry_input_row_floats,
+                *geometry_plan
             );
             current = geometry_output;
             output_dimensions = geometry_plan->output_dimensions;
@@ -481,6 +498,12 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                            length:sizeof(mask_geometry)
                           atIndex:2U];
                 [encoder setBuffer:slot.status offset:0U atIndex:3U];
+                [encoder setBytes:&geometry_plan->liquify_parameters
+                           length:sizeof(geometry_plan->liquify_parameters)
+                          atIndex:4U];
+                [encoder setBuffer:geometry_liquify_buffer.get()
+                            offset:0U
+                           atIndex:5U];
                 dispatch_warm_gpu_raster(
                     encoder,
                     context.mask_coverage_geometry_pipeline(),

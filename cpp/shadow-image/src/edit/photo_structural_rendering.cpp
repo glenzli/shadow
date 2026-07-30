@@ -4,6 +4,7 @@
 
 #include "photo_geometry_sampling.hpp"
 #include "photo_liquify_sampling.hpp"
+#include "photo_structural_scalar_rendering.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -76,12 +77,12 @@ void validate_output_rect(
 }
 
 [[nodiscard]] std::uint32_t displacement_bound(
-    const PreparedPhotoStructuralRendering& structural
+    const PreparedPhotoLiquify* const liquify
 ) {
-    if (!structural.liquify.has_value()) {
+    if (liquify == nullptr) {
         return 0U;
     }
-    const double value = std::ceil(structural.liquify->maximum_displacement_pixels);
+    const double value = std::ceil(liquify->maximum_displacement_pixels);
     if (!std::isfinite(value)
         || value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
         invalid_structural_rendering("Liquify displacement bound exceeds the addressable raster");
@@ -134,15 +135,32 @@ GeometryPixelRect photo_structural_source_rect_for_output(
     const PreparedPhotoStructuralRendering& structural,
     const GeometryPixelRect output_rect
 ) {
-    const GeometryPixelRect geometry_core = photo_geometry_source_rect_for_output(
+    return photo_structural_source_rect_for_output(
         structural.geometry_layout,
         structural.geometry,
+        structural.liquify.has_value() ? &*structural.liquify : nullptr,
         output_rect
     );
+}
+
+GeometryPixelRect photo_structural_source_rect_for_output(
+    const PhotoGeometryLayout& geometry_layout,
+    const PhotoGeometry& geometry,
+    const PreparedPhotoLiquify* liquify,
+    const GeometryPixelRect output_rect
+) {
+    const GeometryPixelRect geometry_core = photo_geometry_source_rect_for_output(
+        geometry_layout,
+        geometry,
+        output_rect
+    );
+    if (liquify == nullptr) {
+        return geometry_core;
+    }
     return expand_rect(
         geometry_core,
-        structural.source_dimensions,
-        displacement_bound(structural)
+        liquify->source_dimensions,
+        displacement_bound(liquify)
     );
 }
 
@@ -302,6 +320,131 @@ FloatRgbImage apply_photo_structural_rendering(
             .height = structural.geometry_layout.output_dimensions.height,
         }
     );
+}
+
+std::optional<detail::PhotoStructuralScalarR8>
+detail::apply_photo_structural_scalar_r8(
+    const Dimensions source_dimensions,
+    const std::span<const float> source_samples,
+    const PreparedPhotoStructuralRendering& structural,
+    const std::stop_token cancellation
+) {
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
+    if (
+        source_dimensions != structural.source_dimensions
+        || source_dimensions.pixel_count() != source_samples.size()
+    ) {
+        invalid_structural_rendering("scalar source does not match the prepared plan");
+    }
+
+    detail::PhotoStructuralScalarR8 output{
+        .dimensions = structural.geometry_layout.output_dimensions,
+        .row_stride_bytes = structural.geometry_layout.output_dimensions.width,
+        .samples =
+            std::vector<std::uint8_t>(
+                static_cast<std::size_t>(
+                    structural.geometry_layout.output_dimensions.pixel_count()
+                ),
+                0U
+            ),
+    };
+    const double crop_left =
+        static_cast<double>(structural.geometry_layout.source_crop.x);
+    const double crop_top =
+        static_cast<double>(structural.geometry_layout.source_crop.y);
+    const double crop_right = static_cast<double>(
+        structural.geometry_layout.source_crop.x
+        + structural.geometry_layout.source_crop.width - 1U
+    );
+    const double crop_bottom = static_cast<double>(
+        structural.geometry_layout.source_crop.y
+        + structural.geometry_layout.source_crop.height - 1U
+    );
+    const double maximum_x =
+        static_cast<double>(structural.source_dimensions.width - 1U);
+    const double maximum_y =
+        static_cast<double>(structural.source_dimensions.height - 1U);
+    for (std::uint32_t y = 0U; y < output.dimensions.height; ++y) {
+        if (cancellation.stop_requested()) {
+            return std::nullopt;
+        }
+        for (std::uint32_t x = 0U; x < output.dimensions.width; ++x) {
+            const auto canvas_source = detail::photo_geometry_source_coordinate_for_output(
+                structural.geometry_layout,
+                structural.geometry,
+                x,
+                y
+            );
+            if (
+                canvas_source.x < crop_left || canvas_source.x > crop_right
+                || canvas_source.y < crop_top || canvas_source.y > crop_bottom
+            ) {
+                continue;
+            }
+
+            double source_x = canvas_source.x;
+            double source_y = canvas_source.y;
+            if (structural.liquify.has_value()) {
+                const auto liquify_source = detail::inverse_photo_liquify_coordinate(
+                    *structural.liquify,
+                    source_x,
+                    source_y
+                );
+                source_x = liquify_source.x;
+                source_y = liquify_source.y;
+            }
+            source_x = std::clamp(source_x, 0.0, maximum_x);
+            source_y = std::clamp(source_y, 0.0, maximum_y);
+            const auto source_x0 =
+                static_cast<std::uint32_t>(std::floor(source_x));
+            const auto source_y0 =
+                static_cast<std::uint32_t>(std::floor(source_y));
+            const double fraction_x =
+                source_x - static_cast<double>(source_x0);
+            const double fraction_y =
+                source_y - static_cast<double>(source_y0);
+            const std::uint32_t source_x1 = std::min(
+                fraction_x == 0.0 ? source_x0 : source_x0 + 1U,
+                structural.source_dimensions.width - 1U
+            );
+            const std::uint32_t source_y1 = std::min(
+                fraction_y == 0.0 ? source_y0 : source_y0 + 1U,
+                structural.source_dimensions.height - 1U
+            );
+            const auto sample = [&](const std::uint32_t sample_x,
+                                    const std::uint32_t sample_y) {
+                return static_cast<double>(
+                    source_samples[
+                        static_cast<std::size_t>(sample_y)
+                            * structural.source_dimensions.width
+                        + sample_x
+                    ]
+                );
+            };
+            const double top = std::lerp(
+                sample(source_x0, source_y0),
+                sample(source_x1, source_y0),
+                fraction_x
+            );
+            const double bottom = std::lerp(
+                sample(source_x0, source_y1),
+                sample(source_x1, source_y1),
+                fraction_x
+            );
+            const double value = std::lerp(top, bottom, fraction_y);
+            output.samples[
+                static_cast<std::size_t>(y) * output.dimensions.width + x
+            ] = static_cast<std::uint8_t>(
+                std::clamp(std::floor(value * 255.0 + 0.5), 0.0, 255.0)
+            );
+        }
+    }
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
+    return output;
 }
 
 } // namespace shadow::image

@@ -76,9 +76,34 @@ struct WarmPhotoGeometryParameters final {
     float reserved_3 = 0.0F;
 };
 
+// Liquify is lowered beside Canvas as one immutable packed side table:
+// six words per stamp, two words per cell range, then one word per reverse-
+// ordered stamp reference. Cell candidates are a conservative superset, so
+// the Metal kernel preserves the CPU sampler's exact temporal composition.
+struct WarmPhotoLiquifyParameters final {
+    std::uint32_t source_width = 0U;
+    std::uint32_t source_height = 0U;
+    std::uint32_t grid_columns = 0U;
+    std::uint32_t grid_rows = 0U;
+    float cell_width = 0.0F;
+    float cell_height = 0.0F;
+    std::uint32_t stamp_count = 0U;
+    std::uint32_t cell_range_offset_words = 0U;
+    std::uint32_t reference_offset_words = 0U;
+    std::uint32_t reference_count = 0U;
+    std::uint32_t reserved_0 = 0U;
+    std::uint32_t reserved_1 = 0U;
+};
+
+struct WarmPhotoLiquifyWord final {
+    std::uint32_t value = 0U;
+};
+
 static_assert(sizeof(WarmDisplayParameters) == 16U);
 static_assert(sizeof(WarmStatus) == 16U);
 static_assert(sizeof(WarmPhotoGeometryParameters) == 96U);
+static_assert(sizeof(WarmPhotoLiquifyParameters) == 48U);
+static_assert(sizeof(WarmPhotoLiquifyWord) == 4U);
 static_assert(sizeof(WarmDenoiseParameters) == 48U);
 
 enum class WarmLayerMaskKind : std::uint32_t {
@@ -340,6 +365,8 @@ inline constexpr bool warm_kernel_record =
 static_assert(warm_kernel_record<WarmDisplayParameters>);
 static_assert(warm_kernel_record<WarmStatus>);
 static_assert(warm_kernel_record<WarmPhotoGeometryParameters>);
+static_assert(warm_kernel_record<WarmPhotoLiquifyParameters>);
+static_assert(warm_kernel_record<WarmPhotoLiquifyWord>);
 static_assert(warm_kernel_record<WarmLayerBlendParameters>);
 static_assert(warm_kernel_record<WarmBrushCapsule>);
 static_assert(warm_kernel_record<WarmBrushCellRange>);
@@ -362,6 +389,8 @@ static_assert(warm_kernel_record<WarmSelectiveToneParameters>);
 static_assert(alignof(WarmDisplayParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmStatus) == alignof(std::uint32_t));
 static_assert(alignof(WarmPhotoGeometryParameters) == alignof(std::uint32_t));
+static_assert(alignof(WarmPhotoLiquifyParameters) == alignof(std::uint32_t));
+static_assert(alignof(WarmPhotoLiquifyWord) == alignof(std::uint32_t));
 static_assert(alignof(WarmLayerBlendParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCapsule) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCellRange) == alignof(std::uint32_t));
@@ -388,6 +417,9 @@ static_assert(offsetof(WarmPhotoGeometryParameters, source_tile_origin_x) == 16U
 static_assert(offsetof(WarmPhotoGeometryParameters, output_canvas_width) == 40U);
 static_assert(offsetof(WarmPhotoGeometryParameters, quarter_turn) == 64U);
 static_assert(offsetof(WarmPhotoGeometryParameters, straighten_cosine) == 80U);
+static_assert(offsetof(WarmPhotoLiquifyParameters, cell_width) == 16U);
+static_assert(offsetof(WarmPhotoLiquifyParameters, stamp_count) == 24U);
+static_assert(offsetof(WarmPhotoLiquifyParameters, reference_offset_words) == 32U);
 static_assert(offsetof(WarmLayerBlendParameters, full_width) == 24U);
 static_assert(offsetof(WarmLayerBlendParameters, opacity) == 40U);
 static_assert(offsetof(WarmLayerBlendParameters, brush_grid_columns) == 72U);

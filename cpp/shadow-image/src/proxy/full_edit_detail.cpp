@@ -34,17 +34,16 @@ namespace shadow::image {
 namespace {
 
 [[nodiscard]] std::optional<detail::WarmEditGpuGeometryContext> gpu_geometry_context(
-    const PhotoGeometry& geometry,
-    const PhotoGeometryLayout& layout,
+    const PreparedPhotoStructuralRendering& structural,
     const DetailTileRect working_rect,
     const GeometryPixelRect output_rect
 ) {
-    if (geometry == PhotoGeometry{}) {
+    if (structural.geometry == PhotoGeometry{} && !structural.liquify.has_value()) {
         return std::nullopt;
     }
     return detail::WarmEditGpuGeometryContext{
-        .layout = layout,
-        .geometry = geometry,
+        .layout = structural.geometry_layout,
+        .geometry = structural.geometry,
         .source_tile_rect =
             GeometryPixelRect{
                 .x = working_rect.x,
@@ -53,6 +52,7 @@ namespace {
                 .height = working_rect.height,
             },
         .output_rect = output_rect,
+        .liquify = structural.liquify.has_value() ? &*structural.liquify : nullptr,
     };
 }
 
@@ -288,14 +288,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu = liquify != nullptr
-            ? detail::FullEditDetailGpuCache::RenderAttempt{
-                  .bytes = std::nullopt,
-                  .source_cache_hit = false,
-                  .diagnostic = "photo Liquify requires the portable CPU structural sampler",
-              }
-            :
-            resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
+        auto gpu = resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
                 ? gpu_cache_->render_resident(
                       *resident_raw_source_,
                       source_rendering_,
@@ -303,7 +296,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
                       rect,
                       working_rect,
                       full_dimensions,
-                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                      gpu_geometry_context(structural, working_rect, output_rect)
                   )
             : resident_raw_source_ == nullptr
                 ? gpu_cache_->render(
@@ -313,7 +306,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
                       rect,
                       working_rect,
                       full_dimensions,
-                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                      gpu_geometry_context(structural, working_rect, output_rect)
                   )
                 : detail::FullEditDetailGpuCache::RenderAttempt{
                       .bytes = std::nullopt,
@@ -446,14 +439,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu = liquify != nullptr
-            ? detail::FullEditDetailGpuCache::RenderAttempt{
-                  .bytes = std::nullopt,
-                  .source_cache_hit = false,
-                  .diagnostic = "photo Liquify requires the portable CPU structural sampler",
-              }
-            :
-            resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
+        auto gpu = resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
                 ? gpu_cache_->render_resident_layers(
                       *resident_raw_source_,
                       source_rendering_,
@@ -461,7 +447,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
                       rect,
                       working_rect,
                       full_dimensions,
-                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                      gpu_geometry_context(structural, working_rect, output_rect)
                   )
             : resident_raw_source_ == nullptr
                 ? gpu_cache_->render_layers(
@@ -471,7 +457,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
                       rect,
                       working_rect,
                       full_dimensions,
-                      gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+                      gpu_geometry_context(structural, working_rect, output_rect)
                   )
                 : detail::FullEditDetailGpuCache::RenderAttempt{
                       .bytes = std::nullopt,

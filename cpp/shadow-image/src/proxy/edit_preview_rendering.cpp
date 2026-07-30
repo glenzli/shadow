@@ -11,6 +11,7 @@
 
 #include "../concurrency/row_scheduler.hpp"
 #include "../edit/local_mask_coverage.hpp"
+#include "../edit/photo_structural_scalar_rendering.hpp"
 #include "../edit/local_mask_validation.hpp"
 #include "developed_source_raster.hpp"
 #include "display_rgb_math.hpp"
@@ -104,14 +105,16 @@ namespace {
 }
 
 [[nodiscard]] std::optional<detail::WarmEditGpuGeometryContext>
-warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geometry) {
-    if (geometry == PhotoGeometry{}) {
+warm_gpu_geometry_context(
+    const FloatRgbImage& source,
+    const PreparedPhotoStructuralRendering& structural
+) {
+    if (structural.geometry == PhotoGeometry{} && !structural.liquify.has_value()) {
         return std::nullopt;
     }
-    const PhotoGeometryLayout layout = photo_geometry_layout(source.dimensions, geometry);
     return detail::WarmEditGpuGeometryContext{
-        .layout = layout,
-        .geometry = geometry,
+        .layout = structural.geometry_layout,
+        .geometry = structural.geometry,
         .source_tile_rect =
             GeometryPixelRect{
                 .x = 0U,
@@ -122,9 +125,10 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
         .output_rect = GeometryPixelRect{
             .x = 0U,
             .y = 0U,
-            .width = layout.output_dimensions.width,
-            .height = layout.output_dimensions.height,
+            .width = structural.geometry_layout.output_dimensions.width,
+            .height = structural.geometry_layout.output_dimensions.height,
         },
+        .liquify = structural.liquify.has_value() ? &*structural.liquify : nullptr,
     };
 }
 
@@ -151,7 +155,7 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
 [[nodiscard]] std::optional<EditPreviewMaskCoverage> finalize_cpu_mask_coverage(
     detail::LocalMaskCoverageRaster coverage,
     const std::uint32_t layer_index,
-    const PhotoGeometry& geometry,
+    const PreparedPhotoStructuralRendering& structural,
     const std::stop_token cancellation
 ) {
     if (!coverage.valid()) {
@@ -161,12 +165,12 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
             "CPU layer execution returned invalid mask coverage"
         );
     }
-    auto geometrically_paired =
-        detail::apply_local_mask_coverage_geometry(
-            coverage,
-            geometry,
-            cancellation
-        );
+    auto geometrically_paired = detail::apply_photo_structural_scalar_r8(
+        coverage.dimensions,
+        coverage.samples,
+        structural,
+        cancellation
+    );
     if (!geometrically_paired.has_value()) {
         return std::nullopt;
     }
@@ -218,13 +222,11 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
             return std::nullopt;
         }
         const detail::WarmEditGpuRenderContext render_context{
-            .geometry = warm_gpu_geometry_context(working_proxy, geometry),
+            .geometry = warm_gpu_geometry_context(working_proxy, structural),
             .output_intent = output_intent,
         };
-        std::string diagnostic = liquify == nullptr
-            ? std::string(warm_gpu_diagnostic)
-            : "photo Liquify requires the portable CPU structural sampler";
-        if (warm_gpu_session && liquify == nullptr) {
+        std::string diagnostic(warm_gpu_diagnostic);
+        if (warm_gpu_session) {
             auto attempt =
                 warm_gpu_session
                     ->render(nodes, plan, retain_linear_for_analysis, render_context, cancellation);
@@ -387,13 +389,6 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
     if (cancellation.stop_requested()) {
         return std::nullopt;
     }
-    if (liquify != nullptr && target_layer_index.has_value()) {
-        throw DecodeError(
-            DecodeErrorCode::invalid_request,
-            0,
-            "paired mask coverage is unavailable while photo Liquify is active"
-        );
-    }
     const PreparedPhotoStructuralRendering structural =
         prepare_photo_structural_rendering(working_proxy.dimensions, geometry, liquify);
 
@@ -414,13 +409,11 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
     std::string fallback_diagnostic;
     if (backend_mode != AdjustmentBackendMode::cpu) {
         const detail::WarmEditGpuRenderContext render_context{
-            .geometry = warm_gpu_geometry_context(working_proxy, geometry),
+            .geometry = warm_gpu_geometry_context(working_proxy, structural),
             .output_intent = output_intent,
         };
-        fallback_diagnostic = liquify == nullptr
-            ? std::string(warm_gpu_diagnostic)
-            : "photo Liquify requires the portable CPU structural sampler";
-        if (warm_gpu_session && liquify == nullptr) {
+        fallback_diagnostic = std::string(warm_gpu_diagnostic);
+        if (warm_gpu_session) {
             auto attempt = warm_gpu_session->render_layers(
                 layers,
                 retain_linear_for_analysis,
@@ -514,7 +507,7 @@ warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geom
             mask_coverage = finalize_cpu_mask_coverage(
                 std::move(*executed->mask_coverage),
                 *target_layer_index,
-                geometry,
+                structural,
                 cancellation
             );
             if (!mask_coverage.has_value()) {

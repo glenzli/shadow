@@ -80,6 +80,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
     const std::uint32_t source_row_floats =
         static_cast<std::uint32_t>(resident_layout.source_row_stride_bytes / sizeof(float));
     std::optional<WarmGpuGeometryPlan> geometry_plan;
+    RetainedMetalBuffer geometry_liquify_buffer;
     if (render_context.geometry.has_value()) {
         auto geometry = prepare_warm_gpu_geometry_plan(
             resident_layout.dimensions,
@@ -96,6 +97,21 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             );
         }
         geometry_plan = std::move(*geometry.plan);
+        auto buffer = resident.acquire_liquify_geometry_buffer(
+            geometry_plan->liquify_words,
+            cancellation
+        );
+        if (buffer.cancelled) {
+            return cancelled();
+        }
+        if (!buffer.buffer) {
+            return failed(
+                buffer.diagnostic.empty()
+                    ? "session-resident Metal has no photo Liquify side table"
+                    : std::move(buffer.diagnostic)
+            );
+        }
+        geometry_liquify_buffer = std::move(buffer.buffer);
     }
     std::size_t operation_count = 0U;
     auto preparation = prepare_warm_gpu_transaction(
@@ -190,8 +206,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             }
             id<MTLBuffer> geometry_output =
                 current == slot.adjusted ? slot.denoised : slot.adjusted;
-            WarmGpuGeometryPlan encoded_geometry = *geometry_plan;
-            encoded_geometry.parameters.input_row_floats =
+            const std::uint32_t geometry_input_row_floats =
                 current == resident.source_buffer()
                 ? source_row_floats
                 : static_cast<std::uint32_t>(
@@ -203,7 +218,9 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
                 current,
                 geometry_output,
                 slot.status,
-                encoded_geometry
+                geometry_liquify_buffer.get(),
+                geometry_input_row_floats,
+                *geometry_plan
             );
             current = geometry_output;
             output_dimensions = geometry_plan->output_dimensions;
