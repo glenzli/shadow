@@ -5,8 +5,8 @@ import QtQuick
 // Direct-manipulation owner for preview sampling and repair-stroke authoring.
 // The canvas supplies one generation-verified preview surface and its painted
 // content rectangle; this component owns coordinate normalization, picker
-// routing, stroke sampling, terminal
-// gesture cleanup, and the pointer affordance as one interaction lifecycle.
+// routing, transient stroke sampling, terminal commit, and the pointer
+// affordance as one interaction lifecycle.
 Item {
     id: pickerInput
 
@@ -21,10 +21,8 @@ Item {
     visible: interactionEnabled
     enabled: visible
 
-    function normalizedPreviewPoint(sourceItem, sourceX, sourceY) {
-        if (!previewFrameReady || readyPreviewGeneration.length === 0
-                || previewContentRect.width <= 0
-                || previewContentRect.height <= 0) {
+    function normalizedContentPoint(sourceItem, sourceX, sourceY) {
+        if (previewContentRect.width <= 0 || previewContentRect.height <= 0) {
             return null
         }
         const mapped = previewItem.mapFromItem(sourceItem, sourceX, sourceY)
@@ -44,7 +42,9 @@ Item {
     }
 
     function pickPreviewColor(sourceItem, sourceX, sourceY) {
-        const normalized = normalizedPreviewPoint(
+        if (!previewFrameReady || readyPreviewGeneration.length === 0)
+            return
+        const normalized = normalizedContentPoint(
             sourceItem, sourceX, sourceY)
         if (normalized === null)
             return
@@ -57,9 +57,19 @@ Item {
         }
     }
 
+    PrecisionActiveStrokeCoverage {
+        id: activeRetouchCoverage
+        anchors.fill: parent
+        z: 1
+        visible: inputArea.retouchStrokeActive
+        radiusPixels: inputArea.retouchBrushDiameter() / 2
+        coverageColor: Theme.maskCoverageTint
+    }
+
     MouseArea {
         id: inputArea
         anchors.fill: parent
+        z: 2
         hoverEnabled: true
         cursorShape: enabled ? Qt.BlankCursor : Qt.ArrowCursor
         preventStealing: true
@@ -73,6 +83,7 @@ Item {
         property real lastRetouchStrokeX: -1
         property real lastRetouchStrokeY: -1
         property var retouchPressPoint: null
+        property var retouchDraftPoints: []
 
         function retouchBrushDiameter() {
             // The persisted repair target has an 18px level-zero radius.
@@ -81,8 +92,17 @@ Item {
             return Math.max(18, 36 * pickerInput.displayScale)
         }
 
-        function appendRetouchStrokePoint(mouse, force) {
-            const normalized = pickerInput.normalizedPreviewPoint(
+        function appendRetouchDraftPoint(mouse, force) {
+            if (retouchDraftPoints.length >= 512) {
+                const compacted = []
+                for (let index = 0;
+                     index < retouchDraftPoints.length;
+                     index += 2) {
+                    compacted.push(retouchDraftPoints[index])
+                }
+                retouchDraftPoints = compacted
+            }
+            const normalized = pickerInput.normalizedContentPoint(
                 inputArea, mouse.x, mouse.y)
             if (normalized === null)
                 return
@@ -98,20 +118,34 @@ Item {
                     ) < minimumSpacing) {
                 return
             }
-            pickerInput.editor.appendRetouchStrokePoint(
-                normalized.x, normalized.y)
+            if (lastRetouchStrokeX >= 0) {
+                activeRetouchCoverage.appendSegment(
+                    lastRetouchStrokeX,
+                    lastRetouchStrokeY,
+                    mouse.x,
+                    mouse.y
+                )
+            }
+            retouchDraftPoints.push({
+                "x": normalized.x,
+                "y": normalized.y
+            })
             lastRetouchStrokeX = mouse.x
             lastRetouchStrokeY = mouse.y
         }
 
-        function finishRetouchGesture(mouse) {
+        function finishRetouchGesture(mouse, canceled) {
             if (!retouchGestureActive)
                 return
             if (retouchStrokeActive) {
                 if (mouse !== undefined && mouse !== null)
-                    appendRetouchStrokePoint(mouse, true)
-                pickerInput.editor.endRetouchStroke()
-            } else if (retouchPressPoint !== null) {
+                    appendRetouchDraftPoint(mouse, true)
+                if (retouchDraftPoints.length > 0) {
+                    pickerInput.editor.addRetouchStrokeFromPreview(
+                        retouchDraftPoints)
+                }
+                Qt.callLater(activeRetouchCoverage.clearStroke)
+            } else if (!canceled && retouchPressPoint !== null) {
                 // A click remains a single legacy spot: existing recipes and
                 // the precise spot workflow retain their original behavior.
                 pickerInput.editor.addRetouchSpotFromPreview(
@@ -124,6 +158,7 @@ Item {
             retouchPressY = -1
             lastRetouchStrokeX = -1
             lastRetouchStrokeY = -1
+            retouchDraftPoints = []
         }
 
         onPositionChanged: mouse => {
@@ -140,13 +175,17 @@ Item {
                     ) < dragThreshold) {
                     return
                 }
-                pickerInput.editor.beginRetouchStroke(
-                    retouchPressPoint.x, retouchPressPoint.y)
                 retouchStrokeActive = true
                 lastRetouchStrokeX = retouchPressX
                 lastRetouchStrokeY = retouchPressY
+                retouchDraftPoints = [{
+                    "x": retouchPressPoint.x,
+                    "y": retouchPressPoint.y
+                }]
+                activeRetouchCoverage.beginStroke(
+                    retouchPressX, retouchPressY)
             }
-            appendRetouchStrokePoint(mouse, false)
+            appendRetouchDraftPoint(mouse, false)
         }
 
         onPressed: mouse => {
@@ -154,7 +193,7 @@ Item {
             pointerY = mouse.y
             if (!pickerInput.editor.retouchPickerActive)
                 return
-            const normalized = pickerInput.normalizedPreviewPoint(
+            const normalized = pickerInput.normalizedContentPoint(
                 inputArea, mouse.x, mouse.y)
             if (normalized === null)
                 return
@@ -163,9 +202,10 @@ Item {
             retouchPressX = mouse.x
             retouchPressY = mouse.y
             retouchPressPoint = normalized
+            retouchDraftPoints = []
         }
-        onReleased: mouse => finishRetouchGesture(mouse)
-        onCanceled: finishRetouchGesture(null)
+        onReleased: mouse => finishRetouchGesture(mouse, false)
+        onCanceled: finishRetouchGesture(null, true)
         onClicked: mouse => {
             if (!pickerInput.editor.retouchPickerActive) {
                 pickerInput.pickPreviewColor(
@@ -175,6 +215,7 @@ Item {
     }
 
     Item {
+        z: 3
         visible: inputArea.containsMouse
         x: inputArea.pointerX
         y: inputArea.pointerY

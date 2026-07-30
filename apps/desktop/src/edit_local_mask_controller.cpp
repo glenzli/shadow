@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_stroke_input.hpp"
 
 #include <QLatin1StringView>
 
@@ -378,54 +379,58 @@ void EditController::setSelectedLocalMaskInverted(const bool inverted) {
     emit gradeNodesChanged();
 }
 
-void EditController::appendSelectedLocalMaskBrushPoint(
-    const double normalized_x,
-    const double normalized_y,
-    const bool begins_stroke
-) {
+void EditController::appendSelectedLocalMaskBrushStroke(const QVariantList& points) {
     constexpr qsizetype maximum_brush_points = 4'096;
     constexpr double minimum_point_distance = 0.0015;
     auto* const grade_node = selected_grade_node_index_ < 0
                                  ? nullptr
                                  : &grade_stack_.grade_nodes[selected_grade_node_index_];
-    if (grade_node == nullptr || grade_node->local_mask_kind != 3U
-        || !acceptParameter(
-            normalized_x,
-            0.0,
-            1.0,
-            QT_TRANSLATE_NOOP("EditController", "Brush mask")
-        )
-        || !acceptParameter(
-            normalized_y,
-            0.0,
-            1.0,
-            QT_TRANSLATE_NOOP("EditController", "Brush mask")
-        )) {
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
+        || grade_node->local_mask_kind != 3U) {
         return;
     }
     const qsizetype point_count = grade_node->local_mask_brush_points.size() / 3;
-    if (point_count >= maximum_brush_points) {
+    const qsizetype remaining_points = maximum_brush_points - point_count;
+    if (remaining_points <= 0) {
         setStatusMessage(local_mask_message(
             QT_TRANSLATE_NOOP("EditController", "This brush mask has reached its point limit")
         ));
         return;
     }
-    if (!begins_stroke && point_count > 0) {
-        const qsizetype previous = grade_node->local_mask_brush_points.size() - 3;
-        if (std::hypot(
-                normalized_x - grade_node->local_mask_brush_points.at(previous),
-                normalized_y - grade_node->local_mask_brush_points.at(previous + 1)
-            )
-            < minimum_point_distance) {
-            return;
-        }
+    const auto normalized_points =
+        EditStrokeInput::decodeNormalizedPoints(points, maximum_brush_points);
+    if (!normalized_points.has_value()) {
+        return;
     }
+    finishActiveGesture();
     const BackendGradeStack before = grade_stack_;
-    grade_node->local_mask_brush_points.push_back(normalized_x);
-    grade_node->local_mask_brush_points.push_back(normalized_y);
-    grade_node->local_mask_brush_points.push_back(begins_stroke ? 1.0 : 0.0);
+    QPointF previous;
+    bool has_previous = false;
+    for (const QPointF& point : *normalized_points) {
+        if (grade_node->local_mask_brush_points.size() / 3 >= maximum_brush_points) {
+            break;
+        }
+        if (has_previous
+            && std::hypot(point.x() - previous.x(), point.y() - previous.y())
+                   < minimum_point_distance) {
+            continue;
+        }
+        grade_node->local_mask_brush_points.push_back(point.x());
+        grade_node->local_mask_brush_points.push_back(point.y());
+        grade_node->local_mask_brush_points.push_back(has_previous ? 0.0 : 1.0);
+        previous = point;
+        has_previous = true;
+    }
+    if (!has_previous) {
+        return;
+    }
     parameterEdited(QStringLiteral("local_mask/brush"), before);
     emit gradeNodesChanged();
+    if (normalized_points->size() > remaining_points) {
+        setStatusMessage(local_mask_message(
+            QT_TRANSLATE_NOOP("EditController", "This brush mask has reached its point limit")
+        ));
+    }
 }
 
 void EditController::clearSelectedLocalMaskBrush() {

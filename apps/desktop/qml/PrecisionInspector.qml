@@ -45,6 +45,7 @@ Rectangle {
     readonly property int toolMask: 1
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
+    readonly property int toolLiquify: 4
 
     function manualOpticsActive() {
         return Number(editor.manualOpticsDistortion) !== 0
@@ -176,6 +177,19 @@ Rectangle {
                         && inspector.previewFrameReady
                         && !inspector.editor.stateBusy
                     onClicked: inspector.toolModeRequested(inspector.toolRepair)
+                }
+
+                ShadowIconButton {
+                    buttonSize: 34
+                    iconSize: 19
+                    source: "qrc:/icons/brush.svg"
+                    selected: inspector.activeToolMode === inspector.toolLiquify
+                    toolTipText: qsTr("Liquify")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active
+                        && inspector.previewFrameReady
+                        && !inspector.editor.stateBusy
+                    onClicked: inspector.toolModeRequested(inspector.toolLiquify)
                 }
 
                 Item { Layout.fillWidth: true }
@@ -314,6 +328,18 @@ Rectangle {
 
                         Item { Layout.preferredHeight: 8 }
 
+                        PrecisionFoundationAdjustments {
+                            Layout.fillWidth: true
+                            visible: inspectorTabStrip.currentIndex === 0
+                            editor: inspector.editor
+                            gradeControlsEnabled: inspector.editor.gradeNodeEnabled
+                            panelRaised: inspector.panelRaised
+                            panelBorder: inspector.panelBorder
+                            textPrimary: inspector.textPrimary
+                            textMuted: inspector.textMuted
+                            accent: inspector.accent
+                        }
+
                         ColumnLayout {
                             objectName: "gradeNodeInspector"
                             Layout.fillWidth: true
@@ -324,17 +350,6 @@ Rectangle {
 
                             Behavior on opacity {
                                 NumberAnimation { duration: 100 }
-                            }
-
-                            PrecisionFoundationAdjustments {
-                                Layout.fillWidth: true
-                                visible: inspectorTabStrip.currentIndex === 0
-                                editor: inspector.editor
-                                panelRaised: inspector.panelRaised
-                                panelBorder: inspector.panelBorder
-                                textPrimary: inspector.textPrimary
-                                textMuted: inspector.textMuted
-                                accent: inspector.accent
                             }
 
                             PrecisionColorMixer {
@@ -524,6 +539,14 @@ Rectangle {
                                 (continuous, index) =>
                                     inspector.retouchRegionSelectionRequested(
                                         continuous, index)
+                        }
+
+                        PrecisionLiquifyTools {
+                            Layout.fillWidth: true
+                            visible: inspector.activeToolMode
+                                === inspector.toolLiquify
+                            inspector: inspector
+                            currentTabIndex: 0
                         }
 
                         Item { Layout.preferredHeight: 14 }

@@ -35,7 +35,7 @@ void EditPreviewLiquifyMesh::reset(const QRectF target_rect, const QRectF textur
     texture_rect_ = {};
     vertices_.clear();
     indices_.clear();
-    last_point_.reset();
+    last_sample_.reset();
     point_count_ = 0U;
     deformed_ = false;
     if (!finite_rect(target_rect) || !finite_rect(texture_rect)) {
@@ -95,22 +95,28 @@ void EditPreviewLiquifyMesh::reset(const QRectF target_rect, const QRectF textur
 
 bool EditPreviewLiquifyMesh::appendNormalizedPoint(
     const QPointF point,
+    const double pressure,
     const double radius,
     const double strength,
     const double hardness
 ) {
-    if (!valid() || !normalized_point(point) || !normalized_brush(radius, strength, hardness)) {
+    if (!valid() || !normalized_point(point) || !std::isfinite(pressure) || pressure < 0.0
+        || pressure > 1.0 || !normalized_brush(radius, strength, hardness)) {
         return false;
     }
-    if (!last_point_.has_value()) {
-        last_point_ = point;
+    const EditPreviewLiquifySample sample{
+        .point = point,
+        .pressure = pressure,
+    };
+    if (!last_sample_.has_value()) {
+        last_sample_ = sample;
         point_count_ = 1U;
         return true;
     }
-    if (*last_point_ != point) {
-        applyPushSegment(*last_point_, point, radius, strength, hardness);
-        last_point_ = point;
+    if (last_sample_->point != point) {
+        applyPushSegment(*last_sample_, sample, radius, strength, hardness);
     }
+    last_sample_ = sample;
     ++point_count_;
     return true;
 }
@@ -149,19 +155,19 @@ std::span<const std::uint16_t> EditPreviewLiquifyMesh::indices() const noexcept 
 }
 
 void EditPreviewLiquifyMesh::applyPushSegment(
-    const QPointF from,
-    const QPointF to,
+    const EditPreviewLiquifySample from,
+    const EditPreviewLiquifySample to,
     const double normalized_radius,
     const double strength,
     const double hardness
 ) {
     const QPointF from_pixels{
-        target_rect_.left() + from.x() * target_rect_.width(),
-        target_rect_.top() + from.y() * target_rect_.height(),
+        target_rect_.left() + from.point.x() * target_rect_.width(),
+        target_rect_.top() + from.point.y() * target_rect_.height(),
     };
     const QPointF to_pixels{
-        target_rect_.left() + to.x() * target_rect_.width(),
-        target_rect_.top() + to.y() * target_rect_.height(),
+        target_rect_.left() + to.point.x() * target_rect_.width(),
+        target_rect_.top() + to.point.y() * target_rect_.height(),
     };
     const QPointF delta = to_pixels - from_pixels;
     const double length = std::hypot(delta.x(), delta.y());
@@ -176,9 +182,12 @@ void EditPreviewLiquifyMesh::applyPushSegment(
         std::min(required_steps, static_cast<double>(MAXIMUM_PREVIEW_STAMPS_PER_SEGMENT))
     );
     const double inverse_step_count = 1.0 / static_cast<double>(step_count);
-    const QPointF displacement = delta * (strength * inverse_step_count);
     for (std::size_t step = 1U; step <= step_count; ++step) {
         const double interpolation = static_cast<double>(step) * inverse_step_count;
+        const double pressure =
+            from.pressure + (to.pressure - from.pressure) * interpolation;
+        const QPointF displacement =
+            delta * (strength * inverse_step_count * pressure);
         applyStamp(from_pixels + delta * interpolation, displacement, radius, hardness);
     }
     deformed_ = true;

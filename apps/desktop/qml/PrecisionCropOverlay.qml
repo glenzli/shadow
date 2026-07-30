@@ -212,6 +212,14 @@ Item {
         color: "#99000000"
     }
 
+    MouseArea {
+        objectName: "cropSurfaceCursor"
+        anchors.fill: parent
+        acceptedButtons: Qt.NoButton
+        hoverEnabled: true
+        cursorShape: Qt.CrossCursor
+    }
+
     Item {
         id: cropFrame
         x: overlay.displayCrop.x * overlay.width

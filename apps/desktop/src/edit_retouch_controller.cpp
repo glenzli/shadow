@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_stroke_input.hpp"
 
 #include <algorithm>
 
@@ -114,9 +115,6 @@ int EditController::retouchCreationMode() const noexcept {
 }
 
 void EditController::setRetouchPickerActive(const bool active) {
-    if (!active) {
-        endRetouchStroke();
-    }
     if (retouch_picker_active_ == active) {
         return;
     }
@@ -180,85 +178,44 @@ void EditController::addRetouchSpotFromPreview(
     )));
 }
 
-void EditController::beginRetouchStroke(
-    const double normalized_x,
-    const double normalized_y
-) {
+void EditController::addRetouchStrokeFromPreview(const QVariantList& points) {
+    constexpr qsizetype maximum_retouch_strokes = 64;
+    constexpr qsizetype maximum_retouch_stroke_points = 512;
     if (!active_ || interactionLocked() || !retouch_picker_active_
-        || active_retouch_stroke_index_ >= 0
-        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
-        || normalized_x < 0.0 || normalized_x > 1.0
-        || normalized_y < 0.0 || normalized_y > 1.0) {
+        || grade_stack_.retouch_strokes.size() >= maximum_retouch_strokes) {
+        if (grade_stack_.retouch_strokes.size() >= maximum_retouch_strokes) {
+            setStatusMessage(retouch_message(QT_TRANSLATE_NOOP(
+                "EditController", "Repair supports at most 64 strokes"
+            )));
+        }
         return;
     }
-    constexpr qsizetype maximum_retouch_strokes = 64;
-    if (grade_stack_.retouch_strokes.size() >= maximum_retouch_strokes) {
-        setStatusMessage(retouch_message(QT_TRANSLATE_NOOP(
-            "EditController", "Repair supports at most 64 strokes"
-        )));
+    const auto normalized_points =
+        EditStrokeInput::decodeNormalizedPoints(points, maximum_retouch_stroke_points);
+    if (!normalized_points.has_value()) {
         return;
     }
     finishActiveGesture();
     const BackendGradeStack before = grade_stack_;
-    const QString key = QStringLiteral("retouch/stroke/add");
-    beginParameterEdit(key);
+    QVector<BackendRetouchStrokePoint> stroke_points;
+    stroke_points.reserve(normalized_points->size());
+    for (const QPointF& point : *normalized_points) {
+        stroke_points.push_back({.x = point.x(), .y = point.y()});
+    }
+    const QPointF first_point = normalized_points->constFirst();
     const auto [source_offset_x, source_offset_y] =
-        retouch_creation_mode_ == 1 ? default_retouch_source_offset(normalized_x, normalized_y)
-                                    : std::pair<double, double>{0.0, 0.0};
+        retouch_creation_mode_ == 1
+            ? default_retouch_source_offset(first_point.x(), first_point.y())
+            : std::pair<double, double>{0.0, 0.0};
     grade_stack_.retouch_strokes.push_back(BackendRetouchStroke{
-        .points = {{.x = normalized_x, .y = normalized_y}},
+        .points = std::move(stroke_points),
         .radius_level_zero_pixels = 18U,
         .mode = static_cast<std::uint8_t>(retouch_creation_mode_),
         .source_offset_x_radii = source_offset_x,
         .source_offset_y_radii = source_offset_y,
         .feather = 0.28,
     });
-    active_retouch_stroke_index_ = static_cast<int>(
-        grade_stack_.retouch_strokes.size() - 1
-    );
-    parameterEdited(key, before);
-}
-
-void EditController::appendRetouchStrokePoint(
-    const double normalized_x,
-    const double normalized_y
-) {
-    constexpr qsizetype maximum_retouch_stroke_points = 512;
-    if (!active_ || interactionLocked() || active_retouch_stroke_index_ < 0
-        || active_retouch_stroke_index_ >= grade_stack_.retouch_strokes.size()
-        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
-        || normalized_x < 0.0 || normalized_x > 1.0
-        || normalized_y < 0.0 || normalized_y > 1.0) {
-        return;
-    }
-    auto& stroke = grade_stack_.retouch_strokes[active_retouch_stroke_index_];
-    if (!stroke.points.isEmpty()
-        && stroke.points.back().x == normalized_x
-        && stroke.points.back().y == normalized_y) {
-        return;
-    }
-    const BackendGradeStack before = grade_stack_;
-    if (stroke.points.size() >= maximum_retouch_stroke_points) {
-        // Keep one gesture continuous even on very long drags. The persistent
-        // contract stays bounded, while downsampling the already-swept path
-        // is preferable to silently dropping the rest of the painted region.
-        QVector<BackendRetouchStrokePoint> compacted;
-        compacted.reserve((stroke.points.size() + 1) / 2);
-        for (qsizetype index = 0; index < stroke.points.size(); index += 2) {
-            compacted.push_back(stroke.points.at(index));
-        }
-        stroke.points = std::move(compacted);
-    }
-    stroke.points.push_back({.x = normalized_x, .y = normalized_y});
     parameterEdited(QStringLiteral("retouch/stroke/add"), before);
-}
-
-void EditController::endRetouchStroke() {
-    if (active_retouch_stroke_index_ < 0) {
-        return;
-    }
-    active_retouch_stroke_index_ = -1;
-    endParameterEdit(QStringLiteral("retouch/stroke/add"));
 }
 
 void EditController::setRetouchSpotCenter(
@@ -484,7 +441,6 @@ void EditController::removeRetouchStroke(const int index) {
         return;
     }
     finishActiveGesture();
-    active_retouch_stroke_index_ = -1;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.retouch_strokes.removeAt(index);
     parameterEdited(QStringLiteral("retouch/stroke/remove"), before);

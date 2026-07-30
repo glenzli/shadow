@@ -2,12 +2,14 @@ pragma ComponentBehavior: Bound
 pragma Translator: "PrecisionWorkspace"
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 ColumnLayout {
     id: foundation
 
     required property var editor
+    required property bool gradeControlsEnabled
     required property color panelRaised
     required property color panelBorder
     required property color textPrimary
@@ -16,6 +18,14 @@ ColumnLayout {
 
     spacing: 8
 
+    function ratioStops(ratio) {
+        return Math.log(Math.max(1.0 / 64.0, ratio)) / Math.LN2
+    }
+
+    function ratioText(ratio) {
+        return Number(ratio).toLocaleString(Qt.locale(), "f", 3)
+    }
+
     function fineValue(key) {
         const revision = foundation.editor.parameterRevision
         return revision >= 0 ? foundation.editor.parameterValue(key) : 0
@@ -23,8 +33,139 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
-        title: qsTr("WHITE BALANCE")
-        toolTipText: qsTr("Neutralize the scene before making tonal or creative color adjustments.")
+        title: qsTr("RAW WHITE BALANCE")
+        expanded: true
+        toolTipText: qsTr("Absolute camera-space source interpretation for this photo. It is not part of the selected Grade Node.")
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            spacing: 6
+
+            Label {
+                Layout.preferredWidth: 68
+                text: qsTr("Mode")
+                color: foundation.textPrimary
+                font.pixelSize: 10
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            ShadowButton {
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("As Shot")
+                selected:
+                    foundation.editor.foundationWhiteBalanceMode === 0
+                toolTipText: qsTr("Use the white balance recorded by the camera.")
+                onClicked:
+                    foundation.editor.foundationWhiteBalanceMode = 0
+            }
+
+            ShadowButton {
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Custom")
+                selected:
+                    foundation.editor.foundationWhiteBalanceMode === 1
+                toolTipText: qsTr("Use an exact camera-neutral ratio stored with this photo.")
+                onClicked:
+                    foundation.editor.foundationWhiteBalanceMode = 1
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 86
+            Layout.rightMargin: 14
+            visible: foundation.editor.foundationWhiteBalanceMode === 0
+            text: qsTr("Uses the white balance recorded by the camera.")
+            color: foundation.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.Wrap
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 86
+            Layout.rightMargin: 14
+            visible: foundation.editor.foundationWhiteBalanceMode === 1
+            text: qsTr("Camera neutral · R %1 · G 1.000 · B %2")
+                .arg(foundation.ratioText(
+                    foundation.editor.foundationCameraNeutralRed))
+                .arg(foundation.ratioText(
+                    foundation.editor.foundationCameraNeutralBlue))
+            color: foundation.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.Wrap
+        }
+
+        ShadowSlider {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: foundation.editor.foundationWhiteBalanceMode === 1
+            label: qsTr("Red / green")
+            toolTipText: qsTr("Logarithmic red-to-green CameraNeutral ratio in the source camera space.")
+            from: -6.0
+            to: 6.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 2
+            suffix: " EV"
+            value: foundation.ratioStops(
+                foundation.editor.foundationCameraNeutralRed)
+            semanticTrack: true
+            trackStartColor: "#5f8bd8"
+            trackMiddleColor: Theme.track
+            trackEndColor: "#d85d66"
+            onGestureStarted: foundation.editor.beginParameterEdit(
+                "foundation/raw_white_balance/red")
+            onEdited: value => {
+                foundation.editor.foundationCameraNeutralRed =
+                    Math.pow(2.0, value)
+            }
+            onGestureFinished: foundation.editor.endParameterEdit(
+                "foundation/raw_white_balance/red")
+        }
+
+        ShadowSlider {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: foundation.editor.foundationWhiteBalanceMode === 1
+            label: qsTr("Blue / green")
+            toolTipText: qsTr("Logarithmic blue-to-green CameraNeutral ratio in the source camera space.")
+            from: -6.0
+            to: 6.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 2
+            suffix: " EV"
+            value: foundation.ratioStops(
+                foundation.editor.foundationCameraNeutralBlue)
+            semanticTrack: true
+            trackStartColor: "#3979dc"
+            trackMiddleColor: Theme.track
+            trackEndColor: "#d4ad38"
+            onGestureStarted: foundation.editor.beginParameterEdit(
+                "foundation/raw_white_balance/blue")
+            onEdited: value => {
+                foundation.editor.foundationCameraNeutralBlue =
+                    Math.pow(2.0, value)
+            }
+            onGestureFinished: foundation.editor.endParameterEdit(
+                "foundation/raw_white_balance/blue")
+        }
+    }
+
+    ShadowAdjustmentSection {
+        Layout.fillWidth: true
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
+        title: qsTr("GRADE WHITE BALANCE")
+        toolTipText: qsTr("Relative processed-RGB temperature and tint for the selected Grade Node.")
 
         RowLayout {
             Layout.fillWidth: true
@@ -35,7 +176,7 @@ ColumnLayout {
             ShadowIconButton {
                 source: "qrc:/icons/eyedropper.svg"
                 selected: foundation.editor.whiteBalancePickerActive
-                toolTipText: qsTr("Pick a neutral area for White Balance")
+                toolTipText: qsTr("Pick a neutral area for Grade White Balance")
                 accessibleName: toolTipText
                 onClicked: foundation.editor.setWhiteBalancePickerActive(
                     !foundation.editor.whiteBalancePickerActive)
@@ -91,6 +232,8 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
         title: qsTr("LIGHT")
         expanded: true
 
@@ -157,6 +300,8 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
         title: qsTr("PRESENCE")
         toolTipText: qsTr("Foundational atmosphere and frequency controls evaluated before creative color grading.")
 
@@ -235,6 +380,8 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
         title: qsTr("COLOR")
         expanded: true
 
@@ -275,6 +422,8 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
         title: qsTr("COLOR BALANCE")
         toolTipText: qsTr("Perceptual global opponent balance after basic color and before hue-keyed color corrections.")
 
@@ -331,6 +480,8 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
         title: qsTr("CURVE")
         toolTipText: qsTr("Perceptual lightness curve; hue and chroma are preserved.")
 

@@ -9,8 +9,7 @@ namespace {
 
 void require(const bool condition, const std::string& message) {
     if (!condition) {
-        std::cerr << "Edit settings projection contract failed: "
-                  << message << '\n';
+        std::cerr << "Edit settings projection contract failed: " << message << '\n';
         std::exit(EXIT_FAILURE);
     }
 }
@@ -29,17 +28,14 @@ void require(const bool condition, const std::string& message) {
     node.local_mask_radius_y = 0.22;
     node.local_mask_feather = 0.23;
     node.local_mask_invert = true;
-    node.local_mask_brush_points = {
-        0.1, 0.2, 1.0, 0.3, 0.4, 0.0
-    };
+    node.local_mask_brush_points = {0.1, 0.2, 1.0, 0.3, 0.4, 0.0};
     node.label = QStringLiteral("Configured");
     node.exposure_render_op_id = QStringLiteral("exposure");
     node.contrast_render_op_id = QStringLiteral("contrast");
     node.selective_tone_render_op_id = QStringLiteral("tone");
     node.white_balance_render_op_id = QStringLiteral("white-balance");
     node.saturation_render_op_id = QStringLiteral("saturation");
-    node.perceptual_color_render_op_id =
-        QStringLiteral("perceptual-color");
+    node.perceptual_color_render_op_id = QStringLiteral("perceptual-color");
     node.lut_render_op_id = QStringLiteral("lut");
     node.sharpen_render_op_id = QStringLiteral("sharpen");
     node.basic = {
@@ -57,9 +53,7 @@ void require(const bool condition, const std::string& message) {
     fine.global_a_balance = 2.05;
     fine.global_b_balance = 2.06;
     fine.vibrance = 2.07;
-    for (std::size_t index = 0;
-         index < BACKEND_COLOR_MIXER_BAND_COUNT;
-         ++index) {
+    for (std::size_t index = 0; index < BACKEND_COLOR_MIXER_BAND_COUNT; ++index) {
         const double offset = static_cast<double>(index) / 100.0;
         fine.mixer_hue[index] = 3.0 + offset;
         fine.mixer_saturation[index] = 4.0 + offset;
@@ -94,18 +88,11 @@ void require(const bool condition, const std::string& message) {
     };
     fine.selective_color_relative = false;
     fine.selective_color_lightness_protection = 9.01;
-    for (std::size_t index = 0;
-         index < BACKEND_SELECTIVE_COLOR_VALUE_COUNT;
-         ++index) {
-        fine.selective_color_cmyk[index] =
-            10.0 + static_cast<double>(index) / 100.0;
+    for (std::size_t index = 0; index < BACKEND_SELECTIVE_COLOR_VALUE_COUNT; ++index) {
+        fine.selective_color_cmyk[index] = 10.0 + static_cast<double>(index) / 100.0;
     }
-    fine.oklab_lightness_curve_points = {
-        0.0, 0.1, 0.5, 0.6, 1.0, 0.9
-    };
-    for (std::size_t index = 0;
-         index < BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT;
-         ++index) {
+    fine.oklab_lightness_curve_points = {0.0, 0.1, 0.5, 0.6, 1.0, 0.9};
+    for (std::size_t index = 0; index < BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT; ++index) {
         fine.oklab_color_warper_control_points[index] = {
             .a_offset = 11.0 + static_cast<double>(index) / 100.0,
             .b_offset = 12.0 + static_cast<double>(index) / 100.0,
@@ -156,21 +143,27 @@ void require(const bool condition, const std::string& message) {
     node.enabled = false;
 
     BackendGradeStack stack;
-    stack.optics = {
-        .enabled = false,
-        .correct_distortion = false,
-        .correct_tca = true,
-        .correct_vignetting = false,
-        .automatic_scale = false,
-        .manual_distortion = -11,
-        .manual_tca_red_cyan = -12,
-        .manual_tca_blue_yellow = 13,
-        .manual_vignetting_amount = -14,
-        .manual_vignetting_midpoint = 63,
-        .camera_profile_maker = QStringLiteral("camera-maker"),
-        .camera_profile_model = QStringLiteral("camera-model"),
-        .lens_profile_maker = QStringLiteral("lens-maker"),
-        .lens_profile_model = QStringLiteral("lens-model"),
+    stack.foundation = {
+        .optics =
+            {
+                .enabled = false,
+                .correct_distortion = false,
+                .correct_tca = true,
+                .correct_vignetting = false,
+                .automatic_scale = false,
+                .manual_distortion = -11,
+                .manual_tca_red_cyan = -12,
+                .manual_tca_blue_yellow = 13,
+                .manual_vignetting_amount = -14,
+                .manual_vignetting_midpoint = 63,
+                .camera_profile_maker = QStringLiteral("camera-maker"),
+                .camera_profile_model = QStringLiteral("camera-model"),
+                .lens_profile_maker = QStringLiteral("lens-maker"),
+                .lens_profile_model = QStringLiteral("lens-model"),
+            },
+        .raw_white_balance_mode = 1,
+        .camera_neutral_red_millionths = 825'000,
+        .camera_neutral_blue_millionths = 1'375'000,
     };
     stack.grade_nodes = {std::move(node)};
     stack.retouch_spots = {{
@@ -190,6 +183,16 @@ void require(const bool condition, const std::string& message) {
         .source_offset_y_radii = 2.2,
         .feather = 0.45,
     }};
+    stack.liquify_strokes = {{
+        .points =
+            {
+                {.x = 0.21, .y = 0.22, .pressure = 0.23},
+                {.x = 0.61, .y = 0.62, .pressure = 0.63},
+            },
+        .radius = 0.14,
+        .strength = 0.57,
+        .hardness = 0.76,
+    }};
     stack.geometry = {
         .crop_left = 0.01,
         .crop_top = 0.02,
@@ -205,42 +208,27 @@ void require(const bool condition, const std::string& message) {
 
 void complete_stack_round_trip_is_lossless() {
     const BackendGradeStack expected = configured_stack();
-    const auto wire =
-        desktop_backend_projection::ffi_grade_stack(expected);
-    const BackendGradeStack actual =
-        desktop_backend_projection::grade_stack(wire);
+    const auto wire = desktop_backend_projection::ffi_grade_stack(expected);
+    const BackendGradeStack actual = desktop_backend_projection::grade_stack(wire);
+    require(actual == expected, "every Grade Stack field must survive the Qt/CXX round trip");
     require(
-        actual == expected,
-        "every Grade Stack field must survive the Qt/CXX round trip"
-    );
-    require(
-        desktop_backend_projection::ffi_edit_preview_policy(
-            EditPreviewPolicy::Interactive
-        ) == shadow::desktop::FfiEditPreviewPolicy::Interactive
-            && desktop_backend_projection::ffi_edit_preview_policy(
-                EditPreviewPolicy::Settled
-            ) == shadow::desktop::FfiEditPreviewPolicy::Settled
-            && desktop_backend_projection::ffi_edit_preview_policy(
-                EditPreviewPolicy::NeutralBefore
-            ) == shadow::desktop::FfiEditPreviewPolicy::NeutralBefore,
+        desktop_backend_projection::ffi_edit_preview_policy(EditPreviewPolicy::Interactive)
+                == shadow::desktop::FfiEditPreviewPolicy::Interactive
+            && desktop_backend_projection::ffi_edit_preview_policy(EditPreviewPolicy::Settled)
+                   == shadow::desktop::FfiEditPreviewPolicy::Settled
+            && desktop_backend_projection::ffi_edit_preview_policy(EditPreviewPolicy::NeutralBefore)
+                   == shadow::desktop::FfiEditPreviewPolicy::NeutralBefore,
         "each explicit preview policy retains its wire identity"
     );
 }
 
 template <typename Mutation>
-void require_invalid_wire(
-    Mutation mutation,
-    const std::string& message
-) {
-    auto wire = desktop_backend_projection::ffi_grade_stack(
-        configured_stack()
-    );
+void require_invalid_wire(Mutation mutation, const std::string& message) {
+    auto wire = desktop_backend_projection::ffi_grade_stack(configured_stack());
     mutation(wire);
     bool rejected = false;
     try {
-        static_cast<void>(
-            desktop_backend_projection::grade_stack(wire)
-        );
+        static_cast<void>(desktop_backend_projection::grade_stack(wire));
     } catch (const std::length_error&) {
         rejected = true;
     }
@@ -256,25 +244,16 @@ void malformed_vectors_fail_closed() {
         "fixed Color Mixer vectors must reject a short payload"
     );
     require_invalid_wire(
-        [](auto& wire) {
-            wire.grade_nodes[0].fine.point_color_ranges.push_back(1.0);
-        },
+        [](auto& wire) { wire.grade_nodes[0].fine.point_color_ranges.push_back(1.0); },
         "Point Color vectors must remain complete seven-value records"
     );
     require_invalid_wire(
-        [](auto& wire) {
-            wire.grade_nodes[0]
-                .fine
-                .oklab_lightness_curve_points
-                .push_back(1.0);
-        },
+        [](auto& wire) { wire.grade_nodes[0].fine.oklab_lightness_curve_points.push_back(1.0); },
         "Oklab curve vectors must remain complete point pairs"
     );
     require_invalid_wire(
         [](auto& wire) {
-            auto& values = wire.grade_nodes[0]
-                               .fine
-                               .oklab_color_warper_control_points;
+            auto& values = wire.grade_nodes[0].fine.oklab_color_warper_control_points;
             values.truncate(values.size() - 1U);
         },
         "the Oklab Color Warper lattice must keep all 25 point pairs"

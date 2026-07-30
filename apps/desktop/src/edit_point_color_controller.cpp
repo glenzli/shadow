@@ -186,7 +186,6 @@ void EditController::setPointColorPickerActive(const bool active) {
         emit whiteBalancePickerActiveChanged();
     }
     if (active && retouch_picker_active_) {
-        endRetouchStroke();
         retouch_picker_active_ = false;
         emit retouchPickerActiveChanged();
     }
@@ -203,7 +202,6 @@ void EditController::setWhiteBalancePickerActive(const bool active) {
         emit pointColorPickerActiveChanged();
     }
     if (active && retouch_picker_active_) {
-        endRetouchStroke();
         retouch_picker_active_ = false;
         emit retouchPickerActiveChanged();
     }

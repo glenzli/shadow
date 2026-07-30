@@ -60,7 +60,7 @@ class EditPreviewTextureItem : public QQuickItem {
     [[nodiscard]] bool transientLiquifyActive() const noexcept;
 
     Q_INVOKABLE bool beginTransientLiquify(double radius, double strength, double hardness);
-    Q_INVOKABLE bool appendTransientLiquifyPoint(double x, double y);
+    Q_INVOKABLE bool appendTransientLiquifyPoint(double x, double y, double pressure);
     Q_INVOKABLE void finishTransientLiquify(bool committed);
     Q_INVOKABLE void cancelTransientLiquify();
 

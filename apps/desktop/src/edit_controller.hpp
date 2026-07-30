@@ -85,6 +85,21 @@ class EditController final : public QObject {
         QString recipeRecoveryErrorText READ recipeRecoveryErrorText NOTIFY recipeRecoveryChanged
     )
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
+    // Absolute camera-space source interpretation. These values belong to the
+    // one photo Foundation and remain stable when another Grade Node is
+    // selected, disabled, duplicated, reordered, or shared.
+    Q_PROPERTY(
+        int foundationWhiteBalanceMode READ foundationWhiteBalanceMode WRITE
+            setFoundationWhiteBalanceMode NOTIFY foundationChanged
+    )
+    Q_PROPERTY(
+        double foundationCameraNeutralRed READ foundationCameraNeutralRed WRITE
+            setFoundationCameraNeutralRed NOTIFY foundationChanged
+    )
+    Q_PROPERTY(
+        double foundationCameraNeutralBlue READ foundationCameraNeutralBlue WRITE
+            setFoundationCameraNeutralBlue NOTIFY foundationChanged
+    )
     Q_PROPERTY(bool opticsEnabled READ opticsEnabled WRITE setOpticsEnabled NOTIFY opticsChanged)
     Q_PROPERTY(
         bool opticsDistortionEnabled READ opticsDistortionEnabled WRITE setOpticsDistortionEnabled
@@ -145,6 +160,21 @@ class EditController final : public QObject {
     // or disabled.
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
     Q_PROPERTY(QVariantList retouchStrokes READ retouchStrokes NOTIFY parametersChanged)
+    // Liquify is one optional photo-private structural node. The controller
+    // exposes its ordered gestures, not a reusable node-list identity.
+    Q_PROPERTY(QVariantList liquifyStrokes READ liquifyStrokes NOTIFY parametersChanged)
+    Q_PROPERTY(
+        double liquifyBrushRadius READ liquifyBrushRadius WRITE setLiquifyBrushRadius NOTIFY
+            liquifyBrushChanged
+    )
+    Q_PROPERTY(
+        double liquifyBrushStrength READ liquifyBrushStrength WRITE setLiquifyBrushStrength NOTIFY
+            liquifyBrushChanged
+    )
+    Q_PROPERTY(
+        double liquifyBrushHardness READ liquifyBrushHardness WRITE setLiquifyBrushHardness NOTIFY
+            liquifyBrushChanged
+    )
     // Crop/orientation is photo-local too. It is intentionally not a Grade
     // Node control, because framing must never become a shared style.
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY parametersChanged)
@@ -263,6 +293,9 @@ class EditController final : public QObject {
     [[nodiscard]] bool recipeRecoveryRequired() const noexcept;
     [[nodiscard]] QString recipeRecoveryErrorText() const;
     [[nodiscard]] QString statusText() const;
+    [[nodiscard]] int foundationWhiteBalanceMode() const noexcept;
+    [[nodiscard]] double foundationCameraNeutralRed() const noexcept;
+    [[nodiscard]] double foundationCameraNeutralBlue() const noexcept;
     [[nodiscard]] bool opticsEnabled() const noexcept;
     [[nodiscard]] bool opticsDistortionEnabled() const noexcept;
     [[nodiscard]] bool opticsTcaEnabled() const noexcept;
@@ -283,6 +316,10 @@ class EditController final : public QObject {
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
+    [[nodiscard]] QVariantList liquifyStrokes() const;
+    [[nodiscard]] double liquifyBrushRadius() const noexcept;
+    [[nodiscard]] double liquifyBrushStrength() const noexcept;
+    [[nodiscard]] double liquifyBrushHardness() const noexcept;
     [[nodiscard]] QVariantMap photoGeometry() const;
     [[nodiscard]] bool cropToolActive() const noexcept;
     [[nodiscard]] QVariantList gradeNodes() const;
@@ -326,6 +363,9 @@ class EditController final : public QObject {
     void setWhiteBalanceTint(double value);
     void setSaturationFactor(double value);
     void setLutIntensity(double value);
+    void setFoundationWhiteBalanceMode(int mode);
+    void setFoundationCameraNeutralRed(double value);
+    void setFoundationCameraNeutralBlue(double value);
     void setOpticsEnabled(bool enabled);
     void setOpticsDistortionEnabled(bool enabled);
     void setOpticsTcaEnabled(bool enabled);
@@ -364,17 +404,14 @@ class EditController final : public QObject {
     Q_INVOKABLE void setSelectedLocalMaskValue(const QString& key, double value);
     Q_INVOKABLE void
     setSelectedLocalMaskPoint(const QString& point, double normalized_x, double normalized_y);
-    Q_INVOKABLE void
-    appendSelectedLocalMaskBrushPoint(double normalized_x, double normalized_y, bool begins_stroke);
+    Q_INVOKABLE void appendSelectedLocalMaskBrushStroke(const QVariantList& points);
     Q_INVOKABLE void clearSelectedLocalMaskBrush();
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setMaskToolActive(bool active);
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
     Q_INVOKABLE void addRetouchSpotFromPreview(double normalized_x, double normalized_y);
-    Q_INVOKABLE void beginRetouchStroke(double normalized_x, double normalized_y);
-    Q_INVOKABLE void appendRetouchStrokePoint(double normalized_x, double normalized_y);
-    Q_INVOKABLE void endRetouchStroke();
+    Q_INVOKABLE void addRetouchStrokeFromPreview(const QVariantList& points);
     Q_INVOKABLE void setRetouchSpotCenter(int index, double normalized_x, double normalized_y);
     Q_INVOKABLE void setRetouchSpotRadius(int index, int radius_level_zero_pixels);
     Q_INVOKABLE void setRetouchSpotMode(int index, int mode);
@@ -388,6 +425,12 @@ class EditController final : public QObject {
     Q_INVOKABLE void
     setRetouchStrokeSourceOffset(int index, double offset_x_radii, double offset_y_radii);
     Q_INVOKABLE void removeRetouchStroke(int index);
+    void setLiquifyBrushRadius(double radius);
+    void setLiquifyBrushStrength(double strength);
+    void setLiquifyBrushHardness(double hardness);
+    Q_INVOKABLE void
+    addLiquifyStrokeFromPreview(const QVariantList& points, double output_aspect_ratio);
+    Q_INVOKABLE void clearLiquify();
     Q_INVOKABLE void rotatePhotoClockwise();
     Q_INVOKABLE void rotatePhotoCounterClockwise();
     Q_INVOKABLE void flipPhotoHorizontally();
@@ -507,6 +550,7 @@ class EditController final : public QObject {
     void beforeErrorTextChanged();
     void recipeRecoveryChanged();
     void statusTextChanged();
+    void foundationChanged();
     void opticsChanged();
     void opticsReceiptChanged();
     void gradeNodesChanged();
@@ -523,6 +567,7 @@ class EditController final : public QObject {
     void pointColorPickerActiveChanged();
     void retouchPickerActiveChanged();
     void retouchCreationModeChanged();
+    void liquifyBrushChanged();
     void whiteBalancePickerActiveChanged();
     void cropToolActiveChanged();
 
@@ -606,6 +651,7 @@ class EditController final : public QObject {
     void setDetailRunning(bool running);
     void setFullResolutionState(bool preparing, bool ready, quint64 retained_bytes);
     void emitBusyChange(bool previous_busy);
+    void foundationEdited(const QString& key, const BackendGradeStack& before);
     void parameterEdited(const QString& key, const BackendGradeStack& before);
     void opticsEdited(const QString& key, const BackendGradeStack& before);
     void notifyParametersChanged();
@@ -727,7 +773,9 @@ class EditController final : public QObject {
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
     int retouch_creation_mode_ = 0;
-    int active_retouch_stroke_index_ = -1;
+    double liquify_brush_radius_ = 0.08;
+    double liquify_brush_strength_ = 0.5;
+    double liquify_brush_hardness_ = 0.5;
     bool white_balance_picker_active_ = false;
     bool crop_tool_active_ = false;
     bool mask_tool_active_ = false;

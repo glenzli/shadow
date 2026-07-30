@@ -238,11 +238,15 @@ qt_add_executable(
     src/edit_fine_parameter_registry.hpp
     src/edit_point_color_controller.cpp
     src/edit_point_color_model.hpp
+    src/edit_foundation_controller.cpp
     src/edit_geometry_controller.cpp
     src/edit_grade_node_controller.cpp
     src/edit_history_controller.cpp
     src/edit_history_restore_projection.cpp
     src/edit_local_mask_controller.cpp
+    src/edit_liquify_coordinates.cpp
+    src/edit_liquify_coordinates.hpp
+    src/edit_liquify_controller.cpp
     src/edit_mask_coverage_contract.hpp
     src/edit_mask_coverage_controller.cpp
     src/edit_mask_coverage_store.cpp
@@ -251,6 +255,8 @@ qt_add_executable(
     src/edit_persistence_coordinator.cpp
     src/edit_render_coordinator.cpp
     src/edit_retouch_controller.cpp
+    src/edit_stroke_input.cpp
+    src/edit_stroke_input.hpp
     src/edit_task_runner.cpp
     src/edit_task_runner.hpp
     src/edit_tone_curve_controller.cpp
@@ -473,6 +479,7 @@ qt_add_qml_module(
         qml/OpticsProfileManagerWindow.qml
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
+        qml/PrecisionActiveStrokeCoverage.qml
         qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml
@@ -480,6 +487,8 @@ qt_add_qml_module(
         qml/PrecisionCaptureMetadata.qml
         qml/PrecisionComparisonSurface.qml
         qml/PrecisionInspector.qml
+        qml/PrecisionLiquifyOverlay.qml
+        qml/PrecisionLiquifyTools.qml
         qml/PrecisionResetAllDialog.qml
         qml/PrecisionLutSection.qml
         qml/PrecisionPointColorSection.qml
@@ -1423,6 +1432,40 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-edit-liquify-coordinates-test
+        tests/edit_liquify_coordinates_test.cpp
+        src/edit_liquify_coordinates.cpp
+        src/edit_liquify_coordinates.hpp
+    )
+    target_compile_features(
+        shadow-edit-liquify-coordinates-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-liquify-coordinates-test
+        PRIVATE src
+    )
+    target_link_libraries(
+        shadow-edit-liquify-coordinates-test
+        PRIVATE Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-liquify-coordinates-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-liquify-coordinates-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-liquify-coordinates
+        COMMAND shadow-edit-liquify-coordinates-test
+    )
+
+    add_executable(
         shadow-review-selection-state-contract-test
         tests/review_selection_state_contract_test.cpp
     )
@@ -1669,6 +1712,59 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-precision-retouch-tools-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-direct-stroke-interaction-test
+        tests/precision_direct_stroke_interaction_test.cpp
+        src/edit_stroke_input.cpp
+        src/edit_stroke_input.hpp
+    )
+    target_compile_features(
+        shadow-precision-direct-stroke-interaction-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-precision-direct-stroke-interaction-test
+        PRIVATE src
+    )
+    target_link_libraries(
+        shadow-precision-direct-stroke-interaction-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    qt_add_qml_module(
+        shadow-precision-direct-stroke-interaction-test
+        URI Shadow.DirectStrokeContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PrecisionActiveStrokeCoverage.qml
+            qml/PrecisionCanvasPickerInput.qml
+            qml/PrecisionCropOverlay.qml
+            qml/PrecisionLiquifyOverlay.qml
+            qml/PrecisionLocalMaskOverlay.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-direct-stroke-interaction-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-direct-stroke-interaction-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-direct-stroke-interaction
+        COMMAND shadow-precision-direct-stroke-interaction-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-direct-stroke-interaction
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

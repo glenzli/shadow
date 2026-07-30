@@ -43,8 +43,10 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     const auto* const grade_node = selectedGradeNode();
     const bool photo_local_retouch = parameter_key.startsWith(QStringLiteral("retouch/"));
     const bool photo_local_geometry = parameter_key.startsWith(QStringLiteral("geometry/"));
+    const bool photo_local_foundation =
+        parameter_key.startsWith(QStringLiteral("foundation/"));
     if (!active_ || interactionLocked()
-        || (!photo_local_retouch && !photo_local_geometry
+        || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
             && (grade_node == nullptr || !grade_node->enabled))
         || parameter_key.isEmpty()) {
         return;
@@ -205,7 +207,7 @@ void EditController::setGradeStack(
         )));
         return;
     }
-    const auto old_optics = grade_stack_.optics;
+    const auto old_foundation = grade_stack_.foundation;
     const QString old_selected_id = selectedGradeNodeId();
     const int old_selected_index = selected_grade_node_index_;
     const BackendGradeNode* const old_selected = selectedGradeNode();
@@ -250,7 +252,6 @@ void EditController::setGradeStack(
         return;
     }
     grade_stack_ = std::move(grade_stack);
-    active_retouch_stroke_index_ = -1;
     selected_grade_node_index_ = new_selected_index;
     if (local_mask_changed && !selection_changed) {
         handleSelectedLocalMaskMutation();
@@ -282,14 +283,25 @@ void EditController::setGradeStack(
     if (curve_changed) {
         emit toneCurveChanged();
     }
-    if (old_optics != grade_stack_.optics) {
+    if (old_foundation.raw_white_balance_mode
+            != grade_stack_.foundation.raw_white_balance_mode
+        || old_foundation.camera_neutral_red_millionths
+            != grade_stack_.foundation.camera_neutral_red_millionths
+        || old_foundation.camera_neutral_blue_millionths
+            != grade_stack_.foundation.camera_neutral_blue_millionths) {
+        emit foundationChanged();
+    }
+    if (old_foundation.optics != grade_stack_.foundation.optics) {
         emit opticsChanged();
     }
     setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
 }
 
 QString EditController::gradeNodeHistoryKey(const QString& key) const {
-    if (key.startsWith(QStringLiteral("retouch/")) || key.startsWith(QStringLiteral("geometry/"))) {
+    if (key.startsWith(QStringLiteral("retouch/"))
+        || key.startsWith(QStringLiteral("geometry/"))
+        || key.startsWith(QStringLiteral("foundation/"))
+        || key.startsWith(QStringLiteral("liquify/"))) {
         return QStringLiteral("photo/%1").arg(key);
     }
     const auto* const grade_node = selectedGradeNode();

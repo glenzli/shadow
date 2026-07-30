@@ -746,13 +746,16 @@ void transient_liquify_lifecycle_waits_for_the_authoritative_generation() {
     );
     item.setSource(preview_source(21U));
     require(
-        item.beginTransientLiquify(0.08, 0.65, 0.4) && item.appendTransientLiquifyPoint(0.2, 0.5)
-            && item.appendTransientLiquifyPoint(0.7, 0.5) && item.transientLiquifyActive(),
+        item.beginTransientLiquify(0.08, 0.65, 0.4)
+            && item.appendTransientLiquifyPoint(0.2, 0.5, 0.35)
+            && item.appendTransientLiquifyPoint(0.7, 0.5, 0.9)
+            && item.transientLiquifyActive(),
         "one admitted gesture owns only transient display state"
     );
     require(
-        !item.appendTransientLiquifyPoint(-0.1, 0.5),
-        "invalid display coordinates are rejected without crossing the Recipe boundary"
+        !item.appendTransientLiquifyPoint(-0.1, 0.5, 1.0)
+            && !item.appendTransientLiquifyPoint(0.5, 0.5, 1.1),
+        "invalid display coordinates or pressure are rejected without crossing the Recipe boundary"
     );
     item.finishTransientLiquify(true);
     require(
@@ -807,7 +810,7 @@ void transient_liquify_updates_the_scene_graph_without_reuploading_the_frame() {
     QQuickWindow window;
     window.setColor(Qt::black);
     window.resize(256, 256);
-    EditPreviewTextureItem item;
+    TestableEditPreviewTextureItem item;
     item.setParentItem(window.contentItem());
     item.setWidth(256.0);
     item.setHeight(256.0);
@@ -824,8 +827,9 @@ void transient_liquify_updates_the_scene_graph_without_reuploading_the_frame() {
     );
 
     require(
-        item.beginTransientLiquify(0.25, 1.0, 1.0) && item.appendTransientLiquifyPoint(0.3, 0.5)
-            && item.appendTransientLiquifyPoint(0.7, 0.5),
+        item.beginTransientLiquify(0.25, 1.0, 1.0)
+            && item.appendTransientLiquifyPoint(0.3, 0.5, 0.25)
+            && item.appendTransientLiquifyPoint(0.7, 0.5, 1.0),
         "the active push must reach the render-thread mesh"
     );
     window.requestUpdate();
@@ -839,6 +843,23 @@ void transient_liquify_updates_the_scene_graph_without_reuploading_the_frame() {
         "pointer updates must update the live Scene Graph node while reusing one texture"
     );
 
+    const std::uint32_t before_reentry = frame->materializations();
+    item.releaseSceneGraphResources();
+    require(
+        item.transientLiquifyActive() && item.presentedGeneration().isEmpty(),
+        "resource loss revokes only the texture while retaining the active Liquify gesture"
+    );
+    window.requestUpdate();
+    require(
+        wait_until([&] {
+            return frame->materializations() > before_reentry
+                   && item.presentedGeneration() == QString::number(generation);
+        })
+            && item.transientLiquifyActive(),
+        "scene-graph reentry rebuilds the pressure-bearing mesh over the reimported texture"
+    );
+    const std::uint32_t reentered_materializations = frame->materializations();
+
     item.cancelTransientLiquify();
     window.requestUpdate();
     for (int iteration = 0; iteration < 10; ++iteration) {
@@ -846,7 +867,8 @@ void transient_liquify_updates_the_scene_graph_without_reuploading_the_frame() {
         QThread::msleep(2U);
     }
     require(
-        !item.transientLiquifyActive() && frame->materializations() == 1U
+        !item.transientLiquifyActive()
+            && frame->materializations() == reentered_materializations
             && item.presentedGeneration() == QString::number(generation),
         "restoring the settled quad must retain the same Scene Graph texture and readiness"
     );

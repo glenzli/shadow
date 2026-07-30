@@ -131,11 +131,20 @@ Its implementation follows the same navigation:
   selection identity; exact preview pairing; and transient provider publication. Renderer-owned
   coverage samples and their generation contract live in
   [`src/edit_mask_coverage_contract.hpp`](src/edit_mask_coverage_contract.hpp).
+- [`src/edit_foundation_controller.cpp`](src/edit_foundation_controller.cpp) owns the singleton,
+  photo-local RAW Foundation white-balance authoring lifecycle, exact camera-neutral validation,
+  history keys, and preview scheduling. It does not reuse the selected Grade Node's relative RGB
+  white-balance controls.
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
   clone picker state, continuous strokes, legacy spots, automatic Heal donors, and source-offset
   editing for both Heal and Clone.
+- [`src/edit_liquify_controller.cpp`](src/edit_liquify_controller.cpp) owns the photo-private
+  singleton Liquify projection, transient brush defaults, and one-stroke/one-history commit
+  boundary. [`src/edit_liquify_coordinates.cpp`](src/edit_liquify_coordinates.cpp) owns the exact
+  post-Canvas-to-original coordinate inversion. `EditController` remains only their stable
+  QObject/QML facade rather than absorbing the new gesture semantics.
 - [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
   presentation, point normalization and editing, gesture integration, history, and preview timing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
@@ -179,6 +188,10 @@ Its implementation follows the same navigation:
   necessary because Qt Quick
   `Image` may inspect a texture factory through `image()` while resolving color space, which would
   force a full-frame readback before native import.
+  [`src/edit_preview_liquify_mesh.*`](src/edit_preview_liquify_mesh.hpp) owns the bounded
+  display-only Scene Graph grid for one active Liquify gesture. Pointer samples deform vertex
+  positions while reusing the settled texture; the outer ring stays pinned, cancellation restores
+  the quad, and the next authoritative preview generation retires a committed transient mesh.
 - [`src/edit_preview_provider.*`](src/edit_preview_provider.hpp) retains settled JPEG, scope/R8,
   full-detail, and explicit image-readback responsibilities. The last settled `Image` remains
   underneath the live item during interaction, so fallback and generation transitions do not
@@ -192,6 +205,9 @@ Its implementation follows the same navigation:
 - [`src/edit_analysis_controller.cpp`](src/edit_analysis_controller.cpp) owns histogram and
   display-scope validation/projection, Point Color reference freezing, analysis refresh,
   publication, failure, and clearing.
+- [`src/edit_stroke_input.*`](src/edit_stroke_input.hpp) validates bounded normalized position and
+  pressure samples shared by direct brush gestures. QML owns transient sampling, while each
+  feature controller commits one complete gesture to its own Recipe domain.
 
 Add a new edit workflow to its semantic owner and wire only its stable QML contract through
 `edit_controller.hpp`; do not rebuild a monolithic controller implementation.
@@ -227,6 +243,14 @@ Precision presentation follows the same responsibility tree:
   [`qml/PrecisionRetouchRegionInspector.qml`](qml/PrecisionRetouchRegionInspector.qml) owns the
   selected region's size, feather, mode, and removal gestures. Any number of authored regions
   therefore feeds one inspector rather than one repeated control tree per region.
+- [`qml/PrecisionActiveStrokeCoverage.qml`](qml/PrecisionActiveStrokeCoverage.qml) owns only the
+  incremental swept-area feedback for the pointer gesture currently in flight. Mask, Retouch, and
+  Liquify input keep that feedback independent of preview generation churn, then perform one
+  history and preview mutation when the pointer is released.
+- [`qml/PrecisionLiquifyOverlay.qml`](qml/PrecisionLiquifyOverlay.qml) owns pressure-capable
+  Liquify pointer sampling, cursor, and transient swept-path feedback; it crosses into the
+  controller only at release. [`qml/PrecisionLiquifyTools.qml`](qml/PrecisionLiquifyTools.qml)
+  owns next-stroke radius, strength, hardness, undo, and whole-node removal controls.
 - [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,
   clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
 - [`qml/PrecisionGradeNodePane.qml`](qml/PrecisionGradeNodePane.qml) owns Grade Node navigation,
@@ -267,9 +291,10 @@ Precision presentation follows the same responsibility tree:
 - [`qml/PrecisionCanvasPickerInput.qml`](qml/PrecisionCanvasPickerInput.qml) owns point-color and
   white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
   composition surface.
-- [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) owns White
-  Balance, Light, Presence, foundational Color and Color Balance, plus the perceptual lightness
-  Curve. These sections share one editor and parameter-gesture contract.
+- [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) keeps
+  photo-level RAW white balance permanently authorable while selected-Grade controls retain their
+  own enablement boundary. Relative Grade white balance, Light, Presence, foundational Color,
+  Color Balance, and the perceptual lightness Curve share one parameter-gesture contract.
 - [`qml/PrecisionColorMixer.qml`](qml/PrecisionColorMixer.qml) owns Color Mixer modes, hue-band
   controls, and their curve editors while keeping the inspector as a composition boundary.
 - [`qml/PrecisionSelectiveColor.qml`](qml/PrecisionSelectiveColor.qml) owns selective-color

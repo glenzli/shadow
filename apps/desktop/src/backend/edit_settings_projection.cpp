@@ -439,31 +439,38 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(
     const BackendGradeStack& source
 ) {
     shadow::desktop::FfiEditSettings settings;
-    settings.optics.enabled = source.optics.enabled;
-    settings.optics.correct_distortion =
-        source.optics.correct_distortion;
-    settings.optics.correct_tca = source.optics.correct_tca;
-    settings.optics.correct_vignetting =
-        source.optics.correct_vignetting;
-    settings.optics.automatic_scale = source.optics.automatic_scale;
-    settings.optics.manual_distortion =
-        source.optics.manual_distortion;
-    settings.optics.manual_tca_red_cyan =
-        source.optics.manual_tca_red_cyan;
-    settings.optics.manual_tca_blue_yellow =
-        source.optics.manual_tca_blue_yellow;
-    settings.optics.manual_vignetting_amount =
-        source.optics.manual_vignetting_amount;
-    settings.optics.manual_vignetting_midpoint =
-        source.optics.manual_vignetting_midpoint;
-    settings.optics.camera_profile_maker =
-        source.optics.camera_profile_maker.toStdString();
-    settings.optics.camera_profile_model =
-        source.optics.camera_profile_model.toStdString();
-    settings.optics.lens_profile_maker =
-        source.optics.lens_profile_maker.toStdString();
-    settings.optics.lens_profile_model =
-        source.optics.lens_profile_model.toStdString();
+    settings.foundation.optics.enabled = source.foundation.optics.enabled;
+    settings.foundation.optics.correct_distortion =
+        source.foundation.optics.correct_distortion;
+    settings.foundation.optics.correct_tca = source.foundation.optics.correct_tca;
+    settings.foundation.optics.correct_vignetting =
+        source.foundation.optics.correct_vignetting;
+    settings.foundation.optics.automatic_scale =
+        source.foundation.optics.automatic_scale;
+    settings.foundation.optics.manual_distortion =
+        source.foundation.optics.manual_distortion;
+    settings.foundation.optics.manual_tca_red_cyan =
+        source.foundation.optics.manual_tca_red_cyan;
+    settings.foundation.optics.manual_tca_blue_yellow =
+        source.foundation.optics.manual_tca_blue_yellow;
+    settings.foundation.optics.manual_vignetting_amount =
+        source.foundation.optics.manual_vignetting_amount;
+    settings.foundation.optics.manual_vignetting_midpoint =
+        source.foundation.optics.manual_vignetting_midpoint;
+    settings.foundation.optics.camera_profile_maker =
+        source.foundation.optics.camera_profile_maker.toStdString();
+    settings.foundation.optics.camera_profile_model =
+        source.foundation.optics.camera_profile_model.toStdString();
+    settings.foundation.optics.lens_profile_maker =
+        source.foundation.optics.lens_profile_maker.toStdString();
+    settings.foundation.optics.lens_profile_model =
+        source.foundation.optics.lens_profile_model.toStdString();
+    settings.foundation.raw_white_balance_mode =
+        source.foundation.raw_white_balance_mode;
+    settings.foundation.camera_neutral_red_millionths =
+        source.foundation.camera_neutral_red_millionths;
+    settings.foundation.camera_neutral_blue_millionths =
+        source.foundation.camera_neutral_blue_millionths;
     settings.grade_nodes.reserve(
         static_cast<std::size_t>(source.grade_nodes.size())
     );
@@ -510,6 +517,27 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(
         }
         settings.retouch_strokes.push_back(std::move(ffi_stroke));
     }
+    settings.liquify_strokes.reserve(
+        static_cast<std::size_t>(source.liquify_strokes.size())
+    );
+    for (const auto& stroke : source.liquify_strokes) {
+        shadow::desktop::FfiLiquifyPushStroke ffi_stroke{
+            .radius = stroke.radius,
+            .strength = stroke.strength,
+            .hardness = stroke.hardness,
+        };
+        ffi_stroke.points.reserve(
+            static_cast<std::size_t>(stroke.points.size())
+        );
+        for (const auto& point : stroke.points) {
+            ffi_stroke.points.push_back({
+                .x = point.x,
+                .y = point.y,
+                .pressure = point.pressure,
+            });
+        }
+        settings.liquify_strokes.push_back(std::move(ffi_stroke));
+    }
     settings.geometry = {
         .crop_left = source.geometry.crop_left,
         .crop_top = source.geometry.crop_top,
@@ -527,28 +555,35 @@ BackendGradeStack grade_stack(
     const shadow::desktop::FfiEditSettings& source
 ) {
     BackendGradeStack result;
-    result.optics = {
-        .enabled = source.optics.enabled,
-        .correct_distortion = source.optics.correct_distortion,
-        .correct_tca = source.optics.correct_tca,
-        .correct_vignetting = source.optics.correct_vignetting,
-        .automatic_scale = source.optics.automatic_scale,
-        .manual_distortion = source.optics.manual_distortion,
-        .manual_tca_red_cyan = source.optics.manual_tca_red_cyan,
-        .manual_tca_blue_yellow =
-            source.optics.manual_tca_blue_yellow,
-        .manual_vignetting_amount =
-            source.optics.manual_vignetting_amount,
-        .manual_vignetting_midpoint =
-            source.optics.manual_vignetting_midpoint,
-        .camera_profile_maker =
-            qstring(source.optics.camera_profile_maker),
-        .camera_profile_model =
-            qstring(source.optics.camera_profile_model),
-        .lens_profile_maker =
-            qstring(source.optics.lens_profile_maker),
-        .lens_profile_model =
-            qstring(source.optics.lens_profile_model),
+    result.foundation = {
+        .optics =
+            {
+                .enabled = source.foundation.optics.enabled,
+                .correct_distortion = source.foundation.optics.correct_distortion,
+                .correct_tca = source.foundation.optics.correct_tca,
+                .correct_vignetting = source.foundation.optics.correct_vignetting,
+                .automatic_scale = source.foundation.optics.automatic_scale,
+                .manual_distortion = source.foundation.optics.manual_distortion,
+                .manual_tca_red_cyan = source.foundation.optics.manual_tca_red_cyan,
+                .manual_tca_blue_yellow = source.foundation.optics.manual_tca_blue_yellow,
+                .manual_vignetting_amount =
+                    source.foundation.optics.manual_vignetting_amount,
+                .manual_vignetting_midpoint =
+                    source.foundation.optics.manual_vignetting_midpoint,
+                .camera_profile_maker =
+                    qstring(source.foundation.optics.camera_profile_maker),
+                .camera_profile_model =
+                    qstring(source.foundation.optics.camera_profile_model),
+                .lens_profile_maker =
+                    qstring(source.foundation.optics.lens_profile_maker),
+                .lens_profile_model =
+                    qstring(source.foundation.optics.lens_profile_model),
+            },
+        .raw_white_balance_mode = source.foundation.raw_white_balance_mode,
+        .camera_neutral_red_millionths =
+            source.foundation.camera_neutral_red_millionths,
+        .camera_neutral_blue_millionths =
+            source.foundation.camera_neutral_blue_millionths,
     };
     result.grade_nodes.reserve(
         checked_qt_vector_size(
@@ -607,6 +642,33 @@ BackendGradeStack grade_stack(
             });
         }
         result.retouch_strokes.push_back(std::move(decoded));
+    }
+    result.liquify_strokes.reserve(
+        checked_qt_vector_size(
+            source.liquify_strokes.size(),
+            "liquify_strokes"
+        )
+    );
+    for (const auto& stroke : source.liquify_strokes) {
+        BackendLiquifyPushStroke decoded{
+            .radius = stroke.radius,
+            .strength = stroke.strength,
+            .hardness = stroke.hardness,
+        };
+        decoded.points.reserve(
+            checked_qt_vector_size(
+                stroke.points.size(),
+                "liquify_stroke_points"
+            )
+        );
+        for (const auto& point : stroke.points) {
+            decoded.points.push_back({
+                .x = point.x,
+                .y = point.y,
+                .pressure = point.pressure,
+            });
+        }
+        result.liquify_strokes.push_back(std::move(decoded));
     }
     result.geometry = {
         .crop_left = source.geometry.crop_left,

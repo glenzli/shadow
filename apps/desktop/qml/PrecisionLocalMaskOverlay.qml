@@ -320,10 +320,24 @@ Item {
         Component.onCompleted: requestPaint()
     }
 
+    PrecisionActiveStrokeCoverage {
+        id: activeBrushCoverage
+        anchors.fill: parent
+        z: 1
+        visible: brushPointer.gestureActive
+            && overlay.coverageVisible
+        radiusPixels: Math.max(
+            1,
+            overlay.maskNumber("radiusX", 0.035)
+                * Math.min(overlay.width, overlay.height)
+        )
+        coverageColor: Theme.maskCoverageTint
+    }
+
     MouseArea {
         id: brushPointer
         anchors.fill: parent
-        z: 1
+        z: 2
         visible: overlay.kind === 3
         enabled: visible && overlay.enabled
         hoverEnabled: true
@@ -333,37 +347,70 @@ Item {
         property real pointerX: width / 2
         property real pointerY: height / 2
         property bool gestureActive: false
+        property real lastStrokeX: -1
+        property real lastStrokeY: -1
+        property var draftPoints: []
+
+        function appendDraftPoint(x, y, force) {
+            if (draftPoints.length >= 4096)
+                return
+            const brushRadius = Math.max(
+                1,
+                overlay.maskNumber("radiusX", 0.035)
+                    * Math.min(width, height)
+            )
+            const minimumSpacing = Math.max(2, brushRadius * 0.36)
+            if (!force && lastStrokeX >= 0
+                    && Math.hypot(x - lastStrokeX, y - lastStrokeY)
+                        < minimumSpacing) {
+                return
+            }
+            if (lastStrokeX >= 0) {
+                activeBrushCoverage.appendSegment(
+                    lastStrokeX, lastStrokeY, x, y)
+            }
+            draftPoints.push({
+                "x": overlay.clampNormalized(x / Math.max(1, width)),
+                "y": overlay.clampNormalized(y / Math.max(1, height))
+            })
+            lastStrokeX = x
+            lastStrokeY = y
+        }
 
         onPositionChanged: mouse => {
             pointerX = mouse.x
             pointerY = mouse.y
-            if (pressed) {
-                overlay.editor.appendSelectedLocalMaskBrushPoint(
-                    overlay.clampNormalized(mouse.x / Math.max(1, width)),
-                    overlay.clampNormalized(mouse.y / Math.max(1, height)),
-                    false
-                )
-            }
+            if (pressed && gestureActive)
+                appendDraftPoint(mouse.x, mouse.y, false)
         }
         onPressed: mouse => {
             pointerX = mouse.x
             pointerY = mouse.y
             gestureActive = true
-            overlay.editor.beginParameterEdit("local_mask/brush")
-            overlay.editor.appendSelectedLocalMaskBrushPoint(
-                overlay.clampNormalized(mouse.x / Math.max(1, width)),
-                overlay.clampNormalized(mouse.y / Math.max(1, height)),
-                true
-            )
+            lastStrokeX = -1
+            lastStrokeY = -1
+            draftPoints = []
+            appendDraftPoint(mouse.x, mouse.y, true)
+            activeBrushCoverage.beginStroke(mouse.x, mouse.y)
         }
-        onReleased: finishGesture()
-        onCanceled: finishGesture()
+        onReleased: mouse => finishGesture(mouse)
+        onCanceled: finishGesture(null)
 
-        function finishGesture() {
+        function finishGesture(mouse) {
             if (!gestureActive)
                 return
+            if (mouse !== undefined && mouse !== null)
+                appendDraftPoint(mouse.x, mouse.y, true)
+            const completedPoints = draftPoints
             gestureActive = false
-            overlay.editor.endParameterEdit("local_mask/brush")
+            draftPoints = []
+            lastStrokeX = -1
+            lastStrokeY = -1
+            if (completedPoints.length > 0) {
+                overlay.editor.appendSelectedLocalMaskBrushStroke(
+                    completedPoints)
+            }
+            Qt.callLater(activeBrushCoverage.clearStroke)
         }
     }
 

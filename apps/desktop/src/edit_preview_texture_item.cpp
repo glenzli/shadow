@@ -50,7 +50,7 @@ struct EditPreviewTextureIdentity final {
 };
 
 struct TransientLiquifyState final {
-    std::vector<QPointF> points;
+    std::vector<EditPreviewLiquifySample> points;
     QString base_source;
     double radius = 0.0;
     double strength = 0.0;
@@ -168,7 +168,8 @@ class EditPreviewTextureNode final : public QSGGeometryNode {
         const std::size_t first_point = requires_reset ? 0U : liquify_mesh_.pointCount();
         for (std::size_t index = first_point; index < transient.points.size(); ++index) {
             static_cast<void>(liquify_mesh_.appendNormalizedPoint(
-                transient.points[index],
+                transient.points[index].point,
+                transient.points[index].pressure,
                 transient.radius,
                 transient.strength,
                 transient.hardness
@@ -417,18 +418,34 @@ bool EditPreviewTextureItem::beginTransientLiquify(
     return true;
 }
 
-bool EditPreviewTextureItem::appendTransientLiquifyPoint(const double x, const double y) {
+bool EditPreviewTextureItem::appendTransientLiquifyPoint(
+    const double x,
+    const double y,
+    const double pressure
+) {
     auto& transient = state_->transient_liquify;
     constexpr std::size_t maximum_points = 2'048U;
     if (!transient.active || !std::isfinite(x) || !std::isfinite(y) || x < 0.0 || x > 1.0 || y < 0.0
-        || y > 1.0 || transient.points.size() >= maximum_points) {
+        || y > 1.0 || !std::isfinite(pressure) || pressure < 0.0 || pressure > 1.0) {
         return false;
     }
-    const QPointF point{x, y};
-    if (!transient.points.empty() && transient.points.back() == point) {
-        return true;
+    if (transient.points.size() >= maximum_points) {
+        std::vector<EditPreviewLiquifySample> compacted;
+        compacted.reserve((transient.points.size() + 1U) / 2U);
+        for (std::size_t index = 0U; index < transient.points.size(); index += 2U) {
+            compacted.push_back(transient.points[index]);
+        }
+        transient.points = std::move(compacted);
+        // The render-thread mesh must replay the compacted prefix rather than
+        // continue from vertex state produced by the discarded samples.
+        transient.identity = next_revision(transient.identity);
     }
-    transient.points.push_back(point);
+    transient.points.push_back(
+        EditPreviewLiquifySample{
+            .point = QPointF{x, y},
+            .pressure = pressure,
+        }
+    );
     transient.revision = next_revision(transient.revision);
     update();
     return true;

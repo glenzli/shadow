@@ -24,6 +24,7 @@ Item {
     readonly property int toolMask: 1
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
+    readonly property int toolLiquify: 4
     property int activeSpecialTool: toolNone
     property bool selectedRetouchContinuous: true
     property int selectedRetouchIndex: -1

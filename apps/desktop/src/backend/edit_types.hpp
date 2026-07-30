@@ -226,6 +226,28 @@ struct BackendRetouchStroke final {
     bool operator==(const BackendRetouchStroke&) const = default;
 };
 
+// One authored sample in the uncropped original-image space. Pressure remains
+// part of the durable path for pressure-capable pointer devices.
+struct BackendLiquifyPoint final {
+    double x = 0.5;
+    double y = 0.5;
+    double pressure = 1.0;
+
+    bool operator==(const BackendLiquifyPoint&) const = default;
+};
+
+// One durable push-brush gesture in the photo-private singleton Liquify node.
+// An empty vector on BackendGradeStack canonically means that the node is
+// absent; there is no independently toggleable or shareable node instance.
+struct BackendLiquifyPushStroke final {
+    QVector<BackendLiquifyPoint> points;
+    double radius = 0.08;
+    double strength = 0.5;
+    double hardness = 0.5;
+
+    bool operator==(const BackendLiquifyPushStroke&) const = default;
+};
+
 // Framing belongs to a photo, not to a reusable Grade Node. Keeping this
 // compact normalized representation at the shell boundary makes every preview,
 // detail tile, and export resolve the same crop/orientation contract.
@@ -243,27 +265,41 @@ struct BackendPhotoGeometry final {
 };
 
 struct BackendGradeStack final {
-    struct Optics final {
-        bool enabled = true;
-        bool correct_distortion = true;
-        bool correct_tca = true;
-        bool correct_vignetting = true;
-        bool automatic_scale = true;
-        std::int16_t manual_distortion = 0;
-        std::int16_t manual_tca_red_cyan = 0;
-        std::int16_t manual_tca_blue_yellow = 0;
-        std::int16_t manual_vignetting_amount = 0;
-        std::uint8_t manual_vignetting_midpoint = 50;
-        QString camera_profile_maker;
-        QString camera_profile_model;
-        QString lens_profile_maker;
-        QString lens_profile_model;
+    // One mandatory, photo-local source-development role. It is deliberately
+    // outside the repeatable Grade Node list: neither RAW interpretation nor
+    // calibrated optics can be duplicated, reordered, masked, or shared.
+    struct Foundation final {
+        struct Optics final {
+            bool enabled = true;
+            bool correct_distortion = true;
+            bool correct_tca = true;
+            bool correct_vignetting = true;
+            bool automatic_scale = true;
+            std::int16_t manual_distortion = 0;
+            std::int16_t manual_tca_red_cyan = 0;
+            std::int16_t manual_tca_blue_yellow = 0;
+            std::int16_t manual_vignetting_amount = 0;
+            std::uint8_t manual_vignetting_midpoint = 50;
+            QString camera_profile_maker;
+            QString camera_profile_model;
+            QString lens_profile_maker;
+            QString lens_profile_model;
 
-        bool operator==(const Optics&) const = default;
-    } optics;
+            bool operator==(const Optics&) const = default;
+        } optics;
+
+        // 0 = source As Shot metadata; 1 = the exact camera-space neutral
+        // below. Green is canonically fixed at 1,000,000.
+        std::uint8_t raw_white_balance_mode = 0;
+        std::uint32_t camera_neutral_red_millionths = 1'000'000;
+        std::uint32_t camera_neutral_blue_millionths = 1'000'000;
+
+        bool operator==(const Foundation&) const = default;
+    } foundation;
     QVector<BackendGradeNode> grade_nodes;
     QVector<BackendRetouchSpot> retouch_spots;
     QVector<BackendRetouchStroke> retouch_strokes;
+    QVector<BackendLiquifyPushStroke> liquify_strokes;
     BackendPhotoGeometry geometry;
 
     bool operator==(const BackendGradeStack&) const = default;

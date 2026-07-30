@@ -35,6 +35,7 @@ Rectangle {
     readonly property int toolMask: 1
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
+    readonly property int toolLiquify: 4
 
     // Public viewport state.
     property real zoomFactor: 1.0
@@ -619,6 +620,20 @@ Rectangle {
                                 (continuous, index) =>
                                     canvas.retouchRegionSelectionRequested(
                                         continuous, index)
+                        }
+
+                        PrecisionLiquifyOverlay {
+                            anchors.fill: parent
+                            z: 104
+                            editor: canvas.editor
+                            previewItem: liveEditedPreview
+                            outputAspectRatio:
+                                canvas.imagePixelWidth
+                                / Math.max(1, canvas.imagePixelHeight)
+                            interactionEnabled:
+                                canvas.activeToolMode === canvas.toolLiquify
+                                && !canvas.comparisonActive
+                                && canvas.previewFrameReady
                         }
 
                         PrecisionCanvasPickerInput {
