@@ -723,6 +723,139 @@ void scene_graph_release_revokes_readiness_until_texture_recreation() {
     window.releaseResources();
 }
 
+void transient_liquify_lifecycle_waits_for_the_authoritative_generation() {
+    EditPreviewTextureItem unbound;
+    require(
+        !unbound.beginTransientLiquify(0.08, 0.5, 0.5),
+        "transient Liquify must fail closed without an admitted live frame"
+    );
+
+    auto store = std::make_shared<EditPreviewStore>();
+    auto context = std::make_shared<EditPreviewPresentationContext>();
+    EditPreviewPresentationRegistry registry(store, context);
+    EditPreviewTextureItem item;
+    item.setPresentationRegistry(&registry);
+    store->publish(
+        EditPreviewSlot::Current,
+        {},
+        QSize(4, 2),
+        12,
+        {},
+        21U,
+        std::make_shared<TestFrame>()
+    );
+    item.setSource(preview_source(21U));
+    require(
+        item.beginTransientLiquify(0.08, 0.65, 0.4) && item.appendTransientLiquifyPoint(0.2, 0.5)
+            && item.appendTransientLiquifyPoint(0.7, 0.5) && item.transientLiquifyActive(),
+        "one admitted gesture owns only transient display state"
+    );
+    require(
+        !item.appendTransientLiquifyPoint(-0.1, 0.5),
+        "invalid display coordinates are rejected without crossing the Recipe boundary"
+    );
+    item.finishTransientLiquify(true);
+    require(
+        item.transientLiquifyActive(),
+        "a committed mesh must cover backend latency instead of snapping back immediately"
+    );
+
+    store->publish(
+        EditPreviewSlot::Current,
+        {},
+        QSize(4, 2),
+        12,
+        {},
+        22U,
+        std::make_shared<TestFrame>()
+    );
+    item.setSource(preview_source(22U));
+    require(
+        !item.transientLiquifyActive(),
+        "the next authoritative generation atomically retires the transient mesh"
+    );
+
+    require(
+        item.beginTransientLiquify(0.08, 0.65, 0.4),
+        "a later gesture can begin from the new settled generation"
+    );
+    item.finishTransientLiquify(false);
+    require(
+        !item.transientLiquifyActive(),
+        "a rejected or cancelled commit removes the display-only deformation"
+    );
+
+    require(
+        item.beginTransientLiquify(0.08, 0.65, 0.4),
+        "live admission permits another transient gesture"
+    );
+    item.setLiveAdmissionEnabled(false);
+    require(
+        !item.transientLiquifyActive(),
+        "revoking the source texture also revokes its transient mesh"
+    );
+}
+
+void transient_liquify_updates_the_scene_graph_without_reuploading_the_frame() {
+    auto store = std::make_shared<EditPreviewStore>();
+    auto context = std::make_shared<EditPreviewPresentationContext>();
+    EditPreviewPresentationRegistry registry(store, context);
+    const auto frame = std::make_shared<TestFrame>();
+    constexpr quint64 generation = 31U;
+    store->publish(EditPreviewSlot::Current, {}, QSize(4, 2), 12, {}, generation, frame);
+
+    QQuickWindow window;
+    window.setColor(Qt::black);
+    window.resize(256, 256);
+    EditPreviewTextureItem item;
+    item.setParentItem(window.contentItem());
+    item.setWidth(256.0);
+    item.setHeight(256.0);
+    item.setPresentationRegistry(&registry);
+    item.setSource(preview_source(generation));
+    window.show();
+    window.requestUpdate();
+    require(
+        wait_until([&] {
+            return frame->materializations() == 1U
+                   && item.presentedGeneration() == QString::number(generation);
+        }),
+        "the display mesh test must start from one settled Scene Graph texture"
+    );
+
+    require(
+        item.beginTransientLiquify(0.25, 1.0, 1.0) && item.appendTransientLiquifyPoint(0.3, 0.5)
+            && item.appendTransientLiquifyPoint(0.7, 0.5),
+        "the active push must reach the render-thread mesh"
+    );
+    window.requestUpdate();
+    for (int iteration = 0; iteration < 10; ++iteration) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        QThread::msleep(2U);
+    }
+    require(
+        item.transientLiquifyActive() && frame->materializations() == 1U
+            && item.presentedGeneration() == QString::number(generation),
+        "pointer updates must update the live Scene Graph node while reusing one texture"
+    );
+
+    item.cancelTransientLiquify();
+    window.requestUpdate();
+    for (int iteration = 0; iteration < 10; ++iteration) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        QThread::msleep(2U);
+    }
+    require(
+        !item.transientLiquifyActive() && frame->materializations() == 1U
+            && item.presentedGeneration() == QString::number(generation),
+        "restoring the settled quad must retain the same Scene Graph texture and readiness"
+    );
+
+    item.setParentItem(nullptr);
+    window.hide();
+    window.releaseResources();
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -736,5 +869,7 @@ int main(int argc, char** argv) {
     rendered_node_replaces_same_source_frame_after_registry_reconfiguration();
     pending_readiness_rejects_same_generation_replacement();
     scene_graph_release_revokes_readiness_until_texture_recreation();
+    transient_liquify_lifecycle_waits_for_the_authoritative_generation();
+    transient_liquify_updates_the_scene_graph_without_reuploading_the_frame();
     return EXIT_SUCCESS;
 }

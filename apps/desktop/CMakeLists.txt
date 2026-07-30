@@ -256,6 +256,8 @@ qt_add_executable(
     src/edit_tone_curve_controller.cpp
     src/edit_history.hpp
     src/edit_preview_contract.hpp
+    src/edit_preview_liquify_mesh.cpp
+    src/edit_preview_liquify_mesh.hpp
     src/edit_preview_metal_texture_factory.hpp
     ${SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE}
     src/edit_preview_presentation_context.cpp
@@ -1159,6 +1161,7 @@ if(BUILD_TESTING)
         shadow-edit-preview-texture-item-contract-test
         tests/edit_preview_texture_item_contract_test.cpp
         ${SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE}
+        src/edit_preview_liquify_mesh.cpp
         src/edit_preview_presentation_context.cpp
         src/edit_preview_presentation_registry.cpp
         src/edit_preview_store.cpp
@@ -1190,6 +1193,39 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-edit-preview-texture-item-contract
         COMMAND shadow-edit-preview-texture-item-contract-test
+    )
+
+    add_executable(
+        shadow-edit-preview-liquify-mesh-test
+        tests/edit_preview_liquify_mesh_test.cpp
+        src/edit_preview_liquify_mesh.cpp
+    )
+    target_compile_features(
+        shadow-edit-preview-liquify-mesh-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-preview-liquify-mesh-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-preview-liquify-mesh-test
+        PRIVATE Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-preview-liquify-mesh-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-preview-liquify-mesh-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-preview-liquify-mesh
+        COMMAND shadow-edit-preview-liquify-mesh-test
     )
 
     add_executable(

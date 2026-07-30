@@ -1,5 +1,6 @@
 #include "edit_preview_texture_item.hpp"
 
+#include "edit_preview_liquify_mesh.hpp"
 #include "edit_preview_metal_texture_factory.hpp"
 #include "edit_preview_presentation_context.hpp"
 #include "edit_preview_presentation_registry.hpp"
@@ -9,18 +10,25 @@
 #include <QPointer>
 #include <QQuickTextureFactory>
 #include <QQuickWindow>
-#include <QSGSimpleTextureNode>
+#include <QSGGeometry>
+#include <QSGGeometryNode>
 #include <QSGTexture>
+#include <QSGTextureMaterial>
 #include <QSizeF>
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -39,6 +47,18 @@ struct EditPreviewTextureIdentity final {
     std::uint64_t scene_graph_revision = 0U;
 
     bool operator==(const EditPreviewTextureIdentity&) const = default;
+};
+
+struct TransientLiquifyState final {
+    std::vector<QPointF> points;
+    QString base_source;
+    double radius = 0.0;
+    double strength = 0.0;
+    double hardness = 0.0;
+    std::uint64_t identity = 0U;
+    std::uint64_t revision = 0U;
+    bool active = false;
+    bool awaiting_authoritative_frame = false;
 };
 
 [[nodiscard]] std::optional<ParsedPreviewSource> parse_preview_source(const QString& source) {
@@ -85,9 +105,153 @@ struct EditPreviewTextureIdentity final {
     }
 }
 
-class EditPreviewTextureNode final : public QSGSimpleTextureNode {
+class EditPreviewTextureNode final : public QSGGeometryNode {
   public:
+    EditPreviewTextureNode() :
+        geometry_(new QSGGeometry(
+            QSGGeometry::defaultAttributes_TexturedPoint2D(),
+            0,
+            0,
+            QSGGeometry::UnsignedShortType
+        )),
+        material_(new QSGTextureMaterial()) {
+        geometry_->setDrawingMode(QSGGeometry::DrawTriangles);
+        setGeometry(geometry_);
+        setFlag(QSGNode::OwnsGeometry);
+        material_->setFiltering(QSGTexture::Linear);
+        setMaterial(material_);
+        setFlag(QSGNode::OwnsMaterial);
+    }
+
+    ~EditPreviewTextureNode() override {
+        material_->setTexture(nullptr);
+        delete texture_;
+    }
+
+    void replaceTexture(QSGTexture* const texture) {
+        if (texture_ == texture) {
+            return;
+        }
+        material_->setTexture(nullptr);
+        delete texture_;
+        texture_ = texture;
+        material_->setTexture(texture_);
+        markDirty(QSGNode::DirtyMaterial);
+    }
+
+    void syncGeometry(const QRectF target_rect, const TransientLiquifyState& transient) {
+        if (texture_ == nullptr) {
+            return;
+        }
+        const QRectF texture_rect = texture_->normalizedTextureSubRect();
+        if (!transient.active) {
+            if (geometry_mode_ == GeometryMode::Quad && target_rect_ == target_rect
+                && texture_rect_ == texture_rect) {
+                return;
+            }
+            syncQuad(target_rect, texture_rect);
+            geometry_mode_ = GeometryMode::Quad;
+            target_rect_ = target_rect;
+            texture_rect_ = texture_rect;
+            transient_identity_ = transient.identity;
+            transient_revision_ = transient.revision;
+            return;
+        }
+
+        const bool requires_reset = geometry_mode_ != GeometryMode::Liquify
+                                    || transient_identity_ != transient.identity
+                                    || target_rect_ != target_rect || texture_rect_ != texture_rect
+                                    || liquify_mesh_.pointCount() > transient.points.size();
+        if (requires_reset) {
+            liquify_mesh_.reset(target_rect, texture_rect);
+        }
+        const std::size_t first_point = requires_reset ? 0U : liquify_mesh_.pointCount();
+        for (std::size_t index = first_point; index < transient.points.size(); ++index) {
+            static_cast<void>(liquify_mesh_.appendNormalizedPoint(
+                transient.points[index],
+                transient.radius,
+                transient.strength,
+                transient.hardness
+            ));
+        }
+        if (!requires_reset && transient_revision_ == transient.revision
+            && first_point == transient.points.size()) {
+            return;
+        }
+        syncLiquifyMesh();
+        geometry_mode_ = GeometryMode::Liquify;
+        target_rect_ = target_rect;
+        texture_rect_ = texture_rect;
+        transient_identity_ = transient.identity;
+        transient_revision_ = transient.revision;
+    }
+
     EditPreviewTextureIdentity texture_identity;
+
+  private:
+    enum class GeometryMode {
+        None,
+        Quad,
+        Liquify,
+    };
+
+    void syncQuad(const QRectF target_rect, const QRectF texture_rect) {
+        geometry_->allocate(4, 6);
+        auto* const vertices = geometry_->vertexDataAsTexturedPoint2D();
+        vertices[0].set(
+            static_cast<float>(target_rect.left()),
+            static_cast<float>(target_rect.top()),
+            static_cast<float>(texture_rect.left()),
+            static_cast<float>(texture_rect.top())
+        );
+        vertices[1].set(
+            static_cast<float>(target_rect.right()),
+            static_cast<float>(target_rect.top()),
+            static_cast<float>(texture_rect.right()),
+            static_cast<float>(texture_rect.top())
+        );
+        vertices[2].set(
+            static_cast<float>(target_rect.left()),
+            static_cast<float>(target_rect.bottom()),
+            static_cast<float>(texture_rect.left()),
+            static_cast<float>(texture_rect.bottom())
+        );
+        vertices[3].set(
+            static_cast<float>(target_rect.right()),
+            static_cast<float>(target_rect.bottom()),
+            static_cast<float>(texture_rect.right()),
+            static_cast<float>(texture_rect.bottom())
+        );
+        auto* const indices = geometry_->indexDataAsUShort();
+        std::copy_n(std::array<std::uint16_t, 6U>{0U, 2U, 1U, 1U, 2U, 3U}.cbegin(), 6U, indices);
+        markDirty(QSGNode::DirtyGeometry);
+    }
+
+    void syncLiquifyMesh() {
+        const auto mesh_vertices = liquify_mesh_.vertices();
+        const auto mesh_indices = liquify_mesh_.indices();
+        geometry_->allocate(
+            static_cast<int>(mesh_vertices.size()),
+            static_cast<int>(mesh_indices.size())
+        );
+        auto* const vertices = geometry_->vertexDataAsTexturedPoint2D();
+        for (std::size_t index = 0U; index < mesh_vertices.size(); ++index) {
+            const auto& source = mesh_vertices[index];
+            vertices[index].set(source.x, source.y, source.texture_x, source.texture_y);
+        }
+        std::copy(mesh_indices.begin(), mesh_indices.end(), geometry_->indexDataAsUShort());
+        markDirty(QSGNode::DirtyGeometry);
+    }
+
+    QSGGeometry* geometry_ = nullptr;
+    QSGTextureMaterial* material_ = nullptr;
+    QSGTexture* texture_ = nullptr;
+    EditPreviewLiquifyMesh liquify_mesh_;
+    QRectF target_rect_;
+    QRectF texture_rect_;
+    std::uint64_t transient_identity_ = 0U;
+    std::uint64_t transient_revision_ = 0U;
+    GeometryMode geometry_mode_ = GeometryMode::None;
 };
 
 } // namespace
@@ -131,6 +295,7 @@ struct EditPreviewTextureItem::State final {
     std::uint64_t source_binding_revision = 0U;
     std::atomic<std::uint64_t> scene_graph_revision{1U};
     std::uint64_t window_observation_revision = 0U;
+    TransientLiquifyState transient_liquify;
     FillMode fill_mode = FillMode::Stretch;
 };
 
@@ -187,6 +352,10 @@ void EditPreviewTextureItem::setSource(const QString& source_value) {
         return;
     }
     state_->source = source_value;
+    if (state_->transient_liquify.awaiting_authoritative_frame
+        && state_->transient_liquify.base_source != source_value) {
+        clearTransientLiquify();
+    }
     emit sourceChanged();
     refreshSourceBinding();
 }
@@ -214,6 +383,72 @@ bool EditPreviewTextureItem::liveFrameAvailable() const noexcept {
 
 QString EditPreviewTextureItem::presentedGeneration() const {
     return state_->presented_generation;
+}
+
+bool EditPreviewTextureItem::transientLiquifyActive() const noexcept {
+    return state_->transient_liquify.active;
+}
+
+bool EditPreviewTextureItem::beginTransientLiquify(
+    const double radius,
+    const double strength,
+    const double hardness
+) {
+    if (!state_->live_frame.has_value() || !std::isfinite(radius) || radius <= 0.0 || radius > 1.0
+        || !std::isfinite(strength) || strength <= 0.0 || strength > 1.0 || !std::isfinite(hardness)
+        || hardness < 0.0 || hardness > 1.0) {
+        return false;
+    }
+    auto& transient = state_->transient_liquify;
+    const bool was_active = transient.active;
+    transient.points.clear();
+    transient.base_source = state_->source;
+    transient.radius = radius;
+    transient.strength = strength;
+    transient.hardness = hardness;
+    transient.identity = next_revision(transient.identity);
+    transient.revision = next_revision(transient.revision);
+    transient.active = true;
+    transient.awaiting_authoritative_frame = false;
+    if (!was_active) {
+        emit transientLiquifyChanged();
+    }
+    update();
+    return true;
+}
+
+bool EditPreviewTextureItem::appendTransientLiquifyPoint(const double x, const double y) {
+    auto& transient = state_->transient_liquify;
+    constexpr std::size_t maximum_points = 2'048U;
+    if (!transient.active || !std::isfinite(x) || !std::isfinite(y) || x < 0.0 || x > 1.0 || y < 0.0
+        || y > 1.0 || transient.points.size() >= maximum_points) {
+        return false;
+    }
+    const QPointF point{x, y};
+    if (!transient.points.empty() && transient.points.back() == point) {
+        return true;
+    }
+    transient.points.push_back(point);
+    transient.revision = next_revision(transient.revision);
+    update();
+    return true;
+}
+
+void EditPreviewTextureItem::finishTransientLiquify(const bool committed) {
+    if (!state_->transient_liquify.active) {
+        return;
+    }
+    if (!committed || state_->transient_liquify.base_source != state_->source) {
+        clearTransientLiquify();
+        return;
+    }
+    state_->transient_liquify.awaiting_authoritative_frame = true;
+    state_->transient_liquify.revision = next_revision(state_->transient_liquify.revision);
+    update();
+}
+
+void EditPreviewTextureItem::cancelTransientLiquify() {
+    clearTransientLiquify();
 }
 
 EditPreviewTextureItem::FillMode EditPreviewTextureItem::fillMode() const noexcept {
@@ -261,32 +496,27 @@ QSGNode* EditPreviewTextureItem::updatePaintNode(
     const std::uint64_t scene_graph_revision =
         state_->scene_graph_revision.load(std::memory_order_acquire);
     const EditPreviewTextureIdentity texture_identity = live.textureIdentity(scene_graph_revision);
-    if (node != nullptr && node->texture_identity == texture_identity) {
-        node->setRect(target_rect);
-        return node;
+    if (node == nullptr || node->texture_identity != texture_identity) {
+        std::unique_ptr<QQuickTextureFactory> factory(makeEditPreviewTextureFactory(
+            live.frame,
+            live.presentation_binding,
+            live.presentation_context
+        ));
+        QQuickWindow* const target_window = window();
+        QSGTexture* const texture = factory != nullptr && target_window != nullptr
+                                        ? factory->createTexture(target_window)
+                                        : nullptr;
+        if (texture == nullptr) {
+            delete node;
+            return nullptr;
+        }
+        if (node == nullptr) {
+            node = new EditPreviewTextureNode();
+        }
+        node->replaceTexture(texture);
+        node->texture_identity = texture_identity;
     }
-
-    std::unique_ptr<QQuickTextureFactory> factory(makeEditPreviewTextureFactory(
-        live.frame,
-        live.presentation_binding,
-        live.presentation_context
-    ));
-    QQuickWindow* const target_window = window();
-    QSGTexture* const texture = factory != nullptr && target_window != nullptr
-                                    ? factory->createTexture(target_window)
-                                    : nullptr;
-    if (texture == nullptr) {
-        delete node;
-        return nullptr;
-    }
-
-    delete node;
-    node = new EditPreviewTextureNode();
-    node->texture_identity = texture_identity;
-    node->setOwnsTexture(true);
-    node->setTexture(texture);
-    node->setRect(target_rect);
-    node->setFiltering(QSGTexture::Linear);
+    node->syncGeometry(target_rect, state_->transient_liquify);
 
     QMetaObject::invokeMethod(
         this,
@@ -375,6 +605,9 @@ void EditPreviewTextureItem::refreshSourceBinding() {
     if (previous_presented != state_->presented_generation) {
         emit presentedGenerationChanged();
     }
+    if (!state_->live_frame.has_value() && state_->transient_liquify.active) {
+        clearTransientLiquify();
+    }
     emit contentRectChanged();
     update();
 }
@@ -446,6 +679,24 @@ void EditPreviewTextureItem::revokePresentedTexture(const std::uint64_t scene_gr
     if (state_->live_frame.has_value() && window() != nullptr) {
         update();
     }
+}
+
+void EditPreviewTextureItem::clearTransientLiquify() {
+    auto& transient = state_->transient_liquify;
+    if (!transient.active && transient.points.empty() && !transient.awaiting_authoritative_frame) {
+        return;
+    }
+    transient.points.clear();
+    transient.base_source.clear();
+    transient.radius = 0.0;
+    transient.strength = 0.0;
+    transient.hardness = 0.0;
+    transient.identity = next_revision(transient.identity);
+    transient.revision = next_revision(transient.revision);
+    transient.active = false;
+    transient.awaiting_authoritative_frame = false;
+    emit transientLiquifyChanged();
+    update();
 }
 
 std::uint64_t EditPreviewTextureItem::advanceSceneGraphRevision() noexcept {

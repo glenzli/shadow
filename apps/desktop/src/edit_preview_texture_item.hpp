@@ -29,6 +29,9 @@ class EditPreviewTextureItem : public QQuickItem {
     Q_PROPERTY(
         QString presentedGeneration READ presentedGeneration NOTIFY presentedGenerationChanged
     )
+    Q_PROPERTY(
+        bool transientLiquifyActive READ transientLiquifyActive NOTIFY transientLiquifyChanged
+    )
     Q_PROPERTY(FillMode fillMode READ fillMode WRITE setFillMode NOTIFY fillModeChanged)
     Q_PROPERTY(QRectF contentRect READ contentRect NOTIFY contentRectChanged)
 
@@ -54,6 +57,12 @@ class EditPreviewTextureItem : public QQuickItem {
     [[nodiscard]] QString fallbackSource() const;
     [[nodiscard]] bool liveFrameAvailable() const noexcept;
     [[nodiscard]] QString presentedGeneration() const;
+    [[nodiscard]] bool transientLiquifyActive() const noexcept;
+
+    Q_INVOKABLE bool beginTransientLiquify(double radius, double strength, double hardness);
+    Q_INVOKABLE bool appendTransientLiquifyPoint(double x, double y);
+    Q_INVOKABLE void finishTransientLiquify(bool committed);
+    Q_INVOKABLE void cancelTransientLiquify();
 
     [[nodiscard]] FillMode fillMode() const noexcept;
     void setFillMode(FillMode fill_mode);
@@ -67,6 +76,7 @@ class EditPreviewTextureItem : public QQuickItem {
     void fallbackSourceChanged();
     void liveFrameAvailableChanged();
     void presentedGenerationChanged();
+    void transientLiquifyChanged();
     void fillModeChanged();
     void contentRectChanged();
 
@@ -83,5 +93,6 @@ class EditPreviewTextureItem : public QQuickItem {
     void refreshSourceBinding();
     void bindWindowLifecycle(QQuickWindow* window);
     void revokePresentedTexture(std::uint64_t scene_graph_revision);
+    void clearTransientLiquify();
     [[nodiscard]] std::uint64_t advanceSceneGraphRevision() noexcept;
 };
