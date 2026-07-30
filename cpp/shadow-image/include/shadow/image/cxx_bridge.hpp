@@ -65,10 +65,20 @@ class DecodeHandle final {
         std::uint32_t max_edge,
         const FfiRawDevelopmentPlan& plan
     ) const;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview_with_raw_foundation(
+        std::uint32_t max_edge,
+        const FfiRawDevelopmentPlan& plan,
+        const FfiRawFoundation& foundation
+    ) const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle> prepare_edit_detail() const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
     prepare_edit_detail_with_raw_development_plan(
         const FfiRawDevelopmentPlan& plan,
+        const FfiDetailSessionRequirements& requirements
+    ) const;
+    [[nodiscard]] std::unique_ptr<FullEditDetailHandle> prepare_edit_detail_with_raw_foundation(
+        const FfiRawDevelopmentPlan& plan,
+        const FfiRawFoundation& foundation,
         const FfiDetailSessionRequirements& requirements
     ) const;
 

@@ -94,3 +94,25 @@ fn foundation_omits_as_shot_but_persists_manual_raw_white_balance() {
         foundation
     );
 }
+
+#[test]
+fn foundation_omits_disabled_ai_denoise_and_persists_one_enabled_slot() {
+    let default_json =
+        serde_json::to_string(&PhotoFoundationNode::default()).expect("default Foundation");
+    assert!(!default_json.contains("raw_ai_denoise"));
+
+    let denoise = RawFoundationDenoise::enabled(
+        crate::RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+    );
+    let foundation =
+        PhotoFoundationNode::new(RecipeInputSettings::default().with_raw_ai_denoise(denoise));
+
+    assert_eq!(foundation.raw_ai_denoise(), denoise);
+    let encoded = serde_json::to_string(&foundation).expect("AI denoise Foundation");
+    assert!(encoded.contains("\"raw_ai_denoise\""));
+    assert_eq!(
+        serde_json::from_str::<PhotoFoundationNode>(&encoded)
+            .expect("AI denoise Foundation round trip"),
+        foundation
+    );
+}

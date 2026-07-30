@@ -310,6 +310,11 @@ void append_metadata_snapshot_fields(
         << ' ' << fixed_hex_f64(metadata.aperture_f_number, "aperture")
         << ' ' << fixed_hex_f64(metadata.focal_length_mm, "focal length")
         << ' ' << fixed_hex_u64(static_cast<std::uint64_t>(metadata.captured_at_unix_seconds))
+        << ' ' << fixed_hex_u64(metadata.has_gps_coordinates ? 1U : 0U)
+        << ' ' << fixed_hex_f64(metadata.gps_latitude_degrees, "GPS latitude")
+        << ' ' << fixed_hex_f64(metadata.gps_longitude_degrees, "GPS longitude")
+        << ' ' << fixed_hex_u64(metadata.has_gps_altitude ? 1U : 0U)
+        << ' ' << fixed_hex_f64(metadata.gps_altitude_meters, "GPS altitude")
         << ' ' << hex_encode_bounded(metadata.lens_make, maximum_text_bytes, "lens make")
         << ' ' << hex_encode_bounded(metadata.lens_model, maximum_text_bytes, "lens model")
         << ' ' << fixed_hex_f64(metadata.focal_length_35mm, "35 mm focal length");
@@ -408,7 +413,7 @@ int snapshot_metadata(const fs::path& input, const std::string_view nonce) {
     const auto& provider_info = provider->info();
     const auto& metadata = session->metadata();
     std::cout
-        << "shadow-metadata-v2 metadata-snapshot " << nonce << ' '
+        << "shadow-metadata-v3 metadata-snapshot " << nonce << ' '
         << hex_encode_bounded(provider_info.id, max_identity_text_bytes, "router provider id") << ' '
         << hex_encode_bounded(
                provider_info.version, max_identity_text_bytes, "router provider version"
@@ -446,7 +451,7 @@ int snapshot_decoder(const fs::path& input, const std::string_view nonce) {
         : session->raw_development_capabilities();
 
     std::cout
-        << "shadow-inspect-v3 decoder-snapshot " << nonce << ' '
+        << "shadow-inspect-v4 decoder-snapshot " << nonce << ' '
         << hex_encode_bounded(
                provider_info.id,
                max_decoder_snapshot_identity_text_bytes,

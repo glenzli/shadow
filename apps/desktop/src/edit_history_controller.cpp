@@ -43,8 +43,7 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     const auto* const grade_node = selectedGradeNode();
     const bool photo_local_retouch = parameter_key.startsWith(QStringLiteral("retouch/"));
     const bool photo_local_geometry = parameter_key.startsWith(QStringLiteral("geometry/"));
-    const bool photo_local_foundation =
-        parameter_key.startsWith(QStringLiteral("foundation/"));
+    const bool photo_local_foundation = parameter_key.startsWith(QStringLiteral("foundation/"));
     if (!active_ || interactionLocked()
         || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
             && (grade_node == nullptr || !grade_node->enabled))
@@ -283,12 +282,13 @@ void EditController::setGradeStack(
     if (curve_changed) {
         emit toneCurveChanged();
     }
-    if (old_foundation.raw_white_balance_mode
-            != grade_stack_.foundation.raw_white_balance_mode
+    if (old_foundation.raw_ai_denoise_enabled != grade_stack_.foundation.raw_ai_denoise_enabled
+        || old_foundation.raw_ai_denoise_model != grade_stack_.foundation.raw_ai_denoise_model
+        || old_foundation.raw_white_balance_mode != grade_stack_.foundation.raw_white_balance_mode
         || old_foundation.camera_neutral_red_millionths
-            != grade_stack_.foundation.camera_neutral_red_millionths
+               != grade_stack_.foundation.camera_neutral_red_millionths
         || old_foundation.camera_neutral_blue_millionths
-            != grade_stack_.foundation.camera_neutral_blue_millionths) {
+               != grade_stack_.foundation.camera_neutral_blue_millionths) {
         emit foundationChanged();
     }
     if (old_foundation.optics != grade_stack_.foundation.optics) {
@@ -298,8 +298,7 @@ void EditController::setGradeStack(
 }
 
 QString EditController::gradeNodeHistoryKey(const QString& key) const {
-    if (key.startsWith(QStringLiteral("retouch/"))
-        || key.startsWith(QStringLiteral("geometry/"))
+    if (key.startsWith(QStringLiteral("retouch/")) || key.startsWith(QStringLiteral("geometry/"))
         || key.startsWith(QStringLiteral("foundation/"))
         || key.startsWith(QStringLiteral("liquify/"))) {
         return QStringLiteral("photo/%1").arg(key);

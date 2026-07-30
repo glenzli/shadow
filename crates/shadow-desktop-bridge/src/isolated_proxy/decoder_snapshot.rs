@@ -31,7 +31,7 @@ const MAX_DECODER_SNAPSHOT_METADATA_TEXT_BYTES: usize = 1024;
 const MAX_DECODER_SNAPSHOT_PREVIEWS: usize = 64;
 const DECODER_SNAPSHOT_SCHEMA: u8 = 1;
 const DECODER_SNAPSHOT_CAPABILITY_FIELD_COUNT: usize = 16;
-pub(super) const DECODER_SNAPSHOT_BASE_FIELD_COUNT: usize = 58;
+pub(super) const DECODER_SNAPSHOT_BASE_FIELD_COUNT: usize = 63;
 pub(super) const DECODER_SNAPSHOT_PREVIEW_FIELD_COUNT: usize = 8;
 
 /// A child-established, descriptor-only decoder inspection. The nested
@@ -239,7 +239,7 @@ fn parse_decoder_snapshot_protocol(
         bail!("isolated RAW decoder snapshot returned an invalid protocol response");
     }
 
-    let preview_count = usize::try_from(parse_metadata_u64(fields[57], "preview count")?)
+    let preview_count = usize::try_from(parse_metadata_u64(fields[62], "preview count")?)
         .context("isolated RAW decoder snapshot preview count exceeds usize")?;
     if preview_count > MAX_DECODER_SNAPSHOT_PREVIEWS {
         bail!("isolated RAW decoder snapshot exceeded the preview descriptor limit");
@@ -277,11 +277,11 @@ fn parse_decoder_snapshot_protocol(
         jpeg: parse_decoder_snapshot_bool(fields[7], "JPEG support")?,
     };
     let metadata = parse_raw_metadata_snapshot_fields(
-        &fields[8..41],
+        &fields[8..46],
         MAX_DECODER_SNAPSHOT_METADATA_TEXT_BYTES,
         "isolated RAW decoder snapshot",
     )?;
-    let capabilities = parse_decoder_snapshot_capabilities(&fields[41..57])?;
+    let capabilities = parse_decoder_snapshot_capabilities(&fields[46..62])?;
     let mut previews = Vec::with_capacity(preview_count);
     for index in 0..preview_count {
         let start =

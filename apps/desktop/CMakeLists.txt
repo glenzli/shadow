@@ -1,6 +1,6 @@
 find_package(
     Qt6 6.11.1 REQUIRED
-    COMPONENTS Core Concurrent LinguistTools Quick QuickControls2 Svg Widgets
+    COMPONENTS Core Concurrent LinguistTools Location Network Positioning Quick QuickControls2 Svg Widgets
 )
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
@@ -22,6 +22,84 @@ qt_standard_project_setup(
     I18N_SOURCE_LANGUAGE en
     I18N_TRANSLATED_LANGUAGES zh_CN
 )
+
+set(
+    SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR
+    ""
+    CACHE PATH
+    "Optional frozen RawNIND onedir provider copied beside the Shadow executable"
+)
+set(
+    SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME
+    "shadow-rawnind-foundation-provider"
+)
+set(
+    SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY
+    "_rawnind_runtime"
+)
+if(APPLE)
+    set(
+        SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY
+        "$<TARGET_BUNDLE_DIR:shadow-desktop>/Contents/Helpers/RawNIND"
+    )
+else()
+    set(
+        SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY
+        "$<TARGET_FILE_DIR:shadow-desktop>"
+    )
+endif()
+if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
+    if(NOT IS_DIRECTORY "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}")
+        message(FATAL_ERROR
+            "SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR is not a directory: "
+            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}"
+        )
+    endif()
+    set(
+        SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE
+        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
+    )
+    set(
+        SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME
+        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
+    )
+    if(NOT EXISTS "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}")
+        message(FATAL_ERROR
+            "frozen RawNIND provider executable is missing: "
+            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}"
+        )
+    endif()
+    if(NOT IS_DIRECTORY "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}")
+        message(FATAL_ERROR
+            "frozen RawNIND provider runtime is missing: "
+            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}"
+        )
+    endif()
+    message(STATUS
+        "Shadow will bundle frozen RawNIND provider from "
+        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}"
+    )
+endif()
+set(
+    SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION
+    "${CMAKE_CURRENT_BINARY_DIR}/raw-foundation-provider-configuration.txt"
+)
+set(
+    SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION_CONTENT
+    "provider_dir=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}\nprovider_name=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}\nruntime_directory=${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}\n"
+)
+file(
+    GENERATE
+    OUTPUT "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION}"
+    CONTENT "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION_CONTENT}"
+)
+
+if(APPLE)
+    add_subdirectory(
+        providers/sam2-coreml
+        "${CMAKE_CURRENT_BINARY_DIR}/providers/sam2-coreml"
+    )
+endif()
 
 find_program(SHADOW_CARGO_EXECUTABLE cargo REQUIRED)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -195,6 +273,8 @@ qt_add_executable(
     MACOSX_BUNDLE
     ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
     src/desktop_backend.cpp
+    src/desktop_backend_ai_mask.cpp
+    src/desktop_backend_raw_foundation.cpp
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
     src/desktop_backend_library.cpp
@@ -202,6 +282,8 @@ qt_add_executable(
     src/desktop_backend.hpp
     src/backend/desktop_backend_private.hpp
     src/backend/edit_preview_frame.hpp
+    src/backend/raw_foundation_projection.cpp
+    src/backend/raw_foundation_projection.hpp
     src/backend/rust_owned_edit_preview_frame.cpp
     src/backend/rust_owned_edit_preview_frame.hpp
     src/backend/review_projection.hpp
@@ -231,7 +313,15 @@ qt_add_executable(
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
     src/edit_adjustment_controller.cpp
+    src/edit_ai_mask_controller.cpp
+    src/edit_ai_mask_controller.hpp
+    src/edit_ai_mask_prompt_state.cpp
+    src/edit_ai_mask_prompt_state.hpp
     src/edit_analysis_controller.cpp
+    src/edit_raw_foundation_controller.cpp
+    src/edit_raw_foundation_controller.hpp
+    src/edit_raw_foundation_state.cpp
+    src/edit_raw_foundation_state.hpp
     src/edit_detail_render_controller.cpp
     src/edit_controller.hpp
     src/edit_fine_parameter_registry.cpp
@@ -299,6 +389,18 @@ qt_add_executable(
     src/preview_diagnostics.hpp
     src/lut_preview_provider.cpp
     src/lut_preview_provider.hpp
+    src/map_provider_preferences.cpp
+    src/map_provider_preferences.hpp
+    src/map/google_map_tile_geometry.cpp
+    src/map/google_map_tile_geometry.hpp
+    src/map/google_map_tile_layer.cpp
+    src/map/google_map_tile_layer.hpp
+    src/map/google_map_tiles_protocol.cpp
+    src/map/google_map_tiles_protocol.hpp
+    src/map/google_map_tiles_service.cpp
+    src/map/google_map_tiles_service.hpp
+    src/secure_secret_store.cpp
+    src/secure_secret_store.hpp
     src/review_comparison_coordinator.cpp
     src/review_comparison_coordinator.hpp
     src/review_controller.cpp
@@ -310,6 +412,9 @@ qt_add_executable(
     src/review_controller_decisions.cpp
     src/review_controller_inspection.cpp
     src/review_controller_library_management.cpp
+    src/review_controller_library_keywords.cpp
+    src/review_controller_library_map.cpp
+    src/review_controller_library_metadata.cpp
     src/review_controller_library_query.cpp
     src/review_decision_coordinator.cpp
     src/review_decision_coordinator.hpp
@@ -323,6 +428,12 @@ qt_add_executable(
     src/review_library_album_coordinator.hpp
     src/review_library_facet_coordinator.cpp
     src/review_library_facet_coordinator.hpp
+    src/review_library_keyword_coordinator.cpp
+    src/review_library_keyword_coordinator.hpp
+    src/review_library_map_coordinator.cpp
+    src/review_library_map_coordinator.hpp
+    src/review_library_metadata_coordinator.cpp
+    src/review_library_metadata_coordinator.hpp
     src/review_library_organization_coordinator.cpp
     src/review_library_organization_coordinator.hpp
     src/review_library_query_coordinator.cpp
@@ -344,6 +455,29 @@ qt_add_executable(
     src/tone_curve_point_model.hpp
     src/ui_preferences.cpp
     src/ui_preferences.hpp
+)
+set(
+    SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS
+    "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/install_runtime.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/model-manifest.json"
+)
+if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
+    file(
+        GLOB_RECURSE SHADOW_RAWNIND_FOUNDATION_PROVIDER_INPUTS
+        CONFIGURE_DEPENDS
+        LIST_DIRECTORIES FALSE
+        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/*"
+    )
+    list(
+        APPEND SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS
+        ${SHADOW_RAWNIND_FOUNDATION_PROVIDER_INPUTS}
+    )
+endif()
+set_property(
+    TARGET shadow-desktop
+    APPEND
+    PROPERTY LINK_DEPENDS ${SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS}
 )
 
 qt_add_resources(
@@ -383,6 +517,8 @@ qt_add_resources(
         icons/heart-filled.svg
         icons/heal.svg
         icons/library-manage.svg
+        icons/location-pin.svg
+        icons/map.svg
         icons/mask.svg
         icons/mask-add.svg
         icons/mask-color-range.svg
@@ -411,6 +547,7 @@ qt_add_resources(
         icons/slot-right.svg
         icons/star.svg
         icons/star-filled.svg
+        icons/tag.svg
         icons/trash.svg
         icons/unflag.svg
         icons/undo.svg
@@ -432,10 +569,20 @@ if(APPLE)
         PRIVATE
             src/mac_titlebar.hpp
             src/mac_titlebar.mm
+            src/secure_secret_store_mac.mm
     )
     target_link_libraries(
         shadow-desktop
-        PRIVATE "-framework AppKit" "-framework Metal"
+        PRIVATE
+            "-framework AppKit"
+            "-framework CoreFoundation"
+            "-framework Metal"
+            "-framework Security"
+    )
+else()
+    target_sources(
+        shadow-desktop
+        PRIVATE src/secure_secret_store_stub.cpp
     )
 endif()
 
@@ -465,6 +612,15 @@ qt_add_qml_module(
         qml/LibraryAdvancedFilterPopup.qml
         qml/LibraryFacetPopup.qml
         qml/LibraryImportPane.qml
+        qml/LibraryKeywordDialogs.qml
+        qml/LibraryKeywordPanel.qml
+        qml/LibraryKeywordPopup.qml
+        qml/LibraryGpxImportDialog.qml
+        qml/LibraryCaptureTimeBatchDialog.qml
+        qml/LibraryMetadataEditor.qml
+        qml/LibraryMapLocationPlacementState.qml
+        qml/LibraryMapProviderOverlay.qml
+        qml/LibraryMapView.qml
         qml/LibrarySourceHealthPane.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
@@ -474,12 +630,14 @@ qt_add_qml_module(
         qml/MainPrecisionProxyStatus.qml
         qml/MainSelectionDecisionBar.qml
         qml/MainStatusBar.qml
+        qml/MapProviderSettingsDialog.qml
         qml/AutosaveFailureRecovery.qml
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionActiveStrokeCoverage.qml
+        qml/PrecisionAiMaskPromptOverlay.qml
         qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml
@@ -587,6 +745,7 @@ endif()
 target_include_directories(
     shadow-desktop
     PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/map"
         "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
         "${PROJECT_SOURCE_DIR}/cpp/shadow-image/include"
 )
@@ -602,6 +761,9 @@ target_link_libraries(
         JPEG::JPEG
         Iconv::Iconv
         Qt6::Concurrent
+        Qt6::Location
+        Qt6::Network
+        Qt6::Positioning
         Qt6::Quick
         Qt6::QuickControls2
         Qt6::Svg
@@ -617,6 +779,84 @@ add_custom_command(
         $<TARGET_FILE_DIR:shadow-desktop>/$<TARGET_FILE_NAME:shadow-image-decode-helper>
     COMMENT "Installing the isolated RAW decode helper beside Shadow"
 )
+add_custom_command(
+    TARGET shadow-desktop
+    POST_BUILD
+    COMMAND
+        ${CMAKE_COMMAND} -E make_directory
+        "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/model-manifest.json"
+        "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/shadow-rawnind-foundation-model-manifest.json"
+    COMMENT "Installing the canonical RawNIND model manifest for Shadow"
+    VERBATIM
+)
+if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
+    add_custom_command(
+        TARGET shadow-desktop
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_if_different
+            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}"
+            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
+        COMMAND
+            ${CMAKE_COMMAND}
+            "-DSHADOW_RAWNIND_SOURCE_RUNTIME=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}"
+            "-DSHADOW_RAWNIND_DESTINATION_RUNTIME=${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
+            -P
+            "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/install_runtime.cmake"
+        COMMENT "Installing the self-contained RawNIND provider beside Shadow"
+        VERBATIM
+    )
+else()
+    add_custom_command(
+        TARGET shadow-desktop
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E rm -f
+            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
+        COMMAND
+            ${CMAKE_COMMAND} -E remove_directory
+            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
+        COMMENT "Ensuring the optional RawNIND provider is absent from this Shadow build"
+        VERBATIM
+    )
+endif()
+if(APPLE)
+    add_custom_command(
+        TARGET shadow-desktop
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E rm -f
+            "$<TARGET_FILE_DIR:shadow-desktop>/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
+        COMMAND
+            ${CMAKE_COMMAND} -E rm -f
+            "$<TARGET_FILE_DIR:shadow-desktop>/shadow-rawnind-foundation-model-manifest.json"
+        COMMAND
+            ${CMAKE_COMMAND} -E remove_directory
+            "$<TARGET_FILE_DIR:shadow-desktop>/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
+        COMMENT "Removing the obsolete RawNIND Contents/MacOS layout"
+        VERBATIM
+    )
+endif()
+if(APPLE)
+    add_dependencies(shadow-desktop shadow-sam2-coreml-provider)
+    add_custom_command(
+        TARGET shadow-desktop
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:shadow-sam2-coreml-provider>
+            $<TARGET_FILE_DIR:shadow-desktop>/$<TARGET_FILE_NAME:shadow-sam2-coreml-provider>
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/providers/sam2-coreml/model-manifest.json"
+            "$<TARGET_FILE_DIR:shadow-desktop>/shadow-sam2-coreml-model-manifest.json"
+        COMMENT "Installing the local SAM 2.1 Core ML provider beside Shadow"
+        VERBATIM
+    )
+endif()
 if(Lensfun_FOUND)
     target_link_libraries(shadow-desktop PRIVATE PkgConfig::Lensfun)
 endif()
@@ -924,6 +1164,250 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME shadow-desktop-ui-preferences COMMAND shadow-ui-preferences-test)
+
+    add_executable(
+        shadow-map-provider-preferences-test
+        tests/map_provider_preferences_test.cpp
+        src/map_provider_preferences.cpp
+        src/map_provider_preferences.hpp
+        src/secure_secret_store.hpp
+    )
+    target_compile_features(
+        shadow-map-provider-preferences-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-map-provider-preferences-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-map-provider-preferences-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-map-provider-preferences-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-map-provider-preferences-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-map-provider-preferences
+        COMMAND shadow-map-provider-preferences-test
+    )
+
+    add_executable(
+        shadow-google-map-tiles-protocol-test
+        tests/google_map_tiles_protocol_test.cpp
+        src/map/google_map_tiles_protocol.cpp
+        src/map/google_map_tiles_protocol.hpp
+    )
+    target_compile_features(
+        shadow-google-map-tiles-protocol-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-google-map-tiles-protocol-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-google-map-tiles-protocol-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-google-map-tiles-protocol-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-google-map-tiles-protocol-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-google-map-tiles-protocol
+        COMMAND shadow-google-map-tiles-protocol-test
+    )
+
+    add_executable(
+        shadow-google-map-tile-geometry-test
+        tests/google_map_tile_geometry_test.cpp
+        src/map/google_map_tile_geometry.cpp
+        src/map/google_map_tile_geometry.hpp
+        src/map/google_map_tiles_protocol.cpp
+        src/map/google_map_tiles_protocol.hpp
+    )
+    target_compile_features(
+        shadow-google-map-tile-geometry-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-google-map-tile-geometry-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-google-map-tile-geometry-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-google-map-tile-geometry-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-google-map-tile-geometry-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-google-map-tile-geometry
+        COMMAND shadow-google-map-tile-geometry-test
+    )
+
+    add_executable(
+        shadow-google-map-tiles-service-test
+        tests/google_map_tiles_service_test.cpp
+        src/map_provider_preferences.cpp
+        src/map_provider_preferences.hpp
+        src/secure_secret_store.hpp
+        src/map/google_map_tile_geometry.cpp
+        src/map/google_map_tile_geometry.hpp
+        src/map/google_map_tile_layer.cpp
+        src/map/google_map_tile_layer.hpp
+        src/map/google_map_tiles_protocol.cpp
+        src/map/google_map_tiles_protocol.hpp
+        src/map/google_map_tiles_service.cpp
+        src/map/google_map_tiles_service.hpp
+    )
+    target_compile_features(
+        shadow-google-map-tiles-service-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-google-map-tiles-service-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-google-map-tiles-service-test
+        PRIVATE Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-google-map-tiles-service-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-google-map-tiles-service-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-google-map-tiles-service
+        COMMAND shadow-google-map-tiles-service-test
+    )
+    set_tests_properties(
+        shadow-desktop-google-map-tiles-service
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-secure-secret-store-test
+        tests/secure_secret_store_test.cpp
+        src/secure_secret_store.cpp
+        src/secure_secret_store.hpp
+    )
+    target_compile_features(
+        shadow-secure-secret-store-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-secure-secret-store-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-secure-secret-store-test
+        PRIVATE Qt6::Core
+    )
+    if(APPLE)
+        target_sources(
+            shadow-secure-secret-store-test
+            PRIVATE src/secure_secret_store_mac.mm
+        )
+        target_link_libraries(
+            shadow-secure-secret-store-test
+            PRIVATE "-framework CoreFoundation" "-framework Security"
+        )
+    else()
+        target_sources(
+            shadow-secure-secret-store-test
+            PRIVATE src/secure_secret_store_stub.cpp
+        )
+    endif()
+    if(MSVC)
+        target_compile_options(
+            shadow-secure-secret-store-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-secure-secret-store-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-secure-secret-store
+        COMMAND shadow-secure-secret-store-test
+    )
+
+    add_executable(
+        shadow-map-provider-settings-dialog-test
+        tests/map_provider_settings_dialog_test.cpp
+    )
+    target_compile_features(
+        shadow-map-provider-settings-dialog-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-map-provider-settings-dialog-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-map-provider-settings-dialog-test
+        URI Shadow.MapProviderSettingsContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/MapProviderSettingsDialog.qml
+            qml/ShadowButton.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-map-provider-settings-dialog-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-map-provider-settings-dialog-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-map-provider-settings-dialog
+        COMMAND shadow-map-provider-settings-dialog-test
+    )
+    set_tests_properties(
+        shadow-desktop-map-provider-settings-dialog
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
 
     add_executable(
         shadow-preview-diagnostics-test
@@ -1432,6 +1916,55 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-backend-raw-foundation-projection-test
+        tests/backend_raw_foundation_projection_test.cpp
+        src/backend/raw_foundation_projection.cpp
+        src/backend/raw_foundation_projection.hpp
+        src/desktop_backend.cpp
+        src/desktop_backend.hpp
+        src/desktop_backend_raw_foundation.cpp
+        src/folder_scan_backend.cpp
+        src/folder_scan_backend.hpp
+        src/photo_inspection_projection.cpp
+        src/photo_inspection_projection.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(
+        shadow-backend-raw-foundation-projection-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-backend-raw-foundation-projection-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-backend-raw-foundation-projection-test
+        PRIVATE shadow-desktop-export-backend
+    )
+    add_dependencies(
+        shadow-backend-raw-foundation-projection-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-backend-raw-foundation-projection-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-backend-raw-foundation-projection-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-backend-raw-foundation-projection
+        COMMAND shadow-backend-raw-foundation-projection-test
+    )
+
+    add_executable(
         shadow-edit-liquify-coordinates-test
         tests/edit_liquify_coordinates_test.cpp
         src/edit_liquify_coordinates.cpp
@@ -1712,6 +2245,156 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-precision-retouch-tools-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-edit-ai-mask-prompt-state-test
+        tests/edit_ai_mask_prompt_state_test.cpp
+        src/edit_ai_mask_prompt_state.cpp
+        src/edit_ai_mask_prompt_state.hpp
+    )
+    target_compile_features(
+        shadow-edit-ai-mask-prompt-state-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-ai-mask-prompt-state-test
+        PRIVATE src
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-ai-mask-prompt-state-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-ai-mask-prompt-state-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-ai-mask-prompt-state
+        COMMAND shadow-edit-ai-mask-prompt-state-test
+    )
+
+    add_executable(
+        shadow-edit-raw-foundation-state-test
+        tests/edit_raw_foundation_state_test.cpp
+        src/edit_raw_foundation_state.cpp
+        src/edit_raw_foundation_state.hpp
+    )
+    target_compile_features(
+        shadow-edit-raw-foundation-state-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-raw-foundation-state-test
+        PRIVATE src
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-raw-foundation-state-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-raw-foundation-state-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-raw-foundation-state
+        COMMAND shadow-edit-raw-foundation-state-test
+    )
+
+    add_executable(
+        shadow-precision-ai-mask-prompt-overlay-contract-test
+        tests/precision_ai_mask_prompt_overlay_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-ai-mask-prompt-overlay-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-ai-mask-prompt-overlay-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    qt_add_qml_module(
+        shadow-precision-ai-mask-prompt-overlay-contract-test
+        URI Shadow.AiMaskPromptOverlayContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PrecisionAiMaskPromptOverlay.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-ai-mask-prompt-overlay-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-ai-mask-prompt-overlay-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-ai-mask-prompt-overlay-contract
+        COMMAND shadow-precision-ai-mask-prompt-overlay-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-ai-mask-prompt-overlay-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-raw-foundation-adjustments-contract-test
+        tests/precision_raw_foundation_adjustments_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-raw-foundation-adjustments-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-raw-foundation-adjustments-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-precision-raw-foundation-adjustments-contract-test
+        URI Shadow.RawFoundationAdjustmentsContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PrecisionFoundationAdjustments.qml
+            qml/ShadowAdjustmentSection.qml
+            qml/ShadowButton.qml
+            qml/ShadowIcon.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowInlineSlider.qml
+            qml/ShadowSlider.qml
+            qml/Theme.qml
+            qml/ToneCurveEditor.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-raw-foundation-adjustments-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-raw-foundation-adjustments-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-raw-foundation-adjustments-contract
+        COMMAND shadow-precision-raw-foundation-adjustments-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-raw-foundation-adjustments-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
@@ -2086,6 +2769,43 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-review-library-keyword-coordinator-test
+        tests/review_library_keyword_coordinator_test.cpp
+        tests/review_library_keyword_coordinator/library_keyword_fixture.hpp
+        tests/review_library_keyword_coordinator/keyword_lifecycle_contract.cpp
+        tests/review_library_keyword_coordinator/failure_lifetime_contract.cpp
+        src/review_library_keyword_coordinator.cpp
+        src/review_library_keyword_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-library-keyword-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-library-keyword-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-library-keyword-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-library-keyword-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-library-keyword-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-library-keyword-coordinator
+        COMMAND shadow-review-library-keyword-coordinator-test
+    )
+
+    add_executable(
         shadow-review-library-facet-coordinator-test
         tests/review_library_facet_coordinator_test.cpp
         tests/review_library_facet_coordinator/library_facet_fixture.hpp
@@ -2120,6 +2840,77 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-library-facet-coordinator
         COMMAND shadow-review-library-facet-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-library-map-coordinator-test
+        tests/review_library_map_coordinator_test.cpp
+        src/review_library_map_coordinator.cpp
+        src/review_library_map_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-library-map-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-library-map-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-library-map-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-library-map-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-library-map-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-library-map-coordinator
+        COMMAND shadow-review-library-map-coordinator-test
+    )
+
+    add_executable(
+        shadow-library-map-location-placement-test
+        tests/library_map_location_placement_test.cpp
+    )
+    target_compile_features(
+        shadow-library-map-location-placement-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-library-map-location-placement-test
+        PRIVATE Qt6::Core Qt6::Qml
+    )
+    qt_add_qml_module(
+        shadow-library-map-location-placement-test
+        URI Shadow.LibraryMapLocationPlacementContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/LibraryMapLocationPlacementState.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-map-location-placement-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-map-location-placement-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-map-location-placement
+        COMMAND shadow-library-map-location-placement-test
     )
 
     add_executable(

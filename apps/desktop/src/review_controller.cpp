@@ -21,6 +21,9 @@ ReviewController::ReviewController(
     source_health_coordinator_(BackendOperations::source_health_operations(backend_)),
     album_coordinator_(BackendOperations::album_operations(backend_)),
     facet_coordinator_(BackendOperations::facet_operations(backend_)),
+    keyword_coordinator_(BackendOperations::keyword_operations(backend_)),
+    map_coordinator_(BackendOperations::map_operations(backend_)),
+    metadata_coordinator_(BackendOperations::metadata_operations(backend_)),
     import_coordinator_(BackendOperations::import_operations(backend_)), model_(this),
     filtered_model_(this),
     query_coordinator_(BackendOperations::query_operations(backend_), model_),
@@ -166,6 +169,14 @@ QString ReviewController::filterLensKey() const {
     return filtered_model_.lensKey();
 }
 
+QStringList ReviewController::filterKeywordIdsAll() const {
+    return filtered_model_.keywordIdsAll();
+}
+
+QStringList ReviewController::filterExcludedKeywordIdsAny() const {
+    return filtered_model_.excludedKeywordIdsAny();
+}
+
 QVariantList ReviewController::libraryCaptureMonthFacets() const {
     return facet_coordinator_.captureMonths();
 }
@@ -180,6 +191,18 @@ QVariantList ReviewController::libraryLensFacets() const {
 
 bool ReviewController::libraryFacetsBusy() const noexcept {
     return facet_coordinator_.busy();
+}
+
+QVariantList ReviewController::libraryKeywords() const {
+    return keyword_coordinator_.keywords();
+}
+
+QVariantList ReviewController::libraryPhotoKeywords() const {
+    return keyword_coordinator_.photoKeywords();
+}
+
+bool ReviewController::libraryKeywordsBusy() const noexcept {
+    return keyword_coordinator_.busy();
 }
 
 QVariantMap ReviewController::librarySystemCollectionCounts() const {
@@ -204,6 +227,34 @@ QVariantList ReviewController::librarySourceHealth() const {
 
 bool ReviewController::librarySourceHealthBusy() const noexcept {
     return source_health_coordinator_.sourceHealthBusy();
+}
+
+QVariantMap ReviewController::libraryMetadata() const {
+    return metadata_coordinator_.metadata();
+}
+
+QVariantMap ReviewController::libraryCaptureTimePreview() const {
+    return metadata_coordinator_.captureTimePreview();
+}
+
+QVariantMap ReviewController::libraryGpxPreview() const {
+    return metadata_coordinator_.gpxPreview();
+}
+
+QVariantMap ReviewController::libraryMetadataBatchReceipt() const {
+    return metadata_coordinator_.batchReceipt();
+}
+
+bool ReviewController::libraryMetadataBusy() const noexcept {
+    return metadata_coordinator_.busy();
+}
+
+QString ReviewController::libraryMetadataStatusCode() const {
+    return metadata_coordinator_.statusCode();
+}
+
+QString ReviewController::libraryMetadataErrorText() const {
+    return metadata_coordinator_.errorText();
 }
 
 QVariantList ReviewController::missingSourceLocations() const {
@@ -257,6 +308,7 @@ void ReviewController::retranslateUi() {
     emit statusTextChanged();
     comparison_coordinator_.retranslateUi();
     source_health_coordinator_.retranslateUi();
+    keyword_coordinator_.retranslateUi();
     emit decisionStatusTextChanged();
 }
 

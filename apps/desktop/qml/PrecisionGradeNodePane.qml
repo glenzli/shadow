@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-pragma Translator: "PrecisionWorkspace"
+pragma Translator: PrecisionWorkspace
 
 import QtQuick
 import QtQuick.Controls
@@ -19,7 +19,7 @@ Rectangle {
     required property color textMuted
     required property color accent
 
-    signal maskToolRequested()
+    signal maskToolRequested
 
     color: pane.panel
     PrecisionGradeNodeMenus {
@@ -52,8 +52,7 @@ Rectangle {
                 font.letterSpacing: 0.35
             }
             Label {
-                text: qsTr("%L1 / %L2")
-                    .arg(pane.editor.gradeNodes.length).arg(16)
+                text: qsTr("%L1 / %L2").arg(pane.editor.gradeNodes.length).arg(16)
                 color: pane.textMuted
                 font.pixelSize: 10
             }
@@ -84,9 +83,7 @@ Rectangle {
                 required property int index
                 required property var modelData
 
-                readonly property bool selected:
-                    gradeNodeRow.index
-                        === pane.editor.selectedGradeNodeIndex
+                readonly property bool selected: gradeNodeRow.index === pane.editor.selectedGradeNodeIndex
 
                 width: gradeNodeList.width
                 height: 52
@@ -105,15 +102,13 @@ Rectangle {
                         Layout.preferredWidth: 22
                         Layout.preferredHeight: 22
                         radius: 5
-                        color: gradeNodeRow.selected
-                            ? Theme.accentSurface : Theme.surfaceSubtle
+                        color: gradeNodeRow.selected ? Theme.accentSurface : Theme.surfaceSubtle
                         border.width: gradeNodeRow.selected ? 1 : 0
                         border.color: Theme.accentBorder
                         Label {
                             anchors.centerIn: parent
                             text: String(gradeNodeRow.index + 1).padStart(2, "0")
-                            color: gradeNodeRow.selected
-                                ? pane.accent : pane.textMuted
+                            color: gradeNodeRow.selected ? pane.accent : pane.textMuted
                             font.pixelSize: 9
                             font.weight: Font.Bold
                         }
@@ -125,30 +120,15 @@ Rectangle {
                         Label {
                             Layout.fillWidth: true
                             text: gradeNodeRow.modelData.label
-                            color: gradeNodeRow.modelData.enabled
-                                ? pane.textPrimary : pane.textSecondary
+                            color: gradeNodeRow.modelData.enabled ? pane.textPrimary : pane.textSecondary
                             font.pixelSize: 11
                             font.weight: Font.Medium
                             elide: Text.ElideRight
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: (gradeNodeRow.modelData.shared
-                                ? (gradeNodeRow.modelData.enabled
-                                    ? qsTr("SHARED · V%1 · ENABLED")
-                                        .arg(gradeNodeRow.modelData.sharedRevisionNumber)
-                                    : qsTr("SHARED · V%1 · BYPASSED")
-                                        .arg(gradeNodeRow.modelData.sharedRevisionNumber))
-                                : (gradeNodeRow.modelData.enabled
-                                    ? qsTr("LOCAL · ENABLED")
-                                    : qsTr("LOCAL · BYPASSED")))
-                                + (gradeNodeRow.modelData.hasLocalMask
-                                    ? qsTr(" · NODE MASK") : "")
-                            color: gradeNodeRow.modelData.enabled
-                                ? (gradeNodeRow.selected
-                                    ? Theme.accentTextMuted
-                                    : pane.textMuted)
-                                : Theme.textMuted
+                            text: (gradeNodeRow.modelData.shared ? (gradeNodeRow.modelData.enabled ? qsTr("SHARED · V%1 · ENABLED").arg(gradeNodeRow.modelData.sharedRevisionNumber) : qsTr("SHARED · V%1 · BYPASSED").arg(gradeNodeRow.modelData.sharedRevisionNumber)) : (gradeNodeRow.modelData.enabled ? qsTr("LOCAL · ENABLED") : qsTr("LOCAL · BYPASSED"))) + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · NODE MASK") : "")
+                            color: gradeNodeRow.modelData.enabled ? (gradeNodeRow.selected ? Theme.accentTextMuted : pane.textMuted) : Theme.textMuted
                             font.pixelSize: 9
                             font.weight: Font.DemiBold
                             font.letterSpacing: 0.2
@@ -159,40 +139,23 @@ Rectangle {
                     ShadowIcon {
                         visible: gradeNodeRow.modelData.shared
                         source: "qrc:/icons/shared-link.svg"
-                        color: gradeNodeRow.selected
-                            ? pane.accent : pane.textMuted
+                        color: gradeNodeRow.selected ? pane.accent : pane.textMuted
                         size: 14
                     }
 
                     ShadowIconButton {
                         buttonSize: 30
                         iconSize: 17
-                        source: gradeNodeRow.modelData.localMaskKind === 1
-                            ? "qrc:/icons/mask-linear.svg"
-                            : gradeNodeRow.modelData.localMaskKind === 2
-                                ? "qrc:/icons/mask-radial.svg"
-                                : gradeNodeRow.modelData.localMaskKind === 3
-                                    ? "qrc:/icons/brush.svg"
-                                    : gradeNodeRow.modelData.localMaskKind === 4
-                                        ? "qrc:/icons/mask-luminance-range.svg"
-                                        : gradeNodeRow.modelData.localMaskKind === 5
-                                            ? "qrc:/icons/mask-color-range.svg"
-                                    : "qrc:/icons/mask-add.svg"
-                        toolTipText: gradeNodeRow.modelData.hasLocalMask
-                            ? qsTr("Edit this node mask")
-                            : qsTr("Add a mask to this node")
+                        source: gradeNodeRow.modelData.localMaskKind === 1 ? "qrc:/icons/mask-linear.svg" : gradeNodeRow.modelData.localMaskKind === 2 ? "qrc:/icons/mask-radial.svg" : gradeNodeRow.modelData.localMaskKind === 3 ? "qrc:/icons/brush.svg" : gradeNodeRow.modelData.localMaskKind === 4 ? "qrc:/icons/mask-luminance-range.svg" : gradeNodeRow.modelData.localMaskKind === 5 ? "qrc:/icons/mask-color-range.svg" : "qrc:/icons/mask-add.svg"
+                        toolTipText: gradeNodeRow.modelData.hasLocalMask ? qsTr("Edit this node mask") : qsTr("Add a mask to this node")
                         accessibleName: toolTipText
-                        enabled: pane.editor.active
-                            && gradeNodeRow.modelData.enabled
-                            && !pane.editor.stateBusy
+                        enabled: pane.editor.active && gradeNodeRow.modelData.enabled && !pane.editor.stateBusy
                         onClicked: {
-                            pane.editor.selectGradeNode(gradeNodeRow.index)
+                            pane.editor.selectGradeNode(gradeNodeRow.index);
                             if (gradeNodeRow.modelData.hasLocalMask) {
-                                pane.maskToolRequested()
+                                pane.maskToolRequested();
                             } else {
-                                nodeMaskCreateMenu.openFor(
-                                    this,
-                                    nodeMaskCreateMenu.currentNodeDestination)
+                                nodeMaskCreateMenu.openFor(this, nodeMaskCreateMenu.currentNodeDestination);
                             }
                         }
                     }
@@ -203,17 +166,13 @@ Rectangle {
                         Layout.preferredHeight: 22
                         checked: gradeNodeRow.modelData.enabled
                         enabled: pane.editor.active && !pane.editor.stateBusy
-                        Accessible.name: checked
-                            ? qsTr("Bypass %1").arg(gradeNodeRow.modelData.label)
-                            : qsTr("Enable %1").arg(gradeNodeRow.modelData.label)
+                        Accessible.name: checked ? qsTr("Bypass %1").arg(gradeNodeRow.modelData.label) : qsTr("Enable %1").arg(gradeNodeRow.modelData.label)
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        ToolTip.text: checked
-                            ? qsTr("Bypass Grade Node; preserve all adjustments")
-                            : qsTr("Enable Grade Node")
+                        ToolTip.text: checked ? qsTr("Bypass Grade Node; preserve all adjustments") : qsTr("Enable Grade Node")
                         onClicked: {
-                            pane.editor.selectGradeNode(gradeNodeRow.index)
-                            pane.editor.gradeNodeEnabled = checked
+                            pane.editor.selectGradeNode(gradeNodeRow.index);
+                            pane.editor.gradeNodeEnabled = checked;
                         }
                         indicator: Rectangle {
                             implicitWidth: 34
@@ -221,18 +180,15 @@ Rectangle {
                             x: (rowEnabledSwitch.width - width) / 2
                             y: (rowEnabledSwitch.height - height) / 2
                             radius: height / 2
-                            color: rowEnabledSwitch.checked
-                                ? Theme.switchOnSurface : Theme.switchOffSurface
-                            border.color: rowEnabledSwitch.checked
-                                ? Theme.switchOnBorder : Theme.switchOffBorder
+                            color: rowEnabledSwitch.checked ? Theme.switchOnSurface : Theme.switchOffSurface
+                            border.color: rowEnabledSwitch.checked ? Theme.switchOnBorder : Theme.switchOffBorder
                             Rectangle {
                                 width: 12
                                 height: 12
                                 y: 3
                                 x: rowEnabledSwitch.checked ? parent.width - width - 3 : 3
                                 radius: width / 2
-                                color: rowEnabledSwitch.checked
-                                    ? pane.accent : pane.textMuted
+                                color: rowEnabledSwitch.checked ? pane.accent : pane.textMuted
                             }
                         }
                         contentItem: Item {}
@@ -245,32 +201,33 @@ Rectangle {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     cursorShape: Qt.PointingHandCursor
                     onClicked: mouse => {
-                        pane.editor.selectGradeNode(
-                            gradeNodeRow.index)
+                        pane.editor.selectGradeNode(gradeNodeRow.index);
                         if (mouse.button === Qt.RightButton) {
-                            gradeNodeMenus.openContext(
-                                gradeNodeRow, mouse.y, gradeNodeRow.modelData)
+                            gradeNodeMenus.openContext(gradeNodeRow, mouse.y, gradeNodeRow.modelData);
                         }
                     }
                 }
             }
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+            }
         }
 
         RowLayout {
             Layout.fillWidth: true
             spacing: 5
 
-            Item { Layout.fillWidth: true }
+            Item {
+                Layout.fillWidth: true
+            }
 
             ShadowIconButton {
                 id: copyGradeNodeButton
                 source: "qrc:/icons/duplicate.svg"
                 toolTipText: qsTr("Duplicate selected Grade Node")
                 accessibleName: toolTipText
-                enabled: pane.editor.hasSelectedGradeNode
-                    && pane.editor.canAddGradeNode
+                enabled: pane.editor.hasSelectedGradeNode && pane.editor.canAddGradeNode
                 onClicked: pane.editor.duplicateSelectedGradeNode()
             }
             ShadowIconButton {
@@ -287,9 +244,7 @@ Rectangle {
                 enabled: pane.editor.canMoveGradeNodeUp
                 toolTipText: qsTr("Move selected Grade Node up")
                 accessibleName: toolTipText
-                onClicked: pane.editor.moveSelectedGradeNode(
-                    pane.editor.selectedGradeNodeIndex - 1
-                )
+                onClicked: pane.editor.moveSelectedGradeNode(pane.editor.selectedGradeNodeIndex - 1)
             }
             ShadowIconButton {
                 id: moveGradeNodeDownButton
@@ -297,12 +252,12 @@ Rectangle {
                 enabled: pane.editor.canMoveGradeNodeDown
                 toolTipText: qsTr("Move selected Grade Node down")
                 accessibleName: toolTipText
-                onClicked: pane.editor.moveSelectedGradeNode(
-                    pane.editor.selectedGradeNodeIndex + 1
-                )
+                onClicked: pane.editor.moveSelectedGradeNode(pane.editor.selectedGradeNodeIndex + 1)
             }
 
-            Item { Layout.fillWidth: true }
+            Item {
+                Layout.fillWidth: true
+            }
         }
 
         Rectangle {
@@ -325,6 +280,7 @@ Rectangle {
         id: nodeMaskCreateMenu
         editor: pane.editor
         onMaskCreated: pane.maskToolRequested()
+        onAiMaskRequested: pane.maskToolRequested()
         onEditExistingRequested: pane.maskToolRequested()
     }
 }

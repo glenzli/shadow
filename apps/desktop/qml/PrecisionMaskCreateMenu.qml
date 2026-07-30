@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-pragma Translator: "PrecisionWorkspace"
+pragma Translator: PrecisionWorkspace
 
 import QtQuick
 import QtQuick.Controls
@@ -19,69 +19,58 @@ Popup {
     property string openedGradeNodeId: ""
     readonly property int currentNodeDestination: 0
     readonly property int newNodeDestination: 1
-    readonly property int currentMaskKind:
-        Number(menu.editor.selectedLocalMask.kind || 0)
-    readonly property bool currentNodeAvailable:
-        menu.editor.active
-        && menu.editor.hasSelectedGradeNode
-        && menu.editor.gradeNodeEnabled
-        && menu.currentMaskKind === 0
-        && !menu.editor.stateBusy
-    readonly property bool newNodeAvailable:
-        menu.editor.canAddGradeNode && !menu.editor.stateBusy
+    readonly property int currentMaskKind: Number(menu.editor.selectedLocalMask.kind || 0)
+    readonly property bool currentNodeAvailable: menu.editor.active && menu.editor.hasSelectedGradeNode && menu.editor.gradeNodeEnabled && menu.currentMaskKind === 0 && !menu.editor.stateBusy
+    readonly property bool newNodeAvailable: menu.editor.canAddGradeNode && !menu.editor.stateBusy
 
-    signal maskCreated()
-    signal editExistingRequested()
+    signal maskCreated
+    signal aiMaskRequested
+    signal editExistingRequested
 
     function selectDestination(preferredDestination) {
-        destination = preferredDestination
-        if (destination === currentNodeDestination
-                && !currentNodeAvailable) {
-            destination = newNodeAvailable
-                ? newNodeDestination : currentNodeDestination
-        } else if (destination === newNodeDestination
-                && !newNodeAvailable && currentNodeAvailable) {
-            destination = currentNodeDestination
+        destination = preferredDestination;
+        if (destination === currentNodeDestination && !currentNodeAvailable) {
+            destination = newNodeAvailable ? newNodeDestination : currentNodeDestination;
+        } else if (destination === newNodeDestination && !newNodeAvailable && currentNodeAvailable) {
+            destination = currentNodeDestination;
         }
     }
 
     function openFor(anchorItem, preferredDestination) {
-        selectDestination(preferredDestination)
-        openedPhotoId = menu.editor.photoId
-        openedRepresentationId = menu.editor.representationId
-        openedGradeNodeId = menu.editor.selectedGradeNodeId
-        const point = anchorItem.mapToItem(
-            menu.parent,
-            anchorItem.width - menu.width,
-            anchorItem.height + 6)
-        menu.x = Math.max(8, Math.min(
-            point.x, menu.parent.width - menu.width - 8))
-        menu.y = Math.max(8, Math.min(
-            point.y, menu.parent.height - menu.height - 8))
-        menu.open()
+        selectDestination(preferredDestination);
+        openedPhotoId = menu.editor.photoId;
+        openedRepresentationId = menu.editor.representationId;
+        openedGradeNodeId = menu.editor.selectedGradeNodeId;
+        const point = anchorItem.mapToItem(menu.parent, anchorItem.width - menu.width, anchorItem.height + 6);
+        menu.x = Math.max(8, Math.min(point.x, menu.parent.width - menu.width - 8));
+        menu.y = Math.max(8, Math.min(point.y, menu.parent.height - menu.height - 8));
+        menu.open();
     }
 
     function closeIfTargetChanged() {
         if (!menu.visible)
-            return
-        if (!menu.editor.active
-                || menu.editor.photoId !== menu.openedPhotoId
-                || menu.editor.representationId
-                    !== menu.openedRepresentationId
-                || menu.editor.selectedGradeNodeId
-                    !== menu.openedGradeNodeId) {
-            menu.close()
+            return;
+        if (!menu.editor.active || menu.editor.photoId !== menu.openedPhotoId || menu.editor.representationId !== menu.openedRepresentationId || menu.editor.selectedGradeNodeId !== menu.openedGradeNodeId) {
+            menu.close();
         }
     }
 
     function createMask(kind) {
-        const available = destination === currentNodeDestination
-            ? currentNodeAvailable : newNodeAvailable
+        const available = destination === currentNodeDestination ? currentNodeAvailable : newNodeAvailable;
         if (!available)
-            return
+            return;
         if (menu.editor.createLocalMask(kind, destination)) {
-            menu.close()
-            menu.maskCreated()
+            menu.close();
+            menu.maskCreated();
+        }
+    }
+
+    function startAiMask() {
+        if (!currentNodeAvailable)
+            return;
+        if (menu.editor.beginAiMaskPrompt()) {
+            menu.close();
+            menu.aiMaskRequested();
         }
     }
 
@@ -103,15 +92,15 @@ Popup {
         target: menu.editor
 
         function onActiveChanged() {
-            menu.closeIfTargetChanged()
+            menu.closeIfTargetChanged();
         }
 
         function onSourceIdentityChanged() {
-            menu.closeIfTargetChanged()
+            menu.closeIfTargetChanged();
         }
 
         function onSelectedGradeNodeChanged() {
-            menu.closeIfTargetChanged()
+            menu.closeIfTargetChanged();
         }
     }
 
@@ -130,24 +119,20 @@ Popup {
 
         background: Rectangle {
             radius: 6
-            color: action.down ? Theme.buttonGhostPressed
-                : action.hovered ? Theme.buttonGhostHover
-                : Theme.transparent
+            color: action.down ? Theme.buttonGhostPressed : action.hovered ? Theme.buttonGhostHover : Theme.transparent
         }
 
         contentItem: RowLayout {
             spacing: 10
             ShadowIcon {
                 source: action.iconSource
-                color: action.enabled
-                    ? Theme.textSecondary : Theme.textDisabled
+                color: action.enabled ? Theme.textSecondary : Theme.textDisabled
                 size: 19
             }
             Label {
                 Layout.fillWidth: true
                 text: action.text
-                color: action.enabled
-                    ? Theme.textPrimary : Theme.textDisabled
+                color: action.enabled ? Theme.textPrimary : Theme.textDisabled
                 font.pixelSize: 11
                 font.weight: Font.Medium
             }
@@ -184,10 +169,7 @@ Popup {
             Accessible.name: text
             background: Rectangle {
                 radius: 6
-                color: editCurrentMaskButton.down
-                    ? Theme.buttonGhostPressed
-                    : editCurrentMaskButton.hovered
-                        ? Theme.buttonGhostHover : Theme.transparent
+                color: editCurrentMaskButton.down ? Theme.buttonGhostPressed : editCurrentMaskButton.hovered ? Theme.buttonGhostHover : Theme.transparent
             }
             contentItem: RowLayout {
                 spacing: 10
@@ -205,8 +187,8 @@ Popup {
                 }
             }
             onClicked: {
-                menu.close()
-                menu.editExistingRequested()
+                menu.close();
+                menu.editExistingRequested();
             }
         }
 
@@ -247,17 +229,13 @@ Popup {
                 ShadowTabButton {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    active: menu.destination
-                        === menu.currentNodeDestination
+                    active: menu.destination === menu.currentNodeDestination
                     text: qsTr("CURRENT NODE")
                     minimumTabWidth: 108
                     underlineInset: 18
                     enabled: menu.currentNodeAvailable
-                    toolTipText: menu.currentMaskKind === 0
-                        ? qsTr("Attach the mask to the selected Grade Node")
-                        : qsTr("The selected Grade Node already has a mask")
-                    onClicked: menu.destination =
-                        menu.currentNodeDestination
+                    toolTipText: menu.currentMaskKind === 0 ? qsTr("Attach the mask to the selected Grade Node") : qsTr("The selected Grade Node already has a mask")
+                    onClicked: menu.destination = menu.currentNodeDestination
                 }
 
                 ShadowTabButton {
@@ -296,29 +274,36 @@ Popup {
             font.letterSpacing: 0.7
         }
 
+        ShadowButton {
+            objectName: "aiSubjectMaskAction"
+            Layout.fillWidth: true
+            text: qsTr("AI subject")
+            variant: ShadowButton.Secondary
+            enabled: menu.currentNodeAvailable
+            toolTipText: qsTr("Prompt SAM 2.1 on the selected Grade Node")
+            onClicked: menu.startAiMask()
+        }
+
         MaskAction {
             objectName: "brushMaskAction"
             text: qsTr("Brush")
             iconSource: "qrc:/icons/brush.svg"
             maskKind: 3
-            enabled: menu.destination === menu.currentNodeDestination
-                ? menu.currentNodeAvailable : menu.newNodeAvailable
+            enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
 
         MaskAction {
             text: qsTr("Linear gradient")
             iconSource: "qrc:/icons/mask-linear.svg"
             maskKind: 1
-            enabled: menu.destination === menu.currentNodeDestination
-                ? menu.currentNodeAvailable : menu.newNodeAvailable
+            enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
 
         MaskAction {
             text: qsTr("Radial gradient")
             iconSource: "qrc:/icons/mask-radial.svg"
             maskKind: 2
-            enabled: menu.destination === menu.currentNodeDestination
-                ? menu.currentNodeAvailable : menu.newNodeAvailable
+            enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
 
         Rectangle {
@@ -347,17 +332,14 @@ Popup {
             text: qsTr("Luminance range")
             iconSource: "qrc:/icons/mask-luminance-range.svg"
             maskKind: 4
-            enabled: menu.destination === menu.currentNodeDestination
-                ? menu.currentNodeAvailable : menu.newNodeAvailable
+            enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
 
         MaskAction {
             text: qsTr("Color range")
             iconSource: "qrc:/icons/mask-color-range.svg"
             maskKind: 5
-            enabled: menu.destination === menu.currentNodeDestination
-                ? menu.currentNodeAvailable : menu.newNodeAvailable
+            enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
-
     }
 }

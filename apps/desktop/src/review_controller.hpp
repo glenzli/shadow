@@ -8,6 +8,9 @@
 #include "review_import_coordinator.hpp"
 #include "review_library_album_coordinator.hpp"
 #include "review_library_facet_coordinator.hpp"
+#include "review_library_keyword_coordinator.hpp"
+#include "review_library_map_coordinator.hpp"
+#include "review_library_metadata_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
@@ -80,6 +83,14 @@ class ReviewController final : public QObject {
         QString filterLensKey READ filterLensKey WRITE setFilterLensKey NOTIFY filtersChanged
     )
     Q_PROPERTY(
+        QStringList filterKeywordIdsAll READ filterKeywordIdsAll WRITE setFilterKeywordIdsAll NOTIFY
+            filtersChanged
+    )
+    Q_PROPERTY(
+        QStringList filterExcludedKeywordIdsAny READ filterExcludedKeywordIdsAny WRITE
+            setFilterExcludedKeywordIdsAny NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
         QVariantList libraryCaptureMonthFacets READ libraryCaptureMonthFacets NOTIFY
             libraryFacetsChanged
     )
@@ -88,6 +99,18 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(QVariantList libraryLensFacets READ libraryLensFacets NOTIFY libraryFacetsChanged)
     Q_PROPERTY(bool libraryFacetsBusy READ libraryFacetsBusy NOTIFY libraryFacetsChanged)
+    Q_PROPERTY(QVariantList libraryKeywords READ libraryKeywords NOTIFY libraryKeywordsChanged)
+    Q_PROPERTY(
+        QVariantList libraryPhotoKeywords READ libraryPhotoKeywords NOTIFY libraryKeywordsChanged
+    )
+    Q_PROPERTY(bool libraryKeywordsBusy READ libraryKeywordsBusy NOTIFY libraryKeywordsChanged)
+    Q_PROPERTY(QVariantList libraryMapClusters READ libraryMapClusters NOTIFY libraryMapChanged)
+    Q_PROPERTY(qulonglong libraryMapPhotoCount READ libraryMapPhotoCount NOTIFY libraryMapChanged)
+    Q_PROPERTY(bool libraryMapBusy READ libraryMapBusy NOTIFY libraryMapChanged)
+    Q_PROPERTY(bool libraryMapFailed READ libraryMapFailed NOTIFY libraryMapChanged)
+    Q_PROPERTY(QString libraryMapTileHost READ libraryMapTileHost CONSTANT)
+    Q_PROPERTY(QString libraryMapAttribution READ libraryMapAttribution CONSTANT)
+    Q_PROPERTY(QString libraryMapUserAgent READ libraryMapUserAgent CONSTANT)
     Q_PROPERTY(
         QVariantMap librarySystemCollectionCounts READ librarySystemCollectionCounts NOTIFY
             libraryFacetsChanged
@@ -103,6 +126,24 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(
         bool librarySourceHealthBusy READ librarySourceHealthBusy NOTIFY librarySourceHealthChanged
+    )
+    Q_PROPERTY(QVariantMap libraryMetadata READ libraryMetadata NOTIFY libraryMetadataChanged)
+    Q_PROPERTY(
+        QVariantMap libraryCaptureTimePreview READ libraryCaptureTimePreview NOTIFY
+            libraryMetadataChanged
+    )
+    Q_PROPERTY(QVariantMap libraryGpxPreview READ libraryGpxPreview NOTIFY libraryMetadataChanged)
+    Q_PROPERTY(
+        QVariantMap libraryMetadataBatchReceipt READ libraryMetadataBatchReceipt NOTIFY
+            libraryMetadataChanged
+    )
+    Q_PROPERTY(bool libraryMetadataBusy READ libraryMetadataBusy NOTIFY libraryMetadataChanged)
+    Q_PROPERTY(
+        QString libraryMetadataStatusCode READ libraryMetadataStatusCode NOTIFY
+            libraryMetadataChanged
+    )
+    Q_PROPERTY(
+        QString libraryMetadataErrorText READ libraryMetadataErrorText NOTIFY libraryMetadataChanged
     )
     Q_PROPERTY(
         QVariantList missingSourceLocations READ missingSourceLocations NOTIFY
@@ -168,16 +209,35 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterCaptureMonth() const;
     [[nodiscard]] QString filterCameraKey() const;
     [[nodiscard]] QString filterLensKey() const;
+    [[nodiscard]] QStringList filterKeywordIdsAll() const;
+    [[nodiscard]] QStringList filterExcludedKeywordIdsAny() const;
     [[nodiscard]] QVariantList libraryCaptureMonthFacets() const;
     [[nodiscard]] QVariantList libraryCameraFacets() const;
     [[nodiscard]] QVariantList libraryLensFacets() const;
     [[nodiscard]] bool libraryFacetsBusy() const noexcept;
+    [[nodiscard]] QVariantList libraryKeywords() const;
+    [[nodiscard]] QVariantList libraryPhotoKeywords() const;
+    [[nodiscard]] bool libraryKeywordsBusy() const noexcept;
     [[nodiscard]] QVariantMap librarySystemCollectionCounts() const;
+    [[nodiscard]] QVariantList libraryMapClusters() const;
+    [[nodiscard]] qulonglong libraryMapPhotoCount() const noexcept;
+    [[nodiscard]] bool libraryMapBusy() const noexcept;
+    [[nodiscard]] bool libraryMapFailed() const noexcept;
+    [[nodiscard]] QString libraryMapTileHost() const;
+    [[nodiscard]] QString libraryMapAttribution() const;
+    [[nodiscard]] QString libraryMapUserAgent() const;
     [[nodiscard]] QString libraryAlbumId() const;
     [[nodiscard]] QVariantList libraryAlbums() const;
     [[nodiscard]] bool libraryAlbumsBusy() const noexcept;
     [[nodiscard]] QVariantList librarySourceHealth() const;
     [[nodiscard]] bool librarySourceHealthBusy() const noexcept;
+    [[nodiscard]] QVariantMap libraryMetadata() const;
+    [[nodiscard]] QVariantMap libraryCaptureTimePreview() const;
+    [[nodiscard]] QVariantMap libraryGpxPreview() const;
+    [[nodiscard]] QVariantMap libraryMetadataBatchReceipt() const;
+    [[nodiscard]] bool libraryMetadataBusy() const noexcept;
+    [[nodiscard]] QString libraryMetadataStatusCode() const;
+    [[nodiscard]] QString libraryMetadataErrorText() const;
     [[nodiscard]] QVariantList missingSourceLocations() const;
     [[nodiscard]] QString missingSourceLocationScanId() const;
     [[nodiscard]] bool missingSourceLocationsBusy() const noexcept;
@@ -199,6 +259,8 @@ class ReviewController final : public QObject {
     void setFilterCaptureMonth(const QString& capture_month);
     void setFilterCameraKey(const QString& camera_key);
     void setFilterLensKey(const QString& lens_key);
+    void setFilterKeywordIdsAll(const QStringList& keyword_ids);
+    void setFilterExcludedKeywordIdsAny(const QStringList& keyword_ids);
     void setLibraryAlbumId(const QString& album_id);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
@@ -234,10 +296,53 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshLibraryFacets();
+    Q_INVOKABLE void refreshLibraryKeywords();
+    Q_INVOKABLE void requestLibraryKeywordsForPhoto(const QString& photo_id);
+    Q_INVOKABLE void createLibraryKeyword(const QString& parent_id, const QString& name);
+    Q_INVOKABLE void renameLibraryKeyword(const QString& keyword_id, const QString& name);
+    Q_INVOKABLE void moveLibraryKeyword(const QString& keyword_id, const QString& parent_id);
+    Q_INVOKABLE void deleteLibraryKeyword(const QString& keyword_id);
+    Q_INVOKABLE void assignLibraryKeyword(const QString& keyword_id, const QVariantList& targets);
+    Q_INVOKABLE void removeLibraryKeyword(const QString& keyword_id, const QVariantList& targets);
     Q_INVOKABLE void setLibraryFacet(const QString& kind, const QString& key);
     Q_INVOKABLE void clearLibraryFacet(const QString& kind);
+    Q_INVOKABLE void requestLibraryMapViewport(
+        double south_latitude,
+        double west_longitude,
+        double north_latitude,
+        double east_longitude,
+        int columns,
+        int rows
+    );
     Q_INVOKABLE void refreshLibraryAlbums();
     Q_INVOKABLE void refreshLibrarySourceHealth();
+    Q_INVOKABLE void requestLibraryMetadata(const QString& photo_id);
+    Q_INVOKABLE void clearLibraryMetadata();
+    Q_INVOKABLE void setLibraryCaptureTime(
+        const QString& photo_id,
+        const QString& mode,
+        qlonglong captured_at_unix_seconds
+    );
+    Q_INVOKABLE void setLibraryCoordinates(
+        const QString& photo_id,
+        const QString& mode,
+        double latitude_degrees,
+        double longitude_degrees,
+        const QString& place_name
+    );
+    Q_INVOKABLE void previewLibraryCaptureTimeBatch(
+        const QVariantList& targets,
+        const QString& mode,
+        qlonglong offset_seconds
+    );
+    Q_INVOKABLE void applyLibraryCaptureTimeBatch(const QString& preview_id);
+    Q_INVOKABLE void previewLibraryGpxImport(
+        const QUrl& gpx_url,
+        const QVariantList& targets,
+        qlonglong camera_clock_offset_seconds,
+        int maximum_gap_seconds
+    );
+    Q_INVOKABLE void applyLibraryGpxImport(const QString& preview_id);
     Q_INVOKABLE void openMissingSourceLocationReview(const QString& scan_session_id);
     Q_INVOKABLE void closeMissingSourceLocationReview();
     Q_INVOKABLE void loadMoreMissingSourceLocations();
@@ -286,7 +391,10 @@ class ReviewController final : public QObject {
     void libraryAlbumChanged();
     void libraryAlbumsChanged();
     void libraryFacetsChanged();
+    void libraryKeywordsChanged();
+    void libraryMapChanged();
     void librarySourceHealthChanged();
+    void libraryMetadataChanged();
     void missingSourceLocationReviewChanged();
     void sharedGradeNodesChanged();
     void decisionUndone();
@@ -307,6 +415,9 @@ class ReviewController final : public QObject {
     ReviewSourceHealthCoordinator source_health_coordinator_;
     ReviewLibraryAlbumCoordinator album_coordinator_;
     ReviewLibraryFacetCoordinator facet_coordinator_;
+    ReviewLibraryKeywordCoordinator keyword_coordinator_;
+    ReviewLibraryMapCoordinator map_coordinator_;
+    ReviewLibraryMetadataCoordinator metadata_coordinator_;
     ReviewImportCoordinator import_coordinator_;
     LocalizedUiMessage status_message_{
         "ReviewController",

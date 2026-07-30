@@ -1,6 +1,6 @@
 //! Unified public failure contract for catalog persistence and validation.
 
-use shadow_domain::{PhotoFlag, PhotoId, RepresentationId};
+use shadow_domain::{KeywordId, PhotoFlag, PhotoId, RepresentationId};
 use thiserror::Error;
 
 use crate::{export_queue, recipe::RecipeRefExpectation};
@@ -58,6 +58,8 @@ pub enum CatalogError {
     PhotoNotFound(PhotoId),
     #[error("album {0} does not exist")]
     AlbumNotFound(shadow_domain::CollectionId),
+    #[error("Library keyword {0} does not exist")]
+    LibraryKeywordNotFound(KeywordId),
     #[error("invalid content identity: {0}")]
     InvalidContentIdentity(String),
     #[error("invalid Library metadata facts: {0}")]
@@ -66,6 +68,8 @@ pub enum CatalogError {
     InvalidLibraryState(String),
     #[error("invalid Library album: {0}")]
     InvalidAlbum(String),
+    #[error("invalid Library keyword: {0}")]
+    InvalidLibraryKeyword(String),
     #[error("invalid Library query: {0}")]
     InvalidLibraryQuery(String),
     #[error("invalid export queue data: {0}")]

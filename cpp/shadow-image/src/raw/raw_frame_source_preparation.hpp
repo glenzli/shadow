@@ -73,6 +73,11 @@ class PreparedRawFrameSource final {
     friend DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared);
     friend DevelopedSourceReference
     materialize_prepared_raw_frame_source(PreparedRawFrameSource prepared);
+    friend DevelopedSourceReference materialize_prepared_raw_foundation_source(
+        PreparedRawFrameSource prepared,
+        const shadow::image::RawFoundationCameraRgbView& foundation,
+        const RawDevelopmentPlan& requested_plan
+    );
     friend ResidentRawSource prepare_resident_raw_source(
         PreparedRawFrameSource prepared,
         detail::PreparedSceneLinearRegionOptics optics
@@ -95,6 +100,14 @@ class PreparedRawFrameSource final {
     RawDevelopmentBackend backend,
     RawHighlightRecoveryIntent highlight_recovery,
     std::string_view raw_denoise_cache_identity
+);
+
+[[nodiscard]] RawPipelineReceipt finalize_raw_frame_pipeline_receipt(
+    RawPipelineReceipt prepared,
+    RawDevelopmentBackend backend,
+    RawHighlightRecoveryIntent highlight_recovery,
+    std::string_view raw_denoise_cache_identity,
+    std::string_view source_stage_identity
 );
 
 [[nodiscard]] DevelopedSourceReference

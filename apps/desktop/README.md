@@ -42,6 +42,27 @@ Application startup is split from environment-driven automation:
   decision transaction, and
   [`qml/MainPrecisionProxyStatus.qml`](qml/MainPrecisionProxyStatus.qml) owns read-only proxy
   state presentation. Every child uses the stable `Main` translation context explicitly.
+- [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
+  and EXIF-field presentation preferences. [`qml/PreferencesMenu.qml`](qml/PreferencesMenu.qml)
+  remains the compact settings entry and routes responsibility-specific panels instead of
+  accumulating their state.
+- [`src/map_provider_preferences.*`](src/map_provider_preferences.hpp) owns optional external
+  map-service permissions, the selected Library map provider/style, and the native-only Google
+  credential lifecycle.
+  [`src/secure_secret_store.*`](src/secure_secret_store.hpp) is the narrow platform credential
+  boundary: macOS stores the key as a device-local generic password in Keychain, isolated smoke
+  sessions use volatile memory, and unsupported platforms fail closed without a plaintext
+  fallback. [`qml/MapProviderSettingsDialog.qml`](qml/MapProviderSettingsDialog.qml) may save or
+  remove a key and edit non-secret permissions, but it has no key-read property.
+- [`src/map/google_map_tiles_service.*`](src/map/google_map_tiles_service.hpp) owns the opt-in
+  Google Map Tiles session, visible-only request queue, bounded policy-aware memory cache,
+  `ETag` revalidation, backoff, cancellation, and viewport copyright lifecycle. It never installs
+  a disk cache or starts while OSM is selected.
+  [`src/map/google_map_tiles_protocol.*`](src/map/google_map_tiles_protocol.hpp) owns the wire,
+  error, and HTTP cache contracts; [`src/map/google_map_tile_geometry.*`](src/map/google_map_tile_geometry.hpp)
+  owns Web Mercator visible-tile projection; and
+  [`src/map/google_map_tile_layer.*`](src/map/google_map_tile_layer.hpp) paints those decoded
+  tiles without taking gesture or photo-marker ownership.
 - [`qml/AutosaveFailureRecovery.qml`](qml/AutosaveFailureRecovery.qml) owns native-close
   interception plus the complete failed-save choice: retry, keep editing, discard only the
   in-memory draft and continue a queued photo open, or explicitly quit without saving.
@@ -87,7 +108,8 @@ Its implementation follows the same navigation:
 - [`src/desktop_backend.cpp`](src/desktop_backend.cpp) owns session composition, folder scan, and
   exact selected-photo inspection.
 - [`src/desktop_backend_library.cpp`](src/desktop_backend_library.cpp) owns Library queries,
-  facets, albums, source-health evidence, relinking, and mutable Library organization.
+  facets, albums, source-health evidence, relinking, mutable Library organization, non-destructive
+  capture/GPS corrections, batch capture-time preview/apply, and GPX preview/apply projection.
 - [`src/desktop_backend_review.cpp`](src/desktop_backend_review.cpp) owns Review visuals,
   comparison receipts, feedback, and explicit decision mutation.
 - [`src/desktop_backend_edit.cpp`](src/desktop_backend_edit.cpp) owns Precision state, shared
@@ -135,6 +157,16 @@ Its implementation follows the same navigation:
   photo-local RAW Foundation white-balance authoring lifecycle, exact camera-neutral validation,
   history keys, and preview scheduling. It does not reuse the selected Grade Node's relative RGB
   white-balance controls.
+- [`src/edit_raw_foundation_controller.*`](src/edit_raw_foundation_controller.hpp) owns the
+  non-blocking AI RAW Foundation model probe, job polling, cancellation, stale-photo rejection,
+  terminal retirement, and the single undoable Recipe-enable transition after verified
+  materialization. [`src/edit_raw_foundation_state.*`](src/edit_raw_foundation_state.hpp) is its
+  Qt-free generation state machine. Materialized artifacts remain rebuildable Rust-owned cache
+  state: bypassing the singleton Recipe slot never deletes or serializes an artifact path.
+  [`providers/rawnind-foundation/`](providers/rawnind-foundation/README.md) owns the reproducible
+  self-contained provider build and optional desktop-bundle copy contract. Public model weights
+  remain side-loaded in the versioned application-data model directory; a missing provider or
+  model is an explicit unavailable state and never selects a fallback pixel route.
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
@@ -205,9 +237,9 @@ Its implementation follows the same navigation:
 - [`src/edit_analysis_controller.cpp`](src/edit_analysis_controller.cpp) owns histogram and
   display-scope validation/projection, Point Color reference freezing, analysis refresh,
   publication, failure, and clearing.
-- [`src/edit_stroke_input.*`](src/edit_stroke_input.hpp) validates bounded normalized position and
-  pressure samples shared by direct brush gestures. QML owns transient sampling, while each
-  feature controller commits one complete gesture to its own Recipe domain.
+- [`src/edit_stroke_input.*`](src/edit_stroke_input.hpp) validates the bounded normalized-point
+  transport shared by direct brush gestures. QML owns transient sampling, while Local Mask and
+  Retouch controllers each commit one complete gesture to their own recipe domain.
 
 Add a new edit workflow to its semantic owner and wire only its stable QML contract through
 `edit_controller.hpp`; do not rebuild a monolithic controller implementation.
@@ -246,11 +278,15 @@ Precision presentation follows the same responsibility tree:
 - [`qml/PrecisionActiveStrokeCoverage.qml`](qml/PrecisionActiveStrokeCoverage.qml) owns only the
   incremental swept-area feedback for the pointer gesture currently in flight. Mask, Retouch, and
   Liquify input keep that feedback independent of preview generation churn, then perform one
-  history and preview mutation when the pointer is released.
-- [`qml/PrecisionLiquifyOverlay.qml`](qml/PrecisionLiquifyOverlay.qml) owns pressure-capable
-  Liquify pointer sampling, cursor, and transient swept-path feedback; it crosses into the
-  controller only at release. [`qml/PrecisionLiquifyTools.qml`](qml/PrecisionLiquifyTools.qml)
-  owns next-stroke radius, strength, hardness, undo, and whole-node removal controls.
+  history and preview mutation when the pointer is released. Persistent coverage remains with the
+  feature-specific overlays.
+- [`qml/PrecisionLiquifyOverlay.qml`](qml/PrecisionLiquifyOverlay.qml) owns Liquify pointer
+  sampling, cursor, and transient swept-path feedback; it crosses into the controller only at
+  release. [`qml/PrecisionLiquifyTools.qml`](qml/PrecisionLiquifyTools.qml) owns the next-stroke
+  radius, strength, hardness, undo, and whole-node removal controls.
+- [`qml/PrecisionCropOverlay.qml`](qml/PrecisionCropOverlay.qml) retains its direct manipulation
+  and explicit full-surface cursor while a replacement preview frame is rendering; the last
+  presented frame remains the valid geometry surface during that transition.
 - [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,
   clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
 - [`qml/PrecisionGradeNodePane.qml`](qml/PrecisionGradeNodePane.qml) owns Grade Node navigation,
@@ -291,10 +327,12 @@ Precision presentation follows the same responsibility tree:
 - [`qml/PrecisionCanvasPickerInput.qml`](qml/PrecisionCanvasPickerInput.qml) owns point-color and
   white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
   composition surface.
-- [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) keeps
-  photo-level RAW white balance permanently authorable while selected-Grade controls retain their
-  own enablement boundary. Relative Grade white balance, Light, Presence, foundational Color,
-  Color Balance, and the perceptual lightness Curve share one parameter-gesture contract.
+- [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) presents the
+  singleton AI RAW Denoise Foundation above photo-local RAW white balance, separately from the
+  selected Grade Node's relative RGB white balance. The AI surface owns its reversible switch,
+  progress, cancellation, retry, and cache-vs-Recipe explanation; the same component then owns
+  Light, Presence, foundational Color and Color Balance, plus the perceptual lightness Curve.
+  These sections share one editor and parameter-gesture contract.
 - [`qml/PrecisionColorMixer.qml`](qml/PrecisionColorMixer.qml) owns Color Mixer modes, hue-band
   controls, and their curve editors while keeping the inspector as a composition boundary.
 - [`qml/PrecisionSelectiveColor.qml`](qml/PrecisionSelectiveColor.qml) owns selective-color
@@ -383,7 +421,13 @@ Review presentation keeps the workspace as the composition and compatibility sur
   and context-menu callers supply only the requested presentation point.
 - [`qml/ReviewMetadataPresentation.qml`](qml/ReviewMetadataPresentation.qml) owns locale-aware
   EXIF/RAW value formatting and the grouped metadata-field projection consumed by the metadata
-  window. Selection ownership remains in `ReviewSelectionState`.
+  window. [`qml/LibraryMetadataEditor.qml`](qml/LibraryMetadataEditor.qml) edits effective capture
+  time and coordinates without writing the source file, while
+  [`qml/LibraryCaptureTimeBatchDialog.qml`](qml/LibraryCaptureTimeBatchDialog.qml) previews and
+  explicitly applies a shared clock shift or restoration to the current camera times, and
+  [`qml/LibraryGpxImportDialog.qml`](qml/LibraryGpxImportDialog.qml) owns GPX selection,
+  clock-offset settings, match summary, and explicit confirmation. Selection ownership remains in
+  `ReviewSelectionState`.
 - [`src/review_controller.cpp`](src/review_controller.cpp) is the stable QML-facing composition,
   property projection, and localization index. Request admission and routing are partitioned into
   [`src/review_controller_inspection.cpp`](src/review_controller_inspection.cpp),
@@ -391,6 +435,8 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`src/review_controller_decisions.cpp`](src/review_controller_decisions.cpp),
   [`src/review_controller_library_query.cpp`](src/review_controller_library_query.cpp), and
   [`src/review_controller_library_management.cpp`](src/review_controller_library_management.cpp).
+  [`src/review_controller_library_metadata.cpp`](src/review_controller_library_metadata.cpp)
+  routes only manual metadata, batch capture-time, and GPX commands.
   [`src/review_controller_backend_operations.*`](src/review_controller_backend_operations.hpp)
   owns every backend-to-coordinator operation adapter, while
   [`src/review_controller_connections.cpp`](src/review_controller_connections.cpp) owns the
@@ -433,6 +479,11 @@ Review presentation keeps the workspace as the composition and compatibility sur
   independent request generation and stale-completion rejection; neither contract observes the
   Library page generation. Focused coordinator and session tests cover rapid reselection, clear,
   failure/retry, and same-identity refresh.
+- [`src/review_library_metadata_coordinator.cpp`](src/review_library_metadata_coordinator.cpp)
+  keeps metadata reads, manual corrections, batch capture-time preview/apply, GPX parsing/preview,
+  and confirmed batch application off the GUI thread. Decoder EXIF remains the immutable
+  observation; the Catalog materializes an indexed effective projection, so rescans preserve user
+  corrections and Library sort/facets use the corrected time and location.
 - [`src/review_source_health_coordinator.cpp`](src/review_source_health_coordinator.cpp) owns the
   complete Library source-health review lifecycle: serialized health refreshes, scan-scoped
   missing-location paging, stale-page rejection, exact user-selected relink workers, localized
@@ -458,6 +509,38 @@ Review presentation keeps the workspace as the composition and compatibility sur
   onto the latest input, publishes localized failures, and waits for its worker at destruction.
   Its [`tests/review_library_facet_coordinator/`](tests/review_library_facet_coordinator/)
   contracts cover the shared filter/bound, projection, stale replacement, failure, and lifetime.
+- [`src/review_library_keyword_coordinator.*`](src/review_library_keyword_coordinator.hpp) owns
+  hierarchical taxonomy refresh, selected-photo assignment projection, serialized batch
+  mutations, stale-selection rejection, localized outcomes, and destruction wait.
+  [`qml/LibraryKeywordPanel.qml`](qml/LibraryKeywordPanel.qml) owns the shared hierarchy,
+  assignment, and include-all/exclude-any filter interaction;
+  [`qml/LibraryKeywordDialogs.qml`](qml/LibraryKeywordDialogs.qml) owns taxonomy mutation
+  confirmation; and [`qml/LibraryKeywordPopup.qml`](qml/LibraryKeywordPopup.qml) is the bounded
+  Review entry surface. The Library management view composes the same panel so organization and
+  retrieval cannot drift into separate keyword semantics.
+- [`qml/LibraryMapView.qml`](qml/LibraryMapView.qml) owns the on-demand map composition, gestures,
+  coordinates, location placement, and photo-cluster interaction. One transparent Qt Location
+  item-overlay map remains the only interaction/coordinate owner; it synchronizes either the OSM
+  map or Shadow's Google raster layer beneath the same markers.
+  [`qml/LibraryMapProviderOverlay.qml`](qml/LibraryMapProviderOverlay.qml) separately owns provider
+  switching, visible-photo/busy projection, Google attribution, and localized provider errors.
+  The local Catalog, not either tile service,
+  applies the current Library filter and aggregates effective GPS coordinates through
+  [`src/review_library_map_coordinator.cpp`](src/review_library_map_coordinator.cpp); viewport
+  requests are bounded, coalesced, stale-safe, and never perform geocoding. By default the
+  development build uses Qt's OSM raster plugin with cache enabled and prefetch disabled. Set both
+  `SHADOW_MAP_TILE_HOST` (an XYZ template accepted by Qt's OSM custom-host parameter) and
+  `SHADOW_MAP_TILE_ATTRIBUTION` to use a self-hosted or commercial raster provider; optionally set
+  `SHADOW_MAP_USER_AGENT`. Shadow intentionally embeds no provider API key. An explicitly
+  permitted user key can instead activate the session-based Google 2D tile layer while the
+  Library map is visible. Google tiles remain memory-only and obey response cache directives;
+  dynamic viewport copyright is shown beside a distinct `Google Maps` attribution. Reverse
+  geocoding, place search, and permanent place-name enrichment remain separate opt-in contracts:
+  they are not hidden inside map loading and their provider results are not projected onto OSM.
+  [`qml/LibraryMapLocationPlacementState.qml`](qml/LibraryMapLocationPlacementState.qml) separately
+  owns one selected photo's placement identity, pending coordinate, explicit confirmation, and
+  retryable failure lifecycle. It delegates persistence to the existing metadata coordinator, so
+  clicking the map never mutates Catalog state until the user confirms.
 - [`src/review_library_organization_coordinator.cpp`](src/review_library_organization_coordinator.cpp)
   owns complete per-photo Like and color-label mutation: cross-workflow admission, current-state
   synthesis, serialized persistence, receipt identity validation, authoritative model projection,
@@ -711,7 +794,7 @@ Qt sliders / named-version actions
 
 Precision exposes an ordered stack of one through sixteen user-facing Grade Nodes. A Grade Node is one complete adjustment layer: its Light, Tone, and Color controls travel together. The left panel supports add, duplicate, delete, move, select, and enabled/bypassed operations; the final executable Grade Node cannot be deleted. The selected Grade Node's inspector exposes every current adjustment at once. Recipe v1 still lowers each Grade Node to a canonical four-Render-Op chain when its curve is absent and a five-Render-Op chain when the optional Tone Curve is present. Those Render Ops are execution details, not separate user nodes. Duplicate copies values, curve, and bypass state but receives a new Grade Node identity and five new Render Op identities. Reorder and bypass retain every existing identity and payload.
 
-The controller treats the complete ordered stack—every stable identity, bypass flag, Basic parameter, and Tone Curve payload—as one edit-settings value. Structural commands and bypass toggles are discrete session-undo transitions; slider and curve gestures coalesce against the stable selected Grade Node ID. These undo/redo steps are deliberately separate from durable history. After a short idle debounce, every real edit writes an immutable Recipe snapshot and atomically advances only that photo's `working` ref. Closing Shadow waits for this autosave instead of asking the user to discard changes.
+The controller treats the complete ordered stack—every stable identity, bypass flag, Basic parameter, Tone Curve payload, and singleton Foundation intent—as one edit-settings value. The Qt/CXX projection preserves the path-free AI RAW denoise enabled/model pair together with RAW white balance and optics; cache locations and materialization state remain runtime-only. Structural commands and bypass toggles are discrete session-undo transitions; slider and curve gestures coalesce against the stable selected Grade Node ID. These undo/redo steps are deliberately separate from durable history. After a short idle debounce, every real edit writes an immutable Recipe snapshot and atomically advances only that photo's `working` ref. Closing Shadow waits for this autosave instead of asking the user to discard changes.
 
 Creating a named version first validates stack-wide identity invariants, then stores an immutable Recipe v1 compatibility leaf inside the content-addressed Library tree. The per-photo compatibility Recipe commit and the Library-wide commit, `heads/main`, and both named-version refs publish in one SQLite transaction with mandatory compare-and-swap guards. A Library commit therefore names one comprehensive root that can include photo edits, shared Grade Node heads, masks, Styles, and output state; it is not a collection of unrelated per-slider commits. Autosave commits intentionally create no named ref and do not advance `heads/main`, so the Versions panel remains a concise list of human-created checkpoints. Object packs may be written before publication, but a stale CAS leaves them unreachable and rolls back both commits and every ref movement. Loading an older photo version creates only an in-memory draft and never moves either durable head. Editing that draft produces a new autosaved working branch; creating a named version from it advances from the latest Library root, so newer photo commits and unrelated Library state are not rewound.
 

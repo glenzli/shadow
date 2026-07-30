@@ -777,6 +777,11 @@ optics_profile_candidates_for(const image::DecodeSession& session) {
     metadata.aperture_f_number = source.aperture_f_number;
     metadata.focal_length_mm = source.focal_length_mm;
     metadata.captured_at_unix_seconds = source.captured_at_unix_seconds;
+    metadata.has_gps_coordinates = source.has_gps_coordinates;
+    metadata.gps_latitude_degrees = source.gps_latitude_degrees;
+    metadata.gps_longitude_degrees = source.gps_longitude_degrees;
+    metadata.has_gps_altitude = source.has_gps_altitude;
+    metadata.gps_altitude_meters = source.gps_altitude_meters;
     metadata.lens_make = std::string(source.lens_make);
     metadata.lens_model = std::string(source.lens_model);
     metadata.focal_length_35mm = source.focal_length_35mm;

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::value::{MAX_LABEL_BYTES, display_name_character, validate_text};
-use super::{RawWhiteBalance, RecipeValidationError};
+use super::{RawFoundationDenoise, RawWhiteBalance, RecipeValidationError};
 
 /// Foundation-owned optical corrections applied before creative Grade Nodes.
 ///
@@ -227,6 +227,8 @@ pub struct RecipeInputSettings {
     optics: RecipeOpticsSettings,
     #[serde(default, skip_serializing_if = "RawWhiteBalance::is_as_shot")]
     raw_white_balance: RawWhiteBalance,
+    #[serde(default, skip_serializing_if = "RawFoundationDenoise::is_disabled")]
+    raw_ai_denoise: RawFoundationDenoise,
 }
 
 impl RecipeInputSettings {
@@ -234,6 +236,7 @@ impl RecipeInputSettings {
         Self {
             optics,
             raw_white_balance: RawWhiteBalance::AsShot,
+            raw_ai_denoise: RawFoundationDenoise::disabled(),
         }
     }
 
@@ -243,12 +246,22 @@ impl RecipeInputSettings {
         self
     }
 
+    #[must_use]
+    pub const fn with_raw_ai_denoise(mut self, raw_ai_denoise: RawFoundationDenoise) -> Self {
+        self.raw_ai_denoise = raw_ai_denoise;
+        self
+    }
+
     pub const fn optics(&self) -> &RecipeOpticsSettings {
         &self.optics
     }
 
     pub const fn raw_white_balance(&self) -> RawWhiteBalance {
         self.raw_white_balance
+    }
+
+    pub const fn raw_ai_denoise(&self) -> RawFoundationDenoise {
+        self.raw_ai_denoise
     }
 
     pub(super) fn is_default(&self) -> bool {

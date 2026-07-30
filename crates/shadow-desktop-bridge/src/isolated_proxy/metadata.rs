@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use shadow_domain::{ImageDimensions, ImageMargins, RawMetadataSnapshot};
+use shadow_domain::{GpsMetadataSnapshot, ImageDimensions, ImageMargins, RawMetadataSnapshot};
 use uuid::Uuid;
 
 use super::{
@@ -16,7 +16,7 @@ use super::{
     },
     helper_wire_fields::{
         decode_printable_identity_field, decode_protocol_hex_text_field, parse_metadata_f64,
-        parse_metadata_i32, parse_metadata_i64, parse_metadata_u32,
+        parse_metadata_i32, parse_metadata_i64, parse_metadata_u32, parse_metadata_u64,
     },
     persistent_evidence::{
         DecoderSafetyRegistry, IsolatedDecodeObservation, write_atomic_cache_record,
@@ -26,8 +26,8 @@ use super::{
 
 const MAX_METADATA_TEXT_BYTES: usize = 4 * 1024;
 const METADATA_SNAPSHOT_SCHEMA: u8 = 1;
-pub(super) const METADATA_SNAPSHOT_FIELD_COUNT: usize = 38;
-pub(super) const RAW_METADATA_SNAPSHOT_FIELD_COUNT: usize = 33;
+pub(super) const METADATA_SNAPSHOT_FIELD_COUNT: usize = 43;
+pub(super) const RAW_METADATA_SNAPSHOT_FIELD_COUNT: usize = 38;
 
 /// A child-established metadata snapshot. The router identity identifies the
 /// configured helper-side provider graph; it does not claim that the desktop
@@ -224,6 +224,18 @@ pub(super) fn parse_raw_metadata_snapshot_fields(
         decode_protocol_hex_text_field(fields[index], label, maximum_text_bytes, true)
     };
     let dng_version = decode_text(4, "DNG version")?;
+    let has_gps_coordinates = parse_metadata_bool(fields[30], "GPS coordinates")?;
+    let gps_latitude_degrees = parse_metadata_f64(fields[31], "GPS latitude")?;
+    let gps_longitude_degrees = parse_metadata_f64(fields[32], "GPS longitude")?;
+    let has_gps_altitude = parse_metadata_bool(fields[33], "GPS altitude")?;
+    let gps_altitude_meters = parse_metadata_f64(fields[34], "GPS altitude meters")?;
+    let gps = valid_gps_snapshot(
+        has_gps_coordinates,
+        gps_latitude_degrees,
+        gps_longitude_degrees,
+        has_gps_altitude,
+        gps_altitude_meters,
+    );
     Ok(RawMetadataSnapshot {
         make: decode_text(0, "make")?,
         model: decode_text(1, "model")?,
@@ -263,9 +275,40 @@ pub(super) fn parse_raw_metadata_snapshot_fields(
         aperture_f_number: parse_metadata_f64(fields[27], "aperture")?,
         focal_length_mm: parse_metadata_f64(fields[28], "focal length")?,
         captured_at_unix_seconds: parse_metadata_i64(fields[29], "capture time")?,
-        lens_make: decode_text(30, "lens make")?,
-        lens_model: decode_text(31, "lens model")?,
-        focal_length_35mm: parse_metadata_f64(fields[32], "35 mm focal length")?,
+        gps,
+        lens_make: decode_text(35, "lens make")?,
+        lens_model: decode_text(36, "lens model")?,
+        focal_length_35mm: parse_metadata_f64(fields[37], "35 mm focal length")?,
+    })
+}
+
+fn parse_metadata_bool(encoded: &str, label: &str) -> Result<bool> {
+    match parse_metadata_u64(encoded, label)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => bail!("isolated metadata {label} flag is invalid"),
+    }
+}
+
+fn valid_gps_snapshot(
+    has_coordinates: bool,
+    latitude_degrees: f64,
+    longitude_degrees: f64,
+    has_altitude: bool,
+    altitude_meters: f64,
+) -> Option<GpsMetadataSnapshot> {
+    if !has_coordinates
+        || !latitude_degrees.is_finite()
+        || !longitude_degrees.is_finite()
+        || !(-90.0..=90.0).contains(&latitude_degrees)
+        || !(-180.0..=180.0).contains(&longitude_degrees)
+    {
+        return None;
+    }
+    Some(GpsMetadataSnapshot {
+        latitude_degrees,
+        longitude_degrees,
+        altitude_meters: (has_altitude && altitude_meters.is_finite()).then_some(altitude_meters),
     })
 }
 

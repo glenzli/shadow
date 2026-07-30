@@ -1,7 +1,7 @@
 #pragma once
 
-#include "edit_preview_frame.hpp"
 #include "../edit_preview_contract.hpp"
+#include "edit_preview_frame.hpp"
 
 #include <QByteArray>
 #include <QImage>
@@ -81,10 +81,8 @@ struct BackendFineEditParameters final {
     /// A fixed 5×5 Oklab a/b displacement lattice. It remains distinct from
     /// hue-keyed Color Mixer and Point Color values, so one Grade Node can
     /// carry the complete connected chroma field (and its local mask).
-    std::array<
-        BackendOklabColorWarperControlPoint,
-        BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT
-    > oklab_color_warper_control_points{};
+    std::array<BackendOklabColorWarperControlPoint, BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT>
+        oklab_color_warper_control_points{};
     double oklab_color_warper_strength = 1.0;
     QString lut_resource_id;
     QString lut_title;
@@ -136,9 +134,9 @@ struct BackendGradeNode final {
     QString shared_layer_id;
     QString shared_revision_id;
     // 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
-    // 4 = Oklab luminance range, 5 = Oklch hue range. Geometry and the compact
-    // condition-mask transport slots are normalized; Rust owns their typed
-    // validation and immutable Recipe serialization.
+    // 4 = Oklab luminance range, 5 = Oklch hue range, 6 = opaque managed
+    // raster. Kind 6 uses x0 for expansion/contraction [-1, 1] and feather for
+    // softness [0, 1]; Rust restores the separate immutable raster identity.
     std::uint8_t local_mask_kind = 0;
     double local_mask_x0 = 0.0;
     double local_mask_y0 = 0.0;
@@ -226,8 +224,8 @@ struct BackendRetouchStroke final {
     bool operator==(const BackendRetouchStroke&) const = default;
 };
 
-// One authored sample in the uncropped original-image space. Pressure remains
-// part of the durable path for pressure-capable pointer devices.
+// One authored sample in the uncropped original-image space. Pressure is
+// retained even though the first desktop pointer path authors mouse pressure 1.
 struct BackendLiquifyPoint final {
     double x = 0.5;
     double y = 0.5;
@@ -288,6 +286,11 @@ struct BackendGradeStack final {
             bool operator==(const Optics&) const = default;
         } optics;
 
+        // One non-repeatable AI RAW denoise slot. 0 is the exact public
+        // RawNIND Bayer release 5.6.0 model identity.
+        bool raw_ai_denoise_enabled = false;
+        std::uint8_t raw_ai_denoise_model = 0;
+
         // 0 = source As Shot metadata; 1 = the exact camera-space neutral
         // below. Green is canonically fixed at 1,000,000.
         std::uint8_t raw_white_balance_mode = 0;
@@ -303,6 +306,99 @@ struct BackendGradeStack final {
     BackendPhotoGeometry geometry;
 
     bool operator==(const BackendGradeStack&) const = default;
+};
+
+struct BackendSubjectMaskPoint final {
+    double x = 0.5;
+    double y = 0.5;
+    bool foreground = true;
+
+    bool operator==(const BackendSubjectMaskPoint&) const = default;
+};
+
+enum class BackendSubjectMaskTerminal : std::uint8_t {
+    Staged,
+    Unavailable,
+    Cancelled,
+    Failed,
+};
+
+struct BackendSubjectMaskRequest final {
+    std::uint64_t job_token = 0;
+    std::uint64_t generation = 0;
+    QString base_commit_id;
+    BackendGradeStack grade_stack;
+    std::uint32_t target_grade_node_index = 0;
+    QString target_grade_node_id;
+    QVector<BackendSubjectMaskPoint> points;
+};
+
+struct BackendSubjectMaskResult final {
+    BackendSubjectMaskTerminal terminal = BackendSubjectMaskTerminal::Failed;
+    std::uint64_t job_token = 0;
+    std::uint64_t generation = 0;
+    std::uint64_t proposal_token = 0;
+    QString detail;
+    std::uint32_t preview_width = 0;
+    std::uint32_t preview_height = 0;
+    QByteArray preview_samples;
+};
+
+struct BackendSubjectMaskApplyRequest final {
+    std::uint64_t proposal_token = 0;
+    std::uint64_t generation = 0;
+    QString base_commit_id;
+    QString expected_working_commit_id;
+    BackendGradeStack grade_stack;
+    std::uint32_t target_grade_node_index = 0;
+    QString target_grade_node_id;
+    bool invert = false;
+};
+
+enum class BackendRawFoundationJobPhase : std::uint8_t {
+    Queued,
+    Planning,
+    Running,
+    Ready,
+    Unavailable,
+    Cancelled,
+    Failed,
+};
+
+struct BackendRawFoundationRuntimeStatus final {
+    bool available = false;
+    QString model_id;
+    QString runtime_version;
+    QString diagnostic;
+
+    bool operator==(const BackendRawFoundationRuntimeStatus&) const = default;
+};
+
+struct BackendRawFoundationJobStatus final {
+    std::uint64_t job_token = 0;
+    QString request_id;
+    std::uint64_t generation = 0;
+    BackendRawFoundationJobPhase phase = BackendRawFoundationJobPhase::Failed;
+    QString phase_code;
+    std::uint16_t completed_basis_points = 0;
+    bool cancellation_requested = false;
+    // 0 = none; 1 = verified cache hit; 2 = newly published;
+    // 3 = concurrently published equivalent.
+    std::uint8_t disposition = 0;
+    QString cache_key_sha256;
+    QString artifact_identity_sha256;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    QString diagnostic;
+
+    [[nodiscard]] bool terminal() const noexcept {
+        return phase == BackendRawFoundationJobPhase::Ready
+               || phase == BackendRawFoundationJobPhase::Unavailable
+               || phase == BackendRawFoundationJobPhase::Cancelled
+               || phase == BackendRawFoundationJobPhase::Failed;
+    }
+
+    bool operator==(const BackendRawFoundationJobStatus&) const = default;
 };
 
 struct BackendOpticsReceipt final {

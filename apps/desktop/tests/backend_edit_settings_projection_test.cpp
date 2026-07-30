@@ -161,6 +161,8 @@ void require(const bool condition, const std::string& message) {
                 .lens_profile_maker = QStringLiteral("lens-maker"),
                 .lens_profile_model = QStringLiteral("lens-model"),
             },
+        .raw_ai_denoise_enabled = true,
+        .raw_ai_denoise_model = 0,
         .raw_white_balance_mode = 1,
         .camera_neutral_red_millionths = 825'000,
         .camera_neutral_blue_millionths = 1'375'000,

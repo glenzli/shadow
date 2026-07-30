@@ -2,6 +2,7 @@
 
 #include "adjustment_render_wire.hpp"
 #include "cxx_bridge_projection.hpp"
+#include "raw_foundation_wire.hpp"
 
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/full_edit_detail.hpp>
@@ -218,6 +219,11 @@ FfiMetadataSnapshot DecodeHandle::metadata() const {
     snapshot.aperture_f_number = metadata.aperture_f_number;
     snapshot.focal_length_mm = metadata.focal_length_mm;
     snapshot.captured_at_unix_seconds = metadata.captured_at_unix_seconds;
+    snapshot.has_gps_coordinates = metadata.has_gps_coordinates;
+    snapshot.gps_latitude_degrees = metadata.gps_latitude_degrees;
+    snapshot.gps_longitude_degrees = metadata.gps_longitude_degrees;
+    snapshot.has_gps_altitude = metadata.has_gps_altitude;
+    snapshot.gps_altitude_meters = metadata.gps_altitude_meters;
     snapshot.lens_make = rust::String(metadata.lens_make);
     snapshot.lens_model = rust::String(metadata.lens_model);
     snapshot.focal_length_35mm = metadata.focal_length_35mm;
@@ -352,6 +358,26 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_d
         *session_,
         max_edge,
         raw_development_plan(plan),
+        optics_provider_.get(),
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
+    return std::make_unique<EditPreviewHandle>(std::move(prepared));
+}
+
+std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_foundation(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation
+) const {
+    const image::RawFoundationCameraRgbView view =
+        raw_foundation_wire::raw_foundation_view(foundation);
+    auto prepared = image::prepare_warm_edit_preview(
+        *session_,
+        max_edge,
+        raw_development_plan(plan),
+        view,
         optics_provider_.get(),
         optics_settings_
     );
@@ -633,6 +659,28 @@ std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_raw
     auto prepared = image::prepare_full_edit_detail(
         *session_,
         raw_development_plan(plan),
+        image::FullEditDetailSourceRequirements{
+            .requires_cpu_replay = requirements.requires_cpu_replay,
+        },
+        optics_provider_.get(),
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
+    return std::make_unique<FullEditDetailHandle>(std::move(prepared));
+}
+
+std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_raw_foundation(
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation,
+    const FfiDetailSessionRequirements& requirements
+) const {
+    const image::RawFoundationCameraRgbView view =
+        raw_foundation_wire::raw_foundation_view(foundation);
+    auto prepared = image::prepare_full_edit_detail(
+        *session_,
+        raw_development_plan(plan),
+        view,
         image::FullEditDetailSourceRequirements{
             .requires_cpu_replay = requirements.requires_cpu_replay,
         },

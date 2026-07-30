@@ -130,6 +130,12 @@ pub struct ModelArtifact {
 pub enum ModelArtifactRole {
     ModelDefinition,
     CoreMlPackageArchive,
+    /// One exact file inside an extracted `.mlpackage`.
+    ///
+    /// An application may side-load package directories instead of retaining
+    /// distribution archives. The artifact set must then enumerate and verify
+    /// every executable package member before admission.
+    CoreMlPackageMember,
     Weights,
     Tokenizer,
     Configuration,
@@ -188,6 +194,7 @@ impl ModelArtifactRole {
         match self {
             Self::ModelDefinition => b"model_definition",
             Self::CoreMlPackageArchive => b"core_ml_package_archive",
+            Self::CoreMlPackageMember => b"core_ml_package_member",
             Self::Weights => b"weights",
             Self::Tokenizer => b"tokenizer",
             Self::Configuration => b"configuration",
@@ -348,13 +355,15 @@ impl ModelManifest {
         }
         validate_artifact_set(&self.artifact_set)?;
         if self.format == ModelFormat::CoreMlPackage
-            && !self
-                .artifact_set
-                .artifacts
-                .iter()
-                .any(|artifact| artifact.role == ModelArtifactRole::CoreMlPackageArchive)
+            && !self.artifact_set.artifacts.iter().any(|artifact| {
+                matches!(
+                    artifact.role,
+                    ModelArtifactRole::CoreMlPackageArchive
+                        | ModelArtifactRole::CoreMlPackageMember
+                )
+            })
         {
-            return Err(ModelManifestError::MissingCoreMlPackageArchive);
+            return Err(ModelManifestError::MissingCoreMlPackageArtifact);
         }
         if self.capabilities.is_empty() {
             return Err(ModelManifestError::MissingCapabilities);
@@ -594,8 +603,8 @@ pub enum ModelManifestError {
     InvalidBlake3,
     #[error("artifact-set identity does not match its canonical inventory")]
     ArtifactSetIdentityMismatch { expected: String, actual: String },
-    #[error("Core ML artifact sets must include at least one package archive")]
-    MissingCoreMlPackageArchive,
+    #[error("Core ML artifact sets must include a package archive or extracted package member")]
+    MissingCoreMlPackageArtifact,
     #[error("model manifest must declare at least one capability")]
     MissingCapabilities,
     #[error("model manifest must declare at least one input")]

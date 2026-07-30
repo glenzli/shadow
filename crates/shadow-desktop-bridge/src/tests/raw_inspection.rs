@@ -115,6 +115,7 @@ fn optics_profile_discovery_uses_catalog_metadata_without_opening_raw_pixels() {
                     aperture_f_number: 6.3,
                     focal_length_mm: 300.0,
                     captured_at_unix_seconds: 1_660_000_000,
+                    gps: None,
                     lens_make: "Nikon".into(),
                     lens_model: "NIKKOR Z 100-400mm f/4.5-5.6 VR S".into(),
                     focal_length_35mm: 300.0,

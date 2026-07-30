@@ -78,6 +78,7 @@ entity_id!(GroupId);
 entity_id!(ShootId);
 entity_id!(SelectionId);
 entity_id!(CollectionId);
+entity_id!(KeywordId);
 entity_id!(OutputTargetId);
 
 #[cfg(test)]

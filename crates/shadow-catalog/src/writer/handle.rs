@@ -18,6 +18,8 @@ mod import_journal;
 mod library_browse;
 mod library_collections;
 mod library_facts;
+mod library_keywords;
+mod library_metadata_overrides;
 mod review_projection;
 mod source_health;
 mod source_identity;

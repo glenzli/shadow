@@ -31,9 +31,9 @@ pub use decision::{
 };
 pub use decode::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
-    ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewByteOrder, PreviewCodec,
-    PreviewDescriptorSnapshot, PreviewPayload, ProxyPayload, RawDevelopmentCapabilitySnapshot,
-    RawMetadataSnapshot,
+    GpsMetadataSnapshot, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot,
+    PreviewByteOrder, PreviewCodec, PreviewDescriptorSnapshot, PreviewPayload, ProxyPayload,
+    RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
 };
 pub use edit_repository::{
     EditCommitId, EditEntityChangeV1, EditEntityEntryV1, EditEntityMapV1, EditObject,
@@ -42,7 +42,7 @@ pub use edit_repository::{
     EditRepositoryRefKind, LibraryRootV1,
 };
 pub use ids::{
-    BranchId, CollectionId, EntityId, GradeNodeId, GroupId, ImportSessionId, LayerId,
+    BranchId, CollectionId, EntityId, GradeNodeId, GroupId, ImportSessionId, KeywordId, LayerId,
     LayerInstanceId, LayerRevisionId, LibrarySourceId, LocationId, MaskId, NodeId, OutputTargetId,
     PhotoId, RecipeCommitId, RecipeId, RepresentationId, SelectionId, ShootId, StyleId, VersionId,
 };
@@ -54,19 +54,22 @@ pub use recipe::{
     ConditionMaskScalarSample, EditGraph, FiniteF64, GraphValidationError, ImageDomain,
     LOCAL_DETAIL_RESIDUAL_NORMALIZATION, LayerContent, LayerInstance, LayerRevision,
     LayerRevisionSelector, LiquifyPoint, LiquifyStroke, LocalDetailAlgorithm,
-    LocalDetailFullRenderScale, LocalDetailInput, MAX_CONDITION_MASK_BRANCHES,
-    MAX_CONDITION_MASK_DEPTH, MAX_CONDITION_MASK_LEAVES, MAX_LIQUIFY_POINTS_PER_STROKE,
-    MAX_LIQUIFY_STROKES_PER_NODE, MAX_LOCAL_DETAIL_RADIUS_LEVEL_ZERO_PIXELS, MAX_MASK_BRUSH_POINTS,
-    MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKE_POINTS, MAX_RETOUCH_STROKES_PER_RECIPE,
-    MaskBrushPoint, MaskCoordinateSpace, MaskDefinition, MaskReference, MaskRevision, NamedVersion,
-    NodeInput, NodeLocalMaskCreationIntent, NodeLocalMaskCreationTarget,
-    OKLCH_CHROMA_NORMALIZATION, OperationDescriptor, OperationId, ParameterBlock, ParameterKey,
-    ParameterValue, PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoLiquifyNode,
-    PhotoQuarterTurn, PhotoStructuralNodeRef, PhotoStructuralNodes, PortType, ProcessingStage,
-    RAW_CAMERA_NEUTRAL_MILLIONTHS, RawCameraNeutral, RawWhiteBalance, RecipeBranch, RecipeCommit,
-    RecipeHistory, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
-    RecipeValidationError, RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
-    VersionName, canonical_recipe_snapshot_digest, local_detail_reference_response,
+    LocalDetailFullRenderScale, LocalDetailInput, MANAGED_RASTER_MASK_REFERENCE_VERSION,
+    MAX_CONDITION_MASK_BRANCHES, MAX_CONDITION_MASK_DEPTH, MAX_CONDITION_MASK_LEAVES,
+    MAX_LIQUIFY_POINTS_PER_STROKE, MAX_LIQUIFY_STROKES_PER_NODE,
+    MAX_LOCAL_DETAIL_RADIUS_LEVEL_ZERO_PIXELS, MAX_MANAGED_RASTER_MASK_DIMENSION,
+    MAX_MASK_BRUSH_POINTS, MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKE_POINTS,
+    MAX_RETOUCH_STROKES_PER_RECIPE, ManagedRasterMask, MaskBrushPoint, MaskCoordinateSpace,
+    MaskDefinition, MaskReference, MaskRevision, NamedVersion, NodeInput,
+    NodeLocalMaskCreationIntent, NodeLocalMaskCreationTarget, OKLCH_CHROMA_NORMALIZATION,
+    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
+    PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoLiquifyNode, PhotoQuarterTurn,
+    PhotoStructuralNodeRef, PhotoStructuralNodes, PortType, ProcessingStage,
+    RAW_CAMERA_NEUTRAL_MILLIONTHS, RasterMaskEncoding, RawCameraNeutral, RawFoundationDenoise,
+    RawFoundationDenoiseModel, RawWhiteBalance, RecipeBranch, RecipeCommit, RecipeHistory,
+    RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RecipeValidationError, RetouchMode,
+    RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval, VersionName,
+    canonical_recipe_snapshot_digest, local_detail_reference_response,
 };
 pub use recipe_diff::{
     GraphDiff, IndexedLayer, LayerContentDiff, LayerContentKind, LayerInstanceDiff,

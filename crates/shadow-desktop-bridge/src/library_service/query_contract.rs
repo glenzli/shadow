@@ -8,7 +8,7 @@ use shadow_catalog::{
     LibraryApertureRange, LibraryDateRange, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage,
     LibraryPhotoCursor, LibraryPhotoFilter, SmartAlbumQueryV1,
 };
-use shadow_domain::{CollectionId, PhotoFlag, PhotoId};
+use shadow_domain::{CollectionId, KeywordId, PhotoFlag, PhotoId};
 
 use crate::ffi;
 
@@ -60,12 +60,29 @@ pub(super) fn library_filter_from_ffi(
             .has_development_edits
             .then_some(filter.development_edits),
         album_id,
+        keyword_ids_all: keyword_ids_from_ffi(&filter.keyword_ids_all)?,
+        excluded_keyword_ids_any: keyword_ids_from_ffi(&filter.excluded_keyword_ids_any)?,
     })
 }
 
 fn optional_filter_text(value: &str) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+fn keyword_ids_from_ffi(keyword_ids: &[String]) -> AnyResult<Vec<KeywordId>> {
+    keyword_ids
+        .iter()
+        .map(|keyword_id| {
+            let keyword_id = keyword_id.trim();
+            if keyword_id.is_empty() {
+                bail!("Library keyword filter ids must not be empty");
+            }
+            keyword_id
+                .parse::<KeywordId>()
+                .with_context(|| format!("parse Library keyword id {keyword_id}"))
+        })
+        .collect()
 }
 
 pub(super) fn smart_album_query_from_ffi(
@@ -138,6 +155,16 @@ pub(super) fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryP
         has_development_edits: filter.has_development_edits.is_some(),
         development_edits: filter.has_development_edits.unwrap_or_default(),
         album_id: filter.album_id.map(|id| id.to_string()).unwrap_or_default(),
+        keyword_ids_all: filter
+            .keyword_ids_all
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect(),
+        excluded_keyword_ids_any: filter
+            .excluded_keyword_ids_any
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect(),
     }
 }
 

@@ -42,6 +42,12 @@ WarmGpuMaskPlanPreparation prepare_warm_gpu_mask_plan(
     case LocalMaskKind::color_range:
         parameters.mask_kind = WarmLayerMaskKind::color_range;
         break;
+    case LocalMaskKind::managed_raster:
+        return WarmGpuMaskPlanPreparation{
+            .plan = std::nullopt,
+            .diagnostic =
+                "resident Metal does not yet support immutable managed raster masks",
+        };
     case LocalMaskKind::brush: {
         if (mask.points.empty()) {
             parameters.mask_kind =

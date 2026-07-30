@@ -68,7 +68,9 @@ struct RawSensorNoiseCalibration final {
     RawSensorNoiseCalibrationSource source = RawSensorNoiseCalibrationSource::unavailable;
     // The ISO at which the model was resolved. It is zero only when no model is available.
     double iso_sensitivity = 0.0;
-    // Order is R, G1, G2, B, matching `bayer_2x2` and black/white-level arrays.
+    // Order is the row-major CFA site order of `bayer_2x2`, matching the
+    // black/white-level arrays. A later neural stage canonicalizes those sites
+    // to R, G1, G2, B when it packs its model tensor.
     std::array<double, 4U> read_noise_stddev_dn{};
     std::array<double, 4U> shot_noise_variance_per_dn{};
 

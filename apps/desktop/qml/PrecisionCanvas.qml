@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-pragma Translator: "PrecisionWorkspace"
+pragma Translator: PrecisionWorkspace
 
 import QtQuick
 import QtQuick.Controls
@@ -59,18 +59,14 @@ Rectangle {
 
     // Public read-only display state for the outer histogram and status shell.
     readonly property bool beforeReady: editor.beforePreviewSource.length > 0
-    readonly property bool displayingBefore: comparisonActive && beforeReady
-        && comparisonMode === comparisonWhole
-    readonly property var displayedHistogram: displayingBefore
-        ? editor.beforeHistogram : editor.histogram
+    readonly property bool displayingBefore: comparisonActive && beforeReady && comparisonMode === comparisonWhole
+    readonly property var displayedHistogram: displayingBefore ? editor.beforeHistogram : editor.histogram
     readonly property string readyPreviewGeneration: readyPreviewGenerationState
     readonly property bool previewFrameReady: previewFrameReadyState
     readonly property bool beforeFrameReady: beforeFrameReadyState
     readonly property bool detailImageReady: detailImageReadyState
     readonly property bool detailImageLoadFailed: detailImageLoadFailedState
-    readonly property bool showingFullDetail: !fitView && zoomFactor >= 1.0
-        && !comparisonActive && editor.detailMode && editor.detailTiles.length > 0
-        && detailImageReadyState
+    readonly property bool showingFullDetail: !fitView && zoomFactor >= 1.0 && !comparisonActive && editor.detailMode && editor.detailTiles.length > 0 && detailImageReadyState
 
     // Private transport state. The public read-only properties above keep the
     // surrounding workspace from reaching into image or Flickable ids.
@@ -84,37 +80,15 @@ Rectangle {
     property bool detailImageReadyState: false
     property bool detailImageLoadFailedState: false
 
-    readonly property string visiblePreviewSource: editor.previewSource.length > 0
-        ? editor.previewSource : editor.provisionalPreviewSource
-    readonly property bool showingProvisionalPreview: editor.previewSource.length === 0
-        && editor.provisionalPreviewSource.length > 0
-    readonly property bool dualComparison: comparisonActive && beforeReady
-        && (comparisonMode === comparisonSideBySide
-            || comparisonMode === comparisonStacked)
-    readonly property bool scopePreviewAvailable: editor.active
-        && previewFrameReadyState
-        && readyPreviewGenerationState.length > 0
-        && !showingProvisionalPreview
-        && !comparisonActive
-        && Boolean(editor.histogram.valid)
-        && !Boolean(editor.histogram.updating)
-        && !Boolean(editor.histogram.stale)
-        && String(editor.histogram.generation)
-            === readyPreviewGenerationState
+    readonly property string visiblePreviewSource: editor.previewSource.length > 0 ? editor.previewSource : editor.provisionalPreviewSource
+    readonly property bool showingProvisionalPreview: editor.previewSource.length === 0 && editor.provisionalPreviewSource.length > 0
+    readonly property bool dualComparison: comparisonActive && beforeReady && (comparisonMode === comparisonSideBySide || comparisonMode === comparisonStacked)
+    readonly property bool scopePreviewAvailable: editor.active && previewFrameReadyState && readyPreviewGenerationState.length > 0 && !showingProvisionalPreview && !comparisonActive && Boolean(editor.histogram.valid) && !Boolean(editor.histogram.updating) && !Boolean(editor.histogram.stale) && String(editor.histogram.generation) === readyPreviewGenerationState
     readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
-    readonly property real imagePixelWidth: editor.detailFullWidth > 0
-        ? editor.detailFullWidth
-        : Math.max(1, editedPreview.sourceSize.width)
-    readonly property real imagePixelHeight: editor.detailFullHeight > 0
-        ? editor.detailFullHeight
-        : Math.max(1, editedPreview.sourceSize.height)
-    readonly property real fitScale: Math.min(
-        previewFlick.width / imagePixelWidth,
-        previewFlick.height / imagePixelHeight
-    )
-    readonly property real displayScale: fitView
-        ? Math.max(0.0001, fitScale)
-        : zoomFactor / deviceScale
+    readonly property real imagePixelWidth: editor.detailFullWidth > 0 ? editor.detailFullWidth : Math.max(1, editedPreview.sourceSize.width)
+    readonly property real imagePixelHeight: editor.detailFullHeight > 0 ? editor.detailFullHeight : Math.max(1, editedPreview.sourceSize.height)
+    readonly property real fitScale: Math.min(previewFlick.width / imagePixelWidth, previewFlick.height / imagePixelHeight)
+    readonly property real displayScale: fitView ? Math.max(0.0001, fitScale) : zoomFactor / deviceScale
 
     readonly property color panel: Theme.panel
     readonly property color frameBorderColor: Theme.border
@@ -125,12 +99,12 @@ Rectangle {
 
     // Semantic notification points for a parent which owns the page-wide
     // workspace state. Property notify signals are also available to QML.
-    signal viewStateChanged()
-    signal comparisonStateChanged()
-    signal analysisOverlayStateChanged()
-    signal previewFrameStateChanged()
-    signal detailFrameStateChanged()
-    signal neutralToolRequested()
+    signal viewStateChanged
+    signal comparisonStateChanged
+    signal analysisOverlayStateChanged
+    signal previewFrameStateChanged
+    signal detailFrameStateChanged
+    signal neutralToolRequested
     signal retouchRegionSelectionRequested(bool continuous, int index)
 
     onZoomFactorChanged: viewStateChanged()
@@ -140,9 +114,9 @@ Rectangle {
     onComparisonPositionChanged: comparisonStateChanged()
     onZebraEnabledChanged: analysisOverlayStateChanged()
     onActiveToolModeChanged: {
-        zoomToolActive = false
-        comparisonActive = false
-        resetView()
+        zoomToolActive = false;
+        comparisonActive = false;
+        resetView();
     }
     onPreviewFrameReadyStateChanged: previewFrameStateChanged()
     onBeforeFrameReadyStateChanged: previewFrameStateChanged()
@@ -151,215 +125,173 @@ Rectangle {
     onDetailImageLoadFailedStateChanged: detailFrameStateChanged()
 
     function previewGeneration(source) {
-        const match = String(source).match(/[?&]generation=([^&#]+)/)
-        return match && match.length > 1 ? decodeURIComponent(match[1]) : ""
+        const match = String(source).match(/[?&]generation=([^&#]+)/);
+        return match && match.length > 1 ? decodeURIComponent(match[1]) : "";
     }
 
     function activateComparison(mode) {
-        resetView()
-        comparisonMode = mode
-        comparisonPosition = 0.5
-        comparisonActive = true
-        editor.requestBeforePreview()
+        resetView();
+        comparisonMode = mode;
+        comparisonPosition = 0.5;
+        comparisonActive = true;
+        editor.requestBeforePreview();
     }
 
     function resetView() {
-        fitView = true
-        zoomFactor = 1.0
-        detailImageReadyState = false
-        detailImageLoadFailedState = false
-        previewFlick.contentX = 0
-        previewFlick.contentY = 0
-        editor.leaveDetailMode()
+        fitView = true;
+        zoomFactor = 1.0;
+        detailImageReadyState = false;
+        detailImageLoadFailedState = false;
+        previewFlick.contentX = 0;
+        previewFlick.contentY = 0;
+        editor.leaveDetailMode();
     }
 
     function normalizedCenterX() {
         if (photoSurface.width <= 0)
-            return 0.5
-        return Math.max(0, Math.min(1,
-            (previewFlick.contentX + previewFlick.width / 2 - photoSurface.x)
-                / photoSurface.width))
+            return 0.5;
+        return Math.max(0, Math.min(1, (previewFlick.contentX + previewFlick.width / 2 - photoSurface.x) / photoSurface.width));
     }
 
     function normalizedCenterY() {
         if (photoSurface.height <= 0)
-            return 0.5
-        return Math.max(0, Math.min(1,
-            (previewFlick.contentY + previewFlick.height / 2 - photoSurface.y)
-                / photoSurface.height))
+            return 0.5;
+        return Math.max(0, Math.min(1, (previewFlick.contentY + previewFlick.height / 2 - photoSurface.y) / photoSurface.height));
     }
 
     function centerOnNormalized(nx, ny) {
-        previewFlick.contentX = Math.max(0, Math.min(
-            previewFlick.contentWidth - previewFlick.width,
-            photoSurface.x + nx * photoSurface.width - previewFlick.width / 2
-        ))
-        previewFlick.contentY = Math.max(0, Math.min(
-            previewFlick.contentHeight - previewFlick.height,
-            photoSurface.y + ny * photoSurface.height - previewFlick.height / 2
-        ))
+        previewFlick.contentX = Math.max(0, Math.min(previewFlick.contentWidth - previewFlick.width, photoSurface.x + nx * photoSurface.width - previewFlick.width / 2));
+        previewFlick.contentY = Math.max(0, Math.min(previewFlick.contentHeight - previewFlick.height, photoSurface.y + ny * photoSurface.height - previewFlick.height / 2));
     }
 
     function normalizedAtViewportX(viewportX) {
         if (photoSurface.width <= 0)
-            return 0.5
-        return Math.max(0, Math.min(1,
-            (previewFlick.contentX + viewportX - photoSurface.x)
-                / photoSurface.width))
+            return 0.5;
+        return Math.max(0, Math.min(1, (previewFlick.contentX + viewportX - photoSurface.x) / photoSurface.width));
     }
 
     function normalizedAtViewportY(viewportY) {
         if (photoSurface.height <= 0)
-            return 0.5
-        return Math.max(0, Math.min(1,
-            (previewFlick.contentY + viewportY - photoSurface.y)
-                / photoSurface.height))
+            return 0.5;
+        return Math.max(0, Math.min(1, (previewFlick.contentY + viewportY - photoSurface.y) / photoSurface.height));
     }
 
     function placeNormalizedAtViewport(nx, ny, viewportX, viewportY) {
-        previewFlick.contentX = Math.max(0, Math.min(
-            previewFlick.contentWidth - previewFlick.width,
-            photoSurface.x + nx * photoSurface.width - viewportX
-        ))
-        previewFlick.contentY = Math.max(0, Math.min(
-            previewFlick.contentHeight - previewFlick.height,
-            photoSurface.y + ny * photoSurface.height - viewportY
-        ))
+        previewFlick.contentX = Math.max(0, Math.min(previewFlick.contentWidth - previewFlick.width, photoSurface.x + nx * photoSurface.width - viewportX));
+        previewFlick.contentY = Math.max(0, Math.min(previewFlick.contentHeight - previewFlick.height, photoSurface.y + ny * photoSurface.height - viewportY));
     }
 
     function requestVisibleDetail() {
         if (fitView || zoomFactor < 1.0 || comparisonActive || !editor.active) {
-            editor.leaveDetailMode()
-            return
+            editor.leaveDetailMode();
+            return;
         }
-        requestedDetailCenterX = normalizedCenterX()
-        requestedDetailCenterY = normalizedCenterY()
-        const pixelWidth = Math.max(1,
-            Math.ceil(previewFlick.width / displayScale))
-        const pixelHeight = Math.max(1,
-            Math.ceil(previewFlick.height / displayScale))
+        requestedDetailCenterX = normalizedCenterX();
+        requestedDetailCenterY = normalizedCenterY();
+        const pixelWidth = Math.max(1, Math.ceil(previewFlick.width / displayScale));
+        const pixelHeight = Math.max(1, Math.ceil(previewFlick.height / displayScale));
         if (pixelWidth > 8192 || pixelHeight > 8192) {
-            editor.leaveDetailMode()
-            detailImageLoadFailedState = true
-            return
+            editor.leaveDetailMode();
+            detailImageLoadFailedState = true;
+            return;
         }
-        detailImageLoadFailedState = false
-        editor.requestDetailViewport(
-            requestedDetailCenterX,
-            requestedDetailCenterY,
-            pixelWidth,
-            pixelHeight
-        )
+        detailImageLoadFailedState = false;
+        editor.requestDetailViewport(requestedDetailCenterX, requestedDetailCenterY, pixelWidth, pixelHeight);
     }
 
     function directViewportPositionChanged() {
-        if (!componentReady || fitView || zoomFactor < 1.0 || comparisonActive
-                || !editor.active || previewFlick.moving || previewFlick.flicking
-                || suppressViewportTracking
-                || (!editor.detailMode && !detailImageReadyState))
-            return
-        directViewportSettle.restart()
+        if (!componentReady || fitView || zoomFactor < 1.0 || comparisonActive || !editor.active || previewFlick.moving || previewFlick.flicking || suppressViewportTracking || (!editor.detailMode && !detailImageReadyState))
+            return;
+        directViewportSettle.restart();
     }
 
     function setPixelZoom(value) {
-        zoomAtViewport(
-            previewFlick.width / 2,
-            previewFlick.height / 2,
-            value,
-            true)
+        zoomAtViewport(previewFlick.width / 2, previewFlick.height / 2, value, true);
     }
 
     function zoomAtViewport(viewportX, viewportY, value, settleDetail) {
-        const anchorX = normalizedAtViewportX(viewportX)
-        const anchorY = normalizedAtViewportY(viewportY)
-        fitView = false
-        comparisonActive = false
-        zoomFactor = Math.max(0.05, Math.min(4.0, value))
-        Qt.callLater(function() {
-            canvas.placeNormalizedAtViewport(
-                anchorX, anchorY, viewportX, viewportY)
+        const anchorX = normalizedAtViewportX(viewportX);
+        const anchorY = normalizedAtViewportY(viewportY);
+        fitView = false;
+        comparisonActive = false;
+        zoomFactor = Math.max(0.05, Math.min(4.0, value));
+        Qt.callLater(function () {
+            canvas.placeNormalizedAtViewport(anchorX, anchorY, viewportX, viewportY);
             if (settleDetail)
-                canvas.requestVisibleDetail()
-        })
+                canvas.requestVisibleDetail();
+        });
     }
 
     function zoomStepAtViewport(viewportX, viewportY, direction) {
         if (direction > 0 && fitView) {
-            zoomAtViewport(viewportX, viewportY, 1.0, true)
-            return
+            zoomAtViewport(viewportX, viewportY, 1.0, true);
+            return;
         }
-        const steps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
+        const steps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
         if (direction < 0 && zoomFactor <= steps[0] + 0.001) {
-            resetView()
-            return
+            resetView();
+            return;
         }
         if (direction > 0) {
             for (let index = 0; index < steps.length; ++index) {
                 if (steps[index] > zoomFactor + 0.001) {
-                    zoomAtViewport(
-                        viewportX, viewportY, steps[index], true)
-                    return
+                    zoomAtViewport(viewportX, viewportY, steps[index], true);
+                    return;
                 }
             }
-            return
+            return;
         }
         for (let index = steps.length - 1; index >= 0; --index) {
             if (steps[index] < zoomFactor - 0.001) {
-                zoomAtViewport(viewportX, viewportY, steps[index], true)
-                return
+                zoomAtViewport(viewportX, viewportY, steps[index], true);
+                return;
             }
         }
     }
 
     function beginContinuousZoom() {
-        directViewportSettle.stop()
-        detailImageReadyState = false
-        detailImageLoadFailedState = false
-        editor.leaveDetailMode()
+        directViewportSettle.stop();
+        detailImageReadyState = false;
+        detailImageLoadFailedState = false;
+        editor.leaveDetailMode();
     }
 
     function finishContinuousZoom() {
-        Qt.callLater(canvas.requestVisibleDetail)
+        Qt.callLater(canvas.requestVisibleDetail);
     }
 
     Connections {
         target: canvas.editor
         function onSourcePathChanged() {
-            canvas.comparisonActive = false
-            canvas.previewFrameReadyState = false
-            canvas.beforeFrameReadyState = false
-            canvas.readyPreviewGenerationState = ""
-            canvas.resetView()
+            canvas.comparisonActive = false;
+            canvas.previewFrameReadyState = false;
+            canvas.beforeFrameReadyState = false;
+            canvas.readyPreviewGenerationState = "";
+            canvas.resetView();
         }
         function onDetailGeometryChanged() {
             if (!canvas.fitView && canvas.editor.detailMode) {
-                Qt.callLater(function() {
-                    canvas.suppressViewportTracking = true
-                    canvas.centerOnNormalized(
-                        canvas.requestedDetailCenterX,
-                        canvas.requestedDetailCenterY
-                    )
-                    canvas.suppressViewportTracking = false
-                })
+                Qt.callLater(function () {
+                    canvas.suppressViewportTracking = true;
+                    canvas.centerOnNormalized(canvas.requestedDetailCenterX, canvas.requestedDetailCenterY);
+                    canvas.suppressViewportTracking = false;
+                });
             }
         }
         function onDetailTilesChanged() {
-            canvas.detailImageReadyState = false
-            canvas.detailImageLoadFailedState = false
+            canvas.detailImageReadyState = false;
+            canvas.detailImageLoadFailedState = false;
         }
     }
 
     onDeviceScaleChanged: {
         if (!componentReady || fitView || zoomFactor < 1.0 || !editor.active)
-            return
-        editor.leaveDetailMode()
-        Qt.callLater(function() {
-            canvas.centerOnNormalized(
-                canvas.requestedDetailCenterX,
-                canvas.requestedDetailCenterY
-            )
-            canvas.requestVisibleDetail()
-        })
+            return;
+        editor.leaveDetailMode();
+        Qt.callLater(function () {
+            canvas.centerOnNormalized(canvas.requestedDetailCenterX, canvas.requestedDetailCenterY);
+            canvas.requestVisibleDetail();
+        });
     }
 
     Component.onCompleted: componentReady = true
@@ -371,355 +303,317 @@ Rectangle {
         onTriggered: canvas.requestVisibleDetail()
     }
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 0
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
 
-                PrecisionCanvasToolbar {
+        PrecisionCanvasToolbar {
+            editor: canvas.editor
+            zebraEnabled: canvas.zebraEnabled
+            comparisonActive: canvas.comparisonActive
+            comparisonMode: canvas.comparisonMode
+            comparisonWhole: canvas.comparisonWhole
+            comparisonWipeVertical: canvas.comparisonWipeVertical
+            comparisonWipeHorizontal: canvas.comparisonWipeHorizontal
+            comparisonSideBySide: canvas.comparisonSideBySide
+            comparisonStacked: canvas.comparisonStacked
+            fitView: canvas.fitView
+            zoomFactor: canvas.zoomFactor
+            zoomToolActive: canvas.zoomToolActive
+            onZebraToggleRequested: canvas.zebraEnabled = !canvas.zebraEnabled
+            onComparisonDisableRequested: canvas.comparisonActive = false
+            onComparisonModeRequested: mode => canvas.activateComparison(mode)
+            onZoomRequested: value => canvas.setPixelZoom(value)
+            onZoomToolToggleRequested: {
+                canvas.neutralToolRequested();
+                canvas.zoomToolActive = !canvas.zoomToolActive;
+            }
+            onFitRequested: canvas.resetView()
+        }
+
+        Flickable {
+            id: previewFlick
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            contentWidth: Math.max(width, photoSurface.width)
+            contentHeight: Math.max(height, photoSurface.height)
+            interactive: !canvas.zoomToolActive && (contentWidth > width || contentHeight > height)
+            onMovementStarted: {
+                directViewportSettle.stop();
+            }
+            onMovementEnded: canvas.requestVisibleDetail()
+            onContentXChanged: canvas.directViewportPositionChanged()
+            onContentYChanged: canvas.directViewportPositionChanged()
+            onWidthChanged: {
+                if (canvas.editor.detailMode)
+                    canvas.requestVisibleDetail();
+            }
+            onHeightChanged: {
+                if (canvas.editor.detailMode)
+                    canvas.requestVisibleDetail();
+            }
+
+            Item {
+                id: photoSurface
+                x: (previewFlick.contentWidth - width) / 2
+                y: (previewFlick.contentHeight - height) / 2
+                width: canvas.dualComparison ? previewFlick.width : canvas.imagePixelWidth * canvas.displayScale
+                height: canvas.dualComparison ? previewFlick.height : canvas.imagePixelHeight * canvas.displayScale
+
+                Image {
+                    id: editedPreview
+                    anchors.fill: parent
+                    source: liveEditedPreview.fallbackSource
+                    fillMode: Image.Stretch
+                    asynchronous: true
+                    cache: false
+                    visible: !canvas.dualComparison
+                    // Keep the last decoded texture on screen until the
+                    // replacement generation is actually ready. Without
+                    // this, every slider update briefly exposes the
+                    // canvas while Qt decodes the next JPEG.
+                    retainWhileLoading: true
+                    smooth: true
+                    onSourceChanged: {
+                        canvas.previewFrameReadyState = false;
+                        canvas.readyPreviewGenerationState = "";
+                    }
+                    onStatusChanged: {
+                        if (status === Image.Ready) {
+                            canvas.previewFrameReadyState = true;
+                            canvas.readyPreviewGenerationState = canvas.previewGeneration(source);
+                        } else if (status === Image.Null) {
+                            canvas.previewFrameReadyState = false;
+                            canvas.readyPreviewGenerationState = "";
+                        } else if (status === Image.Error) {
+                            canvas.readyPreviewGenerationState = "";
+                        }
+                    }
+                }
+
+                EditPreviewTextureItem {
+                    id: liveEditedPreview
+                    objectName: "liveEditedPreview"
+                    anchors.fill: parent
+                    z: 1
+                    presentationRegistry: canvas.editPreviewPresentation
+                    source: canvas.visiblePreviewSource
+                    liveAdmissionEnabled: !canvas.dualComparison
+                    fillMode: EditPreviewTextureItem.Stretch
+                    visible: !canvas.dualComparison
+                    onSourceChanged: {
+                        canvas.previewFrameReadyState = false;
+                        canvas.readyPreviewGenerationState = "";
+                    }
+                    onPresentedGenerationChanged: {
+                        if (presentedGeneration.length > 0) {
+                            canvas.previewFrameReadyState = true;
+                            canvas.readyPreviewGenerationState = presentedGeneration;
+                        } else {
+                            canvas.previewFrameReadyState = false;
+                            canvas.readyPreviewGenerationState = "";
+                        }
+                    }
+                }
+
+                Image {
+                    id: displayZebraOverlay
+                    anchors.fill: parent
+                    source: canvas.scopePreviewAvailable ? "image://shadow-edit/scope/zebra/current?generation=" + canvas.readyPreviewGeneration : ""
+                    fillMode: Image.Stretch
+                    asynchronous: true
+                    cache: false
+                    retainWhileLoading: true
+                    smooth: false
+                    mipmap: false
+                    visible: canvas.zebraEnabled && canvas.scopePreviewAvailable && status === Image.Ready
+                    z: 10
+                }
+
+                PrecisionComparisonSurface {
+                    id: comparisonSurface
+                    anchors.fill: parent
+                    z: 20
                     editor: canvas.editor
-                    zebraEnabled: canvas.zebraEnabled
+                    editPreviewPresentation: canvas.editPreviewPresentation
                     comparisonActive: canvas.comparisonActive
                     comparisonMode: canvas.comparisonMode
-                    comparisonWhole: canvas.comparisonWhole
-                    comparisonWipeVertical: canvas.comparisonWipeVertical
-                    comparisonWipeHorizontal: canvas.comparisonWipeHorizontal
-                    comparisonSideBySide: canvas.comparisonSideBySide
-                    comparisonStacked: canvas.comparisonStacked
-                    fitView: canvas.fitView
-                    zoomFactor: canvas.zoomFactor
-                    zoomToolActive: canvas.zoomToolActive
-                    onZebraToggleRequested:
-                        canvas.zebraEnabled = !canvas.zebraEnabled
-                    onComparisonDisableRequested:
-                        canvas.comparisonActive = false
-                    onComparisonModeRequested: mode =>
-                        canvas.activateComparison(mode)
-                    onZoomRequested: value => canvas.setPixelZoom(value)
-                    onZoomToolToggleRequested: {
-                        canvas.neutralToolRequested()
-                        canvas.zoomToolActive = !canvas.zoomToolActive
-                    }
-                    onFitRequested: canvas.resetView()
+                    comparisonPosition: canvas.comparisonPosition
+                    beforeReady: canvas.beforeReady
+                    afterPreviewSource: canvas.visiblePreviewSource
+                    wipeVerticalMode: canvas.comparisonWipeVertical
+                    wipeHorizontalMode: canvas.comparisonWipeHorizontal
+                    sideBySideMode: canvas.comparisonSideBySide
+                    stackedMode: canvas.comparisonStacked
+                    onBeforeFrameReadyChanged: canvas.beforeFrameReadyState = comparisonSurface.beforeFrameReady
+                    onComparisonPositionRequested: nextPosition => canvas.comparisonPosition = nextPosition
                 }
 
-                Flickable {
-                    id: previewFlick
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    contentWidth: Math.max(width, photoSurface.width)
-                    contentHeight: Math.max(height, photoSurface.height)
-                    interactive: !canvas.zoomToolActive
-                        && (contentWidth > width || contentHeight > height)
-                    onMovementStarted: {
-                        directViewportSettle.stop()
-                    }
-                    onMovementEnded: canvas.requestVisibleDetail()
-                    onContentXChanged: canvas.directViewportPositionChanged()
-                    onContentYChanged: canvas.directViewportPositionChanged()
-                    onWidthChanged: {
-                        if (canvas.editor.detailMode)
-                            canvas.requestVisibleDetail()
-                    }
-                    onHeightChanged: {
-                        if (canvas.editor.detailMode)
-                            canvas.requestVisibleDetail()
-                    }
-
-                    Item {
-                        id: photoSurface
-                        x: (previewFlick.contentWidth - width) / 2
-                        y: (previewFlick.contentHeight - height) / 2
-                        width: canvas.dualComparison
-                            ? previewFlick.width
-                            : canvas.imagePixelWidth * canvas.displayScale
-                        height: canvas.dualComparison
-                            ? previewFlick.height
-                            : canvas.imagePixelHeight * canvas.displayScale
-
-                        Image {
-                            id: editedPreview
-                            anchors.fill: parent
-                            source: liveEditedPreview.fallbackSource
-                            fillMode: Image.Stretch
-                            asynchronous: true
-                            cache: false
-                            visible: !canvas.dualComparison
-                            // Keep the last decoded texture on screen until the
-                            // replacement generation is actually ready. Without
-                            // this, every slider update briefly exposes the
-                            // canvas while Qt decodes the next JPEG.
-                            retainWhileLoading: true
-                            smooth: true
-                            onSourceChanged: {
-                                canvas.previewFrameReadyState = false
-                                canvas.readyPreviewGenerationState = ""
-                            }
-                            onStatusChanged: {
-                                if (status === Image.Ready) {
-                                    canvas.previewFrameReadyState = true
-                                    canvas.readyPreviewGenerationState
-                                        = canvas.previewGeneration(source)
-                                } else if (status === Image.Null) {
-                                    canvas.previewFrameReadyState = false
-                                    canvas.readyPreviewGenerationState = ""
-                                } else if (status === Image.Error) {
-                                    canvas.readyPreviewGenerationState = ""
-                                }
-                            }
-                        }
-
-                        EditPreviewTextureItem {
-                            id: liveEditedPreview
-                            objectName: "liveEditedPreview"
-                            anchors.fill: parent
-                            z: 1
-                            presentationRegistry:
-                                canvas.editPreviewPresentation
-                            source: canvas.visiblePreviewSource
-                            liveAdmissionEnabled: !canvas.dualComparison
-                            fillMode: EditPreviewTextureItem.Stretch
-                            visible: !canvas.dualComparison
-                            onSourceChanged: {
-                                canvas.previewFrameReadyState = false
-                                canvas.readyPreviewGenerationState = ""
-                            }
-                            onPresentedGenerationChanged: {
-                                if (presentedGeneration.length > 0) {
-                                    canvas.previewFrameReadyState = true
-                                    canvas.readyPreviewGenerationState
-                                        = presentedGeneration
-                                } else {
-                                    canvas.previewFrameReadyState = false
-                                    canvas.readyPreviewGenerationState = ""
-                                }
-                            }
-                        }
-
-                        Image {
-                            id: displayZebraOverlay
-                            anchors.fill: parent
-                            source: canvas.scopePreviewAvailable
-                                ? "image://shadow-edit/scope/zebra/current?generation="
-                                    + canvas.readyPreviewGeneration : ""
-                            fillMode: Image.Stretch
-                            asynchronous: true
-                            cache: false
-                            retainWhileLoading: true
-                            smooth: false
-                            mipmap: false
-                            visible: canvas.zebraEnabled
-                                && canvas.scopePreviewAvailable
-                                && status === Image.Ready
-                            z: 10
-                        }
-
-                        PrecisionComparisonSurface {
-                            id: comparisonSurface
-                            anchors.fill: parent
-                            z: 20
-                            editor: canvas.editor
-                            editPreviewPresentation:
-                                canvas.editPreviewPresentation
-                            comparisonActive: canvas.comparisonActive
-                            comparisonMode: canvas.comparisonMode
-                            comparisonPosition: canvas.comparisonPosition
-                            beforeReady: canvas.beforeReady
-                            afterPreviewSource: canvas.visiblePreviewSource
-                            wipeVerticalMode: canvas.comparisonWipeVertical
-                            wipeHorizontalMode: canvas.comparisonWipeHorizontal
-                            sideBySideMode: canvas.comparisonSideBySide
-                            stackedMode: canvas.comparisonStacked
-                            onBeforeFrameReadyChanged:
-                                canvas.beforeFrameReadyState
-                                    = comparisonSurface.beforeFrameReady
-                            onComparisonPositionRequested: nextPosition =>
-                                canvas.comparisonPosition = nextPosition
-                        }
-
-                        Repeater {
-                            model: canvas.editor.detailTiles
-                            delegate: Image {
-                                required property var modelData
-                                x: modelData.x * canvas.displayScale
-                                y: modelData.y * canvas.displayScale
-                                width: modelData.width * canvas.displayScale
-                                height: modelData.height * canvas.displayScale
-                                source: modelData.source
-                                fillMode: Image.Stretch
-                                asynchronous: true
-                                cache: false
-                                smooth: false
-                                visible: canvas.showingFullDetail
-                                onStatusChanged: {
-                                    if (status === Image.Ready)
-                                        canvas.detailImageReadyState = true
-                                    else if (status === Image.Error) {
-                                        canvas.detailImageReadyState = false
-                                        canvas.detailImageLoadFailedState = true
-                                    }
-                                }
-                            }
-                        }
-
-                        PrecisionMaskCoverageOverlay {
-                            id: maskCoverageOverlay
-                            anchors.fill: parent
-                            z: 94
-                            editor: canvas.editor
-                            readyPreviewGeneration:
-                                canvas.readyPreviewGeneration
-                            coverageVisible: canvas.maskOverlayVisible
-                            interactionEnabled: canvas.activeToolMode
-                                    === canvas.toolMask
-                                && !canvas.comparisonActive
-                                && canvas.previewFrameReady
-                        }
-
-                        PrecisionLocalMaskOverlay {
-                            anchors.fill: parent
-                            z: 95
-                            editor: canvas.editor
-                            nativeCoverageReady:
-                                maskCoverageOverlay.coverageReady
-                            coverageVisible: canvas.maskOverlayVisible
-                            interactionEnabled: canvas.activeToolMode
-                                    === canvas.toolMask
-                                && !canvas.comparisonActive
-                                && !canvas.editor.pointColorPickerActive
-                                && !canvas.editor.whiteBalancePickerActive
-                                && !canvas.editor.retouchPickerActive
-                        }
-
-                        PrecisionCropOverlay {
-                            anchors.fill: parent
-                            z: 97
-                            editor: canvas.editor
-                            aspectRatioLock: canvas.cropAspectRatioLock
-                            interactionEnabled: canvas.activeToolMode
-                                === canvas.toolCrop
-                                && !canvas.comparisonActive
-                                && canvas.previewFrameReady
-                        }
-
-                        PrecisionRetouchOverlay {
-                            anchors.fill: parent
-                            z: 103
-                            editor: canvas.editor
-                            interactionEnabled: canvas.activeToolMode
-                                === canvas.toolRepair
-                                && !canvas.comparisonActive
-                                && canvas.previewFrameReady
-                            selectedContinuous:
-                                canvas.selectedRetouchContinuous
-                            selectedIndex: canvas.selectedRetouchIndex
-                            levelZeroWidth: canvas.imagePixelWidth
-                            levelZeroHeight: canvas.imagePixelHeight
-                            onRegionSelected:
-                                (continuous, index) =>
-                                    canvas.retouchRegionSelectionRequested(
-                                        continuous, index)
-                        }
-
-                        PrecisionLiquifyOverlay {
-                            anchors.fill: parent
-                            z: 104
-                            editor: canvas.editor
-                            previewItem: liveEditedPreview
-                            outputAspectRatio:
-                                canvas.imagePixelWidth
-                                / Math.max(1, canvas.imagePixelHeight)
-                            interactionEnabled:
-                                canvas.activeToolMode === canvas.toolLiquify
-                                && !canvas.comparisonActive
-                                && canvas.previewFrameReady
-                        }
-
-                        PrecisionCanvasPickerInput {
-                            anchors.fill: parent
-                            z: 100
-                            editor: canvas.editor
-                            previewItem: photoSurface
-                            previewContentRect: Qt.rect(
-                                0, 0, photoSurface.width, photoSurface.height)
-                            previewFrameReady: canvas.previewFrameReady
-                            readyPreviewGeneration:
-                                canvas.readyPreviewGeneration
-                            displayScale: canvas.displayScale
-                            interactionEnabled:
-                                (canvas.editor.pointColorPickerActive
-                                    || canvas.editor.whiteBalancePickerActive
-                                    || canvas.editor.retouchPickerActive)
-                                && !canvas.comparisonActive
-                                && canvas.previewFrameReady
-                                && canvas.readyPreviewGeneration.length > 0
-                        }
-                    }
-
-                    ScrollBar.horizontal: ScrollBar {
-                        policy: ScrollBar.AsNeeded
-                        onPressedChanged: {
-                            if (pressed) {
-                                directViewportSettle.stop()
-                            } else {
-                                Qt.callLater(canvas.requestVisibleDetail)
-                            }
-                        }
-                    }
-                    ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
-                        onPressedChanged: {
-                            if (pressed) {
-                                directViewportSettle.stop()
-                            } else {
-                                Qt.callLater(canvas.requestVisibleDetail)
+                Repeater {
+                    model: canvas.editor.detailTiles
+                    delegate: Image {
+                        required property var modelData
+                        x: modelData.x * canvas.displayScale
+                        y: modelData.y * canvas.displayScale
+                        width: modelData.width * canvas.displayScale
+                        height: modelData.height * canvas.displayScale
+                        source: modelData.source
+                        fillMode: Image.Stretch
+                        asynchronous: true
+                        cache: false
+                        smooth: false
+                        visible: canvas.showingFullDetail
+                        onStatusChanged: {
+                            if (status === Image.Ready)
+                                canvas.detailImageReadyState = true;
+                            else if (status === Image.Error) {
+                                canvas.detailImageReadyState = false;
+                                canvas.detailImageLoadFailedState = true;
                             }
                         }
                     }
                 }
+
+                PrecisionMaskCoverageOverlay {
+                    id: maskCoverageOverlay
+                    anchors.fill: parent
+                    z: 94
+                    editor: canvas.editor
+                    readyPreviewGeneration: canvas.readyPreviewGeneration
+                    coverageVisible: canvas.maskOverlayVisible
+                    interactionEnabled: canvas.activeToolMode === canvas.toolMask && !canvas.comparisonActive && canvas.previewFrameReady
+                }
+
+                PrecisionLocalMaskOverlay {
+                    anchors.fill: parent
+                    z: 95
+                    editor: canvas.editor
+                    nativeCoverageReady: maskCoverageOverlay.coverageReady
+                    coverageVisible: canvas.maskOverlayVisible
+                    interactionEnabled: canvas.activeToolMode === canvas.toolMask && !canvas.comparisonActive && !canvas.editor.aiMaskPromptActive && !canvas.editor.pointColorPickerActive && !canvas.editor.whiteBalancePickerActive && !canvas.editor.retouchPickerActive
+                }
+
+                PrecisionAiMaskPromptOverlay {
+                    anchors.fill: parent
+                    z: 101
+                    interactionEnabled: canvas.editor.aiMaskPromptActive && !canvas.comparisonActive && canvas.previewFrameReady
+                    busy: canvas.editor.aiMaskBusy
+                    foregroundMode: canvas.editor.aiMaskForegroundMode
+                    promptPoints: canvas.editor.aiMaskPromptPoints
+                    candidateSource: canvas.editor.aiMaskCandidateSource
+                    candidateVisible: canvas.editor.aiMaskHasCandidate
+                    foregroundColor: Theme.labelGreen
+                    backgroundColor: Theme.labelRed
+                    onPointRequested: (normalizedX, normalizedY, foreground) => canvas.editor.addAiMaskPromptPoint(normalizedX, normalizedY, foreground)
+                    onUndoRequested: canvas.editor.undoAiMaskPromptPoint()
+                    onClearRequested: canvas.editor.clearAiMaskPromptPoints()
+                }
+
+                PrecisionCropOverlay {
+                    anchors.fill: parent
+                    z: 97
+                    editor: canvas.editor
+                    aspectRatioLock: canvas.cropAspectRatioLock
+                    interactionEnabled: canvas.activeToolMode === canvas.toolCrop && !canvas.comparisonActive
+                }
+
+                PrecisionRetouchOverlay {
+                    anchors.fill: parent
+                    z: 103
+                    editor: canvas.editor
+                    interactionEnabled: canvas.activeToolMode === canvas.toolRepair && !canvas.comparisonActive
+                    selectedContinuous: canvas.selectedRetouchContinuous
+                    selectedIndex: canvas.selectedRetouchIndex
+                    levelZeroWidth: canvas.imagePixelWidth
+                    levelZeroHeight: canvas.imagePixelHeight
+                    onRegionSelected: (continuous, index) => canvas.retouchRegionSelectionRequested(continuous, index)
+                }
+
+                PrecisionLiquifyOverlay {
+                    anchors.fill: parent
+                    z: 104
+                    editor: canvas.editor
+                    previewItem: liveEditedPreview
+                    outputAspectRatio:
+                        canvas.imagePixelWidth
+                        / Math.max(1, canvas.imagePixelHeight)
+                    interactionEnabled:
+                        canvas.activeToolMode === canvas.toolLiquify
+                        && !canvas.comparisonActive
+                        && canvas.previewFrameReady
+                }
+
+                PrecisionCanvasPickerInput {
+                    anchors.fill: parent
+                    z: 100
+                    editor: canvas.editor
+                    previewItem: photoSurface
+                    previewContentRect: Qt.rect(0, 0, photoSurface.width, photoSurface.height)
+                    previewFrameReady: canvas.previewFrameReady
+                    readyPreviewGeneration: canvas.readyPreviewGeneration
+                    displayScale: canvas.displayScale
+                    interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
+                }
             }
 
-            PrecisionCanvasZoomInput {
-                parent: previewFlick
-                anchors.fill: parent
-                z: 150
-                interactionEnabled: canvas.editor.active
-                    && !canvas.comparisonActive
-                    && canvas.activeToolMode === canvas.toolNone
-                toolActive: canvas.zoomToolActive
-                fitView: canvas.fitView
-                zoomFactor: canvas.zoomFactor
-                fitZoomFactor: canvas.fitScale * canvas.deviceScale
-                onZoomStepRequested: (viewportX, viewportY, direction) =>
-                    canvas.zoomStepAtViewport(
-                        viewportX, viewportY, direction)
-                onContinuousZoomStarted: canvas.beginContinuousZoom()
-                onContinuousZoomRequested:
-                    (viewportX, viewportY, requestedZoom) =>
-                        canvas.zoomAtViewport(
-                            viewportX, viewportY, requestedZoom, false)
-                onContinuousZoomFinished: canvas.finishContinuousZoom()
+            ScrollBar.horizontal: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                onPressedChanged: {
+                    if (pressed) {
+                        directViewportSettle.stop();
+                    } else {
+                        Qt.callLater(canvas.requestVisibleDetail);
+                    }
+                }
             }
-
-            PrecisionCanvasStatusOverlays {
-                anchors.fill: parent
-                z: 200
-                editor: canvas.editor
-                comparisonActive: canvas.comparisonActive
-                comparisonMode: canvas.comparisonMode
-                showingFullDetail: canvas.showingFullDetail
-                fitView: canvas.fitView
-                zoomFactor: canvas.zoomFactor
-                detailImageReady: canvas.detailImageReady
-                detailImageLoadFailed: canvas.detailImageLoadFailed
-                beforeReady: canvas.beforeReady
-                beforeFrameReady: canvas.beforeFrameReady
-                previewFrameReady: canvas.previewFrameReady
-                previewLoadFailed: editedPreview.status === Image.Error
-                comparisonWhole: canvas.comparisonWhole
-                comparisonWipeVertical: canvas.comparisonWipeVertical
-                comparisonWipeHorizontal: canvas.comparisonWipeHorizontal
-                comparisonSideBySide: canvas.comparisonSideBySide
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                onPressedChanged: {
+                    if (pressed) {
+                        directViewportSettle.stop();
+                    } else {
+                        Qt.callLater(canvas.requestVisibleDetail);
+                    }
+                }
             }
         }
+    }
+
+    PrecisionCanvasZoomInput {
+        parent: previewFlick
+        anchors.fill: parent
+        z: 150
+        interactionEnabled: canvas.editor.active && !canvas.comparisonActive && canvas.activeToolMode === canvas.toolNone
+        toolActive: canvas.zoomToolActive
+        fitView: canvas.fitView
+        zoomFactor: canvas.zoomFactor
+        fitZoomFactor: canvas.fitScale * canvas.deviceScale
+        onZoomStepRequested: (viewportX, viewportY, direction) => canvas.zoomStepAtViewport(viewportX, viewportY, direction)
+        onContinuousZoomStarted: canvas.beginContinuousZoom()
+        onContinuousZoomRequested: (viewportX, viewportY, requestedZoom) => canvas.zoomAtViewport(viewportX, viewportY, requestedZoom, false)
+        onContinuousZoomFinished: canvas.finishContinuousZoom()
+    }
+
+    PrecisionCanvasStatusOverlays {
+        anchors.fill: parent
+        z: 200
+        editor: canvas.editor
+        comparisonActive: canvas.comparisonActive
+        comparisonMode: canvas.comparisonMode
+        showingFullDetail: canvas.showingFullDetail
+        fitView: canvas.fitView
+        zoomFactor: canvas.zoomFactor
+        detailImageReady: canvas.detailImageReady
+        detailImageLoadFailed: canvas.detailImageLoadFailed
+        beforeReady: canvas.beforeReady
+        beforeFrameReady: canvas.beforeFrameReady
+        previewFrameReady: canvas.previewFrameReady
+        previewLoadFailed: editedPreview.status === Image.Error
+        comparisonWhole: canvas.comparisonWhole
+        comparisonWipeVertical: canvas.comparisonWipeVertical
+        comparisonWipeHorizontal: canvas.comparisonWipeHorizontal
+        comparisonSideBySide: canvas.comparisonSideBySide
+    }
+}

@@ -21,8 +21,8 @@ const CAMERA_PROFILE_DIRECTORY_ENVIRONMENT: &str = "SHADOW_CAMERA_PROFILE_DIRECT
 const SOURCE_SIGNATURE_SAMPLE_BYTES: usize = 64 * 1024;
 
 pub(super) const REFERENCE_PROXY_PROTOCOL: &str = "shadow-proxy-v1";
-pub(super) const METADATA_SNAPSHOT_PROTOCOL: &str = "shadow-metadata-v2";
-pub(super) const DECODER_SNAPSHOT_PROTOCOL: &str = "shadow-inspect-v3";
+pub(super) const METADATA_SNAPSHOT_PROTOCOL: &str = "shadow-metadata-v3";
+pub(super) const DECODER_SNAPSHOT_PROTOCOL: &str = "shadow-inspect-v4";
 
 const REFERENCE_PROXY_OPERATION: &str = "reference-proxy";
 const METADATA_SNAPSHOT_OPERATION: &str = "metadata-snapshot";

@@ -22,7 +22,7 @@ Item {
                                               && pairedPreviewGeneration === readyPreviewGeneration
     readonly property bool coverageAvailable: interactionEnabled
         && editor.active && editor.hasSelectedGradeNode && kind >= 1
-        && kind <= 5 && coverageSource.length > 0 && generationMatches
+        && kind <= 6 && coverageSource.length > 0 && generationMatches
     readonly property bool coverageReady: coverageAvailable
         && coverageImage.status === Image.Ready
 

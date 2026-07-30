@@ -21,6 +21,7 @@ mod preview_frame;
 mod preview_session;
 mod provider;
 mod raw_development;
+mod raw_foundation;
 mod render_wire;
 
 pub use adjustment::*;
@@ -40,6 +41,7 @@ pub use preview_frame::*;
 pub use preview_session::*;
 pub use provider::*;
 pub use raw_development::*;
+pub use raw_foundation::*;
 
 #[cxx::bridge(namespace = "shadow::bridge")]
 mod ffi {
@@ -284,6 +286,23 @@ mod ffi {
         camera_profile_developer_version: u32,
     }
 
+    // Rust owns this complete buffer for one synchronous C++ preparation call. Native code
+    // borrows the float slice and copies only into the resulting scene-linear session; no path
+    // or artifact file descriptor crosses the ABI.
+    #[derive(Debug)]
+    struct FfiRawFoundation {
+        width: u32,
+        height: u32,
+        crop_top: u32,
+        crop_left: u32,
+        source_sha256: String,
+        artifact_file_sha256: String,
+        cache_key_sha256: String,
+        model_identity: String,
+        implementation_revision: String,
+        samples: Vec<f32>,
+    }
+
     #[derive(Debug)]
     struct FfiOpticsProfileCandidate {
         camera_maker: String,
@@ -328,6 +347,11 @@ mod ffi {
         aperture_f_number: f64,
         focal_length_mm: f64,
         captured_at_unix_seconds: i64,
+        has_gps_coordinates: bool,
+        gps_latitude_degrees: f64,
+        gps_longitude_degrees: f64,
+        has_gps_altitude: bool,
+        gps_altitude_meters: f64,
         lens_make: String,
         lens_model: String,
         focal_length_35mm: f64,
@@ -659,11 +683,23 @@ mod ffi {
             max_edge: u32,
             plan: &FfiRawDevelopmentPlan,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        fn prepare_edit_preview_with_raw_foundation(
+            self: &DecodeHandle,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            foundation: &FfiRawFoundation,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
         #[allow(dead_code)]
         fn prepare_edit_detail(self: &DecodeHandle) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn prepare_edit_detail_with_raw_development_plan(
             self: &DecodeHandle,
             plan: &FfiRawDevelopmentPlan,
+            requirements: &FfiDetailSessionRequirements,
+        ) -> Result<UniquePtr<FullEditDetailHandle>>;
+        fn prepare_edit_detail_with_raw_foundation(
+            self: &DecodeHandle,
+            plan: &FfiRawDevelopmentPlan,
+            foundation: &FfiRawFoundation,
             requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;

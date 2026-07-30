@@ -1,6 +1,7 @@
 use crate::ffi;
+use shadow_domain::{EntityId, KeywordId};
 
-use super::{library_cursor_from_ffi, library_filter_from_ffi};
+use super::{ffi_library_filter, library_cursor_from_ffi, library_filter_from_ffi};
 
 #[test]
 fn empty_cursor_starts_a_library_page_but_cannot_carry_capture_time() {
@@ -61,6 +62,26 @@ fn filter_keeps_explicit_edited_state_distinct_from_no_edit_filter() {
     );
 }
 
+#[test]
+fn keyword_filter_ids_round_trip_without_becoming_untyped_text() {
+    let required = KeywordId::new_v7();
+    let excluded = KeywordId::new_v7();
+    let filter = ffi::FfiLibraryPhotoFilter {
+        keyword_ids_all: vec![required.to_string()],
+        excluded_keyword_ids_any: vec![excluded.to_string()],
+        ..neutral_ffi_filter()
+    };
+    let typed = library_filter_from_ffi(&filter).expect("parse keyword ids");
+    assert_eq!(typed.keyword_ids_all, vec![required]);
+    assert_eq!(typed.excluded_keyword_ids_any, vec![excluded]);
+    let projected = ffi_library_filter(typed);
+    assert_eq!(projected.keyword_ids_all, vec![required.to_string()]);
+    assert_eq!(
+        projected.excluded_keyword_ids_any,
+        vec![excluded.to_string()]
+    );
+}
+
 fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
     ffi::FfiLibraryPhotoFilter {
         has_capture_start: false,
@@ -83,5 +104,7 @@ fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
         has_development_edits: false,
         development_edits: false,
         album_id: String::new(),
+        keyword_ids_all: Vec::new(),
+        excluded_keyword_ids_any: Vec::new(),
     }
 }

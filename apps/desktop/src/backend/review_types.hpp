@@ -81,6 +81,10 @@ struct BackendPhotoInspection final {
     QString lens_model;
     bool has_captured_at = false;
     std::int64_t captured_at_unix_seconds = 0;
+    bool has_coordinates = false;
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
+    QString place_name;
     bool has_iso_speed = false;
     double iso_speed = 0.0;
     bool has_exposure_time = false;

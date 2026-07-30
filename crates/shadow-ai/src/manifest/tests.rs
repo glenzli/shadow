@@ -149,6 +149,32 @@ fn manifest_supports_one_exact_multi_package_core_ml_set() {
 }
 
 #[test]
+fn manifest_supports_an_exact_extracted_core_ml_package_inventory() {
+    let mut manifest = valid_manifest();
+    manifest.format = ModelFormat::CoreMlPackage;
+    manifest.opset = None;
+    manifest.artifact_set.artifacts = vec![
+        ModelArtifact {
+            relative_path: "encoder.mlpackage/Manifest.json".into(),
+            role: ModelArtifactRole::CoreMlPackageMember,
+            byte_len: 21,
+            sha256: "1".repeat(64),
+        },
+        ModelArtifact {
+            relative_path: "encoder.mlpackage/Data/com.apple.CoreML/model.mlmodel".into(),
+            role: ModelArtifactRole::CoreMlPackageMember,
+            byte_len: 22,
+            sha256: "2".repeat(64),
+        },
+    ];
+    refresh_artifact_set_identity(&mut manifest);
+
+    manifest
+        .validate()
+        .expect("valid extracted Core ML artifact set");
+}
+
+#[test]
 fn core_ml_manifest_cannot_relabel_an_unrelated_artifact_set() {
     let mut manifest = valid_manifest();
     manifest.format = ModelFormat::CoreMlPackage;
@@ -156,7 +182,7 @@ fn core_ml_manifest_cannot_relabel_an_unrelated_artifact_set() {
 
     assert_eq!(
         manifest.validate(),
-        Err(ModelManifestError::MissingCoreMlPackageArchive)
+        Err(ModelManifestError::MissingCoreMlPackageArtifact)
     );
 }
 

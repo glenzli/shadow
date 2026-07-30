@@ -60,6 +60,17 @@ QtObject {
                 ? new Date(
                     Number(presentation.workspace.selectedCapturedAtUnixSeconds) * 1000
                 ).toLocaleString(Qt.locale(), Locale.ShortFormat) : "—"
+        case "location":
+            if (!presentation.workspace.selectedHasCoordinates)
+                return "—"
+            const coordinates = qsTr("%1, %2").arg(
+                presentation.workspace.selectedLatitude.toLocaleString(
+                    Qt.locale(), "f", 6)).arg(
+                presentation.workspace.selectedLongitude.toLocaleString(
+                    Qt.locale(), "f", 6))
+            return presentation.workspace.selectedPlaceName.length > 0
+                ? presentation.workspace.selectedPlaceName + " · " + coordinates
+                : coordinates
         case "camera": return joinedIdentity(presentation.workspace.selectedCameraMake, presentation.workspace.selectedCameraModel)
         case "lens": return joinedIdentity(presentation.workspace.selectedLensMake, presentation.workspace.selectedLensModel)
         case "exposure": return formatShutter(presentation.workspace.selectedExposureTimeSeconds)
@@ -89,6 +100,8 @@ QtObject {
               label: qsTr("Aperture"), value: exifValue("aperture") },
             { id: "iso", group: qsTr("Capture"), firstInGroup: false,
               label: qsTr("ISO sensitivity"), value: exifValue("iso") },
+            { id: "location", group: qsTr("Capture"), firstInGroup: false,
+              label: qsTr("Location"), value: exifValue("location") },
             { id: "camera", group: qsTr("Camera and lens"), firstInGroup: true,
               label: qsTr("Camera"), value: exifValue("camera") },
             { id: "lens", group: qsTr("Camera and lens"), firstInGroup: false,

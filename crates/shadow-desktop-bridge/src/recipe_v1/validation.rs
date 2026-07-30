@@ -63,6 +63,11 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
     let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 11);
     for (index, grade_node) in grade_stack.grade_nodes.iter().enumerate() {
+        if grade_node.local_mask.is_some() && grade_node.preserved_managed_raster.is_some() {
+            bail!(
+                "Grade Node {index} cannot carry both an editable local mask and an opaque managed raster marker"
+            );
+        }
         let identity = &grade_node.recipe_v1_identity;
         if !grade_node_ids.insert(identity.grade_node_id) {
             bail!(

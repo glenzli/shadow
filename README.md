@@ -62,6 +62,7 @@ RAW/DNG → metadata → embedded preview or bounded JPEG proxy → content cach
 cached JPEG visual → bounded display-luma → version-bound technical observation → Review detail
 two exact cached visuals → verified Compare RGBA frames → explicit outcome → append-only feedback / forget fact
 Review flag/rating → expected-head CAS → immutable decision event → current projection / inverse-event undo
+EXIF/GPS observation → non-destructive user override → indexed effective metadata → Library query / GPX match
 RAW/DNG → sensor mosaic → reference RGB correctness baseline
 RAW/DNG → bounded processed linear-light RGB proxy (sRGB primaries) → ordered edit nodes → versioned JPEG preview
 RAW/DNG → bounded full-size u16 reference session → exact level-zero RGB8 detail viewport

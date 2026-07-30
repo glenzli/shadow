@@ -43,18 +43,9 @@ void combined_lightroom_filters_intersect() {
         1
     );
     require(
-        source.updateLibraryState(
-            QStringLiteral("photo-a"),
-            true,
-            QStringLiteral("blue"),
-            1
-        )
-            && source.updateLibraryState(
-                QStringLiteral("photo-b"),
-                false,
-                QStringLiteral("red"),
-                2
-            ),
+        source.updateLibraryState(QStringLiteral("photo-a"), true, QStringLiteral("blue"), 1)
+            && source
+                   .updateLibraryState(QStringLiteral("photo-b"), false, QStringLiteral("red"), 2),
         "the source model must accept Catalog-authoritative color-label receipts"
     );
 
@@ -66,20 +57,11 @@ void combined_lightroom_filters_intersect() {
     require(filtered.hasActiveServerFilter(), "a selected facet must require a server query");
     require(filtered.rowCount() == 1, "flag filtering must narrow the grid");
     filtered.setMinimumRating(4);
-    require(
-        filtered.rowCount() == 1,
-        "star filtering must use a minimum rating threshold"
-    );
+    require(filtered.rowCount() == 1, "star filtering must use a minimum rating threshold");
     filtered.setColorFilter(QStringLiteral("blue"));
-    require(
-        filtered.rowCount() == 1,
-        "a matching color label must retain the selected photo"
-    );
+    require(filtered.rowCount() == 1, "a matching color label must retain the selected photo");
     filtered.setColorFilter(QStringLiteral("red"));
-    require(
-        filtered.rowCount() == 0,
-        "all enabled Lightroom-style filter facets must intersect"
-    );
+    require(filtered.rowCount() == 0, "all enabled Lightroom-style filter facets must intersect");
     filtered.clearFilters();
     require(!filtered.hasActiveServerFilter(), "clearing facets must restore the all-photos query");
     filtered.setEditFilter(QStringLiteral("edited"));
@@ -94,15 +76,9 @@ void combined_lightroom_filters_intersect() {
     );
     filtered.clearFilters();
     filtered.setLikedFilter(QStringLiteral("liked"));
-    require(
-        filtered.rowCount() == 1,
-        "the liked facet must select only Catalog-liked photos"
-    );
+    require(filtered.rowCount() == 1, "the liked facet must select only Catalog-liked photos");
     filtered.setLikedFilter(QStringLiteral("unliked"));
-    require(
-        filtered.rowCount() == 2,
-        "the unliked facet must exclude Catalog-liked photos"
-    );
+    require(filtered.rowCount() == 2, "the unliked facet must exclude Catalog-liked photos");
     filtered.clearFilters();
     filtered.setExcludedFlagFilter(QStringLiteral("rejected"));
     filtered.setExcludedColorFilter(QStringLiteral("blue"));
@@ -153,10 +129,45 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     require(!filtered.hasActiveServerFilter(), "clearing must include metadata facets");
 }
 
+void hierarchical_keyword_filters_are_normalized_server_predicates() {
+    ReviewFilterModel filtered;
+    filtered.setKeywordIdsAll(
+        {QStringLiteral(" keyword-a "),
+         QStringLiteral("keyword-b"),
+         QStringLiteral("keyword-a"),
+         QString()}
+    );
+    filtered.setExcludedKeywordIdsAny({QStringLiteral("keyword-c"), QStringLiteral(" keyword-c ")});
+
+    require(
+        filtered.keywordIdsAll()
+            == QStringList{
+                QStringLiteral("keyword-a"),
+                QStringLiteral("keyword-b"),
+            },
+        "required keyword ids must trim, preserve order, and deduplicate"
+    );
+    require(
+        filtered.excludedKeywordIdsAny() == QStringList{QStringLiteral("keyword-c")},
+        "excluded keyword ids must trim and deduplicate"
+    );
+    require(
+        filtered.hasActiveServerFilter(),
+        "keyword predicates must always request a Catalog query"
+    );
+
+    filtered.clearFilters();
+    require(
+        filtered.keywordIdsAll().isEmpty() && filtered.excludedKeywordIdsAny().isEmpty(),
+        "clearing filters must remove both keyword predicate sets"
+    );
+}
+
 } // namespace
 
 int main() {
     combined_lightroom_filters_intersect();
     catalog_metadata_facets_remain_typed_server_filters();
+    hierarchical_keyword_filters_are_normalized_server_predicates();
     return EXIT_SUCCESS;
 }

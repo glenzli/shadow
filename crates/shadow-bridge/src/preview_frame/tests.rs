@@ -7,10 +7,11 @@ use shadow_domain::ImageDimensions;
 
 use crate::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
-    AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
-    BasicEditParameters, CancellableEditPreview, EDIT_PREVIEW_MASK_COVERAGE_VERSION,
-    EditPreviewCancellation, EditPreviewMaskCoverageRequest, InteractiveEditPreviewStorage,
-    OwnedInteractivePreviewFrame, PhotoEditPreviewSession, basic_adjustment_render_plan, ffi,
+    AdjustmentLocalMask, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, CancellableEditPreview,
+    EDIT_PREVIEW_MASK_COVERAGE_VERSION, EditPreviewCancellation, EditPreviewMaskCoverageRequest,
+    InteractiveEditPreviewStorage, OwnedInteractivePreviewFrame, PhotoEditPreviewSession,
+    basic_adjustment_render_plan, ffi,
 };
 
 fn jpeg_fixture_path() -> PathBuf {
@@ -150,6 +151,58 @@ fn rgb_and_requested_coverage_share_one_stable_owner() {
             .samples
             .as_ptr(),
         coverage_pointer
+    );
+}
+
+#[test]
+fn managed_raster_crosses_cxx_and_publishes_cpu_coverage() {
+    let fixture = jpeg_fixture_path();
+    let session = PhotoEditPreviewSession::open(&fixture, 64).expect("open JPEG preview session");
+    let mut plan = single_masked_layer_plan();
+    let AdjustmentRenderOperation::LocalMaskLayerStart { mask, .. } = &mut plan.nodes[0].operation
+    else {
+        panic!("fixture plan starts with one mask layer");
+    };
+    *mask = Some(AdjustmentLocalMask::ManagedRaster {
+        raster_width: 2,
+        raster_height: 2,
+        coordinate_width: 64,
+        coordinate_height: 64,
+        encoding: AdjustmentRasterMaskEncoding::Gray8,
+        samples: vec![0, 255, 0, 255],
+        expansion: 0.0,
+        feather: 0.0,
+        invert: false,
+    });
+    let cancellation =
+        EditPreviewCancellation::new().expect("allocate preview cancellation source");
+    let completed = session
+        .render_plan_interactive_frame_cancellable(
+            &plan,
+            Some(EditPreviewMaskCoverageRequest {
+                target_layer_index: 0,
+                mask_selection_revision: 74,
+            }),
+            &cancellation,
+        )
+        .expect("kind-six raster decodes and falls back to CPU");
+    let CancellableEditPreview::Completed(frame) = completed else {
+        panic!("active managed-raster render must complete");
+    };
+    let coverage = frame
+        .mask_coverage()
+        .expect("managed raster publishes paired coverage");
+    let width = usize::try_from(coverage.dimensions.width).expect("preview width fits");
+    let height = usize::try_from(coverage.dimensions.height).expect("preview height fits");
+    let left_sum: usize = (0..height)
+        .map(|row| usize::from(coverage.samples[row * width]))
+        .sum();
+    let right_sum: usize = (0..height)
+        .map(|row| usize::from(coverage.samples[row * width + width - 1]))
+        .sum();
+    assert!(
+        left_sum < right_sum,
+        "kind-six payload retains its normalized left-to-right coverage"
     );
 }
 

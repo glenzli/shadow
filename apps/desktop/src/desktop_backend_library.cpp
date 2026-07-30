@@ -10,9 +10,26 @@ using desktop_backend_projection::checked_qt_vector_size;
 using desktop_backend_projection::decision_flag;
 using desktop_backend_projection::qstring;
 
-[[nodiscard]] shadow::desktop::FfiLibraryFlagFilter ffi_library_flag(
-    const BackendLibraryFlagFilter flag
-) {
+[[nodiscard]] rust::Vec<rust::String> ffi_strings(const QStringList& source) {
+    rust::Vec<rust::String> result;
+    result.reserve(static_cast<std::size_t>(source.size()));
+    for (const QString& value : source) {
+        result.push_back(value.toStdString());
+    }
+    return result;
+}
+
+[[nodiscard]] QStringList string_list(const rust::Vec<rust::String>& source) {
+    QStringList result;
+    result.reserve(checked_qt_vector_size(source.size(), "library_string_list"));
+    for (const auto& value : source) {
+        result.push_back(qstring(value));
+    }
+    return result;
+}
+
+[[nodiscard]] shadow::desktop::FfiLibraryFlagFilter
+ffi_library_flag(const BackendLibraryFlagFilter flag) {
     switch (flag) {
     case BackendLibraryFlagFilter::Any:
         return shadow::desktop::FfiLibraryFlagFilter::Any;
@@ -26,9 +43,8 @@ using desktop_backend_projection::qstring;
     throw std::invalid_argument("unknown Library flag filter");
 }
 
-[[nodiscard]] shadow::desktop::FfiLibraryPhotoFilter ffi_library_filter(
-    const BackendLibraryPhotoFilter& source
-) {
+[[nodiscard]] shadow::desktop::FfiLibraryPhotoFilter
+ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     shadow::desktop::FfiLibraryPhotoFilter filter;
     filter.has_capture_start = source.has_capture_start;
     filter.capture_start_unix_seconds = source.capture_start_unix_seconds;
@@ -50,12 +66,13 @@ using desktop_backend_projection::qstring;
     filter.has_development_edits = source.has_development_edits;
     filter.development_edits = source.development_edits;
     filter.album_id = source.album_id.toStdString();
+    filter.keyword_ids_all = ffi_strings(source.keyword_ids_all);
+    filter.excluded_keyword_ids_any = ffi_strings(source.excluded_keyword_ids_any);
     return filter;
 }
 
-[[nodiscard]] BackendLibraryFlagFilter library_flag_filter(
-    const shadow::desktop::FfiLibraryFlagFilter source
-) {
+[[nodiscard]] BackendLibraryFlagFilter
+library_flag_filter(const shadow::desktop::FfiLibraryFlagFilter source) {
     switch (source) {
     case shadow::desktop::FfiLibraryFlagFilter::Any:
         return BackendLibraryFlagFilter::Any;
@@ -69,9 +86,8 @@ using desktop_backend_projection::qstring;
     throw std::invalid_argument("unknown Library flag filter");
 }
 
-[[nodiscard]] BackendLibraryPhotoFilter library_filter(
-    const shadow::desktop::FfiLibraryPhotoFilter& source
-) {
+[[nodiscard]] BackendLibraryPhotoFilter
+library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
     return {
         .has_capture_start = source.has_capture_start,
         .capture_start_unix_seconds = source.capture_start_unix_seconds,
@@ -93,12 +109,13 @@ using desktop_backend_projection::qstring;
         .has_development_edits = source.has_development_edits,
         .development_edits = source.development_edits,
         .album_id = qstring(source.album_id),
+        .keyword_ids_all = string_list(source.keyword_ids_all),
+        .excluded_keyword_ids_any = string_list(source.excluded_keyword_ids_any),
     };
 }
 
-[[nodiscard]] shadow::desktop::FfiLibraryFacetKind ffi_library_facet_kind(
-    const BackendLibraryFacetKind kind
-) {
+[[nodiscard]] shadow::desktop::FfiLibraryFacetKind
+ffi_library_facet_kind(const BackendLibraryFacetKind kind) {
     switch (kind) {
     case BackendLibraryFacetKind::CaptureMonth:
         return shadow::desktop::FfiLibraryFacetKind::CaptureMonth;
@@ -110,27 +127,24 @@ using desktop_backend_projection::qstring;
     throw std::invalid_argument("unknown Library facet kind");
 }
 
-[[nodiscard]] shadow::desktop::FfiLibraryFacetCursor ffi_library_facet_cursor(
-    const BackendLibraryFacetCursor& source
-) {
+[[nodiscard]] shadow::desktop::FfiLibraryFacetCursor
+ffi_library_facet_cursor(const BackendLibraryFacetCursor& source) {
     shadow::desktop::FfiLibraryFacetCursor cursor;
     cursor.photo_count = source.photo_count;
     cursor.key = source.key.toStdString();
     return cursor;
 }
 
-[[nodiscard]] BackendLibraryFacetCursor library_facet_cursor(
-    const shadow::desktop::FfiLibraryFacetCursor& source
-) {
+[[nodiscard]] BackendLibraryFacetCursor
+library_facet_cursor(const shadow::desktop::FfiLibraryFacetCursor& source) {
     return {
         .photo_count = source.photo_count,
         .key = qstring(source.key),
     };
 }
 
-[[nodiscard]] BackendLibraryAlbumKind library_album_kind(
-    const shadow::desktop::FfiLibraryAlbumKind source
-) {
+[[nodiscard]] BackendLibraryAlbumKind
+library_album_kind(const shadow::desktop::FfiLibraryAlbumKind source) {
     switch (source) {
     case shadow::desktop::FfiLibraryAlbumKind::Manual:
         return BackendLibraryAlbumKind::Manual;
@@ -140,9 +154,7 @@ using desktop_backend_projection::qstring;
     throw std::invalid_argument("unknown Library album kind");
 }
 
-[[nodiscard]] BackendLibraryAlbum library_album(
-    const shadow::desktop::FfiLibraryAlbum& source
-) {
+[[nodiscard]] BackendLibraryAlbum library_album(const shadow::desktop::FfiLibraryAlbum& source) {
     return {
         .id = qstring(source.id),
         .kind = library_album_kind(source.kind),
@@ -153,9 +165,34 @@ using desktop_backend_projection::qstring;
     };
 }
 
-[[nodiscard]] BackendLibrarySourceHealth library_source_health(
-    const shadow::desktop::FfiLibrarySourceHealth& source
-) {
+[[nodiscard]] BackendLibraryKeyword
+library_keyword(const shadow::desktop::FfiLibraryKeyword& source) {
+    return {
+        .id = qstring(source.id),
+        .parent_id = qstring(source.parent_id),
+        .name = qstring(source.name),
+        .depth = source.depth,
+        .subtree_photo_count = source.subtree_photo_count,
+        .created_at_ms = source.created_at_ms,
+        .updated_at_ms = source.updated_at_ms,
+    };
+}
+
+[[nodiscard]] BackendLibraryKeywordOrigin
+library_keyword_origin(const shadow::desktop::FfiLibraryKeywordOrigin source) {
+    switch (source) {
+    case shadow::desktop::FfiLibraryKeywordOrigin::Manual:
+        return BackendLibraryKeywordOrigin::Manual;
+    case shadow::desktop::FfiLibraryKeywordOrigin::Imported:
+        return BackendLibraryKeywordOrigin::Imported;
+    case shadow::desktop::FfiLibraryKeywordOrigin::AiAccepted:
+        return BackendLibraryKeywordOrigin::AiAccepted;
+    }
+    throw std::invalid_argument("unknown Library keyword origin");
+}
+
+[[nodiscard]] BackendLibrarySourceHealth
+library_source_health(const shadow::desktop::FfiLibrarySourceHealth& source) {
     return {
         .source_id = qstring(source.source_id),
         .source_display_path = qstring(source.source_display_path),
@@ -169,9 +206,8 @@ using desktop_backend_projection::qstring;
     };
 }
 
-[[nodiscard]] BackendMissingSourceLocation missing_source_location(
-    const shadow::desktop::FfiMissingSourceLocation& source
-) {
+[[nodiscard]] BackendMissingSourceLocation
+missing_source_location(const shadow::desktop::FfiMissingSourceLocation& source) {
     return {
         .location_id = qstring(source.location_id),
         .photo_id = qstring(source.photo_id),
@@ -184,9 +220,8 @@ using desktop_backend_projection::qstring;
     };
 }
 
-[[nodiscard]] BackendVerifiedSourceRelinkReceipt verified_source_relink_receipt(
-    const shadow::desktop::FfiVerifiedSourceRelinkReceipt& source
-) {
+[[nodiscard]] BackendVerifiedSourceRelinkReceipt
+verified_source_relink_receipt(const shadow::desktop::FfiVerifiedSourceRelinkReceipt& source) {
     return {
         .photo_id = qstring(source.photo_id),
         .representation_id = qstring(source.representation_id),
@@ -195,9 +230,8 @@ using desktop_backend_projection::qstring;
     };
 }
 
-[[nodiscard]] shadow::desktop::FfiLibraryPhotoCursor ffi_library_cursor(
-    const BackendLibraryPhotoCursor& source
-) {
+[[nodiscard]] shadow::desktop::FfiLibraryPhotoCursor
+ffi_library_cursor(const BackendLibraryPhotoCursor& source) {
     shadow::desktop::FfiLibraryPhotoCursor cursor;
     cursor.photo_id = source.photo_id.toStdString();
     cursor.has_capture_time = source.has_capture_time;
@@ -205,9 +239,8 @@ using desktop_backend_projection::qstring;
     return cursor;
 }
 
-[[nodiscard]] BackendLibraryPhotoCursor library_cursor(
-    const shadow::desktop::FfiLibraryPhotoCursor& source
-) {
+[[nodiscard]] BackendLibraryPhotoCursor
+library_cursor(const shadow::desktop::FfiLibraryPhotoCursor& source) {
     return {
         .photo_id = qstring(source.photo_id),
         .has_capture_time = source.has_capture_time,
@@ -218,9 +251,8 @@ using desktop_backend_projection::qstring;
 /// Converts the intentionally compact photo-first Catalog projection into the
 /// existing grid DTO. Low-frequency technical inspection fields remain empty:
 /// the virtualized grid must not make a per-thumbnail technical query.
-[[nodiscard]] BackendReviewItem library_review_item(
-    const shadow::desktop::FfiLibraryPhotoItem& source
-) {
+[[nodiscard]] BackendReviewItem
+library_review_item(const shadow::desktop::FfiLibraryPhotoItem& source) {
     return {
         .photo_id = qstring(source.photo_id),
         .representation_id = qstring(source.representation_id),
@@ -243,17 +275,102 @@ using desktop_backend_projection::qstring;
         .camera_model = qstring(source.camera_model),
         .lens_make = qstring(source.lens_make),
         .lens_model = qstring(source.lens_model),
-        .captured_at_unix_seconds = source.has_captured_at
-            ? source.captured_at_unix_seconds
-            : 0,
+        .captured_at_unix_seconds = source.has_captured_at ? source.captured_at_unix_seconds : 0,
         .iso_speed = source.has_iso_speed ? source.iso_speed : 0.0,
-        .aperture_f_number = source.has_aperture
-            ? static_cast<double>(source.aperture_milli) / 1000.0
-            : 0.0,
+        .aperture_f_number =
+            source.has_aperture ? static_cast<double>(source.aperture_milli) / 1000.0 : 0.0,
         .focal_length_mm = source.has_focal_length
-            ? static_cast<double>(source.focal_length_tenth_mm) / 10.0
-            : 0.0,
+                               ? static_cast<double>(source.focal_length_tenth_mm) / 10.0
+                               : 0.0,
     };
+}
+
+[[nodiscard]] BackendLibraryMetadataState
+library_metadata_state(const shadow::desktop::FfiLibraryMetadataState& source) {
+    return {
+        .photo_id = qstring(source.photo_id),
+        .has_observed_capture_time = source.has_observed_capture_time,
+        .observed_captured_at_unix_seconds = source.observed_captured_at_unix_seconds,
+        .has_effective_capture_time = source.has_effective_capture_time,
+        .effective_captured_at_unix_seconds = source.effective_captured_at_unix_seconds,
+        .capture_time_override_mode = qstring(source.capture_time_override_mode),
+        .capture_time_override_origin = qstring(source.capture_time_override_origin),
+        .capture_time_source_label = qstring(source.capture_time_source_label),
+        .has_observed_coordinates = source.has_observed_coordinates,
+        .observed_latitude_e7 = source.observed_latitude_e7,
+        .observed_longitude_e7 = source.observed_longitude_e7,
+        .has_effective_coordinates = source.has_effective_coordinates,
+        .effective_latitude_e7 = source.effective_latitude_e7,
+        .effective_longitude_e7 = source.effective_longitude_e7,
+        .effective_place_name = qstring(source.effective_place_name),
+        .coordinates_override_mode = qstring(source.coordinates_override_mode),
+        .coordinates_override_origin = qstring(source.coordinates_override_origin),
+        .coordinates_source_label = qstring(source.coordinates_source_label),
+    };
+}
+
+[[nodiscard]] BackendGpxImportPreview
+gpx_import_preview(const shadow::desktop::FfiGpxImportPreview& source) {
+    BackendGpxImportPreview result{
+        .preview_id = qstring(source.preview_id),
+        .source_path = qstring(source.source_path),
+        .source_digest_hex = qstring(source.source_digest_hex),
+        .requested_photo_count = source.requested_photo_count,
+        .matched_photo_count = source.matched_photo_count,
+        .unmatched_photo_count = source.unmatched_photo_count,
+    };
+    result.proposal_sample.reserve(
+        checked_qt_vector_size(source.proposal_sample.size(), "gpx_proposal_sample")
+    );
+    for (const auto& proposal : source.proposal_sample) {
+        result.proposal_sample.push_back({
+            .photo_id = qstring(proposal.photo_id),
+            .captured_at_unix_seconds = proposal.captured_at_unix_seconds,
+            .matched_at_unix_seconds = proposal.matched_at_unix_seconds,
+            .nearest_track_delta_seconds = proposal.nearest_track_delta_seconds,
+            .latitude_e7 = proposal.latitude_e7,
+            .longitude_e7 = proposal.longitude_e7,
+        });
+    }
+    return result;
+}
+
+[[nodiscard]] BackendCaptureTimeBatchPreview
+capture_time_batch_preview(const shadow::desktop::FfiCaptureTimeBatchPreview& source) {
+    BackendCaptureTimeBatchPreview result{
+        .preview_id = qstring(source.preview_id),
+        .mode = qstring(source.mode),
+        .offset_seconds = source.offset_seconds,
+        .requested_photo_count = source.requested_photo_count,
+        .applicable_photo_count = source.applicable_photo_count,
+        .skipped_photo_count = source.skipped_photo_count,
+    };
+    result.proposal_sample.reserve(
+        checked_qt_vector_size(source.proposal_sample.size(), "capture_time_proposal_sample")
+    );
+    for (const auto& proposal : source.proposal_sample) {
+        result.proposal_sample.push_back({
+            .photo_id = qstring(proposal.photo_id),
+            .has_before_capture_time = proposal.has_before_capture_time,
+            .before_captured_at_unix_seconds = proposal.before_captured_at_unix_seconds,
+            .has_after_capture_time = proposal.has_after_capture_time,
+            .after_captured_at_unix_seconds = proposal.after_captured_at_unix_seconds,
+        });
+    }
+    return result;
+}
+
+[[nodiscard]] rust::Vec<shadow::desktop::FfiBatchPhotoTarget>
+ffi_batch_photo_targets(const QVector<BackendBatchPhotoTarget>& targets) {
+    rust::Vec<shadow::desktop::FfiBatchPhotoTarget> result;
+    result.reserve(static_cast<std::size_t>(targets.size()));
+    for (const auto& target : targets) {
+        shadow::desktop::FfiBatchPhotoTarget ffi_target;
+        ffi_target.photo_id = target.photo_id.toStdString();
+        ffi_target.source_path = target.source_path.toStdString();
+        result.push_back(std::move(ffi_target));
+    }
+    return result;
 }
 
 } // namespace
@@ -278,10 +395,43 @@ BackendLibraryPhotoPage DesktopBackend::libraryPhotoPage(
     return page;
 }
 
-std::uint64_t DesktopBackend::libraryPhotoCount(
-    const BackendLibraryPhotoFilter& filter
-) const {
+std::uint64_t DesktopBackend::libraryPhotoCount(const BackendLibraryPhotoFilter& filter) const {
     return impl_->session->library_photo_count(ffi_library_filter(filter));
+}
+
+BackendLibraryMapSnapshot DesktopBackend::libraryMapSnapshot(
+    const BackendLibraryPhotoFilter& filter,
+    const BackendLibraryMapViewport& viewport,
+    const BackendLibraryMapGrid& grid
+) const {
+    const auto source = impl_->session->library_map_snapshot(
+        ffi_library_filter(filter),
+        viewport.south_latitude_e7,
+        viewport.west_longitude_e7,
+        viewport.north_latitude_e7,
+        viewport.east_longitude_e7,
+        grid.columns,
+        grid.rows
+    );
+    BackendLibraryMapSnapshot snapshot;
+    snapshot.photo_count = source.photo_count;
+    snapshot.clusters.reserve(
+        checked_qt_vector_size(source.clusters.size(), "library_map_clusters")
+    );
+    for (const auto& cluster : source.clusters) {
+        snapshot.clusters.push_back({
+            .cell_x = cluster.cell_x,
+            .cell_y = cluster.cell_y,
+            .latitude_e7 = cluster.latitude_e7,
+            .longitude_e7 = cluster.longitude_e7,
+            .photo_count = cluster.photo_count,
+            .photo_id = qstring(cluster.photo_id),
+            .representation_id = qstring(cluster.representation_id),
+            .title = qstring(cluster.title),
+            .source_path = qstring(cluster.source_path),
+        });
+    }
+    return snapshot;
 }
 
 BackendLibraryFacetPage DesktopBackend::libraryFacetPage(
@@ -320,6 +470,34 @@ QVector<BackendLibraryAlbum> DesktopBackend::libraryAlbums() const {
     return albums;
 }
 
+QVector<BackendLibraryKeyword> DesktopBackend::libraryKeywords() const {
+    const auto source = impl_->session->library_keywords();
+    QVector<BackendLibraryKeyword> keywords;
+    keywords.reserve(checked_qt_vector_size(source.size(), "library_keywords"));
+    for (const auto& value : source) {
+        keywords.push_back(library_keyword(value));
+    }
+    return keywords;
+}
+
+QVector<BackendLibraryPhotoKeyword>
+DesktopBackend::libraryKeywordsForPhoto(const QString& photo_id) const {
+    const auto source = impl_->session->library_keywords_for_photo(photo_id.toStdString());
+    QVector<BackendLibraryPhotoKeyword> keywords;
+    keywords.reserve(checked_qt_vector_size(source.size(), "library_photo_keywords"));
+    for (const auto& value : source) {
+        keywords.push_back({
+            .keyword = library_keyword(value.keyword),
+            .origin = library_keyword_origin(value.origin),
+            .source_label = qstring(value.source_label),
+            .has_confidence = value.has_confidence,
+            .confidence_milli = value.confidence_milli,
+            .assigned_at_ms = value.assigned_at_ms,
+        });
+    }
+    return keywords;
+}
+
 QVector<BackendLibrarySourceHealth> DesktopBackend::librarySourceHealth() const {
     const auto source = impl_->session->library_source_health();
     QVector<BackendLibrarySourceHealth> health;
@@ -356,21 +534,71 @@ BackendVerifiedSourceRelinkReceipt DesktopBackend::relinkMissingSourceLocation(
     const QString& location_id,
     const QString& candidate_path
 ) const {
-    return verified_source_relink_receipt(
-        impl_->session->relink_missing_source_location(
-            scan_session_id.toStdString(),
-            location_id.toStdString(),
-            candidate_path.toStdString()
-        )
+    return verified_source_relink_receipt(impl_->session->relink_missing_source_location(
+        scan_session_id.toStdString(),
+        location_id.toStdString(),
+        candidate_path.toStdString()
+    ));
+}
+
+BackendLibraryAlbum DesktopBackend::createManualLibraryAlbum(const QString& name) const {
+    return library_album(impl_->session->create_manual_library_album(name.toStdString()));
+}
+
+BackendLibraryKeyword
+DesktopBackend::createLibraryKeyword(const QString& parent_id, const QString& name) const {
+    return library_keyword(
+        impl_->session->create_library_keyword(parent_id.toStdString(), name.toStdString())
     );
 }
 
-BackendLibraryAlbum DesktopBackend::createManualLibraryAlbum(
-    const QString& name
-) const {
-    return library_album(
-        impl_->session->create_manual_library_album(name.toStdString())
+BackendLibraryKeyword
+DesktopBackend::renameLibraryKeyword(const QString& keyword_id, const QString& name) const {
+    return library_keyword(
+        impl_->session->rename_library_keyword(keyword_id.toStdString(), name.toStdString())
     );
+}
+
+BackendLibraryKeyword
+DesktopBackend::moveLibraryKeyword(const QString& keyword_id, const QString& parent_id) const {
+    return library_keyword(
+        impl_->session->move_library_keyword(keyword_id.toStdString(), parent_id.toStdString())
+    );
+}
+
+BackendLibraryKeywordDeletionReceipt
+DesktopBackend::deleteLibraryKeywordSubtree(const QString& keyword_id) const {
+    const auto receipt = impl_->session->delete_library_keyword_subtree(keyword_id.toStdString());
+    return {
+        .deleted_keyword_count = receipt.deleted_keyword_count,
+        .deleted_assignment_count = receipt.deleted_assignment_count,
+    };
+}
+
+BackendLibraryKeywordMutationReceipt DesktopBackend::assignLibraryKeyword(
+    const QString& keyword_id,
+    const QStringList& photo_ids
+) const {
+    const auto receipt =
+        impl_->session->assign_library_keyword(keyword_id.toStdString(), ffi_strings(photo_ids));
+    return {
+        .keyword_id = qstring(receipt.keyword_id),
+        .requested_photo_count = receipt.requested_photo_count,
+        .changed_photo_count = receipt.changed_photo_count,
+    };
+}
+
+BackendLibraryKeywordMutationReceipt DesktopBackend::removeLibraryKeyword(
+    const QString& keyword_id,
+    const QStringList& photo_ids
+) const {
+    const auto receipt =
+        impl_->session->remove_library_keyword(keyword_id.toStdString(), ffi_strings(photo_ids));
+    return {
+        .keyword_id = qstring(receipt.keyword_id),
+        .requested_photo_count = receipt.requested_photo_count,
+        .changed_photo_count = receipt.changed_photo_count,
+    };
 }
 
 BackendLibraryAlbum DesktopBackend::createSmartLibraryAlbum(
@@ -383,14 +611,11 @@ BackendLibraryAlbum DesktopBackend::createSmartLibraryAlbum(
     ));
 }
 
-BackendLibraryAlbum DesktopBackend::renameLibraryAlbum(
-    const QString& album_id,
-    const QString& name
-) const {
-    return library_album(impl_->session->rename_library_album(
-        album_id.toStdString(),
-        name.toStdString()
-    ));
+BackendLibraryAlbum
+DesktopBackend::renameLibraryAlbum(const QString& album_id, const QString& name) const {
+    return library_album(
+        impl_->session->rename_library_album(album_id.toStdString(), name.toStdString())
+    );
 }
 
 bool DesktopBackend::deleteLibraryAlbum(const QString& album_id) const {
@@ -432,5 +657,81 @@ BackendPhotoLibraryState DesktopBackend::setPhotoLibraryState(
         .liked = state.liked,
         .color_label = qstring(state.color_label),
         .updated_at_ms = state.updated_at_ms,
+    };
+}
+
+BackendLibraryMetadataState DesktopBackend::libraryMetadataState(const QString& photo_id) const {
+    return library_metadata_state(impl_->session->library_metadata_state(photo_id.toStdString()));
+}
+
+BackendLibraryMetadataState DesktopBackend::setLibraryCaptureTimeOverride(
+    const QString& photo_id,
+    const QString& mode,
+    const std::int64_t captured_at_unix_seconds
+) const {
+    return library_metadata_state(impl_->session->set_library_capture_time_override(
+        photo_id.toStdString(),
+        mode.toStdString(),
+        captured_at_unix_seconds
+    ));
+}
+
+BackendLibraryMetadataState DesktopBackend::setLibraryCoordinatesOverride(
+    const QString& photo_id,
+    const QString& mode,
+    const double latitude_degrees,
+    const double longitude_degrees,
+    const QString& place_name
+) const {
+    return library_metadata_state(impl_->session->set_library_coordinates_override(
+        photo_id.toStdString(),
+        mode.toStdString(),
+        latitude_degrees,
+        longitude_degrees,
+        place_name.toStdString()
+    ));
+}
+
+BackendCaptureTimeBatchPreview DesktopBackend::previewLibraryCaptureTimeBatch(
+    const QVector<BackendBatchPhotoTarget>& targets,
+    const QString& mode,
+    const std::int64_t offset_seconds
+) const {
+    return capture_time_batch_preview(impl_->session->preview_library_capture_time_batch(
+        ffi_batch_photo_targets(targets),
+        mode.toStdString(),
+        offset_seconds
+    ));
+}
+
+BackendLibraryMetadataBatchReceipt
+DesktopBackend::applyLibraryCaptureTimeBatch(const QString& preview_id) const {
+    const auto receipt = impl_->session->apply_library_capture_time_batch(preview_id.toStdString());
+    return {
+        .requested_photo_count = receipt.requested_photo_count,
+        .applied_photo_count = receipt.applied_photo_count,
+    };
+}
+
+BackendGpxImportPreview DesktopBackend::previewLibraryGpxImport(
+    const QString& gpx_path,
+    const QVector<BackendBatchPhotoTarget>& targets,
+    const std::int64_t camera_clock_offset_seconds,
+    const std::uint32_t maximum_gap_seconds
+) const {
+    return gpx_import_preview(impl_->session->preview_library_gpx_import(
+        gpx_path.toStdString(),
+        ffi_batch_photo_targets(targets),
+        camera_clock_offset_seconds,
+        maximum_gap_seconds
+    ));
+}
+
+BackendLibraryMetadataBatchReceipt
+DesktopBackend::applyLibraryGpxImport(const QString& preview_id) const {
+    const auto receipt = impl_->session->apply_library_gpx_import(preview_id.toStdString());
+    return {
+        .requested_photo_count = receipt.requested_photo_count,
+        .applied_photo_count = receipt.applied_photo_count,
     };
 }

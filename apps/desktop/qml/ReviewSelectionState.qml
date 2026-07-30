@@ -54,6 +54,14 @@ QtObject {
         String(selectedInspection.lensModel || "")
     readonly property var selectedCapturedAtUnixSeconds:
         selectedInspection.capturedAtUnixSeconds || 0
+    readonly property bool selectedHasCoordinates:
+        Boolean(selectedInspection.hasCoordinates)
+    readonly property real selectedLatitude:
+        Number(selectedInspection.latitude || 0)
+    readonly property real selectedLongitude:
+        Number(selectedInspection.longitude || 0)
+    readonly property string selectedPlaceName:
+        String(selectedInspection.placeName || "")
     readonly property real selectedIsoSpeed:
         Number(selectedInspection.isoSpeed || 0)
     readonly property real selectedExposureTimeSeconds:

@@ -11,16 +11,18 @@ use shadow_bridge::{
 };
 
 use super::{
-    OwnedEditedPreview, RecipePreviewStoreRequest, cancelled_edited_preview,
-    completed_edited_preview, store_recipe_preview,
+    OwnedEditedPreview, RecipePreviewStoreRequest, WarmEditPreviewSourceRequest,
+    cancelled_edited_preview, completed_edited_preview, store_recipe_preview,
 };
 use crate::{
     DesktopSession, ffi,
     preview_cache_identity::current_source_environment_cache_identity,
     preview_render_registry::{PreviewAdmission, PreviewRenderRegistryError, PreviewTerminalClaim},
+    raw_foundation_render_source::raw_foundation_ready_for_render,
     recipe_v1::{
         bridge_optics_settings, preview_foundation_development_plan, resolve_recipe_render,
     },
+    session_photo_source::catalog_native_path,
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -171,6 +173,7 @@ impl DesktopSession {
                 current_source_environment_cache_identity(&photo_provider_version());
             let recipe = resolve_recipe_render(
                 &self.catalog,
+                &self.cache_root,
                 photo_id,
                 &request.base_commit_id,
                 &request.settings,
@@ -178,14 +181,26 @@ impl DesktopSession {
             )?;
             let raw_development_plan =
                 preview_foundation_development_plan(recipe.raw_white_balance);
-            let session = self.warm_edit_preview_sessions.get_or_prepare(
-                &self.cache_root,
-                &source,
-                request.max_edge,
-                raw_development_plan,
-                &bridge_optics_settings(&request.settings.foundation.optics),
-                &source_environment_cache_identity,
+            let native_path = catalog_native_path(&source)?;
+            let raw_foundation = raw_foundation_ready_for_render(
+                &self.raw_foundations,
+                &self.raw_foundation_runtime,
+                &native_path,
+                source.source,
+                recipe.raw_ai_denoise,
             )?;
+            let optics = bridge_optics_settings(&request.settings.foundation.optics);
+            let session =
+                self.warm_edit_preview_sessions
+                    .get_or_prepare(&WarmEditPreviewSourceRequest {
+                        runtime_cache_root: &self.cache_root,
+                        source: &source,
+                        max_edge: request.max_edge,
+                        raw_development_plan,
+                        optics: &optics,
+                        source_environment_cache_identity: &source_environment_cache_identity,
+                        raw_foundation: raw_foundation.as_ref(),
+                    })?;
             if self
                 .edit_preview_render_tokens
                 .admission(request.render_token)

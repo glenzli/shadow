@@ -21,5 +21,8 @@ pub(super) fn run_library_browse_message(catalog: &mut Catalog, message: Library
         LibraryBrowseMessage::PhotoCount(filter, response) => {
             let _ = response.send(catalog.library_photo_count(&filter));
         }
+        LibraryBrowseMessage::MapSnapshot(filter, viewport, grid, response) => {
+            let _ = response.send(catalog.library_map_snapshot(&filter, viewport, grid));
+        }
     }
 }

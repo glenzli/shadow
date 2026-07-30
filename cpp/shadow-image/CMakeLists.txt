@@ -1,5 +1,5 @@
 find_package(PkgConfig REQUIRED)
-# Parallel source sessions are safe only with LibRaw's reentrant Unix/macOS build.
+#Parallel source sessions are safe only with LibRaw's reentrant Unix/macOS build.
 pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET "libraw_r>=0.22.0")
 if(NOT "raw_r" IN_LIST LibRaw_LIBRARIES OR "raw" IN_LIST LibRaw_LIBRARIES)
     message(FATAL_ERROR
@@ -37,6 +37,7 @@ add_library(
     src/decoder/decoder_error.cpp
     src/decoder/decoder_metadata.cpp
     src/decoder/decoder_types.cpp
+    src/decoder/dng_noise_profile.cpp
     src/decoder/libraw_runtime.cpp
     src/decoder/libraw_reference_development.cpp
     src/decoder/libraw_decoder.cpp
@@ -63,6 +64,7 @@ add_library(
     src/edit/local_mask.cpp
     src/edit/local_mask_coverage.cpp
     src/edit/local_mask_validation.cpp
+    src/edit/managed_raster_mask.cpp
     src/edit/metal_adjustment_program.cpp
     src/edit/oklab_color_warper.cpp
     src/edit/perceptual_color.cpp
@@ -84,8 +86,11 @@ add_library(
     src/raw/dcp_color_rendering.cpp
     src/raw/dcp_parser.cpp
     src/raw/fused_raw_development.cpp
+    src/raw/neural_raw_denoise/neural_raw_denoise.cpp
     src/raw/raw_denoise.cpp
     src/raw/raw_denoise_plan.cpp
+    src/raw/raw_foundation.cpp
+    src/raw/raw_foundation_source.cpp
     src/raw/raw_frame_development_plan.cpp
     src/raw/raw_frame_region_development.cpp
     src/raw/raw_frame_source_preparation.cpp
@@ -123,9 +128,31 @@ add_library(
     src/proxy/warm_edit_gpu_render_plan.cpp
     src/proxy/warm_edit_preview.cpp
 )
+if(APPLE)
+    find_library(SHADOW_COREML_FRAMEWORK CoreML REQUIRED)
+    find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    target_sources(
+        shadow-image
+        PRIVATE
+            src/raw/neural_raw_denoise/coreml_neural_raw_denoise.mm
+    )
+    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=1)
+    target_link_libraries(
+        shadow-image-platform-runtime
+        INTERFACE
+            "${SHADOW_COREML_FRAMEWORK}"
+            "${SHADOW_FOUNDATION_FRAMEWORK}"
+    )
+else()
+    target_sources(
+        shadow-image
+        PRIVATE
+            src/raw/neural_raw_denoise/coreml_neural_raw_denoise_stub.cpp
+    )
+    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=0)
+endif()
 if(APPLE AND SHADOW_ENABLE_METAL)
     find_library(SHADOW_METAL_FRAMEWORK Metal REQUIRED)
-    find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
     target_sources(
         shadow-image
         PRIVATE
@@ -158,7 +185,6 @@ if(APPLE AND SHADOW_ENABLE_METAL)
         shadow-image-platform-runtime
         INTERFACE
             "${SHADOW_METAL_FRAMEWORK}"
-            "${SHADOW_FOUNDATION_FRAMEWORK}"
     )
 else()
     target_sources(
@@ -190,9 +216,9 @@ target_link_libraries(
     PUBLIC Shadow::ImagePlatformRuntime
 )
 if(Lensfun_FOUND)
-    # An explicitly selected Lensfun prefix must win over broad dependency include roots such as
-    # /opt/homebrew/include. Otherwise a developer database build can compile against Homebrew's
-    # headers and link a different ABI-compatible-looking library from the selected prefix.
+#An explicitly selected Lensfun prefix must win over broad dependency include roots such as
+#/ opt / homebrew / include.Otherwise a developer database build can compile against Homebrew's
+#headers and link a different ABI - compatible - looking library from the selected prefix.
     target_include_directories(
         shadow-image
         SYSTEM BEFORE PRIVATE
@@ -214,20 +240,25 @@ shadow_image_enable_warnings(shadow-image)
 if(SHADOW_BUILD_RAW_PROBE)
     add_executable(shadow-raw-probe tools/raw_probe.cpp)
     target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
+    target_include_directories(
+        shadow-raw-probe
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/raw/neural_raw_denoise"
+    )
     shadow_image_enable_warnings(shadow-raw-probe)
 endif()
 
-# The desktop starts this tiny executable for untrusted or proprietary RAW
-# decoder work.  A native crash in LibRaw or a locally installed vendor module
-# then becomes one failed preview instead of a crashed photo application.
+#The desktop starts this tiny executable for untrusted or proprietary RAW
+#decoder work.A native crash in LibRaw or a locally installed vendor module
+#then becomes one failed preview instead of a crashed photo application.
 add_executable(shadow-image-decode-helper tools/decode_helper.cpp)
 target_link_libraries(shadow-image-decode-helper PRIVATE Shadow::Image)
 shadow_image_enable_warnings(shadow-image-decode-helper)
 
 if(BUILD_TESTING)
-    # This deliberately contains no vendor SDK. It exercises the same load/create/destroy
-    # contract a user's private SDK adapter will use, without allowing public tests to depend
-    # on proprietary headers or a real camera file.
+#This deliberately contains no vendor SDK.It exercises the same load / create / destroy
+#contract a user's private SDK adapter will use, without allowing public tests to depend
+#on proprietary headers or a real camera file.
     add_library(
         shadow-image-private-decoder-test-plugin
         MODULE
@@ -258,8 +289,8 @@ if(BUILD_TESTING)
             TIMEOUT 30
     )
 
-    # Models an old v1-only artifact that predates the exact interface seal. Its factory aborts;
-    # the loader contract test must reject it before construction.
+#Models an old v1 - only artifact that predates the exact interface seal.Its factory aborts;
+#the loader contract test must reject it before construction.
     add_library(
         shadow-image-stale-private-decoder-test-plugin
         MODULE
@@ -276,8 +307,8 @@ if(BUILD_TESTING)
     )
     shadow_image_enable_warnings(shadow-image-stale-private-decoder-test-plugin)
 
-    # A public, LibRaw-backed dynamic provider used only to validate the local-provider route.
-    # It deliberately resembles the shape of a private vendor plugin without containing one.
+#A public, LibRaw - backed dynamic provider used only to validate the local - provider route.
+#It deliberately resembles the shape of a private vendor plugin without containing one.
     add_library(
         shadow-image-libraw-dummy-private-provider
         MODULE
@@ -328,6 +359,16 @@ if(BUILD_TESTING)
         shadow-image-decoder-metadata-tests
         shadow-image-decoder-metadata-contract
         tests/decoder_metadata_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raster-gps-metadata-tests
+        shadow-image-raster-gps-metadata-contract
+        tests/raster_gps_metadata_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-raster-gps-metadata-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/decoder"
     )
     shadow_image_add_contract(
         shadow-image-libraw-reference-development-tests
@@ -496,6 +537,17 @@ if(BUILD_TESTING)
         shadow-image-local-mask-coverage-tests
         shadow-image-local-mask-coverage-contract
         tests/local_mask_coverage_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-managed-raster-mask-tests
+        shadow-image-managed-raster-mask-contract
+        tests/managed_raster_mask_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-managed-raster-mask-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
     )
     shadow_image_add_contract(
         shadow-image-edit-preview-geometry-execution-tests
@@ -834,6 +886,26 @@ if(BUILD_TESTING)
         tests/raw_sensor_preparation_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-neural-raw-denoise-tests
+        shadow-image-neural-raw-denoise-contract
+        tests/neural_raw_denoise_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-foundation-tests
+        shadow-image-raw-foundation-contract
+        tests/raw_foundation_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-foundation-source-route-tests
+        shadow-image-raw-foundation-source-route-contract
+        tests/raw_foundation_source_route_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-foundation-edit-surfaces-tests
+        shadow-image-raw-foundation-edit-surfaces-contract
+        tests/raw_foundation_edit_surfaces_contract_test.cpp
+    )
+    shadow_image_add_contract(
         shadow-image-raw-frame-development-plan-tests
         shadow-image-raw-frame-development-plan-contract
         tests/raw_frame_development_plan_contract_test.cpp
@@ -909,9 +981,9 @@ if(BUILD_TESTING)
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_WARM_METAL=1"
                 LABELS "metal-required"
         )
-        # This contract intentionally exercises both automatic all-or-nothing CPU replay and a
-        # scoped forced-Metal failure. Require a real device without overriding its outer
-        # automatic-selection premise.
+#This contract intentionally exercises both automatic all - or -nothing CPU replay and a
+#scoped forced - Metal failure.Require a real device without overriding its outer
+#automatic - selection premise.
         set_tests_properties(
             shadow-image-edit-preview-execution-contract
             PROPERTIES
@@ -961,9 +1033,9 @@ if(BUILD_TESTING)
                 ENVIRONMENT "SHADOW_TEST_REQUIRE_METAL=1"
                 LABELS "metal-required"
         )
-        # This aggregate owns both CPU reference cases and automatic Metal selection for eligible
-        # denoise, balanced, and high-quality reconstruction. Require a real device without
-        # overriding those per-case selectors.
+#This aggregate owns both CPU reference cases and automatic Metal selection for eligible
+#denoise, balanced, and high - quality reconstruction.Require a real device without
+#overriding those per - case selectors.
         set_tests_properties(
             shadow-image-raw-sensor-preparation-contract
             PROPERTIES
@@ -977,6 +1049,17 @@ if(BUILD_TESTING)
     target_link_libraries(shadow-image-dcp-parser-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-dcp-parser-tests)
     add_test(NAME shadow-image-dcp-parser-contract COMMAND shadow-image-dcp-parser-tests)
+
+    shadow_image_add_contract(
+        shadow-image-dng-noise-profile-tests
+        shadow-image-dng-noise-profile-contract
+        tests/dng_noise_profile_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-dng-noise-profile-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/decoder"
+    )
 
     shadow_image_add_contract(
         shadow-image-camera-profile-catalog-tests

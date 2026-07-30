@@ -10,6 +10,7 @@ Menu {
     required property var preferences
     signal openLutLibraryRequested()
     signal openCacheMaintenanceRequested()
+    signal openMapProviderSettingsRequested()
 
     title: qsTr("Settings")
     width: 236
@@ -230,6 +231,26 @@ Menu {
                 ? Theme.buttonGhostHover : Theme.transparent
         }
         onTriggered: root.openCacheMaintenanceRequested()
+    }
+
+    MenuItem {
+        id: mapProviderSettingsItem
+        width: root.availableWidth
+        height: Theme.controlHeight
+        text: qsTr("Map & Location Services…")
+        leftPadding: 35
+        contentItem: Label {
+            text: mapProviderSettingsItem.text
+            color: Theme.textPrimary
+            font.pixelSize: 12
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: mapProviderSettingsItem.highlighted
+                ? Theme.buttonGhostHover : Theme.transparent
+        }
+        onTriggered: root.openMapProviderSettingsRequested()
     }
 
     PreferenceSeparator {}

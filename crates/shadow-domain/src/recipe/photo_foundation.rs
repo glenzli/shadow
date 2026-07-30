@@ -2,7 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{RecipeInputSettings, RecipeOpticsSettings, RecipeValidationError};
+use super::{
+    RawFoundationDenoise, RecipeInputSettings, RecipeOpticsSettings, RecipeValidationError,
+};
 
 /// Fixed denominator used by persisted camera-neutral channel ratios.
 ///
@@ -217,6 +219,11 @@ impl PhotoFoundationNode {
     /// Returns the absolute RAW white-balance source interpretation.
     pub const fn raw_white_balance(&self) -> RawWhiteBalance {
         self.input_settings.raw_white_balance()
+    }
+
+    /// Returns the single-use AI RAW denoise intent for this source.
+    pub const fn raw_ai_denoise(&self) -> RawFoundationDenoise {
+        self.input_settings.raw_ai_denoise()
     }
 
     /// Removes the node role and returns its Recipe v1 compatibility value.

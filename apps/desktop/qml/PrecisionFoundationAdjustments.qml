@@ -31,6 +31,197 @@ ColumnLayout {
         return revision >= 0 ? foundation.editor.parameterValue(key) : 0
     }
 
+    function requestAiDenoiseEnabled(enabled) {
+        foundation.editor.foundationAiDenoiseEnabled = enabled
+    }
+
+    function requestAiDenoiseStart() {
+        foundation.editor.startFoundationAiDenoise()
+    }
+
+    function requestAiDenoiseCancel() {
+        foundation.editor.cancelFoundationAiDenoise()
+    }
+
+    ShadowAdjustmentSection {
+        Layout.fillWidth: true
+        title: qsTr("AI RAW DENOISE")
+        summary: foundation.editor.foundationAiDenoiseEnabled
+            ? qsTr("ON") : qsTr("OFF")
+        expanded: true
+        toolTipText: qsTr("One photo-local RAW Foundation node. It is generated once, can be bypassed at any time, and does not replace conventional noise reduction.")
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            spacing: 10
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                spacing: 2
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Neural RAW Foundation")
+                    color: foundation.textPrimary
+                    font.pixelSize: 10
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: foundation.editor.foundationAiDenoiseEnabled
+                        ? qsTr("Scene-linear AI source for every later adjustment")
+                        : qsTr("Build a verified reusable source from the original RAW")
+                    color: foundation.textMuted
+                    font.pixelSize: 9
+                    elide: Text.ElideRight
+                }
+            }
+
+            Switch {
+                id: aiDenoiseSwitch
+
+                objectName: "foundationAiDenoiseSwitch"
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 22
+                checked: foundation.editor.foundationAiDenoiseEnabled
+                enabled: foundation.editor.active
+                    && !foundation.editor.stateBusy
+                    && !foundation.editor.foundationAiDenoiseBusy
+                    && (checked
+                        || foundation.editor.foundationAiDenoiseCanStart)
+                Accessible.name: checked
+                    ? qsTr("Bypass AI RAW Denoise")
+                    : qsTr("Enable AI RAW Denoise")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: checked
+                    ? qsTr("Bypass the AI Foundation without deleting its cache")
+                    : qsTr("Generate or reuse the verified AI Foundation")
+                onClicked: foundation.requestAiDenoiseEnabled(checked)
+
+                indicator: Rectangle {
+                    implicitWidth: 34
+                    implicitHeight: 18
+                    x: (aiDenoiseSwitch.width - width) / 2
+                    y: (aiDenoiseSwitch.height - height) / 2
+                    radius: height / 2
+                    color: aiDenoiseSwitch.checked
+                        ? Theme.switchOnSurface : Theme.switchOffSurface
+                    border.color: aiDenoiseSwitch.checked
+                        ? Theme.switchOnBorder : Theme.switchOffBorder
+
+                    Rectangle {
+                        width: 12
+                        height: 12
+                        y: 3
+                        x: aiDenoiseSwitch.checked
+                            ? parent.width - width - 3 : 3
+                        radius: width / 2
+                        color: aiDenoiseSwitch.checked
+                            ? foundation.accent : foundation.textMuted
+
+                        Behavior on x {
+                            NumberAnimation {
+                                duration: 110
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                    }
+                }
+
+                contentItem: Item {}
+            }
+        }
+
+        ProgressBar {
+            id: aiDenoiseProgress
+
+            objectName: "foundationAiDenoiseProgress"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 8
+            visible: foundation.editor.foundationAiDenoiseBusy
+            from: 0.0
+            to: 1.0
+            value: foundation.editor.foundationAiDenoiseProgress
+            indeterminate:
+                foundation.editor.foundationAiDenoisePhase === "checking"
+                || foundation.editor.foundationAiDenoisePhase === "queued"
+                || foundation.editor.foundationAiDenoisePhase === "planning"
+                || value <= 0.0
+        }
+
+        Label {
+            objectName: "foundationAiDenoiseStatus"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 6
+            text: foundation.editor.foundationAiDenoiseStatusText
+            color:
+                foundation.editor.foundationAiDenoisePhase === "failed"
+                || foundation.editor.foundationAiDenoisePhase === "unavailable"
+                    ? Theme.dangerText : foundation.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.Wrap
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 8
+            spacing: 6
+
+            ShadowButton {
+                objectName: "foundationAiDenoiseStartButton"
+                Layout.fillWidth: true
+                visible: !foundation.editor.foundationAiDenoiseEnabled
+                    && !foundation.editor.foundationAiDenoiseBusy
+                enabled: foundation.editor.foundationAiDenoiseCanStart
+                compact: true
+                variant: ShadowButton.Tinted
+                text:
+                    foundation.editor.foundationAiDenoisePhase === "failed"
+                    || foundation.editor.foundationAiDenoisePhase === "unavailable"
+                    || foundation.editor.foundationAiDenoisePhase === "cancelled"
+                        ? qsTr("Retry AI Denoise")
+                        : qsTr("Build AI Foundation")
+                toolTipText: qsTr("Materialize the verified RAW Foundation before enabling the saved switch.")
+                onClicked: foundation.requestAiDenoiseStart()
+            }
+
+            ShadowButton {
+                objectName: "foundationAiDenoiseCancelButton"
+                Layout.fillWidth: true
+                visible: foundation.editor.foundationAiDenoiseBusy
+                enabled: foundation.editor.foundationAiDenoiseCanCancel
+                compact: true
+                variant: ShadowButton.Danger
+                text: qsTr("Cancel")
+                toolTipText: qsTr("Cancel the current materialization without changing the saved Recipe.")
+                onClicked: foundation.requestAiDenoiseCancel()
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 6
+            text: qsTr("The learned-demosaiced scene-linear artifact is rebuildable cache, not a JPEG. Only the model identity and on/off intent are stored with the photo.")
+            color: foundation.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.Wrap
+        }
+    }
+
     ShadowAdjustmentSection {
         Layout.fillWidth: true
         title: qsTr("RAW WHITE BALANCE")

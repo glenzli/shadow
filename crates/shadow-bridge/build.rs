@@ -9,6 +9,7 @@ const BRIDGE_SOURCES: &[&str] = &[
     "src/bridge/cxx_bridge.cpp",
     "src/bridge/cxx_handle.cpp",
     "src/bridge/cxx_preview_frame.cpp",
+    "src/bridge/raw_foundation_wire.cpp",
 ];
 
 const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
@@ -36,6 +37,7 @@ const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
     "include/shadow/image/raw_development.hpp",
     "include/shadow/image/raw_development_plan.hpp",
     "include/shadow/image/raw_development_receipt.hpp",
+    "include/shadow/image/raw_foundation.hpp",
     "include/shadow/image/raw_pipeline.hpp",
     "include/shadow/image/retouch.hpp",
     "include/shadow/image/tone_curve.hpp",
@@ -54,6 +56,7 @@ const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
     "include/shadow/image/working_rgb.hpp",
     "src/bridge/adjustment_render_wire.hpp",
     "src/bridge/cxx_bridge_projection.hpp",
+    "src/bridge/raw_foundation_wire.hpp",
 ];
 
 const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
@@ -61,6 +64,7 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/decoder/decoder_error.cpp",
     "src/decoder/decoder_metadata.cpp",
     "src/decoder/decoder_types.cpp",
+    "src/decoder/dng_noise_profile.cpp",
     "src/decoder/libraw_runtime.cpp",
     "src/decoder/libraw_reference_development.cpp",
     "src/decoder/libraw_decoder.cpp",
@@ -87,6 +91,7 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/edit/local_mask.cpp",
     "src/edit/local_mask_coverage.cpp",
     "src/edit/local_mask_validation.cpp",
+    "src/edit/managed_raster_mask.cpp",
     "src/edit/metal_adjustment_program.cpp",
     "src/edit/oklab_color_warper.cpp",
     "src/edit/perceptual_color.cpp",
@@ -108,8 +113,11 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/raw/dcp_color_rendering.cpp",
     "src/raw/dcp_parser.cpp",
     "src/raw/fused_raw_development.cpp",
+    "src/raw/neural_raw_denoise/neural_raw_denoise.cpp",
     "src/raw/raw_denoise.cpp",
     "src/raw/raw_denoise_plan.cpp",
+    "src/raw/raw_foundation.cpp",
+    "src/raw/raw_foundation_source.cpp",
     "src/raw/raw_frame_development_plan.cpp",
     "src/raw/raw_frame_region_development.cpp",
     "src/raw/raw_frame_source_preparation.cpp",
@@ -147,6 +155,12 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/proxy/warm_edit_gpu_render_plan.cpp",
     "src/proxy/warm_edit_preview.cpp",
 ];
+
+const EMBEDDED_IMAGE_APPLE_SOURCES: &[&str] =
+    &["src/raw/neural_raw_denoise/coreml_neural_raw_denoise.mm"];
+
+const EMBEDDED_IMAGE_NON_APPLE_SOURCES: &[&str] =
+    &["src/raw/neural_raw_denoise/coreml_neural_raw_denoise_stub.cpp"];
 
 const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
     "src/edit/metal_adjustment.mm",
@@ -191,6 +205,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/acceleration/image_acceleration_policy.hpp",
     "src/concurrency/row_scheduler.hpp",
     "src/decoder/decode_session_isolation.hpp",
+    "src/decoder/dng_noise_profile.hpp",
     "src/decoder/heif_decoder.hpp",
     "src/decoder/libraw_reference_development.hpp",
     "src/decoder/libraw_runtime.hpp",
@@ -202,6 +217,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/edit/guided_selective_tone.hpp",
     "src/edit/local_mask_coverage.hpp",
     "src/edit/local_mask_validation.hpp",
+    "src/edit/managed_raster_mask.hpp",
     "src/edit/metal_adjustment_execution.hpp",
     "src/edit/metal_adjustment_msl.hpp",
     "src/edit/metal_adjustment_program.hpp",
@@ -226,6 +242,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/optics/scene_linear_region_optics.hpp",
     "src/raw/raw_frame_region_development.hpp",
     "src/raw/raw_frame_source_preparation.hpp",
+    "src/raw/raw_foundation_source.hpp",
     "src/raw/resident_raw_source.hpp",
     "src/proxy/developed_source_raster.hpp",
     "src/proxy/display_rgb_math.hpp",
@@ -269,6 +286,8 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/raw/metal_raw_denoise_encoding.hpp",
     "src/raw/metal_resident_raw_source.hpp",
     "src/raw/metal_raw_runtime.hpp",
+    "src/raw/neural_raw_denoise/coreml_neural_raw_denoise.hpp",
+    "src/raw/neural_raw_denoise/neural_raw_denoise.hpp",
     "src/raw/raw_denoise_plan.hpp",
     "src/raw/raw_frame_development_plan.hpp",
     "src/raw/raw_frame_source_development.hpp",
@@ -330,6 +349,8 @@ fn verify_embedded_image_source_manifest(image_root: &Path) {
         .collect::<BTreeSet<_>>();
     let cargo_sources = EMBEDDED_IMAGE_SOURCES
         .iter()
+        .chain(EMBEDDED_IMAGE_APPLE_SOURCES)
+        .chain(EMBEDDED_IMAGE_NON_APPLE_SOURCES)
         .chain(EMBEDDED_IMAGE_METAL_SOURCES)
         .chain(EMBEDDED_IMAGE_STUB_SOURCES)
         .map(|path| (*path).to_owned())
@@ -430,6 +451,17 @@ fn main() {
     for relative_path in EMBEDDED_IMAGE_SOURCES {
         build.file(image_root.join(relative_path));
     }
+    if target_os == "macos" {
+        for relative_path in EMBEDDED_IMAGE_APPLE_SOURCES {
+            build.file(image_root.join(relative_path));
+        }
+        build.define("SHADOW_IMAGE_HAS_COREML", Some("1"));
+    } else {
+        for relative_path in EMBEDDED_IMAGE_NON_APPLE_SOURCES {
+            build.file(image_root.join(relative_path));
+        }
+        build.define("SHADOW_IMAGE_HAS_COREML", Some("0"));
+    }
     if metal_enabled {
         for relative_path in EMBEDDED_IMAGE_METAL_SOURCES {
             build.file(image_root.join(relative_path));
@@ -505,9 +537,12 @@ fn main() {
     configure_warnings!(&mut build);
     build.compile("shadow-bridge-cxx");
 
+    if target_os == "macos" {
+        println!("cargo:rustc-link-lib=framework=CoreML");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+    }
     if metal_enabled {
         println!("cargo:rustc-link-lib=framework=Metal");
-        println!("cargo:rustc-link-lib=framework=Foundation");
     }
 
     for link_path in &libraw.link_paths {
@@ -588,6 +623,8 @@ fn main() {
     track_inputs(&image_root, BRIDGE_SOURCES);
     track_inputs(&image_root, BRIDGE_ADDITIONAL_INPUTS);
     track_inputs(&image_root, EMBEDDED_IMAGE_SOURCES);
+    track_inputs(&image_root, EMBEDDED_IMAGE_APPLE_SOURCES);
+    track_inputs(&image_root, EMBEDDED_IMAGE_NON_APPLE_SOURCES);
     track_inputs(&image_root, EMBEDDED_IMAGE_METAL_SOURCES);
     track_inputs(&image_root, EMBEDDED_IMAGE_STUB_SOURCES);
     track_inputs(&image_root, EMBEDDED_IMAGE_ADDITIONAL_INPUTS);

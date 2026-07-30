@@ -48,6 +48,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
                 lens_profile_maker: String::new(),
                 lens_profile_model: String::new(),
             },
+            raw_ai_denoise_enabled: false,
+            raw_ai_denoise_model: 0,
             raw_white_balance_mode: 0,
             camera_neutral_red_millionths: 1_000_000,
             camera_neutral_blue_millionths: 1_000_000,
@@ -103,6 +105,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
                 lens_profile_maker: "smc Pentax".to_owned(),
                 lens_profile_model: "DA 35mm".to_owned(),
             },
+            raw_ai_denoise_enabled: true,
+            raw_ai_denoise_model: 0,
             raw_white_balance_mode: 1,
             camera_neutral_red_millionths: 825_000,
             camera_neutral_blue_millionths: 1_375_000,
@@ -149,6 +153,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     assert!(outgoing.foundation.optics.automatic_scale);
     assert_eq!(outgoing.foundation.optics.camera_profile_model, "K10D");
     assert_eq!(outgoing.foundation.optics.lens_profile_model, "DA 35mm");
+    assert!(outgoing.foundation.raw_ai_denoise_enabled);
+    assert_eq!(outgoing.foundation.raw_ai_denoise_model, 0);
     assert_eq!(outgoing.foundation.raw_white_balance_mode, 1);
     assert_eq!(outgoing.foundation.camera_neutral_red_millionths, 825_000);
     assert_eq!(

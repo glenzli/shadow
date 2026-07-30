@@ -805,9 +805,26 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
             .diagnostic = std::move(diagnostic),
         };
     };
+    if (development.neural_raw_denoise().execution_requested()) {
+        // Core ML is a whole-frame RAW-to-RAW transaction in v0. Hand the still-owned source back
+        // to the normal materializer even for a forced Metal reconstruction request; that path
+        // runs Core ML first and can still select Metal for conventional CFA denoise/demosaic.
+        return ResidentRawSourceAttempt{
+            .source = nullptr,
+            .fallback_source = std::optional<PreparedRawFrameSource>(std::move(prepared)),
+            .diagnostic =
+                "neural RAW denoise requires the materialized source transaction",
+        };
+    }
     if (!frame.valid() || !frame.is_bayer_2x2()) {
         return fail("Metal resident RAW source requires a valid Bayer two-by-two RawFrame");
     }
+    detail::NeuralRawDenoiseResult neural_denoised =
+        detail::execute_prepared_neural_raw_denoise(
+            std::move(frame),
+            development.neural_raw_denoise()
+        );
+    frame = std::move(neural_denoised.frame);
     if (development.preview_max_edge().has_value()
         || development.reconstruction_dimensions() != frame.descriptor.active_dimensions) {
         return fail("Metal resident RAW source only accepts native-size development plans");
@@ -981,6 +998,7 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
             metal_source->dimensions(),
             metal_source->demosaic_receipt(),
             RawDevelopmentBackend::metal,
+            neural_denoised.receipt,
             metal_source->raw_denoise_receipt(),
             metal_source->dcp_applied() ? DcpColorExecutionBackend::metal
                                         : DcpColorExecutionBackend::cpu
@@ -996,7 +1014,10 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
             std::move(pipeline),
             RawDevelopmentBackend::metal,
             development.development_plan().highlight_recovery,
-            metal_source->raw_denoise_receipt().cache_identity
+            detail::combined_raw_denoise_cache_identity(
+                neural_denoised.receipt,
+                metal_source->raw_denoise_receipt()
+            )
         );
 
         return ResidentRawSourceAttempt{

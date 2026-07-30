@@ -1,6 +1,7 @@
 #include "raster_exif.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -143,6 +144,47 @@ void copy_ascii(char* const destination, const std::size_t capacity, const TiffV
     }
 }
 
+[[nodiscard]] std::optional<double> tiff_rational_at(
+    const TiffValue& value,
+    const bool little_endian,
+    const std::size_t index
+) noexcept {
+    if (value.type != 5U || index >= value.count || value.bytes == nullptr
+        || value.byte_count < (index + 1U) * 8U) {
+        return std::nullopt;
+    }
+    const auto* const bytes = value.bytes + index * 8U;
+    const std::uint32_t numerator = read_u32(bytes, little_endian);
+    const std::uint32_t denominator = read_u32(bytes + 4U, little_endian);
+    if (denominator == 0U) {
+        return std::nullopt;
+    }
+    return static_cast<double>(numerator) / static_cast<double>(denominator);
+}
+
+[[nodiscard]] std::optional<double> gps_coordinate(
+    const TiffValue& value,
+    const bool little_endian,
+    const char reference,
+    const double maximum
+) noexcept {
+    const auto degrees = tiff_rational_at(value, little_endian, 0U);
+    const auto minutes = tiff_rational_at(value, little_endian, 1U);
+    const auto seconds = tiff_rational_at(value, little_endian, 2U);
+    if (!degrees.has_value() || !minutes.has_value() || !seconds.has_value()
+        || *degrees < 0.0 || *degrees > maximum || *minutes < 0.0 || *minutes >= 60.0
+        || *seconds < 0.0 || *seconds >= 60.0) {
+        return std::nullopt;
+    }
+    double coordinate = *degrees + *minutes / 60.0 + *seconds / 3'600.0;
+    if (reference == 'S' || reference == 'W') {
+        coordinate = -coordinate;
+    } else if (reference != 'N' && reference != 'E') {
+        return std::nullopt;
+    }
+    return std::isfinite(coordinate) ? std::optional<double>(coordinate) : std::nullopt;
+}
+
 template <typename Callback>
 void visit_ifd(
     const std::uint8_t* tiff,
@@ -183,6 +225,7 @@ void parse_tiff_exif(const std::span<const std::uint8_t> bytes, RasterExif& exif
     }
     const std::uint32_t ifd0 = read_u32(tiff + 4U, little_endian);
     std::uint32_t exif_ifd = 0U;
+    std::uint32_t gps_ifd = 0U;
     visit_ifd(tiff, bytes.size(), little_endian, ifd0, [&](const std::uint16_t tag, const TiffValue& value) {
         switch (tag) {
         case 0x010fU:
@@ -204,51 +247,112 @@ void parse_tiff_exif(const std::span<const std::uint8_t> bytes, RasterExif& exif
                 exif_ifd = read_u32(value.bytes, little_endian);
             }
             break;
+        case 0x8825U:
+            if (value.type == 4U && value.byte_count >= 4U) {
+                gps_ifd = read_u32(value.bytes, little_endian);
+            }
+            break;
         default:
             break;
         }
     });
-    if (exif_ifd == 0U) {
+    if (exif_ifd != 0U) {
+        visit_ifd(tiff, bytes.size(), little_endian, exif_ifd, [&](const std::uint16_t tag, const TiffValue& value) {
+            const auto number = tiff_scalar(value, little_endian);
+            switch (tag) {
+            case 0x8827U:
+                if (number.has_value()) {
+                    exif.iso_speed = *number;
+                }
+                break;
+            case 0x829aU:
+                if (number.has_value()) {
+                    exif.exposure_time_seconds = *number;
+                }
+                break;
+            case 0x829dU:
+                if (number.has_value()) {
+                    exif.aperture_f_number = *number;
+                }
+                break;
+            case 0x920aU:
+                if (number.has_value()) {
+                    exif.focal_length_mm = *number;
+                }
+                break;
+            case 0xa405U:
+                if (number.has_value()) {
+                    exif.focal_length_35mm = *number;
+                }
+                break;
+            case 0xa433U:
+                copy_ascii(exif.lens_make, sizeof(exif.lens_make), value);
+                break;
+            case 0xa434U:
+                copy_ascii(exif.lens_model, sizeof(exif.lens_model), value);
+                break;
+            default:
+                break;
+            }
+        });
+    }
+    if (gps_ifd == 0U) {
         return;
     }
-    visit_ifd(tiff, bytes.size(), little_endian, exif_ifd, [&](const std::uint16_t tag, const TiffValue& value) {
-        const auto number = tiff_scalar(value, little_endian);
+    char latitude_reference = '\0';
+    char longitude_reference = '\0';
+    bool altitude_below_sea_level = false;
+    std::optional<TiffValue> latitude;
+    std::optional<TiffValue> longitude;
+    std::optional<TiffValue> altitude;
+    visit_ifd(tiff, bytes.size(), little_endian, gps_ifd, [&](const std::uint16_t tag, const TiffValue& value) {
         switch (tag) {
-        case 0x8827U:
-            if (number.has_value()) {
-                exif.iso_speed = *number;
+        case 0x0001U:
+            if (value.type == 2U && value.byte_count > 0U) {
+                latitude_reference = static_cast<char>(value.bytes[0]);
             }
             break;
-        case 0x829aU:
-            if (number.has_value()) {
-                exif.exposure_time_seconds = *number;
+        case 0x0002U:
+            latitude = value;
+            break;
+        case 0x0003U:
+            if (value.type == 2U && value.byte_count > 0U) {
+                longitude_reference = static_cast<char>(value.bytes[0]);
             }
             break;
-        case 0x829dU:
-            if (number.has_value()) {
-                exif.aperture_f_number = *number;
+        case 0x0004U:
+            longitude = value;
+            break;
+        case 0x0005U:
+            if (value.type == 1U && value.byte_count > 0U) {
+                altitude_below_sea_level = value.bytes[0] == 1U;
             }
             break;
-        case 0x920aU:
-            if (number.has_value()) {
-                exif.focal_length_mm = *number;
-            }
-            break;
-        case 0xa405U:
-            if (number.has_value()) {
-                exif.focal_length_35mm = *number;
-            }
-            break;
-        case 0xa433U:
-            copy_ascii(exif.lens_make, sizeof(exif.lens_make), value);
-            break;
-        case 0xa434U:
-            copy_ascii(exif.lens_model, sizeof(exif.lens_model), value);
+        case 0x0006U:
+            altitude = value;
             break;
         default:
             break;
         }
     });
+    if (latitude.has_value() && longitude.has_value()) {
+        const auto latitude_degrees =
+            gps_coordinate(*latitude, little_endian, latitude_reference, 90.0);
+        const auto longitude_degrees =
+            gps_coordinate(*longitude, little_endian, longitude_reference, 180.0);
+        if (latitude_degrees.has_value() && longitude_degrees.has_value()) {
+            exif.has_gps_coordinates = true;
+            exif.gps_latitude_degrees = *latitude_degrees;
+            exif.gps_longitude_degrees = *longitude_degrees;
+        }
+    }
+    if (altitude.has_value()) {
+        const auto meters = tiff_rational_at(*altitude, little_endian, 0U);
+        if (meters.has_value() && std::isfinite(*meters)) {
+            exif.has_gps_altitude = true;
+            exif.gps_altitude_meters = altitude_below_sea_level ? -*meters : *meters;
+        }
+    }
 }
 
 } // namespace shadow::image

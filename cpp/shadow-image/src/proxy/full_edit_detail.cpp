@@ -288,7 +288,8 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu = resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
+        auto gpu =
+            resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
                 ? gpu_cache_->render_resident(
                       *resident_raw_source_,
                       source_rendering_,
@@ -439,7 +440,8 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        auto gpu = resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
+        auto gpu =
+            resident_raw_source_ != nullptr && resident_raw_source_->metal_resident()
                 ? gpu_cache_->render_resident_layers(
                       *resident_raw_source_,
                       source_rendering_,
@@ -613,6 +615,39 @@ FullEditDetailSession prepare_full_edit_detail(
             std::move(prepared.raw_pipeline_receipt),
             std::move(prepared.optics_receipt),
             std::move(prepared.source_rendering)
+        );
+    }
+    return FullEditDetailSession(
+        std::move(std::get<DevelopedSourcePixels>(prepared.source)),
+        prepared.retained_bytes,
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
+        std::move(prepared.optics_receipt),
+        std::move(prepared.source_rendering)
+    );
+}
+
+FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    auto prepared = proxy_detail::prepare_full_edit_detail_source(
+        session,
+        raw_development_plan,
+        foundation,
+        requirements,
+        optics_provider,
+        optics_settings
+    );
+    if (prepared.resident()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "AI RAW foundation source preparation published a resident CFA source"
         );
     }
     return FullEditDetailSession(

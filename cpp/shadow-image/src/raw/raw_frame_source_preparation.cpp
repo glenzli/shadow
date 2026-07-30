@@ -150,7 +150,30 @@ RawPipelineReceipt finalize_raw_frame_pipeline_receipt(
     const RawHighlightRecoveryIntent highlight_recovery,
     const std::string_view raw_denoise_cache_identity
 ) {
-    prepared.pipeline_identity = std::string(raw_frame_pipeline_identity);
+    return finalize_raw_frame_pipeline_receipt(
+        std::move(prepared),
+        backend,
+        highlight_recovery,
+        raw_denoise_cache_identity,
+        raw_frame_pipeline_identity
+    );
+}
+
+RawPipelineReceipt finalize_raw_frame_pipeline_receipt(
+    RawPipelineReceipt prepared,
+    const RawDevelopmentBackend backend,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const std::string_view raw_denoise_cache_identity,
+    const std::string_view source_stage_identity
+) {
+    if (source_stage_identity.empty()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "Shadow RawFrame development requires a source-stage identity"
+        );
+    }
+    prepared.pipeline_identity = std::string(source_stage_identity);
     prepared.pipeline_identity +=
         ";backend=" + std::string(raw_development_backend_identity(backend));
     prepared.pipeline_identity +=

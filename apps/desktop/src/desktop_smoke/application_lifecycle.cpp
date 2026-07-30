@@ -16,6 +16,47 @@
 
 namespace DesktopSmoke {
 
+namespace {
+
+[[nodiscard]] bool isEnglishLibraryEmptyState(const QString& text) {
+    return text
+            == QStringLiteral(
+                "Searching the folder for supported photos…\n"
+                "New RAW files will appear here as they are catalogued."
+            )
+        || text
+            == QStringLiteral(
+                "Import stopped, and no RAW files are currently visible.\n"
+                "Already catalogued files remain safely stored."
+            )
+        || text
+            == QStringLiteral(
+                "Add a folder to the local Library.\n"
+                "Shadow will show embedded previews immediately, "
+                "then replace them with locally generated proxies."
+            );
+}
+
+[[nodiscard]] bool isChineseLibraryEmptyState(const QString& text) {
+    return text
+            == QString::fromUtf8(
+                "正在文件夹中搜索支持的照片…\n"
+                "新的 RAW 文件会在收录后显示于此。"
+            )
+        || text
+            == QString::fromUtf8(
+                "导入已停止，目前没有可见的 RAW 文件。\n"
+                "已收录的文件仍安全存储。"
+            )
+        || text
+            == QString::fromUtf8(
+                "向本地图库添加文件夹。\n"
+                "Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。"
+            );
+}
+
+} // namespace
+
 void startDirtyCloseLifecycle(
     QApplication& application,
     QQmlApplicationEngine& engine,
@@ -173,11 +214,9 @@ void startI18nLifecycle(
                         != QStringLiteral("zh_CN")
                     || settings_button->property("text").toString()
                         != QString::fromUtf8("设置")
-                    || empty_state_text->property("text").toString()
-                        != QString::fromUtf8(
-                            "向本地图库添加文件夹。\n"
-                            "Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。"
-                        )
+                    || !isChineseLibraryEmptyState(
+                        empty_state_text->property("text").toString()
+                    )
                     || analysis_title->property("text").toString()
                         != QString::fromUtf8("图像分析")
                     || analysis_shadow_summary->property("text").toString()
@@ -230,12 +269,9 @@ void startI18nLifecycle(
                                 != QStringLiteral("en")
                             || settings_button->property("text").toString()
                                 != QStringLiteral("Settings")
-                            || empty_state_text->property("text").toString()
-                                != QStringLiteral(
-                                    "Add a folder to the local Library.\n"
-                                    "Shadow will show embedded previews immediately, "
-                                    "then replace them with locally generated proxies."
-                                )
+                            || !isEnglishLibraryEmptyState(
+                                empty_state_text->property("text").toString()
+                            )
                             || analysis_title->property("text").toString()
                                 != QStringLiteral("ANALYSIS")
                             || analysis_shadow_summary
@@ -300,13 +336,11 @@ void startI18nLifecycle(
                                            ->property("text")
                                            .toString()
                                         == QString::fromUtf8("设置")
-                                    && empty_state_text
-                                           ->property("text")
-                                           .toString()
-                                        == QString::fromUtf8(
-                                            "向本地图库添加文件夹。\n"
-                                            "Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。"
-                                        )
+                                    && isChineseLibraryEmptyState(
+                                        empty_state_text
+                                            ->property("text")
+                                            .toString()
+                                    )
                                     && analysis_title
                                            ->property("text")
                                            .toString()

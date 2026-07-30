@@ -14,19 +14,20 @@ use shadow_bridge::{
 use shadow_domain::{
     LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS, MaskBrushPoint,
     MaskDefinition, NodeId, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn, RawCameraNeutral,
-    RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RetouchMode, RetouchPoint,
-    RetouchSpot, RetouchStroke, UnitInterval,
+    RawFoundationDenoise, RawFoundationDenoiseModel, RawWhiteBalance, RecipeInputSettings,
+    RecipeOpticsSettings, RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
 };
 
 use crate::ffi;
 
 use super::{
     FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft,
-    LutEditParameters, MAX_GRADE_NODES, SharedGradeNodeReference, grade_stack_recipe_v1_snapshot,
-    point_color_ranges_from_vector_optional, recipe_color_grading_render_op_id,
-    recipe_finishing_effects_render_op_id, recipe_v1_oklab_color_warper_render_op_id,
-    recipe_v1_oklab_lightness_tone_curve_render_op_id, tone_curve_points_from_vector,
-    validate_basic_parameters, validate_fine_parameters, validate_grade_stack_draft_recipe_v1,
+    LutEditParameters, MAX_GRADE_NODES, PreservedManagedRasterSettings, SharedGradeNodeReference,
+    grade_stack_recipe_v1_snapshot, point_color_ranges_from_vector_optional,
+    recipe_color_grading_render_op_id, recipe_finishing_effects_render_op_id,
+    recipe_v1_oklab_color_warper_render_op_id, recipe_v1_oklab_lightness_tone_curve_render_op_id,
+    tone_curve_points_from_vector, validate_basic_parameters, validate_fine_parameters,
+    validate_grade_stack_draft_recipe_v1,
 };
 
 mod liquify;
@@ -39,8 +40,10 @@ const LOCAL_MASK_RADIAL_GRADIENT: u8 = 2;
 const LOCAL_MASK_BRUSH: u8 = 3;
 const LOCAL_MASK_LUMINANCE_RANGE: u8 = 4;
 const LOCAL_MASK_COLOR_RANGE: u8 = 5;
+const LOCAL_MASK_MANAGED_RASTER: u8 = 6;
 const RAW_WHITE_BALANCE_AS_SHOT: u8 = 0;
 const RAW_WHITE_BALANCE_CAMERA_NEUTRAL: u8 = 1;
+const RAW_AI_DENOISE_MODEL_RAWNIND_PUBLIC_BAYER_RELEASE_5_6_0: u8 = 0;
 const CAMERA_NEUTRAL_MILLIONTHS: u32 = 1_000_000;
 
 type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>);
@@ -48,7 +51,27 @@ type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>
 // Keep the complete mask sum-type projection together: every alternative
 // participates in one atomic CXX Grade Node record.
 #[allow(clippy::too_many_lines)]
-fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> AnyResult<FfiLocalMaskFields> {
+fn ffi_local_mask_fields(
+    mask: Option<&MaskDefinition>,
+    preserved_managed_raster: Option<PreservedManagedRasterSettings>,
+) -> AnyResult<FfiLocalMaskFields> {
+    if mask.is_some() && preserved_managed_raster.is_some() {
+        bail!("Grade Node cannot project two local-mask representations at once");
+    }
+    if let Some(settings) = preserved_managed_raster {
+        return Ok((
+            LOCAL_MASK_MANAGED_RASTER,
+            f64::from(settings.expansion_percent) / 100.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            f64::from(settings.feather_percent) / 100.0,
+            settings.invert,
+            Vec::new(),
+        ));
+    }
     Ok(match mask {
         None => (
             LOCAL_MASK_NONE,
@@ -164,34 +187,77 @@ fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> AnyResult<FfiLocalMas
                 "the current Qt Grade Node DTO cannot represent composite, chroma-qualified, or local-detail condition masks"
             )
         }
+        Some(MaskDefinition::ManagedRaster {
+            expansion_percent,
+            feather_percent,
+            invert,
+            ..
+        }) => (
+            LOCAL_MASK_MANAGED_RASTER,
+            f64::from(*expansion_percent) / 100.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            f64::from(*feather_percent) / 100.0,
+            *invert,
+            Vec::new(),
+        ),
     })
+}
+
+fn exact_managed_raster_percent(
+    name: &str,
+    value: f64,
+    minimum: f64,
+    maximum: f64,
+) -> AnyResult<i16> {
+    if !value.is_finite() || value < minimum || value > maximum {
+        bail!("managed raster mask {name} must be finite and in [{minimum}, {maximum}]");
+    }
+    let scaled = value * 100.0;
+    let rounded = scaled.round();
+    if (scaled - rounded).abs() > 1.0e-7 {
+        bail!("managed raster mask {name} must use exact one-percent increments");
+    }
+    Ok(rounded as i16)
 }
 
 fn local_mask_definition_from_ffi(
     grade_node: &ffi::FfiGradeNode,
     index: usize,
-) -> AnyResult<Option<MaskDefinition>> {
+) -> AnyResult<(
+    Option<MaskDefinition>,
+    Option<PreservedManagedRasterSettings>,
+)> {
     let unit = |name: &str, value: f64| {
         UnitInterval::new(value)
             .with_context(|| format!("Grade Node {index} local mask {name} must be in [0, 1]"))
     };
     match grade_node.local_mask_kind {
-        LOCAL_MASK_NONE => Ok(None),
-        LOCAL_MASK_LINEAR_GRADIENT => Ok(Some(MaskDefinition::linear_gradient(
-            unit("start x", grade_node.local_mask_x0)?,
-            unit("start y", grade_node.local_mask_y0)?,
-            unit("end x", grade_node.local_mask_x1)?,
-            unit("end y", grade_node.local_mask_y1)?,
-            grade_node.local_mask_invert,
-        )?)),
-        LOCAL_MASK_RADIAL_GRADIENT => Ok(Some(MaskDefinition::radial_gradient(
-            unit("center x", grade_node.local_mask_x0)?,
-            unit("center y", grade_node.local_mask_y0)?,
-            unit("radius x", grade_node.local_mask_radius_x)?,
-            unit("radius y", grade_node.local_mask_radius_y)?,
-            unit("feather", grade_node.local_mask_feather)?,
-            grade_node.local_mask_invert,
-        )?)),
+        LOCAL_MASK_NONE => Ok((None, None)),
+        LOCAL_MASK_LINEAR_GRADIENT => Ok((
+            Some(MaskDefinition::linear_gradient(
+                unit("start x", grade_node.local_mask_x0)?,
+                unit("start y", grade_node.local_mask_y0)?,
+                unit("end x", grade_node.local_mask_x1)?,
+                unit("end y", grade_node.local_mask_y1)?,
+                grade_node.local_mask_invert,
+            )?),
+            None,
+        )),
+        LOCAL_MASK_RADIAL_GRADIENT => Ok((
+            Some(MaskDefinition::radial_gradient(
+                unit("center x", grade_node.local_mask_x0)?,
+                unit("center y", grade_node.local_mask_y0)?,
+                unit("radius x", grade_node.local_mask_radius_x)?,
+                unit("radius y", grade_node.local_mask_radius_y)?,
+                unit("feather", grade_node.local_mask_feather)?,
+                grade_node.local_mask_invert,
+            )?),
+            None,
+        )),
         LOCAL_MASK_BRUSH => {
             if !grade_node.local_mask_brush_points.len().is_multiple_of(3) {
                 bail!("Grade Node {index} brush mask must contain x/y/stroke triples");
@@ -223,25 +289,50 @@ fn local_mask_definition_from_ffi(
                     begins_stroke,
                 ));
             }
-            Ok(Some(MaskDefinition::brush(
-                points,
-                unit("brush radius", grade_node.local_mask_radius_x)?,
-                unit("brush feather", grade_node.local_mask_feather)?,
-                grade_node.local_mask_invert,
-            )?))
+            Ok((
+                Some(MaskDefinition::brush(
+                    points,
+                    unit("brush radius", grade_node.local_mask_radius_x)?,
+                    unit("brush feather", grade_node.local_mask_feather)?,
+                    grade_node.local_mask_invert,
+                )?),
+                None,
+            ))
         }
-        LOCAL_MASK_LUMINANCE_RANGE => Ok(Some(MaskDefinition::luminance_range(
-            unit("luminance lower bound", grade_node.local_mask_x0)?,
-            unit("luminance upper bound", grade_node.local_mask_x1)?,
-            unit("luminance softness", grade_node.local_mask_feather)?,
-            grade_node.local_mask_invert,
-        )?)),
-        LOCAL_MASK_COLOR_RANGE => Ok(Some(MaskDefinition::color_range(
-            unit("color center", grade_node.local_mask_x0)?.get() * 360.0,
-            unit("color width", grade_node.local_mask_x1)?.get() * 180.0,
-            unit("color softness", grade_node.local_mask_feather)?,
-            grade_node.local_mask_invert,
-        )?)),
+        LOCAL_MASK_LUMINANCE_RANGE => Ok((
+            Some(MaskDefinition::luminance_range(
+                unit("luminance lower bound", grade_node.local_mask_x0)?,
+                unit("luminance upper bound", grade_node.local_mask_x1)?,
+                unit("luminance softness", grade_node.local_mask_feather)?,
+                grade_node.local_mask_invert,
+            )?),
+            None,
+        )),
+        LOCAL_MASK_COLOR_RANGE => Ok((
+            Some(MaskDefinition::color_range(
+                unit("color center", grade_node.local_mask_x0)?.get() * 360.0,
+                unit("color width", grade_node.local_mask_x1)?.get() * 180.0,
+                unit("color softness", grade_node.local_mask_feather)?,
+                grade_node.local_mask_invert,
+            )?),
+            None,
+        )),
+        LOCAL_MASK_MANAGED_RASTER => {
+            let expansion_percent =
+                exact_managed_raster_percent("expansion", grade_node.local_mask_x0, -1.0, 1.0)?;
+            let feather_percent =
+                exact_managed_raster_percent("feather", grade_node.local_mask_feather, 0.0, 1.0)?;
+            Ok((
+                None,
+                Some(PreservedManagedRasterSettings {
+                    expansion_percent: i8::try_from(expansion_percent)
+                        .context("managed raster expansion percentage exceeds i8")?,
+                    feather_percent: u8::try_from(feather_percent)
+                        .context("managed raster feather percentage exceeds u8")?,
+                    invert: grade_node.local_mask_invert,
+                }),
+            ))
+        }
         other => bail!("Grade Node {index} has unsupported local mask kind {other}"),
     }
 }
@@ -364,6 +455,18 @@ fn raw_white_balance_from_ffi(
     }
 }
 
+fn raw_ai_denoise_from_ffi(
+    foundation: &ffi::FfiPhotoFoundationSettings,
+) -> AnyResult<RawFoundationDenoise> {
+    let model = match foundation.raw_ai_denoise_model {
+        RAW_AI_DENOISE_MODEL_RAWNIND_PUBLIC_BAYER_RELEASE_5_6_0 => {
+            RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0
+        }
+        other => bail!("RAW Foundation has unsupported AI denoise model {other}"),
+    };
+    Ok(RawFoundationDenoise::enabled(model).with_enabled(foundation.raw_ai_denoise_enabled))
+}
+
 pub(crate) fn ffi_photo_foundation_settings(
     foundation: &PhotoFoundationNode,
 ) -> ffi::FfiPhotoFoundationSettings {
@@ -380,8 +483,16 @@ pub(crate) fn ffi_photo_foundation_settings(
                 neutral.blue_millionths(),
             ),
         };
+    let raw_ai_denoise = foundation.raw_ai_denoise();
+    let raw_ai_denoise_model = match raw_ai_denoise.model() {
+        RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0 => {
+            RAW_AI_DENOISE_MODEL_RAWNIND_PUBLIC_BAYER_RELEASE_5_6_0
+        }
+    };
     ffi::FfiPhotoFoundationSettings {
         optics: ffi_optics_settings(foundation.optics()),
+        raw_ai_denoise_enabled: raw_ai_denoise.is_enabled(),
+        raw_ai_denoise_model,
         raw_white_balance_mode,
         camera_neutral_red_millionths,
         camera_neutral_blue_millionths,
@@ -430,7 +541,8 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
     let grade_stack = GradeStackDraft {
         foundation: PhotoFoundationNode::new(
             RecipeInputSettings::new(recipe_optics_settings(&settings.foundation.optics))
-                .with_raw_white_balance(raw_white_balance_from_ffi(&settings.foundation)?),
+                .with_raw_white_balance(raw_white_balance_from_ffi(&settings.foundation)?)
+                .with_raw_ai_denoise(raw_ai_denoise_from_ffi(&settings.foundation)?),
         ),
         grade_nodes: settings
             .grade_nodes
@@ -514,8 +626,16 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     // Domain construction authoritatively validates labels and the complete
-    // graph generated from the untrusted desktop DTO.
-    grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate Grade Stack Recipe v1")?;
+    // graph generated from the untrusted desktop DTO. An opaque managed mask
+    // has no authority without its explicit base Recipe, so omit only that
+    // marker from this preliminary graph check; snapshot encoding later must
+    // materialize it from the supplied base before rendering or persistence.
+    let mut graph_validation = grade_stack.clone();
+    for grade_node in &mut graph_validation.grade_nodes {
+        grade_node.preserved_managed_raster = None;
+    }
+    grade_stack_recipe_v1_snapshot(&graph_validation, None)
+        .context("validate Grade Stack Recipe v1")?;
     Ok(grade_stack)
 }
 
@@ -561,6 +681,7 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
         }),
         _ => bail!("Grade Node {index} has an incomplete shared-node reference"),
     };
+    let (local_mask, preserved_managed_raster) = local_mask_definition_from_ffi(grade_node, index)?;
     Ok(GradeNodeDraft {
         recipe_v1_identity: GradeNodeRecipeV1Identity {
             grade_node_id,
@@ -600,7 +721,8 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
             finishing_effects_render_op_id: recipe_finishing_effects_render_op_id(grade_node_id),
         },
         shared,
-        local_mask: local_mask_definition_from_ffi(grade_node, index)?,
+        local_mask,
+        preserved_managed_raster,
         label: grade_node.label.clone(),
         basic: basic_parameters(&grade_node.basic)?,
         fine: fine_parameters(&grade_node.fine)?,
@@ -986,7 +1108,10 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(
         local_mask_feather,
         local_mask_invert,
         local_mask_brush_points,
-    ) = ffi_local_mask_fields(grade_node.local_mask.as_ref())?;
+    ) = ffi_local_mask_fields(
+        grade_node.local_mask.as_ref(),
+        grade_node.preserved_managed_raster,
+    )?;
     Ok(ffi::FfiGradeNode {
         grade_node_id: identity.grade_node_id.to_string(),
         shared_layer_id,

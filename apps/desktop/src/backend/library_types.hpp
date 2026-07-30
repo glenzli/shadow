@@ -3,6 +3,7 @@
 #include "review_types.hpp"
 
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include <cstdint>
@@ -39,6 +40,8 @@ struct BackendLibraryPhotoFilter final {
     bool has_development_edits = false;
     bool development_edits = false;
     QString album_id;
+    QStringList keyword_ids_all;
+    QStringList excluded_keyword_ids_any;
 };
 
 /// Indexed, photo-first Library aggregation dimensions. A source directory is
@@ -80,6 +83,44 @@ struct BackendLibraryAlbum final {
     BackendLibraryPhotoFilter query_filter;
     std::int64_t created_at_ms = 0;
     std::int64_t updated_at_ms = 0;
+};
+
+/// One node in the user-owned Library keyword taxonomy. `depth` is a
+/// presentation projection; `parent_id` remains the durable relationship.
+struct BackendLibraryKeyword final {
+    QString id;
+    QString parent_id;
+    QString name;
+    std::uint16_t depth = 0;
+    std::uint64_t subtree_photo_count = 0;
+    std::int64_t created_at_ms = 0;
+    std::int64_t updated_at_ms = 0;
+};
+
+enum class BackendLibraryKeywordOrigin : std::uint8_t {
+    Manual,
+    Imported,
+    AiAccepted,
+};
+
+struct BackendLibraryPhotoKeyword final {
+    BackendLibraryKeyword keyword;
+    BackendLibraryKeywordOrigin origin = BackendLibraryKeywordOrigin::Manual;
+    QString source_label;
+    bool has_confidence = false;
+    std::uint16_t confidence_milli = 0;
+    std::int64_t assigned_at_ms = 0;
+};
+
+struct BackendLibraryKeywordMutationReceipt final {
+    QString keyword_id;
+    std::uint64_t requested_photo_count = 0;
+    std::uint64_t changed_photo_count = 0;
+};
+
+struct BackendLibraryKeywordDeletionReceipt final {
+    std::uint64_t deleted_keyword_count = 0;
+    std::uint64_t deleted_assignment_count = 0;
 };
 
 /// Read-only evidence from the most recent completed scan of a configured
@@ -142,9 +183,103 @@ struct BackendLibraryPhotoPage final {
     BackendLibraryPhotoCursor next_cursor;
 };
 
+/// Provider-independent map request. A west bound greater than east denotes
+/// an antimeridian-crossing viewport.
+struct BackendLibraryMapViewport final {
+    std::int32_t south_latitude_e7 = 0;
+    std::int32_t west_longitude_e7 = 0;
+    std::int32_t north_latitude_e7 = 0;
+    std::int32_t east_longitude_e7 = 0;
+};
+
+struct BackendLibraryMapGrid final {
+    std::uint16_t columns = 0;
+    std::uint16_t rows = 0;
+};
+
+struct BackendLibraryMapCluster final {
+    std::uint16_t cell_x = 0;
+    std::uint16_t cell_y = 0;
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
+    std::uint64_t photo_count = 0;
+    QString photo_id;
+    QString representation_id;
+    QString title;
+    QString source_path;
+};
+
+struct BackendLibraryMapSnapshot final {
+    QVector<BackendLibraryMapCluster> clusters;
+    std::uint64_t photo_count = 0;
+};
+
 struct BackendPhotoLibraryState final {
     QString photo_id;
     bool liked = false;
     QString color_label = QStringLiteral("none");
     std::int64_t updated_at_ms = 0;
+};
+
+struct BackendLibraryMetadataState final {
+    QString photo_id;
+    bool has_observed_capture_time = false;
+    std::int64_t observed_captured_at_unix_seconds = 0;
+    bool has_effective_capture_time = false;
+    std::int64_t effective_captured_at_unix_seconds = 0;
+    QString capture_time_override_mode = QStringLiteral("inherit");
+    QString capture_time_override_origin;
+    QString capture_time_source_label;
+    bool has_observed_coordinates = false;
+    std::int32_t observed_latitude_e7 = 0;
+    std::int32_t observed_longitude_e7 = 0;
+    bool has_effective_coordinates = false;
+    std::int32_t effective_latitude_e7 = 0;
+    std::int32_t effective_longitude_e7 = 0;
+    QString effective_place_name;
+    QString coordinates_override_mode = QStringLiteral("inherit");
+    QString coordinates_override_origin;
+    QString coordinates_source_label;
+};
+
+struct BackendGpxMatchProposal final {
+    QString photo_id;
+    std::int64_t captured_at_unix_seconds = 0;
+    std::int64_t matched_at_unix_seconds = 0;
+    std::uint32_t nearest_track_delta_seconds = 0;
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
+};
+
+struct BackendGpxImportPreview final {
+    QString preview_id;
+    QString source_path;
+    QString source_digest_hex;
+    std::uint32_t requested_photo_count = 0;
+    std::uint32_t matched_photo_count = 0;
+    std::uint32_t unmatched_photo_count = 0;
+    QVector<BackendGpxMatchProposal> proposal_sample;
+};
+
+struct BackendCaptureTimeBatchProposal final {
+    QString photo_id;
+    bool has_before_capture_time = false;
+    std::int64_t before_captured_at_unix_seconds = 0;
+    bool has_after_capture_time = false;
+    std::int64_t after_captured_at_unix_seconds = 0;
+};
+
+struct BackendCaptureTimeBatchPreview final {
+    QString preview_id;
+    QString mode;
+    std::int64_t offset_seconds = 0;
+    std::uint32_t requested_photo_count = 0;
+    std::uint32_t applicable_photo_count = 0;
+    std::uint32_t skipped_photo_count = 0;
+    QVector<BackendCaptureTimeBatchProposal> proposal_sample;
+};
+
+struct BackendLibraryMetadataBatchReceipt final {
+    std::uint32_t requested_photo_count = 0;
+    std::uint32_t applied_photo_count = 0;
 };

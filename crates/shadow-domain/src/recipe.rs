@@ -10,6 +10,7 @@
 //! vocabulary; `condition_mask` owns bounded pixel predicates and copy-only
 //! presets; `mask_creation` freezes the current-node/new-node destination;
 //! `photo_foundation` owns the mandatory source-development node;
+//! `raw_foundation_denoise` owns its single-use, model-pinned AI RAW intent;
 //! `photo_structural_nodes` fixes the photo-private Liquify/Canvas topology;
 //! `photo_liquify` owns authored deformation gestures; `photo_geometry` owns
 //! the mandatory final-canvas parameters; the remaining modules own their
@@ -26,6 +27,7 @@ mod photo_foundation;
 mod photo_geometry;
 mod photo_liquify;
 mod photo_structural_nodes;
+mod raw_foundation_denoise;
 mod retouch;
 mod snapshot;
 mod validation_error;
@@ -53,7 +55,9 @@ pub use layer::{
     AdjustmentScope, BlendMode, LayerContent, LayerInstance, LayerRevision, LayerRevisionSelector,
 };
 pub use local_mask::{
-    MAX_MASK_BRUSH_POINTS, MaskBrushPoint, MaskDefinition, MaskReference, MaskRevision,
+    MANAGED_RASTER_MASK_REFERENCE_VERSION, MAX_MANAGED_RASTER_MASK_DIMENSION,
+    MAX_MASK_BRUSH_POINTS, ManagedRasterMask, MaskBrushPoint, MaskDefinition, MaskReference,
+    MaskRevision, RasterMaskEncoding,
 };
 pub use mask_creation::{NodeLocalMaskCreationIntent, NodeLocalMaskCreationTarget};
 pub use photo_foundation::{
@@ -65,6 +69,7 @@ pub use photo_liquify::{
     PhotoLiquifyNode,
 };
 pub use photo_structural_nodes::{PhotoStructuralNodeRef, PhotoStructuralNodes};
+pub use raw_foundation_denoise::{RawFoundationDenoise, RawFoundationDenoiseModel};
 pub use retouch::{
     MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKE_POINTS, MAX_RETOUCH_STROKES_PER_RECIPE,
     RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke,

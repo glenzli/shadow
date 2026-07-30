@@ -36,6 +36,11 @@ and gates, not implemented inference.
   coordinate extent it maps to. A denoise output records its exact source pixel
   contract, image domain, layout, sample format, tiling halo, and whether it is
   full resolution.
+- An exact public RawNIND Bayer foundation route with verified installation,
+  no-inference cache planning, bounded sidecar execution, portable
+  `.shadowrawf` provenance, and atomic managed-store publication. The same
+  planning contract can resolve a verified cache hit after application restart
+  without consuming an execution lease or running inference.
 - A promotion boundary for generated pixels: workers emit rebuildable byte
   identities, while promotion consumes the runtime-issued successful-output
   envelope and runs through an application-owned managed-store transaction.
@@ -44,8 +49,9 @@ and gates, not implemented inference.
   move-only and non-deserializable; a persisted descriptor reconstructs
   authority only after the store verifies its object identity and bytes.
   Generated pixels are never intended to live as SQLite blobs or ordinary
-  evictable thumbnail cache entries. The actual managed store and Recipe
-  reference are not implemented.
+  evictable thumbnail cache entries. `shadow-core` now implements the
+  application-owned filesystem authority, and `shadow-domain` owns the exact
+  immutable Recipe reference for accepted soft-mask bytes.
 - A strict local model manifest covering one exact multi-blob artifact set,
   whose identity is a domain-separated, length-prefixed BLAKE3 digest of the
   canonical-path-sorted inventory. Before hashing, its portable ASCII path
@@ -105,18 +111,28 @@ and gates, not implemented inference.
 - A small deterministic Bradley-Terry/logistic linear preference head over frozen
   feature vectors. It is a real, serializable CPU update path, but it is not a
   substitute for the still-unselected image feature extractor.
+- A macOS SAM 2.1 Small Core ML process provider for side-loaded model packages.
+  The one-shot route remains available for diagnostics; the product route owns
+  a resident child, compiled models, and one rendered-image embedding so point
+  refinements run only the prompt encoder and decoder. It validates the exact
+  pinned nine-file artifact inventory, uses a bounded JSON-lines protocol,
+  cooperatively cancels by terminating the child, and retries one complete
+  request after a transport failure. Model download and redistribution remain
+  outside Shadow.
 
 Unaccepted model-derived data remains rebuildable. Human decisions, feedback
-events, and accepted edit versions are durable application facts today. The
-generated-artifact contract additionally requires any future accepted generated
-dependency to pass the implemented store-authority transaction before a Recipe
-can refer to it; the managed store and Recipe wiring are not implemented yet. The current
-application stores manual Pick/Reject/rating transitions in a separate immutable
-Catalog ledger, but does not expose that ledger as AI training data or grant
-models write access to it. A feedback candidate may also carry the exact encoded
-visual artifact and the normalized decoded-frame receipt that were presented
-when the decision was made. This provenance is an identity contract, not proof
-that two differently authored proxies are comparable.
+events, and accepted edit versions are durable application facts today. An
+accepted soft mask must now pass the implemented store-authority transaction
+before it can become a `managed_raster` Recipe definition. That immutable
+reference records the canonical object identity, exact BLAKE3 and byte length,
+stored extent, coordinate extent, and sample encoding; reopening it re-hashes
+the managed bytes before returning a file handle. The current application stores
+manual Pick/Reject/rating transitions in a separate immutable Catalog ledger,
+but does not expose that ledger as AI training data or grant models write access
+to it. A feedback candidate may also carry the exact encoded visual artifact and
+the normalized decoded-frame receipt that were presented when the decision was
+made. This provenance is an identity contract, not proof that two differently
+authored proxies are comparable.
 
 ## Current application integration
 
@@ -146,15 +162,23 @@ rewrite the evidence. The receipt intentionally stops before display ICC, GPU
 sampling, compositing, and the physical screen. The accompanying technical
 observation is displayed separately and is not yet copied into the feedback event.
 
+The desktop AI Mask path renders a bounded JPEG from the active edit session,
+hashes that exact input, and stages a rebuildable SAM proposal through the
+resident Core ML provider. Foreground and background clicks can be refined
+against the cached image embedding; applying the proposal promotes the packed
+soft mask into the managed raster store before the Recipe references it.
+Cancellation, stale-result rejection, reversible invert/opacity/feather
+settings, and explicit apply/cancel boundaries remain application-owned.
+
 ## Deliberately not implemented
 
-- No linked ONNX Runtime/Core ML/Vision/CUDA/Metal/DirectML/Windows ML inference
-  adapter. The Apple Vision module is an availability-tested boundary only.
-- No DINO, CLIP, face/eye, SAM, depth, inpaint, diffusion, VLM, or LLM model.
+- No linked ONNX Runtime/Vision/CUDA/Metal/DirectML/Windows ML inference
+  adapter. Core ML inference is isolated in the packaged SAM provider; the
+  Apple Vision module remains an availability-tested boundary only.
+- No DINO, CLIP, face/eye, depth, inpaint, diffusion, VLM, or LLM model.
 - No fabricated quality score, embedding, mask, recipe, or generated patch.
-- No persistent mask raster store or managed derived-raster store yet. The
-  generated-artifact contracts define the promotion boundary but do not pretend
-  the storage or renderer exists.
+- No bundled/downloaded model package and no promise that an arbitrary SAM
+  conversion is compatible. Admission requires the exact pinned artifact set.
 - No model downloader, remote API call, Python runtime, or direct Catalog access
   from this crate.
 - No cross-photo quality rank derived from the current display-proxy metrics.
@@ -176,9 +200,22 @@ observation is displayed separately and is not yet copied into the feedback even
 - [`src/generated.rs`](src/generated.rs) owns typed generated outputs and
   [`src/derived_raster.rs`](src/derived_raster.rs) owns the managed-store
   promotion transaction boundary.
+- [`../shadow-core/src/derived_raster_store.rs`](../shadow-core/src/derived_raster_store.rs)
+  owns durable proposal promotion and verified reopening;
+  [`../shadow-domain/src/recipe/local_mask/managed_raster.rs`](../shadow-domain/src/recipe/local_mask/managed_raster.rs)
+  owns the immutable Recipe reference and packed soft-mask byte shape.
 - Use [`AI_CAPABILITY_PLAN.md`](AI_CAPABILITY_PLAN.md) when selecting or
   integrating a runtime, model package, culling feature, mask generator,
   restoration provider, denoiser, or super-resolution route.
+- [`src/providers/sam2_coreml_sidecar.rs`](src/providers/sam2_coreml_sidecar.rs)
+  owns exact artifact admission and the one-shot provider adapter;
+  [`src/providers/sam2_coreml_sidecar/resident.rs`](src/providers/sam2_coreml_sidecar/resident.rs)
+  owns the recoverable resident session. The packaged native provider is
+  documented in
+  [`../../apps/desktop/providers/sam2-coreml/README.md`](../../apps/desktop/providers/sam2-coreml/README.md).
+- Use the Mac-only
+  [`SAM 2.1 Core ML probe`](../../tools/sam2-coreml-probe/README.md) only for
+  lower-level conversion compatibility diagnosis.
 - Keep application scheduling, persistence, Recipe integration, and UI ownership
   in their respective crates. This README should change only when the current
   crate boundary or implemented facts change.

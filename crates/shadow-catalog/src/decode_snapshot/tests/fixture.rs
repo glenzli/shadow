@@ -1,8 +1,8 @@
 use shadow_domain::{
     AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
-    DecoderSnapshot, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, Platform,
-    PreviewCodec, PreviewDescriptorSnapshot, RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
-    RepresentationId, RepresentationKind,
+    DecoderSnapshot, GpsMetadataSnapshot, ImageDimensions, ImageMargins,
+    PendingCorrectionsSnapshot, Platform, PreviewCodec, PreviewDescriptorSnapshot,
+    RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot, RepresentationId, RepresentationKind,
 };
 
 use crate::{Catalog, RegisterAsset, RegistrationStatus};
@@ -70,6 +70,11 @@ pub(super) fn snapshot(provider_id: &str, version: &str, preview_ids: &[usize]) 
             aperture_f_number: 5.6,
             focal_length_mm: 35.0,
             captured_at_unix_seconds: 1_700_000_000,
+            gps: Some(GpsMetadataSnapshot {
+                latitude_degrees: 31.23,
+                longitude_degrees: 121.4735,
+                altitude_meters: Some(50.0),
+            }),
             lens_make: "Pentax".into(),
             lens_model: "smc PENTAX-DA 35mm".into(),
             focal_length_35mm: 52.0,

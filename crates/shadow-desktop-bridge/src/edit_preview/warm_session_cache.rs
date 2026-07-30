@@ -21,6 +21,9 @@ use shadow_domain::RepresentationId;
 use crate::{
     photo_provider::isolated_edit_raster,
     preview_cache_identity::requested_raw_development_plan_cache_matches,
+    raw_foundation_render_source::{
+        RawFoundationRenderIdentity, RawFoundationRenderSelection, load_raw_foundation_for_render,
+    },
     recipe_v1::{ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt},
     session_photo_source::{catalog_native_path, ensure_native_decode_is_admitted},
 };
@@ -39,6 +42,7 @@ struct WarmEditPreviewSessionKey {
     /// immutable provenance receipt to a different request.
     requested_raw_development_plan_identity: String,
     optics: OpticsSettings,
+    raw_foundation: Option<RawFoundationRenderIdentity>,
 }
 
 impl WarmEditPreviewSessionKey {
@@ -52,6 +56,7 @@ impl WarmEditPreviewSessionKey {
                 &requested.requested_raw_development_plan_identity,
             )
             && self.optics == requested.optics
+            && self.raw_foundation == requested.raw_foundation
     }
 }
 
@@ -71,16 +76,31 @@ pub(crate) struct WarmEditPreviewSessionCache {
     entries: Mutex<VecDeque<WarmEditPreviewSessionEntry>>,
 }
 
+#[derive(Debug)]
+pub(crate) struct WarmEditPreviewSourceRequest<'request> {
+    pub(crate) runtime_cache_root: &'request Path,
+    pub(crate) source: &'request ReviewItemRecord,
+    pub(crate) max_edge: u32,
+    pub(crate) raw_development_plan: RawDevelopmentPlan,
+    pub(crate) optics: &'request OpticsSettings,
+    pub(crate) source_environment_cache_identity: &'request str,
+    pub(crate) raw_foundation: Option<&'request RawFoundationRenderSelection>,
+}
+
 impl WarmEditPreviewSessionCache {
     pub(crate) fn get_or_prepare(
         &self,
-        runtime_cache_root: &Path,
-        source: &ReviewItemRecord,
-        max_edge: u32,
-        raw_development_plan: RawDevelopmentPlan,
-        optics: &OpticsSettings,
-        source_environment_cache_identity: &str,
+        request: &WarmEditPreviewSourceRequest<'_>,
     ) -> AnyResult<Arc<PhotoEditPreviewSession>> {
+        let WarmEditPreviewSourceRequest {
+            runtime_cache_root,
+            source,
+            max_edge,
+            raw_development_plan,
+            optics,
+            source_environment_cache_identity,
+            raw_foundation,
+        } = *request;
         // RAW development is immutable prepared-source provenance, not a
         // Recipe color operation. Its requested identity must participate in
         // the key before any warm reuse decision.
@@ -94,6 +114,7 @@ impl WarmEditPreviewSessionCache {
             source_environment_cache_identity: source_environment_cache_identity.to_owned(),
             requested_raw_development_plan_identity,
             optics: optics.clone(),
+            raw_foundation: raw_foundation.map(|selection| selection.identity.clone()),
         };
 
         self.get_or_prepare_with(key, || {
@@ -102,13 +123,32 @@ impl WarmEditPreviewSessionCache {
             // the source; it does not invalidate already decoded pixels.
             let native_path = catalog_native_path(source)?;
             ensure_native_decode_is_admitted(runtime_cache_root, &native_path)?;
-            prepare_preview_session(
-                runtime_cache_root,
-                &native_path,
-                max_edge,
-                raw_development_plan,
-                optics,
-            )
+            match raw_foundation {
+                Some(selection) => {
+                    let loaded =
+                        load_raw_foundation_for_render(selection, &native_path, source.source)?;
+                    let prepared = PhotoEditPreviewSession::open_with_raw_foundation(
+                        &native_path,
+                        max_edge,
+                        raw_development_plan,
+                        &loaded.foundation,
+                        optics,
+                    )
+                    .context("prepare preview from verified AI RAW foundation")?;
+                    ensure_foundation_development_receipt(
+                        raw_development_plan,
+                        prepared.raw_pipeline_receipt(),
+                    )?;
+                    Ok(prepared)
+                }
+                None => prepare_preview_session(
+                    runtime_cache_root,
+                    &native_path,
+                    max_edge,
+                    raw_development_plan,
+                    optics,
+                ),
+            }
         })
     }
 

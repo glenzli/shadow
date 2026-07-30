@@ -60,11 +60,26 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Manage local photo sources. Original files remain read-only.")
+                        text: qsTr("Organize photos and manage local sources. Original files remain read-only.")
                         color: Theme.textMuted
                         font.pixelSize: 11
                     }
                 }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.border
+            }
+
+            LibraryKeywordPanel {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 470
+                controller: library.controller
+                allowAssignment: false
+                allowFiltering: true
+                manageTaxonomy: true
             }
 
             Rectangle {

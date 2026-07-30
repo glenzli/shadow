@@ -27,8 +27,11 @@ code should include the narrow semantic owner directly:
   by an opened decoder and a fresh renderer. `src/decoder/libraw_reference_development.*` owns the
   independent processed-linear reference lifecycle: settings validation and identity, capability
   negotiation, fresh LibRaw allocation/open/unpack/process, preview bounding, and the complete
-  development receipt. `libraw_decoder.cpp` retains source metadata, embedded previews, and the
-  provider-neutral RawFrame session, then delegates processed reference work to that owner.
+  development receipt. `src/decoder/dng_noise_profile.*` owns bounded, random-access extraction of
+  the exact DNG `NoiseProfile` from one unambiguous primary Bayer Raw IFD and its conversion from
+  normalized DNG coefficients to per-site DN units. `libraw_decoder.cpp` retains source metadata,
+  embedded previews, and the provider-neutral RawFrame session, then delegates processed reference
+  work to that owner.
 - `raw_development_plan.hpp` owns requested RAW intent and capability negotiation, while
   `raw_development_receipt.hpp` owns the auditable execution result.
 - `decoder_metadata.hpp` / `src/decoder/decoder_metadata.cpp` own source facts,
@@ -63,6 +66,11 @@ Current contract rules:
   the expected preview-only path for Nikon Z9 HE/HE* NEF until an external provider is available.
 - Preview IDs are provider IDs, not vector positions. `select_best_preview` chooses the largest decodable candidate.
 - DNG opcode lists are surfaced as `PendingCorrections` until Shadow can prove they were applied.
+- An embedded DNG `NoiseProfile` is admitted only from the unique highest-quality CFA Raw IFD.
+  Shared or three-plane RGB coefficients are accepted in `CFAPlaneColor` order; BigTIFF, ambiguous
+  Raw IFDs, malformed/non-finite coefficients, unsupported plane shapes, linearization tables, and
+  spatial black-level deltas leave sensor calibration unavailable. `BaselineNoise` is never
+  relabelled as exact camera calibration.
 - `develop_source_reference` is the application source boundary. Supported public LibRaw and
   private-provider files both expose `RawFrame` and enter Shadow's owned black subtraction,
   normalization, Bayer reconstruction, white balance and camera-to-linear-sRGB path. An exact
@@ -71,7 +79,28 @@ Current contract rules:
   provider-processed compatibility route. Every choice and fallback is recorded in the pipeline
   receipt and cache identity. `src/raw/raw_frame_development_plan.*` owns source validation, the
   immutable camera transform and optional DCP lifetime, source-wide luminance calibration,
-  preview/diagnostic geometry, prepared CFA-denoise intent, and RAW receipt finalization.
+  preview/diagnostic geometry, prepared neural/conventional CFA-denoise intent, and RAW receipt
+  finalization. `src/raw/neural_raw_denoise/*` owns the optional RAW-to-RAW neural stage: calibrated
+  Bayer admission, canonical R/Gr/Gb/B packing, normalized Poisson-Gaussian conditioning, bounded
+  tile/halo assembly, the Core ML adapter, atomic fallback, and exact model/execution provenance.
+  It runs before the existing `raw_denoise_plan.*` stage; it neither reinterprets nor replaces the
+  conventional denoise setting.
+  `include/shadow/image/raw_foundation.hpp` and `src/raw/raw_foundation.cpp` own the distinct
+  post-model ingestion boundary for externally materialized AI foundations. They accept only a
+  verified, path-free public RawNIND identity and finite interleaved linear Camera RGB, bind its
+  zero-or-one canonical-RGGB crop to the source active sensor, then apply the existing
+  source-bound camera transform and orientation into scene-linear working RGB. Bounded preview
+  resampling happens before that linear transform. `src/raw/raw_foundation_source.*` is the sole
+  source-route integration owner: it reuses the original RawFrame for calibration, DCP rendering,
+  luminance, and sensor clipping, while the verified foundation supplies the only reconstruction
+  pixels. Its receipt and canonical cache identity include the exact model, implementation,
+  source, artifact, and cache-key identities. Geometry, provenance, or provider-policy mismatch
+  fails without a provider-RGB/original-RAW fallback. The requested RAW plan remains auditable,
+  while its effective AI execution disables overlapping conventional RAW denoise and highlight
+  reconstruction. The explicit overloads in `warm_edit_preview.*` and
+  `full_edit_detail_source_preparation.*` then delegate that result through the existing optics,
+  source-rendering, Recipe, and display owners. Warm preview stays bounded; detail/export retains
+  the complete scene-linear foundation and cannot enter the resident-CFA route.
   `src/raw/raw_frame_source_preparation.*` owns the one-time session decode, plan negotiation,
   exact-DCP admission, final RawFrame pipeline receipt, and unforgeable source identity shared by
   materialized and resident consumers. Only that owner may prepare region optics for publication,
@@ -91,7 +120,8 @@ Current contract rules:
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - `RawFrame` intentionally copies LibRaw memory and preserves raw-coordinate samples, active
   margins, CFA layout, per-CFA black/white calibration, as-shot neutral, an optional explicit
-  Camera RGB -> XYZ D50 matrix, and pending DNG opcode declarations. It is explicitly
+  Camera RGB -> XYZ D50 matrix, optional exact embedded sensor-noise calibration, and pending DNG
+  opcode declarations. It is explicitly
   pre-demosaic; unsupported CFA layouts remain inspectable but cannot enter Bayer-only
   processing. A later opaque/tiled buffer can remove this copy without changing the frame
   semantics.
@@ -110,10 +140,37 @@ Runtime controls:
 ```text
 SHADOW_RAW_PIPELINE=auto|raw-frame|processed
 SHADOW_IMAGE_ACCELERATION=auto|cpu|metal
+SHADOW_AI_RAW_DENOISE_MODEL=/absolute/path/to/model.mlmodelc
+SHADOW_AI_RAW_DENOISE_MODEL_IDENTITY=sha256-tree-v1:<64-lowercase-hex>
+SHADOW_AI_RAW_DENOISE_TILE_EDGE=512
+SHADOW_AI_RAW_DENOISE_HALO=32
+SHADOW_AI_RAW_DENOISE_PREVIEWS=0|1
 ```
 
 `metal` requires Metal for every eligible Bayer detail or area-preview request. Build-time
 `SHADOW_ENABLE_METAL=OFF` compiles the same public API against a cross-platform stub.
+
+The `SHADOW_AI_RAW_DENOISE_*` variables are a headless development seam, not the eventual Recipe
+or UI contract. No model is bundled or downloaded by `shadow-image`. The admitted artifact must be
+a compiled Core ML directory pinned by Shadow's deterministic tree digest. Its float32 features
+are `mosaic` `[1,4,H,W]`, `noise` `[1,8]`, and `denoised_mosaic` `[1,4,H,W]`; the tile edge in the
+environment fixes `H=W`. Preview execution is bypassed by default. Unsupported calibration,
+invalid configuration, model mismatch, loading failure, or inference failure preserves the
+original RAW plane and publishes an explicit fallback identity. Cancellation propagates without
+publishing a partial plane. A successful stage is still independent of conventional CFA denoise,
+which may execute afterward under its existing plan and backend.
+
+`shadow-image-neural-raw-denoise-contract` always runs the portable packing, tiling, fallback, and
+provenance contracts. Supplying all four
+`SHADOW_TEST_NEURAL_RAW_DENOISE_MODEL{,_IDENTITY}`, `SHADOW_TEST_NEURAL_RAW_DENOISE_TILE_EDGE`, and
+`SHADOW_TEST_NEURAL_RAW_DENOISE_HALO` variables additionally turns the same executable into a real
+Core ML checkpoint gate. That gate must pass before claiming a model artifact is runnable; image
+quality and performance still require a separate representative RAW corpus benchmark.
+[`tools/neural-raw-denoise-baseline`](../../tools/neural-raw-denoise-baseline/README.md) owns the
+synthetic-only checkpoint generator and first Core ML quality/latency smoke gate; passing it never
+promotes that checkpoint to a real-camera or product model.
+
+DNG technology notice: This product includes DNG technology under license by Adobe.
 
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
@@ -198,6 +255,12 @@ module invalidates old decode artifacts even if its author accidentally forgets 
 version string. The module is a development fixture, not a public Nikon decoder and does not
 contain vendor code or calibration data.
 
+For bounded RAW diagnostics, `shadow-raw-probe --raw-frame-only` stops after provider-neutral
+sensor extraction and reports the exact resolved noise model. `--neural-raw-only` additionally
+executes the configured RAW-to-RAW neural node and reports its model/runtime identity plus numeric
+sample deltas, but deliberately does not claim that later declared DNG opcodes or final rendering
+have executed.
+
 `shadow-image-decode-helper neutral-detail-tile` is a development isolation proof, not the current
 Recipe-aware edit or export route. It proves that a child process can open a source through the
 private-provider boundary, prepare neutral full-detail pixels, bind its receipt to a caller nonce,
@@ -237,6 +300,13 @@ Decoder contract tests follow the production responsibilities instead of one agg
   orientation, and exact downsample reduction.
 - `tests/bayer_demosaic_contract_test.cpp` owns normalized Bayer reconstruction, receipts, and
   unsupported-layout rejection.
+- `tests/raw_foundation_contract_test.cpp` owns verified RawNIND provenance, source-crop
+  admission, bounded camera-RGB preview resampling, camera transform, orientation, and fail-closed
+  invalid-input behavior.
+- `tests/raw_foundation_source_route_contract_test.cpp` owns explicit source routing, adjusted-plan
+  audit, artifact-sensitive cache identity, clipping diagnostics, and the no-fallback boundary.
+- `tests/raw_foundation_edit_surfaces_contract_test.cpp` owns bounded warm-preview and materialized
+  full-detail publication, real RGB8/tile rendering, and surface-level no-fallback behavior.
 - `tests/raw_development_plan_contract_test.cpp` owns default intents, cache identity, provider
   capability negotiation, schema rejection, and the explicit absence of RAW provenance.
 - `tests/libraw_reference_development_contract_test.cpp` owns LibRaw settings validation,
@@ -419,8 +489,10 @@ segment count, and neutral identity required by Metal lowering.
 admission contract. CPU layer execution and resident Metal lowering both call it before bypassing
 disabled or neutral content, so malformed persisted recipes cannot acquire backend-dependent
 validation.
-`src/edit/local_mask_coverage.*` owns the five-kind CPU evaluator, pre-adjustment-input capture,
-continuous brush capsules, condition-mask color conversion, and scalar geometry/R8 projection.
+`src/edit/local_mask_coverage.*` owns CPU mask dispatch, pre-adjustment-input capture, continuous
+brush capsules, condition-mask color conversion, and scalar geometry/R8 projection;
+`src/edit/managed_raster_mask.*` separately owns the bounded portable Gray8/Gray16Float contract,
+validation, binary16 decoding, and pixel-center bilinear sampling for application-managed masks.
 `src/edit/local_mask.cpp` consumes that evaluator for layer blending; a selected active layer
 reuses its captured float raster rather than evaluating color or luminance conditions twice.
 `src/edit/perceptual_color.*` owns hue-band and ordered Point Color mapping, global Oklab
@@ -556,6 +628,8 @@ normalized masks, continuous capsules, and creative-detail apron produce byte-id
 and irregular tiled output on resident Metal.
 `tests/local_mask_coverage_contract_test.cpp` owns the public CPU paired-frame contract, all five
 mask kinds, inactive/no-op targets, geometry, typed target rejection, and cancellation.
+`tests/managed_raster_mask_contract_test.cpp` owns immutable raster encoding, bilinear sampling,
+malformed-payload rejection, inversion, and the explicit resident-Metal-to-CPU fallback boundary.
 `tests/warm_edit_gpu_contract/mask_coverage_contract_test.cpp` owns real-device CPU/Metal R8
 parity, pre-adjustment-input order, resident target-blend reuse, inactive targets, geometry, and
 atomic cancellation.

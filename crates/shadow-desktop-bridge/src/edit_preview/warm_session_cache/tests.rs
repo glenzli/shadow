@@ -8,9 +8,15 @@ use std::{
 };
 
 use anyhow::{Result as AnyResult, anyhow};
-use shadow_domain::{EntityId, RawCameraNeutral, RawWhiteBalance};
+use shadow_ai::{
+    ArtifactHashAlgorithm, GeneratedArtifactReference, RAW_FOUNDATION_ENCODING_VERSION,
+    RAW_FOUNDATION_MEDIA_TYPE, RasterExtent, RawFoundationArtifact, RawFoundationProvenance,
+    RawFoundationSourceProvenance,
+};
+use shadow_domain::{EntityId, RawCameraNeutral, RawFoundationDenoiseModel, RawWhiteBalance};
 
 use super::*;
+use crate::raw_foundation_runtime::RawFoundationReady;
 
 const DISPLAY_JPEG_BYTES: &[u8] = &[
     0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
@@ -56,7 +62,47 @@ fn key() -> WarmEditPreviewSessionKey {
         source_environment_cache_identity: "source-environment-v1-fixture".to_owned(),
         requested_raw_development_plan_identity: "shadow-raw-plan-v1;fixture=preview".to_owned(),
         optics: OpticsSettings::default(),
+        raw_foundation: None,
     }
+}
+
+fn raw_foundation_identity() -> RawFoundationRenderIdentity {
+    let ready = RawFoundationReady {
+        descriptor: RawFoundationArtifact::new(
+            GeneratedArtifactReference::new(
+                ArtifactHashAlgorithm::Sha256,
+                "1".repeat(64),
+                4_096,
+                RAW_FOUNDATION_MEDIA_TYPE.into(),
+                RAW_FOUNDATION_ENCODING_VERSION,
+            )
+            .expect("artifact reference"),
+            RasterExtent::new(6, 4).expect("extent"),
+            RawFoundationSourceProvenance::new("2".repeat(64), 8_192, "3".repeat(64))
+                .expect("source provenance"),
+            RawFoundationProvenance::new(
+                "4".repeat(64),
+                "5".repeat(64),
+                RawFoundationDenoiseModel::RAWNIND_PACKAGE_SHA256.into(),
+                RawFoundationDenoiseModel::RAWNIND_BAYER_GRAPH_SHA256.into(),
+                RawFoundationDenoiseModel::RAWNIND_IMPLEMENTATION_REVISION.into(),
+            )
+            .expect("foundation provenance"),
+        )
+        .expect("foundation descriptor"),
+        path: PathBuf::from("/cache/foundation.shadowrawf"),
+        source_path: PathBuf::from("/source/input.nef"),
+        source: RepresentationFingerprint {
+            byte_len: 8_192,
+            modified_at_ms: Some(17),
+        },
+        disposition: shadow_ai::RawFoundationMaterializationDisposition::Published,
+    };
+    RawFoundationRenderIdentity::from_ready(
+        &ready,
+        RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+    )
+    .expect("render identity")
 }
 
 #[test]
@@ -122,6 +168,9 @@ fn every_prepared_source_key_component_participates_in_reuse() {
     let mut changed = base.clone();
     changed.optics.manual_distortion = 1;
     variants.push(changed);
+    let mut changed = base.clone();
+    changed.raw_foundation = Some(raw_foundation_identity());
+    variants.push(changed);
 
     cache
         .get_or_prepare_with(base, || {
@@ -138,7 +187,7 @@ fn every_prepared_source_key_component_participates_in_reuse() {
             .expect("prepare changed-key session");
     }
 
-    assert_eq!(prepare_count.load(Ordering::SeqCst), 8);
+    assert_eq!(prepare_count.load(Ordering::SeqCst), 9);
     assert_eq!(
         cache.entries.lock().expect("cache entries").len(),
         MAX_WARM_EDIT_PREVIEW_SESSIONS

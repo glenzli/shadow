@@ -268,11 +268,12 @@ void resident_liquify_and_canvas_match_the_cpu_oracle() {
         geometry_context(source, geometry, &prepared)
     );
     const auto repeated_stats = preparation.session->stats();
+    // A repeated render can rotate to the second resident slot and lazily allocate that slot's
+    // geometry intermediates. The cache-hit counter, rather than the aggregate allocation count,
+    // is the direct contract for reusing the immutable Liquify candidate table.
     expect(
         repeated.status == image::detail::WarmEditGpuSession::RenderStatus::completed
             && repeated.output.has_value()
-            && repeated_stats.gpu_buffer_allocation_count
-                == first_stats.gpu_buffer_allocation_count
             && repeated_stats.resource_cache_hit_count
                 > first_stats.resource_cache_hit_count,
         "repeated Liquify renders reuse the immutable resident candidate table"

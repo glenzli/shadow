@@ -32,11 +32,18 @@ mod session_preview_store;
 
 // Non-destructive edit contracts and shared Grade Node application.
 mod edit_version_diff;
+mod raw_foundation_render_source;
+mod raw_foundation_runtime;
+mod raw_foundation_service;
 mod recipe_v1;
 mod session_edit_history;
+mod session_raw_foundation;
 mod session_shared_grade;
+mod session_subject_mask;
 mod shared_grade_application;
 mod shared_grade_library;
+mod subject_mask_runtime;
+mod subject_mask_service;
 
 // Export and cache maintenance operations.
 mod cache_maintenance_service;
@@ -199,6 +206,10 @@ mod ffi {
         lens_model: String,
         has_captured_at: bool,
         captured_at_unix_seconds: i64,
+        has_coordinates: bool,
+        latitude_e7: i32,
+        longitude_e7: i32,
+        place_name: String,
         has_iso_speed: bool,
         iso_speed: f64,
         has_exposure_time: bool,
@@ -318,6 +329,8 @@ mod ffi {
         has_development_edits: bool,
         development_edits: bool,
         album_id: String,
+        keyword_ids_all: Vec<String>,
+        excluded_keyword_ids_any: Vec<String>,
     }
 
     /// `Any` avoids overloading `Unflagged`: users can deliberately filter
@@ -383,6 +396,49 @@ mod ffi {
         query_filter: FfiLibraryPhotoFilter,
         created_at_ms: i64,
         updated_at_ms: i64,
+    }
+
+    /// One user-owned node in the hierarchical Library keyword taxonomy.
+    #[derive(Debug)]
+    struct FfiLibraryKeyword {
+        id: String,
+        parent_id: String,
+        name: String,
+        depth: u16,
+        subtree_photo_count: u64,
+        created_at_ms: i64,
+        updated_at_ms: i64,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiLibraryKeywordOrigin {
+        Manual,
+        Imported,
+        AiAccepted,
+    }
+
+    /// One committed direct assignment for a selected photo.
+    #[derive(Debug)]
+    struct FfiLibraryPhotoKeyword {
+        keyword: FfiLibraryKeyword,
+        origin: FfiLibraryKeywordOrigin,
+        source_label: String,
+        has_confidence: bool,
+        confidence_milli: u16,
+        assigned_at_ms: i64,
+    }
+
+    #[derive(Debug)]
+    struct FfiLibraryKeywordMutationReceipt {
+        keyword_id: String,
+        requested_photo_count: u64,
+        changed_photo_count: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiLibraryKeywordDeletionReceipt {
+        deleted_keyword_count: u64,
+        deleted_assignment_count: u64,
     }
 
     /// Read-only reconciliation evidence for one configured Library source.
@@ -499,6 +555,28 @@ mod ffi {
         next_cursor: FfiLibraryPhotoCursor,
     }
 
+    /// One bounded spatial cell. Stable opening identity and path are present
+    /// only when the cell contains exactly one logical photo.
+    #[derive(Debug)]
+    struct FfiLibraryMapCluster {
+        cell_x: u16,
+        cell_y: u16,
+        latitude_e7: i32,
+        longitude_e7: i32,
+        photo_count: u64,
+        photo_id: String,
+        representation_id: String,
+        title: String,
+        source_path: String,
+    }
+
+    /// Provider-independent map overlay data for one settled viewport.
+    #[derive(Debug)]
+    struct FfiLibraryMapSnapshot {
+        clusters: Vec<FfiLibraryMapCluster>,
+        photo_count: u64,
+    }
+
     /// Catalog-authoritative affinity state for one logical photo. This is
     /// intentionally separate from the append-only Review decision stream:
     /// a heart and a colour label are mutable Library organization state.
@@ -508,6 +586,82 @@ mod ffi {
         liked: bool,
         color_label: String,
         updated_at_ms: i64,
+    }
+
+    /// Effective Library metadata plus its immutable decoder observation and
+    /// explicit override provenance. Override mode is `inherit`, `set`, or
+    /// `clear`; origin is empty for inherited values.
+    #[derive(Debug)]
+    struct FfiLibraryMetadataState {
+        photo_id: String,
+        has_observed_capture_time: bool,
+        observed_captured_at_unix_seconds: i64,
+        has_effective_capture_time: bool,
+        effective_captured_at_unix_seconds: i64,
+        capture_time_override_mode: String,
+        capture_time_override_origin: String,
+        capture_time_source_label: String,
+        has_observed_coordinates: bool,
+        observed_latitude_e7: i32,
+        observed_longitude_e7: i32,
+        has_effective_coordinates: bool,
+        effective_latitude_e7: i32,
+        effective_longitude_e7: i32,
+        effective_place_name: String,
+        coordinates_override_mode: String,
+        coordinates_override_origin: String,
+        coordinates_source_label: String,
+    }
+
+    #[derive(Debug)]
+    struct FfiGpxMatchProposal {
+        photo_id: String,
+        captured_at_unix_seconds: i64,
+        matched_at_unix_seconds: i64,
+        nearest_track_delta_seconds: u32,
+        latitude_e7: i32,
+        longitude_e7: i32,
+    }
+
+    /// Opaque, session-bound preview. The proposal sample is capped for UI
+    /// presentation; confirmation applies the complete server-side proposal.
+    #[derive(Debug)]
+    struct FfiGpxImportPreview {
+        preview_id: String,
+        source_path: String,
+        source_digest_hex: String,
+        requested_photo_count: u32,
+        matched_photo_count: u32,
+        unmatched_photo_count: u32,
+        proposal_sample: Vec<FfiGpxMatchProposal>,
+    }
+
+    #[derive(Debug)]
+    struct FfiCaptureTimeBatchProposal {
+        photo_id: String,
+        has_before_capture_time: bool,
+        before_captured_at_unix_seconds: i64,
+        has_after_capture_time: bool,
+        after_captured_at_unix_seconds: i64,
+    }
+
+    /// Opaque preview for either a relative selection-wide shift or restoring
+    /// selected photos to their current decoder-observed capture time.
+    #[derive(Debug)]
+    struct FfiCaptureTimeBatchPreview {
+        preview_id: String,
+        mode: String,
+        offset_seconds: i64,
+        requested_photo_count: u32,
+        applicable_photo_count: u32,
+        skipped_photo_count: u32,
+        proposal_sample: Vec<FfiCaptureTimeBatchProposal>,
+    }
+
+    #[derive(Debug)]
+    struct FfiLibraryMetadataBatchReceipt {
+        requested_photo_count: u32,
+        applied_photo_count: u32,
     }
 
     /// Read-only cache reachability and footprint. The Catalog decides which
@@ -662,8 +816,9 @@ mod ffi {
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
         /// 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
-        /// 4 = luminance range, 5 = color range. The common normalized fields
-        /// keep this CXX DTO stable while the domain owns authoritative shape validation.
+        /// 4 = luminance range, 5 = color range, 6 = opaque managed raster.
+        /// The common normalized fields keep this CXX DTO stable while the
+        /// domain owns authoritative shape validation.
         local_mask_kind: u8,
         local_mask_x0: f64,
         local_mask_y0: f64,
@@ -794,6 +949,10 @@ mod ffi {
     #[derive(Debug, Clone)]
     struct FfiPhotoFoundationSettings {
         optics: FfiOpticsSettings,
+        /// Whether the singleton AI RAW denoise node is active.
+        raw_ai_denoise_enabled: bool,
+        /// 0 = RawNIND public Bayer release 5.6.0.
+        raw_ai_denoise_model: u8,
         /// 0 = source As Shot metadata; 1 = the exact camera-space neutral.
         raw_white_balance_mode: u8,
         /// Green is canonically fixed at 1,000,000.
@@ -867,6 +1026,107 @@ mod ffi {
         /// UI transaction metadata returned unchanged with available coverage.
         /// It never enters native mask math or durable preview identity.
         mask_selection_revision: u64,
+    }
+
+    /// One include/exclude click in the currently displayed final-canvas
+    /// coordinate space.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiSubjectMaskPoint {
+        x: f64,
+        y: f64,
+        foreground: bool,
+    }
+
+    /// Immutable input captured before the desktop queues one SAM worker.
+    #[derive(Debug)]
+    struct FfiSubjectMaskRequest {
+        job_token: u64,
+        generation: u64,
+        base_commit_id: String,
+        settings: FfiEditSettings,
+        target_grade_node_index: u32,
+        target_grade_node_id: String,
+        points: Vec<FfiSubjectMaskPoint>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiSubjectMaskTerminal {
+        Staged,
+        Unavailable,
+        Cancelled,
+        Failed,
+    }
+
+    /// Terminal result of preview preparation plus provider execution. A
+    /// staged result carries only opaque, session-local apply authority.
+    #[derive(Debug)]
+    struct FfiSubjectMaskResult {
+        terminal: FfiSubjectMaskTerminal,
+        job_token: u64,
+        generation: u64,
+        proposal_token: u64,
+        detail: String,
+        /// Bounded Gray8 final-canvas presentation of a staged proposal.
+        /// Empty for every non-staged terminal.
+        preview_width: u32,
+        preview_height: u32,
+        preview_samples: Vec<u8>,
+    }
+
+    /// Apply-time identity and working-ref expectations captured after the UI
+    /// accepts a current staged proposal.
+    #[derive(Debug)]
+    struct FfiSubjectMaskApplyRequest {
+        proposal_token: u64,
+        generation: u64,
+        base_commit_id: String,
+        expected_working_commit_id: String,
+        settings: FfiEditSettings,
+        target_grade_node_index: u32,
+        target_grade_node_id: String,
+        invert: bool,
+    }
+
+    /// Session-local state for one model-pinned AI RAW foundation job.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiRawFoundationJobPhase {
+        Queued,
+        Planning,
+        Running,
+        Ready,
+        Unavailable,
+        Cancelled,
+        Failed,
+    }
+
+    /// Exact locally installed model/runtime admission status.
+    #[derive(Debug, Clone)]
+    struct FfiRawFoundationRuntimeStatus {
+        available: bool,
+        model_id: String,
+        runtime_version: String,
+        diagnostic: String,
+    }
+
+    /// Small pollable projection. Cache paths and foundation payloads remain
+    /// inside Rust and never enter Recipe or QML state.
+    #[derive(Debug, Clone)]
+    struct FfiRawFoundationJobStatus {
+        job_token: u64,
+        request_id: String,
+        generation: u64,
+        phase: FfiRawFoundationJobPhase,
+        phase_code: String,
+        completed_basis_points: u16,
+        cancellation_requested: bool,
+        /// 0 = none; 1 = verified cache hit; 2 = newly published;
+        /// 3 = concurrently published equivalent.
+        disposition: u8,
+        cache_key_sha256: String,
+        artifact_identity_sha256: String,
+        width: u32,
+        height: u32,
+        diagnostic: String,
     }
 
     /// One visible full-resolution viewport. Coordinates are normalized so the
@@ -1164,6 +1424,16 @@ mod ffi {
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
         ) -> Result<u64>;
+        fn library_map_snapshot(
+            self: &DesktopSession,
+            filter: &FfiLibraryPhotoFilter,
+            south_latitude_e7: i32,
+            west_longitude_e7: i32,
+            north_latitude_e7: i32,
+            east_longitude_e7: i32,
+            columns: u16,
+            rows: u16,
+        ) -> Result<FfiLibraryMapSnapshot>;
         fn library_facet_page(
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
@@ -1226,12 +1496,85 @@ mod ffi {
             limit: u32,
         ) -> Result<FfiLibraryPhotoPage>;
         fn smart_library_photo_count(self: &DesktopSession, album_id: &str) -> Result<u64>;
+        fn library_keywords(self: &DesktopSession) -> Result<Vec<FfiLibraryKeyword>>;
+        fn library_keywords_for_photo(
+            self: &DesktopSession,
+            photo_id: &str,
+        ) -> Result<Vec<FfiLibraryPhotoKeyword>>;
+        fn create_library_keyword(
+            self: &DesktopSession,
+            parent_id: &str,
+            name: &str,
+        ) -> Result<FfiLibraryKeyword>;
+        fn rename_library_keyword(
+            self: &DesktopSession,
+            keyword_id: &str,
+            name: &str,
+        ) -> Result<FfiLibraryKeyword>;
+        fn move_library_keyword(
+            self: &DesktopSession,
+            keyword_id: &str,
+            parent_id: &str,
+        ) -> Result<FfiLibraryKeyword>;
+        fn delete_library_keyword_subtree(
+            self: &DesktopSession,
+            keyword_id: &str,
+        ) -> Result<FfiLibraryKeywordDeletionReceipt>;
+        fn assign_library_keyword(
+            self: &DesktopSession,
+            keyword_id: &str,
+            photo_ids: Vec<String>,
+        ) -> Result<FfiLibraryKeywordMutationReceipt>;
+        fn remove_library_keyword(
+            self: &DesktopSession,
+            keyword_id: &str,
+            photo_ids: Vec<String>,
+        ) -> Result<FfiLibraryKeywordMutationReceipt>;
         fn set_photo_library_state(
             self: &DesktopSession,
             photo_id: &str,
             liked: bool,
             color_label: &str,
         ) -> Result<FfiPhotoLibraryState>;
+        fn library_metadata_state(
+            self: &DesktopSession,
+            photo_id: &str,
+        ) -> Result<FfiLibraryMetadataState>;
+        fn set_library_capture_time_override(
+            self: &DesktopSession,
+            photo_id: &str,
+            mode: &str,
+            captured_at_unix_seconds: i64,
+        ) -> Result<FfiLibraryMetadataState>;
+        fn set_library_coordinates_override(
+            self: &DesktopSession,
+            photo_id: &str,
+            mode: &str,
+            latitude_degrees: f64,
+            longitude_degrees: f64,
+            place_name: &str,
+        ) -> Result<FfiLibraryMetadataState>;
+        fn preview_library_capture_time_batch(
+            self: &DesktopSession,
+            targets: Vec<FfiBatchPhotoTarget>,
+            mode: &str,
+            offset_seconds: i64,
+        ) -> Result<FfiCaptureTimeBatchPreview>;
+        fn apply_library_capture_time_batch(
+            self: &DesktopSession,
+            preview_id: &str,
+        ) -> Result<FfiLibraryMetadataBatchReceipt>;
+        fn preview_library_gpx_import(
+            self: &DesktopSession,
+            gpx_path: &str,
+            targets: Vec<FfiBatchPhotoTarget>,
+            camera_clock_offset_seconds: i64,
+            maximum_gap_seconds: u32,
+        ) -> Result<FfiGpxImportPreview>;
+        fn apply_library_gpx_import(
+            self: &DesktopSession,
+            preview_id: &str,
+        ) -> Result<FfiLibraryMetadataBatchReceipt>;
         fn cache_maintenance_inventory(
             self: &DesktopSession,
         ) -> Result<FfiCacheMaintenanceInventory>;
@@ -1331,6 +1674,64 @@ mod ffi {
         /// Returns true only when cancellation won the unique terminal claim
         /// and the native cooperative stop signal was issued.
         fn cancel_basic_edit_preview(self: &DesktopSession, render_token: u64) -> bool;
+        /// Allocates one bounded AI-mask job before Qt queues preview/model
+        /// work. The token owns provider cancellation and proposal completion.
+        fn begin_subject_mask_job(self: &DesktopSession) -> Result<u64>;
+        /// Cancels both an attached input-preview render and provider work.
+        fn cancel_subject_mask_job(
+            self: &DesktopSession,
+            subject_mask_job_token: u64,
+        ) -> Result<()>;
+        /// Renders an identity-geometry JPEG, projects final-canvas prompts
+        /// back to original space, runs the admitted local provider, and
+        /// returns one opaque staged proposal.
+        fn execute_subject_mask_job(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiSubjectMaskRequest,
+        ) -> Result<FfiSubjectMaskResult>;
+        /// Consumes a current proposal and publishes the exact managed raster
+        /// through the ordinary working-Recipe autosave transaction.
+        fn apply_subject_mask_proposal(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiSubjectMaskApplyRequest,
+        ) -> Result<FfiPhotoEditState>;
+        /// Explicitly retires a staged proposal that lost the UI generation
+        /// race or was abandoned by the user.
+        fn discard_subject_mask_proposal(self: &DesktopSession, proposal_token: u64) -> Result<()>;
+        /// Verifies the exact side-loaded RawNIND model/runtime without
+        /// decoding a source or starting inference.
+        fn probe_raw_foundation_runtime(self: &DesktopSession) -> FfiRawFoundationRuntimeStatus;
+        /// Registers one cancellable job before Qt submits its worker.
+        fn begin_raw_foundation_job(
+            self: &DesktopSession,
+            request_id: &str,
+            generation: u64,
+        ) -> Result<u64>;
+        fn cancel_raw_foundation_job(
+            self: &DesktopSession,
+            raw_foundation_job_token: u64,
+        ) -> Result<()>;
+        fn raw_foundation_job_status(
+            self: &DesktopSession,
+            raw_foundation_job_token: u64,
+        ) -> Result<FfiRawFoundationJobStatus>;
+        /// Hashes and revalidates the Catalog-owned RAW, then plans, reuses, or
+        /// executes the admitted foundation transaction.
+        fn execute_raw_foundation_job(
+            self: &DesktopSession,
+            raw_foundation_job_token: u64,
+            photo_id: &str,
+            source_path: &str,
+        ) -> Result<FfiRawFoundationJobStatus>;
+        /// Retires a terminal job after the controller has consumed it.
+        fn retire_raw_foundation_job(
+            self: &DesktopSession,
+            raw_foundation_job_token: u64,
+        ) -> Result<()>;
         /// Lets C++ request construction report a failure only if completion,
         /// rather than cancellation, owns the token's terminal state.
         fn claim_basic_edit_preview_terminal(
@@ -1429,6 +1830,10 @@ struct DesktopSession {
     edit_preview_render_tokens: PreviewRenderRegistry,
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
+    subject_masks: subject_mask_service::SubjectMaskService,
+    subject_mask_runtime: subject_mask_runtime::SubjectMaskRuntime,
+    raw_foundations: raw_foundation_service::RawFoundationService,
+    raw_foundation_runtime: raw_foundation_runtime::RawFoundationRuntime,
     library: LibraryService,
     relink: RelinkService,
     cache_maintenance: CacheMaintenanceService,
@@ -1454,6 +1859,25 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         catalog.clone(),
         ContentAddressedStore::open(&cache_root).context("open cache maintenance store")?,
     );
+    let subject_mask_paths = subject_mask_runtime::config::SubjectMaskRuntimePaths::discover(
+        &std::env::current_exe().context("resolve desktop executable path")?,
+        &cache_root,
+    )?;
+    let subject_masks = subject_mask_service::SubjectMaskService::open(
+        &subject_mask_paths.derived_raster_store_root,
+    )?;
+    let subject_mask_runtime = subject_mask_runtime::SubjectMaskRuntime::new(
+        subject_mask_paths.provider_executable,
+        subject_mask_paths.model_directory,
+        subject_mask_paths.manifest_path,
+        subject_mask_paths.scratch_root,
+    )?;
+    let raw_foundation_paths = raw_foundation_runtime::config::RawFoundationRuntimePaths::discover(
+        &std::env::current_exe().context("resolve desktop executable path")?,
+        &cache_root,
+    )?;
+    let raw_foundation_runtime =
+        raw_foundation_runtime::RawFoundationRuntime::open(raw_foundation_paths)?;
     let session_previews = Arc::new(SessionPreviewStore::default());
     Ok(Box::new(DesktopSession {
         _actor: actor,
@@ -1475,6 +1899,10 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         edit_preview_render_tokens: PreviewRenderRegistry::default(),
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
+        subject_masks,
+        subject_mask_runtime,
+        raw_foundations: raw_foundation_service::RawFoundationService::new(),
+        raw_foundation_runtime,
     }))
 }
 

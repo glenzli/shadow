@@ -89,6 +89,56 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     assert_eq!(second.items.len(), 1);
     assert_eq!(second.items[0].photo_id, older.photo_id.to_string());
 
+    // Hierarchical keywords are durable user organization. A parent predicate
+    // matches a direct assignment anywhere in its subtree, while exclusions
+    // reject any matching subtree.
+    let people = session
+        .create_library_keyword("", "People")
+        .expect("create root keyword");
+    let family = session
+        .create_library_keyword(&people.id, "Family")
+        .expect("create child keyword");
+    let work = session
+        .create_library_keyword("", "Work")
+        .expect("create exclusion keyword");
+    let assigned = session
+        .assign_library_keyword(&family.id, vec![newest.photo_id.to_string()])
+        .expect("assign child keyword through the public bridge");
+    assert_eq!(assigned.requested_photo_count, 1);
+    assert_eq!(assigned.changed_photo_count, 1);
+    session
+        .assign_library_keyword(&work.id, vec![older.photo_id.to_string()])
+        .expect("assign excluded keyword");
+
+    let tree = session
+        .library_keywords()
+        .expect("read flattened keyword taxonomy");
+    assert_eq!(tree.len(), 3);
+    assert_eq!(tree[0].id, people.id);
+    assert_eq!(tree[0].subtree_photo_count, 1);
+    assert_eq!(tree[1].parent_id, people.id);
+    assert_eq!(tree[1].depth, 1);
+    let photo_keywords = session
+        .library_keywords_for_photo(&newest.photo_id.to_string())
+        .expect("read selected-photo keyword assignments");
+    assert_eq!(photo_keywords.len(), 1);
+    assert_eq!(photo_keywords[0].keyword.id, family.id);
+    assert_eq!(
+        photo_keywords[0].origin,
+        ffi::FfiLibraryKeywordOrigin::Manual
+    );
+
+    let mut keyword_filter = ffi_library_neutral_filter();
+    keyword_filter.keyword_ids_all.push(people.id.clone());
+    keyword_filter
+        .excluded_keyword_ids_any
+        .push(work.id.clone());
+    let keyword_page = session
+        .library_photo_page(&keyword_filter, &ffi_library_start_cursor(), 16)
+        .expect("query hierarchical include/exclude keyword predicates");
+    assert_eq!(keyword_page.items.len(), 1);
+    assert_eq!(keyword_page.items[0].photo_id, newest.photo_id.to_string());
+
     // Manual albums retain explicit membership while smart albums execute
     // their frozen Library filter through the same photo-first page path.
     let manual = session
@@ -121,6 +171,23 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
         .expect("page filtered smart album");
     assert_eq!(smart_page.items.len(), 1);
     assert_eq!(smart_page.items[0].photo_id, newest.photo_id.to_string());
+    let keyword_smart = session
+        .replace_smart_library_album_filter(&smart.id, &keyword_filter)
+        .expect("persist hierarchical keyword predicates in a smart album");
+    assert_eq!(
+        keyword_smart.query_filter.keyword_ids_all,
+        keyword_filter.keyword_ids_all
+    );
+    assert_eq!(
+        keyword_smart.query_filter.excluded_keyword_ids_any,
+        keyword_filter.excluded_keyword_ids_any
+    );
+    assert_eq!(
+        session
+            .smart_library_photo_count(&smart.id)
+            .expect("count keyword-backed smart album"),
+        1
+    );
 
     let renamed = session
         .rename_library_album(&manual.id, "Trip picks 2026")
@@ -152,6 +219,16 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     assert_eq!(albums.len(), 1);
     assert_eq!(albums[0].id, smart.id);
 
+    let unassigned = session
+        .remove_library_keyword(&family.id, vec![newest.photo_id.to_string()])
+        .expect("remove a batch keyword assignment");
+    assert_eq!(unassigned.changed_photo_count, 1);
+    let deleted = session
+        .delete_library_keyword_subtree(&people.id)
+        .expect("delete keyword subtree");
+    assert_eq!(deleted.deleted_keyword_count, 2);
+    assert_eq!(deleted.deleted_assignment_count, 0);
+
     drop(session);
     std::fs::remove_dir_all(root).expect("remove Library fixture");
 }
@@ -178,6 +255,8 @@ fn ffi_library_neutral_filter() -> ffi::FfiLibraryPhotoFilter {
         has_development_edits: false,
         development_edits: false,
         album_id: String::new(),
+        keyword_ids_all: Vec::new(),
+        excluded_keyword_ids_any: Vec::new(),
     }
 }
 

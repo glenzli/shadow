@@ -3,9 +3,12 @@
 mod cached_artifact_loader;
 mod catalog_backup;
 mod decode_inspection;
+mod derived_raster_store;
+mod derived_raster_workflow;
 #[cfg(test)]
 mod display_jpeg_fixture;
 mod import;
+mod library_metadata;
 mod native_path;
 mod performance;
 mod technical_observation;
@@ -27,6 +30,15 @@ pub use decode_inspection::{
     EmbeddedPreviewSink, PreviewCacheOutcome, fingerprint_source,
     recommended_decode_inspection_worker_count,
 };
+pub use derived_raster_store::{
+    DerivedRasterStoreError, FilesystemDerivedRasterStore, SHADOW_SOFT_MASK_ENCODING_VERSION,
+    SHADOW_SOFT_MASK_MEDIA_TYPE, managed_soft_mask_definition,
+};
+pub use derived_raster_workflow::{
+    CurrentDerivedRasterPromotionFailure, DerivedRasterStageError, DerivedRasterStageOutcome,
+    DerivedRasterStageReceipt, StagedDerivedRasterProposal, execute_and_stage_derived_raster,
+    execute_and_stage_derived_raster_with_progress, promote_staged_derived_raster_if_current,
+};
 pub use import::{
     CatalogRelinkConfirmation, ConfirmedRelink, PendingStrongRelink, ProfiledScanReport,
     RelinkApplyError, RelinkCandidate, RelinkIdentityLookup, RelinkSource, RelinkVerificationError,
@@ -40,6 +52,10 @@ pub use import::{
     scan_folder_with_inspection, scan_folder_with_inspection_controlled,
     scan_folder_with_inspection_profiled, scan_folder_with_inspection_profiled_controlled,
     verify_pending_relink,
+};
+pub use library_metadata::{
+    GpsMatchPreview, GpsMatchProposal, GpsMatchSettings, GpsPhotoCapture, GpxImportError, GpxTrack,
+    GpxTrackPoint, load_gpx_track, match_photos_to_gpx,
 };
 pub use native_path::{NativePathError, native_location};
 pub use performance::{

@@ -1,5 +1,7 @@
 #include "local_mask_validation.hpp"
 
+#include "managed_raster_mask.hpp"
+
 #include <shadow/image/edit_error.hpp>
 
 #include <cmath>
@@ -46,6 +48,9 @@ void validate_normalized(const double value, const std::string_view name) {
 } // namespace
 
 void validate_local_mask(const LocalMask& mask) {
+    if (mask.kind != LocalMaskKind::managed_raster && mask.managed_raster.has_value()) {
+        invalid_mask("only a managed raster mask may carry an immutable raster payload");
+    }
     switch (mask.kind) {
     case LocalMaskKind::linear_gradient: {
         validate_normalized(mask.x0, "x0");
@@ -98,6 +103,19 @@ void validate_local_mask(const LocalMask& mask) {
                 "degrees"
             );
         }
+        return;
+    case LocalMaskKind::managed_raster:
+        if (!mask.managed_raster.has_value()) {
+            invalid_mask("managed raster mask is missing its immutable raster payload");
+        }
+        if (!mask.points.empty()) {
+            invalid_mask("managed raster mask may not carry brush points");
+        }
+        if (!std::isfinite(mask.radius_y) || mask.radius_y < -1.0 || mask.radius_y > 1.0) {
+            invalid_mask("managed raster mask expansion must be finite and in [-1, 1]");
+        }
+        validate_normalized(mask.feather, "managed raster feather");
+        validate_managed_raster_mask(*mask.managed_raster);
         return;
     }
     invalid_mask("local-mask has an unsupported kind");

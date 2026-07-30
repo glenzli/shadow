@@ -92,3 +92,23 @@ fn task_parameters_reject_cross_task_reuse() {
         Err(AiArtifactContractError::TaskParameterMismatch { .. })
     ));
 }
+
+#[test]
+fn raw_foundation_requires_its_explicit_parameter_marker() {
+    assert!(
+        AiTaskParameters::RawFoundation
+            .validate_for(AiTaskKind::MaterializeRawFoundation)
+            .is_ok()
+    );
+    assert!(matches!(
+        AiTaskParameters::Denoise(DenoiseParameters {
+            domain_policy: DenoiseDomainPolicy::SensorMosaicRequired,
+            quality: DenoiseQuality::Final,
+            strength: unit(1.0),
+            detail_protection: unit(0.5),
+            chroma_reduction: unit(0.5),
+        })
+        .validate_for(AiTaskKind::MaterializeRawFoundation),
+        Err(AiArtifactContractError::TaskParameterMismatch { .. })
+    ));
+}

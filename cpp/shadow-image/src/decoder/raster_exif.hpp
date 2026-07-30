@@ -19,6 +19,11 @@ struct RasterExif final {
     double aperture_f_number = 0.0;
     double focal_length_mm = 0.0;
     double focal_length_35mm = 0.0;
+    bool has_gps_coordinates = false;
+    double gps_latitude_degrees = 0.0;
+    double gps_longitude_degrees = 0.0;
+    bool has_gps_altitude = false;
+    double gps_altitude_meters = 0.0;
 };
 
 // Parses a TIFF header and the ordinary IFD0/ExifIFD fields from a bounded byte span. Invalid

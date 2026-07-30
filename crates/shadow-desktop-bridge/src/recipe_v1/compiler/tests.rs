@@ -1,12 +1,40 @@
+use anyhow::Result as AnyResult;
 use shadow_bridge::{
     AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask,
+    AdjustmentRasterMaskEncoding,
 };
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
-    LiquifyStroke, MaskDefinition, PhotoLiquifyNode, UnitInterval,
+    LiquifyStroke, ManagedRasterMask, MaskDefinition, PhotoLiquifyNode, RasterMaskEncoding,
+    UnitInterval,
 };
 
-use super::{adjustment_liquify, adjustment_local_mask};
+use super::{adjustment_liquify, adjustment_local_mask, adjustment_local_mask_with_resolver};
+use crate::recipe_v1::managed_raster_resolution::ManagedRasterMaskResolver;
+
+struct FixtureManagedRasterResolver;
+
+impl ManagedRasterMaskResolver for FixtureManagedRasterResolver {
+    fn resolve(
+        &self,
+        raster: &ManagedRasterMask,
+        expansion: f64,
+        feather: f64,
+        invert: bool,
+    ) -> AnyResult<AdjustmentLocalMask> {
+        Ok(AdjustmentLocalMask::ManagedRaster {
+            raster_width: raster.raster_width(),
+            raster_height: raster.raster_height(),
+            coordinate_width: raster.coordinate_width(),
+            coordinate_height: raster.coordinate_height(),
+            encoding: AdjustmentRasterMaskEncoding::Gray8,
+            samples: vec![0, 64, 128, 255, 192, 128, 64, 0],
+            expansion,
+            feather,
+            invert,
+        })
+    }
+}
 
 #[test]
 fn condition_masks_compile_without_changing_authored_units() {
@@ -68,6 +96,45 @@ fn composite_condition_masks_fail_at_the_executability_boundary() {
         error
             .to_string()
             .contains("persists bounded condition-mask expressions")
+    );
+}
+
+#[test]
+fn managed_raster_masks_require_resolution_then_compile_to_native_payloads() {
+    let digest = "ab".repeat(32);
+    let raster = ManagedRasterMask::new(
+        format!("objects/v1/b3/{}/{}", &digest[..2], &digest[2..]),
+        1,
+        digest,
+        8,
+        4,
+        2,
+        6000,
+        4000,
+        RasterMaskEncoding::Gray8Unorm,
+    )
+    .expect("managed raster");
+    let definition = MaskDefinition::managed_raster_with_refinement(raster, -35, 24, false)
+        .expect("Recipe mask");
+
+    let error = adjustment_local_mask(&definition)
+        .expect_err("pure compilation must reject an unresolved object");
+    assert!(error.to_string().contains("application-store resolution"));
+
+    assert_eq!(
+        adjustment_local_mask_with_resolver(&definition, Some(&FixtureManagedRasterResolver))
+            .expect("compile verified managed raster"),
+        AdjustmentLocalMask::ManagedRaster {
+            raster_width: 4,
+            raster_height: 2,
+            coordinate_width: 6000,
+            coordinate_height: 4000,
+            encoding: AdjustmentRasterMaskEncoding::Gray8,
+            samples: vec![0, 64, 128, 255, 192, 128, 64, 0],
+            expansion: -0.35,
+            feather: 0.24,
+            invert: false,
+        }
     );
 }
 

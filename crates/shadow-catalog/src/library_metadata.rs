@@ -28,6 +28,12 @@ pub(crate) fn project_decoder_metadata_into_library_facts(
 
     let camera_make = first_nonempty(&metadata.make, &metadata.normalized_make);
     let camera_model = first_nonempty(&metadata.model, &metadata.normalized_model);
+    let coordinates = metadata.gps.as_ref().and_then(|gps| {
+        Some((
+            coordinate_e7(gps.latitude_degrees, 90.0)?,
+            coordinate_e7(gps.longitude_degrees, 180.0)?,
+        ))
+    });
     let facts = LibraryPhotoFacts {
         photo_id,
         captured_at_unix_seconds: nonzero_i64(metadata.captured_at_unix_seconds),
@@ -39,10 +45,8 @@ pub(crate) fn project_decoder_metadata_into_library_facts(
         aperture_milli: scaled_positive_u32(metadata.aperture_f_number, 1_000.0),
         focal_length_tenth_mm: scaled_positive_u32(metadata.focal_length_mm, 10.0),
         iso_speed: positive_finite(metadata.iso_speed),
-        // Coordinates and resolved places are intentionally filled by a later
-        // EXIF/GPS provider. LibRaw's snapshot contract does not claim them.
-        latitude_e7: None,
-        longitude_e7: None,
+        latitude_e7: coordinates.map(|value| value.0),
+        longitude_e7: coordinates.map(|value| value.1),
         place_name: String::new(),
         indexed_representation_id: Some(representation_id),
         indexed_source: Some(source),
@@ -71,6 +75,14 @@ fn positive_finite(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
 }
 
+#[allow(clippy::cast_possible_truncation)]
+fn coordinate_e7(value: f64, absolute_limit: f64) -> Option<i32> {
+    if !value.is_finite() || !(-absolute_limit..=absolute_limit).contains(&value) {
+        return None;
+    }
+    Some((value * 10_000_000.0).round() as i32)
+}
+
 // The finite positive range check immediately before the conversion proves
 // that the rounded value fits losslessly in `u32`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -87,7 +99,7 @@ fn scaled_positive_u32(value: f64, multiplier: f64) -> Option<u32> {
 
 /// Converts a normal Unix timestamp into its UTC calendar day without adding a
 /// runtime date-time dependency to the catalog's hot import path.
-fn capture_day(unix_seconds: i64) -> String {
+pub(crate) fn capture_day(unix_seconds: i64) -> String {
     if unix_seconds == 0 {
         return String::new();
     }

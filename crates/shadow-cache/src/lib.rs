@@ -5,8 +5,18 @@
 //! [`CacheInventory`] and [`CacheSweepReport`] expose the separate conservative
 //! maintenance contract driven by a Catalog-provided live digest snapshot.
 
+mod foundation_artifact;
+mod foundation_artifact_store;
 mod maintenance;
 
+pub use foundation_artifact::{
+    FoundationArtifactError, FoundationArtifactReader, FoundationArtifactStripe,
+    FoundationArtifactVerification, sha256_file, verify_foundation_artifact,
+};
+pub use foundation_artifact_store::{
+    FoundationArtifactPublication, FoundationArtifactPublicationStatus, FoundationArtifactStore,
+    FoundationArtifactStoreError,
+};
 pub use maintenance::{CacheBlobEntry, CacheInventory, CacheSweepReport};
 
 use std::{

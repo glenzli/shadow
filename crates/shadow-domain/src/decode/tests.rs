@@ -52,6 +52,7 @@ fn snapshot_round_trips_without_provider_types() {
             aperture_f_number: 5.6,
             focal_length_mm: 35.0,
             captured_at_unix_seconds: 1_700_000_000,
+            gps: None,
             lens_make: "Pentax".into(),
             lens_model: "smc PENTAX-DA 35mm".into(),
             focal_length_35mm: 52.0,

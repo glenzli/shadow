@@ -3,43 +3,37 @@
 #include "review_model.hpp"
 
 #include <QRegularExpression>
+#include <QSet>
 
 #include <algorithm>
 
 namespace {
 
 [[nodiscard]] bool is_flag_filter(const QString& filter) {
-    return filter == QStringLiteral("all")
-        || filter == QStringLiteral("unflagged")
-        || filter == QStringLiteral("picked")
-        || filter == QStringLiteral("rejected");
+    return filter == QStringLiteral("all") || filter == QStringLiteral("unflagged")
+           || filter == QStringLiteral("picked") || filter == QStringLiteral("rejected");
 }
 
 [[nodiscard]] bool is_color_filter(const QString& filter) {
-    return filter == QStringLiteral("all")
-        || filter == QStringLiteral("none")
-        || filter == QStringLiteral("red")
-        || filter == QStringLiteral("yellow")
-        || filter == QStringLiteral("green")
-        || filter == QStringLiteral("blue")
-        || filter == QStringLiteral("purple");
+    return filter == QStringLiteral("all") || filter == QStringLiteral("none")
+           || filter == QStringLiteral("red") || filter == QStringLiteral("yellow")
+           || filter == QStringLiteral("green") || filter == QStringLiteral("blue")
+           || filter == QStringLiteral("purple");
 }
 
 [[nodiscard]] bool is_edit_filter(const QString& filter) {
-    return filter == QStringLiteral("all")
-        || filter == QStringLiteral("edited")
-        || filter == QStringLiteral("unedited");
+    return filter == QStringLiteral("all") || filter == QStringLiteral("edited")
+           || filter == QStringLiteral("unedited");
 }
 
 [[nodiscard]] bool is_liked_filter(const QString& filter) {
     return filter == QStringLiteral("all") || filter == QStringLiteral("liked")
-        || filter == QStringLiteral("unliked");
+           || filter == QStringLiteral("unliked");
 }
 
 } // namespace
 
-ReviewFilterModel::ReviewFilterModel(QObject* const parent)
-    : QSortFilterProxyModel(parent) {
+ReviewFilterModel::ReviewFilterModel(QObject* const parent) : QSortFilterProxyModel(parent) {
     setDynamicSortFilter(true);
 }
 
@@ -83,12 +77,20 @@ QString ReviewFilterModel::lensKey() const {
     return lens_key_;
 }
 
+QStringList ReviewFilterModel::keywordIdsAll() const {
+    return keyword_ids_all_;
+}
+
+QStringList ReviewFilterModel::excludedKeywordIdsAny() const {
+    return excluded_keyword_ids_any_;
+}
+
 bool ReviewFilterModel::hasActiveServerFilter() const {
     return flag_filter_ != QStringLiteral("all") || minimum_rating_ > 0
-        || color_filter_ != QStringLiteral("all")
-        || edit_filter_ != QStringLiteral("all")
-        || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
-        || !camera_key_.isEmpty() || !lens_key_.isEmpty();
+           || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
+           || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+           || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !keyword_ids_all_.isEmpty()
+           || !excluded_keyword_ids_any_.isEmpty();
 }
 
 void ReviewFilterModel::setFlagFilter(const QString& filter) {
@@ -188,15 +190,32 @@ void ReviewFilterModel::setLensKey(const QString& lens_key) {
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setKeywordIdsAll(const QStringList& keyword_ids) {
+    const QStringList normalized = normalizeKeywordIds(keyword_ids);
+    if (keyword_ids_all_ == normalized) {
+        return;
+    }
+    keyword_ids_all_ = normalized;
+    emit filtersChanged();
+}
+
+void ReviewFilterModel::setExcludedKeywordIdsAny(const QStringList& keyword_ids) {
+    const QStringList normalized = normalizeKeywordIds(keyword_ids);
+    if (excluded_keyword_ids_any_ == normalized) {
+        return;
+    }
+    excluded_keyword_ids_any_ = normalized;
+    emit filtersChanged();
+}
+
 void ReviewFilterModel::clearFilters() {
-    const bool changed = flag_filter_ != QStringLiteral("all")
-        || minimum_rating_ != 0 || color_filter_ != QStringLiteral("all")
-        || edit_filter_ != QStringLiteral("all")
-        || liked_filter_ != QStringLiteral("all")
-        || excluded_flag_filter_ != QStringLiteral("all")
-        || excluded_color_filter_ != QStringLiteral("all")
-        || !capture_month_.isEmpty()
-        || !camera_key_.isEmpty() || !lens_key_.isEmpty();
+    const bool changed =
+        flag_filter_ != QStringLiteral("all") || minimum_rating_ != 0
+        || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
+        || liked_filter_ != QStringLiteral("all") || excluded_flag_filter_ != QStringLiteral("all")
+        || excluded_color_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !keyword_ids_all_.isEmpty()
+        || !excluded_keyword_ids_any_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
@@ -207,6 +226,8 @@ void ReviewFilterModel::clearFilters() {
     capture_month_.clear();
     camera_key_.clear();
     lens_key_.clear();
+    keyword_ids_all_.clear();
+    excluded_keyword_ids_any_.clear();
     if (!changed) {
         return;
     }
@@ -222,48 +243,34 @@ bool ReviewFilterModel::filterAcceptsRow(
     if (!row.isValid()) {
         return false;
     }
-    const QString flag = sourceModel()->data(
-        row,
-        ReviewModel::DecisionFlagRole
-    ).toString();
+    const QString flag = sourceModel()->data(row, ReviewModel::DecisionFlagRole).toString();
     if (flag_filter_ != QStringLiteral("all") && flag != flag_filter_) {
         return false;
     }
-    if (excluded_flag_filter_ != QStringLiteral("all")
-        && flag == excluded_flag_filter_) {
+    if (excluded_flag_filter_ != QStringLiteral("all") && flag == excluded_flag_filter_) {
         return false;
     }
-    const int rating = sourceModel()->data(
-        row,
-        ReviewModel::DecisionRatingRole
-    ).toInt();
+    const int rating = sourceModel()->data(row, ReviewModel::DecisionRatingRole).toInt();
     if (rating < minimum_rating_) {
         return false;
     }
-    const QString color = sourceModel()->data(
-        row,
-        ReviewModel::ColorLabelRole
-    ).toString();
+    const QString color = sourceModel()->data(row, ReviewModel::ColorLabelRole).toString();
     if (color_filter_ != QStringLiteral("all") && color != color_filter_) {
         return false;
     }
-    if (excluded_color_filter_ != QStringLiteral("all")
-        && color == excluded_color_filter_) {
+    if (excluded_color_filter_ != QStringLiteral("all") && color == excluded_color_filter_) {
         return false;
     }
-    const bool edited = sourceModel()->data(
-        row,
-        ReviewModel::HasDevelopmentEditsRole
-    ).toBool();
+    const bool edited = sourceModel()->data(row, ReviewModel::HasDevelopmentEditsRole).toBool();
     if (!(edit_filter_ == QStringLiteral("all")
-        || (edit_filter_ == QStringLiteral("edited") && edited)
-        || (edit_filter_ == QStringLiteral("unedited") && !edited))) {
+          || (edit_filter_ == QStringLiteral("edited") && edited)
+          || (edit_filter_ == QStringLiteral("unedited") && !edited))) {
         return false;
     }
     const bool liked = sourceModel()->data(row, ReviewModel::LikedRole).toBool();
     return liked_filter_ == QStringLiteral("all")
-        || (liked_filter_ == QStringLiteral("liked") && liked)
-        || (liked_filter_ == QStringLiteral("unliked") && !liked);
+           || (liked_filter_ == QStringLiteral("liked") && liked)
+           || (liked_filter_ == QStringLiteral("unliked") && !liked);
 }
 
 QString ReviewFilterModel::normalizeFlagFilter(const QString& filter) {
@@ -291,10 +298,9 @@ QString ReviewFilterModel::normalizeCaptureMonth(const QString& value) {
     if (normalized.isEmpty()) {
         return {};
     }
-    const bool valid = normalized.size() == 7 && normalized.at(4) == u'-'
-        && normalized.left(4).toInt() >= 0
-        && normalized.mid(5, 2).toInt() >= 1
-        && normalized.mid(5, 2).toInt() <= 12
+    const bool valid =
+        normalized.size() == 7 && normalized.at(4) == u'-' && normalized.left(4).toInt() >= 0
+        && normalized.mid(5, 2).toInt() >= 1 && normalized.mid(5, 2).toInt() <= 12
         && normalized.left(4).contains(QRegularExpression(QStringLiteral("^[0-9]{4}$")))
         && normalized.mid(5, 2).contains(QRegularExpression(QStringLiteral("^[0-9]{2}$")));
     return valid ? normalized : QString{};
@@ -303,6 +309,19 @@ QString ReviewFilterModel::normalizeCaptureMonth(const QString& value) {
 QString ReviewFilterModel::normalizeFacetKey(const QString& value) {
     const QString normalized = value.trimmed().toLower();
     return normalized.size() <= 512 ? normalized : QString{};
+}
+
+QStringList ReviewFilterModel::normalizeKeywordIds(const QStringList& values) {
+    QStringList normalized;
+    QSet<QString> seen;
+    for (const QString& value : values) {
+        const QString id = value.trimmed();
+        if (!id.isEmpty() && !seen.contains(id)) {
+            seen.insert(id);
+            normalized.push_back(id);
+        }
+    }
+    return normalized;
 }
 
 void ReviewFilterModel::refreshRowsFilter() {

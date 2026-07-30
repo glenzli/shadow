@@ -11,7 +11,7 @@ use crate::{CatalogError, export_queue};
 /// The only on-disk Catalog shape supported by this development build.
 pub(crate) const SCHEMA_VERSION: i64 = 1;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r26-identity-fingerprint-guard";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r29-library-keywords";
 
 const SCHEMA_V1_CORE: &str = r"
 CREATE TABLE photos (
@@ -563,6 +563,107 @@ CREATE INDEX photo_library_facts_lens_idx
 CREATE INDEX photo_library_facts_aperture_idx
     ON photo_library_facts(aperture_milli, captured_at_unix_seconds DESC, photo_id);
 
+CREATE TABLE photo_library_metadata_overrides (
+    photo_id                    BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
+    capture_time_mode           TEXT CHECK (capture_time_mode IN ('set', 'clear')),
+    captured_at_unix_seconds    INTEGER,
+    capture_day                 TEXT NOT NULL DEFAULT '',
+    capture_time_origin         TEXT NOT NULL DEFAULT '',
+    capture_time_source_label   TEXT NOT NULL DEFAULT '',
+    capture_time_updated_at_ms  INTEGER,
+    coordinates_mode            TEXT CHECK (coordinates_mode IN ('set', 'clear')),
+    latitude_e7                 INTEGER,
+    longitude_e7                INTEGER,
+    place_name                  TEXT NOT NULL DEFAULT '',
+    coordinates_origin          TEXT NOT NULL DEFAULT '',
+    coordinates_source_label    TEXT NOT NULL DEFAULT '',
+    coordinates_updated_at_ms   INTEGER,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    CHECK (
+        (capture_time_mode IS NULL
+         AND captured_at_unix_seconds IS NULL
+         AND capture_day = ''
+         AND capture_time_origin = ''
+         AND capture_time_source_label = ''
+         AND capture_time_updated_at_ms IS NULL)
+        OR
+        (capture_time_mode = 'clear'
+         AND captured_at_unix_seconds IS NULL
+         AND capture_day = ''
+         AND capture_time_origin IN ('manual', 'gpx')
+         AND capture_time_updated_at_ms >= 0)
+        OR
+        (capture_time_mode = 'set'
+         AND captured_at_unix_seconds IS NOT NULL
+         AND length(capture_day) = 10
+         AND capture_time_origin IN ('manual', 'gpx')
+         AND capture_time_updated_at_ms >= 0)
+    ),
+    CHECK (
+        (coordinates_mode IS NULL
+         AND latitude_e7 IS NULL
+         AND longitude_e7 IS NULL
+         AND place_name = ''
+         AND coordinates_origin = ''
+         AND coordinates_source_label = ''
+         AND coordinates_updated_at_ms IS NULL)
+        OR
+        (coordinates_mode = 'clear'
+         AND latitude_e7 IS NULL
+         AND longitude_e7 IS NULL
+         AND place_name = ''
+         AND coordinates_origin IN ('manual', 'gpx')
+         AND coordinates_updated_at_ms >= 0)
+        OR
+        (coordinates_mode = 'set'
+         AND latitude_e7 BETWEEN -900000000 AND 900000000
+         AND longitude_e7 BETWEEN -1800000000 AND 1800000000
+         AND coordinates_origin IN ('manual', 'gpx')
+         AND coordinates_updated_at_ms >= 0)
+    ),
+    CHECK (length(capture_time_source_label) <= 1024),
+    CHECK (length(coordinates_source_label) <= 1024),
+    CHECK (length(place_name) <= 1024)
+) STRICT;
+
+CREATE TABLE photo_library_effective_facts (
+    photo_id                    BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
+    captured_at_unix_seconds    INTEGER,
+    capture_day                 TEXT NOT NULL DEFAULT '',
+    camera_make                 TEXT NOT NULL DEFAULT '',
+    camera_model                TEXT NOT NULL DEFAULT '',
+    camera_key                  TEXT NOT NULL DEFAULT '',
+    lens_make                   TEXT NOT NULL DEFAULT '',
+    lens_model                  TEXT NOT NULL DEFAULT '',
+    lens_key                    TEXT NOT NULL DEFAULT '',
+    aperture_milli              INTEGER,
+    focal_length_tenth_mm       INTEGER,
+    iso_speed                   REAL,
+    latitude_e7                 INTEGER,
+    longitude_e7                INTEGER,
+    place_name                  TEXT NOT NULL DEFAULT '',
+    indexed_representation_id   BLOB CHECK (indexed_representation_id IS NULL OR length(indexed_representation_id) = 16),
+    indexed_source_byte_len     INTEGER,
+    indexed_source_modified_at_ms INTEGER,
+    indexed_at_ms               INTEGER NOT NULL,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    FOREIGN KEY (indexed_representation_id) REFERENCES representations(id) ON DELETE SET NULL
+) STRICT;
+
+CREATE INDEX photo_library_effective_capture_idx
+    ON photo_library_effective_facts(captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_effective_day_idx
+    ON photo_library_effective_facts(capture_day, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_effective_camera_idx
+    ON photo_library_effective_facts(camera_key, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_effective_lens_idx
+    ON photo_library_effective_facts(lens_key, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_effective_aperture_idx
+    ON photo_library_effective_facts(aperture_milli, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_effective_geo_idx
+    ON photo_library_effective_facts(latitude_e7, longitude_e7, photo_id)
+    WHERE latitude_e7 IS NOT NULL AND longitude_e7 IS NOT NULL;
+
 CREATE TABLE photo_library_state (
     photo_id       BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
     liked          INTEGER NOT NULL DEFAULT 0 CHECK (liked IN (0, 1)),
@@ -601,6 +702,41 @@ CREATE INDEX library_album_memberships_photo_idx
     ON library_album_memberships(photo_id, album_id);
 CREATE INDEX library_album_memberships_page_idx
     ON library_album_memberships(album_id, sort_key, added_at_ms DESC, photo_id);
+
+CREATE TABLE library_keywords (
+    id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
+    parent_id       BLOB CHECK (parent_id IS NULL OR length(parent_id) = 16),
+    name            TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 256),
+    normalized_name TEXT NOT NULL CHECK (length(normalized_name) BETWEEN 1 AND 256),
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL,
+    CHECK (parent_id IS NULL OR parent_id <> id),
+    FOREIGN KEY (parent_id) REFERENCES library_keywords(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE UNIQUE INDEX library_keywords_root_name_idx
+    ON library_keywords(normalized_name) WHERE parent_id IS NULL;
+CREATE UNIQUE INDEX library_keywords_child_name_idx
+    ON library_keywords(parent_id, normalized_name) WHERE parent_id IS NOT NULL;
+CREATE INDEX library_keywords_parent_name_idx
+    ON library_keywords(parent_id, normalized_name, id);
+
+CREATE TABLE library_photo_keywords (
+    keyword_id       BLOB NOT NULL CHECK (length(keyword_id) = 16),
+    photo_id         BLOB NOT NULL CHECK (length(photo_id) = 16),
+    origin           TEXT NOT NULL CHECK (origin IN ('manual', 'imported', 'ai_accepted')),
+    source_label     TEXT NOT NULL DEFAULT '' CHECK (length(source_label) <= 512),
+    confidence_milli INTEGER CHECK (confidence_milli BETWEEN 0 AND 1000),
+    assigned_at_ms   INTEGER NOT NULL,
+    PRIMARY KEY (keyword_id, photo_id),
+    FOREIGN KEY (keyword_id) REFERENCES library_keywords(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX library_photo_keywords_photo_idx
+    ON library_photo_keywords(photo_id, keyword_id);
+CREATE INDEX library_photo_keywords_keyword_idx
+    ON library_photo_keywords(keyword_id, photo_id);
 ";
 
 // Covering traversal indexes support the photo-first Library query, which
@@ -616,7 +752,7 @@ CREATE INDEX locations_representation_status_current_idx
 const SCHEMA_V1_STATE: &str = r"
 CREATE TABLE catalog_schema (
     version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r26-identity-fingerprint-guard'),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r29-library-keywords'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";

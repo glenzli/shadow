@@ -94,6 +94,16 @@ QVariantMap ReviewPhotoInspectionCoordinator::presentation() const {
             QStringLiteral("capturedAtUnixSeconds"),
             source.captured_at_unix_seconds,
         },
+        {QStringLiteral("hasCoordinates"), source.has_coordinates},
+        {
+            QStringLiteral("latitude"),
+            static_cast<double>(source.latitude_e7) / 10'000'000.0,
+        },
+        {
+            QStringLiteral("longitude"),
+            static_cast<double>(source.longitude_e7) / 10'000'000.0,
+        },
+        {QStringLiteral("placeName"), source.place_name},
         {QStringLiteral("hasIsoSpeed"), source.has_iso_speed},
         {QStringLiteral("isoSpeed"), source.iso_speed},
         {QStringLiteral("hasExposureTime"), source.has_exposure_time},

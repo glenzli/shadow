@@ -11,6 +11,13 @@ use shadow_domain::{
 
 use super::GradeNodeRecipeV1Identity;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub(crate) struct PreservedManagedRasterSettings {
+    pub(crate) expansion_percent: i8,
+    pub(crate) feather_percent: u8,
+    pub(crate) invert: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GradeNodeDraft {
     pub(crate) recipe_v1_identity: GradeNodeRecipeV1Identity,
@@ -18,6 +25,11 @@ pub(crate) struct GradeNodeDraft {
     /// Spatial placement is deliberately instance-local. Publishing a Grade
     /// Node shares its adjustment graph, never this photo's mask placement.
     pub(crate) local_mask: Option<MaskDefinition>,
+    /// The Qt DTO carries persisted managed rasters as an opaque kind-six
+    /// marker plus reversible refinement controls. Snapshot encoding must
+    /// recover the exact immutable raster reference from the explicit base
+    /// Recipe before applying these settings.
+    pub(crate) preserved_managed_raster: Option<PreservedManagedRasterSettings>,
     pub(crate) label: String,
     pub(crate) basic: BasicEditParameters,
     pub(crate) fine: FineEditParameters,
@@ -65,6 +77,7 @@ impl GradeNodeDraft {
             recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
             shared: None,
             local_mask: None,
+            preserved_managed_raster: None,
             label: label.into(),
             basic: BasicEditParameters::default(),
             fine: FineEditParameters::default(),
@@ -80,6 +93,7 @@ impl GradeNodeDraft {
             // the rendered controls but must never inherit the source link.
             shared: None,
             local_mask: self.local_mask.clone(),
+            preserved_managed_raster: self.preserved_managed_raster,
             label: self.label.clone(),
             basic: self.basic,
             fine: self.fine.clone(),

@@ -12,9 +12,8 @@
 namespace desktop_backend_projection {
 namespace {
 
-[[nodiscard]] shadow::desktop::FfiBasicEditParameters ffi_parameters(
-    const BackendBasicEditParameters& source
-) {
+[[nodiscard]] shadow::desktop::FfiBasicEditParameters
+ffi_parameters(const BackendBasicEditParameters& source) {
     return {
         .exposure_stops = source.exposure_stops,
         .contrast_factor = source.contrast_factor,
@@ -24,9 +23,8 @@ namespace {
     };
 }
 
-[[nodiscard]] BackendBasicEditParameters edit_parameters(
-    const shadow::desktop::FfiBasicEditParameters& source
-) {
+[[nodiscard]] BackendBasicEditParameters
+edit_parameters(const shadow::desktop::FfiBasicEditParameters& source) {
     return {
         .exposure_stops = source.exposure_stops,
         .contrast_factor = source.contrast_factor,
@@ -37,9 +35,7 @@ namespace {
 }
 
 template <std::size_t Size>
-[[nodiscard]] rust::Vec<double> ffi_values(
-    const std::array<double, Size>& source
-) {
+[[nodiscard]] rust::Vec<double> ffi_values(const std::array<double, Size>& source) {
     rust::Vec<double> result;
     result.reserve(source.size());
     for (const double value : source) {
@@ -49,14 +45,10 @@ template <std::size_t Size>
 }
 
 template <std::size_t Size>
-[[nodiscard]] std::array<double, Size> edit_values(
-    const rust::Vec<double>& source,
-    const char* const field
-) {
+[[nodiscard]] std::array<double, Size>
+edit_values(const rust::Vec<double>& source, const char* const field) {
     if (source.size() != Size) {
-        throw std::length_error(
-            std::string("desktop bridge vector has invalid size: ") + field
-        );
+        throw std::length_error(std::string("desktop bridge vector has invalid size: ") + field);
     }
     std::array<double, Size> result{};
     for (std::size_t index = 0; index < Size; ++index) {
@@ -65,9 +57,8 @@ template <std::size_t Size>
     return result;
 }
 
-[[nodiscard]] shadow::desktop::FfiFineEditParameters ffi_fine_parameters(
-    const BackendFineEditParameters& source
-) {
+[[nodiscard]] shadow::desktop::FfiFineEditParameters
+ffi_fine_parameters(const BackendFineEditParameters& source) {
     shadow::desktop::FfiFineEditParameters result;
     result.highlights = source.highlights;
     result.shadows = source.shadows;
@@ -103,13 +94,10 @@ template <std::size_t Size>
         }
     }
     result.selective_color_relative = source.selective_color_relative;
-    result.selective_color_lightness_protection =
-        source.selective_color_lightness_protection;
+    result.selective_color_lightness_protection = source.selective_color_lightness_protection;
     result.selective_color_cmyk = ffi_values(source.selective_color_cmyk);
     result.oklab_lightness_curve_points.reserve(
-        static_cast<std::size_t>(
-            source.oklab_lightness_curve_points.size()
-        )
+        static_cast<std::size_t>(source.oklab_lightness_curve_points.size())
     );
     for (const double value : source.oklab_lightness_curve_points) {
         result.oklab_lightness_curve_points.push_back(value);
@@ -121,8 +109,7 @@ template <std::size_t Size>
         result.oklab_color_warper_control_points.push_back(point.a_offset);
         result.oklab_color_warper_control_points.push_back(point.b_offset);
     }
-    result.oklab_color_warper_strength =
-        source.oklab_color_warper_strength;
+    result.oklab_color_warper_strength = source.oklab_color_warper_strength;
     result.lut_resource_id = source.lut_resource_id.toStdString();
     result.lut_title = source.lut_title.toStdString();
     result.lut_managed_path = source.lut_managed_path.toStdString();
@@ -167,22 +154,16 @@ template <std::size_t Size>
     return result;
 }
 
-[[nodiscard]] BackendFineEditParameters edit_fine_parameters(
-    const shadow::desktop::FfiFineEditParameters& source
-) {
+[[nodiscard]] BackendFineEditParameters
+edit_fine_parameters(const shadow::desktop::FfiFineEditParameters& source) {
     if (source.point_color_ranges.size() % 7U != 0U) {
-        throw std::length_error(
-            "Point Color range vector has invalid size"
-        );
+        throw std::length_error("Point Color range vector has invalid size");
     }
     QVector<BackendPointColorRange> additional_point_colors;
-    additional_point_colors.reserve(checked_qt_vector_size(
-        source.point_color_ranges.size() / 7U,
-        "point_color_ranges"
-    ));
-    for (std::size_t index = 0;
-         index < source.point_color_ranges.size();
-         index += 7U) {
+    additional_point_colors.reserve(
+        checked_qt_vector_size(source.point_color_ranges.size() / 7U, "point_color_ranges")
+    );
+    for (std::size_t index = 0; index < source.point_color_ranges.size(); index += 7U) {
         additional_point_colors.push_back({
             .enabled = source.point_color_ranges[index] == 1.0,
             .center_degrees = source.point_color_ranges[index + 1U],
@@ -194,9 +175,7 @@ template <std::size_t Size>
         });
     }
     if (source.oklab_lightness_curve_points.size() % 2U != 0U) {
-        throw std::length_error(
-            "Oklab lightness curve point vector has invalid size"
-        );
+        throw std::length_error("Oklab lightness curve point vector has invalid size");
     }
     QVector<double> oklab_lightness_curve_points;
     oklab_lightness_curve_points.reserve(checked_qt_vector_size(
@@ -208,22 +187,14 @@ template <std::size_t Size>
     }
     if (source.oklab_color_warper_control_points.size()
         != BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT * 2U) {
-        throw std::length_error(
-            "Oklab Color Warper lattice has invalid size"
-        );
+        throw std::length_error("Oklab Color Warper lattice has invalid size");
     }
-    std::array<
-        BackendOklabColorWarperControlPoint,
-        BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT
-    > oklab_color_warper_control_points{};
-    for (std::size_t index = 0U;
-         index < BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT;
-         ++index) {
+    std::array<BackendOklabColorWarperControlPoint, BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT>
+        oklab_color_warper_control_points{};
+    for (std::size_t index = 0U; index < BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT; ++index) {
         oklab_color_warper_control_points[index] = {
-            .a_offset =
-                source.oklab_color_warper_control_points[index * 2U],
-            .b_offset =
-                source.oklab_color_warper_control_points[index * 2U + 1U],
+            .a_offset = source.oklab_color_warper_control_points[index * 2U],
+            .b_offset = source.oklab_color_warper_control_points[index * 2U + 1U],
         };
     }
     return {
@@ -234,20 +205,13 @@ template <std::size_t Size>
         .global_a_balance = source.global_a_balance,
         .global_b_balance = source.global_b_balance,
         .vibrance = source.vibrance,
-        .mixer_hue = edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
-            source.mixer_hue,
-            "mixer_hue"
+        .mixer_hue = edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(source.mixer_hue, "mixer_hue"),
+        .mixer_saturation = edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
+            source.mixer_saturation,
+            "mixer_saturation"
         ),
-        .mixer_saturation =
-            edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
-                source.mixer_saturation,
-                "mixer_saturation"
-            ),
         .mixer_lightness =
-            edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
-                source.mixer_lightness,
-                "mixer_lightness"
-            ),
+            edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(source.mixer_lightness, "mixer_lightness"),
         .color_range_enabled = source.color_range_enabled,
         .color_range_center = source.color_range_center,
         .color_range_width = source.color_range_width,
@@ -257,19 +221,14 @@ template <std::size_t Size>
         .color_range_lightness = source.color_range_lightness,
         .additional_point_colors = std::move(additional_point_colors),
         .selective_color_relative = source.selective_color_relative,
-        .selective_color_lightness_protection =
-            source.selective_color_lightness_protection,
-        .selective_color_cmyk =
-            edit_values<BACKEND_SELECTIVE_COLOR_VALUE_COUNT>(
-                source.selective_color_cmyk,
-                "selective_color_cmyk"
-            ),
-        .oklab_lightness_curve_points =
-            std::move(oklab_lightness_curve_points),
-        .oklab_color_warper_control_points =
-            oklab_color_warper_control_points,
-        .oklab_color_warper_strength =
-            source.oklab_color_warper_strength,
+        .selective_color_lightness_protection = source.selective_color_lightness_protection,
+        .selective_color_cmyk = edit_values<BACKEND_SELECTIVE_COLOR_VALUE_COUNT>(
+            source.selective_color_cmyk,
+            "selective_color_cmyk"
+        ),
+        .oklab_lightness_curve_points = std::move(oklab_lightness_curve_points),
+        .oklab_color_warper_control_points = oklab_color_warper_control_points,
+        .oklab_color_warper_strength = source.oklab_color_warper_strength,
         .lut_resource_id = qstring(source.lut_resource_id),
         .lut_title = qstring(source.lut_title),
         .lut_managed_path = qstring(source.lut_managed_path),
@@ -316,9 +275,7 @@ template <std::size_t Size>
 
 } // namespace
 
-shadow::desktop::FfiEditPreviewPolicy ffi_edit_preview_policy(
-    const EditPreviewPolicy policy
-) {
+shadow::desktop::FfiEditPreviewPolicy ffi_edit_preview_policy(const EditPreviewPolicy policy) {
     switch (policy) {
     case EditPreviewPolicy::Interactive:
         return shadow::desktop::FfiEditPreviewPolicy::Interactive;
@@ -330,9 +287,7 @@ shadow::desktop::FfiEditPreviewPolicy ffi_edit_preview_policy(
     throw std::invalid_argument("unknown edit-preview policy");
 }
 
-shadow::desktop::FfiGradeNode ffi_grade_node(
-    const BackendGradeNode& source
-) {
+shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
     shadow::desktop::FfiGradeNode result;
     result.grade_node_id = source.grade_node_id.toStdString();
     result.shared_layer_id = source.shared_layer_id.toStdString();
@@ -347,38 +302,27 @@ shadow::desktop::FfiGradeNode ffi_grade_node(
     result.local_mask_feather = source.local_mask_feather;
     result.local_mask_invert = source.local_mask_invert;
     result.local_mask_brush_points.reserve(
-        static_cast<std::size_t>(
-            source.local_mask_brush_points.size()
-        )
+        static_cast<std::size_t>(source.local_mask_brush_points.size())
     );
     for (const double value : source.local_mask_brush_points) {
         result.local_mask_brush_points.push_back(value);
     }
     result.label = source.label.toStdString();
-    result.exposure_render_op_id =
-        source.exposure_render_op_id.toStdString();
-    result.contrast_render_op_id =
-        source.contrast_render_op_id.toStdString();
-    result.selective_tone_render_op_id =
-        source.selective_tone_render_op_id.toStdString();
-    result.white_balance_render_op_id =
-        source.white_balance_render_op_id.toStdString();
-    result.saturation_render_op_id =
-        source.saturation_render_op_id.toStdString();
-    result.perceptual_color_render_op_id =
-        source.perceptual_color_render_op_id.toStdString();
+    result.exposure_render_op_id = source.exposure_render_op_id.toStdString();
+    result.contrast_render_op_id = source.contrast_render_op_id.toStdString();
+    result.selective_tone_render_op_id = source.selective_tone_render_op_id.toStdString();
+    result.white_balance_render_op_id = source.white_balance_render_op_id.toStdString();
+    result.saturation_render_op_id = source.saturation_render_op_id.toStdString();
+    result.perceptual_color_render_op_id = source.perceptual_color_render_op_id.toStdString();
     result.lut_render_op_id = source.lut_render_op_id.toStdString();
-    result.sharpen_render_op_id =
-        source.sharpen_render_op_id.toStdString();
+    result.sharpen_render_op_id = source.sharpen_render_op_id.toStdString();
     result.basic = ffi_parameters(source.basic);
     result.fine = ffi_fine_parameters(source.fine);
     result.enabled = source.enabled;
     return result;
 }
 
-BackendGradeNode grade_node(
-    const shadow::desktop::FfiGradeNode& source
-) {
+BackendGradeNode grade_node(const shadow::desktop::FfiGradeNode& source) {
     BackendGradeNode result;
     result.grade_node_id = qstring(source.grade_node_id);
     result.shared_layer_id = qstring(source.shared_layer_id);
@@ -393,39 +337,27 @@ BackendGradeNode grade_node(
     result.local_mask_feather = source.local_mask_feather;
     result.local_mask_invert = source.local_mask_invert;
     result.local_mask_brush_points.reserve(
-        checked_qt_vector_size(
-            source.local_mask_brush_points.size(),
-            "local_mask_brush_points"
-        )
+        checked_qt_vector_size(source.local_mask_brush_points.size(), "local_mask_brush_points")
     );
     for (const double value : source.local_mask_brush_points) {
         result.local_mask_brush_points.push_back(value);
     }
     result.label = qstring(source.label);
-    result.exposure_render_op_id =
-        qstring(source.exposure_render_op_id);
-    result.contrast_render_op_id =
-        qstring(source.contrast_render_op_id);
-    result.selective_tone_render_op_id =
-        qstring(source.selective_tone_render_op_id);
-    result.white_balance_render_op_id =
-        qstring(source.white_balance_render_op_id);
-    result.saturation_render_op_id =
-        qstring(source.saturation_render_op_id);
-    result.perceptual_color_render_op_id =
-        qstring(source.perceptual_color_render_op_id);
+    result.exposure_render_op_id = qstring(source.exposure_render_op_id);
+    result.contrast_render_op_id = qstring(source.contrast_render_op_id);
+    result.selective_tone_render_op_id = qstring(source.selective_tone_render_op_id);
+    result.white_balance_render_op_id = qstring(source.white_balance_render_op_id);
+    result.saturation_render_op_id = qstring(source.saturation_render_op_id);
+    result.perceptual_color_render_op_id = qstring(source.perceptual_color_render_op_id);
     result.lut_render_op_id = qstring(source.lut_render_op_id);
-    result.sharpen_render_op_id =
-        qstring(source.sharpen_render_op_id);
+    result.sharpen_render_op_id = qstring(source.sharpen_render_op_id);
     result.basic = edit_parameters(source.basic);
     result.fine = edit_fine_parameters(source.fine);
     result.enabled = source.enabled;
     return result;
 }
 
-BackendSharedGradeNode shared_grade_node(
-    const shadow::desktop::FfiSharedGradeNode& source
-) {
+BackendSharedGradeNode shared_grade_node(const shadow::desktop::FfiSharedGradeNode& source) {
     return {
         .layer_id = qstring(source.layer_id),
         .revision_id = qstring(source.revision_id),
@@ -435,22 +367,15 @@ BackendSharedGradeNode shared_grade_node(
     };
 }
 
-shadow::desktop::FfiEditSettings ffi_grade_stack(
-    const BackendGradeStack& source
-) {
+shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source) {
     shadow::desktop::FfiEditSettings settings;
     settings.foundation.optics.enabled = source.foundation.optics.enabled;
-    settings.foundation.optics.correct_distortion =
-        source.foundation.optics.correct_distortion;
+    settings.foundation.optics.correct_distortion = source.foundation.optics.correct_distortion;
     settings.foundation.optics.correct_tca = source.foundation.optics.correct_tca;
-    settings.foundation.optics.correct_vignetting =
-        source.foundation.optics.correct_vignetting;
-    settings.foundation.optics.automatic_scale =
-        source.foundation.optics.automatic_scale;
-    settings.foundation.optics.manual_distortion =
-        source.foundation.optics.manual_distortion;
-    settings.foundation.optics.manual_tca_red_cyan =
-        source.foundation.optics.manual_tca_red_cyan;
+    settings.foundation.optics.correct_vignetting = source.foundation.optics.correct_vignetting;
+    settings.foundation.optics.automatic_scale = source.foundation.optics.automatic_scale;
+    settings.foundation.optics.manual_distortion = source.foundation.optics.manual_distortion;
+    settings.foundation.optics.manual_tca_red_cyan = source.foundation.optics.manual_tca_red_cyan;
     settings.foundation.optics.manual_tca_blue_yellow =
         source.foundation.optics.manual_tca_blue_yellow;
     settings.foundation.optics.manual_vignetting_amount =
@@ -465,50 +390,39 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(
         source.foundation.optics.lens_profile_maker.toStdString();
     settings.foundation.optics.lens_profile_model =
         source.foundation.optics.lens_profile_model.toStdString();
-    settings.foundation.raw_white_balance_mode =
-        source.foundation.raw_white_balance_mode;
+    settings.foundation.raw_ai_denoise_enabled = source.foundation.raw_ai_denoise_enabled;
+    settings.foundation.raw_ai_denoise_model = source.foundation.raw_ai_denoise_model;
+    settings.foundation.raw_white_balance_mode = source.foundation.raw_white_balance_mode;
     settings.foundation.camera_neutral_red_millionths =
         source.foundation.camera_neutral_red_millionths;
     settings.foundation.camera_neutral_blue_millionths =
         source.foundation.camera_neutral_blue_millionths;
-    settings.grade_nodes.reserve(
-        static_cast<std::size_t>(source.grade_nodes.size())
-    );
+    settings.grade_nodes.reserve(static_cast<std::size_t>(source.grade_nodes.size()));
     for (const auto& node : source.grade_nodes) {
         settings.grade_nodes.push_back(ffi_grade_node(node));
     }
-    settings.retouch_spots.reserve(
-        static_cast<std::size_t>(source.retouch_spots.size())
-    );
+    settings.retouch_spots.reserve(static_cast<std::size_t>(source.retouch_spots.size()));
     for (const auto& spot : source.retouch_spots) {
         settings.retouch_spots.push_back({
             .center_x = spot.center_x,
             .center_y = spot.center_y,
-            .radius_level_zero_pixels =
-                spot.radius_level_zero_pixels,
+            .radius_level_zero_pixels = spot.radius_level_zero_pixels,
             .mode = spot.mode,
             .source_offset_x_radii = spot.source_offset_x_radii,
             .source_offset_y_radii = spot.source_offset_y_radii,
             .feather = spot.feather,
         });
     }
-    settings.retouch_strokes.reserve(
-        static_cast<std::size_t>(source.retouch_strokes.size())
-    );
+    settings.retouch_strokes.reserve(static_cast<std::size_t>(source.retouch_strokes.size()));
     for (const auto& stroke : source.retouch_strokes) {
         shadow::desktop::FfiRetouchStroke ffi_stroke{
-            .radius_level_zero_pixels =
-                stroke.radius_level_zero_pixels,
+            .radius_level_zero_pixels = stroke.radius_level_zero_pixels,
             .mode = stroke.mode,
-            .source_offset_x_radii =
-                stroke.source_offset_x_radii,
-            .source_offset_y_radii =
-                stroke.source_offset_y_radii,
+            .source_offset_x_radii = stroke.source_offset_x_radii,
+            .source_offset_y_radii = stroke.source_offset_y_radii,
             .feather = stroke.feather,
         };
-        ffi_stroke.points.reserve(
-            static_cast<std::size_t>(stroke.points.size())
-        );
+        ffi_stroke.points.reserve(static_cast<std::size_t>(stroke.points.size()));
         for (const auto& point : stroke.points) {
             ffi_stroke.points.push_back({
                 .x = point.x,
@@ -517,18 +431,14 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(
         }
         settings.retouch_strokes.push_back(std::move(ffi_stroke));
     }
-    settings.liquify_strokes.reserve(
-        static_cast<std::size_t>(source.liquify_strokes.size())
-    );
+    settings.liquify_strokes.reserve(static_cast<std::size_t>(source.liquify_strokes.size()));
     for (const auto& stroke : source.liquify_strokes) {
         shadow::desktop::FfiLiquifyPushStroke ffi_stroke{
             .radius = stroke.radius,
             .strength = stroke.strength,
             .hardness = stroke.hardness,
         };
-        ffi_stroke.points.reserve(
-            static_cast<std::size_t>(stroke.points.size())
-        );
+        ffi_stroke.points.reserve(static_cast<std::size_t>(stroke.points.size()));
         for (const auto& point : stroke.points) {
             ffi_stroke.points.push_back({
                 .x = point.x,
@@ -551,9 +461,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(
     return settings;
 }
 
-BackendGradeStack grade_stack(
-    const shadow::desktop::FfiEditSettings& source
-) {
+BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
     BackendGradeStack result;
     result.foundation = {
         .optics =
@@ -566,46 +474,31 @@ BackendGradeStack grade_stack(
                 .manual_distortion = source.foundation.optics.manual_distortion,
                 .manual_tca_red_cyan = source.foundation.optics.manual_tca_red_cyan,
                 .manual_tca_blue_yellow = source.foundation.optics.manual_tca_blue_yellow,
-                .manual_vignetting_amount =
-                    source.foundation.optics.manual_vignetting_amount,
-                .manual_vignetting_midpoint =
-                    source.foundation.optics.manual_vignetting_midpoint,
-                .camera_profile_maker =
-                    qstring(source.foundation.optics.camera_profile_maker),
-                .camera_profile_model =
-                    qstring(source.foundation.optics.camera_profile_model),
-                .lens_profile_maker =
-                    qstring(source.foundation.optics.lens_profile_maker),
-                .lens_profile_model =
-                    qstring(source.foundation.optics.lens_profile_model),
+                .manual_vignetting_amount = source.foundation.optics.manual_vignetting_amount,
+                .manual_vignetting_midpoint = source.foundation.optics.manual_vignetting_midpoint,
+                .camera_profile_maker = qstring(source.foundation.optics.camera_profile_maker),
+                .camera_profile_model = qstring(source.foundation.optics.camera_profile_model),
+                .lens_profile_maker = qstring(source.foundation.optics.lens_profile_maker),
+                .lens_profile_model = qstring(source.foundation.optics.lens_profile_model),
             },
+        .raw_ai_denoise_enabled = source.foundation.raw_ai_denoise_enabled,
+        .raw_ai_denoise_model = source.foundation.raw_ai_denoise_model,
         .raw_white_balance_mode = source.foundation.raw_white_balance_mode,
-        .camera_neutral_red_millionths =
-            source.foundation.camera_neutral_red_millionths,
-        .camera_neutral_blue_millionths =
-            source.foundation.camera_neutral_blue_millionths,
+        .camera_neutral_red_millionths = source.foundation.camera_neutral_red_millionths,
+        .camera_neutral_blue_millionths = source.foundation.camera_neutral_blue_millionths,
     };
-    result.grade_nodes.reserve(
-        checked_qt_vector_size(
-            source.grade_nodes.size(),
-            "grade_nodes"
-        )
-    );
+    result.grade_nodes.reserve(checked_qt_vector_size(source.grade_nodes.size(), "grade_nodes"));
     for (const auto& node : source.grade_nodes) {
         result.grade_nodes.push_back(grade_node(node));
     }
     result.retouch_spots.reserve(
-        checked_qt_vector_size(
-            source.retouch_spots.size(),
-            "retouch_spots"
-        )
+        checked_qt_vector_size(source.retouch_spots.size(), "retouch_spots")
     );
     for (const auto& spot : source.retouch_spots) {
         result.retouch_spots.push_back({
             .center_x = spot.center_x,
             .center_y = spot.center_y,
-            .radius_level_zero_pixels =
-                spot.radius_level_zero_pixels,
+            .radius_level_zero_pixels = spot.radius_level_zero_pixels,
             .mode = spot.mode,
             .source_offset_x_radii = spot.source_offset_x_radii,
             .source_offset_y_radii = spot.source_offset_y_radii,
@@ -613,27 +506,18 @@ BackendGradeStack grade_stack(
         });
     }
     result.retouch_strokes.reserve(
-        checked_qt_vector_size(
-            source.retouch_strokes.size(),
-            "retouch_strokes"
-        )
+        checked_qt_vector_size(source.retouch_strokes.size(), "retouch_strokes")
     );
     for (const auto& stroke : source.retouch_strokes) {
         BackendRetouchStroke decoded{
-            .radius_level_zero_pixels =
-                stroke.radius_level_zero_pixels,
+            .radius_level_zero_pixels = stroke.radius_level_zero_pixels,
             .mode = stroke.mode,
-            .source_offset_x_radii =
-                stroke.source_offset_x_radii,
-            .source_offset_y_radii =
-                stroke.source_offset_y_radii,
+            .source_offset_x_radii = stroke.source_offset_x_radii,
+            .source_offset_y_radii = stroke.source_offset_y_radii,
             .feather = stroke.feather,
         };
         decoded.points.reserve(
-            checked_qt_vector_size(
-                stroke.points.size(),
-                "retouch_stroke_points"
-            )
+            checked_qt_vector_size(stroke.points.size(), "retouch_stroke_points")
         );
         for (const auto& point : stroke.points) {
             decoded.points.push_back({
@@ -644,10 +528,7 @@ BackendGradeStack grade_stack(
         result.retouch_strokes.push_back(std::move(decoded));
     }
     result.liquify_strokes.reserve(
-        checked_qt_vector_size(
-            source.liquify_strokes.size(),
-            "liquify_strokes"
-        )
+        checked_qt_vector_size(source.liquify_strokes.size(), "liquify_strokes")
     );
     for (const auto& stroke : source.liquify_strokes) {
         BackendLiquifyPushStroke decoded{
@@ -656,10 +537,7 @@ BackendGradeStack grade_stack(
             .hardness = stroke.hardness,
         };
         decoded.points.reserve(
-            checked_qt_vector_size(
-                stroke.points.size(),
-                "liquify_stroke_points"
-            )
+            checked_qt_vector_size(stroke.points.size(), "liquify_stroke_points")
         );
         for (const auto& point : stroke.points) {
             decoded.points.push_back({
@@ -683,9 +561,7 @@ BackendGradeStack grade_stack(
     return result;
 }
 
-BackendPhotoEditState edit_state(
-    const shadow::desktop::FfiPhotoEditState& source
-) {
+BackendPhotoEditState edit_state(const shadow::desktop::FfiPhotoEditState& source) {
     BackendPhotoEditState state;
     state.photo_id = qstring(source.photo_id);
     state.source_path = qstring(source.source_path);
@@ -694,9 +570,7 @@ BackendPhotoEditState edit_state(
     state.grade_stack = grade_stack(source.settings);
     state.has_base_version = source.has_working_version;
     state.is_version_draft = source.is_version_draft;
-    state.versions.reserve(
-        checked_qt_vector_size(source.versions.size(), "versions")
-    );
+    state.versions.reserve(checked_qt_vector_size(source.versions.size(), "versions"));
     for (const auto& version : source.versions) {
         BackendEditVersion converted;
         converted.commit_id = qstring(version.commit_id);
@@ -704,8 +578,7 @@ BackendPhotoEditState edit_state(
         converted.created_at_ms = version.created_at_ms;
         converted.is_selected = version.is_working;
         converted.is_root = version.is_root;
-        converted.recipe_schema_changed =
-            version.recipe_schema_changed;
+        converted.recipe_schema_changed = version.recipe_schema_changed;
         converted.grade_nodes_added = version.grade_nodes_added;
         converted.grade_nodes_removed = version.grade_nodes_removed;
         converted.grade_nodes_moved = version.grade_nodes_moved;
@@ -713,42 +586,29 @@ BackendPhotoEditState edit_state(
         converted.render_ops_added = version.render_ops_added;
         converted.render_ops_removed = version.render_ops_removed;
         converted.render_ops_modified = version.render_ops_modified;
-        converted.render_op_parameter_blocks_changed =
-            version.render_op_parameter_blocks_changed;
-        converted.changed_basic_parameter_count =
-            version.changed_basic_parameter_count;
+        converted.render_op_parameter_blocks_changed = version.render_op_parameter_blocks_changed;
+        converted.changed_basic_parameter_count = version.changed_basic_parameter_count;
         converted.has_other_changes = version.has_other_changes;
         converted.parent_commit_ids.reserve(
-            checked_qt_vector_size(
-                version.parent_commit_ids.size(),
-                "parent_commit_ids"
-            )
+            checked_qt_vector_size(version.parent_commit_ids.size(), "parent_commit_ids")
         );
         for (const auto& parent : version.parent_commit_ids) {
             converted.parent_commit_ids.push_back(qstring(parent));
         }
-        const auto changed_parameter_size =
-            checked_qt_vector_size(
-                version.changed_basic_parameters.size(),
-                "changed_basic_parameters"
-            );
+        const auto changed_parameter_size = checked_qt_vector_size(
+            version.changed_basic_parameters.size(),
+            "changed_basic_parameters"
+        );
         if (static_cast<std::uint64_t>(changed_parameter_size)
-            != static_cast<std::uint64_t>(
-                version.changed_basic_parameter_count
-            )) {
+            != static_cast<std::uint64_t>(version.changed_basic_parameter_count)) {
             throw std::runtime_error(
                 "desktop bridge returned an inconsistent "
                 "changed-basic-parameter count"
             );
         }
-        converted.changed_basic_parameters.reserve(
-            changed_parameter_size
-        );
-        for (const auto& parameter
-             : version.changed_basic_parameters) {
-            converted.changed_basic_parameters.push_back(
-                qstring(parameter)
-            );
+        converted.changed_basic_parameters.reserve(changed_parameter_size);
+        for (const auto& parameter : version.changed_basic_parameters) {
+            converted.changed_basic_parameters.push_back(qstring(parameter));
         }
         state.versions.push_back(std::move(converted));
     }

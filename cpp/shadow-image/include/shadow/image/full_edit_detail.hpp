@@ -183,6 +183,14 @@ class FullEditDetailSession final {
         const OpticsProvider* optics_provider,
         const OpticsSettings& optics_settings
     );
+    friend FullEditDetailSession prepare_full_edit_detail(
+        const DecodeSession& session,
+        const RawDevelopmentPlan& raw_development_plan,
+        const RawFoundationCameraRgbView& foundation,
+        const FullEditDetailSourceRequirements& requirements,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
 };
 
 // Checks provider metadata against the route-specific resident-CFA or materialized-RGB bound
@@ -211,6 +219,19 @@ class FullEditDetailSession final {
     const DecodeSession& session,
     const RawDevelopmentPlan& raw_development_plan,
     const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// A verified foundation is always retained as the complete scene-linear materialized source.
+// It cannot enter the resident-CFA route because reconstruction already happened in the external
+// model transaction. The same detail/export, optics, source-rendering, tile, and memory limits
+// remain in force.
+[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const FullEditDetailSourceRequirements& requirements = {},
     const OpticsProvider* optics_provider = nullptr,
     const OpticsSettings& optics_settings = default_optics_settings()
 );

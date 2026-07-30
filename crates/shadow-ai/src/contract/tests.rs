@@ -20,6 +20,18 @@ fn every_task_maps_to_a_provider_capability() {
     );
 }
 
+#[test]
+fn raw_foundation_is_not_the_ordinary_denoise_capability() {
+    assert_eq!(
+        AiTaskKind::MaterializeRawFoundation.capability(),
+        AiCapability::RawFoundationDenoise
+    );
+    assert_ne!(
+        AiTaskKind::MaterializeRawFoundation.capability(),
+        AiTaskKind::Denoise.capability()
+    );
+}
+
 fn wire_request() -> AiJobRequest {
     AiJobRequest {
         contract_version: AI_JOB_REQUEST_CONTRACT_VERSION,

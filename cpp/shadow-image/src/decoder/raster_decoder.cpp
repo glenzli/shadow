@@ -410,6 +410,11 @@ void select_idct_scale(jpeg_decompress_struct& decoder, const std::uint32_t max_
     metadata.exposure_time_seconds = jpeg.exif.exposure_time_seconds;
     metadata.aperture_f_number = jpeg.exif.aperture_f_number;
     metadata.focal_length_mm = jpeg.exif.focal_length_mm;
+    metadata.has_gps_coordinates = jpeg.exif.has_gps_coordinates;
+    metadata.gps_latitude_degrees = jpeg.exif.gps_latitude_degrees;
+    metadata.gps_longitude_degrees = jpeg.exif.gps_longitude_degrees;
+    metadata.has_gps_altitude = jpeg.exif.has_gps_altitude;
+    metadata.gps_altitude_meters = jpeg.exif.gps_altitude_meters;
     metadata.lens_make = clean_exif_string(jpeg.exif.lens_make);
     metadata.lens_model = clean_exif_string(jpeg.exif.lens_model);
     metadata.focal_length_35mm = jpeg.exif.focal_length_35mm;

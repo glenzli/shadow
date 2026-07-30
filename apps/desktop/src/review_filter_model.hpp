@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QSortFilterProxyModel>
+#include <QStringList>
 
 /// A client-side Lightroom-style library filter over the locally loaded page.
 /// The catalog remains the source of truth; filtering only controls what the
@@ -8,50 +9,21 @@
 /// still streaming more items.
 class ReviewFilterModel final : public QSortFilterProxyModel {
     Q_OBJECT
+    Q_PROPERTY(QString flagFilter READ flagFilter WRITE setFlagFilter NOTIFY filtersChanged)
+    Q_PROPERTY(int minimumRating READ minimumRating WRITE setMinimumRating NOTIFY filtersChanged)
+    Q_PROPERTY(QString colorFilter READ colorFilter WRITE setColorFilter NOTIFY filtersChanged)
+    Q_PROPERTY(QString editFilter READ editFilter WRITE setEditFilter NOTIFY filtersChanged)
+    Q_PROPERTY(QString likedFilter READ likedFilter WRITE setLikedFilter NOTIFY filtersChanged)
     Q_PROPERTY(
-        QString flagFilter
-        READ flagFilter
-        WRITE setFlagFilter
-        NOTIFY filtersChanged
+        QString excludedFlagFilter READ excludedFlagFilter WRITE setExcludedFlagFilter NOTIFY
+            filtersChanged
     )
     Q_PROPERTY(
-        int minimumRating
-        READ minimumRating
-        WRITE setMinimumRating
-        NOTIFY filtersChanged
-    )
-    Q_PROPERTY(
-        QString colorFilter
-        READ colorFilter
-        WRITE setColorFilter
-        NOTIFY filtersChanged
-    )
-    Q_PROPERTY(
-        QString editFilter
-        READ editFilter
-        WRITE setEditFilter
-        NOTIFY filtersChanged
-    )
-    Q_PROPERTY(
-        QString likedFilter
-        READ likedFilter
-        WRITE setLikedFilter
-        NOTIFY filtersChanged
-    )
-    Q_PROPERTY(
-        QString excludedFlagFilter
-        READ excludedFlagFilter
-        WRITE setExcludedFlagFilter
-        NOTIFY filtersChanged
-    )
-    Q_PROPERTY(
-        QString excludedColorFilter
-        READ excludedColorFilter
-        WRITE setExcludedColorFilter
-        NOTIFY filtersChanged
+        QString excludedColorFilter READ excludedColorFilter WRITE setExcludedColorFilter NOTIFY
+            filtersChanged
     )
 
-public:
+  public:
     explicit ReviewFilterModel(QObject* parent = nullptr);
 
     [[nodiscard]] QString flagFilter() const;
@@ -64,6 +36,8 @@ public:
     [[nodiscard]] QString captureMonth() const;
     [[nodiscard]] QString cameraKey() const;
     [[nodiscard]] QString lensKey() const;
+    [[nodiscard]] QStringList keywordIdsAll() const;
+    [[nodiscard]] QStringList excludedKeywordIdsAny() const;
     [[nodiscard]] bool hasActiveServerFilter() const;
 
     void setFlagFilter(const QString& filter);
@@ -79,24 +53,25 @@ public:
     void setCaptureMonth(const QString& capture_month);
     void setCameraKey(const QString& camera_key);
     void setLensKey(const QString& lens_key);
+    void setKeywordIdsAll(const QStringList& keyword_ids);
+    void setExcludedKeywordIdsAny(const QStringList& keyword_ids);
     Q_INVOKABLE void clearFilters();
 
-signals:
+  signals:
     void filtersChanged();
 
-protected:
-    [[nodiscard]] bool filterAcceptsRow(
-        int source_row,
-        const QModelIndex& source_parent
-    ) const override;
+  protected:
+    [[nodiscard]] bool
+    filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override;
 
-private:
+  private:
     [[nodiscard]] static QString normalizeFlagFilter(const QString& filter);
     [[nodiscard]] static QString normalizeColorFilter(const QString& filter);
     [[nodiscard]] static QString normalizeEditFilter(const QString& filter);
     [[nodiscard]] static QString normalizeLikedFilter(const QString& filter);
     [[nodiscard]] static QString normalizeCaptureMonth(const QString& value);
     [[nodiscard]] static QString normalizeFacetKey(const QString& value);
+    [[nodiscard]] static QStringList normalizeKeywordIds(const QStringList& values);
     void refreshRowsFilter();
 
     QString flag_filter_ = QStringLiteral("all");
@@ -109,4 +84,6 @@ private:
     QString capture_month_;
     QString camera_key_;
     QString lens_key_;
+    QStringList keyword_ids_all_;
+    QStringList excluded_keyword_ids_any_;
 };

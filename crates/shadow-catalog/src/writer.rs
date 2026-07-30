@@ -11,6 +11,8 @@
 //! `source_identity` owns registration, source fingerprints, and exact identity;
 //! `source_health` owns Library source inventory and missing-location review;
 //! `library_facts` owns filterable metadata and its source provenance;
+//! `library_keywords` owns the hierarchical taxonomy and committed photo assignments;
+//! `library_metadata_overrides` owns user corrections and their effective projection;
 //! `library_collections` owns affinity state, albums, and membership;
 //! `library_browse` owns photo-first pages, counts, and bounded facets;
 //! `decode_snapshot` owns provider observations and output-freshness queries;

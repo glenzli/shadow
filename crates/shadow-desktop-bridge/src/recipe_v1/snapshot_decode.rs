@@ -44,10 +44,10 @@ use crate::ffi;
 use super::snapshot_layout::GradeNodeRecipeV1RenderOps;
 use super::{
     CONTRAST_PIVOT, FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft,
-    LutEditParameters, MAX_GRADE_NODES, SharedGradeNodeReference, apply_detail_effect_values,
-    encode_grade_node_draft_recipe_v1, fixed_color_mixer, fixed_selective_color,
-    grade_node_recipe_v1_render_ops, is_neutral_oklab_color_warper, oklab_color_warper_from_ffi,
-    point_color_ranges_from_vector, recipe_color_grading_render_op_id,
+    LutEditParameters, MAX_GRADE_NODES, PreservedManagedRasterSettings, SharedGradeNodeReference,
+    apply_detail_effect_values, encode_grade_node_draft_recipe_v1, fixed_color_mixer,
+    fixed_selective_color, grade_node_recipe_v1_render_ops, is_neutral_oklab_color_warper,
+    oklab_color_warper_from_ffi, point_color_ranges_from_vector, recipe_color_grading_render_op_id,
     recipe_finishing_effects_render_op_id, recipe_v1_oklab_color_warper_render_op_id,
     recipe_v1_oklab_lightness_tone_curve_render_op_id, validate_basic_parameters,
     validate_fine_parameters, validate_grade_stack_draft_recipe_v1, validate_tone_curve,
@@ -344,8 +344,13 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
             .layers()
             .iter()
             .map(|layer| {
-                let local_mask = recipe_v1_local_mask_from_snapshot(snapshot, layer)?;
-                decode_grade_node_draft_from_recipe_v1_layer(layer, local_mask)
+                let (local_mask, preserved_managed_raster) =
+                    recipe_v1_local_mask_from_snapshot(snapshot, layer)?;
+                decode_grade_node_draft_from_recipe_v1_layer(
+                    layer,
+                    local_mask,
+                    preserved_managed_raster,
+                )
             })
             .collect::<AnyResult<Vec<_>>>()?,
         retouch_spots: snapshot.retouch_spots().to_vec(),
@@ -360,6 +365,7 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
 pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     layer: &LayerInstance,
     local_mask: Option<MaskDefinition>,
+    preserved_managed_raster: Option<PreservedManagedRasterSettings>,
 ) -> AnyResult<GradeNodeDraft> {
     let nodes = grade_node_recipe_v1_render_ops(layer)?;
     if nodes.color_grading.id() != recipe_color_grading_render_op_id(layer.id())
@@ -411,6 +417,7 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
         },
         label: layer.label().to_owned(),
         local_mask,
+        preserved_managed_raster,
         basic,
         fine,
         enabled: layer.enabled(),
@@ -420,9 +427,12 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
 fn recipe_v1_local_mask_from_snapshot(
     snapshot: &RecipeSnapshot,
     layer: &LayerInstance,
-) -> AnyResult<Option<MaskDefinition>> {
+) -> AnyResult<(
+    Option<MaskDefinition>,
+    Option<PreservedManagedRasterSettings>,
+)> {
     let Some(reference) = layer.mask() else {
-        return Ok(None);
+        return Ok((None, None));
     };
     if reference.coordinate_space() != MaskCoordinateSpace::Original {
         bail!(
@@ -444,10 +454,25 @@ fn recipe_v1_local_mask_from_snapshot(
         MaskDefinition::ConditionExpression { .. }
     ) {
         bail!(
-            "the current editable Grade Stack cannot project persisted composite, chroma-qualified, or local-detail condition masks into the Qt DTO"
+            "the current editable Grade Stack cannot project persisted composite condition masks into the Qt DTO"
         );
     }
-    Ok(Some(mask.definition().clone()))
+    match mask.definition() {
+        MaskDefinition::ManagedRaster {
+            expansion_percent,
+            feather_percent,
+            invert,
+            ..
+        } => Ok((
+            None,
+            Some(PreservedManagedRasterSettings {
+                expansion_percent: *expansion_percent,
+                feather_percent: *feather_percent,
+                invert: *invert,
+            }),
+        )),
+        definition => Ok((Some(definition.clone()), None)),
+    }
 }
 
 pub(crate) fn grade_node_draft_from_shared_revision(
@@ -467,7 +492,7 @@ pub(crate) fn grade_node_draft_from_shared_revision(
         BlendMode::Normal,
         None,
     )?;
-    decode_grade_node_draft_from_recipe_v1_layer(&layer, None)
+    decode_grade_node_draft_from_recipe_v1_layer(&layer, None, None)
 }
 
 pub(crate) fn ffi_shared_grade_node(

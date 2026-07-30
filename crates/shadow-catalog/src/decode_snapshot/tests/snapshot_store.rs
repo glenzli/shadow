@@ -53,6 +53,8 @@ fn snapshot_round_trips_with_source_identity() {
     assert_eq!(facts.aperture_milli, Some(5_600));
     assert_eq!(facts.focal_length_tenth_mm, Some(350));
     assert_eq!(facts.iso_speed, Some(100.0));
+    assert_eq!(facts.latitude_e7, Some(312_300_000));
+    assert_eq!(facts.longitude_e7, Some(1_214_735_000));
     assert_eq!(facts.indexed_representation_id, Some(representation_id));
     assert_eq!(facts.indexed_source, Some(source));
     assert_eq!(facts.indexed_at_ms, 456);

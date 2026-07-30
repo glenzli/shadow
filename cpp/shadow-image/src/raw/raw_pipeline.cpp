@@ -3,6 +3,7 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/raw_pipeline.hpp>
 
+#include "raw_foundation_source.hpp"
 #include "raw_frame_source_development.hpp"
 #include "raw_frame_source_preparation.hpp"
 
@@ -341,6 +342,71 @@ DevelopedSourceReference develop_source_reference(
             error.what()
         );
     }
+}
+
+DevelopedSourceReference develop_source_reference(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& requested_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawPipelinePolicy& policy
+) {
+    return develop_source_reference(
+        session,
+        requested_plan,
+        foundation,
+        preview_max_edge,
+        policy,
+        default_camera_profile_catalog()
+    );
+}
+
+DevelopedSourceReference develop_source_reference(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& requested_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawPipelinePolicy& policy,
+    const CameraProfileCatalog& camera_profiles
+) {
+    if (policy.schema_version != raw_pipeline_policy_schema_version
+        || requested_plan.schema_version != raw_development_plan_schema_version
+        || (preview_max_edge.has_value() && *preview_max_edge == 0U) || !foundation.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "AI RAW foundation development received an invalid plan, policy, preview, or artifact"
+        );
+    }
+    if (policy.mode == RawPipelineMode::require_provider_processed) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "AI RAW foundation cannot enter the provider-processed compatibility path"
+        );
+    }
+    if (!session.raw_development_capabilities().available || !session.capabilities().raw_frame) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "AI RAW foundation requires a source provider with an owned RawFrame"
+        );
+    }
+
+    RawDevelopmentPlan effective_plan = requested_plan;
+    effective_plan.noise_reduction = RawNoiseReductionIntent::disabled;
+    effective_plan.highlight_recovery = RawHighlightRecoveryIntent::disabled;
+    auto prepared = raw_pipeline_detail::prepare_raw_frame_source(
+        session,
+        effective_plan,
+        preview_max_edge,
+        camera_profiles
+    );
+    return raw_pipeline_detail::materialize_prepared_raw_foundation_source(
+        std::move(prepared),
+        foundation,
+        requested_plan
+    );
 }
 
 } // namespace shadow::image

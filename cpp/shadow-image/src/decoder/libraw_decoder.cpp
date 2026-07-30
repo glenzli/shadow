@@ -9,6 +9,7 @@
 #include <shadow/image/raw_frame.hpp>
 #include <shadow/image/reference_pixels.hpp>
 
+#include "dng_noise_profile.hpp"
 #include "libraw_reference_development.hpp"
 #include "libraw_runtime.hpp"
 
@@ -21,6 +22,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -384,6 +386,30 @@ static_assert(
     return Margins{sizes.left_margin, sizes.top_margin, right, bottom};
 }
 
+[[nodiscard]] std::optional<double> libraw_gps_coordinate(
+    const float (&parts)[3],
+    const char reference,
+    const double maximum
+) noexcept {
+    const double degrees = parts[0];
+    const double minutes = parts[1];
+    const double seconds = parts[2];
+    if (!std::isfinite(degrees) || !std::isfinite(minutes) || !std::isfinite(seconds)
+        || degrees < 0.0 || degrees > maximum || minutes < 0.0 || minutes >= 60.0
+        || seconds < 0.0 || seconds >= 60.0) {
+        return std::nullopt;
+    }
+    double coordinate = degrees + minutes / 60.0 + seconds / 3'600.0;
+    if (reference == 'S' || reference == 's' || reference == 'W' || reference == 'w') {
+        coordinate = -coordinate;
+    } else if (
+        reference != 'N' && reference != 'n' && reference != 'E' && reference != 'e'
+    ) {
+        return std::nullopt;
+    }
+    return coordinate;
+}
+
 
 [[nodiscard]] AssetMetadata read_metadata(LibRaw& decoder) {
     const auto& identity = decoder.imgdata.idata;
@@ -418,6 +444,29 @@ static_assert(
     metadata.aperture_f_number = capture.aperture;
     metadata.focal_length_mm = capture.focal_len;
     metadata.captured_at_unix_seconds = static_cast<std::int64_t>(capture.timestamp);
+    if (capture.parsed_gps.gpsparsed != 0) {
+        const auto latitude = libraw_gps_coordinate(
+            capture.parsed_gps.latitude,
+            capture.parsed_gps.latref,
+            90.0
+        );
+        const auto longitude = libraw_gps_coordinate(
+            capture.parsed_gps.longitude,
+            capture.parsed_gps.longref,
+            180.0
+        );
+        if (latitude.has_value() && longitude.has_value()) {
+            metadata.has_gps_coordinates = true;
+            metadata.gps_latitude_degrees = *latitude;
+            metadata.gps_longitude_degrees = *longitude;
+        }
+        if (std::isfinite(capture.parsed_gps.altitude)) {
+            metadata.has_gps_altitude = true;
+            metadata.gps_altitude_meters = capture.parsed_gps.altref == 1
+                ? -static_cast<double>(capture.parsed_gps.altitude)
+                : static_cast<double>(capture.parsed_gps.altitude);
+        }
+    }
     metadata.lens_make = lens.LensMake;
     metadata.lens_model = lens.Lens;
     metadata.focal_length_35mm = lens.FocalLengthIn35mmFormat;
@@ -480,6 +529,7 @@ public:
         require_libraw_success(libraw_open_path(decoder_, path_), "open_file");
 
         metadata_ = read_metadata(decoder_);
+        dng_noise_profile_ = read_dng_noise_profile(path_);
         previews_ = read_previews(decoder_.imgdata);
         libraw_decoder_info_t decoder_info{};
         const bool decoder_advertises_unpack =
@@ -650,6 +700,8 @@ public:
             descriptor.black_levels[site] = raw_frame_black_level(color, color_indices[site]);
             descriptor.white_levels[site] = raw_frame_white_level(color, color_indices[site]);
         }
+        descriptor.sensor_noise =
+            resolve_dng_noise_profile(dng_noise_profile_, descriptor, metadata_.iso_speed);
         descriptor.as_shot_neutral = raw_frame_as_shot_neutral(
             decoder_.imgdata,
             descriptor.cfa_layout,
@@ -760,6 +812,7 @@ private:
     LibRaw decoder_;
     AssetMetadata metadata_;
     DecodeCapabilities capabilities_;
+    DngNoiseProfileReceipt dng_noise_profile_;
     std::unique_ptr<LibRawReferenceDeveloper> reference_developer_;
     std::vector<PreviewDescriptor> previews_;
     bool unpacked_ = false;
@@ -774,16 +827,16 @@ public:
         // Provider version participates in generated-proxy/cache identity. Include Shadow's
         // reference/output contracts so a transfer or gamut-mapping change cannot reuse bytes
         // generated under the same linked LibRaw release.
-        info_.version = "libraw=" + std::string(LibRaw::version())
-            + ";cap="
-            + std::to_string(libraw_reference_development_contract_version)
-            + ";linear=" + std::to_string(processed_linear_reference_rgb_contract_version)
-            + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
-            + ";plan=" + std::to_string(raw_development_plan_schema_version)
-            + ";frame=" + std::to_string(raw_frame_schema_version)
-            + ";preview=" + std::to_string(libraw_embedded_preview_geometry_contract_version)
-            + ";display=" + std::to_string(display_srgb8_output_transform_version)
-            + ";settings=" + compact_libraw_development_settings_identity(settings_);
+        info_.version = "libraw=" + std::string(LibRaw::version()) + ";cap="
+                        + std::to_string(libraw_reference_development_contract_version) + ";linear="
+                        + std::to_string(processed_linear_reference_rgb_contract_version)
+                        + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
+                        + ";plan=" + std::to_string(raw_development_plan_schema_version)
+                        + ";frame=" + std::to_string(raw_frame_schema_version) + "-n"
+                        + std::to_string(dng_noise_profile_contract_version) + ";preview="
+                        + std::to_string(libraw_embedded_preview_geometry_contract_version)
+                        + ";display=" + std::to_string(display_srgb8_output_transform_version)
+                        + ";settings=" + compact_libraw_development_settings_identity(settings_);
         if (info_.version.size() > 128U) {
             throw std::invalid_argument("LibRaw provider cache identity exceeds 128 bytes");
         }

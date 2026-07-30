@@ -1,14 +1,14 @@
 use shadow_domain::{AssetLocation, Platform, RepresentationKind};
 
 use crate::{
-    LibraryFacetKind, LibraryPhotoFacts, LibraryPhotoFilter, RegisterAsset,
-    RepresentationFingerprint,
+    LibraryFacetKind, LibraryMapGrid, LibraryMapViewport, LibraryPhotoFacts, LibraryPhotoFilter,
+    RegisterAsset, RepresentationFingerprint,
 };
 
 use crate::writer::CatalogActor;
 
 #[test]
-fn actor_routes_photo_pages_counts_and_bounded_facets() {
+fn actor_routes_photo_pages_counts_facets_and_map_clusters() {
     let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
     let handle = actor.handle();
     let registered = handle
@@ -36,8 +36,8 @@ fn actor_routes_photo_pages_counts_and_bounded_facets() {
             aperture_milli: None,
             focal_length_tenth_mm: None,
             iso_speed: None,
-            latitude_e7: None,
-            longitude_e7: None,
+            latitude_e7: Some(312_304_000),
+            longitude_e7: Some(1_212_473_000),
             place_name: String::new(),
             indexed_representation_id: Some(registered.representation_id),
             indexed_source: Some(RepresentationFingerprint {
@@ -73,5 +73,22 @@ fn actor_routes_photo_pages_counts_and_bounded_facets() {
     assert_eq!(cameras.items.len(), 1);
     assert_eq!(cameras.items[0].photo_count, 1);
     assert!(cameras.next_cursor.is_none());
+    let map = handle
+        .library_map_snapshot(
+            &LibraryPhotoFilter::default(),
+            LibraryMapViewport {
+                south_latitude_e7: 300_000_000,
+                west_longitude_e7: 1_200_000_000,
+                north_latitude_e7: 320_000_000,
+                east_longitude_e7: 1_220_000_000,
+            },
+            LibraryMapGrid {
+                columns: 8,
+                rows: 8,
+            },
+        )
+        .expect("read map clusters through actor");
+    assert_eq!(map.photo_count, 1);
+    assert_eq!(map.clusters[0].single_photo_id, Some(registered.photo_id));
     actor.shutdown().expect("shutdown actor");
 }

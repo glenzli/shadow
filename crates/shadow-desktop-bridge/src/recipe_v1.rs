@@ -6,6 +6,10 @@
 //! `shadow-domain` may persist bounded condition expressions before this
 //! adapter can execute them; `snapshot_decode` and `compiler` own the explicit
 //! fail-closed capability gates instead of flattening or dropping predicates.
+//! Managed rasters cross Qt as opaque kind-six references plus reversible
+//! expansion, feather, and invert controls; their exact immutable bytes are
+//! restored from the explicit base Recipe and resolved through verified
+//! application storage immediately before render-plan compilation.
 //! `foundation_development` binds the same absolute RAW white balance to each
 //! render intent and rejects lossy RGB compatibility routes for manual values.
 //! `ffi_adapter::liquify` owns strict decoding of the bounded flat Liquify DTO.
@@ -25,6 +29,7 @@ mod draft;
 mod ffi_adapter;
 mod foundation_development;
 mod identity;
+mod managed_raster_resolution;
 mod render_request;
 mod snapshot_decode;
 mod snapshot_encode;

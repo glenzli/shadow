@@ -105,7 +105,7 @@ EditController::currentMaskCoverageRequest(const BackendGradeStack& grade_stack)
         return std::nullopt;
     }
     const auto& target = grade_stack.grade_nodes.at(selected_grade_node_index_);
-    if (target.local_mask_kind < 1U || target.local_mask_kind > 5U) {
+    if (target.local_mask_kind < 1U || target.local_mask_kind > 6U) {
         return std::nullopt;
     }
     return EditMaskCoverageRequest{

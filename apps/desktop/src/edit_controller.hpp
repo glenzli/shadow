@@ -35,6 +35,8 @@ struct PendingPhotoOpen final {
 };
 
 class EditPreviewPresentationContext;
+class EditAiMaskController;
+class EditRawFoundationController;
 
 class EditController final : public QObject {
     Q_OBJECT
@@ -100,6 +102,38 @@ class EditController final : public QObject {
         double foundationCameraNeutralBlue READ foundationCameraNeutralBlue WRITE
             setFoundationCameraNeutralBlue NOTIFY foundationChanged
     )
+    Q_PROPERTY(
+        bool foundationAiDenoiseEnabled READ foundationAiDenoiseEnabled WRITE
+            setFoundationAiDenoiseEnabled NOTIFY foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool foundationAiDenoiseAvailable READ foundationAiDenoiseAvailable NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool foundationAiDenoiseBusy READ foundationAiDenoiseBusy NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool foundationAiDenoiseCanStart READ foundationAiDenoiseCanStart NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool foundationAiDenoiseCanCancel READ foundationAiDenoiseCanCancel NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        QString foundationAiDenoisePhase READ foundationAiDenoisePhase NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        double foundationAiDenoiseProgress READ foundationAiDenoiseProgress NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        QString foundationAiDenoiseStatusText READ foundationAiDenoiseStatusText NOTIFY
+            foundationAiDenoiseChanged
+    )
     Q_PROPERTY(bool opticsEnabled READ opticsEnabled WRITE setOpticsEnabled NOTIFY opticsChanged)
     Q_PROPERTY(
         bool opticsDistortionEnabled READ opticsDistortionEnabled WRITE setOpticsDistortionEnabled
@@ -145,13 +179,19 @@ class EditController final : public QObject {
     // the persisted backend layout while all shape values remain normalized.
     Q_PROPERTY(QVariantMap selectedLocalMask READ selectedLocalMask NOTIFY parametersChanged)
     Q_PROPERTY(
-        bool maskToolActive READ maskToolActive WRITE setMaskToolActive
-        NOTIFY maskToolActiveChanged
+        bool maskToolActive READ maskToolActive WRITE setMaskToolActive NOTIFY maskToolActiveChanged
     )
+    Q_PROPERTY(QString maskCoverageSource READ maskCoverageSource NOTIFY maskCoverageSourceChanged)
+    Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(
-        QString maskCoverageSource READ maskCoverageSource
-        NOTIFY maskCoverageSourceChanged
+        bool aiMaskForegroundMode READ aiMaskForegroundMode WRITE setAiMaskForegroundMode NOTIFY
+            aiMaskPromptChanged
     )
+    Q_PROPERTY(QVariantList aiMaskPromptPoints READ aiMaskPromptPoints NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool aiMaskCanGenerate READ aiMaskCanGenerate NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool aiMaskHasCandidate READ aiMaskHasCandidate NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(QString aiMaskCandidateSource READ aiMaskCandidateSource NOTIFY aiMaskPromptChanged)
     // This is an in-session geometry clipboard, not a Recipe asset. A paste
     // creates the selected node's own one-mask attachment on the current photo.
     Q_PROPERTY(bool hasCopiedNodeMask READ hasCopiedNodeMask NOTIFY nodeMaskClipboardChanged)
@@ -296,6 +336,14 @@ class EditController final : public QObject {
     [[nodiscard]] int foundationWhiteBalanceMode() const noexcept;
     [[nodiscard]] double foundationCameraNeutralRed() const noexcept;
     [[nodiscard]] double foundationCameraNeutralBlue() const noexcept;
+    [[nodiscard]] bool foundationAiDenoiseEnabled() const noexcept;
+    [[nodiscard]] bool foundationAiDenoiseAvailable() const noexcept;
+    [[nodiscard]] bool foundationAiDenoiseBusy() const noexcept;
+    [[nodiscard]] bool foundationAiDenoiseCanStart() const noexcept;
+    [[nodiscard]] bool foundationAiDenoiseCanCancel() const noexcept;
+    [[nodiscard]] QString foundationAiDenoisePhase() const;
+    [[nodiscard]] double foundationAiDenoiseProgress() const noexcept;
+    [[nodiscard]] QString foundationAiDenoiseStatusText() const;
     [[nodiscard]] bool opticsEnabled() const noexcept;
     [[nodiscard]] bool opticsDistortionEnabled() const noexcept;
     [[nodiscard]] bool opticsTcaEnabled() const noexcept;
@@ -313,6 +361,13 @@ class EditController final : public QObject {
     [[nodiscard]] QVariantMap selectedLocalMask() const;
     [[nodiscard]] bool maskToolActive() const noexcept;
     [[nodiscard]] QString maskCoverageSource() const;
+    [[nodiscard]] bool aiMaskPromptActive() const noexcept;
+    [[nodiscard]] bool aiMaskBusy() const noexcept;
+    [[nodiscard]] bool aiMaskForegroundMode() const noexcept;
+    [[nodiscard]] QVariantList aiMaskPromptPoints() const;
+    [[nodiscard]] bool aiMaskCanGenerate() const noexcept;
+    [[nodiscard]] bool aiMaskHasCandidate() const noexcept;
+    [[nodiscard]] QString aiMaskCandidateSource() const;
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
@@ -366,6 +421,7 @@ class EditController final : public QObject {
     void setFoundationWhiteBalanceMode(int mode);
     void setFoundationCameraNeutralRed(double value);
     void setFoundationCameraNeutralBlue(double value);
+    void setFoundationAiDenoiseEnabled(bool enabled);
     void setOpticsEnabled(bool enabled);
     void setOpticsDistortionEnabled(bool enabled);
     void setOpticsTcaEnabled(bool enabled);
@@ -408,6 +464,17 @@ class EditController final : public QObject {
     Q_INVOKABLE void clearSelectedLocalMaskBrush();
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setMaskToolActive(bool active);
+    Q_INVOKABLE bool beginAiMaskPrompt();
+    Q_INVOKABLE void setAiMaskForegroundMode(bool foreground);
+    Q_INVOKABLE void
+    addAiMaskPromptPoint(double normalized_x, double normalized_y, bool foreground);
+    Q_INVOKABLE void undoAiMaskPromptPoint();
+    Q_INVOKABLE void clearAiMaskPromptPoints();
+    Q_INVOKABLE void generateAiMask();
+    Q_INVOKABLE void applyAiMaskCandidate();
+    Q_INVOKABLE void cancelAiMaskPrompt();
+    Q_INVOKABLE void startFoundationAiDenoise();
+    Q_INVOKABLE void cancelFoundationAiDenoise();
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
     Q_INVOKABLE void addRetouchSpotFromPreview(double normalized_x, double normalized_y);
@@ -551,6 +618,7 @@ class EditController final : public QObject {
     void recipeRecoveryChanged();
     void statusTextChanged();
     void foundationChanged();
+    void foundationAiDenoiseChanged();
     void opticsChanged();
     void opticsReceiptChanged();
     void gradeNodesChanged();
@@ -562,6 +630,7 @@ class EditController final : public QObject {
     void nodeMaskClipboardChanged();
     void maskToolActiveChanged();
     void maskCoverageSourceChanged();
+    void aiMaskPromptChanged();
     void toneCurveChanged();
     void pointColorScopeChanged();
     void pointColorPickerActiveChanged();
@@ -595,6 +664,11 @@ class EditController final : public QObject {
     };
 
     void applyState(BackendPhotoEditState state);
+    void applySubjectMaskState(
+        BackendPhotoEditState state,
+        const BackendGradeStack& before,
+        const QString& target_grade_node_id
+    );
     void setGradeStack(BackendGradeStack grade_stack, const QString& preferred_grade_node_id = {});
     [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
     [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
@@ -651,8 +725,8 @@ class EditController final : public QObject {
     void setDetailRunning(bool running);
     void setFullResolutionState(bool preparing, bool ready, quint64 retained_bytes);
     void emitBusyChange(bool previous_busy);
-    void foundationEdited(const QString& key, const BackendGradeStack& before);
     void parameterEdited(const QString& key, const BackendGradeStack& before);
+    void foundationEdited(const QString& key, const BackendGradeStack& before);
     void opticsEdited(const QString& key, const BackendGradeStack& before);
     void notifyParametersChanged();
     void handleMaskSelectionChanged();
@@ -663,9 +737,8 @@ class EditController final : public QObject {
     void scheduleMaskCoverageRefresh();
     [[nodiscard]] std::optional<EditMaskCoverageRequest>
     currentMaskCoverageRequest(const BackendGradeStack& grade_stack) const;
-    [[nodiscard]] MaskCoverageGeneration maskCoverageGeneration(
-        const EditPreviewGeneration& preview_generation
-    ) const;
+    [[nodiscard]] MaskCoverageGeneration
+    maskCoverageGeneration(const EditPreviewGeneration& preview_generation) const;
     void publishMaskCoverage(
         BackendMaskCoverage coverage,
         const EditPreviewGeneration& preview_generation
@@ -674,9 +747,14 @@ class EditController final : public QObject {
     [[nodiscard]] bool
     acceptParameter(double value, double minimum, double maximum, const char* label_source);
 
+    friend class EditAiMaskController;
+    friend class EditRawFoundationController;
+
     std::shared_ptr<DesktopBackend> backend_;
     std::shared_ptr<EditPreviewStore> preview_store_;
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
+    std::unique_ptr<EditAiMaskController> ai_mask_controller_;
+    std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
     EditVersionModel versions_;
     ToneCurvePointModel tone_curve_points_;
     QFutureWatcher<EditStateTaskResult> state_watcher_;

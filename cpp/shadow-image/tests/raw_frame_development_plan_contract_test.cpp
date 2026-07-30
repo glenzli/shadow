@@ -1,6 +1,7 @@
 #include "../src/raw/raw_frame_development_plan.hpp"
 #include "../src/raw/raw_frame_source_development.hpp"
 #include "raw_pipeline_routing_test_support.hpp"
+#include "scoped_environment.hpp"
 
 #include <cmath>
 #include <optional>
@@ -18,6 +19,8 @@ static_assert(
     std::is_move_constructible_v<image::raw_pipeline_detail::PreparedRawFrameDevelopment>
 );
 static_assert(!std::is_move_assignable_v<image::raw_pipeline_detail::PreparedRawFrameDevelopment>);
+
+using image::test_support::ScopedEnvironment;
 
 namespace {
 
@@ -47,7 +50,7 @@ void prepared_plan_binds_source_policy_and_calibration_once() {
     );
     expect(
         preview.linear_transform().valid() && preview.camera_profile() == nullptr
-            && !preview.raw_denoise().applied()
+            && !preview.neural_raw_denoise().requested() && !preview.raw_denoise().applied()
             && preview.reconstruction_dimensions() == image::Dimensions{2U, 2U}
             && preview.diagnostic_dimensions() == image::Dimensions{2U, 2U},
         "prepared RAW development owns transform, preview dimensions, and preview-aware denoise"
@@ -247,6 +250,54 @@ void preparation_preserves_validation_order() {
     );
 }
 
+void neural_raw_fallback_flows_through_the_current_developer() {
+    auto frame = synthetic_bayer_frame();
+    frame.descriptor.sensor_noise = image::RawSensorNoiseCalibration{
+        .schema_version = image::raw_sensor_noise_calibration_schema_version,
+        .model = image::RawSensorNoiseModel::poisson_gaussian_per_cfa,
+        .source = image::RawSensorNoiseCalibrationSource::embedded_metadata,
+        .iso_sensitivity = 3'200.0,
+        .read_noise_stddev_dn = {1.0, 1.1, 1.2, 1.3},
+        .shot_noise_variance_per_dn = {0.1, 0.11, 0.12, 0.13},
+    };
+    constexpr std::string_view model_identity =
+        "sha256-tree-v1:"
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const ScopedEnvironment model(
+        "SHADOW_AI_RAW_DENOISE_MODEL",
+        "/nonexistent/shadow-integration-neural-raw.mlmodelc"
+    );
+    const ScopedEnvironment identity("SHADOW_AI_RAW_DENOISE_MODEL_IDENTITY", model_identity);
+    const ScopedEnvironment tile("SHADOW_AI_RAW_DENOISE_TILE_EDGE", "4");
+    const ScopedEnvironment halo("SHADOW_AI_RAW_DENOISE_HALO", "1");
+    const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "cpu");
+
+    SyntheticRawSession session(frame);
+    const auto developed = image::develop_source_reference(
+        session,
+        image::default_raw_development_plan(),
+        std::nullopt,
+        image::RawPipelinePolicy{
+            .mode = image::RawPipelineMode::require_shadow_raw_frame,
+        }
+    );
+    const auto& signature = developed.raw_development_receipt.development_settings_signature;
+    expect(
+        std::holds_alternative<image::SceneLinearRgbFrame>(developed.source)
+            && signature.find("neural-raw-denoise=fallback-runtime-failure") != std::string::npos
+            && signature.find(model_identity) != std::string::npos
+            && signature.find("raw-denoise=cfa-bilateral-conservative-v1") != std::string::npos
+            && developed.pipeline_receipt.pipeline_identity.find(
+                   "neural-raw-denoise=fallback-runtime-failure"
+               ) != std::string::npos
+            && developed.pipeline_receipt.pipeline_identity.find(
+                   "raw-denoise=cfa-bilateral-conservative-v1"
+               ) != std::string::npos,
+        "the neural RAW stage executes before conventional denoise and current demosaic while "
+        "its fallback remains cache-visible"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -255,5 +306,6 @@ int main() {
     prepared_plan_owns_the_compiled_camera_profile();
     full_materializer_consumes_the_prepared_contract();
     preparation_preserves_validation_order();
+    neural_raw_fallback_flows_through_the_current_developer();
     return failures == 0 ? 0 : 1;
 }

@@ -18,6 +18,20 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     std::optional<FusedRawFrameDevelopment> prepared_development;
     std::optional<RawBayerDenoiseResult> materialized_raw_denoise;
     RawBayerDenoiseReceipt raw_denoise_receipt;
+    if (prepared.neural_raw_denoise().execution_requested()) {
+        // Sensor clipping describes the immutable source, not values reconstructed by the neural
+        // stage. Preserve it before the RAW-to-RAW transaction changes the active plane.
+        sensor_clipping_mask =
+            project_sensor_clipping_mask(frame, prepared.diagnostic_dimensions());
+    }
+    detail::NeuralRawDenoiseResult neural_raw_denoise =
+        detail::execute_prepared_neural_raw_denoise(
+            std::move(frame),
+            prepared.neural_raw_denoise()
+        );
+    detail::NeuralRawDenoiseReceipt neural_raw_denoise_receipt =
+        std::move(neural_raw_denoise.receipt);
+    frame = std::move(neural_raw_denoise.frame);
     bool fused_dcp_applied = false;
     const DcpColorTransform* camera_profile = prepared.camera_profile();
     const bool dcp_requested =
@@ -32,14 +46,18 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
             detail::MetalRawDevelopmentContinuations{
                 .dcp_color_transform = dcp_requested ? camera_profile : nullptr,
                 .raw_denoise = prepared.raw_denoise().applied() ? &prepared.raw_denoise() : nullptr,
-                .project_sensor_clipping = true,
+                .project_sensor_clipping = !sensor_clipping_mask.has_value(),
             }
         );
-        if (fused_attempt.development.has_value() && fused_attempt.sensor_clipping_mask.has_value()
+        const bool clipping_available =
+            sensor_clipping_mask.has_value() || fused_attempt.sensor_clipping_mask.has_value();
+        if (fused_attempt.development.has_value() && clipping_available
             && fused_attempt.raw_denoise_applied == prepared.raw_denoise().applied()
             && fused_attempt.dcp_applied == dcp_requested) {
             prepared_development = std::move(fused_attempt.development);
-            sensor_clipping_mask = std::move(fused_attempt.sensor_clipping_mask);
+            if (!sensor_clipping_mask.has_value()) {
+                sensor_clipping_mask = std::move(fused_attempt.sensor_clipping_mask);
+            }
             fused_dcp_applied = fused_attempt.dcp_applied;
             raw_denoise_receipt = detail::finalize_raw_bayer_denoise_receipt(
                 frame,
@@ -50,8 +68,10 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
         }
     }
     if (!prepared_development.has_value()) {
-        sensor_clipping_mask =
-            project_sensor_clipping_mask(frame, prepared.diagnostic_dimensions());
+        if (!sensor_clipping_mask.has_value()) {
+            sensor_clipping_mask =
+                project_sensor_clipping_mask(frame, prepared.diagnostic_dimensions());
+        }
         materialized_raw_denoise =
             detail::execute_prepared_raw_bayer_denoise(std::move(frame), prepared.raw_denoise());
         raw_denoise_receipt = materialized_raw_denoise->receipt;
@@ -83,6 +103,7 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
         rendered_dimensions,
         developed.demosaic_receipt,
         developed.backend,
+        neural_raw_denoise_receipt,
         raw_denoise_receipt,
         dcp_execution_backend
     );
@@ -92,7 +113,10 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
         .sensor_clipping_mask = std::move(*sensor_clipping_mask),
         .backend = developed.backend,
         .highlight_recovery = developed.highlight_recovery,
-        .raw_denoise_cache_identity = raw_denoise_receipt.cache_identity,
+        .raw_denoise_cache_identity = detail::combined_raw_denoise_cache_identity(
+            neural_raw_denoise_receipt,
+            raw_denoise_receipt
+        ),
         .source_scene_luminance_percentile = prepared.source_scene_luminance_percentile(),
     };
 }

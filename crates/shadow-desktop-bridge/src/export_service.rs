@@ -20,6 +20,10 @@ use crate::isolated_proxy::{
 use crate::{
     DesktopSession, ffi,
     photo_provider::isolated_edit_raster,
+    raw_foundation_render_source::{
+        RawFoundationRenderSelection, load_raw_foundation_for_render,
+        raw_foundation_ready_for_render,
+    },
     recipe_v1::{
         bridge_optics_settings, ensure_foundation_allows_rgb_fallback,
         ensure_foundation_development_receipt, export_foundation_development_plan,
@@ -46,6 +50,7 @@ impl DesktopSession {
         }
         let recipe = resolve_recipe_render(
             &self.catalog,
+            &self.cache_root,
             photo_id,
             &request.base_commit_id,
             &request.settings,
@@ -54,12 +59,21 @@ impl DesktopSession {
         let optics = bridge_optics_settings(&request.settings.foundation.optics);
         let raw_development_plan = export_foundation_development_plan(recipe.raw_white_balance);
         let requirements = DetailSessionRequirements::for_render_plan(&recipe.plan);
+        let raw_foundation = raw_foundation_ready_for_render(
+            &self.raw_foundations,
+            &self.raw_foundation_runtime,
+            &native_path,
+            source.source,
+            recipe.raw_ai_denoise,
+        )?;
         ensure_known_quarantined_raw_does_not_open_for_export(&self.cache_root, &native_path)?;
         let session = open_export_session(
             &self.cache_root,
             &native_path,
             raw_development_plan,
             &optics,
+            raw_foundation.as_ref(),
+            source.source,
             requirements,
         )?;
         let raster = render_export_raster(&session, &recipe.plan)?;
@@ -77,8 +91,23 @@ fn open_export_session(
     native_path: &Path,
     raw_plan: RawDevelopmentPlan,
     optics: &OpticsSettings,
+    raw_foundation: Option<&RawFoundationRenderSelection>,
+    source: shadow_catalog::RepresentationFingerprint,
     requirements: DetailSessionRequirements,
 ) -> AnyResult<PhotoEditDetailSession> {
+    if let Some(selection) = raw_foundation {
+        let loaded = load_raw_foundation_for_render(selection, native_path, source)?;
+        let session = PhotoEditDetailSession::open_with_raw_foundation(
+            native_path,
+            raw_plan,
+            &loaded.foundation,
+            optics,
+            requirements,
+        )
+        .context("prepare export from verified AI RAW foundation")?;
+        ensure_foundation_development_receipt(raw_plan, session.raw_pipeline_receipt())?;
+        return Ok(session);
+    }
     match PhotoEditDetailSession::open_with_requirements(
         native_path,
         raw_plan,

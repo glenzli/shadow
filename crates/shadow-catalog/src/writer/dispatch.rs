@@ -15,6 +15,8 @@ mod import_journal;
 mod library_browse;
 mod library_collections;
 mod library_facts;
+mod library_keywords;
+mod library_metadata_overrides;
 mod review_projection;
 mod source_health;
 mod source_identity;
@@ -29,6 +31,8 @@ use import_journal::run_import_journal_message;
 use library_browse::run_library_browse_message;
 use library_collections::run_library_collections_message;
 use library_facts::run_library_facts_message;
+use library_keywords::run_library_keywords_message;
+use library_metadata_overrides::run_library_metadata_overrides_message;
 use review_projection::run_review_projection_message;
 use source_health::run_source_health_message;
 use source_identity::run_source_identity_message;
@@ -42,6 +46,12 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::SourceIdentity(message) => run_source_identity_message(&mut catalog, message),
             Message::SourceHealth(message) => run_source_health_message(&mut catalog, message),
             Message::LibraryFacts(message) => run_library_facts_message(&mut catalog, message),
+            Message::LibraryKeywords(message) => {
+                run_library_keywords_message(&mut catalog, message);
+            }
+            Message::LibraryMetadataOverrides(message) => {
+                run_library_metadata_overrides_message(&mut catalog, message);
+            }
             Message::LibraryCollections(message) => {
                 run_library_collections_message(&mut catalog, message);
             }

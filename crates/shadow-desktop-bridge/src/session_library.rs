@@ -34,6 +34,28 @@ impl DesktopSession {
         self.library.photo_count(filter)
     }
 
+    pub(crate) fn library_map_snapshot(
+        &self,
+        filter: &ffi::FfiLibraryPhotoFilter,
+        south_latitude_e7: i32,
+        west_longitude_e7: i32,
+        north_latitude_e7: i32,
+        east_longitude_e7: i32,
+        columns: u16,
+        rows: u16,
+    ) -> AnyResult<ffi::FfiLibraryMapSnapshot> {
+        self.library.map_snapshot(
+            filter,
+            shadow_catalog::LibraryMapViewport {
+                south_latitude_e7,
+                west_longitude_e7,
+                north_latitude_e7,
+                east_longitude_e7,
+            },
+            shadow_catalog::LibraryMapGrid { columns, rows },
+        )
+    }
+
     pub(crate) fn library_facet_page(
         &self,
         filter: &ffi::FfiLibraryPhotoFilter,
@@ -155,6 +177,68 @@ impl DesktopSession {
         self.library.smart_album_photo_count(album_id)
     }
 
+    pub(crate) fn library_keywords(&self) -> AnyResult<Vec<ffi::FfiLibraryKeyword>> {
+        self.library.ffi_keyword_tree()
+    }
+
+    pub(crate) fn library_keywords_for_photo(
+        &self,
+        photo_id: &str,
+    ) -> AnyResult<Vec<ffi::FfiLibraryPhotoKeyword>> {
+        self.library.ffi_keywords_for_photo(photo_id)
+    }
+
+    pub(crate) fn create_library_keyword(
+        &self,
+        parent_id: &str,
+        name: &str,
+    ) -> AnyResult<ffi::FfiLibraryKeyword> {
+        self.library
+            .create_keyword_ffi(parent_id, name, current_time_ms()?)
+    }
+
+    pub(crate) fn rename_library_keyword(
+        &self,
+        keyword_id: &str,
+        name: &str,
+    ) -> AnyResult<ffi::FfiLibraryKeyword> {
+        self.library
+            .rename_keyword_ffi(keyword_id, name, current_time_ms()?)
+    }
+
+    pub(crate) fn move_library_keyword(
+        &self,
+        keyword_id: &str,
+        parent_id: &str,
+    ) -> AnyResult<ffi::FfiLibraryKeyword> {
+        self.library
+            .move_keyword_ffi(keyword_id, parent_id, current_time_ms()?)
+    }
+
+    pub(crate) fn delete_library_keyword_subtree(
+        &self,
+        keyword_id: &str,
+    ) -> AnyResult<ffi::FfiLibraryKeywordDeletionReceipt> {
+        self.library.delete_keyword_subtree_ffi(keyword_id)
+    }
+
+    pub(crate) fn assign_library_keyword(
+        &self,
+        keyword_id: &str,
+        photo_ids: Vec<String>,
+    ) -> AnyResult<ffi::FfiLibraryKeywordMutationReceipt> {
+        self.library
+            .assign_manual_keyword_ffi(keyword_id, &photo_ids, current_time_ms()?)
+    }
+
+    pub(crate) fn remove_library_keyword(
+        &self,
+        keyword_id: &str,
+        photo_ids: Vec<String>,
+    ) -> AnyResult<ffi::FfiLibraryKeywordMutationReceipt> {
+        self.library.remove_keyword_ffi(keyword_id, &photo_ids)
+    }
+
     pub(crate) fn set_photo_library_state(
         &self,
         photo_id: &str,
@@ -163,5 +247,87 @@ impl DesktopSession {
     ) -> AnyResult<ffi::FfiPhotoLibraryState> {
         self.library
             .set_photo_library_state(photo_id, liked, color_label, current_time_ms()?)
+    }
+
+    pub(crate) fn library_metadata_state(
+        &self,
+        photo_id: &str,
+    ) -> AnyResult<ffi::FfiLibraryMetadataState> {
+        self.library.metadata_state(photo_id)
+    }
+
+    pub(crate) fn set_library_capture_time_override(
+        &self,
+        photo_id: &str,
+        mode: &str,
+        captured_at_unix_seconds: i64,
+    ) -> AnyResult<ffi::FfiLibraryMetadataState> {
+        self.library.set_capture_time_override(
+            photo_id,
+            mode,
+            captured_at_unix_seconds,
+            current_time_ms()?,
+        )
+    }
+
+    pub(crate) fn set_library_coordinates_override(
+        &self,
+        photo_id: &str,
+        mode: &str,
+        latitude_degrees: f64,
+        longitude_degrees: f64,
+        place_name: &str,
+    ) -> AnyResult<ffi::FfiLibraryMetadataState> {
+        self.library.set_coordinates_override(
+            photo_id,
+            mode,
+            latitude_degrees,
+            longitude_degrees,
+            place_name,
+            current_time_ms()?,
+        )
+    }
+
+    pub(crate) fn preview_library_capture_time_batch(
+        &self,
+        targets: Vec<ffi::FfiBatchPhotoTarget>,
+        mode: &str,
+        offset_seconds: i64,
+    ) -> AnyResult<ffi::FfiCaptureTimeBatchPreview> {
+        self.library
+            .preview_capture_time_batch(targets, mode, offset_seconds)
+    }
+
+    pub(crate) fn apply_library_capture_time_batch(
+        &self,
+        preview_id: &str,
+    ) -> AnyResult<ffi::FfiLibraryMetadataBatchReceipt> {
+        self.library
+            .apply_capture_time_batch(preview_id, current_time_ms()?)
+    }
+
+    pub(crate) fn preview_library_gpx_import(
+        &self,
+        gpx_path: &str,
+        targets: Vec<ffi::FfiBatchPhotoTarget>,
+        camera_clock_offset_seconds: i64,
+        maximum_gap_seconds: u32,
+    ) -> AnyResult<ffi::FfiGpxImportPreview> {
+        self.library.preview_gpx_import(
+            gpx_path,
+            targets,
+            shadow_core::GpsMatchSettings {
+                camera_clock_offset_seconds,
+                maximum_gap_seconds,
+            },
+        )
+    }
+
+    pub(crate) fn apply_library_gpx_import(
+        &self,
+        preview_id: &str,
+    ) -> AnyResult<ffi::FfiLibraryMetadataBatchReceipt> {
+        self.library
+            .apply_gpx_import(preview_id, current_time_ms()?)
     }
 }

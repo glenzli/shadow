@@ -37,7 +37,11 @@ impl PhotoInspectionService {
         let record = self
             .catalog
             .photo_inspection(photo_id, representation_id, &revision)?;
-        Ok(record.map_or_else(|| unavailable(photo_id, representation_id), inspection))
+        let Some(record) = record else {
+            return Ok(unavailable(photo_id, representation_id));
+        };
+        let effective_facts = self.catalog.effective_photo_library_facts(photo_id)?;
+        Ok(inspection(record, effective_facts))
     }
 }
 
@@ -57,6 +61,10 @@ fn unavailable(photo_id: PhotoId, representation_id: RepresentationId) -> ffi::F
         lens_model: String::new(),
         has_captured_at: false,
         captured_at_unix_seconds: 0,
+        has_coordinates: false,
+        latitude_e7: 0,
+        longitude_e7: 0,
+        place_name: String::new(),
         has_iso_speed: false,
         iso_speed: 0.0,
         has_exposure_time: false,
@@ -91,7 +99,10 @@ fn unavailable(photo_id: PhotoId, representation_id: RepresentationId) -> ffi::F
 }
 
 #[allow(clippy::too_many_lines)]
-fn inspection(record: PhotoInspectionRecord) -> ffi::FfiPhotoInspection {
+fn inspection(
+    record: PhotoInspectionRecord,
+    effective_facts: Option<shadow_catalog::LibraryPhotoFacts>,
+) -> ffi::FfiPhotoInspection {
     let has_source_modified_at = record.source.modified_at_ms.is_some();
     let source_modified_at_ms = record.source.modified_at_ms.unwrap_or_default();
     let metadata = record.metadata;
@@ -152,6 +163,17 @@ fn inspection(record: PhotoInspectionRecord) -> ffi::FfiPhotoInspection {
             )
         },
     );
+    let effective_captured_at = effective_facts
+        .as_ref()
+        .and_then(|facts| facts.captured_at_unix_seconds)
+        .or_else(|| (captured_at_unix_seconds != 0).then_some(captured_at_unix_seconds));
+    let effective_coordinates = effective_facts.as_ref().and_then(|facts| {
+        Some((
+            facts.latitude_e7?,
+            facts.longitude_e7?,
+            facts.place_name.clone(),
+        ))
+    });
     let technical = record.technical;
     let has_technical_observation = technical.is_some();
     let (
@@ -214,8 +236,16 @@ fn inspection(record: PhotoInspectionRecord) -> ffi::FfiPhotoInspection {
         camera_model,
         lens_make,
         lens_model,
-        has_captured_at: has_metadata && captured_at_unix_seconds != 0,
-        captured_at_unix_seconds,
+        has_captured_at: effective_captured_at.is_some(),
+        captured_at_unix_seconds: effective_captured_at.unwrap_or_default(),
+        has_coordinates: effective_coordinates.is_some(),
+        latitude_e7: effective_coordinates
+            .as_ref()
+            .map_or(0, |coordinates| coordinates.0),
+        longitude_e7: effective_coordinates
+            .as_ref()
+            .map_or(0, |coordinates| coordinates.1),
+        place_name: effective_coordinates.map_or_else(String::new, |coordinates| coordinates.2),
         has_iso_speed: has_metadata && iso_speed > 0.0,
         iso_speed,
         has_exposure_time: has_metadata && exposure_time_seconds > 0.0,

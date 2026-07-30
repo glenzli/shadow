@@ -71,6 +71,15 @@ Rectangle {
             onClicked: toolbar.openFacetBrowserRequested()
         }
 
+        ShadowIconButton {
+            checkable: true
+            checked: toolbar.workspace.hasLibraryKeywordFilter
+            source: "qrc:/icons/tag.svg"
+            toolTipText: qsTr("Assign and filter Library keywords")
+            accessibleName: toolTipText
+            onClicked: toolbar.workspace.openKeywordPanel()
+        }
+
         Item { Layout.fillWidth: true }
 
         ShadowIconButton {
@@ -91,6 +100,16 @@ Rectangle {
             accessibleName: toolTipText
             onClicked: toolbar.workspace.galleryPresentation
                 = ReviewWorkspace.SinglePhotoFilmstrip
+        }
+
+        ShadowIconButton {
+            source: "qrc:/icons/map.svg"
+            selected: toolbar.workspace.galleryPresentation
+                === ReviewWorkspace.Map
+            toolTipText: qsTr("Browse geotagged photos on a map")
+            accessibleName: toolTipText
+            onClicked: toolbar.workspace.galleryPresentation
+                = ReviewWorkspace.Map
         }
 
         Label {

@@ -6,9 +6,8 @@
 
 void ReviewController::scanFolder(const QUrl& folder_url) {
     const bool admitted = !scanning() && !query_coordinator_.pageRunning()
-        && !query_coordinator_.refreshing()
-        && !comparison_coordinator_.busy()
-        && !decision_coordinator_.busy();
+                          && !query_coordinator_.refreshing() && !comparison_coordinator_.busy()
+                          && !decision_coordinator_.busy();
     if (!import_coordinator_.start(folder_url, admitted)) {
         if (!import_coordinator_.statusMessage().isEmpty()) {
             setStatusMessage(import_coordinator_.statusMessage());
@@ -23,8 +22,8 @@ void ReviewController::cancelScan() {
 }
 
 void ReviewController::loadMore() {
-    const bool admitted = !scanning() && !comparison_coordinator_.busy()
-        && !decision_coordinator_.busy();
+    const bool admitted =
+        !scanning() && !comparison_coordinator_.busy() && !decision_coordinator_.busy();
     static_cast<void>(query_coordinator_.loadMore(admitted));
 }
 
@@ -34,30 +33,25 @@ QVariantList ReviewController::selectionRangeTargets(
     const QString& photo_id,
     const QString& representation_id
 ) const {
-    if (anchor_photo_id.isEmpty() || anchor_representation_id.isEmpty()
-        || photo_id.isEmpty() || representation_id.isEmpty()) {
+    if (anchor_photo_id.isEmpty() || anchor_representation_id.isEmpty() || photo_id.isEmpty()
+        || representation_id.isEmpty()) {
         return {};
     }
 
     int anchor_row = -1;
     int target_row = -1;
     const int count = filtered_model_.rowCount();
-    for (int row = 0; row < count && (anchor_row < 0 || target_row < 0);
-         ++row) {
+    for (int row = 0; row < count && (anchor_row < 0 || target_row < 0); ++row) {
         const QModelIndex index = filtered_model_.index(row, 0);
         const QString current_photo_id =
             filtered_model_.data(index, ReviewModel::PhotoIdRole).toString();
         const QString current_representation_id =
-            filtered_model_.data(
-                index,
-                ReviewModel::RepresentationIdRole
-            ).toString();
+            filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString();
         if (current_photo_id == anchor_photo_id
             && current_representation_id == anchor_representation_id) {
             anchor_row = row;
         }
-        if (current_photo_id == photo_id
-            && current_representation_id == representation_id) {
+        if (current_photo_id == photo_id && current_representation_id == representation_id) {
             target_row = row;
         }
     }
@@ -71,28 +65,18 @@ QVariantList ReviewController::selectionRangeTargets(
     targets.reserve(last - first + 1);
     for (int row = first; row <= last; ++row) {
         const QModelIndex index = filtered_model_.index(row, 0);
-        targets.push_back(QVariantMap{
-            {QStringLiteral("photoId"),
-             filtered_model_.data(
-                 index,
-                 ReviewModel::PhotoIdRole
-             ).toString()},
-            {QStringLiteral("representationId"),
-             filtered_model_.data(
-                 index,
-                 ReviewModel::RepresentationIdRole
-             ).toString()},
-            {QStringLiteral("sourcePath"),
-             filtered_model_.data(
-                 index,
-                 ReviewModel::SourcePathRole
-             ).toString()},
-            {QStringLiteral("title"),
-             filtered_model_.data(
-                 index,
-                 ReviewModel::TitleRole
-             ).toString()},
-        });
+        targets.push_back(
+            QVariantMap{
+                {QStringLiteral("photoId"),
+                 filtered_model_.data(index, ReviewModel::PhotoIdRole).toString()},
+                {QStringLiteral("representationId"),
+                 filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString()},
+                {QStringLiteral("sourcePath"),
+                 filtered_model_.data(index, ReviewModel::SourcePathRole).toString()},
+                {QStringLiteral("title"),
+                 filtered_model_.data(index, ReviewModel::TitleRole).toString()},
+            }
+        );
     }
     return targets;
 }
@@ -147,6 +131,14 @@ void ReviewController::setFilterCameraKey(const QString& camera_key) {
 
 void ReviewController::setFilterLensKey(const QString& lens_key) {
     filtered_model_.setLensKey(lens_key);
+}
+
+void ReviewController::setFilterKeywordIdsAll(const QStringList& keyword_ids) {
+    filtered_model_.setKeywordIdsAll(keyword_ids);
+}
+
+void ReviewController::setFilterExcludedKeywordIdsAny(const QStringList& keyword_ids) {
+    filtered_model_.setExcludedKeywordIdsAny(keyword_ids);
 }
 
 void ReviewController::setLibraryAlbumId(const QString& album_id) {
@@ -204,5 +196,7 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     filter.camera_key = filtered_model_.cameraKey();
     filter.lens_key = filtered_model_.lensKey();
     filter.album_id = album_coordinator_.albumId();
+    filter.keyword_ids_all = filtered_model_.keywordIdsAll();
+    filter.excluded_keyword_ids_any = filtered_model_.excludedKeywordIdsAny();
     return filter;
 }

@@ -15,6 +15,7 @@ use shadow_domain::RepresentationId;
 
 use super::{
     ffi, preview_cache_identity::requested_raw_development_plan_cache_matches,
+    raw_foundation_render_source::RawFoundationRenderIdentity,
     session_edit_render::CachedEditDetailSession,
 };
 
@@ -62,6 +63,17 @@ pub(super) struct EditDetailSessionCache {
 const DEFAULT_DETAIL_SESSION_BUDGET_BYTES: u64 = 1_024 * 1_024 * 1_024;
 const DEFAULT_DETAIL_SESSION_MAX_ENTRIES: usize = 4;
 
+#[derive(Debug)]
+pub(super) struct EditDetailSessionLookup<'lookup> {
+    pub(super) representation_id: RepresentationId,
+    pub(super) source: RepresentationFingerprint,
+    pub(super) source_environment_cache_identity: &'lookup str,
+    pub(super) requested_raw_development_plan_identity: &'lookup str,
+    pub(super) optics: &'lookup OpticsSettings,
+    pub(super) raw_foundation: Option<&'lookup RawFoundationRenderIdentity>,
+    pub(super) requirements: DetailSessionRequirements,
+}
+
 impl Default for EditDetailSessionCache {
     fn default() -> Self {
         Self {
@@ -75,23 +87,23 @@ impl Default for EditDetailSessionCache {
 impl EditDetailSessionCache {
     pub(super) fn get_with_requirements(
         &mut self,
-        representation_id: RepresentationId,
-        source: RepresentationFingerprint,
-        source_environment_cache_identity: &str,
-        requested_raw_development_plan_identity: &str,
-        optics: &OpticsSettings,
-        requirements: DetailSessionRequirements,
+        lookup: &EditDetailSessionLookup<'_>,
     ) -> Option<Arc<CachedDetailSource>> {
         let position = self.entries.iter().position(|entry| {
-            entry.representation_id == representation_id
-                && entry.source == source
-                && entry.source_environment_cache_identity == source_environment_cache_identity
+            entry.representation_id == lookup.representation_id
+                && entry.source == lookup.source
+                && entry.source_environment_cache_identity
+                    == lookup.source_environment_cache_identity
                 && requested_raw_development_plan_cache_matches(
                     &entry.requested_raw_development_plan_identity,
-                    requested_raw_development_plan_identity,
+                    lookup.requested_raw_development_plan_identity,
                 )
-                && &entry.optics == optics
-                && entry.session.session.satisfies_requirements(requirements)
+                && &entry.optics == lookup.optics
+                && entry.raw_foundation.as_ref() == lookup.raw_foundation
+                && entry
+                    .session
+                    .session
+                    .satisfies_requirements(lookup.requirements)
         })?;
         let entry = self.entries.remove(position)?;
         let session = Arc::clone(&entry.session);
@@ -109,6 +121,7 @@ impl EditDetailSessionCache {
                 || candidate.requested_raw_development_plan_identity
                     != entry.requested_raw_development_plan_identity
                 || candidate.optics != entry.optics
+                || candidate.raw_foundation != entry.raw_foundation
         });
         self.entries.push_back(entry);
         self.trim();

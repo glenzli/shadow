@@ -3,10 +3,12 @@
 //! Start here to understand the durable Library vocabulary. `SQLite` query and mutation mechanics
 //! remain in the parent module.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use shadow_domain::{
-    AssetLocation, CollectionId, LibrarySourceId, LocationId, PhotoDecisionState, PhotoFlag,
-    PhotoId, RepresentationId, RepresentationKind,
+    AssetLocation, CollectionId, KeywordId, LibrarySourceId, LocationId, PhotoDecisionState,
+    PhotoFlag, PhotoId, RepresentationId, RepresentationKind,
 };
 
 use crate::{CatalogError, RepresentationFingerprint, SourceScanReconciliation};
@@ -22,6 +24,15 @@ pub const MAX_LIBRARY_PAGE_SIZE: usize = 512;
 /// request. Facets are discovery aids, not an invitation to load every lens
 /// or every month in a multi-million-photo catalog into the desktop shell.
 pub const MAX_LIBRARY_FACET_PAGE_SIZE: usize = 48;
+
+/// Keeps one condition-album query and its generated SQL bounded even when a
+/// client builds the filter programmatically.
+pub const MAX_LIBRARY_KEYWORD_FILTERS: usize = 16;
+
+/// One explicit keyword operation may update this many distinct photos.
+/// Desktop workflows can chunk larger selections while preserving a visible
+/// progress and cancellation boundary.
+pub const MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS: usize = 4_096;
 
 /// The semantic domain represented by a source identity digest.
 ///
@@ -229,6 +240,65 @@ pub struct LibraryPhotoFacts {
     pub indexed_at_ms: i64,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum LibraryMetadataOverrideOrigin {
+    Manual,
+    Gpx,
+}
+
+impl LibraryMetadataOverrideOrigin {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Gpx => "gpx",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryCoordinates {
+    pub latitude_e7: i32,
+    pub longitude_e7: i32,
+    pub place_name: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub enum LibraryMetadataOverrideAction<T> {
+    #[default]
+    Unchanged,
+    Inherit,
+    Clear,
+    Set(T),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SetPhotoLibraryMetadataOverrides {
+    pub photo_id: PhotoId,
+    pub capture_time: LibraryMetadataOverrideAction<i64>,
+    pub coordinates: LibraryMetadataOverrideAction<LibraryCoordinates>,
+    pub origin: LibraryMetadataOverrideOrigin,
+    pub source_label: String,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryMetadataOverride<T> {
+    /// `None` means the observed value was explicitly cleared.
+    pub value: Option<T>,
+    pub origin: LibraryMetadataOverrideOrigin,
+    pub source_label: String,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PhotoLibraryMetadataOverrides {
+    pub photo_id: PhotoId,
+    /// Absence means the decoder observation is inherited unchanged.
+    pub capture_time: Option<LibraryMetadataOverride<i64>>,
+    /// Absence means the decoder observation is inherited unchanged.
+    pub coordinates: Option<LibraryMetadataOverride<LibraryCoordinates>>,
+}
+
 /// Inclusive capture-time bounds in Unix seconds. An absent bound leaves that
 /// side of the range open.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
@@ -277,6 +347,14 @@ pub struct LibraryPhotoFilter {
     pub has_development_edits: Option<bool>,
     /// Restricts the page to one manual album membership.
     pub album_id: Option<CollectionId>,
+    /// Every selected keyword subtree must contain at least one assignment for
+    /// the photo. Assigning a child therefore also satisfies its ancestor.
+    #[serde(default)]
+    pub keyword_ids_all: Vec<KeywordId>,
+    /// A photo is excluded when any assignment falls inside any selected
+    /// keyword subtree.
+    #[serde(default)]
+    pub excluded_keyword_ids_any: Vec<KeywordId>,
 }
 
 /// The first persisted smart-album contract.
@@ -298,7 +376,8 @@ impl SmartAlbumQueryV1 {
     pub const SCHEMA_VERSION: u32 = 1;
 
     /// Builds a query that can be stored by a smart album.
-    pub fn new(filter: LibraryPhotoFilter) -> Result<Self, CatalogError> {
+    pub fn new(mut filter: LibraryPhotoFilter) -> Result<Self, CatalogError> {
+        normalize_keyword_filter_ids(&mut filter);
         let query = Self {
             schema_version: Self::SCHEMA_VERSION,
             filter,
@@ -309,9 +388,10 @@ impl SmartAlbumQueryV1 {
 
     /// Decodes and validates a stored smart-album query.
     pub fn from_json(query_json: &str) -> Result<Self, CatalogError> {
-        let query = serde_json::from_str::<Self>(query_json).map_err(|error| {
+        let mut query = serde_json::from_str::<Self>(query_json).map_err(|error| {
             CatalogError::InvalidAlbum(format!("smart album query is not valid v1 JSON: {error}"))
         })?;
+        normalize_keyword_filter_ids(&mut query.filter);
         query.validate()?;
         Ok(query)
     }
@@ -490,6 +570,75 @@ pub struct AlbumRecord {
     pub updated_at_ms: i64,
 }
 
+/// Provenance of a committed keyword assignment.
+///
+/// Model output is not allowed to write an `AiAccepted` assignment silently:
+/// that value records a user-accepted proposal. Unaccepted suggestions belong
+/// in a separate rebuildable inference projection.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum LibraryKeywordAssignmentOrigin {
+    Manual,
+    Imported,
+    AiAccepted,
+}
+
+impl LibraryKeywordAssignmentOrigin {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Imported => "imported",
+            Self::AiAccepted => "ai_accepted",
+        }
+    }
+
+    pub(super) fn parse(value: &str) -> Result<Self, CatalogError> {
+        match value {
+            "manual" => Ok(Self::Manual),
+            "imported" => Ok(Self::Imported),
+            "ai_accepted" => Ok(Self::AiAccepted),
+            _ => Err(CatalogError::InvalidLibraryKeyword(format!(
+                "unknown keyword assignment origin {value:?}"
+            ))),
+        }
+    }
+}
+
+/// One keyword in the flattened, parent-before-child taxonomy projection.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryKeywordRecord {
+    pub id: KeywordId,
+    pub parent_id: Option<KeywordId>,
+    pub name: String,
+    pub depth: u16,
+    /// Number of distinct photos assigned to this keyword or any descendant.
+    pub subtree_photo_count: u64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+/// One committed keyword attached to one photo.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryPhotoKeyword {
+    pub keyword: LibraryKeywordRecord,
+    pub origin: LibraryKeywordAssignmentOrigin,
+    pub source_label: String,
+    pub confidence_milli: Option<u16>,
+    pub assigned_at_ms: i64,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct LibraryKeywordMutationReceipt {
+    pub keyword_id: KeywordId,
+    pub requested_photo_count: u64,
+    pub changed_photo_count: u64,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct LibraryKeywordDeletionReceipt {
+    pub deleted_keyword_count: u64,
+    pub deleted_assignment_count: u64,
+}
+
 pub(super) fn validate_library_photo_filter(
     filter: &LibraryPhotoFilter,
 ) -> Result<(), CatalogError> {
@@ -534,7 +683,39 @@ pub(super) fn validate_library_photo_filter(
             )));
         }
     }
+    for (name, keyword_ids) in [
+        ("required keyword", &filter.keyword_ids_all),
+        ("excluded keyword", &filter.excluded_keyword_ids_any),
+    ] {
+        if keyword_ids.len() > MAX_LIBRARY_KEYWORD_FILTERS {
+            return Err(CatalogError::InvalidLibraryQuery(format!(
+                "{name} filters must not exceed {MAX_LIBRARY_KEYWORD_FILTERS} entries"
+            )));
+        }
+        let unique = keyword_ids.iter().copied().collect::<BTreeSet<_>>();
+        if unique.len() != keyword_ids.len() {
+            return Err(CatalogError::InvalidLibraryQuery(format!(
+                "{name} filters must not contain duplicates"
+            )));
+        }
+    }
+    if filter
+        .keyword_ids_all
+        .iter()
+        .any(|id| filter.excluded_keyword_ids_any.contains(id))
+    {
+        return Err(CatalogError::InvalidLibraryQuery(
+            "one keyword cannot be both required and excluded".into(),
+        ));
+    }
     Ok(())
+}
+
+fn normalize_keyword_filter_ids(filter: &mut LibraryPhotoFilter) {
+    filter.keyword_ids_all.sort_unstable();
+    filter.keyword_ids_all.dedup();
+    filter.excluded_keyword_ids_any.sort_unstable();
+    filter.excluded_keyword_ids_any.dedup();
 }
 
 pub(super) fn capture_month_bounds(capture_month: &str) -> Option<(String, String)> {

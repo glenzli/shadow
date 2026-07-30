@@ -53,6 +53,11 @@ struct AssetMetadata final {
     // distance-dependent, so optical correction must leave that component disabled without it.
     double focus_distance_meters = 0.0;
     std::int64_t captured_at_unix_seconds = 0;
+    bool has_gps_coordinates = false;
+    double gps_latitude_degrees = 0.0;
+    double gps_longitude_degrees = 0.0;
+    bool has_gps_altitude = false;
+    double gps_altitude_meters = 0.0;
     std::string lens_make;
     std::string lens_model;
     double focal_length_35mm = 0.0;

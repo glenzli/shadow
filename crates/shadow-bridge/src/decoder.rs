@@ -4,7 +4,7 @@ use std::path::Path;
 
 use shadow_domain::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
-    ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewCodec,
+    GpsMetadataSnapshot, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewCodec,
     PreviewDescriptorSnapshot, RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
 };
 
@@ -109,6 +109,7 @@ pub(super) fn open_photo(path: &Path) -> Result<cxx::UniquePtr<ffi::DecodeHandle
 fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
     let provider = handle.provider();
     let metadata = handle.metadata();
+    let gps = ffi_gps_metadata(&metadata);
     let capabilities = handle.capabilities();
     let previews = handle.previews();
 
@@ -153,6 +154,7 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
             aperture_f_number: metadata.aperture_f_number,
             focal_length_mm: metadata.focal_length_mm,
             captured_at_unix_seconds: metadata.captured_at_unix_seconds,
+            gps,
             lens_make: metadata.lens_make,
             lens_model: metadata.lens_model,
             focal_length_35mm: metadata.focal_length_35mm,
@@ -191,6 +193,26 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
         },
         previews: previews.iter().map(preview_descriptor).collect(),
     }
+}
+
+fn ffi_gps_metadata(metadata: &ffi::FfiMetadataSnapshot) -> Option<GpsMetadataSnapshot> {
+    let latitude = metadata.gps_latitude_degrees;
+    let longitude = metadata.gps_longitude_degrees;
+    if !metadata.has_gps_coordinates
+        || !latitude.is_finite()
+        || !longitude.is_finite()
+        || !(-90.0..=90.0).contains(&latitude)
+        || !(-180.0..=180.0).contains(&longitude)
+    {
+        return None;
+    }
+    let altitude_meters = (metadata.has_gps_altitude && metadata.gps_altitude_meters.is_finite())
+        .then_some(metadata.gps_altitude_meters);
+    Some(GpsMetadataSnapshot {
+        latitude_degrees: latitude,
+        longitude_degrees: longitude,
+        altitude_meters,
+    })
 }
 
 fn preview_descriptor(preview: &ffi::FfiPreviewSnapshot) -> PreviewDescriptorSnapshot {

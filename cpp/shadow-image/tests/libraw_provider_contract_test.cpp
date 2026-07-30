@@ -40,13 +40,22 @@ void provider_identity_versions_shadow_pixel_contracts() {
       "provider identity versions the processed-linear reference RGB contract");
   expect(version.find("receipt=1") != std::string_view::npos,
          "provider identity versions RAW-development provenance semantics");
-  expect(version.find("plan=1") != std::string_view::npos,
-         "provider identity versions the RAW development plan contract");
-  expect(version.find("frame=1") != std::string_view::npos,
-         "provider identity versions the owned RAW frame contract");
+  expect(
+      version.find("plan=1") != std::string_view::npos,
+      "provider identity versions the RAW development plan contract"
+  );
+  expect(
+      version.find("frame=1-n1") != std::string_view::npos,
+      "provider identity versions the owned RAW frame contract"
+  );
+  expect(
+      version.find("-n1;preview=") != std::string_view::npos,
+      "provider identity versions embedded DNG sensor-noise calibration"
+  );
   expect(
       version.find("preview=1") != std::string_view::npos,
-      "provider identity versions display-oriented embedded-preview geometry");
+      "provider identity versions display-oriented embedded-preview geometry"
+  );
   expect(version.find("display=1") != std::string_view::npos,
          "provider identity versions the display output transform for cache "
          "invalidation");

@@ -17,6 +17,7 @@
 namespace shadow::image {
 
 struct CameraProfileCatalog;
+struct RawFoundationCameraRgbView;
 
 // The RAW pipeline is a host policy, not a camera-provider setting. Providers only expose
 // source samples and capabilities; Shadow decides whether those samples enter its sensor-domain
@@ -111,9 +112,8 @@ struct DevelopedSourceReference final {
 // already-processed RGB renderer. Any source that supplies a valid owned RawFrame is developed
 // against this contract after crossing the provider boundary.
 [[nodiscard]] RawDevelopmentCapabilities shadow_raw_frame_development_capabilities() noexcept;
-[[nodiscard]] RawDevelopmentPlanNegotiation negotiate_shadow_raw_frame_development_plan(
-    const RawDevelopmentPlan& requested
-) noexcept;
+[[nodiscard]] RawDevelopmentPlanNegotiation
+negotiate_shadow_raw_frame_development_plan(const RawDevelopmentPlan& requested) noexcept;
 
 // Developer/testing override:
 //   SHADOW_RAW_PIPELINE=auto|raw-frame|processed
@@ -142,6 +142,33 @@ struct DevelopedSourceReference final {
 [[nodiscard]] DevelopedSourceReference develop_source_reference(
     const DecodeSession& session,
     const RawDevelopmentPlan& plan,
+    std::optional<std::uint32_t> preview_max_edge,
+    const RawPipelinePolicy& policy,
+    const CameraProfileCatalog& camera_profiles
+);
+
+// Fail-closed AI RAW foundation route. `foundation` must already have passed the Rust artifact,
+// source-digest, model, and cache verification boundary. Native development still decodes the
+// original RawFrame exactly once for source-bound color calibration, orientation, DCP rendering,
+// luminance calibration, and sensor clipping diagnostics; it never falls back to provider RGB.
+//
+// The foundation already owns the irreversible black/white normalization, reconstruction, and
+// noise-removal stages. Consequently the effective execution plan records RAW noise reduction
+// and highlight reconstruction as disabled while preserving the photographer's complete
+// requested plan for a later non-destructive bypass.
+[[nodiscard]] DevelopedSourceReference develop_source_reference(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& requested_plan,
+    const RawFoundationCameraRgbView& foundation,
+    std::optional<std::uint32_t> preview_max_edge = std::nullopt,
+    const RawPipelinePolicy& policy = default_raw_pipeline_policy()
+);
+
+// Deterministic catalog overload for the explicit foundation route.
+[[nodiscard]] DevelopedSourceReference develop_source_reference(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& requested_plan,
+    const RawFoundationCameraRgbView& foundation,
     std::optional<std::uint32_t> preview_max_edge,
     const RawPipelinePolicy& policy,
     const CameraProfileCatalog& camera_profiles

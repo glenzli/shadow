@@ -6,6 +6,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BridgeError {
+    #[error("invalid verified RAW foundation transfer: {0}")]
+    InvalidRawFoundation(&'static str),
     #[error("invalid RAW development plan: {0}")]
     InvalidRawDevelopmentPlan(&'static str),
     #[error("invalid RAW pipeline receipt: {0}")]

@@ -21,6 +21,8 @@ Rectangle {
         || filterBar.controller.filterCaptureMonth.length > 0
         || filterBar.controller.filterCameraKey.length > 0
         || filterBar.controller.filterLensKey.length > 0
+        || filterBar.controller.filterKeywordIdsAll.length > 0
+        || filterBar.controller.filterExcludedKeywordIdsAny.length > 0
 
     function colorLabelName(label) {
         switch (String(label).toLowerCase()) {
@@ -71,6 +73,8 @@ Rectangle {
             variant: ShadowIconButton.Ghost
             selected: filterBar.controller.filterExcludedFlag !== "all"
                 || filterBar.controller.filterExcludedColorLabel !== "all"
+                || filterBar.controller.filterKeywordIdsAll.length > 0
+                || filterBar.controller.filterExcludedKeywordIdsAny.length > 0
             toolTipText: qsTranslate("Main", "Open advanced Library filters")
             accessibleName: toolTipText
             onClicked: filterBar.advancedFilterRequested()

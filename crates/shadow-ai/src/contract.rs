@@ -26,6 +26,7 @@ pub enum AiCapability {
     DepthEstimation,
     InpaintPatch,
     Denoise,
+    RawFoundationDenoise,
     SuperResolution,
     QueryPlanning,
 }
@@ -45,6 +46,7 @@ pub enum AiTaskKind {
     EstimateDepth,
     GenerateInpaintPatch,
     Denoise,
+    MaterializeRawFoundation,
     SuperResolve,
     PlanSearchQuery,
 }
@@ -63,6 +65,7 @@ impl AiTaskKind {
             Self::EstimateDepth => AiCapability::DepthEstimation,
             Self::GenerateInpaintPatch => AiCapability::InpaintPatch,
             Self::Denoise => AiCapability::Denoise,
+            Self::MaterializeRawFoundation => AiCapability::RawFoundationDenoise,
             Self::SuperResolve => AiCapability::SuperResolution,
             Self::PlanSearchQuery => AiCapability::QueryPlanning,
         }

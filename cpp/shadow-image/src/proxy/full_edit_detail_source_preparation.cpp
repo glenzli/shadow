@@ -180,6 +180,28 @@ struct PreparedReferenceRgb final {
     return finish_reference_rgb(std::move(developed), session, optics_provider, optics_settings);
 }
 
+[[nodiscard]] PreparedReferenceRgb prepare_reference_rgb(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings,
+    const RawPipelinePolicy& raw_policy
+) {
+    return finish_reference_rgb(
+        develop_source_reference(
+            session,
+            raw_development_plan,
+            foundation,
+            std::nullopt,
+            raw_policy
+        ),
+        session,
+        optics_provider,
+        optics_settings
+    );
+}
+
 [[nodiscard]] PreparedFullEditDetailSource
 prepare_materialized_source(PreparedReferenceRgb reference) {
     const std::uint64_t retained_bytes = std::visit(
@@ -337,6 +359,44 @@ PreparedFullEditDetailSource prepare_full_edit_detail_source(
         optics_settings,
         fallback_policy,
         std::move(raw_fallback_reason)
+    ));
+}
+
+PreparedFullEditDetailSource prepare_full_edit_detail_source(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    if (raw_development_plan.intent != RawDevelopmentIntent::detail
+        && raw_development_plan.intent != RawDevelopmentIntent::export_image) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "AI RAW foundation source requires detail or export-image intent"
+        );
+    }
+    validate_raw_development_plan_intent(
+        raw_development_plan,
+        raw_development_plan.intent,
+        raw_development_plan.intent == RawDevelopmentIntent::detail
+            ? "AI RAW foundation full edit detail"
+            : "AI RAW foundation full image export"
+    );
+    static_cast<void>(requirements);
+    validate_full_detail_source_preflight(
+        session.metadata(),
+        FullDetailSourceStorage::materialized_scene_linear
+    );
+    return prepare_materialized_source(prepare_reference_rgb(
+        session,
+        raw_development_plan,
+        foundation,
+        optics_provider,
+        optics_settings,
+        raw_pipeline_policy_from_environment()
     ));
 }
 

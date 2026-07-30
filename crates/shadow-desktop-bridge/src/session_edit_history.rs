@@ -323,10 +323,7 @@ impl DesktopSession {
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
-    // The bounded CAS/rebase loop is one autosave publication transaction;
-    // extracting fragments would obscure which working-head observation each
-    // retry owns.
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn autosave_basic_edit_working_at(
         &self,
         photo_id: &str,
@@ -336,8 +333,38 @@ impl DesktopSession {
         settings: &ffi::FfiEditSettings,
         created_at_ms: i64,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         let grade_stack = decode_grade_stack_draft_recipe_v1(settings)?;
+        self.autosave_grade_stack_working_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            &grade_stack,
+            created_at_ms,
+        )
+    }
+
+    /// Publishes an already-decoded draft through the same bounded working-ref
+    /// CAS transaction as ordinary desktop autosave.
+    ///
+    /// Internal authoring workflows use this boundary when their state cannot
+    /// be represented losslessly by the public Qt edit DTO, such as a newly
+    /// promoted managed-raster mask.
+    ///
+    /// The bounded CAS/rebase loop is one autosave publication transaction;
+    /// extracting fragments would obscure which working-head observation each
+    /// retry owns.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub(crate) fn autosave_grade_stack_working_at(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        grade_stack: &GradeStackDraft,
+        created_at_ms: i64,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         let base_commit_id = if base_commit_id.is_empty() {
             None
         } else {

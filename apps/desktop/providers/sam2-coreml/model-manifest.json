@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "model_id": "apple/coreml-sam2.1-small",
+  "exact_revision": "883f5787eb0be35ce6965907a8bc1f5320a5a02e",
+  "artifact_set": {
+    "set_id": "apple/coreml-sam2.1-small@883f5787eb0be35ce6965907a8bc1f5320a5a02e",
+    "inventory_blake3": "28982b31b020249ca62f9c41fa82193f794b215d07b7080a3c00e5c85733bca0",
+    "artifacts": [
+      {
+        "relative_path": "SAM2_1SmallImageEncoderFLOAT16.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+        "role": "core_ml_package_member",
+        "byte_len": 203631,
+        "sha256": "736602a3130875072f843df123ce3ceff41ec2f917a867da56f7c2264d81a567"
+      },
+      {
+        "relative_path": "SAM2_1SmallImageEncoderFLOAT16.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+        "role": "core_ml_package_member",
+        "byte_len": 81268288,
+        "sha256": "6128a58f10cbcb7797bd12a7ec1e05ab4e9f8c80bd14ed05bbc43a9c9935a9c3"
+      },
+      {
+        "relative_path": "SAM2_1SmallImageEncoderFLOAT16.mlpackage/Manifest.json",
+        "role": "core_ml_package_member",
+        "byte_len": 617,
+        "sha256": "442f9102d1a37c2699fce89b1f5257d35ebd0a7096f1773501cb0aba94fe95b6"
+      },
+      {
+        "relative_path": "SAM2_1SmallMaskDecoderFLOAT16.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+        "role": "core_ml_package_member",
+        "byte_len": 75167,
+        "sha256": "3536b71674dc706381f42833b55627fd3d1f2c1b68a365b49255284b4f7b55c7"
+      },
+      {
+        "relative_path": "SAM2_1SmallMaskDecoderFLOAT16.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+        "role": "core_ml_package_member",
+        "byte_len": 10222400,
+        "sha256": "dbc4910c434fee657ed9f001da7abcb467d2a37ac235099c6aa47628b122ec4e"
+      },
+      {
+        "relative_path": "SAM2_1SmallMaskDecoderFLOAT16.mlpackage/Manifest.json",
+        "role": "core_ml_package_member",
+        "byte_len": 617,
+        "sha256": "d95d732931f590dbf6a08ea1fe58a6659ced8971c5b2a671d79091be1a63b9e1"
+      },
+      {
+        "relative_path": "SAM2_1SmallPromptEncoderFLOAT16.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+        "role": "core_ml_package_member",
+        "byte_len": 20618,
+        "sha256": "3a83c167d8bd63e80f86349a78c2ab0527ce97eca1f848a4ce57fe5351241fa3"
+      },
+      {
+        "relative_path": "SAM2_1SmallPromptEncoderFLOAT16.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+        "role": "core_ml_package_member",
+        "byte_len": 2101056,
+        "sha256": "e29c6c65ef7754f8f6ed26155ca39ea703de3a7f576be5a7d3b8e29545059f31"
+      },
+      {
+        "relative_path": "SAM2_1SmallPromptEncoderFLOAT16.mlpackage/Manifest.json",
+        "role": "core_ml_package_member",
+        "byte_len": 617,
+        "sha256": "b368a8e831599464347890a79c054df143c163d9928e3e0a2ab6ef7c00a425d4"
+      }
+    ]
+  },
+  "capabilities": [
+    "subject_mask"
+  ],
+  "format": "core_ml_package",
+  "opset": null,
+  "quantization": {
+    "kind": "float16"
+  },
+  "preprocessing_version": "sam2-studio-square-1024-v1",
+  "inputs": [
+    {
+      "name": "image",
+      "semantics": "image",
+      "element_type": "uint8",
+      "layout": "nhwc",
+      "shape": [
+        {
+          "kind": "fixed",
+          "value": 1
+        },
+        {
+          "kind": "fixed",
+          "value": 1024
+        },
+        {
+          "kind": "fixed",
+          "value": 1024
+        },
+        {
+          "kind": "fixed",
+          "value": 3
+        }
+      ],
+      "color_space": "display_srgb",
+      "numeric_range": {
+        "minimum": 0.0,
+        "maximum": 255.0
+      }
+    },
+    {
+      "name": "points",
+      "semantics": "mask",
+      "element_type": "float16",
+      "layout": "custom",
+      "shape": [
+        {
+          "kind": "fixed",
+          "value": 1
+        },
+        {
+          "kind": "dynamic",
+          "name": "prompt_points",
+          "minimum": 1,
+          "maximum": 16
+        },
+        {
+          "kind": "fixed",
+          "value": 2
+        }
+      ],
+      "color_space": null,
+      "numeric_range": {
+        "minimum": 0.0,
+        "maximum": 1024.0
+      }
+    },
+    {
+      "name": "labels",
+      "semantics": "mask",
+      "element_type": "float16",
+      "layout": "custom",
+      "shape": [
+        {
+          "kind": "fixed",
+          "value": 1
+        },
+        {
+          "kind": "dynamic",
+          "name": "prompt_points",
+          "minimum": 1,
+          "maximum": 16
+        }
+      ],
+      "color_space": null,
+      "numeric_range": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "low_res_masks",
+      "semantics": "mask",
+      "element_type": "float16",
+      "layout": "nchw",
+      "shape": [
+        {
+          "kind": "fixed",
+          "value": 1
+        },
+        {
+          "kind": "fixed",
+          "value": 3
+        },
+        {
+          "kind": "fixed",
+          "value": 256
+        },
+        {
+          "kind": "fixed",
+          "value": 256
+        }
+      ],
+      "color_space": null,
+      "numeric_range": null
+    }
+  ],
+  "execution_targets": [
+    {
+      "kind": "core_ml",
+      "minimum_runtime_version": "macOS 15",
+      "precisions": [
+        "float16"
+      ]
+    }
+  ],
+  "minimum_ram_bytes": 1073741824,
+  "recommended_ram_bytes": 2147483648,
+  "minimum_device_memory_bytes": 0,
+  "recommended_device_memory_bytes": 0,
+  "licensing": {
+    "code_license": "Apache-2.0",
+    "weight_license": "Apache-2.0",
+    "training_data_notes": "See the pinned upstream model card and SAM 2 paper.",
+    "redistribution": "allowed",
+    "commercial_use": "allowed",
+    "access": "open",
+    "attribution_files": [
+      "README.md"
+    ]
+  },
+  "distribution": {
+    "bundled_by_default": false,
+    "automatic_download_allowed": false,
+    "side_load_allowed": true,
+    "upstream_url": "https://huggingface.co/apple/coreml-sam2.1-small/commit/883f5787eb0be35ce6965907a8bc1f5320a5a02e"
+  }
+}

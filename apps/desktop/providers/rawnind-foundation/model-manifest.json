@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "model_id": "darktable-ai/rawnind-public-bayer",
+  "exact_revision": "release-5.6.0@5454d7aa6d89a67054fd4a83343b09e69acaf76a",
+  "artifact_set": {
+    "set_id": "darktable-ai/rawnind-public-bayer@release-5.6.0",
+    "inventory_blake3": "51bfabe88964e78ac74007e7b499e61ed07dc9dba51c28f3d0d495becb611d94",
+    "artifacts": [
+      {
+        "relative_path": "rawdenoise-nind.dtmodel",
+        "role": "auxiliary",
+        "byte_len": 57700134,
+        "sha256": "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af"
+      },
+      {
+        "relative_path": "rawdenoise-nind/model_bayer.onnx",
+        "role": "model_definition",
+        "byte_len": 31056425,
+        "sha256": "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901"
+      }
+    ]
+  },
+  "capabilities": [
+    "raw_foundation_denoise"
+  ],
+  "format": "onnx",
+  "opset": 20,
+  "quantization": {
+    "kind": "none"
+  },
+  "preprocessing_version": "rawnind-bayer-foundation-20260730.1",
+  "inputs": [
+    {
+      "name": "input",
+      "semantics": "image",
+      "element_type": "float32",
+      "layout": "nchw",
+      "shape": [
+        {
+          "kind": "fixed",
+          "value": 1
+        },
+        {
+          "kind": "fixed",
+          "value": 4
+        },
+        {
+          "kind": "fixed",
+          "value": 512
+        },
+        {
+          "kind": "fixed",
+          "value": 512
+        }
+      ],
+      "color_space": "normalized_sensor_mosaic_rggb",
+      "numeric_range": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "semantics": "image",
+      "element_type": "float32",
+      "layout": "nchw",
+      "shape": [
+        {
+          "kind": "fixed",
+          "value": 1
+        },
+        {
+          "kind": "fixed",
+          "value": 3
+        },
+        {
+          "kind": "fixed",
+          "value": 1024
+        },
+        {
+          "kind": "fixed",
+          "value": 1024
+        }
+      ],
+      "color_space": "scene_linear_camera_rgb",
+      "numeric_range": null
+    }
+  ],
+  "execution_targets": [
+    {
+      "kind": "cpu",
+      "minimum_runtime_version": "onnxruntime-1.24.4",
+      "precisions": [
+        "float32"
+      ]
+    }
+  ],
+  "minimum_ram_bytes": 2147483648,
+  "recommended_ram_bytes": 4294967296,
+  "minimum_device_memory_bytes": 0,
+  "recommended_device_memory_bytes": 0,
+  "licensing": {
+    "code_license": "GPL-3.0",
+    "weight_license": "GPL-3.0",
+    "training_data_notes": "RawNIND public real-noise pairs; per-image CC BY 4.0 or CC0 provenance is documented by upstream.",
+    "redistribution": "allowed",
+    "commercial_use": "allowed",
+    "access": "open",
+    "attribution_files": []
+  },
+  "distribution": {
+    "bundled_by_default": false,
+    "automatic_download_allowed": true,
+    "side_load_allowed": true,
+    "upstream_url": "https://github.com/darktable-org/darktable-ai/releases/tag/release-5.6.0"
+  }
+}

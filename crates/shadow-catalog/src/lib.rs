@@ -64,12 +64,18 @@ pub use import_journal::{
 };
 pub use library::{
     AlbumKind, AlbumRecord, ContentIdentity, ContentIdentityScope, LibraryApertureRange,
-    LibraryDateRange, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryFacetValue,
-    LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
-    LibraryPhotoRecord, LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE,
+    LibraryCoordinates, LibraryDateRange, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage,
+    LibraryFacetValue, LibraryKeywordAssignmentOrigin, LibraryKeywordDeletionReceipt,
+    LibraryKeywordMutationReceipt, LibraryKeywordRecord, LibraryMapCluster, LibraryMapGrid,
+    LibraryMapSnapshot, LibraryMapViewport, LibraryMetadataOverride, LibraryMetadataOverrideAction,
+    LibraryMetadataOverrideOrigin, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter,
+    LibraryPhotoKeyword, LibraryPhotoPage, LibraryPhotoRecord, LibrarySourceHealth,
+    LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE, MAX_LIBRARY_KEYWORD_FILTERS,
+    MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS, MAX_LIBRARY_MAP_CELLS, MAX_LIBRARY_MAP_GRID_AXIS,
     MAX_LIBRARY_PAGE_SIZE, MissingSourceLocationCursor, MissingSourceLocationPage,
-    MissingSourceLocationRecord, MissingSourceRelinkTarget, PhotoLibraryState,
-    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RelinkMatch,
+    MissingSourceLocationRecord, MissingSourceRelinkTarget, PhotoLibraryMetadataOverrides,
+    PhotoLibraryState, RecordRepresentationContentIdentity,
+    RecordRepresentationContentIdentityStatus, RelinkMatch, SetPhotoLibraryMetadataOverrides,
     SetPhotoLibraryState, SmartAlbumQueryV1, library_equipment_key,
 };
 pub use recipe::{

@@ -479,7 +479,7 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
             }
             if (node.parameter_schema_version != image::adjustment_parameter_schema_version
                 || node.implementation_version != image::adjustment_implementation_version
-                || !node.payload.empty() || node.parameters.size() < 10U) {
+                || node.parameters.size() < 10U) {
                 throw_invalid_adjustment_plan("local-mask layer start has an invalid contract");
             }
             for (const double value : node.parameters) {
@@ -494,13 +494,14 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
             const double invert = node.parameters[9];
             if (opacity < 0.0 || opacity > 1.0
                 || (kind != 0.0 && kind != 1.0 && kind != 2.0 && kind != 3.0 && kind != 4.0
-                    && kind != 5.0)
+                    && kind != 5.0 && kind != 6.0)
                 || (invert != 0.0 && invert != 1.0)) {
                 throw_invalid_adjustment_plan(
                     "local-mask layer start has an out-of-range parameter"
                 );
             }
             const bool brush = kind == 3.0;
+            const bool managed_raster = kind == 6.0;
             if ((!brush && (!node.parameter_group_lengths.empty() || node.parameters.size() != 10U))
                 || (brush
                     && (node.parameter_group_lengths.size() != 1U
@@ -510,6 +511,12 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
                                             * 3U
                         || node.parameter_group_lengths[0] > 4096U))) {
                 throw_invalid_adjustment_plan("local-mask layer start has invalid brush groups");
+            }
+            if ((managed_raster && node.payload.empty())
+                || (!managed_raster && !node.payload.empty())) {
+                throw_invalid_adjustment_plan(
+                    "local-mask layer start has an invalid immutable raster payload"
+                );
             }
             image::AdjustmentLayer layer{
                 .layer_id = std::string(node.node_id.data(), node.node_id.size()),
@@ -577,6 +584,50 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
                     .x1 = node.parameters[4],
                     .feather = node.parameters[8],
                     .invert = invert == 1.0,
+                };
+            } else if (kind == 6.0) {
+                const auto dimension = [&](const std::size_t slot) {
+                    const double value = node.parameters[slot];
+                    if (value < 1.0
+                        || value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())
+                        || std::trunc(value) != value) {
+                        throw_invalid_adjustment_plan(
+                            "managed raster mask dimensions must be positive integers"
+                        );
+                    }
+                    return static_cast<std::uint32_t>(value);
+                };
+                const double encoding = node.parameters[6];
+                const double expansion = node.parameters[7];
+                const double feather = node.parameters[8];
+                if ((encoding != 1.0 && encoding != 2.0) || expansion < -1.0 || expansion > 1.0
+                    || feather < 0.0 || feather > 1.0) {
+                    throw_invalid_adjustment_plan(
+                        "managed raster mask encoding or refinement slots are invalid"
+                    );
+                }
+                layer.mask = image::LocalMask{
+                    .kind = image::LocalMaskKind::managed_raster,
+                    .radius_y = expansion,
+                    .feather = feather,
+                    .invert = invert == 1.0,
+                    .managed_raster = image::ManagedRasterMask{
+                        .raster_dimensions =
+                            image::Dimensions{
+                                .width = dimension(2U),
+                                .height = dimension(3U),
+                            },
+                        .coordinate_dimensions =
+                            image::Dimensions{
+                                .width = dimension(4U),
+                                .height = dimension(5U),
+                            },
+                        .encoding = encoding == 1.0
+                                        ? image::ManagedRasterMaskEncoding::gray8
+                                        : image::ManagedRasterMaskEncoding::gray16_float,
+                        .samples =
+                            std::vector<std::uint8_t>(node.payload.begin(), node.payload.end()),
+                    },
                 };
             }
             open_layer = std::move(layer);

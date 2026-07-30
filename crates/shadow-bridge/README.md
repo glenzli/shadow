@@ -18,8 +18,8 @@ that same private wire representation:
 - [`src/adjustment/mod.rs`](src/adjustment/mod.rs) is the stable public adjustment index and
   cross-operation plan composition boundary. Its children are the semantic owners:
   [`geometry.rs`](src/adjustment/geometry.rs) for the final canvas;
-  [`local_mask.rs`](src/adjustment/local_mask.rs) and
-  [`retouch.rs`](src/adjustment/retouch.rs) for spatial intent;
+  [`local_mask.rs`](src/adjustment/local_mask.rs) for spatial intent and bounded immutable
+  managed-raster admission, and [`retouch.rs`](src/adjustment/retouch.rs) for local repair intent;
   [`oklab_lightness_curve.rs`](src/adjustment/oklab_lightness_curve.rs),
   [`selective_tone.rs`](src/adjustment/selective_tone.rs),
   [`perceptual_color.rs`](src/adjustment/perceptual_color.rs), and
@@ -55,8 +55,9 @@ shim. The leaf
 `UniquePtr` frame boundary and its borrowed immutable slices. The internal
 [`adjustment_render_wire.cpp`](../../cpp/shadow-image/src/bridge/adjustment_render_wire.cpp)
 owns the complete Rust-to-C++ Adjustment decoder: every operation variant, local-mask layer
-boundary, retouch target/stroke, node limit, and stable invalid-request diagnostic. Cargo compiles
-it only as part of the `shadow-bridge` CXX shim; it is not a `Shadow::Image` source.
+boundary (including the kind-six raster metadata/payload record), retouch target/stroke, node
+limit, and stable invalid-request diagnostic. Cargo compiles it only as part of the
+`shadow-bridge` CXX shim; it is not a `Shadow::Image` source.
 
 Sharing the CXX representation is not by itself a reason to share one Rust source file. Extract a
 safe contract when it has its own invariants, failure policy, and consumers; keep the wire
@@ -123,6 +124,17 @@ Compressed embedded previews and durable generated proxies are small enough to c
 bytes. Interactive RGB8 and R8 coverage instead stay in one immutable native frame owner and cross
 as borrowed slices. Large mosaic and full-resolution u16 RGB buffers remain in C++; detail
 requests copy only bounded RGB8 tiles across FFI rather than exposing `Vec<u16>`.
+
+AI RAW foundations use a separate, explicit large-payload contract in
+[`src/raw_foundation.rs`](src/raw_foundation.rs). The verified artifact/cache owner supplies
+path-free source, artifact, and cache-key SHA-256 identities plus finite interleaved linear-camera
+RGB. Rust seals the one supported public RawNIND model/revision, validates zero-or-one Bayer crop,
+exact sample count, arithmetic, and a 1 GiB ceiling, then owns that `Vec<f32>` for one synchronous
+preview/detail preparation call. `src/bridge/raw_foundation_wire.*` copies only the small
+provenance strings and borrows the pixel vector as `std::span<const float>`; the returned native
+session owns an independent scene-linear result and retains neither the Rust vector nor a local
+artifact path. Enabled-foundation methods are fail-closed and cannot invoke the ordinary Bayer or
+provider-RGB overload.
 
 `decode_jpeg_display_luma(bytes, max_edge)` is the analysis-side compressed-payload bridge. It
 accepts `max_edge` only in 1 through 512 and returns owned `width`, `height`, sample `stride`,

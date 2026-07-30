@@ -15,6 +15,7 @@ use super::{
         ffi_raw_development_plan, preflight_photo_edit_development, raw_development_receipt,
         raw_pipeline_receipt,
     },
+    raw_foundation::VerifiedRawFoundation,
     render_wire::{detail_tile_rect, ffi_detail_tile_request},
 };
 
@@ -274,6 +275,61 @@ impl LibRawEditDetailSession {
                 requires_cpu_replay: requirements.requires_cpu_replay(),
             },
         )?;
+        Self::from_prepared_handle(handle, requirements)
+    }
+
+    /// Opens full detail/export from one fully verified AI RAW foundation.
+    ///
+    /// The large interleaved camera-RGB vector is borrowed synchronously and never becomes part
+    /// of the returned handle. Native preparation retains only the independently owned
+    /// scene-linear result, so the foundation cannot enter the resident-CFA route.
+    ///
+    /// # Errors
+    ///
+    /// Returns a foundation/plan/optics/path/decoder/resource-limit, admission, or
+    /// invalid-output error.
+    pub fn open_with_raw_foundation(
+        path: &Path,
+        raw_development_plan: RawDevelopmentPlan,
+        foundation: &VerifiedRawFoundation,
+        optics: &OpticsSettings,
+        requirements: DetailSessionRequirements,
+    ) -> Result<Self, BridgeError> {
+        raw_development_plan.validate()?;
+        if !matches!(
+            raw_development_plan.intent,
+            RawDevelopmentIntent::Detail | RawDevelopmentIntent::ExportImage
+        ) {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "AI RAW foundation full resolution requires detail or export-image intent",
+            ));
+        }
+        let mut decode_handle = open_photo(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        {
+            let handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+            preflight_photo_edit_development(handle, raw_development_plan)?;
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(optics))?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_detail_with_raw_foundation(
+            &ffi_raw_development_plan(raw_development_plan),
+            foundation.ffi(),
+            &ffi::FfiDetailSessionRequirements {
+                requires_cpu_replay: requirements.requires_cpu_replay(),
+            },
+        )?;
+        Self::from_prepared_handle(handle, requirements)
+    }
+
+    fn from_prepared_handle(
+        handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
+        requirements: DetailSessionRequirements,
+    ) -> Result<Self, BridgeError> {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let retained_bytes = prepared.retained_bytes();

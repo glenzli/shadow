@@ -86,6 +86,32 @@ pub enum RecipeValidationError {
         "a single executable condition leaf must use the legacy luminance/color mask representation"
     )]
     NonCanonicalConditionMaskExpression,
+    #[error(
+        "managed raster-mask reference supports contract {expected}, received contract {actual}"
+    )]
+    UnsupportedManagedRasterMaskReferenceVersion { expected: u32, actual: u32 },
+    #[error("managed raster-mask storage revision must be non-zero")]
+    ZeroManagedRasterMaskStorageRevision,
+    #[error("managed raster-mask content identity must be a lowercase BLAKE3 digest")]
+    InvalidManagedRasterMaskContentHash,
+    #[error("managed raster-mask object identity is not canonical for its revision and digest")]
+    InvalidManagedRasterMaskStoreObjectId,
+    #[error("managed raster-mask {kind} extent must be non-zero")]
+    EmptyManagedRasterMaskExtent { kind: &'static str },
+    #[error("managed raster-mask {kind} extent {width}x{height} exceeds the supported bound")]
+    ManagedRasterMaskExtentTooLarge {
+        kind: &'static str,
+        width: u32,
+        height: u32,
+    },
+    #[error(
+        "managed raster-mask byte length does not match its tightly packed extent: expected {expected}, got {actual}"
+    )]
+    ManagedRasterMaskByteLengthMismatch { expected: u64, actual: u64 },
+    #[error("managed raster-mask expansion {0}% must be between -100% and 100%")]
+    InvalidManagedRasterMaskExpansion(i8),
+    #[error("managed raster-mask feather {0}% must be between 0% and 100%")]
+    InvalidManagedRasterMaskFeather(u8),
     #[error("mask {mask_id} revision {revision} appears more than once")]
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]

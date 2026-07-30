@@ -4,6 +4,7 @@
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include "managed_raster_mask.hpp"
 #include "working_color_math.hpp"
 
 #include <cstdint>
@@ -21,6 +22,7 @@ struct PreparedLocalMaskCoverage final {
     double brush_scale_x = 1.0;
     double brush_scale_y = 1.0;
     std::optional<WorkingSpaceTransform> color_transform;
+    std::optional<RefinedManagedRasterMask> refined_managed_raster;
 };
 
 [[nodiscard]] PreparedLocalMaskCoverage prepare_local_mask_coverage(
@@ -61,8 +63,7 @@ struct LocalMaskCoverageR8 final {
     std::stop_token cancellation
 );
 
-[[nodiscard]] std::optional<LocalMaskCoverageR8>
-apply_local_mask_coverage_geometry(
+[[nodiscard]] std::optional<LocalMaskCoverageR8> apply_local_mask_coverage_geometry(
     const LocalMaskCoverageRaster& source,
     const PhotoGeometry& geometry,
     std::stop_token cancellation

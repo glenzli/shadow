@@ -188,19 +188,13 @@ struct PreparedWarmEditProxy final {
     return dimensions;
 }
 
-[[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_preview_reference(
+[[nodiscard]] PreparedWarmEditProxy finish_warm_edit_proxy(
     const DecodeSession& session,
     const std::uint32_t max_edge,
-    const RawDevelopmentPlan& raw_development_plan,
+    DevelopedSourceReference developed,
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    DevelopedSourceReference developed = develop_source_reference(
-        session,
-        raw_development_plan,
-        max_edge,
-        raw_pipeline_policy_from_environment()
-    );
     DevelopedSourcePixels preview_reference = std::move(developed.source);
     proxy_detail::validate_developed_source(preview_reference);
     // The float working proxy intentionally contains only pixels and scale metadata. Retain the
@@ -293,6 +287,50 @@ struct PreparedWarmEditProxy final {
     };
 }
 
+[[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_preview_reference(
+    const DecodeSession& session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    return finish_warm_edit_proxy(
+        session,
+        max_edge,
+        develop_source_reference(
+            session,
+            raw_development_plan,
+            max_edge,
+            raw_pipeline_policy_from_environment()
+        ),
+        optics_provider,
+        optics_settings
+    );
+}
+
+[[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_foundation_reference(
+    const DecodeSession& session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    return finish_warm_edit_proxy(
+        session,
+        max_edge,
+        develop_source_reference(
+            session,
+            raw_development_plan,
+            foundation,
+            max_edge,
+            raw_pipeline_policy_from_environment()
+        ),
+        optics_provider,
+        optics_settings
+    );
+}
+
 } // namespace
 
 bool EditPreviewExecutionReceipt::valid() const noexcept {
@@ -323,12 +361,10 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
            && display_output_contract_version == display_srgb8_output_transform_version
            && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
            && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
-           && (!presentation_fell_back
-               || display_backend == EditPreviewBackend::metal)
+           && (!presentation_fell_back || display_backend == EditPreviewBackend::metal)
            && (!fused_pipeline || display_backend == EditPreviewBackend::metal)
            && (!fused_pipeline || (!adjustment_fell_back && !display_fell_back))
-           && ((adjustment_fell_back || display_fell_back
-                || presentation_fell_back)
+           && ((adjustment_fell_back || display_fell_back || presentation_fell_back)
                == !diagnostic.empty());
 }
 
@@ -699,14 +735,13 @@ WarmEditPreviewSession::render_rgb8_layers_with_mask_coverage_cancellable(
 }
 
 CancellableEditPreviewResult<InteractiveEditPreviewFrame>
-WarmEditPreviewSession::
-    render_interactive_frame_layers_with_mask_coverage_cancellable(
-        const std::span<const AdjustmentLayer> layers,
-        const std::optional<std::uint32_t> target_layer_index,
-        const std::stop_token cancellation,
-        const PhotoGeometry& geometry,
-        const PhotoLiquify* liquify
-    ) const {
+WarmEditPreviewSession::render_interactive_frame_layers_with_mask_coverage_cancellable(
+    const std::span<const AdjustmentLayer> layers,
+    const std::optional<std::uint32_t> target_layer_index,
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
+) const {
     auto prepared = prepare_edit_preview_layer_pixels(
         working_proxy_,
         warm_gpu_session_,
@@ -845,15 +880,14 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
 }
 
 CancellableEditPreviewResult<AnalyzedEditPreviewWithMaskCoverage>
-WarmEditPreviewSession::
-    render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
-        const std::span<const AdjustmentLayer> layers,
-        const std::optional<std::uint32_t> target_layer_index,
-        const std::uint8_t jpeg_quality,
-        const std::stop_token cancellation,
-        const PhotoGeometry& geometry,
-        const PhotoLiquify* liquify
-    ) const {
+WarmEditPreviewSession::render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
+    const std::span<const AdjustmentLayer> layers,
+    const std::optional<std::uint32_t> target_layer_index,
+    const std::uint8_t jpeg_quality,
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
+) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_layer_pixels(
         working_proxy_,
@@ -877,8 +911,7 @@ WarmEditPreviewSession::
             "mask-coverage analysis did not retain its paired scene-linear frame"
         );
     }
-    auto analysis =
-        analyze_edit_preview(*prepared->edited, prepared->rgb, cancellation);
+    auto analysis = analyze_edit_preview(*prepared->edited, prepared->rgb, cancellation);
     if (!analysis.has_value()) {
         return {};
     }
@@ -943,6 +976,38 @@ WarmEditPreviewSession prepare_warm_edit_preview(
         session,
         max_edge,
         raw_development_plan,
+        optics_provider,
+        optics_settings
+    );
+    return WarmEditPreviewSession(
+        std::move(prepared.working_proxy),
+        max_edge,
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
+        std::move(prepared.optics_receipt),
+        std::move(prepared.sensor_clipping_mask)
+    );
+}
+
+WarmEditPreviewSession prepare_warm_edit_preview(
+    const DecodeSession& session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    validate_warm_edit_max_edge(max_edge);
+    proxy_detail::validate_raw_development_plan_intent(
+        raw_development_plan,
+        RawDevelopmentIntent::preview,
+        "AI RAW foundation warm edit preview"
+    );
+    auto prepared = prepare_warm_edit_proxy_from_foundation_reference(
+        session,
+        max_edge,
+        raw_development_plan,
+        foundation,
         optics_provider,
         optics_settings
     );

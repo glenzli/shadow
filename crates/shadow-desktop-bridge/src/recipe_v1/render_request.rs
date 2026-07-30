@@ -4,15 +4,19 @@
 //! and the explicitly captured base commit form one render generation; the
 //! movable working ref must never be resolved after that generation is queued.
 
+use std::path::Path;
+
 use anyhow::{Context, Result as AnyResult, anyhow};
 use shadow_bridge::AdjustmentRenderPlan;
 use shadow_catalog::CatalogHandle;
-use shadow_domain::{PhotoId, RawWhiteBalance, RecipeCommitId};
+use shadow_domain::{PhotoId, RawFoundationDenoise, RawWhiteBalance, RecipeCommitId};
 
 use crate::ffi;
 
 use super::{
-    compile_recipe_render_plan, grade_stack_recipe_v1_snapshot, preview_grade_stack_draft_recipe_v1,
+    compile_recipe_render_plan_with_managed_rasters, grade_stack_recipe_v1_snapshot,
+    managed_raster_resolution::FilesystemManagedRasterMaskResolver,
+    preview_grade_stack_draft_recipe_v1,
 };
 
 #[derive(Debug)]
@@ -22,10 +26,13 @@ pub(crate) struct ResolvedRecipeRender {
     /// Absolute source interpretation captured from the same immutable
     /// snapshot as the downstream Grade render plan.
     pub(crate) raw_white_balance: RawWhiteBalance,
+    /// Path-free single-use AI source intent from that same snapshot.
+    pub(crate) raw_ai_denoise: RawFoundationDenoise,
 }
 
 pub(crate) fn resolve_recipe_render(
     catalog: &CatalogHandle,
+    runtime_cache_root: &Path,
     photo_id: PhotoId,
     base_commit_id: &str,
     settings: &ffi::FfiEditSettings,
@@ -53,10 +60,14 @@ pub(crate) fn resolve_recipe_render(
     let snapshot_digest = shadow_domain::canonical_recipe_snapshot_digest(&snapshot)
         .context("serialize exact Recipe render identity")?;
     let raw_white_balance = snapshot.foundation_node().raw_white_balance();
+    let raw_ai_denoise = snapshot.foundation_node().raw_ai_denoise();
+    let managed_rasters =
+        FilesystemManagedRasterMaskResolver::open_for_runtime_cache(runtime_cache_root)?;
     Ok(ResolvedRecipeRender {
-        plan: compile_recipe_render_plan(&snapshot)?,
+        plan: compile_recipe_render_plan_with_managed_rasters(&snapshot, &managed_rasters)?,
         snapshot_digest,
         raw_white_balance,
+        raw_ai_denoise,
     })
 }
 

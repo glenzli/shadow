@@ -1,8 +1,8 @@
 use crate::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
     AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask,
-    AdjustmentMaskBrushPoint, AdjustmentRenderNode, AdjustmentRenderOperation,
-    AdjustmentRenderPlan, EditPreviewMaskCoverageRequest,
+    AdjustmentMaskBrushPoint, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, EditPreviewMaskCoverageRequest,
 };
 
 use super::{ffi_render_node, ffi_render_request, ffi_render_request_with_mask_coverage};
@@ -95,6 +95,31 @@ fn condition_masks_use_fixed_kind_four_and_five_wire_records() {
         [0.75, 5.0, 0.75, 0.0, 0.25, 0.0, 0.0, 0.0, 0.4, 0.0]
     );
     assert!(color.parameter_group_lengths.is_empty());
+}
+
+#[test]
+#[allow(clippy::float_cmp)] // Kind six and its fixed metadata slots are an exact native ABI.
+fn managed_raster_uses_kind_six_and_the_immutable_payload_slot() {
+    let mask = ffi_render_node(&layer_start(Some(AdjustmentLocalMask::ManagedRaster {
+        raster_width: 2,
+        raster_height: 2,
+        coordinate_width: 6_000,
+        coordinate_height: 4_000,
+        encoding: AdjustmentRasterMaskEncoding::Gray16Float,
+        samples: vec![0x00, 0x00, 0x00, 0x38, 0x00, 0x3c, 0x00, 0x34],
+        expansion: -0.35,
+        feather: 0.24,
+        invert: true,
+    })));
+    assert_eq!(
+        mask.parameters,
+        [0.75, 6.0, 2.0, 2.0, 6_000.0, 4_000.0, 2.0, -0.35, 0.24, 1.0]
+    );
+    assert!(mask.parameter_group_lengths.is_empty());
+    assert_eq!(
+        mask.payload,
+        [0x00, 0x00, 0x00, 0x38, 0x00, 0x3c, 0x00, 0x34]
+    );
 }
 
 #[test]

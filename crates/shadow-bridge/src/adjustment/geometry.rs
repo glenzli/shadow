@@ -103,7 +103,11 @@ impl AdjustmentGeometry {
     ///
     /// Returns [`BridgeError::InvalidEditRequest`] for malformed geometry, zero-sized source
     /// dimensions, or a crop that contains no addressable source pixels.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Values are clamped first.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::float_cmp
+    )] // Values are clamped first; zero is the exact persisted no-straighten value.
     pub fn output_dimensions(
         self,
         source: ImageDimensions,
@@ -132,6 +136,29 @@ impl AdjustmentGeometry {
                 (height, width)
             }
         };
-        Ok(ImageDimensions { width, height })
+        if self.straighten_degrees == 0.0 {
+            return Ok(ImageDimensions { width, height });
+        }
+
+        // Keep this formula and its floor rounding identical to
+        // cpp/shadow-image/src/edit/photo_geometry.cpp. Fine straighten
+        // rotates around the crop centre, then shrinks the output while
+        // preserving the crop's aspect ratio until every output corner maps
+        // to a real source pixel.
+        let radians = self.straighten_degrees.to_radians();
+        let cosine = radians.cos().abs();
+        let sine = radians.sin().abs();
+        let width_f64 = f64::from(width);
+        let height_f64 = f64::from(height);
+        let scale = (width_f64 / (cosine * width_f64 + sine * height_f64))
+            .min(height_f64 / (sine * width_f64 + cosine * height_f64));
+        let retained_extent = |value: f64| value.floor().max(1.0) as u32;
+        Ok(ImageDimensions {
+            width: retained_extent(width_f64 * scale),
+            height: retained_extent(height_f64 * scale),
+        })
     }
 }
+
+#[cfg(test)]
+mod tests;

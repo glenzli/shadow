@@ -65,4 +65,16 @@ struct PreparedFullEditDetailSource final {
     const OpticsSettings& optics_settings
 );
 
+// Foundation input is already reconstructed and therefore always publishes the materialized
+// scene-linear variant. The overload remains separate from resident-CFA admission and never
+// falls back to the original RawFrame route.
+[[nodiscard]] PreparedFullEditDetailSource prepare_full_edit_detail_source(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+);
+
 } // namespace shadow::image::proxy_detail

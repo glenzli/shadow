@@ -42,6 +42,24 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewController::photoInspectionChanged
     );
     connect(
+        &metadata_coordinator_,
+        &ReviewLibraryMetadataCoordinator::stateChanged,
+        this,
+        &ReviewController::libraryMetadataChanged
+    );
+    connect(
+        &metadata_coordinator_,
+        &ReviewLibraryMetadataCoordinator::libraryChanged,
+        this,
+        [this](const QString& photo_id) {
+            if (!photo_id.isEmpty()) {
+                photo_inspection_coordinator_.retry();
+            }
+            requestLibraryReset();
+            refreshLibraryFacets();
+        }
+    );
+    connect(
         &comparison_coordinator_,
         &ReviewComparisonCoordinator::stateChanged,
         this,
@@ -89,6 +107,39 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewLibraryFacetCoordinator::globalStatusMessageChanged,
         this,
         [this]() { setStatusMessage(facet_coordinator_.globalStatusMessage()); }
+    );
+    connect(
+        &keyword_coordinator_,
+        &ReviewLibraryKeywordCoordinator::keywordsChanged,
+        this,
+        &ReviewController::libraryKeywordsChanged
+    );
+    connect(
+        &keyword_coordinator_,
+        &ReviewLibraryKeywordCoordinator::photoKeywordsChanged,
+        this,
+        &ReviewController::libraryKeywordsChanged
+    );
+    connect(
+        &keyword_coordinator_,
+        &ReviewLibraryKeywordCoordinator::statusMessageChanged,
+        this,
+        [this]() { setStatusMessage(keyword_coordinator_.statusMessage()); }
+    );
+    connect(
+        &keyword_coordinator_,
+        &ReviewLibraryKeywordCoordinator::keywordMutationAccepted,
+        this,
+        [this]() {
+            requestLibraryReset();
+            refreshLibraryFacets();
+        }
+    );
+    connect(
+        &map_coordinator_,
+        &ReviewLibraryMapCoordinator::stateChanged,
+        this,
+        &ReviewController::libraryMapChanged
     );
     connect(
         &organization_coordinator_,
@@ -270,6 +321,7 @@ void ReviewController::initializeCoordinatorWiring() {
     QTimer::singleShot(0, this, [this]() {
         refreshSharedGradeNodes();
         refreshLibraryAlbums();
+        refreshLibraryKeywords();
         refreshLibrarySourceHealth();
         requestLibraryReset();
     });

@@ -1,8 +1,15 @@
 //! Recipe-local spatial-mask definitions and immutable revisions.
 
+mod managed_raster;
+
 use serde::{Deserialize, Serialize};
 
 use crate::MaskId;
+
+pub use managed_raster::{
+    MANAGED_RASTER_MASK_REFERENCE_VERSION, MAX_MANAGED_RASTER_MASK_DIMENSION, ManagedRasterMask,
+    RasterMaskEncoding,
+};
 
 use super::{
     FiniteF64, MaskCoordinateSpace, RecipeValidationError, UnitInterval,
@@ -115,6 +122,24 @@ pub enum MaskDefinition {
     /// single luminance or hue leaf. Runtime support is capability-gated at
     /// the Recipe compiler; persistence never implies executability.
     ConditionExpression { expression: ConditionMaskExpression },
+    /// Immutable application-managed grayscale coverage. The reference carries
+    /// exact byte identity and both stored/output coordinate extents; provider
+    /// caches and model installation are not part of Recipe execution.
+    ///
+    /// Refinement is stored as exact integer percentages so UI gestures cannot
+    /// accumulate floating-point drift. Positive expansion grows coverage,
+    /// negative expansion contracts it, and feather adds a symmetric soft
+    /// transition. Runtime maps 100% to a bounded fraction of the stored
+    /// raster's shorter edge.
+    ManagedRaster {
+        raster: ManagedRasterMask,
+        #[serde(default)]
+        expansion_percent: i8,
+        #[serde(default)]
+        feather_percent: u8,
+        #[serde(default)]
+        invert: bool,
+    },
 }
 
 /// One immutable freehand-mask sample in original-image coordinates.
@@ -318,6 +343,47 @@ impl MaskDefinition {
         }
     }
 
+    /// Stores an accepted managed soft-mask raster as immutable Recipe state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the managed content identity, storage identity,
+    /// extent, or tightly packed byte shape is inconsistent.
+    pub fn managed_raster(
+        raster: ManagedRasterMask,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        Self::managed_raster_with_refinement(raster, 0, 0, invert)
+    }
+
+    /// Stores an accepted managed soft-mask raster with reversible edge
+    /// refinement.
+    ///
+    /// `expansion_percent` is in `[-100, 100]`; `feather_percent` is in
+    /// `[0, 100]`. The values are renderer-neutral authoring controls, not
+    /// provider settings, so changing them never reruns or mutates the model
+    /// output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the managed raster reference is inconsistent or
+    /// either refinement percentage is outside its fixed range.
+    pub fn managed_raster_with_refinement(
+        raster: ManagedRasterMask,
+        expansion_percent: i8,
+        feather_percent: u8,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        let definition = Self::ManagedRaster {
+            raster,
+            expansion_percent,
+            feather_percent,
+            invert,
+        };
+        definition.validate()?;
+        Ok(definition)
+    }
+
     pub(super) fn validate(&self) -> Result<(), RecipeValidationError> {
         match self {
             Self::LinearGradient {
@@ -376,6 +442,24 @@ impl MaskDefinition {
                 expression.validate()?;
                 if expression.legacy_leaf().is_some() {
                     return Err(RecipeValidationError::NonCanonicalConditionMaskExpression);
+                }
+            }
+            Self::ManagedRaster {
+                raster,
+                expansion_percent,
+                feather_percent,
+                ..
+            } => {
+                raster.validate()?;
+                if !(-100..=100).contains(expansion_percent) {
+                    return Err(RecipeValidationError::InvalidManagedRasterMaskExpansion(
+                        *expansion_percent,
+                    ));
+                }
+                if *feather_percent > 100 {
+                    return Err(RecipeValidationError::InvalidManagedRasterMaskFeather(
+                        *feather_percent,
+                    ));
                 }
             }
         }

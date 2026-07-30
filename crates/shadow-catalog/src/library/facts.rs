@@ -8,6 +8,7 @@ use crate::{Catalog, CatalogError};
 use super::{
     LibraryPhotoFacts,
     integrity::{ensure_photo_exists, ensure_representation_belongs_to_photo},
+    metadata_overrides::refresh_effective_photo_library_facts,
     model::{normalized_equipment_key, validate_facts},
     rows::read_library_facts,
 };
@@ -118,5 +119,6 @@ pub(crate) fn upsert_photo_library_facts_in_transaction(
             facts.indexed_at_ms,
         ],
     )?;
+    refresh_effective_photo_library_facts(transaction, facts.photo_id)?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neural_raw_denoise/neural_raw_denoise.hpp"
 #include "raw_denoise_plan.hpp"
 
 #include <shadow/image/dcp_color_development.hpp>
@@ -28,6 +29,8 @@ class PreparedRawFrameDevelopment final {
     [[nodiscard]] std::optional<std::uint32_t> preview_max_edge() const noexcept;
     [[nodiscard]] const RawFrameLinearTransform& linear_transform() const noexcept;
     [[nodiscard]] const DcpColorTransform* camera_profile() const noexcept;
+    [[nodiscard]] const detail::PreparedNeuralRawDenoise&
+    neural_raw_denoise() const noexcept;
     [[nodiscard]] const detail::PreparedRawBayerDenoise& raw_denoise() const noexcept;
     [[nodiscard]] RawDevelopmentBackendMode requested_backend() const noexcept;
     [[nodiscard]] Dimensions reconstruction_dimensions() const noexcept;
@@ -41,6 +44,7 @@ class PreparedRawFrameDevelopment final {
         std::optional<std::uint32_t> preview_max_edge,
         RawFrameLinearTransform linear_transform,
         std::optional<DcpColorTransform> camera_profile,
+        detail::PreparedNeuralRawDenoise neural_raw_denoise,
         detail::PreparedRawBayerDenoise raw_denoise,
         RawDevelopmentBackendMode requested_backend,
         Dimensions reconstruction_dimensions,
@@ -61,6 +65,7 @@ class PreparedRawFrameDevelopment final {
     std::optional<std::uint32_t> preview_max_edge_;
     RawFrameLinearTransform linear_transform_;
     std::optional<DcpColorTransform> camera_profile_;
+    detail::PreparedNeuralRawDenoise neural_raw_denoise_;
     detail::PreparedRawBayerDenoise raw_denoise_;
     RawDevelopmentBackendMode requested_backend_ = RawDevelopmentBackendMode::automatic;
     Dimensions reconstruction_dimensions_;
@@ -83,6 +88,7 @@ class PreparedRawFrameDevelopment final {
     Dimensions rendered_dimensions,
     const RawDemosaicReceipt& demosaic,
     RawDevelopmentBackend backend,
+    const detail::NeuralRawDenoiseReceipt& neural_raw_denoise,
     const RawBayerDenoiseReceipt& raw_denoise,
     DcpColorExecutionBackend dcp_execution_backend
 );

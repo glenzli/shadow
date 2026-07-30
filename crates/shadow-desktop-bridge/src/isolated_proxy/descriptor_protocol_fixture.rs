@@ -47,6 +47,11 @@ pub(super) fn metadata_snapshot_protocol(nonce: &str) -> Vec<u8> {
         "4016666666666666", // f/5.6
         "4038000000000000", // 24mm
         "0000000065c91400",
+        ONE,                                  // coordinates available
+        "403f3ae147ae147b",                   // 31.23
+        "405e5e4dd2f1a9fc",                   // 121.4735
+        ONE,                                  // altitude available
+        "4049000000000000",                   // 50m
         "4e494b4f4e",                         // NIKON
         "4e494b4b4f52205a2032342d3132306d6d", // NIKKOR Z 24-120mm
         "4042000000000000",                   // 36mm equivalent

@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-pragma Translator: "PrecisionWorkspace"
+pragma Translator: PrecisionWorkspace
 
 import QtQuick
 import QtQuick.Controls
@@ -34,8 +34,8 @@ Rectangle {
     required property color textMuted
     required property color accent
 
-    signal openLutLibraryRequested()
-    signal openOpticsProfileLibraryRequested()
+    signal openLutLibraryRequested
+    signal openOpticsProfileLibraryRequested
     signal toolModeRequested(int mode)
     signal cropAspectRatioRequested(real ratio)
     signal maskOverlayVisibilityRequested(bool visible)
@@ -48,17 +48,14 @@ Rectangle {
     readonly property int toolLiquify: 4
 
     function manualOpticsActive() {
-        return Number(editor.manualOpticsDistortion) !== 0
-            || Number(editor.manualOpticsTcaRedCyan) !== 0
-            || Number(editor.manualOpticsTcaBlueYellow) !== 0
-            || Number(editor.manualOpticsVignettingAmount) !== 0
+        return Number(editor.manualOpticsDistortion) !== 0 || Number(editor.manualOpticsTcaRedCyan) !== 0 || Number(editor.manualOpticsTcaBlueYellow) !== 0 || Number(editor.manualOpticsVignettingAmount) !== 0;
     }
 
     function fineValue(key) {
         // Reading the revision makes generic key lookups reactive without
         // exposing dozens of one-off Q_PROPERTY accessors.
-        const revision = editor.parameterRevision
-        return revision >= 0 ? editor.parameterValue(key) : 0
+        const revision = editor.parameterRevision;
+        return revision >= 0 ? editor.parameterValue(key) : 0;
     }
 
     Layout.preferredWidth: Math.max(304, Math.min(348, inspector.workspaceWidth * 0.24))
@@ -131,24 +128,16 @@ Rectangle {
                     id: maskToolButton
                     buttonSize: 34
                     iconSize: 19
-                    source: selected
-                        ? "qrc:/icons/mask.svg"
-                        : "qrc:/icons/mask-create.svg"
+                    source: selected ? "qrc:/icons/mask.svg" : "qrc:/icons/mask-create.svg"
                     selected: inspector.activeToolMode === inspector.toolMask
-                    toolTipText: selected
-                        ? qsTr("Finish mask editing")
-                        : qsTr("Create or edit a node mask")
+                    toolTipText: selected ? qsTr("Finish mask editing") : qsTr("Create or edit a node mask")
                     accessibleName: toolTipText
-                    enabled: inspector.editor.active
-                        && inspector.editor.hasSelectedGradeNode
-                        && !inspector.editor.stateBusy
+                    enabled: inspector.editor.active && inspector.editor.hasSelectedGradeNode && !inspector.editor.stateBusy
                     onClicked: {
                         if (selected) {
-                            inspector.toolModeRequested(inspector.toolMask)
+                            inspector.toolModeRequested(inspector.toolMask);
                         } else {
-                            maskCreateMenu.openFor(
-                                maskToolButton,
-                                maskCreateMenu.newNodeDestination)
+                            maskCreateMenu.openFor(maskToolButton, maskCreateMenu.newNodeDestination);
                         }
                     }
                 }
@@ -160,9 +149,7 @@ Rectangle {
                     selected: inspector.activeToolMode === inspector.toolCrop
                     toolTipText: qsTr("Crop and straighten")
                     accessibleName: toolTipText
-                    enabled: inspector.editor.active
-                        && inspector.previewFrameReady
-                        && !inspector.editor.stateBusy
+                    enabled: inspector.editor.active && inspector.previewFrameReady && !inspector.editor.stateBusy
                     onClicked: inspector.toolModeRequested(inspector.toolCrop)
                 }
 
@@ -173,9 +160,7 @@ Rectangle {
                     selected: inspector.activeToolMode === inspector.toolRepair
                     toolTipText: qsTr("Repair")
                     accessibleName: toolTipText
-                    enabled: inspector.editor.active
-                        && inspector.previewFrameReady
-                        && !inspector.editor.stateBusy
+                    enabled: inspector.editor.active && inspector.previewFrameReady && !inspector.editor.stateBusy
                     onClicked: inspector.toolModeRequested(inspector.toolRepair)
                 }
 
@@ -186,13 +171,14 @@ Rectangle {
                     selected: inspector.activeToolMode === inspector.toolLiquify
                     toolTipText: qsTr("Liquify")
                     accessibleName: toolTipText
-                    enabled: inspector.editor.active
-                        && inspector.previewFrameReady
+                    enabled: inspector.editor.active && inspector.previewFrameReady
                         && !inspector.editor.stateBusy
                     onClicked: inspector.toolModeRequested(inspector.toolLiquify)
                 }
 
-                Item { Layout.fillWidth: true }
+                Item {
+                    Layout.fillWidth: true
+                }
 
                 Rectangle {
                     visible: inspector.activeToolMode === inspector.toolNone
@@ -205,17 +191,12 @@ Rectangle {
                     visible: inspector.activeToolMode === inspector.toolMask
                     buttonSize: 34
                     iconSize: 19
-                    source: inspector.maskOverlayVisible
-                        ? "qrc:/icons/overlay-show.svg"
-                        : "qrc:/icons/overlay-hide.svg"
+                    source: inspector.maskOverlayVisible ? "qrc:/icons/overlay-show.svg" : "qrc:/icons/overlay-hide.svg"
                     selected: inspector.maskOverlayVisible
-                    toolTipText: inspector.maskOverlayVisible
-                        ? qsTr("Hide mask overlay · O")
-                        : qsTr("Show mask overlay · O")
+                    toolTipText: inspector.maskOverlayVisible ? qsTr("Hide mask overlay · O") : qsTr("Show mask overlay · O")
                     accessibleName: toolTipText
                     enabled: inspector.editor.active
-                    onClicked: inspector.maskOverlayVisibilityRequested(
-                        !inspector.maskOverlayVisible)
+                    onClicked: inspector.maskOverlayVisibilityRequested(!inspector.maskOverlayVisible)
                 }
 
                 ShadowIconButton {
@@ -227,8 +208,7 @@ Rectangle {
                     foregroundColor: inspector.accent
                     toolTipText: qsTr("Exit this tool and keep its adjustments")
                     accessibleName: toolTipText
-                    onClicked: inspector.toolModeRequested(
-                        inspector.activeToolMode)
+                    onClicked: inspector.toolModeRequested(inspector.activeToolMode)
                 }
 
                 ShadowIconButton {
@@ -240,8 +220,7 @@ Rectangle {
                     foregroundColor: Theme.dangerText
                     toolTipText: qsTr("Reset all adjustments…")
                     accessibleName: toolTipText
-                    enabled: inspector.editor.active
-                        && !inspector.editor.stateBusy
+                    enabled: inspector.editor.active && !inspector.editor.stateBusy
                     onClicked: resetAllDialog.open()
                 }
             }
@@ -258,12 +237,12 @@ Rectangle {
 
             function selectTab(index) {
                 if (currentIndex === index)
-                    return
-                currentIndex = index
-                Qt.callLater(function() {
+                    return;
+                currentIndex = index;
+                Qt.callLater(function () {
                     if (inspectorScroll.contentItem)
-                        inspectorScroll.contentItem.contentY = 0
-                })
+                        inspectorScroll.contentItem.contentY = 0;
+                });
             }
 
             Rectangle {
@@ -326,7 +305,9 @@ Rectangle {
                         spacing: 7
                         enabled: inspector.editor.active && !inspector.editor.stateBusy
 
-                        Item { Layout.preferredHeight: 8 }
+                        Item {
+                            Layout.preferredHeight: 8
+                        }
 
                         PrecisionFoundationAdjustments {
                             Layout.fillWidth: true
@@ -345,11 +326,12 @@ Rectangle {
                             Layout.fillWidth: true
                             spacing: 8
                             enabled: inspector.editor.gradeNodeEnabled
-                            opacity: inspector.editor.gradeNodeEnabled
-                                ? 1.0 : 0.42
+                            opacity: inspector.editor.gradeNodeEnabled ? 1.0 : 0.42
 
                             Behavior on opacity {
-                                NumberAnimation { duration: 100 }
+                                NumberAnimation {
+                                    duration: 100
+                                }
                             }
 
                             PrecisionColorMixer {
@@ -376,8 +358,7 @@ Rectangle {
                                 editor: inspector.editor
                                 analysisScope: analysisScope
                                 previewFrameReady: inspector.previewFrameReady
-                                readyPreviewGeneration:
-                                    inspector.readyPreviewGeneration
+                                readyPreviewGeneration: inspector.readyPreviewGeneration
                                 comparisonActive: inspector.comparisonActive
                                 accent: inspector.accent
                             }
@@ -407,8 +388,7 @@ Rectangle {
                                 textSecondary: inspector.textSecondary
                                 textMuted: inspector.textMuted
                                 accent: inspector.accent
-                                onOpenLibraryRequested:
-                                    inspector.openLutLibraryRequested()
+                                onOpenLibraryRequested: inspector.openLutLibraryRequested()
                             }
 
                             ShadowAdjustmentSection {
@@ -425,9 +405,27 @@ Rectangle {
 
                                     Repeater {
                                         model: [
-                                            { "range": "shadows", "label": qsTr("Shadows"), "hue": "shadows_hue", "saturation": "shadows_saturation", "luminance": "shadows_luminance" },
-                                            { "range": "midtones", "label": qsTr("Midtones"), "hue": "midtones_hue", "saturation": "midtones_saturation", "luminance": "midtones_luminance" },
-                                            { "range": "highlights", "label": qsTr("Highlights"), "hue": "highlights_hue", "saturation": "highlights_saturation", "luminance": "highlights_luminance" }
+                                            {
+                                                "range": "shadows",
+                                                "label": qsTr("Shadows"),
+                                                "hue": "shadows_hue",
+                                                "saturation": "shadows_saturation",
+                                                "luminance": "shadows_luminance"
+                                            },
+                                            {
+                                                "range": "midtones",
+                                                "label": qsTr("Midtones"),
+                                                "hue": "midtones_hue",
+                                                "saturation": "midtones_saturation",
+                                                "luminance": "midtones_luminance"
+                                            },
+                                            {
+                                                "range": "highlights",
+                                                "label": qsTr("Highlights"),
+                                                "hue": "highlights_hue",
+                                                "saturation": "highlights_saturation",
+                                                "luminance": "highlights_luminance"
+                                            }
                                         ]
                                         delegate: ShadowColorWheel {
                                             required property var modelData
@@ -436,28 +434,30 @@ Rectangle {
                                             hue: inspector.fineValue(modelData.hue)
                                             saturation: inspector.fineValue(modelData.saturation)
                                             luminance: inspector.fineValue(modelData.luminance)
-                                            onWheelGestureStarted: inspector.editor.beginParameterEdit(
-                                                "color_grading/" + modelData.range + "/wheel")
-                                            onWheelEdited: (hue, saturation) =>
-                                                inspector.editor.setColorGradingWheel(
-                                                    modelData.range, hue, saturation)
-                                            onWheelGestureFinished: inspector.editor.endParameterEdit(
-                                                "color_grading/" + modelData.range + "/wheel")
-                                            onLuminanceGestureStarted: inspector.editor.beginParameterEdit(
-                                                modelData.luminance)
-                                            onLuminanceEdited: value =>
-                                                inspector.editor.setParameterValue(
-                                                    modelData.luminance, value)
-                                            onLuminanceGestureFinished: inspector.editor.endParameterEdit(
-                                                modelData.luminance)
+                                            onWheelGestureStarted: inspector.editor.beginParameterEdit("color_grading/" + modelData.range + "/wheel")
+                                            onWheelEdited: (hue, saturation) => inspector.editor.setColorGradingWheel(modelData.range, hue, saturation)
+                                            onWheelGestureFinished: inspector.editor.endParameterEdit("color_grading/" + modelData.range + "/wheel")
+                                            onLuminanceGestureStarted: inspector.editor.beginParameterEdit(modelData.luminance)
+                                            onLuminanceEdited: value => inspector.editor.setParameterValue(modelData.luminance, value)
+                                            onLuminanceGestureFinished: inspector.editor.endParameterEdit(modelData.luminance)
                                         }
                                     }
                                 }
 
                                 Repeater {
                                     model: [
-                                        { "key": "grading_blending", "name": qsTr("Blending"), "from": 0, "neutral": 0.5 },
-                                        { "key": "grading_balance", "name": qsTr("Balance"), "from": -1, "neutral": 0 }
+                                        {
+                                            "key": "grading_blending",
+                                            "name": qsTr("Blending"),
+                                            "from": 0,
+                                            "neutral": 0.5
+                                        },
+                                        {
+                                            "key": "grading_balance",
+                                            "name": qsTr("Balance"),
+                                            "from": -1,
+                                            "neutral": 0
+                                        }
                                     ]
                                     delegate: ShadowSlider {
                                         required property var modelData
@@ -465,10 +465,13 @@ Rectangle {
                                         Layout.leftMargin: 14
                                         Layout.rightMargin: 14
                                         label: modelData.name
-                                        from: modelData.from; to: 1
+                                        from: modelData.from
+                                        to: 1
                                         neutralValue: modelData.neutral
-                                        stepSize: 0.01; decimals: 0
-                                        displayMultiplier: 100; suffix: "%"
+                                        stepSize: 0.01
+                                        decimals: 0
+                                        displayMultiplier: 100
+                                        suffix: "%"
                                         value: inspector.fineValue(modelData.key)
                                         onGestureStarted: inspector.editor.beginParameterEdit(modelData.key)
                                         onEdited: value => inspector.editor.setParameterValue(modelData.key, value)
@@ -481,13 +484,13 @@ Rectangle {
                                 Layout.fillWidth: true
                                 inspector: inspector
                                 currentTabIndex: inspectorTabStrip.currentIndex
-                                onOpenOpticsProfileLibraryRequested:
-                                    inspector.openOpticsProfileLibraryRequested()
+                                onOpenOpticsProfileLibraryRequested: inspector.openOpticsProfileLibraryRequested()
                             }
-
                         }
 
-                        Item { Layout.preferredHeight: 14 }
+                        Item {
+                            Layout.preferredHeight: 14
+                        }
                     }
                 }
             }
@@ -502,18 +505,14 @@ Rectangle {
                     ColumnLayout {
                         width: parent.width
                         spacing: 0
-                        enabled: inspector.editor.active
-                            && !inspector.editor.stateBusy
+                        enabled: inspector.editor.active && !inspector.editor.stateBusy
 
                         PrecisionLocalMaskTools {
                             Layout.fillWidth: true
                             visible: inspector.activeToolMode === inspector.toolMask
                             inspector: inspector
                             currentTabIndex: 0
-                            onCreateMaskRequested: anchorItem =>
-                                maskCreateMenu.openFor(
-                                anchorItem,
-                                maskCreateMenu.currentNodeDestination)
+                            onCreateMaskRequested: anchorItem => maskCreateMenu.openFor(anchorItem, maskCreateMenu.currentNodeDestination)
                         }
 
                         PrecisionGeometryTools {
@@ -522,8 +521,7 @@ Rectangle {
                             inspector: inspector
                             currentTabIndex: 0
                             aspectRatioLock: inspector.cropAspectRatioLock
-                            onAspectRatioRequested: ratio =>
-                                inspector.cropAspectRatioRequested(ratio)
+                            onAspectRatioRequested: ratio => inspector.cropAspectRatioRequested(ratio)
                         }
 
                         PrecisionRetouchTools {
@@ -531,14 +529,9 @@ Rectangle {
                             visible: inspector.activeToolMode === inspector.toolRepair
                             inspector: inspector
                             currentTabIndex: 0
-                            selectedRegionContinuous:
-                                inspector.selectedRetouchContinuous
-                            selectedRegionIndex:
-                                inspector.selectedRetouchIndex
-                            onRegionSelectionRequested:
-                                (continuous, index) =>
-                                    inspector.retouchRegionSelectionRequested(
-                                        continuous, index)
+                            selectedRegionContinuous: inspector.selectedRetouchContinuous
+                            selectedRegionIndex: inspector.selectedRetouchIndex
+                            onRegionSelectionRequested: (continuous, index) => inspector.retouchRegionSelectionRequested(continuous, index)
                         }
 
                         PrecisionLiquifyTools {
@@ -549,7 +542,9 @@ Rectangle {
                             currentTabIndex: 0
                         }
 
-                        Item { Layout.preferredHeight: 14 }
+                        Item {
+                            Layout.preferredHeight: 14
+                        }
                     }
                 }
             }
@@ -561,11 +556,15 @@ Rectangle {
         editor: inspector.editor
         onMaskCreated: {
             if (inspector.activeToolMode !== inspector.toolMask)
-                inspector.toolModeRequested(inspector.toolMask)
+                inspector.toolModeRequested(inspector.toolMask);
+        }
+        onAiMaskRequested: {
+            if (inspector.activeToolMode !== inspector.toolMask)
+                inspector.toolModeRequested(inspector.toolMask);
         }
         onEditExistingRequested: {
             if (inspector.activeToolMode !== inspector.toolMask)
-                inspector.toolModeRequested(inspector.toolMask)
+                inspector.toolModeRequested(inspector.toolMask);
         }
     }
 

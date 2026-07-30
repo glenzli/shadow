@@ -22,6 +22,26 @@ enum class LocalMaskKind : std::uint8_t {
     brush,
     luminance_range,
     color_range,
+    managed_raster,
+};
+
+// Persisted managed-mask samples use a portable byte contract rather than a
+// native float buffer. Gray16Float stores tightly packed little-endian
+// IEEE-754 binary16 samples. Both encodings represent finite coverage in
+// [0, 1].
+enum class ManagedRasterMaskEncoding : std::uint8_t {
+    gray8,
+    gray16_float,
+};
+
+struct ManagedRasterMask final {
+    Dimensions raster_dimensions;
+    // The original-image coordinate extent that produced this raster. Runtime
+    // sampling remains normalized so warm previews and full-resolution tiles
+    // share the same placement without resampling this immutable payload.
+    Dimensions coordinate_dimensions;
+    ManagedRasterMaskEncoding encoding = ManagedRasterMaskEncoding::gray8;
+    std::vector<std::uint8_t> samples;
 };
 
 struct LocalMaskPoint final {
@@ -34,8 +54,10 @@ struct LocalMask final {
     LocalMaskKind kind = LocalMaskKind::linear_gradient;
     // Geometry uses x0/y0/x1/y1 directly. Condition masks keep the fixed
     // cross-language record compact: luminance maps lower/upper to x0/x1;
-    // color maps hue/360 and half-width/180 to x0/x1. Presentation layers
-    // expose semantic names rather than these transport slots.
+    // color maps hue/360 and half-width/180 to x0/x1; managed rasters map
+    // signed expansion/contraction to radius_y and edge softness to feather.
+    // Presentation layers expose semantic names rather than these transport
+    // slots.
     double x0 = 0.0;
     double y0 = 0.0;
     double x1 = 1.0;
@@ -45,6 +67,7 @@ struct LocalMask final {
     double feather = 0.0;
     bool invert = false;
     std::vector<LocalMaskPoint> points;
+    std::optional<ManagedRasterMask> managed_raster;
 };
 
 // A sequential Grade Node layer. The first implementation supports only

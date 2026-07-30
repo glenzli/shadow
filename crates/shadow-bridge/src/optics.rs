@@ -182,6 +182,24 @@ fn ffi_metadata_snapshot(metadata: &RawMetadataSnapshot) -> ffi::FfiMetadataSnap
         aperture_f_number: metadata.aperture_f_number,
         focal_length_mm: metadata.focal_length_mm,
         captured_at_unix_seconds: metadata.captured_at_unix_seconds,
+        has_gps_coordinates: metadata.gps.is_some(),
+        gps_latitude_degrees: metadata
+            .gps
+            .as_ref()
+            .map_or(0.0, |gps| gps.latitude_degrees),
+        gps_longitude_degrees: metadata
+            .gps
+            .as_ref()
+            .map_or(0.0, |gps| gps.longitude_degrees),
+        has_gps_altitude: metadata
+            .gps
+            .as_ref()
+            .is_some_and(|gps| gps.altitude_meters.is_some()),
+        gps_altitude_meters: metadata
+            .gps
+            .as_ref()
+            .and_then(|gps| gps.altitude_meters)
+            .unwrap_or_default(),
         lens_make: metadata.lens_make.clone(),
         lens_model: metadata.lens_model.clone(),
         focal_length_35mm: metadata.focal_length_35mm,

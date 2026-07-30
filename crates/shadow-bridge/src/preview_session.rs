@@ -24,6 +24,7 @@ use super::{
         ffi_raw_development_plan, preflight_photo_edit_development, raw_development_receipt,
         raw_pipeline_receipt,
     },
+    raw_foundation::VerifiedRawFoundation,
     render_wire::{ffi_render_request, ffi_render_request_with_mask_coverage, proxy_payload},
 };
 
@@ -231,6 +232,55 @@ impl LibRawEditPreviewSession {
             max_edge,
             &ffi_raw_development_plan(raw_development_plan),
         )?;
+        Self::from_prepared_handle(handle)
+    }
+
+    /// Opens a preview from one completely verified, path-free AI RAW foundation.
+    ///
+    /// The foundation buffer remains Rust-owned and is borrowed by C++ only while the immutable
+    /// native preview session is prepared. Enabled AI preparation is fail-closed and never
+    /// substitutes provider RGB or ordinary Bayer reconstruction.
+    ///
+    /// # Errors
+    ///
+    /// Returns a foundation/plan/optics/path/decoder/resource-limit or invalid-output error.
+    pub fn open_with_raw_foundation(
+        path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+        foundation: &VerifiedRawFoundation,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        validate_warm_edit_max_edge(max_edge)?;
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "AI RAW foundation warm previews require preview RAW-development intent",
+            ));
+        }
+        let mut decode_handle = open_photo(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        {
+            let handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+            preflight_photo_edit_development(handle, raw_development_plan)?;
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(optics))?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_preview_with_raw_foundation(
+            max_edge,
+            &ffi_raw_development_plan(raw_development_plan),
+            foundation.ffi(),
+        )?;
+        Self::from_prepared_handle(handle)
+    }
+
+    fn from_prepared_handle(
+        handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
+    ) -> Result<Self, BridgeError> {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let prepared_max_edge = prepared.max_edge();

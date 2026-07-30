@@ -1,8 +1,9 @@
 //! Client adapters for photo-first Library browsing and bounded facets.
 
 use crate::{
-    CatalogError, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor,
-    LibraryPhotoFilter, LibraryPhotoPage,
+    CatalogError, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryMapGrid,
+    LibraryMapSnapshot, LibraryMapViewport, LibraryPhotoCursor, LibraryPhotoFilter,
+    LibraryPhotoPage,
 };
 
 use super::super::{
@@ -56,6 +57,23 @@ impl CatalogHandle {
     pub fn library_photo_count(&self, filter: &LibraryPhotoFilter) -> Result<u64, CatalogError> {
         self.request(|response| {
             Message::LibraryBrowse(LibraryBrowseMessage::PhotoCount(filter.clone(), response))
+        })
+    }
+
+    /// Reads one bounded spatial aggregation through the catalog actor.
+    pub fn library_map_snapshot(
+        &self,
+        filter: &LibraryPhotoFilter,
+        viewport: LibraryMapViewport,
+        grid: LibraryMapGrid,
+    ) -> Result<LibraryMapSnapshot, CatalogError> {
+        self.request(|response| {
+            Message::LibraryBrowse(LibraryBrowseMessage::MapSnapshot(
+                filter.clone(),
+                viewport,
+                grid,
+                response,
+            ))
         })
     }
 }

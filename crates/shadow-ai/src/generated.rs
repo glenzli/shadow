@@ -307,6 +307,8 @@ pub enum AiTaskParameters {
     None,
     SubjectMask(SubjectMaskParameters),
     Denoise(DenoiseParameters),
+    /// Provider-neutral request to materialize the photo's full RAW foundation.
+    RawFoundation,
 }
 
 impl AiTaskParameters {
@@ -323,6 +325,7 @@ impl AiTaskParameters {
                 parameters.validate()
             }
             (AiTaskKind::Denoise, Self::Denoise(parameters)) => parameters.validate(),
+            (AiTaskKind::MaterializeRawFoundation, Self::RawFoundation) => Ok(()),
             (AiTaskKind::ProposeSubjectMask, _) => {
                 Err(AiArtifactContractError::TaskParameterMismatch {
                     task,
@@ -333,8 +336,14 @@ impl AiTaskParameters {
                 task,
                 expected: "denoise",
             }),
+            (AiTaskKind::MaterializeRawFoundation, _) => {
+                Err(AiArtifactContractError::TaskParameterMismatch {
+                    task,
+                    expected: "raw_foundation",
+                })
+            }
             (_, Self::None) => Ok(()),
-            (_, Self::SubjectMask(_) | Self::Denoise(_)) => {
+            (_, Self::SubjectMask(_) | Self::Denoise(_) | Self::RawFoundation) => {
                 Err(AiArtifactContractError::UnexpectedTaskParameters(task))
             }
         }

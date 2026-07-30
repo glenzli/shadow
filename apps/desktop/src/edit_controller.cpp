@@ -1,4 +1,6 @@
 #include "edit_controller.hpp"
+#include "edit_ai_mask_controller.hpp"
+#include "edit_raw_foundation_controller.hpp"
 
 #include <QCoreApplication>
 #include <QEvent>
@@ -39,6 +41,10 @@ EditController::EditController(
     QObject(parent), backend_(std::move(backend)), preview_store_(std::move(preview_store)),
     preview_presentation_context_(std::move(preview_presentation_context)), versions_(this),
     tone_curve_points_(this) {
+    ai_mask_controller_ =
+        std::make_unique<EditAiMaskController>(*this, backend_);
+    raw_foundation_controller_ =
+        std::make_unique<EditRawFoundationController>(*this, backend_);
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
@@ -63,6 +69,24 @@ EditController::EditController(
         &EditController::sourceIdentityChanged,
         this,
         &EditController::handleMaskSourceIdentityChanged
+    );
+    connect(
+        this,
+        &EditController::sourceIdentityChanged,
+        this,
+        [this] { ai_mask_controller_->resetContext(); }
+    );
+    connect(
+        this,
+        &EditController::selectedGradeNodeChanged,
+        this,
+        [this] { ai_mask_controller_->resetContext(); }
+    );
+    connect(
+        this,
+        &EditController::parametersChanged,
+        this,
+        [this] { ai_mask_controller_->resetContext(); }
     );
     connect(
         &state_watcher_,
@@ -98,6 +122,8 @@ EditController::EditController(
 }
 
 EditController::~EditController() {
+    raw_foundation_controller_.reset();
+    ai_mask_controller_.reset();
     preview_debounce_.stop();
     detail_debounce_.stop();
     detail_warmup_debounce_.stop();
@@ -115,7 +141,8 @@ bool EditController::active() const noexcept {
 }
 
 bool EditController::busy() const noexcept {
-    return state_running_ || current_rendering_ || before_rendering_ || detail_rendering_;
+    return state_running_ || current_rendering_ || before_rendering_ || detail_rendering_
+           || (ai_mask_controller_ && ai_mask_controller_->busy());
 }
 
 bool EditController::stateBusy() const noexcept {
@@ -129,7 +156,8 @@ bool EditController::interactionLocked() const noexcept {
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
     return pending_version_save_name_.has_value()
-           || (state_running_ && state_task_kind_ != EditStateTaskKind::Autosave);
+           || (state_running_ && state_task_kind_ != EditStateTaskKind::Autosave)
+           || (ai_mask_controller_ && ai_mask_controller_->locksInteraction());
 }
 
 bool EditController::rendering() const noexcept {
@@ -276,6 +304,9 @@ bool EditController::eventFilter(QObject* const watched, QEvent* const event) {
 
 void EditController::retranslateUi() {
     emit statusTextChanged();
+    if (raw_foundation_controller_) {
+        raw_foundation_controller_->retranslateUi();
+    }
     if (!autosave_error_message_.isEmpty()) {
         emit autosaveErrorTextChanged();
     }

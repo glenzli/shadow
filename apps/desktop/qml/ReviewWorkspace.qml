@@ -13,6 +13,8 @@ Item {
     required property var controller
     required property var justifiedReviewLayout
     required property var preferences
+    required property var mapProviderPreferences
+    required property var googleMapTilesService
 
     ReviewSelectionState {
         id: selectionState
@@ -51,6 +53,11 @@ Item {
     readonly property alias selectedLensModel: selectionState.selectedLensModel
     readonly property alias selectedCapturedAtUnixSeconds:
         selectionState.selectedCapturedAtUnixSeconds
+    readonly property alias selectedHasCoordinates:
+        selectionState.selectedHasCoordinates
+    readonly property alias selectedLatitude: selectionState.selectedLatitude
+    readonly property alias selectedLongitude: selectionState.selectedLongitude
+    readonly property alias selectedPlaceName: selectionState.selectedPlaceName
     readonly property alias selectedIsoSpeed: selectionState.selectedIsoSpeed
     readonly property alias selectedExposureTimeSeconds:
         selectionState.selectedExposureTimeSeconds
@@ -91,7 +98,8 @@ Item {
     // filtered catalogue model.
     enum GalleryPresentation {
         JustifiedGrid,
-        SinglePhotoFilmstrip
+        SinglePhotoFilmstrip,
+        Map
     }
     property int galleryPresentation: ReviewWorkspace.JustifiedGrid
     property string precisionOpenStatus: ""
@@ -125,6 +133,9 @@ Item {
         controller.filterCaptureMonth.length > 0
         || controller.filterCameraKey.length > 0
         || controller.filterLensKey.length > 0
+    readonly property bool hasLibraryKeywordFilter:
+        controller.filterKeywordIdsAll.length > 0
+        || controller.filterExcludedKeywordIdsAny.length > 0
     readonly property bool hasActiveLibraryFilter:
         controller.filterFlag !== "all"
         || controller.filterMinimumRating > 0
@@ -134,6 +145,7 @@ Item {
         || controller.filterExcludedFlag !== "all"
         || controller.filterExcludedColorLabel !== "all"
         || hasLibraryFacetFilter
+        || hasLibraryKeywordFilter
     readonly property var manualLibraryAlbums: {
         const albums = controller.libraryAlbums
         const manualAlbums = []
@@ -158,7 +170,10 @@ Item {
         id: metadataWindow
         transientParent: review.Window.window
         preferences: review.preferences
+        controller: review.controller
         photoTitle: review.selectedTitle
+        photoId: review.selectedPhotoId
+        selectionTargets: review.batchSelectionTargets()
         sourcePath: review.selectedPath
         hasMetadata: review.selectedHasMetadata
         metadataPending: review.controller.photoInspectionBusy
@@ -178,6 +193,11 @@ Item {
         controller: review.controller
         hasActiveLibraryFilter: review.hasActiveLibraryFilter
         manualAlbums: review.manualLibraryAlbums
+    }
+
+    LibraryKeywordPopup {
+        id: keywordPopup
+        workspace: review
     }
 
     ReviewSharedGradePicker {
@@ -232,12 +252,35 @@ Item {
         albumDialogs.openMembership(targets)
     }
 
+    function openKeywordPanel() {
+        keywordPopup.present()
+    }
+
     function updatePrimaryPhoto(card) {
         selectionState.updatePrimaryPhoto(card)
     }
 
     function selectPhoto(card, modifiers) {
         selectionState.selectPhoto(card, modifiers)
+    }
+
+    function selectMapPhoto(cluster) {
+        selectionState.selectPhoto({
+            "photoId": String(cluster.photoId || ""),
+            "representationId": String(cluster.representationId || ""),
+            "sourcePath": String(cluster.sourcePath || ""),
+            "title": String(cluster.title || ""),
+            "visualHandle": "",
+            "decisionHeadSequence": 0,
+            "decisionFlag": "unflagged",
+            "decisionRating": 0,
+            "liked": false,
+            "colorLabel": "none",
+            "visualRole": "",
+            "visualSource": "",
+            "visualWidth": 0,
+            "visualHeight": 0
+        }, 0)
     }
 
     function clearPrimaryPhoto() {

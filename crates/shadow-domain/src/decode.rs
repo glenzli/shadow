@@ -114,6 +114,14 @@ impl DecodeSupport {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GpsMetadataSnapshot {
+    pub latitude_degrees: f64,
+    pub longitude_degrees: f64,
+    #[serde(default)]
+    pub altitude_meters: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RawMetadataSnapshot {
     pub make: String,
     pub model: String,
@@ -142,6 +150,8 @@ pub struct RawMetadataSnapshot {
     pub focal_length_mm: f64,
     #[serde(default)]
     pub captured_at_unix_seconds: i64,
+    #[serde(default)]
+    pub gps: Option<GpsMetadataSnapshot>,
     #[serde(default)]
     pub lens_make: String,
     #[serde(default)]

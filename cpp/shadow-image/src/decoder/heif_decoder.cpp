@@ -366,6 +366,11 @@ void parse_heif_exif(const heif_image_handle& handle, RasterExif& exif) {
     metadata.exposure_time_seconds = exif.exposure_time_seconds;
     metadata.aperture_f_number = exif.aperture_f_number;
     metadata.focal_length_mm = exif.focal_length_mm;
+    metadata.has_gps_coordinates = exif.has_gps_coordinates;
+    metadata.gps_latitude_degrees = exif.gps_latitude_degrees;
+    metadata.gps_longitude_degrees = exif.gps_longitude_degrees;
+    metadata.has_gps_altitude = exif.has_gps_altitude;
+    metadata.gps_altitude_meters = exif.gps_altitude_meters;
     metadata.lens_make = clean_exif_string(exif.lens_make);
     metadata.lens_model = clean_exif_string(exif.lens_model);
     metadata.focal_length_35mm = exif.focal_length_35mm;

@@ -40,9 +40,9 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
-    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskRevision,
-    NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey,
-    ParameterValue, PhotoCanvasNode, PhotoStructuralNodes, PortType, ProcessingStage,
+    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskDefinition,
+    MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
+    ParameterKey, ParameterValue, PhotoCanvasNode, PhotoStructuralNodes, PortType, ProcessingStage,
     RecipeSnapshot, UnitInterval,
 };
 
@@ -75,9 +75,10 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
     grade_stack: &GradeStackDraft,
     template: Option<&RecipeSnapshot>,
 ) -> AnyResult<RecipeSnapshot> {
-    validate_grade_stack_draft_recipe_v1(grade_stack)?;
+    let grade_stack = materialize_preserved_managed_rasters(grade_stack, template)?;
+    validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     if let Some(template) = template {
-        validate_grade_stack_draft_against_recipe_v1_template(grade_stack, template)?;
+        validate_grade_stack_draft_against_recipe_v1_template(&grade_stack, template)?;
     }
     let recipe_v1_layers = grade_stack
         .grade_nodes
@@ -110,6 +111,66 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
         recipe_v1_layers,
     )
     .map_err(Into::into)
+}
+
+fn materialize_preserved_managed_rasters(
+    grade_stack: &GradeStackDraft,
+    template: Option<&RecipeSnapshot>,
+) -> AnyResult<GradeStackDraft> {
+    let mut effective = grade_stack.clone();
+    for grade_node in &mut effective.grade_nodes {
+        let Some(settings) = grade_node.preserved_managed_raster else {
+            continue;
+        };
+        if grade_node.local_mask.is_some() {
+            bail!(
+                "Grade Node {} cannot materialize two local-mask representations",
+                grade_node.recipe_v1_identity.grade_node_id
+            );
+        }
+        let template = template.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Grade Node {} has an opaque managed raster but no base Recipe",
+                grade_node.recipe_v1_identity.grade_node_id
+            )
+        })?;
+        let layer = template
+            .layers()
+            .iter()
+            .find(|layer| layer.id() == grade_node.recipe_v1_identity.grade_node_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Grade Node {} cannot recover an opaque managed raster from its base Recipe",
+                    grade_node.recipe_v1_identity.grade_node_id
+                )
+            })?;
+        let reference = layer.mask().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Grade Node {} base Recipe has no managed raster to preserve",
+                grade_node.recipe_v1_identity.grade_node_id
+            )
+        })?;
+        let revision = template.resolve_mask(reference).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Grade Node {} base Recipe managed raster revision is unavailable",
+                grade_node.recipe_v1_identity.grade_node_id
+            )
+        })?;
+        let MaskDefinition::ManagedRaster { raster, .. } = revision.definition() else {
+            bail!(
+                "Grade Node {} opaque mask marker does not match a managed raster in its base Recipe",
+                grade_node.recipe_v1_identity.grade_node_id
+            );
+        };
+        grade_node.local_mask = Some(MaskDefinition::managed_raster_with_refinement(
+            raster.clone(),
+            settings.expansion_percent,
+            settings.feather_percent,
+            settings.invert,
+        )?);
+        grade_node.preserved_managed_raster = None;
+    }
+    Ok(effective)
 }
 
 #[allow(clippy::too_many_lines)] // The canonical persisted graph is clearest as one explicit chain.

@@ -3,8 +3,9 @@
 use std::sync::mpsc::SyncSender;
 
 use crate::{
-    CatalogError, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor,
-    LibraryPhotoFilter, LibraryPhotoPage,
+    CatalogError, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryMapGrid,
+    LibraryMapSnapshot, LibraryMapViewport, LibraryPhotoCursor, LibraryPhotoFilter,
+    LibraryPhotoPage,
 };
 
 pub(in crate::writer) enum LibraryBrowseMessage {
@@ -22,4 +23,10 @@ pub(in crate::writer) enum LibraryBrowseMessage {
         SyncSender<Result<LibraryFacetPage, CatalogError>>,
     ),
     PhotoCount(LibraryPhotoFilter, SyncSender<Result<u64, CatalogError>>),
+    MapSnapshot(
+        LibraryPhotoFilter,
+        LibraryMapViewport,
+        LibraryMapGrid,
+        SyncSender<Result<LibraryMapSnapshot, CatalogError>>,
+    ),
 }

@@ -10,6 +10,8 @@
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
+#include "map/google_map_tiles_service.hpp"
+#include "map_provider_preferences.hpp"
 #include "optics_profile_library.hpp"
 #include "review_controller.hpp"
 #include "thumbnail_provider.hpp"
@@ -154,6 +156,15 @@ int main(int argc, char* argv[]) {
         ? QDir(application_data).filePath(QStringLiteral("ui-preferences.ini"))
         : QString{};
     UiPreferences preferences(application, isolated_settings_file);
+    MapProviderPreferences map_provider_preferences(
+        isolated_settings_file,
+        headless_startup_smoke
+            ? makeVolatileSecretStore()
+            : makeSystemSecretStore()
+    );
+    shadow::desktop::maps::GoogleMapTilesService google_map_tiles_service(
+        &map_provider_preferences
+    );
     LutLibrary lut_library(
         isolated_settings_file,
         QDir(application_data).filePath(QStringLiteral("lut-store"))
@@ -244,6 +255,14 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&cache_maintenance_controller),
         },
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
+        {
+            QStringLiteral("mapProviderPreferences"),
+            QVariant::fromValue(&map_provider_preferences),
+        },
+        {
+            QStringLiteral("googleMapTilesService"),
+            QVariant::fromValue(&google_map_tiles_service),
+        },
         {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},
         {
             QStringLiteral("opticsProfileLibrary"),

@@ -15,6 +15,8 @@ ApplicationWindow {
     required property var exportController
     required property var cacheMaintenanceController
     required property var preferences
+    required property var mapProviderPreferences
+    required property var googleMapTilesService
     required property var lutLibrary
     required property var opticsProfileLibrary
     property int workspaceIndex: 0
@@ -96,6 +98,15 @@ ApplicationWindow {
         preferences: window.preferences
         onOpenLutLibraryRequested: window.openLutManager()
         onOpenCacheMaintenanceRequested: window.openCacheMaintenance()
+        onOpenMapProviderSettingsRequested:
+            mapProviderSettingsDialog.present()
+    }
+
+    MapProviderSettingsDialog {
+        id: mapProviderSettingsDialog
+        preferences: window.mapProviderPreferences
+        hostWidth: window.width
+        hostHeight: window.height
     }
 
     LutManagerWindow {
@@ -232,6 +243,8 @@ ApplicationWindow {
             controller: window.controller
             justifiedReviewLayout: window.justifiedReviewLayout
             preferences: window.preferences
+            mapProviderPreferences: window.mapProviderPreferences
+            googleMapTilesService: window.googleMapTilesService
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {

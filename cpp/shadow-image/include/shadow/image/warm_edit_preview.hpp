@@ -3,8 +3,8 @@
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/decoder_types.hpp>
-#include <shadow/image/edit_preview_frame.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/edit_preview_frame.hpp>
 #include <shadow/image/optics.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
@@ -205,8 +205,7 @@ class WarmEditPreviewSession final {
     // packed display-sRGB RGB8 (`width * 3` bytes per row) and deliberately
     // skips JPEG encoding. It remains transient and is never a durable cache
     // artifact.
-    [[nodiscard]] EncodedProxy
-    render_rgb8(
+    [[nodiscard]] EncodedProxy render_rgb8(
         std::span<const AdjustmentNode> nodes,
         const PhotoGeometry& geometry = {},
         const PhotoLiquify* liquify = nullptr
@@ -335,6 +334,14 @@ class WarmEditPreviewSession final {
         const OpticsProvider* optics_provider,
         const OpticsSettings& optics_settings
     );
+    friend WarmEditPreviewSession prepare_warm_edit_preview(
+        const DecodeSession& session,
+        std::uint32_t max_edge,
+        const RawDevelopmentPlan& raw_development_plan,
+        const RawFoundationCameraRgbView& foundation,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
 };
 
 // Decodes processed linear-light sRGB-primary u16 once and stores only a max-edge-bounded linear
@@ -355,6 +362,18 @@ class WarmEditPreviewSession final {
     const DecodeSession& session,
     std::uint32_t max_edge,
     const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// Prepares the same bounded edit surface from one verified AI RAW foundation. This overload is
+// explicit so an enabled node cannot reuse the ordinary RawFrame source by accident. Foundation
+// identity remains available through `raw_pipeline_receipt()` for the caller's session/cache key.
+[[nodiscard]] WarmEditPreviewSession prepare_warm_edit_preview(
+    const DecodeSession& session,
+    std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
     const OpticsProvider* optics_provider = nullptr,
     const OpticsSettings& optics_settings = default_optics_settings()
 );

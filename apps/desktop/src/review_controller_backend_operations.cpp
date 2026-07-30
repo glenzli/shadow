@@ -132,6 +132,42 @@ album_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewLibraryKeywordCoordinator::Operations
+keyword_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library keyword backend is required");
+    }
+    return {
+        .tree = [backend]() { return backend->libraryKeywords(); },
+        .for_photo = [backend](
+                         const QString& photo_id
+                     ) { return backend->libraryKeywordsForPhoto(photo_id); },
+        .create =
+            [backend](const QString& parent_id, const QString& name) {
+                static_cast<void>(backend->createLibraryKeyword(parent_id, name));
+            },
+        .rename =
+            [backend](const QString& keyword_id, const QString& name) {
+                static_cast<void>(backend->renameLibraryKeyword(keyword_id, name));
+            },
+        .move =
+            [backend](const QString& keyword_id, const QString& parent_id) {
+                static_cast<void>(backend->moveLibraryKeyword(keyword_id, parent_id));
+            },
+        .remove = [backend](
+                      const QString& keyword_id
+                  ) { return backend->deleteLibraryKeywordSubtree(keyword_id); },
+        .assign =
+            [backend](const QString& keyword_id, const QStringList& photo_ids) {
+                return backend->assignLibraryKeyword(keyword_id, photo_ids);
+            },
+        .unassign =
+            [backend](const QString& keyword_id, const QStringList& photo_ids) {
+                return backend->removeLibraryKeyword(keyword_id, photo_ids);
+            },
+    };
+}
+
 [[nodiscard]] ReviewLibraryFacetCoordinator::Operations
 facet_operations(const std::shared_ptr<DesktopBackend>& backend) {
     if (!backend) {
@@ -147,6 +183,78 @@ facet_operations(const std::shared_ptr<DesktopBackend>& backend) {
         .count = [backend](
                      const BackendLibraryPhotoFilter& filter
                  ) { return backend->libraryPhotoCount(filter); },
+    };
+}
+
+[[nodiscard]] ReviewLibraryMetadataCoordinator::Operations
+metadata_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library metadata backend is required");
+    }
+    return {
+        .load =
+            [backend](const QString& photo_id) { return backend->libraryMetadataState(photo_id); },
+        .set_capture_time =
+            [backend](
+                const QString& photo_id,
+                const QString& mode,
+                const std::int64_t captured_at_unix_seconds
+            ) {
+                return backend
+                    ->setLibraryCaptureTimeOverride(photo_id, mode, captured_at_unix_seconds);
+            },
+        .set_coordinates =
+            [backend](
+                const QString& photo_id,
+                const QString& mode,
+                const double latitude_degrees,
+                const double longitude_degrees,
+                const QString& place_name
+            ) {
+                return backend->setLibraryCoordinatesOverride(
+                    photo_id,
+                    mode,
+                    latitude_degrees,
+                    longitude_degrees,
+                    place_name
+                );
+            },
+        .preview_capture_time =
+            [backend](
+                const QVector<BackendBatchPhotoTarget>& targets,
+                const QString& mode,
+                const std::int64_t offset_seconds
+            ) { return backend->previewLibraryCaptureTimeBatch(targets, mode, offset_seconds); },
+        .apply_capture_time = [backend](
+                                  const QString& preview_id
+                              ) { return backend->applyLibraryCaptureTimeBatch(preview_id); },
+        .preview_gpx =
+            [backend](
+                const QString& path,
+                const QVector<BackendBatchPhotoTarget>& targets,
+                const std::int64_t offset_seconds,
+                const std::uint32_t maximum_gap_seconds
+            ) {
+                return backend
+                    ->previewLibraryGpxImport(path, targets, offset_seconds, maximum_gap_seconds);
+            },
+        .apply_gpx = [backend](
+                         const QString& preview_id
+                     ) { return backend->applyLibraryGpxImport(preview_id); },
+    };
+}
+
+[[nodiscard]] ReviewLibraryMapCoordinator::Operations
+map_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library map backend is required");
+    }
+    return {
+        .snapshot = [backend](
+                        const BackendLibraryPhotoFilter& filter,
+                        const BackendLibraryMapViewport& viewport,
+                        const BackendLibraryMapGrid& grid
+                    ) { return backend->libraryMapSnapshot(filter, viewport, grid); },
     };
 }
 

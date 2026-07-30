@@ -121,14 +121,14 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    for (int kind = 1; kind <= 5; ++kind) {
+    for (int kind = 1; kind <= 6; ++kind) {
         editor.setMaskKind(kind);
         if (!require(
                 waitFor([&overlay]() {
                     return overlay->property("visible").toBool()
                            && overlay->property("coverageReady").toBool();
                 }),
-                "all five mask kinds consume the same real coverage texture"
+                "all six mask kinds consume the same real coverage texture"
             )) {
             return EXIT_FAILURE;
         }

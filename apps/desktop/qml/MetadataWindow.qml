@@ -9,7 +9,10 @@ Window {
     id: root
 
     required property var preferences
+    required property var controller
     property string photoTitle: ""
+    property string photoId: ""
+    property var selectionTargets: []
     property string sourcePath: ""
     property bool hasMetadata: false
     property bool metadataPending: false
@@ -26,6 +29,8 @@ Window {
     flags: Qt.Window
 
     function present() {
+        if (root.photoId.length > 0)
+            root.controller.requestLibraryMetadata(root.photoId)
         show()
         raise()
         requestActivate()
@@ -241,6 +246,49 @@ Window {
                     onClicked: root.preferences.resetExifFields()
                 }
             }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.photoId.length > 0
+
+                ShadowButton {
+                    text: qsTr("EDIT TIME & LOCATION")
+                    variant: ShadowButton.Ghost
+                    onClicked: metadataEditor.present(root.photoId)
+                }
+
+                ShadowButton {
+                    text: qsTr("BATCH TIME")
+                    variant: ShadowButton.Ghost
+                    enabled: root.selectionTargets.length > 0
+                    onClicked: captureTimeBatch.present(
+                        root.selectionTargets)
+                }
+
+                ShadowButton {
+                    text: qsTr("IMPORT GPX")
+                    variant: ShadowButton.Ghost
+                    onClicked: gpxImport.present(root.selectionTargets)
+                }
+            }
         }
+    }
+
+    LibraryMetadataEditor {
+        id: metadataEditor
+        transientParent: root
+        controller: root.controller
+    }
+
+    LibraryCaptureTimeBatchDialog {
+        id: captureTimeBatch
+        transientParent: root
+        controller: root.controller
+    }
+
+    LibraryGpxImportDialog {
+        id: gpxImport
+        transientParent: root
+        controller: root.controller
     }
 }

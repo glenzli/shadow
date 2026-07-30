@@ -61,8 +61,9 @@ use shadow_domain::{
 use super::{
     MAX_GRADE_NODES, apply_detail_effect_values, ffi_adapter::adjustment_geometry,
     fixed_color_mixer, fixed_selective_color, grade_node_recipe_v1_render_ops,
-    oklab_color_warper_from_ffi, point_color_ranges_from_vector, required_bool, required_float,
-    required_float_vector, required_text, tone_curve_points_from_vector,
+    managed_raster_resolution::ManagedRasterMaskResolver, oklab_color_warper_from_ffi,
+    point_color_ranges_from_vector, required_bool, required_float, required_float_vector,
+    required_text, tone_curve_points_from_vector,
 };
 
 // Retouch is photo-local rather than a Grade Node. These fixed, compiler-only
@@ -76,8 +77,23 @@ const RECIPE_V1_RETOUCH_LAYER_END_ID: &str = "recipe-v1-photo-retouch:end";
 /// order. Recipe `LayerInstance` vector order is the Grade Node execution
 /// order; graph bindings and the explicit output node define the private
 /// render-operation order within each Grade Node.
+#[cfg(test)]
 pub(crate) fn compile_recipe_render_plan(
     snapshot: &RecipeSnapshot,
+) -> AnyResult<AdjustmentRenderPlan> {
+    compile_recipe_render_plan_with_resolver(snapshot, None)
+}
+
+pub(crate) fn compile_recipe_render_plan_with_managed_rasters(
+    snapshot: &RecipeSnapshot,
+    resolver: &dyn ManagedRasterMaskResolver,
+) -> AnyResult<AdjustmentRenderPlan> {
+    compile_recipe_render_plan_with_resolver(snapshot, Some(resolver))
+}
+
+fn compile_recipe_render_plan_with_resolver(
+    snapshot: &RecipeSnapshot,
+    resolver: Option<&dyn ManagedRasterMaskResolver>,
 ) -> AnyResult<AdjustmentRenderPlan> {
     validate_recipe_compilation_contract(snapshot)?;
     // A photo-local repair must run after every Grade Node. It uses an
@@ -109,7 +125,10 @@ pub(crate) fn compile_recipe_render_plan(
                             reference.revision()
                         )
                     })?;
-                    Some(adjustment_local_mask(definition.definition())?)
+                    Some(adjustment_local_mask_with_resolver(
+                        definition.definition(),
+                        resolver,
+                    )?)
                 }
             };
             let start_id = format!("local-mask-layer-start:{}", layer.id());
@@ -308,7 +327,15 @@ fn append_photo_retouch_nodes(
     Ok(())
 }
 
+#[cfg(test)]
 fn adjustment_local_mask(definition: &MaskDefinition) -> AnyResult<AdjustmentLocalMask> {
+    adjustment_local_mask_with_resolver(definition, None)
+}
+
+fn adjustment_local_mask_with_resolver(
+    definition: &MaskDefinition,
+    resolver: Option<&dyn ManagedRasterMaskResolver>,
+) -> AnyResult<AdjustmentLocalMask> {
     Ok(match definition {
         MaskDefinition::LinearGradient {
             start_x,
@@ -383,6 +410,23 @@ fn adjustment_local_mask(definition: &MaskDefinition) -> AnyResult<AdjustmentLoc
                 "Recipe v1 persists bounded condition-mask expressions, but this renderer supports only single luminance and zero-minimum-chroma hue leaves"
             )
         }
+        MaskDefinition::ManagedRaster {
+            raster,
+            expansion_percent,
+            feather_percent,
+            invert,
+        } => resolver
+            .ok_or_else(|| {
+                anyhow!(
+                    "Recipe v1 managed raster mask requires verified application-store resolution"
+                )
+            })?
+            .resolve(
+                raster,
+                f64::from(*expansion_percent) / 100.0,
+                f64::from(*feather_percent) / 100.0,
+                *invert,
+            )?,
     })
 }
 

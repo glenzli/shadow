@@ -33,6 +33,7 @@ authors = ["Shadow contributors"]
 anyhow = "1.0.102"
 blake3 = "1.8.5"
 cxx = "=1.0.198"
+quick-xml = "0.39.4"
 rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
@@ -45,6 +46,7 @@ shadow-core = { path = "crates/shadow-core" }
 shadow-desktop-bridge = { path = "crates/shadow-desktop-bridge" }
 shadow-domain = { path = "crates/shadow-domain" }
 thiserror = "2.0.18"
+time = { version = "0.3.47", features = ["parsing"] }
 tracing = "0.1.44"
 uuid = { version = "1.23.2", features = ["serde", "std", "v7"] }
 

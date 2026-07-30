@@ -5,6 +5,10 @@
 //!
 //! - [`browse`] owns photo pages, facets, and signed visual presentation;
 //! - [`organization`] owns albums, memberships, and photo-affinity state;
+//! - [`keywords`] owns the hierarchy and committed photo assignments;
+//! - [`metadata`] owns observed/effective metadata projection and routes
+//!   independent capture-time and GPX preview lifecycles;
+//! - [`map_browse`] owns provider-independent spatial aggregation;
 //! - [`source_health`] owns observational scan and missing-location views;
 //! - [`query_contract`] owns the typed CXX filter/facet/cursor conversion shared
 //!   by browsing and smart albums.
@@ -14,9 +18,14 @@
 //! signed-preview contract.
 
 mod browse;
+mod keywords;
+mod map_browse;
+mod metadata;
 mod organization;
 mod query_contract;
 mod source_health;
+
+use std::sync::{Arc, Mutex};
 
 use shadow_catalog::CatalogHandle;
 
@@ -27,10 +36,18 @@ use shadow_catalog::CatalogHandle;
 #[derive(Debug, Clone)]
 pub(crate) struct LibraryService {
     catalog: CatalogHandle,
+    gpx_previews: Arc<Mutex<metadata::GpxPreviewRegistry>>,
+    capture_time_previews: Arc<Mutex<metadata::CaptureTimePreviewRegistry>>,
 }
 
 impl LibraryService {
     pub(crate) fn new(catalog: CatalogHandle) -> Self {
-        Self { catalog }
+        Self {
+            catalog,
+            gpx_previews: Arc::new(Mutex::new(metadata::GpxPreviewRegistry::default())),
+            capture_time_previews: Arc::new(Mutex::new(
+                metadata::CaptureTimePreviewRegistry::default(),
+            )),
+        }
     }
 }

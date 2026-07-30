@@ -21,7 +21,7 @@ namespace {
 
 struct LocalMaskParameterDescriptor final {
     std::string_view key;
-    double BackendGradeNode::*field = nullptr;
+    double BackendGradeNode::* field = nullptr;
     std::uint8_t kind_mask = 0U;
     double minimum = 0.0;
     double maximum = 1.0;
@@ -67,7 +67,13 @@ constexpr std::array local_mask_parameters{
     LocalMaskParameterDescriptor{
         .key = "feather",
         .field = &BackendGradeNode::local_mask_feather,
-        .kind_mask = mask_kind_bit(2U) | mask_kind_bit(3U),
+        .kind_mask = mask_kind_bit(2U) | mask_kind_bit(3U) | mask_kind_bit(6U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "x0",
+        .field = &BackendGradeNode::local_mask_x0,
+        .kind_mask = mask_kind_bit(6U),
+        .minimum = -1.0,
     },
     LocalMaskParameterDescriptor{
         .key = "lower",
@@ -98,14 +104,11 @@ constexpr std::array local_mask_parameters{
     },
 };
 
-[[nodiscard]] const LocalMaskParameterDescriptor* local_mask_parameter(
-    const QString& key,
-    const std::uint8_t kind
-) noexcept {
+[[nodiscard]] const LocalMaskParameterDescriptor*
+local_mask_parameter(const QString& key, const std::uint8_t kind) noexcept {
     const std::uint8_t kind_bit = mask_kind_bit(kind);
     for (const auto& descriptor : local_mask_parameters) {
-        if ((descriptor.kind_mask & kind_bit) != 0U
-            && key == QLatin1StringView(descriptor.key)) {
+        if ((descriptor.kind_mask & kind_bit) != 0U && key == QLatin1StringView(descriptor.key)) {
             return &descriptor;
         }
     }
@@ -254,8 +257,7 @@ void EditController::setSelectedLocalMaskValue(const QString& key, const double 
     if (grade_node == nullptr || grade_node->local_mask_kind == 0U) {
         return;
     }
-    const auto* const descriptor =
-        local_mask_parameter(key, grade_node->local_mask_kind);
+    const auto* const descriptor = local_mask_parameter(key, grade_node->local_mask_kind);
     if (descriptor == nullptr
         || !acceptParameter(
             value,
@@ -292,8 +294,7 @@ void EditController::setSelectedLocalMaskValue(const QString& key, const double 
         ));
         return;
     }
-    if (candidate.local_mask_kind == 4U
-        && candidate.local_mask_x0 > candidate.local_mask_x1) {
+    if (candidate.local_mask_kind == 4U && candidate.local_mask_x0 > candidate.local_mask_x1) {
         setStatusMessage(local_mask_message(QT_TRANSLATE_NOOP(
             "EditController",
             "The lower lightness limit cannot exceed the upper limit"
