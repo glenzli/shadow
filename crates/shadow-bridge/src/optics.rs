@@ -75,6 +75,16 @@ pub struct OpticsProfileCandidate {
     pub lens_model: String,
 }
 
+/// Calibrated photographer-facing presentation of the source CameraNeutral.
+///
+/// Absence means that the persisted metadata cannot be mapped without
+/// guessing, normally because no exact DCP camera profile is installed.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct RawWhiteBalancePresentation {
+    pub temperature_kelvin: u32,
+    pub tint: i16,
+}
+
 /// Enumerates Lensfun lenses compatible with the camera identified by a RAW.
 /// The result is sorted and deduplicated by stable maker/model identity.
 ///
@@ -142,6 +152,20 @@ pub fn query_optics_profiles_from_metadata(
             lens_model: candidate.lens_model,
         })
         .collect()
+}
+
+#[must_use]
+pub fn query_raw_white_balance_presentation_from_metadata(
+    metadata: &RawMetadataSnapshot,
+) -> Option<RawWhiteBalancePresentation> {
+    let presentation =
+        ffi::query_raw_white_balance_presentation_for_metadata(&ffi_metadata_snapshot(metadata));
+    presentation
+        .available
+        .then_some(RawWhiteBalancePresentation {
+            temperature_kelvin: presentation.temperature_kelvin,
+            tint: presentation.tint,
+        })
 }
 
 fn ffi_metadata_snapshot(metadata: &RawMetadataSnapshot) -> ffi::FfiMetadataSnapshot {

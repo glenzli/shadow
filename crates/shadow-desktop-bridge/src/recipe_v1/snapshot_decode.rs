@@ -339,7 +339,13 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
         bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
     let grade_stack = GradeStackDraft {
-        foundation: snapshot.foundation_node().clone(),
+        raw_ai_denoise: snapshot.raw_ai_denoise_node(),
+        foundation: shadow_domain::PhotoFoundationNode::new(
+            snapshot
+                .input_settings()
+                .clone()
+                .with_raw_ai_denoise(shadow_domain::RawFoundationDenoise::disabled()),
+        ),
         grade_nodes: snapshot
             .layers()
             .iter()

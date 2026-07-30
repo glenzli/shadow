@@ -18,6 +18,7 @@ fn merge_replaces_an_older_revision_in_place_and_preserves_bypass() {
     existing.enabled = false;
     let replacement = shared_node(layer_id, LayerRevisionId::new_v7());
     let mut stack = GradeStackDraft {
+        raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![GradeNodeDraft::neutral("Local"), existing],
         retouch_spots: Vec::new(),
@@ -39,6 +40,7 @@ fn merge_replaces_an_older_revision_in_place_and_preserves_bypass() {
 fn merge_is_idempotent_for_the_same_materialized_revision() {
     let shared = shared_node(LayerId::new_v7(), LayerRevisionId::new_v7());
     let mut stack = GradeStackDraft {
+        raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![shared.clone()],
         retouch_spots: Vec::new(),

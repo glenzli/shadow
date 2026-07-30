@@ -61,7 +61,10 @@ pub use local_mask::{
 };
 pub use mask_creation::{NodeLocalMaskCreationIntent, NodeLocalMaskCreationTarget};
 pub use photo_foundation::{
-    PhotoFoundationNode, RAW_CAMERA_NEUTRAL_MILLIONTHS, RawCameraNeutral, RawWhiteBalance,
+    PhotoFoundationNode, RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
+    RAW_WHITE_BALANCE_MAX_TEMPERATURE_KELVIN, RAW_WHITE_BALANCE_MAX_TINT,
+    RAW_WHITE_BALANCE_MIN_TEMPERATURE_KELVIN, RAW_WHITE_BALANCE_MIN_TINT, RawTemperatureTint,
+    RawWhiteBalance,
 };
 pub use photo_geometry::{PhotoCanvasNode, PhotoGeometry, PhotoQuarterTurn};
 pub use photo_liquify::{
@@ -69,7 +72,9 @@ pub use photo_liquify::{
     PhotoLiquifyNode,
 };
 pub use photo_structural_nodes::{PhotoStructuralNodeRef, PhotoStructuralNodes};
-pub use raw_foundation_denoise::{RawFoundationDenoise, RawFoundationDenoiseModel};
+pub use raw_foundation_denoise::{
+    RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT, RawFoundationDenoise, RawFoundationDenoiseModel,
+};
 pub use retouch::{
     MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKE_POINTS, MAX_RETOUCH_STROKES_PER_RECIPE,
     RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke,

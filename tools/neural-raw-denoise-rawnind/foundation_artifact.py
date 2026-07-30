@@ -192,6 +192,9 @@ def make_contract(
         "color_description",
         "white_level",
         "black_level_per_channel",
+        "decoder_provider_id",
+        "decoder_provider_version",
+        "decoded_samples_sha256",
     }
     if set(preprocessing) != required_preprocessing:
         raise ValueError("RAW preprocessing receipt changed")
@@ -264,6 +267,9 @@ def _contract_from_json(value: object) -> RawNindFoundationContract:
             "color_description",
             "white_level",
             "black_level_per_channel",
+            "decoder_provider_id",
+            "decoder_provider_version",
+            "decoded_samples_sha256",
         },
         "RAW preprocessing identity",
     )
@@ -305,6 +311,9 @@ def _contract_from_json(value: object) -> RawNindFoundationContract:
         raise ValueError("RAW color description is invalid")
     black_levels = raw_preprocessing["black_level_per_channel"]
     white_level = raw_preprocessing["white_level"]
+    decoder_provider_id = raw_preprocessing["decoder_provider_id"]
+    decoder_provider_version = raw_preprocessing["decoder_provider_version"]
+    decoded_samples_sha256 = raw_preprocessing["decoded_samples_sha256"]
     if (
         not isinstance(white_level, (int, float))
         or not math.isfinite(white_level)
@@ -314,8 +323,13 @@ def _contract_from_json(value: object) -> RawNindFoundationContract:
             not isinstance(item, (int, float)) or not math.isfinite(item)
             for item in black_levels
         )
+        or not isinstance(decoder_provider_id, str)
+        or not decoder_provider_id
+        or not isinstance(decoder_provider_version, str)
+        or not decoder_provider_version
     ):
         raise ValueError("RAW level metadata is invalid")
+    _validate_sha256(decoded_samples_sha256, "decoded RAW samples")
     if model != _expected_model_identity():
         raise ValueError("foundation model identity changed")
     execution = _require_exact_keys(

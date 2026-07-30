@@ -20,10 +20,10 @@ pub use rawnind_foundation_sidecar::{
     RAWNIND_FOUNDATION_MODEL_REVISION, RAWNIND_FOUNDATION_PACKAGE_SHA256,
     RAWNIND_FOUNDATION_PLAN_RECEIPT_PREFIX, RAWNIND_FOUNDATION_PROVIDER_ID,
     RAWNIND_FOUNDATION_RECEIPT_PREFIX, RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256,
-    RawNindFoundationModelVerificationError, RawNindFoundationPlan, RawNindFoundationPlanningError,
-    RawNindFoundationProvider, RawNindFoundationProviderConfigurationError,
-    VerifiedRawNindFoundationInstallation, plan_rawnind_foundation,
-    verify_rawnind_foundation_installation,
+    RawNindFoundationInput, RawNindFoundationModelVerificationError, RawNindFoundationPlan,
+    RawNindFoundationPlanningError, RawNindFoundationProvider,
+    RawNindFoundationProviderConfigurationError, VerifiedRawNindFoundationInstallation,
+    plan_rawnind_foundation, verify_rawnind_foundation_installation,
 };
 pub use sam2_coreml_sidecar::{
     SAM2_COREML_ADAPTER_REVISION, SAM2_COREML_ARTIFACT_SET_BLAKE3, SAM2_COREML_EXACT_REVISION,

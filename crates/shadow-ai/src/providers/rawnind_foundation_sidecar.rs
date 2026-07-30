@@ -31,7 +31,7 @@ use super::local_process::{ProcessFailure, wait_with_bounded_output};
 
 pub const RAWNIND_FOUNDATION_PROVIDER_ID: &str = "shadow.rawnind.foundation-sidecar";
 pub const RAWNIND_FOUNDATION_ADAPTER_REVISION: &str =
-    "rawnind-foundation-sidecar-protocol-20260731.1";
+    "rawnind-foundation-sidecar-protocol-20260731.2";
 pub const RAWNIND_FOUNDATION_MODEL_ID: &str = "darktable-ai/rawnind-public-bayer";
 pub const RAWNIND_FOUNDATION_MODEL_REVISION: &str =
     "release-5.6.0@5454d7aa6d89a67054fd4a83343b09e69acaf76a";
@@ -52,6 +52,57 @@ pub const RAWNIND_FOUNDATION_RECEIPT_PREFIX: &str = "shadow-rawnind-foundation-v
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CHECKED_IN_MANIFEST: &[u8] =
     include_bytes!("../../../../apps/desktop/providers/rawnind-foundation/model-manifest.json");
+
+/// Original source identity plus an optional provider-neutral Bayer staging
+/// manifest produced by Shadow's isolated decoder. The original file remains
+/// the durable provenance identity; staging contributes decoded-sample and
+/// decoder-provider identity to the sidecar's cache contract.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RawNindFoundationInput {
+    source_raw: PathBuf,
+    decoded_raw_frame: Option<PathBuf>,
+}
+
+impl RawNindFoundationInput {
+    pub fn with_decoded_raw_frame(
+        source_raw: impl Into<PathBuf>,
+        decoded_raw_frame: impl Into<PathBuf>,
+    ) -> Self {
+        Self {
+            source_raw: source_raw.into(),
+            decoded_raw_frame: Some(decoded_raw_frame.into()),
+        }
+    }
+
+    pub fn source_raw(&self) -> &Path {
+        &self.source_raw
+    }
+
+    pub fn decoded_raw_frame(&self) -> Option<&Path> {
+        self.decoded_raw_frame.as_deref()
+    }
+}
+
+impl From<PathBuf> for RawNindFoundationInput {
+    fn from(source_raw: PathBuf) -> Self {
+        Self {
+            source_raw,
+            decoded_raw_frame: None,
+        }
+    }
+}
+
+impl From<&Path> for RawNindFoundationInput {
+    fn from(source_raw: &Path) -> Self {
+        source_raw.to_path_buf().into()
+    }
+}
+
+impl From<&PathBuf> for RawNindFoundationInput {
+    fn from(source_raw: &PathBuf) -> Self {
+        source_raw.clone().into()
+    }
+}
 
 /// Installation authority issued only after the sidecar verifies both public
 /// release identities and reports its concrete ONNX Runtime revision.
@@ -156,7 +207,7 @@ impl VerifiedRawNindFoundationInstallation {
 /// failure, or any malformed/substituted plan receipt.
 pub fn plan_rawnind_foundation(
     installation: &VerifiedRawNindFoundationInstallation,
-    input_raw: impl Into<PathBuf>,
+    input: impl Into<RawNindFoundationInput>,
     expected_source_sha256: &str,
     expected_source_size_bytes: u64,
     cancellation: &CancellationToken,
@@ -166,7 +217,8 @@ pub fn plan_rawnind_foundation(
     if expected_source_size_bytes == 0 {
         return Err(RawNindFoundationPlanningError::InvalidSourceIdentity);
     }
-    let input_raw = input_raw.into();
+    let input = input.into();
+    let input_raw = input.source_raw();
     let metadata =
         fs::metadata(&input_raw).map_err(|_| RawNindFoundationPlanningError::SourceUnavailable)?;
     if !metadata.is_file() || metadata.len() != expected_source_size_bytes {
@@ -176,7 +228,8 @@ pub fn plan_rawnind_foundation(
         return Err(RawNindFoundationPlanningError::Cancelled);
     }
 
-    let child = Command::new(&installation.executable)
+    let mut command = Command::new(&installation.executable);
+    command
         .arg("--model-package")
         .arg(&installation.model_package)
         .arg("--model-graph")
@@ -184,28 +237,51 @@ pub fn plan_rawnind_foundation(
         .arg("--manifest")
         .arg(&installation.manifest_path)
         .arg("--input-raw")
-        .arg(&input_raw)
+        .arg(input_raw);
+    if let Some(decoded_raw_frame) = input.decoded_raw_frame() {
+        if !decoded_raw_frame.is_file() {
+            return Err(RawNindFoundationPlanningError::DecodedInputUnavailable);
+        }
+        command.arg("--input-raw-frame").arg(decoded_raw_frame);
+    }
+    let child = command
         .arg("--source-pixel-contract-sha256")
         .arg(RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256)
         .arg("--plan")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|_| RawNindFoundationPlanningError::PlanningFailed)?;
+        .map_err(|_| {
+            RawNindFoundationPlanningError::PlanningFailed(
+                "could not start the local sidecar".into(),
+            )
+        })?;
     let captured =
         wait_with_bounded_output(child, cancellation, POLL_INTERVAL).map_err(|failure| {
             match failure {
                 ProcessFailure::Cancelled => RawNindFoundationPlanningError::Cancelled,
                 ProcessFailure::Wait | ProcessFailure::Reader => {
-                    RawNindFoundationPlanningError::PlanningFailed
+                    RawNindFoundationPlanningError::PlanningFailed(
+                        "could not collect the local sidecar result".into(),
+                    )
                 }
             }
         })?;
     if !captured.status.success() {
-        return Err(RawNindFoundationPlanningError::PlanningFailed);
+        let diagnostic = String::from_utf8_lossy(&captured.stderr).trim().to_owned();
+        return Err(RawNindFoundationPlanningError::PlanningFailed(
+            if diagnostic.is_empty() {
+                format!("local sidecar exited with {}", captured.status)
+            } else {
+                diagnostic
+            },
+        ));
     }
-    let plan = parse_plan_receipt(&captured.stdout)
-        .map_err(|()| RawNindFoundationPlanningError::PlanningFailed)?;
+    let plan = parse_plan_receipt(&captured.stdout).map_err(|()| {
+        RawNindFoundationPlanningError::PlanningFailed(
+            "local sidecar returned a malformed plan receipt".into(),
+        )
+    })?;
     if plan.source_sha256 != expected_source_sha256
         || plan.source_size_bytes != expected_source_size_bytes
         || plan.source_pixel_contract_sha256 != RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256
@@ -326,7 +402,7 @@ pub struct RawNindFoundationProvider {
     model_graph: PathBuf,
     manifest_path: PathBuf,
     runtime_version: String,
-    input_raw: PathBuf,
+    input: RawNindFoundationInput,
     output_foundation: PathBuf,
     output_verifier: Arc<dyn FoundationOutputVerifier>,
     execution_started: Mutex<bool>,
@@ -347,14 +423,14 @@ impl RawNindFoundationProvider {
         installation: &VerifiedRawNindFoundationInstallation,
         execution_plan: ExecutionPlanIdentity,
         foundation_plan: RawNindFoundationPlan,
-        input_raw: impl Into<PathBuf>,
+        input: impl Into<RawNindFoundationInput>,
         output_foundation: impl Into<PathBuf>,
     ) -> Result<Self, RawNindFoundationProviderConfigurationError> {
         Self::new_with_verifier(
             installation,
             execution_plan,
             foundation_plan,
-            input_raw.into(),
+            input,
             output_foundation.into(),
             Arc::new(IndependentFoundationOutputVerifier),
         )
@@ -364,10 +440,11 @@ impl RawNindFoundationProvider {
         installation: &VerifiedRawNindFoundationInstallation,
         execution_plan: ExecutionPlanIdentity,
         foundation_plan: RawNindFoundationPlan,
-        input_raw: PathBuf,
+        input: impl Into<RawNindFoundationInput>,
         output_foundation: PathBuf,
         output_verifier: Arc<dyn FoundationOutputVerifier>,
     ) -> Result<Self, RawNindFoundationProviderConfigurationError> {
+        let input = input.into();
         execution_plan.validate()?;
         if execution_plan.plan.backend_kind != BackendKind::Cpu
             || execution_plan.plan.precision != NumericPrecision::Float32
@@ -383,10 +460,12 @@ impl RawNindFoundationProvider {
         {
             return Err(RawNindFoundationProviderConfigurationError::FoundationPlanMismatch);
         }
-        if input_raw.as_os_str().is_empty() || output_foundation.as_os_str().is_empty() {
+        if input.source_raw.as_os_str().is_empty() || output_foundation.as_os_str().is_empty() {
             return Err(RawNindFoundationProviderConfigurationError::EmptyPath);
         }
-        if input_raw == output_foundation {
+        if input.source_raw == output_foundation
+            || input.decoded_raw_frame.as_ref() == Some(&output_foundation)
+        {
             return Err(RawNindFoundationProviderConfigurationError::InputOutputConflict);
         }
         let route = ExecutionRouteIdentity {
@@ -404,7 +483,7 @@ impl RawNindFoundationProvider {
             model_graph: installation.model_graph.clone(),
             manifest_path: installation.manifest_path.clone(),
             runtime_version: installation.runtime_version.clone(),
-            input_raw,
+            input,
             output_foundation,
             output_verifier,
             execution_started: Mutex::new(false),
@@ -477,9 +556,19 @@ impl RawNindFoundationProvider {
                 "model_manifest_changed",
             )));
         }
-        if !self.input_raw.is_file() {
+        if !self.input.source_raw.is_file() {
             return Err(RawNindFoundationOutcome::Failed(provider_error(
                 "input_missing",
+            )));
+        }
+        if self
+            .input
+            .decoded_raw_frame
+            .as_ref()
+            .is_some_and(|path| !path.is_file())
+        {
+            return Err(RawNindFoundationOutcome::Failed(provider_error(
+                "decoded_input_missing",
             )));
         }
         if self.output_foundation.exists()
@@ -508,7 +597,7 @@ impl RawNindFoundationProvider {
                 "foundation_plan_source_mismatch",
             )));
         }
-        let Ok(metadata) = fs::metadata(&self.input_raw) else {
+        let Ok(metadata) = fs::metadata(&self.input.source_raw) else {
             return Err(RawNindFoundationOutcome::Failed(provider_error(
                 "input_metadata_failed",
             )));
@@ -529,7 +618,8 @@ impl RawNindFoundationProvider {
         cancellation: &CancellationToken,
         progress: &RuntimeProgressReporter<'_>,
     ) -> Result<FoundationReceipt, RawNindFoundationOutcome> {
-        let Ok(child) = Command::new(&self.executable)
+        let mut command = Command::new(&self.executable);
+        command
             .arg("--model-package")
             .arg(&self.model_package)
             .arg("--model-graph")
@@ -537,7 +627,11 @@ impl RawNindFoundationProvider {
             .arg("--manifest")
             .arg(&self.manifest_path)
             .arg("--input-raw")
-            .arg(&self.input_raw)
+            .arg(&self.input.source_raw);
+        if let Some(decoded_raw_frame) = &self.input.decoded_raw_frame {
+            command.arg("--input-raw-frame").arg(decoded_raw_frame);
+        }
+        let Ok(child) = command
             .arg("--output-foundation")
             .arg(&self.output_foundation)
             .arg("--source-pixel-contract-sha256")
@@ -710,12 +804,14 @@ pub enum RawNindFoundationPlanningError {
     InvalidSourceIdentity,
     #[error("RawNIND foundation source is unavailable")]
     SourceUnavailable,
+    #[error("RawNIND decoded RAW frame input is unavailable")]
+    DecodedInputUnavailable,
     #[error("RawNIND foundation source changed while planning")]
     SourceIdentityChanged,
     #[error("RawNIND foundation planning was cancelled")]
     Cancelled,
-    #[error("RawNIND foundation planning failed")]
-    PlanningFailed,
+    #[error("RawNIND foundation planning failed: {0}")]
+    PlanningFailed(String),
 }
 
 #[derive(Debug, Error)]

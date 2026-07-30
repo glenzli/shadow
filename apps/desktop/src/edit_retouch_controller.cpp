@@ -445,3 +445,16 @@ void EditController::removeRetouchStroke(const int index) {
     grade_stack_.retouch_strokes.removeAt(index);
     parameterEdited(QStringLiteral("retouch/stroke/remove"), before);
 }
+
+void EditController::clearRetouch() {
+    if (!active_ || interactionLocked()
+        || (grade_stack_.retouch_spots.isEmpty()
+            && grade_stack_.retouch_strokes.isEmpty())) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_spots.clear();
+    grade_stack_.retouch_strokes.clear();
+    parameterEdited(QStringLiteral("retouch/reset"), before);
+}

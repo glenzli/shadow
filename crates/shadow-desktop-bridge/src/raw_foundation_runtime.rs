@@ -21,8 +21,8 @@ use shadow_ai::{
     InputRole, LocalExecutionAdmission, LocalExecutionBinding, LocalModelAvailability,
     MaterializedRawFoundation, ModelAvailability, NumericPrecision, ObservationTarget,
     OnBatteryPolicy, PrivacyClass, RawFoundationArtifact, RawFoundationMaterializationDisposition,
-    RawFoundationMaterializationOutcome, ResourceEstimate, ResourcePolicy, RuntimeFailure,
-    RuntimeProgressSink, RuntimeTerminalOutcome, TaskPriority,
+    RawFoundationMaterializationOutcome, RawNindFoundationInput, ResourceEstimate, ResourcePolicy,
+    RuntimeFailure, RuntimeProgressSink, RuntimeTerminalOutcome, TaskPriority,
     VerifiedRawNindFoundationInstallation, admit_local_execution,
     materialize_rawnind_foundation_with_progress, resolve_cached_rawnind_foundation,
     verify_rawnind_foundation_installation,
@@ -36,6 +36,9 @@ use shadow_domain::{PhotoId, Platform};
 use thiserror::Error;
 
 use self::config::RawFoundationRuntimePaths;
+use crate::isolated_proxy::{
+    IsolatedRawFrameStaging, configured_helper_path, stage_isolated_raw_frame,
+};
 
 const MEBIBYTE: u64 = 1024 * 1024;
 const GIBIBYTE: u64 = 1024 * MEBIBYTE;
@@ -46,6 +49,7 @@ pub(crate) struct RawFoundationRuntime {
     model_package: PathBuf,
     model_graph: PathBuf,
     manifest_path: PathBuf,
+    raw_frame_staging_root: PathBuf,
     store: FoundationArtifactStore,
     installation: Mutex<Option<VerifiedRawNindFoundationInstallation>>,
 }
@@ -97,6 +101,7 @@ impl RawFoundationRuntime {
             model_package: paths.model_package,
             model_graph: paths.model_graph,
             manifest_path: paths.manifest_path,
+            raw_frame_staging_root: paths.raw_frame_staging_root,
             store: FoundationArtifactStore::open(paths.foundation_store_root)?,
             installation: Mutex::new(None),
         })
@@ -178,12 +183,22 @@ impl RawFoundationRuntime {
                 "{blockers:?}"
             )));
         };
+        let staging = self.stage_decoded_raw_frame(&invocation.input_raw)?;
+        let provider_input = staging.as_ref().map_or_else(
+            || RawNindFoundationInput::from(&invocation.input_raw),
+            |staging| {
+                RawNindFoundationInput::with_decoded_raw_frame(
+                    &invocation.input_raw,
+                    staging.manifest_path(),
+                )
+            },
+        );
         let outcome = materialize_rawnind_foundation_with_progress(
             &self.store,
             installation,
             format!("raw-foundation-lease-{}", invocation.request_id),
             *execution,
-            &invocation.input_raw,
+            provider_input,
             cancellation,
             progress,
         )?;
@@ -221,10 +236,17 @@ impl RawFoundationRuntime {
         }
         let mut installation_guard = self.installation_guard()?;
         let installation = self.verified_installation(&mut installation_guard, cancellation)?;
+        let staging = self.stage_decoded_raw_frame(input_raw)?;
+        let provider_input = staging.as_ref().map_or_else(
+            || RawNindFoundationInput::from(input_raw),
+            |staging| {
+                RawNindFoundationInput::with_decoded_raw_frame(input_raw, staging.manifest_path())
+            },
+        );
         let cached = resolve_cached_rawnind_foundation(
             &self.store,
             installation,
-            input_raw,
+            provider_input,
             &source_sha256,
             before.byte_len,
             cancellation,
@@ -236,6 +258,18 @@ impl RawFoundationRuntime {
             return Err(RawFoundationRuntimeError::SourceChanged);
         }
         Ok(cached.map(|materialized| ready_from_materialized(&materialized, input_raw, before)))
+    }
+
+    fn stage_decoded_raw_frame(
+        &self,
+        input_raw: &std::path::Path,
+    ) -> Result<Option<IsolatedRawFrameStaging>, RawFoundationRuntimeError> {
+        let Some(helper_path) = configured_helper_path() else {
+            return Ok(None);
+        };
+        stage_isolated_raw_frame(&helper_path, &self.raw_frame_staging_root, input_raw)
+            .map(Some)
+            .map_err(|error| RawFoundationRuntimeError::DecodedInput(error.to_string()))
     }
 
     fn installation_guard(
@@ -426,6 +460,8 @@ pub(crate) enum RawFoundationRuntimeError {
     SourceInventory(#[source] std::io::Error),
     #[error("RAW foundation source changed during materialization")]
     SourceChanged,
+    #[error("RAW foundation could not stage the decoded Bayer input: {0}")]
+    DecodedInput(String),
     #[error("RAW foundation cache resolution was cancelled")]
     Cancelled,
     #[error("RAW foundation runtime state is poisoned")]

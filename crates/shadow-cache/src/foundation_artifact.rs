@@ -302,6 +302,9 @@ struct FoundationModel {
 struct RawPreprocessing {
     black_level_per_channel: Vec<f64>,
     color_description: String,
+    decoded_samples_sha256: String,
+    decoder_provider_id: String,
+    decoder_provider_version: String,
     force_rggb_crop_sensor: [u32; 2],
     packed_shape: [u64; 3],
     raw_pattern: [[i64; 2]; 2],
@@ -795,6 +798,7 @@ fn validate_contract(contract: &FoundationContract) -> Result<(), FoundationArti
         ));
     }
     let preprocessing = &contract.raw_preprocessing;
+    validate_sha256(&preprocessing.decoded_samples_sha256)?;
     if preprocessing.packed_shape[0] != 4
         || preprocessing.sensor_shape
             != [
@@ -806,6 +810,8 @@ fn validate_contract(contract: &FoundationContract) -> Result<(), FoundationArti
             .iter()
             .any(|value| *value > 1)
         || preprocessing.color_description.is_empty()
+        || preprocessing.decoder_provider_id.is_empty()
+        || preprocessing.decoder_provider_version.is_empty()
         || preprocessing.black_level_per_channel.len() < 4
         || !preprocessing.white_level.is_finite()
         || preprocessing

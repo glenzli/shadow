@@ -4,8 +4,8 @@ use super::{
 };
 use crate::{
     AlbumKind, Catalog, CommitRecipe, LibraryApertureRange, LibraryFacetKind, LibraryFacetValue,
-    LibraryPhotoFilter, RecipeRefKind, RecipeRefTarget, SetPhotoLibraryState,
-    library_equipment_key,
+    LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter, LibraryPhotoOrder,
+    RecipeRefKind, RecipeRefTarget, SetPhotoLibraryState, library_equipment_key,
 };
 use shadow_domain::{
     EntityId, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, RecipeCommit, RecipeCommitId,
@@ -23,7 +23,12 @@ fn photo_first_library_page_includes_original_raster_sources() {
     );
 
     let page = catalog
-        .library_photo_page(&LibraryPhotoFilter::default(), None, 16)
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::default(),
+            None,
+            16,
+        )
         .expect("read Library page");
     assert_eq!(
         catalog
@@ -122,6 +127,7 @@ fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() 
                 album_id: Some(album.id),
                 ..LibraryPhotoFilter::default()
             },
+            LibraryPhotoOrder::default(),
             None,
             16,
         )
@@ -160,6 +166,7 @@ fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() 
                 has_development_edits: Some(true),
                 ..LibraryPhotoFilter::default()
             },
+            LibraryPhotoOrder::default(),
             None,
             16,
         )
@@ -183,6 +190,7 @@ fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() 
                 has_development_edits: Some(false),
                 ..LibraryPhotoFilter::default()
             },
+            LibraryPhotoOrder::default(),
             None,
             16,
         )
@@ -196,7 +204,12 @@ fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() 
     );
 
     let first_page = catalog
-        .library_photo_page(&LibraryPhotoFilter::default(), None, 2)
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::default(),
+            None,
+            2,
+        )
         .expect("first page");
     assert_eq!(
         catalog
@@ -215,6 +228,7 @@ fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() 
     let second_page = catalog
         .library_photo_page(
             &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::default(),
             first_page.next_cursor.as_ref(),
             2,
         )
@@ -228,6 +242,106 @@ fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() 
         vec![unindexed.photo_id]
     );
     assert!(second_page.next_cursor.is_none());
+}
+
+#[test]
+fn library_order_is_keyset_stable_for_dates_and_file_names() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let zulu = register(&mut catalog, "/one/Zulu.NEF");
+    let alpha = register(&mut catalog, "/two/alpha.nef");
+    let middle = register(&mut catalog, "/three/Middle.nef");
+    let _undated = register(&mut catalog, "/four/undated.nef");
+    catalog
+        .upsert_photo_library_facts(&facts_for(zulu, Some(300), "Nikon", "Z 8"))
+        .expect("zulu facts");
+    catalog
+        .upsert_photo_library_facts(&facts_for(alpha, Some(100), "Nikon", "Z 8"))
+        .expect("alpha facts");
+    catalog
+        .upsert_photo_library_facts(&facts_for(middle, Some(200), "Nikon", "Z 8"))
+        .expect("middle facts");
+
+    let paths = |page: &crate::LibraryPhotoPage| {
+        page.items
+            .iter()
+            .map(|item| item.location.display_path.clone())
+            .collect::<Vec<_>>()
+    };
+    let date_ascending = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::CaptureTimeAscending,
+            None,
+            16,
+        )
+        .expect("date ascending");
+    assert_eq!(
+        paths(&date_ascending),
+        vec![
+            "/two/alpha.nef",
+            "/three/Middle.nef",
+            "/one/Zulu.NEF",
+            "/four/undated.nef",
+        ]
+    );
+
+    let first_names = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::FileNameAscending,
+            None,
+            2,
+        )
+        .expect("first name page");
+    assert_eq!(
+        paths(&first_names),
+        vec!["/two/alpha.nef", "/three/Middle.nef"]
+    );
+    let remaining_names = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::FileNameAscending,
+            first_names.next_cursor.as_ref(),
+            2,
+        )
+        .expect("remaining name page");
+    assert_eq!(
+        paths(&remaining_names),
+        vec!["/four/undated.nef", "/one/Zulu.NEF"]
+    );
+
+    let names_descending = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::FileNameDescending,
+            None,
+            16,
+        )
+        .expect("name descending");
+    assert_eq!(
+        paths(&names_descending),
+        vec![
+            "/one/Zulu.NEF",
+            "/four/undated.nef",
+            "/three/Middle.nef",
+            "/two/alpha.nef",
+        ]
+    );
+
+    let mismatched_cursor = LibraryPhotoCursor {
+        value: LibraryPhotoCursorValue::FileName("alpha.nef".into()),
+        photo_id: alpha.photo_id,
+    };
+    assert!(
+        catalog
+            .library_photo_page(
+                &LibraryPhotoFilter::default(),
+                LibraryPhotoOrder::CaptureTimeDescending,
+                Some(&mismatched_cursor),
+                16,
+            )
+            .is_err()
+    );
 }
 
 #[test]

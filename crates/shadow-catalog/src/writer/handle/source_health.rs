@@ -1,6 +1,6 @@
 //! Client adapters for Library source inventory and missing-location review.
 
-use shadow_domain::{ImportSessionId, LocationId};
+use shadow_domain::{ImportSessionId, LibrarySourceId, LocationId};
 
 use crate::{
     CatalogError, LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationCursor,
@@ -17,6 +17,16 @@ impl CatalogHandle {
     pub fn library_sources(&self) -> Result<Vec<LibrarySourceRecord>, CatalogError> {
         self.request(|response| {
             Message::SourceHealth(SourceHealthMessage::LibrarySources(response))
+        })
+    }
+
+    /// Removes a configured discovery root while preserving every Library
+    /// photo and location record.
+    pub fn remove_library_source(&self, source_id: LibrarySourceId) -> Result<bool, CatalogError> {
+        self.request(|response| {
+            Message::SourceHealth(SourceHealthMessage::RemoveLibrarySource(
+                source_id, response,
+            ))
         })
     }
 

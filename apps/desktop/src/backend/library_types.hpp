@@ -52,6 +52,13 @@ enum class BackendLibraryFacetKind : std::uint8_t {
     Lens,
 };
 
+enum class BackendLibraryPhotoOrder : std::uint8_t {
+    CaptureTimeDescending,
+    CaptureTimeAscending,
+    FileNameAscending,
+    FileNameDescending,
+};
+
 struct BackendLibraryFacetCursor final {
     std::uint64_t photo_count = 0;
     QString key;
@@ -167,12 +174,13 @@ struct BackendVerifiedSourceRelinkReceipt final {
     QString display_path;
 };
 
-/// Keyset cursor for capture-time-descending Library pages. `photo_id` is the
-/// stable tie-breaker, so relinking/renaming a source never invalidates it.
+/// Keyset cursor for one explicitly ordered Library page. `photo_id` is the
+/// stable tie-breaker; exactly one sort value family is present.
 struct BackendLibraryPhotoCursor final {
     QString photo_id;
     bool has_capture_time = false;
     std::int64_t captured_at_unix_seconds = 0;
+    QString file_name;
 };
 
 /// A bounded photo-first Library result. Exact count is deliberately separate

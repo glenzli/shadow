@@ -3,7 +3,7 @@
 use crate::{
     CatalogError, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryMapGrid,
     LibraryMapSnapshot, LibraryMapViewport, LibraryPhotoCursor, LibraryPhotoFilter,
-    LibraryPhotoPage,
+    LibraryPhotoOrder, LibraryPhotoPage,
 };
 
 use super::super::{
@@ -17,12 +17,14 @@ impl CatalogHandle {
     pub fn library_photo_page(
         &self,
         filter: &LibraryPhotoFilter,
+        order: LibraryPhotoOrder,
         after: Option<&LibraryPhotoCursor>,
         requested_limit: usize,
     ) -> Result<LibraryPhotoPage, CatalogError> {
         self.request(|response| {
             Message::LibraryBrowse(LibraryBrowseMessage::PhotoPage(
                 filter.clone(),
+                order,
                 after.cloned(),
                 requested_limit,
                 response,

@@ -1,10 +1,22 @@
-//! Non-destructive AI RAW denoise intent owned by the Photo Foundation.
+//! Non-destructive, photo-local AI RAW denoise singleton.
 //!
 //! This module stores only reproducible edit intent. Local model paths,
 //! materialization progress, and rebuildable foundation-artifact locations are
 //! runtime concerns and must not enter Recipe identity.
 
 use serde::{Deserialize, Serialize};
+
+use super::RecipeValidationError;
+
+pub const RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT: u8 = 100;
+
+const fn default_amount_percent() -> u8 {
+    RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT
+}
+
+const fn amount_is_full(value: &u8) -> bool {
+    *value == RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT
+}
 
 /// Exact public model contract admitted by the current Recipe schema.
 ///
@@ -54,14 +66,29 @@ impl RawFoundationDenoiseModel {
 
 /// One photo-local, single-use AI RAW denoise node.
 ///
-/// The node always has one stable slot inside the Photo Foundation. Disabling
-/// it bypasses the materialized foundation without deleting either the model
-/// choice or a rebuildable cached result. It cannot be duplicated, reordered,
-/// masked, or shared like a Grade Node.
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+/// The node always has one stable slot before the Photo Foundation. Disabling
+/// it bypasses the materialized result without deleting either the model
+/// choice, authored amount, or rebuildable cached artifact. It cannot be
+/// duplicated, reordered, masked, or shared like a Grade Node.
+///
+/// `amount_percent` blends the original RAW reconstruction with the already
+/// materialized AI result in camera-linear RGB. It never changes model
+/// execution or foundation-artifact identity.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RawFoundationDenoise {
     enabled: bool,
     model: RawFoundationDenoiseModel,
+    #[serde(
+        default = "default_amount_percent",
+        skip_serializing_if = "amount_is_full"
+    )]
+    amount_percent: u8,
+}
+
+impl Default for RawFoundationDenoise {
+    fn default() -> Self {
+        Self::disabled()
+    }
 }
 
 impl RawFoundationDenoise {
@@ -69,6 +96,7 @@ impl RawFoundationDenoise {
         Self {
             enabled: false,
             model: RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+            amount_percent: RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT,
         }
     }
 
@@ -76,6 +104,7 @@ impl RawFoundationDenoise {
         Self {
             enabled: true,
             model,
+            amount_percent: RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT,
         }
     }
 
@@ -93,9 +122,50 @@ impl RawFoundationDenoise {
         self.model
     }
 
+    /// Sets the authored blend amount without changing the cached AI result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `amount_percent` exceeds 100.
+    pub fn with_amount_percent(
+        mut self,
+        amount_percent: u8,
+    ) -> Result<Self, RecipeValidationError> {
+        if amount_percent > RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT {
+            return Err(RecipeValidationError::InvalidRawFoundationDenoiseAmount(
+                amount_percent,
+            ));
+        }
+        self.amount_percent = amount_percent;
+        Ok(self)
+    }
+
+    pub const fn amount_percent(self) -> u8 {
+        self.amount_percent
+    }
+
+    /// Whether rendering needs the materialized AI artifact.
+    pub const fn is_effective(self) -> bool {
+        self.enabled && self.amount_percent > 0
+    }
+
+    pub(super) fn validate(self) -> Result<(), RecipeValidationError> {
+        if self.amount_percent > RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT {
+            return Err(RecipeValidationError::InvalidRawFoundationDenoiseAmount(
+                self.amount_percent,
+            ));
+        }
+        Ok(())
+    }
+
     #[allow(clippy::trivially_copy_pass_by_ref)] // Serde skip_serializing_if requires `fn(&T)`.
-    pub(super) const fn is_disabled(&self) -> bool {
+    pub(super) const fn is_default_state(&self) -> bool {
         !self.enabled
+            && matches!(
+                self.model,
+                RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0
+            )
+            && self.amount_percent == RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT
     }
 }
 

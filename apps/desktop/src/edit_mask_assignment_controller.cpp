@@ -99,7 +99,7 @@ bool EditController::createLocalMask(const int kind, const int destination) {
     BackendGradeNode grade_node;
     try {
         grade_node =
-            backend_->newBasicGradeNode(uniqueGradeNodeLabel(QStringLiteral("Adjustments")));
+            backend_->newBasicGradeNode(uniqueGradeNodeLabel(QStringLiteral("Adjustment Node")));
     } catch (const std::exception& error) {
         setStatusMessage(mask_assignment_message(
             QT_TRANSLATE_NOOP("EditController", "Could not create masked Grade Node · %1"),

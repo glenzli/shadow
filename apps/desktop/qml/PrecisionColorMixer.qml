@@ -32,6 +32,8 @@ ShadowAdjustmentSection {
     title: qsTr("COLOR MIXER")
     summary: qsTr("OKLCH")
     toolTipText: qsTr("Adjust the hue, chroma, or Oklab lightness of each color family.")
+    resetAvailable: true
+    onResetRequested: editor.resetSelectedAdjustmentSection("color_mixer")
 
     function componentForTab(tabIndex) {
         return tabIndex === 0 ? "hue"

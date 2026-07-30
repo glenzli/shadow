@@ -23,6 +23,7 @@ fn valid_transfer_seals_fixed_model_and_owned_pixels() {
         },
         1,
         0,
+        100,
         identity(),
         vec![0.25; 12],
     )
@@ -36,6 +37,7 @@ fn valid_transfer_seals_fixed_model_and_owned_pixels() {
     );
     assert_eq!(transfer.crop_top(), 1);
     assert_eq!(transfer.crop_left(), 0);
+    assert_eq!(transfer.amount_percent(), 100);
     assert_eq!(transfer.ffi.model_identity, RAW_FOUNDATION_MODEL_IDENTITY);
     assert_eq!(
         transfer.ffi.implementation_revision,
@@ -66,6 +68,7 @@ fn digest_crop_shape_and_finite_values_fail_closed() {
             },
             2,
             0,
+            100,
             identity(),
             vec![0.25; 12],
         )
@@ -79,6 +82,21 @@ fn digest_crop_shape_and_finite_values_fail_closed() {
             },
             0,
             0,
+            101,
+            identity(),
+            vec![0.25; 12],
+        )
+        .is_err()
+    );
+    assert!(
+        VerifiedRawFoundation::from_verified_interleaved_camera_rgb(
+            ImageDimensions {
+                width: 2,
+                height: 2,
+            },
+            0,
+            0,
+            100,
             identity(),
             vec![0.25; 11],
         )
@@ -94,6 +112,7 @@ fn digest_crop_shape_and_finite_values_fail_closed() {
             },
             0,
             0,
+            100,
             identity(),
             non_finite,
         )
@@ -111,6 +130,7 @@ fn arithmetic_and_transfer_limits_fail_before_sample_access() {
             },
             0,
             0,
+            100,
             identity(),
             Vec::new(),
         )

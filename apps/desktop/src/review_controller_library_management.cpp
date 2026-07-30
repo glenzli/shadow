@@ -4,17 +4,11 @@
 
 void ReviewController::refreshLibraryFacets() {
     if (!scanning()) {
-        facet_coordinator_.refresh(
-            currentLibraryFilter(),
-            query_coordinator_.generation()
-        );
+        facet_coordinator_.refresh(currentLibraryFilter(), query_coordinator_.generation());
     }
 }
 
-void ReviewController::setLibraryFacet(
-    const QString& kind,
-    const QString& key
-) {
+void ReviewController::setLibraryFacet(const QString& kind, const QString& key) {
     const QString normalized_kind = kind.trimmed().toLower();
     if (normalized_kind == QStringLiteral("month")) {
         setFilterCaptureMonth(key);
@@ -37,9 +31,14 @@ void ReviewController::refreshLibrarySourceHealth() {
     source_health_coordinator_.refreshSourceHealth();
 }
 
-void ReviewController::openMissingSourceLocationReview(
-    const QString& scan_session_id
-) {
+void ReviewController::removeLibrarySource(const QString& source_id, const QString& source_path) {
+    if (scanning()) {
+        return;
+    }
+    source_health_coordinator_.removeSource(source_id, source_path);
+}
+
+void ReviewController::openMissingSourceLocationReview(const QString& scan_session_id) {
     source_health_coordinator_.openMissingLocationReview(scan_session_id);
 }
 
@@ -55,10 +54,7 @@ void ReviewController::relinkMissingSourceLocation(
     const QString& location_id,
     const QUrl& candidate_url
 ) {
-    source_health_coordinator_.relinkMissingLocation(
-        location_id,
-        candidate_url
-    );
+    source_health_coordinator_.relinkMissingLocation(location_id, candidate_url);
 }
 
 void ReviewController::createManualLibraryAlbum(const QString& name) {
@@ -69,10 +65,7 @@ void ReviewController::createSmartLibraryAlbum(const QString& name) {
     album_coordinator_.createSmart(name, currentLibraryFilter());
 }
 
-void ReviewController::renameLibraryAlbum(
-    const QString& album_id,
-    const QString& name
-) {
+void ReviewController::renameLibraryAlbum(const QString& album_id, const QString& name) {
     album_coordinator_.rename(album_id, name);
 }
 
@@ -98,9 +91,7 @@ void ReviewController::refreshSharedGradeNodes() {
     shared_grade_coordinator_.refresh();
 }
 
-QVariantMap ReviewController::applySharedGradeNode(
-    const QString& layer_id,
-    const QVariantList& targets
-) {
+QVariantMap
+ReviewController::applySharedGradeNode(const QString& layer_id, const QVariantList& targets) {
     return shared_grade_coordinator_.apply(layer_id, targets);
 }

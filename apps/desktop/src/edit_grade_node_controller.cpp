@@ -42,13 +42,19 @@ namespace {
         return QCoreApplication::translate(context, QT_TRANSLATE_NOOP("EditController", "%1 Copy"))
             .arg(display_grade_node_label(base));
     }
-    if (stored_label.compare(QStringLiteral("Adjustments"), Qt::CaseInsensitive) == 0) {
+    if (stored_label.compare(QStringLiteral("Adjustment Node"), Qt::CaseInsensitive) == 0
+        || stored_label.compare(QStringLiteral("Adjustments"), Qt::CaseInsensitive) == 0) {
         return QCoreApplication::translate(
             context,
-            QT_TRANSLATE_NOOP("EditController", "Adjustments")
+            QT_TRANSLATE_NOOP("EditController", "Adjustment Node")
         );
     }
-    const QString numbered_prefix = QStringLiteral("Adjustments ");
+    const QString current_numbered_prefix = QStringLiteral("Adjustment Node ");
+    const QString legacy_numbered_prefix = QStringLiteral("Adjustments ");
+    const QString numbered_prefix =
+        stored_label.startsWith(current_numbered_prefix, Qt::CaseInsensitive)
+            ? current_numbered_prefix
+            : legacy_numbered_prefix;
     if (stored_label.startsWith(numbered_prefix, Qt::CaseInsensitive)) {
         const QString suffix = stored_label.mid(numbered_prefix.size());
         bool valid_number = false;
@@ -56,7 +62,7 @@ namespace {
         if (valid_number && number >= 2 && QString::number(number) == suffix) {
             return QCoreApplication::translate(
                        context,
-                       QT_TRANSLATE_NOOP("EditController", "Adjustments %1")
+                       QT_TRANSLATE_NOOP("EditController", "Adjustment Node %1")
             )
                 .arg(number);
         }
@@ -131,6 +137,22 @@ bool EditController::hasSelectedGradeNode() const noexcept {
     return selectedGradeNode() != nullptr;
 }
 
+bool EditController::foundationSelected() const noexcept {
+    return selected_recipe_node_kind_ == QStringLiteral("foundation");
+}
+
+bool EditController::rawDenoiseSelected() const noexcept {
+    return selected_recipe_node_kind_ == QStringLiteral("raw_denoise");
+}
+
+QString EditController::selectedRecipeNodeKind() const {
+    return selected_recipe_node_kind_;
+}
+
+bool EditController::liquifyNodeMaterialized() const noexcept {
+    return !grade_stack_.liquify_strokes.isEmpty();
+}
+
 bool EditController::canAddGradeNode() const noexcept {
     return active_ && !interactionLocked()
            && grade_stack_.grade_nodes.size() < GradeNodeStack::maximum_grade_node_count;
@@ -142,12 +164,14 @@ bool EditController::canDeleteGradeNode() const noexcept {
 }
 
 bool EditController::canMoveGradeNodeUp() const noexcept {
-    return active_ && !interactionLocked() && selected_grade_node_index_ > 0;
+    return active_ && !interactionLocked() && hasSelectedGradeNode()
+           && selected_grade_node_index_ > 0;
 }
 
 bool EditController::canMoveGradeNodeDown() const noexcept {
     const int count = static_cast<int>(grade_stack_.grade_nodes.size());
-    return active_ && !interactionLocked() && selected_grade_node_index_ >= 0
+    return active_ && !interactionLocked() && hasSelectedGradeNode()
+           && selected_grade_node_index_ >= 0
            && selected_grade_node_index_ + 1 < count;
 }
 
@@ -179,14 +203,107 @@ void EditController::setGradeNodeEnabled(const bool enabled) {
 void EditController::selectGradeNode(const int index) {
     const int count = static_cast<int>(grade_stack_.grade_nodes.size());
     if (!active_ || interactionLocked() || index < 0 || index >= count
-        || index == selected_grade_node_index_) {
+        || (selected_recipe_node_kind_ == QStringLiteral("grade")
+            && index == selected_grade_node_index_)) {
         return;
     }
     finishActiveGesture();
     setPointColorPickerActive(false);
     setRetouchPickerActive(false);
     setWhiteBalancePickerActive(false);
+    const bool left_structural =
+        selected_recipe_node_kind_ != QStringLiteral("grade");
+    selected_recipe_node_kind_ = QStringLiteral("grade");
     setGradeStack(grade_stack_, grade_stack_.grade_nodes.at(index).grade_node_id);
+    if (left_structural) {
+        emit selectedGradeNodeChanged();
+        emit gradeNodeActionsChanged();
+        emit gradeNodeEnabledChanged();
+        notifyParametersChanged();
+        emit toneCurveChanged();
+    }
+}
+
+void EditController::selectFoundationNode() {
+    if (!active_ || interactionLocked()
+        || selected_recipe_node_kind_ == QStringLiteral("foundation")) {
+        return;
+    }
+    finishActiveGesture();
+    setPointColorPickerActive(false);
+    setRetouchPickerActive(false);
+    setWhiteBalancePickerActive(false);
+    selected_recipe_node_kind_ = QStringLiteral("foundation");
+    selected_point_color_index_ = -1;
+    clearPointColorScopeReference();
+    const QVector<ToneCurvePoint> neutral_curve{{0.0, 0.0}, {1.0, 1.0}};
+    if (tone_curve_points_.points() != neutral_curve) {
+        static_cast<void>(tone_curve_points_.replace(neutral_curve));
+    }
+    emit selectedGradeNodeChanged();
+    emit gradeNodeActionsChanged();
+    emit gradeNodeEnabledChanged();
+    notifyParametersChanged();
+    emit toneCurveChanged();
+}
+
+void EditController::selectRawDenoiseNode() {
+    if (!active_ || interactionLocked()
+        || selected_recipe_node_kind_ == QStringLiteral("raw_denoise")) {
+        return;
+    }
+    finishActiveGesture();
+    setPointColorPickerActive(false);
+    setRetouchPickerActive(false);
+    setWhiteBalancePickerActive(false);
+    selected_recipe_node_kind_ = QStringLiteral("raw_denoise");
+    selected_point_color_index_ = -1;
+    clearPointColorScopeReference();
+    const QVector<ToneCurvePoint> neutral_curve{{0.0, 0.0}, {1.0, 1.0}};
+    if (tone_curve_points_.points() != neutral_curve) {
+        static_cast<void>(tone_curve_points_.replace(neutral_curve));
+    }
+    emit selectedGradeNodeChanged();
+    emit gradeNodeActionsChanged();
+    emit gradeNodeEnabledChanged();
+    notifyParametersChanged();
+    emit toneCurveChanged();
+}
+
+void EditController::selectLiquifyNode() {
+    if (!active_ || interactionLocked()
+        || selected_recipe_node_kind_ == QStringLiteral("liquify")) {
+        return;
+    }
+    finishActiveGesture();
+    setPointColorPickerActive(false);
+    setRetouchPickerActive(false);
+    setWhiteBalancePickerActive(false);
+    selected_recipe_node_kind_ = QStringLiteral("liquify");
+    selected_point_color_index_ = -1;
+    clearPointColorScopeReference();
+    emit selectedGradeNodeChanged();
+    emit gradeNodeActionsChanged();
+    emit gradeNodeEnabledChanged();
+    notifyParametersChanged();
+}
+
+void EditController::selectCanvasNode() {
+    if (!active_ || interactionLocked()
+        || selected_recipe_node_kind_ == QStringLiteral("canvas")) {
+        return;
+    }
+    finishActiveGesture();
+    setPointColorPickerActive(false);
+    setRetouchPickerActive(false);
+    setWhiteBalancePickerActive(false);
+    selected_recipe_node_kind_ = QStringLiteral("canvas");
+    selected_point_color_index_ = -1;
+    clearPointColorScopeReference();
+    emit selectedGradeNodeChanged();
+    emit gradeNodeActionsChanged();
+    emit gradeNodeEnabledChanged();
+    notifyParametersChanged();
 }
 
 void EditController::addGradeNode() {
@@ -200,7 +317,7 @@ void EditController::addGradeNode() {
     BackendGradeNode grade_node;
     try {
         grade_node =
-            backend_->newBasicGradeNode(uniqueGradeNodeLabel(QStringLiteral("Adjustments")));
+            backend_->newBasicGradeNode(uniqueGradeNodeLabel(QStringLiteral("Adjustment Node")));
     } catch (const std::exception& error) {
         setStatusMessage(grade_node_message(
             QT_TRANSLATE_NOOP("EditController", "Could not create Grade Node · %1"),
@@ -217,7 +334,17 @@ void EditController::addGradeNode() {
         ));
         return;
     }
+    const bool left_structural =
+        selected_recipe_node_kind_ != QStringLiteral("grade");
+    selected_recipe_node_kind_ = QStringLiteral("grade");
     setGradeStack(std::move(updated), grade_node.grade_node_id);
+    if (left_structural) {
+        emit selectedGradeNodeChanged();
+        emit gradeNodeActionsChanged();
+        emit gradeNodeEnabledChanged();
+        notifyParametersChanged();
+        emit toneCurveChanged();
+    }
     recordWorkingTransition(
         QStringLiteral("grade_node/%1/add").arg(grade_node.grade_node_id),
         before
@@ -403,7 +530,17 @@ void EditController::insertSharedGradeNode(const QString& layer_id) {
             return;
         }
     }
+    const bool left_structural =
+        selected_recipe_node_kind_ != QStringLiteral("grade");
+    selected_recipe_node_kind_ = QStringLiteral("grade");
     setGradeStack(std::move(updated), inserted.grade_node_id);
+    if (left_structural) {
+        emit selectedGradeNodeChanged();
+        emit gradeNodeActionsChanged();
+        emit gradeNodeEnabledChanged();
+        notifyParametersChanged();
+        emit toneCurveChanged();
+    }
     recordWorkingTransition(
         QStringLiteral("grade_node/%1/shared/%2")
             .arg(inserted.grade_node_id, iterator->revision_id),
@@ -489,7 +626,7 @@ void EditController::resetAllGradeNodes() {
 
     BackendGradeNode neutral;
     try {
-        neutral = backend_->newBasicGradeNode(QStringLiteral("Adjustments"));
+        neutral = backend_->newBasicGradeNode(QStringLiteral("Adjustment Node"));
     } catch (const std::exception& error) {
         setStatusMessage(grade_node_message(
             QT_TRANSLATE_NOOP("EditController", "Could not clear Grade Nodes · %1"),
@@ -510,6 +647,9 @@ void EditController::resetAllGradeNodes() {
 }
 
 const BackendGradeNode* EditController::selectedGradeNode() const noexcept {
+    if (selected_recipe_node_kind_ != QStringLiteral("grade")) {
+        return nullptr;
+    }
     const int count = static_cast<int>(grade_stack_.grade_nodes.size());
     if (selected_grade_node_index_ < 0 || selected_grade_node_index_ >= count) {
         return nullptr;
@@ -519,7 +659,7 @@ const BackendGradeNode* EditController::selectedGradeNode() const noexcept {
 
 QString EditController::uniqueGradeNodeLabel(const QString& base) const {
     const QString clean_base =
-        base.trimmed().isEmpty() ? QStringLiteral("Adjustments") : base.trimmed();
+        base.trimmed().isEmpty() ? QStringLiteral("Adjustment Node") : base.trimmed();
     const auto exists = [this](const QString& candidate) {
         return std::any_of(
             grade_stack_.grade_nodes.cbegin(),

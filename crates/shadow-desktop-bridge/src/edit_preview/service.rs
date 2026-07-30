@@ -20,7 +20,8 @@ use crate::{
     preview_render_registry::{PreviewAdmission, PreviewRenderRegistryError, PreviewTerminalClaim},
     raw_foundation_render_source::raw_foundation_ready_for_render,
     recipe_v1::{
-        bridge_optics_settings, preview_foundation_development_plan, resolve_recipe_render,
+        bridge_foundation_optics_settings, preview_foundation_development_plan,
+        resolve_recipe_render,
     },
     session_photo_source::catalog_native_path,
 };
@@ -189,7 +190,7 @@ impl DesktopSession {
                 source.source,
                 recipe.raw_ai_denoise,
             )?;
-            let optics = bridge_optics_settings(&request.settings.foundation.optics);
+            let optics = bridge_foundation_optics_settings(&request.settings.foundation);
             let session =
                 self.warm_edit_preview_sessions
                     .get_or_prepare(&WarmEditPreviewSourceRequest {

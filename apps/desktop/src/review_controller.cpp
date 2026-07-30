@@ -149,6 +149,14 @@ QString ReviewController::filterLiked() const {
     return filtered_model_.likedFilter();
 }
 
+QString ReviewController::librarySortKey() const {
+    return library_sort_key_;
+}
+
+bool ReviewController::librarySortDescending() const noexcept {
+    return library_sort_descending_;
+}
+
 QString ReviewController::filterExcludedFlag() const {
     return filtered_model_.excludedFlagFilter();
 }
@@ -227,6 +235,10 @@ QVariantList ReviewController::librarySourceHealth() const {
 
 bool ReviewController::librarySourceHealthBusy() const noexcept {
     return source_health_coordinator_.sourceHealthBusy();
+}
+
+bool ReviewController::librarySourceRemovalBusy() const noexcept {
+    return source_health_coordinator_.removeSourceBusy();
 }
 
 QVariantMap ReviewController::libraryMetadata() const {

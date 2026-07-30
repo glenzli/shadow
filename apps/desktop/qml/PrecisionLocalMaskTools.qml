@@ -36,6 +36,14 @@ ColumnLayout {
                 : qsTr("%1 prompt points").arg(localMask.inspector.editor.aiMaskPromptPoints.length)
         toolTipText: qsTr("Include points identify the subject. Exclude points remove nearby regions.")
         sectionEnabled: true
+        resetAvailable: true
+        resetEnabled: !localMask.inspector.editor.aiMaskBusy
+            && (localMask.inspector.editor.aiMaskPromptPoints.length > 0
+                || localMask.inspector.editor.aiMaskHasCandidate)
+        onResetRequested: {
+            localMask.inspector.editor.aiMaskForegroundMode = true
+            localMask.inspector.editor.clearAiMaskPromptPoints()
+        }
 
         RowLayout {
             Layout.fillWidth: true
@@ -132,6 +140,10 @@ ColumnLayout {
         summary: localMask.kindLabel
         toolTipText: qsTr("Edit the selector attached to this Grade Node.")
         sectionEnabled: localMask.nodeEditable
+        resetAvailable: true
+        resetEnabled: localMask.activeMask
+        onResetRequested:
+            localMask.inspector.editor.resetSelectedLocalMask()
 
         RowLayout {
             Layout.fillWidth: true

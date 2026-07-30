@@ -110,7 +110,7 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
     pipeline.effective_plan = effective_plan;
     DevelopedRawFoundation developed = develop_raw_foundation(
         foundation,
-        prepared.development_.descriptor(),
+        prepared.frame_,
         prepared.development_.linear_transform(),
         prepared.development_.preview_max_edge()
     );

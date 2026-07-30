@@ -1,6 +1,8 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/raw_foundation.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -14,6 +16,7 @@ using shadow::image::RawCfaColor;
 using shadow::image::RawFoundationCameraRgbView;
 using shadow::image::RawFoundationProvenance;
 using shadow::image::RawFrameCfaLayout;
+using shadow::image::RawFrame;
 using shadow::image::RawFrameDescriptor;
 using shadow::image::RawFrameLinearTransform;
 
@@ -56,6 +59,19 @@ RawFoundationProvenance provenance() {
         .implementation_revision =
             std::string(shadow::image::raw_foundation_implementation_revision),
     };
+}
+
+RawFrame constant_original_frame() {
+    RawFrame frame;
+    frame.descriptor = descriptor({.width = 4U, .height = 4U});
+    frame.descriptor.cfa_pattern = "RGGB";
+    frame.descriptor.bits_per_sample = 16U;
+    frame.descriptor.black_levels = {0U, 0U, 0U, 0U};
+    frame.descriptor.white_levels = {100U, 100U, 100U, 100U};
+    frame.descriptor.as_shot_neutral = {1.0, 1.0, 1.0, 1.0};
+    frame.samples = std::vector<std::uint16_t>(16U, 20U);
+    require(frame.valid(), "constant original fixture must be a valid Bayer frame");
+    return frame;
 }
 
 void full_resolution_transform_and_orientation_are_exact() {
@@ -220,12 +236,51 @@ void crop_geometry_and_provenance_fail_closed() {
     require(rejected, "invalid foundation must throw before pixel work");
 }
 
+void amount_blends_the_cached_result_with_original_camera_rgb() {
+    const std::vector<float> pixels(4U * 4U * 3U, 1.0F);
+    RawFoundationCameraRgbView input{
+        .dimensions = {.width = 4U, .height = 4U},
+        .amount_percent = 25U,
+        .samples = pixels,
+        .provenance = provenance(),
+    };
+    const RawFrameLinearTransform identity{{
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+    }};
+    const RawFrame original = constant_original_frame();
+    const auto developed =
+        shadow::image::develop_raw_foundation(input, original, identity);
+    require(
+        std::all_of(
+            developed.scene_linear.samples.begin(),
+            developed.scene_linear.samples.end(),
+            [](const float value) { return std::abs(value - 0.4F) < 1.0e-6F; }
+        ),
+        "25 percent amount must mix 20 percent original with full-strength AI output"
+    );
+    require(
+        developed.cache_identity.find("amount-percent=25") != std::string::npos,
+        "amount belongs to the developed render identity"
+    );
+
+    input.amount_percent = 101U;
+    require(!input.valid(), "amounts above 100 percent fail closed");
+}
+
 } // namespace
 
 int main() {
     full_resolution_transform_and_orientation_are_exact();
     bounded_preview_is_bilinear_before_the_linear_transform();
     crop_geometry_and_provenance_fail_closed();
+    amount_blends_the_cached_result_with_original_camera_rgb();
     std::cout << "raw foundation contract passed\n";
     return 0;
 }

@@ -422,15 +422,19 @@ pub(super) fn has_other_recipe_changes(
     {
         return true;
     }
-    if diff.input_settings().is_some()
-        && before.foundation_node().raw_white_balance()
-            != after.foundation_node().raw_white_balance()
-    {
-        // Absolute camera-space Foundation white balance must not reuse the
-        // creative Grade temperature/tint labels. Until the desktop exposes a
-        // dedicated Foundation history label, report it honestly as an
-        // additional Recipe change.
-        return true;
+    if diff.input_settings().is_some() {
+        let before_foundation = before.foundation_node();
+        let after_foundation = after.foundation_node();
+        if before_foundation.enabled() != after_foundation.enabled()
+            || before_foundation.raw_white_balance() != after_foundation.raw_white_balance()
+            || before.raw_ai_denoise_node() != after.raw_ai_denoise_node()
+        {
+            // Foundation enablement, absolute white balance, and RAW AI
+            // denoise must not reuse creative Grade labels. Until the desktop
+            // exposes dedicated history labels, report them honestly as
+            // additional Recipe changes.
+            return true;
+        }
     }
 
     if canonical_grade_stack_recipe_v1_identity_is_preserved(before, after) {

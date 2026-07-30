@@ -168,7 +168,8 @@ impl LibraryService {
         limit: u32,
     ) -> AnyResult<ffi::FfiLibraryPhotoPage> {
         let album_id = library_album_id_from_text(album_id)?;
-        let cursor = library_cursor_from_ffi(ffi_cursor)?;
+        let cursor =
+            library_cursor_from_ffi(shadow_catalog::LibraryPhotoOrder::default(), ffi_cursor)?;
         let page = self.catalog.smart_album_photo_page(
             album_id,
             cursor.as_ref(),

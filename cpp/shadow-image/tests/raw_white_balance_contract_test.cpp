@@ -1,0 +1,100 @@
+#include "dcp_color_contract_test_support.hpp"
+
+#include <shadow/image/raw_white_balance.hpp>
+
+#include <array>
+#include <cmath>
+#include <iostream>
+
+namespace image = shadow::image;
+
+namespace {
+
+using image::test_support::expect;
+using image::test_support::expect_close;
+using image::test_support::profile_definition;
+using image::test_support::raw_descriptor;
+
+void photographic_temperature_tint_round_trips_through_xy() {
+    for (const auto sample : std::array{
+             std::array<double, 2U>{2'850.0, -60.0},
+             std::array<double, 2U>{5'500.0, 0.0},
+             std::array<double, 2U>{6'500.0, 35.0},
+             std::array<double, 2U>{12'000.0, 90.0},
+         }) {
+        const auto xy = image::raw_white_xy_from_temperature_tint(sample[0], sample[1]);
+        expect(xy.has_value(), "valid photographic controls resolve to a CIE white point");
+        const auto presentation =
+            image::raw_white_balance_presentation_from_xy((*xy)[0], (*xy)[1]);
+        expect(presentation.has_value(), "resolved white point has a photographic presentation");
+        expect_close(
+            presentation->temperature_kelvin,
+            sample[0],
+            0.05,
+            "temperature round trip remains stable"
+        );
+        expect_close(presentation->tint, sample[1], 0.01, "tint round trip remains stable");
+    }
+}
+
+void dcp_camera_neutral_is_an_internal_calibration_value() {
+    const auto definition = profile_definition(false);
+    const auto white_balance = image::RawWhiteBalance{
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 3'600U,
+        .tint = -42,
+    };
+    const auto neutral = image::raw_dcp_camera_neutral(definition.profile, white_balance);
+    expect(neutral.has_value(), "DCP profile resolves authored temperature/tint");
+    expect_close((*neutral)[1], 1.0, 1.0e-12, "camera neutral is green-normalized");
+    const auto presentation =
+        image::raw_dcp_white_balance_presentation(definition.profile, *neutral);
+    expect(presentation.has_value(), "DCP camera neutral can be presented to the photographer");
+    expect_close(
+        presentation->temperature_kelvin,
+        3'600.0,
+        0.1,
+        "DCP presentation recovers temperature"
+    );
+    expect_close(presentation->tint, -42.0, 0.05, "DCP presentation recovers tint");
+}
+
+void generic_raw_frame_uses_its_explicit_camera_matrix() {
+    auto descriptor = raw_descriptor();
+    descriptor.camera_to_linear_srgb_d65 = {
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+    };
+    descriptor.has_camera_to_linear_srgb_d65 = true;
+    const auto authored = image::raw_frame_camera_neutral(
+        descriptor,
+        image::RawWhiteBalance{
+            .mode = image::RawWhiteBalanceMode::temperature_tint,
+            .temperature_kelvin = 6'500U,
+            .tint = 0,
+        }
+    );
+    expect(authored.has_value(), "generic RawFrame calibration resolves human white balance");
+    expect_close((*authored)[0], 1.0, 0.08, "D65-like red neutral is close to unity");
+    expect_close((*authored)[1], 1.0, 1.0e-12, "generic neutral is green-normalized");
+    expect_close((*authored)[2], 1.0, 0.08, "D65-like blue neutral is close to unity");
+}
+
+void invalid_authoring_values_fail_closed() {
+    expect(
+        !image::raw_white_xy_from_temperature_tint(1'999.0, 0.0).has_value()
+            && !image::raw_white_xy_from_temperature_tint(5'500.0, 151.0).has_value(),
+        "out-of-range temperature or tint cannot enter native calibration"
+    );
+}
+
+} // namespace
+
+int main() {
+    photographic_temperature_tint_round_trips_through_xy();
+    dcp_camera_neutral_is_an_internal_calibration_value();
+    generic_raw_frame_uses_its_explicit_camera_matrix();
+    invalid_authoring_values_fail_closed();
+    std::cout << "shadow image RAW white-balance contract tests passed\n";
+}

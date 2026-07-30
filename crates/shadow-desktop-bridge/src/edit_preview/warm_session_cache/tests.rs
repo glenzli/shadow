@@ -13,7 +13,7 @@ use shadow_ai::{
     RAW_FOUNDATION_MEDIA_TYPE, RasterExtent, RawFoundationArtifact, RawFoundationProvenance,
     RawFoundationSourceProvenance,
 };
-use shadow_domain::{EntityId, RawCameraNeutral, RawFoundationDenoiseModel, RawWhiteBalance};
+use shadow_domain::{EntityId, RawFoundationDenoiseModel, RawTemperatureTint, RawWhiteBalance};
 
 use super::*;
 use crate::raw_foundation_runtime::RawFoundationReady;
@@ -101,6 +101,7 @@ fn raw_foundation_identity() -> RawFoundationRenderIdentity {
     RawFoundationRenderIdentity::from_ready(
         &ready,
         RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+        100,
     )
     .expect("render identity")
 }
@@ -398,8 +399,8 @@ fn failed_isolated_raster_open_is_cleaned_and_retains_public_error() {
 fn manual_foundation_white_balance_never_enters_rgb_isolation() {
     let root = fixture_root("manual-white-balance-no-rgb-fallback");
     let source = root.join("source.raw");
-    let plan = RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::camera_neutral(
-        RawCameraNeutral::from_millionths(800_000, 1_400_000).expect("manual camera neutral"),
+    let plan = RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(
+        RawTemperatureTint::new(6_300, 11).expect("manual temperature/tint"),
     ));
     let isolate_count = AtomicUsize::new(0);
 

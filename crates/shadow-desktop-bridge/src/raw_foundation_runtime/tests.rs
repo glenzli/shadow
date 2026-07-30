@@ -95,6 +95,7 @@ fn real_public_runtime_publishes_then_reuses_the_verified_foundation_when_suppli
         model_graph: graph,
         manifest_path,
         foundation_store_root: root.join("cache"),
+        raw_frame_staging_root: root.join("raw-frame-staging"),
     };
     let runtime =
         RawFoundationRuntime::open(runtime_paths.clone()).expect("desktop RAW foundation runtime");

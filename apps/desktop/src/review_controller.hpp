@@ -65,6 +65,14 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(QString filterLiked READ filterLiked WRITE setFilterLiked NOTIFY filtersChanged)
     Q_PROPERTY(
+        QString librarySortKey READ librarySortKey WRITE setLibrarySortKey NOTIFY
+            libraryOrderChanged
+    )
+    Q_PROPERTY(
+        bool librarySortDescending READ librarySortDescending WRITE setLibrarySortDescending NOTIFY
+            libraryOrderChanged
+    )
+    Q_PROPERTY(
         QString filterExcludedFlag READ filterExcludedFlag WRITE setFilterExcludedFlag NOTIFY
             filtersChanged
     )
@@ -126,6 +134,10 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(
         bool librarySourceHealthBusy READ librarySourceHealthBusy NOTIFY librarySourceHealthChanged
+    )
+    Q_PROPERTY(
+        bool librarySourceRemovalBusy READ librarySourceRemovalBusy NOTIFY
+            librarySourceHealthChanged
     )
     Q_PROPERTY(QVariantMap libraryMetadata READ libraryMetadata NOTIFY libraryMetadataChanged)
     Q_PROPERTY(
@@ -204,6 +216,8 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
     [[nodiscard]] QString filterLiked() const;
+    [[nodiscard]] QString librarySortKey() const;
+    [[nodiscard]] bool librarySortDescending() const noexcept;
     [[nodiscard]] QString filterExcludedFlag() const;
     [[nodiscard]] QString filterExcludedColorLabel() const;
     [[nodiscard]] QString filterCaptureMonth() const;
@@ -231,6 +245,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] bool libraryAlbumsBusy() const noexcept;
     [[nodiscard]] QVariantList librarySourceHealth() const;
     [[nodiscard]] bool librarySourceHealthBusy() const noexcept;
+    [[nodiscard]] bool librarySourceRemovalBusy() const noexcept;
     [[nodiscard]] QVariantMap libraryMetadata() const;
     [[nodiscard]] QVariantMap libraryCaptureTimePreview() const;
     [[nodiscard]] QVariantMap libraryGpxPreview() const;
@@ -254,6 +269,8 @@ class ReviewController final : public QObject {
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
     void setFilterLiked(const QString& liked);
+    void setLibrarySortKey(const QString& sort_key);
+    void setLibrarySortDescending(bool descending);
     void setFilterExcludedFlag(const QString& flag);
     void setFilterExcludedColorLabel(const QString& color_label);
     void setFilterCaptureMonth(const QString& capture_month);
@@ -316,6 +333,7 @@ class ReviewController final : public QObject {
     );
     Q_INVOKABLE void refreshLibraryAlbums();
     Q_INVOKABLE void refreshLibrarySourceHealth();
+    Q_INVOKABLE void removeLibrarySource(const QString& source_id, const QString& source_path);
     Q_INVOKABLE void requestLibraryMetadata(const QString& photo_id);
     Q_INVOKABLE void clearLibraryMetadata();
     Q_INVOKABLE void setLibraryCaptureTime(
@@ -388,6 +406,7 @@ class ReviewController final : public QObject {
     void colorLabelChanged(const QString& photoId, const QString& colorLabel);
     void likedChanged(const QString& photoId, bool liked);
     void filtersChanged();
+    void libraryOrderChanged();
     void libraryAlbumChanged();
     void libraryAlbumsChanged();
     void libraryFacetsChanged();
@@ -404,6 +423,7 @@ class ReviewController final : public QObject {
     void requestLibraryReset();
     void scheduleFilterQuery();
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
+    [[nodiscard]] BackendLibraryPhotoOrder currentLibraryOrder() const noexcept;
     bool eventFilter(QObject* watched, QEvent* event) override;
     void setStatusMessage(LocalizedUiMessage status);
     void updateReadyStatus();
@@ -432,6 +452,8 @@ class ReviewController final : public QObject {
     };
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
+    QString library_sort_key_ = QStringLiteral("capture_time");
+    bool library_sort_descending_ = true;
     ReviewLibraryQueryCoordinator query_coordinator_;
     ReviewLibraryOrganizationCoordinator organization_coordinator_;
     ReviewSharedGradeCoordinator shared_grade_coordinator_;

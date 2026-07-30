@@ -10,6 +10,7 @@ ColumnLayout {
 
     required property var inspector
     required property int currentTabIndex
+    required property bool foundationSelected
 
     signal openOpticsProfileLibraryRequested()
 
@@ -17,7 +18,8 @@ ColumnLayout {
 
     PrecisionDetailSection {
         Layout.fillWidth: true
-        visible: technical.currentTabIndex === 0
+        visible: !technical.foundationSelected
+            && technical.currentTabIndex === 0
         inspector: technical.inspector
     }
 
@@ -31,7 +33,8 @@ ColumnLayout {
 
     PrecisionEffectsSection {
         Layout.fillWidth: true
-        visible: technical.currentTabIndex === 1
+        visible: !technical.foundationSelected
+            && technical.currentTabIndex === 1
         inspector: technical.inspector
     }
 }

@@ -6,7 +6,7 @@ use shadow_bridge::{
 };
 use shadow_domain::{
     LayerId, LayerRevisionId, MaskDefinition, PhotoFoundationNode, PhotoGeometry, PhotoLiquifyNode,
-    RetouchSpot, RetouchStroke, operation::BASIC_LAYER_LABEL,
+    RawFoundationDenoise, RetouchSpot, RetouchStroke, operation::BASIC_LAYER_LABEL,
 };
 
 use super::GradeNodeRecipeV1Identity;
@@ -104,6 +104,8 @@ impl GradeNodeDraft {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GradeStackDraft {
+    /// Fixed, photo-private AI RAW denoise node evaluated before Foundation.
+    pub(crate) raw_ai_denoise: RawFoundationDenoise,
     /// Mandatory photo-private source-development state. The desktop optics
     /// controls are currently only one projection of this singleton.
     pub(crate) foundation: PhotoFoundationNode,
@@ -124,6 +126,7 @@ pub(crate) struct GradeStackDraft {
 impl Default for GradeStackDraft {
     fn default() -> Self {
         Self {
+            raw_ai_denoise: RawFoundationDenoise::default(),
             foundation: PhotoFoundationNode::default(),
             grade_nodes: vec![GradeNodeDraft::neutral(BASIC_LAYER_LABEL)],
             retouch_spots: Vec::new(),

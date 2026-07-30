@@ -1,4 +1,5 @@
 #include <shadow/image/dcp_color_development.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 
 #include "dcp_color_matrix_math.hpp"
 #include "dcp_color_rendering.hpp"
@@ -35,6 +36,7 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
 }
 
 [[nodiscard]] Vector3 canonical_camera_neutral(
+    const DcpProfile& profile,
     const RawFrameDescriptor& descriptor,
     const RawWhiteBalance& white_balance
 ) {
@@ -44,63 +46,17 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
             "DCP development requires a canonical RAW white balance"
         );
     }
-    if (white_balance.mode == RawWhiteBalanceMode::camera_neutral) {
-        return {
-            static_cast<double>(white_balance.camera_neutral_red_millionths)
-                / static_cast<double>(raw_camera_neutral_millionths),
-            1.0,
-            static_cast<double>(white_balance.camera_neutral_blue_millionths)
-                / static_cast<double>(raw_camera_neutral_millionths),
-        };
-    }
-
-    std::array<double, 3U> totals{};
-    std::array<std::uint32_t, 3U> counts{};
-    for (std::size_t site = 0U; site < descriptor.bayer_2x2.size(); ++site) {
-        std::size_t channel = 0U;
-        switch (descriptor.bayer_2x2[site]) {
-        case RawCfaColor::red:
-            channel = 0U;
-            break;
-        case RawCfaColor::green:
-            channel = 1U;
-            break;
-        case RawCfaColor::blue:
-            channel = 2U;
-            break;
-        case RawCfaColor::unknown:
-            fail(
-                DcpColorDevelopmentErrorCode::invalid_input,
-                "DCP development requires an RGB Bayer camera neutral"
-            );
-        }
-        const double neutral = descriptor.as_shot_neutral[site];
-        if (!std::isfinite(neutral) || neutral <= 0.0) {
-            fail(
-                DcpColorDevelopmentErrorCode::invalid_input,
-                "DCP development requires a positive finite camera neutral"
-            );
-        }
-        totals[channel] += neutral;
-        ++counts[channel];
-    }
-    if (counts[0] == 0U || counts[1] == 0U || counts[2] == 0U) {
+    const auto neutral =
+        white_balance.mode == RawWhiteBalanceMode::as_shot
+            ? raw_as_shot_camera_neutral(descriptor)
+            : raw_dcp_camera_neutral(profile, white_balance);
+    if (!neutral.has_value()) {
         fail(
             DcpColorDevelopmentErrorCode::invalid_input,
-            "DCP development camera neutral does not cover RGB"
+            "DCP development cannot resolve the requested photographic white balance"
         );
     }
-    Vector3 neutral{
-        totals[0] / static_cast<double>(counts[0]),
-        totals[1] / static_cast<double>(counts[1]),
-        totals[2] / static_cast<double>(counts[2]),
-    };
-    // AsShotNeutral is defined only up to a common scale. Shadow's generic path preserves the
-    // green camera channel, so use the same convention before white-point normalization.
-    for (double& value : neutral) {
-        value /= neutral[1];
-    }
-    return neutral;
+    return *neutral;
 }
 
 [[nodiscard]] Vector3 xy_to_xyz(const double x, const double y) {
@@ -128,24 +84,14 @@ using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
 }
 
 [[nodiscard]] double correlated_color_temperature(const double x, const double y) {
-    // McCamy's compact approximation is deterministic and sufficiently accurate for choosing
-    // the reciprocal-temperature interpolation weight between standard DCP illuminants.
-    const double denominator = 0.1858 - y;
-    if (std::abs(denominator) <= 1.0e-12) {
+    const auto presentation = raw_white_balance_presentation_from_xy(x, y);
+    if (!presentation.has_value()) {
         fail(
             DcpColorDevelopmentErrorCode::invalid_white_point,
-            "DCP white point cannot be mapped to a finite color temperature"
+            "DCP white point cannot be mapped to the supported photographic temperature locus"
         );
     }
-    const double n = (x - 0.3320) / denominator;
-    const double temperature = -449.0 * n * n * n + 3525.0 * n * n - 6823.3 * n + 5520.33;
-    if (!std::isfinite(temperature) || temperature < 1'500.0 || temperature > 25'000.0) {
-        fail(
-            DcpColorDevelopmentErrorCode::invalid_white_point,
-            "DCP estimated white temperature is outside the supported photographic range"
-        );
-    }
-    return temperature;
+    return presentation->temperature_kelvin;
 }
 
 [[nodiscard]] std::optional<double>
@@ -407,7 +353,7 @@ DcpColorTransform compile_dcp_color_transform(
         );
     }
     const DcpProfile& profile = definition.profile;
-    const Vector3 neutral = canonical_camera_neutral(descriptor, white_balance);
+    const Vector3 neutral = canonical_camera_neutral(profile, descriptor, white_balance);
     const ResolvedCalibration calibration = resolve_calibration(profile, neutral);
     DcpMatrixRoute route = DcpMatrixRoute::inverse_color_matrix;
     Matrix3 camera_to_d50 = normalized_camera_to_xyz_d50(calibration, neutral, route);

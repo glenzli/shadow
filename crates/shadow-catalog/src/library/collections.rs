@@ -243,7 +243,12 @@ impl Catalog {
         requested_limit: usize,
     ) -> Result<LibraryPhotoPage, CatalogError> {
         let filter = self.smart_album_filter(album_id)?;
-        self.library_photo_page(&filter, after, requested_limit)
+        self.library_photo_page(
+            &filter,
+            super::LibraryPhotoOrder::default(),
+            after,
+            requested_limit,
+        )
     }
 
     /// Counts one settled smart album through the normal indexed filter path.

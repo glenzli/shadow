@@ -14,6 +14,7 @@ use super::{
     query_contract::{
         empty_ffi_cursor, ffi_library_cursor, ffi_library_facet_page, library_cursor_from_ffi,
         library_facet_cursor_from_ffi, library_facet_kind_from_ffi, library_filter_from_ffi,
+        library_order_from_ffi,
     },
 };
 
@@ -23,13 +24,16 @@ impl LibraryService {
         &self,
         review: &ReviewService,
         ffi_filter: &ffi::FfiLibraryPhotoFilter,
+        ffi_order: ffi::FfiLibraryPhotoOrder,
         ffi_cursor: &ffi::FfiLibraryPhotoCursor,
         limit: u32,
     ) -> AnyResult<ffi::FfiLibraryPhotoPage> {
         let filter = library_filter_from_ffi(ffi_filter)?;
-        let cursor = library_cursor_from_ffi(ffi_cursor)?;
+        let order = library_order_from_ffi(ffi_order)?;
+        let cursor = library_cursor_from_ffi(order, ffi_cursor)?;
         let page = self.catalog.library_photo_page(
             &filter,
+            order,
             cursor.as_ref(),
             usize::try_from(limit).unwrap_or(usize::MAX),
         )?;

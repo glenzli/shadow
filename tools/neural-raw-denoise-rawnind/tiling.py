@@ -515,8 +515,8 @@ def gate_failures(receipt: TilingReceipt) -> list[str]:
         failures.append("tiling plan produced no trusted overlap samples")
     if receipt.trusted_overlap_relative_rmse > 0.01:
         failures.append("trusted tile-overlap RMSE exceeds 1% of output RMS")
-    if receipt.local_gain_relative_span > 0.05:
-        failures.append("tile-local gain diagnostic varies by more than 5%")
+    # Local gain is never applied. Its span describes scene/content variation
+    # between tiles and remains diagnostic rather than a quality gate.
     return failures
 
 

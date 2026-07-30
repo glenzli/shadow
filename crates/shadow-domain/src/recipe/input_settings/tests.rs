@@ -14,3 +14,12 @@ fn recipe_rejects_an_incomplete_manual_optics_identity() {
         Err(RecipeValidationError::IncompleteOpticsProfile)
     );
 }
+
+#[test]
+fn legacy_input_settings_default_to_an_enabled_foundation() {
+    let decoded: RecipeInputSettings =
+        serde_json::from_str(r#"{"optics":{}}"#).expect("legacy input settings");
+    assert!(decoded.enabled());
+    let encoded = serde_json::to_value(&decoded).expect("default input settings");
+    assert!(encoded.get("enabled").is_none());
+}

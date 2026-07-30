@@ -43,6 +43,9 @@ def preprocessing_receipt(
         "color_description": "RGBG",
         "white_level": 16383.0,
         "black_level_per_channel": [512.0, 512.0, 512.0, 512.0],
+        "decoder_provider_id": "shadow.test",
+        "decoder_provider_version": "1",
+        "decoded_samples_sha256": "a" * 64,
     }
 
 

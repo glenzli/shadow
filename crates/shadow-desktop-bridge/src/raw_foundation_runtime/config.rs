@@ -21,6 +21,7 @@ pub(crate) struct RawFoundationRuntimePaths {
     pub(crate) model_graph: PathBuf,
     pub(crate) manifest_path: PathBuf,
     pub(crate) foundation_store_root: PathBuf,
+    pub(crate) raw_frame_staging_root: PathBuf,
 }
 
 impl RawFoundationRuntimePaths {
@@ -59,6 +60,7 @@ impl RawFoundationRuntimePaths {
             manifest_path: override_path(&environment, MANIFEST_OVERRIDE)
                 .unwrap_or_else(|| provider_root.join(PROVIDER_MANIFEST_NAME)),
             foundation_store_root: cache_root.join("ai").join("raw-foundations"),
+            raw_frame_staging_root: cache_root.join("ai").join("raw-frame-staging"),
         })
     }
 }

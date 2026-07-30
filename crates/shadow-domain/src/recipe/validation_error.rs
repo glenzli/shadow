@@ -161,10 +161,12 @@ pub enum RecipeValidationError {
     },
     #[error("recipe schema version must be non-zero")]
     ZeroRecipeSchemaVersion,
-    #[error(
-        "RAW camera-neutral {component} component {value} must be finite, positive, and within 1/64..=64 after green normalization"
-    )]
-    InvalidRawCameraNeutral { component: &'static str, value: f64 },
+    #[error("RAW white-balance temperature {0} K is outside the supported 2000..=25000 K range")]
+    InvalidRawWhiteBalanceTemperature(u32),
+    #[error("RAW white-balance tint {0} is outside the supported -150..=150 range")]
+    InvalidRawWhiteBalanceTint(i16),
+    #[error("AI RAW denoise amount {0}% is outside the supported 0..=100% range")]
+    InvalidRawFoundationDenoiseAmount(u8),
     #[error("manual optics profile must identify both a camera and a lens")]
     IncompleteOpticsProfile,
     #[error("{kind} is {value}; expected an integer in [-100, 100]")]

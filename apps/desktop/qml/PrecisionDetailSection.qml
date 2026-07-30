@@ -14,6 +14,9 @@ ShadowAdjustmentSection {
     toolTipText: qsTranslate(
         "PrecisionWorkspace",
         "Control capture sharpening and conventional noise reduction.")
+    resetAvailable: true
+    onResetRequested:
+        inspector.editor.resetSelectedAdjustmentSection("detail")
 
     ShadowSubsectionLabel {
         Layout.topMargin: 6

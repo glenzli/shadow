@@ -152,7 +152,7 @@ mod ffi {
     #[derive(Debug)]
     enum FfiRawWhiteBalanceMode {
         AsShot,
-        CameraNeutral,
+        TemperatureTint,
     }
 
     #[derive(Debug)]
@@ -181,8 +181,8 @@ mod ffi {
         noise_reduction: FfiRawNoiseReductionIntent,
         highlight_recovery: FfiRawHighlightRecoveryIntent,
         white_balance_mode: FfiRawWhiteBalanceMode,
-        camera_neutral_red_millionths: u32,
-        camera_neutral_blue_millionths: u32,
+        temperature_kelvin: u32,
+        tint: i16,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -295,6 +295,7 @@ mod ffi {
         height: u32,
         crop_top: u32,
         crop_left: u32,
+        amount_percent: u8,
         source_sha256: String,
         artifact_file_sha256: String,
         cache_key_sha256: String,
@@ -309,6 +310,13 @@ mod ffi {
         camera_model: String,
         lens_maker: String,
         lens_model: String,
+    }
+
+    #[derive(Debug)]
+    struct FfiRawWhiteBalancePresentation {
+        available: bool,
+        temperature_kelvin: u32,
+        tint: i16,
     }
 
     #[derive(Debug)]
@@ -630,6 +638,9 @@ mod ffi {
         fn query_optics_profiles_for_metadata(
             metadata: &FfiMetadataSnapshot,
         ) -> Vec<FfiOpticsProfileCandidate>;
+        fn query_raw_white_balance_presentation_for_metadata(
+            metadata: &FfiMetadataSnapshot,
+        ) -> FfiRawWhiteBalancePresentation;
         fn libraw_provider_version() -> String;
         fn photo_provider_version() -> String;
         fn edit_preview_generator_implementation_identity() -> String;

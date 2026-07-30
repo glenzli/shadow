@@ -19,18 +19,19 @@
 class ReviewLibraryQueryCoordinator final : public QObject {
     Q_OBJECT
 
-public:
+  public:
     struct Operations final {
         std::function<BackendLibraryPhotoPage(
             const BackendLibraryPhotoFilter& filter,
+            BackendLibraryPhotoOrder order,
             const BackendLibraryPhotoCursor& cursor,
             std::uint32_t limit
-        )> page;
+        )>
+            page;
         std::function<quint64(const BackendLibraryPhotoFilter& filter)> count;
     };
 
-    using DecisionReconciler =
-        std::function<void(BackendReviewDecisionState state)>;
+    using DecisionReconciler = std::function<void(BackendReviewDecisionState state)>;
 
     explicit ReviewLibraryQueryCoordinator(
         Operations operations,
@@ -53,25 +54,22 @@ public:
     void setScanRunning(bool running);
     void setDecisionBusy(bool busy);
     void clearForImportStart();
-    void requestReset(BackendLibraryPhotoFilter filter);
-    void scheduleReset(BackendLibraryPhotoFilter filter);
+    void requestReset(BackendLibraryPhotoFilter filter, BackendLibraryPhotoOrder order);
+    void scheduleReset(BackendLibraryPhotoFilter filter, BackendLibraryPhotoOrder order);
     [[nodiscard]] bool loadMore(bool admitted);
     [[nodiscard]] bool refreshStreamingPrefix(bool admitted);
 
-signals:
+  signals:
     void workStateChanged();
     void hasMoreChanged();
     void itemCountChanged();
     void decisionsReconciled();
-    void queryStarted(
-        const BackendLibraryPhotoFilter& filter,
-        quint64 generation
-    );
+    void queryStarted(const BackendLibraryPhotoFilter& filter, quint64 generation);
     void resetPresentationStarted();
     void statusMessageChanged();
     void readyStatusRequested();
 
-private:
+  private:
     enum class PageKind : std::uint8_t {
         InitialReset,
         StreamingPrefix,
@@ -96,6 +94,7 @@ private:
     [[nodiscard]] static PageTaskResult runPageTask(
         Operations operations,
         BackendLibraryPhotoFilter filter,
+        BackendLibraryPhotoOrder order,
         BackendLibraryPhotoCursor cursor,
         quint64 generation,
         quint64 request_id,
@@ -107,9 +106,7 @@ private:
         quint64 generation,
         quint64 request_id
     );
-    [[nodiscard]] static QVector<ReviewItem> reviewItems(
-        QVector<BackendReviewItem> source
-    );
+    [[nodiscard]] static QVector<ReviewItem> reviewItems(QVector<BackendReviewItem> source);
     [[nodiscard]] static int boundedCount(quint64 count) noexcept;
 
     void beginReset();
@@ -126,6 +123,8 @@ private:
     DecisionReconciler decision_reconciler_;
     BackendLibraryPhotoFilter requested_filter_;
     BackendLibraryPhotoFilter active_filter_;
+    BackendLibraryPhotoOrder requested_order_ = BackendLibraryPhotoOrder::CaptureTimeDescending;
+    BackendLibraryPhotoOrder active_order_ = BackendLibraryPhotoOrder::CaptureTimeDescending;
     BackendLibraryPhotoCursor next_cursor_;
     LocalizedUiMessage status_message_;
     quint64 generation_ = 1;

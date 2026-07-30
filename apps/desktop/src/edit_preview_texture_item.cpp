@@ -390,6 +390,11 @@ bool EditPreviewTextureItem::transientLiquifyActive() const noexcept {
     return state_->transient_liquify.active;
 }
 
+bool EditPreviewTextureItem::transientLiquifyPending() const noexcept {
+    return state_->transient_liquify.active
+           && state_->transient_liquify.awaiting_authoritative_frame;
+}
+
 bool EditPreviewTextureItem::beginTransientLiquify(
     const double radius,
     const double strength,
@@ -402,6 +407,7 @@ bool EditPreviewTextureItem::beginTransientLiquify(
     }
     auto& transient = state_->transient_liquify;
     const bool was_active = transient.active;
+    const bool was_pending = transient.awaiting_authoritative_frame;
     transient.points.clear();
     transient.base_source = state_->source;
     transient.radius = radius;
@@ -411,7 +417,7 @@ bool EditPreviewTextureItem::beginTransientLiquify(
     transient.revision = next_revision(transient.revision);
     transient.active = true;
     transient.awaiting_authoritative_frame = false;
-    if (!was_active) {
+    if (!was_active || was_pending) {
         emit transientLiquifyChanged();
     }
     update();
@@ -452,15 +458,20 @@ bool EditPreviewTextureItem::appendTransientLiquifyPoint(
 }
 
 void EditPreviewTextureItem::finishTransientLiquify(const bool committed) {
-    if (!state_->transient_liquify.active) {
+    auto& transient = state_->transient_liquify;
+    if (!transient.active) {
         return;
     }
-    if (!committed || state_->transient_liquify.base_source != state_->source) {
+    if (!committed || transient.base_source != state_->source) {
         clearTransientLiquify();
         return;
     }
-    state_->transient_liquify.awaiting_authoritative_frame = true;
-    state_->transient_liquify.revision = next_revision(state_->transient_liquify.revision);
+    if (transient.awaiting_authoritative_frame) {
+        return;
+    }
+    transient.awaiting_authoritative_frame = true;
+    transient.revision = next_revision(transient.revision);
+    emit transientLiquifyChanged();
     update();
 }
 

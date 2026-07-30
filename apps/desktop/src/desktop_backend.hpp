@@ -33,6 +33,7 @@ class DesktopBackend final {
     photoInspection(const QString& photo_id, const QString& representation_id) const;
     [[nodiscard]] BackendLibraryPhotoPage libraryPhotoPage(
         const BackendLibraryPhotoFilter& filter,
+        BackendLibraryPhotoOrder order,
         const BackendLibraryPhotoCursor& cursor,
         std::uint32_t limit
     ) const;
@@ -53,6 +54,7 @@ class DesktopBackend final {
     [[nodiscard]] QVector<BackendLibraryPhotoKeyword>
     libraryKeywordsForPhoto(const QString& photo_id) const;
     [[nodiscard]] QVector<BackendLibrarySourceHealth> librarySourceHealth() const;
+    [[nodiscard]] bool removeLibrarySource(const QString& source_id) const;
     [[nodiscard]] BackendMissingSourceLocationPage missingSourceLocationPage(
         const QString& scan_session_id,
         const QString& after_location_id,
@@ -199,10 +201,8 @@ class DesktopBackend final {
     ) const;
     void discardSubjectMaskProposal(std::uint64_t proposal_token) const;
     [[nodiscard]] BackendRawFoundationRuntimeStatus probeRawFoundationRuntime() const;
-    [[nodiscard]] std::uint64_t beginRawFoundationJob(
-        const QString& request_id,
-        std::uint64_t generation
-    ) const;
+    [[nodiscard]] std::uint64_t
+    beginRawFoundationJob(const QString& request_id, std::uint64_t generation) const;
     void cancelRawFoundationJob(std::uint64_t raw_foundation_job_token) const;
     [[nodiscard]] BackendRawFoundationJobStatus
     rawFoundationJobStatus(std::uint64_t raw_foundation_job_token) const;

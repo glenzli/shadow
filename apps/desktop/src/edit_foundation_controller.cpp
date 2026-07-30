@@ -1,85 +1,98 @@
 #include "edit_controller.hpp"
 
-#include <cmath>
 #include <cstdint>
-#include <optional>
 
 namespace {
 
-constexpr std::uint32_t CAMERA_NEUTRAL_MILLIONTHS = 1'000'000;
-constexpr double MIN_CAMERA_NEUTRAL_RATIO = 1.0 / 64.0;
-constexpr double MAX_CAMERA_NEUTRAL_RATIO = 64.0;
+constexpr int MIN_TEMPERATURE_KELVIN = 2'000;
+constexpr int MAX_TEMPERATURE_KELVIN = 25'000;
+constexpr int DEFAULT_TEMPERATURE_KELVIN = 5'500;
+constexpr int MIN_TINT = -150;
+constexpr int MAX_TINT = 150;
 constexpr int FOUNDATION_PREVIEW_THROTTLE_MS = 16;
-
-[[nodiscard]] std::optional<std::uint32_t>
-camera_neutral_millionths(const double ratio) {
-    if (!std::isfinite(ratio) || ratio < MIN_CAMERA_NEUTRAL_RATIO
-        || ratio > MAX_CAMERA_NEUTRAL_RATIO) {
-        return std::nullopt;
-    }
-    return static_cast<std::uint32_t>(
-        std::llround(ratio * static_cast<double>(CAMERA_NEUTRAL_MILLIONTHS))
-    );
-}
+// RAW white balance changes immutable prepared-source provenance today. Debounce
+// a continuous drag until it pauses instead of repeatedly decoding/demosaicing
+// a source that the next pointer event will immediately supersede.
+constexpr int RAW_WHITE_BALANCE_PREVIEW_THROTTLE_MS = 120;
 
 } // namespace
 
-int EditController::foundationWhiteBalanceMode() const noexcept {
-    return static_cast<int>(grade_stack_.foundation.raw_white_balance_mode);
+bool EditController::foundationEnabled() const noexcept {
+    return grade_stack_.foundation.enabled;
 }
 
-double EditController::foundationCameraNeutralRed() const noexcept {
-    return static_cast<double>(
-               grade_stack_.foundation.camera_neutral_red_millionths
-           )
-        / static_cast<double>(CAMERA_NEUTRAL_MILLIONTHS);
+int EditController::foundationWhiteBalanceTemperature() const noexcept {
+    return static_cast<int>(grade_stack_.foundation.temperature_kelvin);
 }
 
-double EditController::foundationCameraNeutralBlue() const noexcept {
-    return static_cast<double>(
-               grade_stack_.foundation.camera_neutral_blue_millionths
-           )
-        / static_cast<double>(CAMERA_NEUTRAL_MILLIONTHS);
+int EditController::foundationWhiteBalanceTint() const noexcept {
+    return static_cast<int>(grade_stack_.foundation.tint);
 }
 
-void EditController::setFoundationWhiteBalanceMode(const int mode) {
-    if (!active_ || interactionLocked() || (mode != 0 && mode != 1)
-        || grade_stack_.foundation.raw_white_balance_mode
-            == static_cast<std::uint8_t>(mode)) {
-        return;
-    }
-    const BackendGradeStack before = grade_stack_;
-    grade_stack_.foundation.raw_white_balance_mode =
-        static_cast<std::uint8_t>(mode);
-    foundationEdited(QStringLiteral("raw_white_balance/mode"), before);
+bool EditController::foundationWhiteBalanceAtCameraValue() const noexcept {
+    return grade_stack_.foundation.raw_white_balance_mode == 0U;
 }
 
-void EditController::setFoundationCameraNeutralRed(const double value) {
-    const auto millionths = camera_neutral_millionths(value);
+bool EditController::foundationWhiteBalanceCameraValueAvailable() const noexcept {
+    return grade_stack_.foundation.as_shot_white_balance_available;
+}
+
+void EditController::setFoundationEnabled(const bool enabled) {
     if (!active_ || interactionLocked()
-        || grade_stack_.foundation.raw_white_balance_mode != 1
-        || !millionths.has_value()
-        || grade_stack_.foundation.camera_neutral_red_millionths
-            == *millionths) {
+        || grade_stack_.foundation.enabled == enabled) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
-    grade_stack_.foundation.camera_neutral_red_millionths = *millionths;
-    foundationEdited(QStringLiteral("raw_white_balance/red"), before);
+    grade_stack_.foundation.enabled = enabled;
+    foundationEdited(QStringLiteral("enabled"), before);
 }
 
-void EditController::setFoundationCameraNeutralBlue(const double value) {
-    const auto millionths = camera_neutral_millionths(value);
+void EditController::setFoundationWhiteBalanceTemperature(
+    const int temperature_kelvin
+) {
     if (!active_ || interactionLocked()
-        || grade_stack_.foundation.raw_white_balance_mode != 1
-        || !millionths.has_value()
-        || grade_stack_.foundation.camera_neutral_blue_millionths
-            == *millionths) {
+        || temperature_kelvin < MIN_TEMPERATURE_KELVIN
+        || temperature_kelvin > MAX_TEMPERATURE_KELVIN
+        || (grade_stack_.foundation.raw_white_balance_mode == 1U
+            && grade_stack_.foundation.temperature_kelvin
+                   == static_cast<std::uint32_t>(temperature_kelvin))) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
-    grade_stack_.foundation.camera_neutral_blue_millionths = *millionths;
-    foundationEdited(QStringLiteral("raw_white_balance/blue"), before);
+    grade_stack_.foundation.raw_white_balance_mode = 1U;
+    grade_stack_.foundation.temperature_kelvin =
+        static_cast<std::uint32_t>(temperature_kelvin);
+    foundationEdited(QStringLiteral("raw_white_balance/temperature"), before);
+}
+
+void EditController::setFoundationWhiteBalanceTint(const int tint) {
+    if (!active_ || interactionLocked() || tint < MIN_TINT || tint > MAX_TINT
+        || (grade_stack_.foundation.raw_white_balance_mode == 1U
+            && grade_stack_.foundation.tint == static_cast<std::int16_t>(tint))) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.foundation.raw_white_balance_mode = 1U;
+    grade_stack_.foundation.tint = static_cast<std::int16_t>(tint);
+    foundationEdited(QStringLiteral("raw_white_balance/tint"), before);
+}
+
+void EditController::resetFoundationWhiteBalance() {
+    if (!active_ || interactionLocked()
+        || grade_stack_.foundation.raw_white_balance_mode == 0U) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.foundation.raw_white_balance_mode = 0U;
+    grade_stack_.foundation.temperature_kelvin =
+        grade_stack_.foundation.as_shot_white_balance_available
+            ? grade_stack_.foundation.as_shot_temperature_kelvin
+            : DEFAULT_TEMPERATURE_KELVIN;
+    grade_stack_.foundation.tint =
+        grade_stack_.foundation.as_shot_white_balance_available
+            ? grade_stack_.foundation.as_shot_tint
+            : 0;
+    foundationEdited(QStringLiteral("raw_white_balance/reset"), before);
 }
 
 void EditController::foundationEdited(
@@ -92,6 +105,25 @@ void EditController::foundationEdited(
     );
     setFullResolutionState(false, false, 0);
     emit foundationChanged();
+    setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
+    schedulePreview(
+        key.startsWith(QStringLiteral("raw_white_balance/"))
+            ? RAW_WHITE_BALANCE_PREVIEW_THROTTLE_MS
+            : FOUNDATION_PREVIEW_THROTTLE_MS
+    );
+}
+
+void EditController::rawDenoiseEdited(
+    const QString& key,
+    const BackendGradeStack& before
+) {
+    recordWorkingTransition(
+        QStringLiteral("photo/raw_ai_denoise/%1").arg(key),
+        before
+    );
+    setFullResolutionState(false, false, 0);
+    emit rawAiDenoiseRecipeChanged();
+    emit foundationAiDenoiseChanged();
     setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
     schedulePreview(FOUNDATION_PREVIEW_THROTTLE_MS);
 }

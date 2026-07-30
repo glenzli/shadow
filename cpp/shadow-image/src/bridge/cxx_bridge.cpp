@@ -5,15 +5,18 @@
 
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/display_luma.hpp>
+#include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
 #include <shadow/image/source_rendering.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -476,8 +479,8 @@ raw_white_balance_mode(const image::RawWhiteBalanceMode value) {
     switch (value) {
     case image::RawWhiteBalanceMode::as_shot:
         return FfiRawWhiteBalanceMode::AsShot;
-    case image::RawWhiteBalanceMode::camera_neutral:
-        return FfiRawWhiteBalanceMode::CameraNeutral;
+    case image::RawWhiteBalanceMode::temperature_tint:
+        return FfiRawWhiteBalanceMode::TemperatureTint;
     }
     throw_invalid_raw_development_provider_output(
         "RAW provider returned an unsupported white-balance mode"
@@ -489,8 +492,8 @@ raw_white_balance_mode(const FfiRawWhiteBalanceMode value) {
     switch (value) {
     case FfiRawWhiteBalanceMode::AsShot:
         return image::RawWhiteBalanceMode::as_shot;
-    case FfiRawWhiteBalanceMode::CameraNeutral:
-        return image::RawWhiteBalanceMode::camera_neutral;
+    case FfiRawWhiteBalanceMode::TemperatureTint:
+        return image::RawWhiteBalanceMode::temperature_tint;
     }
     throw_invalid_raw_development_plan("RAW white-balance mode is unsupported");
 }
@@ -504,8 +507,8 @@ raw_white_balance_mode(const FfiRawWhiteBalanceMode value) {
         raw_noise_reduction_intent(plan.noise_reduction),
         raw_highlight_recovery_intent(plan.highlight_recovery),
         raw_white_balance_mode(plan.white_balance.mode),
-        plan.white_balance.camera_neutral_red_millionths,
-        plan.white_balance.camera_neutral_blue_millionths,
+        plan.white_balance.temperature_kelvin,
+        plan.white_balance.tint,
     };
 }
 
@@ -519,8 +522,8 @@ raw_white_balance_mode(const FfiRawWhiteBalanceMode value) {
         .highlight_recovery = raw_highlight_recovery_intent(plan.highlight_recovery),
         .white_balance = image::RawWhiteBalance{
             .mode = raw_white_balance_mode(plan.white_balance_mode),
-            .camera_neutral_red_millionths = plan.camera_neutral_red_millionths,
-            .camera_neutral_blue_millionths = plan.camera_neutral_blue_millionths,
+            .temperature_kelvin = plan.temperature_kelvin,
+            .tint = plan.tint,
         },
     };
 }
@@ -828,6 +831,63 @@ query_optics_profiles_for_metadata(const FfiMetadataSnapshot& source) {
         ffi.lens_model = rust::String(candidate.lens_model);
         result.push_back(std::move(ffi));
     }
+    return result;
+}
+
+FfiRawWhiteBalancePresentation
+query_raw_white_balance_presentation_for_metadata(const FfiMetadataSnapshot& source) {
+    FfiRawWhiteBalancePresentation result{
+        .available = false,
+        .temperature_kelvin = 5'500U,
+        .tint = 0,
+    };
+    const image::AssetMetadata metadata = asset_metadata(source);
+    const auto* const definition =
+        image::match_camera_profile(image::default_camera_profile_catalog(), metadata);
+    if (definition == nullptr || metadata.cfa_pattern.size() != 4U) {
+        return result;
+    }
+
+    image::RawFrameDescriptor descriptor;
+    descriptor.cfa_layout = image::RawFrameCfaLayout::bayer_2x2;
+    descriptor.cfa_pattern = metadata.cfa_pattern;
+    descriptor.as_shot_neutral = metadata.as_shot_neutral;
+    for (std::size_t site = 0U; site < descriptor.bayer_2x2.size(); ++site) {
+        switch (metadata.cfa_pattern[site]) {
+        case 'R':
+        case 'r':
+            descriptor.bayer_2x2[site] = image::RawCfaColor::red;
+            break;
+        case 'G':
+        case 'g':
+            descriptor.bayer_2x2[site] = image::RawCfaColor::green;
+            break;
+        case 'B':
+        case 'b':
+            descriptor.bayer_2x2[site] = image::RawCfaColor::blue;
+            break;
+        default:
+            return result;
+        }
+    }
+    const auto neutral = image::raw_as_shot_camera_neutral(descriptor);
+    if (!neutral.has_value()) {
+        return result;
+    }
+    const auto presentation =
+        image::raw_dcp_white_balance_presentation(definition->profile, *neutral);
+    if (!presentation.has_value()) {
+        return result;
+    }
+    const auto temperature = std::llround(presentation->temperature_kelvin);
+    const auto tint = std::llround(presentation->tint);
+    if (temperature < 2'000LL || temperature > 25'000LL
+        || tint < -150LL || tint > 150LL) {
+        return result;
+    }
+    result.available = true;
+    result.temperature_kelvin = static_cast<std::uint32_t>(temperature);
+    result.tint = static_cast<std::int16_t>(tint);
     return result;
 }
 

@@ -24,20 +24,30 @@ fn raw_ai_denoise_intent_round_trips_and_unknown_models_fail_closed() {
         encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("default DTO");
     assert!(!ffi.foundation.raw_ai_denoise_enabled);
     assert_eq!(ffi.foundation.raw_ai_denoise_model, 0);
+    assert_eq!(ffi.foundation.raw_ai_denoise_amount_percent, 100);
 
     ffi.foundation.raw_ai_denoise_enabled = true;
+    ffi.foundation.raw_ai_denoise_amount_percent = 37;
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode RawNIND intent");
     assert_eq!(
-        decoded.foundation.raw_ai_denoise(),
+        decoded.raw_ai_denoise,
         RawFoundationDenoise::enabled(RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0)
+            .with_amount_percent(37)
+            .expect("valid amount")
     );
     let encoded = encode_grade_stack_draft_recipe_v1(decoded).expect("encode RawNIND intent");
     assert!(encoded.foundation.raw_ai_denoise_enabled);
     assert_eq!(encoded.foundation.raw_ai_denoise_model, 0);
+    assert_eq!(encoded.foundation.raw_ai_denoise_amount_percent, 37);
 
     ffi.foundation.raw_ai_denoise_model = 1;
     let error = decode_grade_stack_draft_recipe_v1(&ffi).expect_err("reject unknown AI model");
     assert!(error.to_string().contains("unsupported AI denoise model 1"));
+
+    ffi.foundation.raw_ai_denoise_model = 0;
+    ffi.foundation.raw_ai_denoise_amount_percent = 101;
+    let error = decode_grade_stack_draft_recipe_v1(&ffi).expect_err("reject invalid amount");
+    assert!(error.to_string().contains("AI RAW denoise amount"));
 }
 
 #[test]

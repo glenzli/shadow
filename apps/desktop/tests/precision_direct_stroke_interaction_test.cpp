@@ -19,7 +19,7 @@
 class FakeDirectStrokeEditor final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active CONSTANT)
-    Q_PROPERTY(bool stateBusy READ stateBusy CONSTANT)
+    Q_PROPERTY(bool stateBusy READ stateBusy NOTIFY stateBusyChanged)
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY photoGeometryChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive CONSTANT)
     Q_PROPERTY(bool pointColorPickerActive READ pointColorPickerActive CONSTANT)
@@ -38,7 +38,14 @@ class FakeDirectStrokeEditor final : public QObject {
         return true;
     }
     [[nodiscard]] bool stateBusy() const noexcept {
-        return false;
+        return state_busy;
+    }
+    void setStateBusy(const bool busy) {
+        if (state_busy == busy) {
+            return;
+        }
+        state_busy = busy;
+        emit stateBusyChanged();
     }
     [[nodiscard]] QVariantMap photoGeometry() const {
         return {
@@ -120,18 +127,27 @@ class FakeDirectStrokeEditor final : public QObject {
     QVariantList committed_liquify_points;
     QVariantList liquify_strokes;
     double committed_liquify_aspect = 0.0;
+    bool state_busy = false;
 
   signals:
     void photoGeometryChanged();
     void parametersChanged();
     void selectedGradeNodeChanged();
+    void stateBusyChanged();
 };
 
 class FakeLiquifyPreview final : public QObject {
     Q_OBJECT
+    Q_PROPERTY(
+        bool transientLiquifyPending READ transientLiquifyPending NOTIFY transientLiquifyChanged
+    )
 
   public:
     using QObject::QObject;
+
+    [[nodiscard]] bool transientLiquifyPending() const noexcept {
+        return transient_liquify_pending;
+    }
 
     Q_INVOKABLE bool
     beginTransientLiquify(const double radius, const double strength, const double hardness) {
@@ -153,10 +169,26 @@ class FakeLiquifyPreview final : public QObject {
     Q_INVOKABLE void finishTransientLiquify(const bool committed) {
         ++finish_count;
         finish_committed = committed;
+        if (transient_liquify_pending != committed) {
+            transient_liquify_pending = committed;
+            emit transientLiquifyChanged();
+        }
     }
 
     Q_INVOKABLE void cancelTransientLiquify() {
         ++cancel_count;
+        if (transient_liquify_pending) {
+            transient_liquify_pending = false;
+            emit transientLiquifyChanged();
+        }
+    }
+
+    void publishAuthoritativeFrame() {
+        if (!transient_liquify_pending) {
+            return;
+        }
+        transient_liquify_pending = false;
+        emit transientLiquifyChanged();
     }
 
     int begin_count = 0;
@@ -169,6 +201,10 @@ class FakeLiquifyPreview final : public QObject {
     double last_pressure = 0.0;
     QPointF last_point;
     bool finish_committed = false;
+    bool transient_liquify_pending = false;
+
+  signals:
+    void transientLiquifyChanged();
 };
 
 namespace {
@@ -275,6 +311,34 @@ int main(int argc, char* argv[]) {
     QQmlEngine engine;
     FakeDirectStrokeEditor editor;
 
+    QQmlComponent zoom_component(&engine);
+    zoom_component.loadFromModule(
+        QStringLiteral("Shadow.DirectStrokeContract"),
+        QStringLiteral("PrecisionCanvasZoomInput")
+    );
+    std::unique_ptr<QObject> zoom(zoom_component.createWithInitialProperties({
+        {QStringLiteral("interactionEnabled"), false},
+        {QStringLiteral("toolActive"), false},
+        {QStringLiteral("fitView"), true},
+        {QStringLiteral("zoomFactor"), 1.0},
+        {QStringLiteral("fitZoomFactor"), 1.0},
+        {QStringLiteral("width"), 400.0},
+        {QStringLiteral("height"), 300.0},
+    }));
+    if (!zoom) {
+        std::cerr << zoom_component.errorString().toStdString();
+        return EXIT_FAILURE;
+    }
+    QObject* const zoom_cursor =
+        zoom->findChild<QObject*>(QStringLiteral("canvasZoomMagnifierInput"));
+    if (!require(
+            !zoom->property("visible").toBool() && zoom_cursor != nullptr
+                && zoom_cursor->property("cursorShape").toInt() == Qt::ArrowCursor,
+            "an inactive zoom layer releases both hit testing and BlankCursor ownership"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     QQmlComponent crop_component(&engine);
     crop_component.loadFromModule(
         QStringLiteral("Shadow.DirectStrokeContract"),
@@ -299,6 +363,16 @@ int main(int argc, char* argv[]) {
         )) {
         return EXIT_FAILURE;
     }
+    editor.setStateBusy(true);
+    drainBindings();
+    if (!require(
+            crop_cursor->property("cursorShape").toInt() == Qt::BusyCursor,
+            "crop mode keeps a visible busy cursor while gestures are locked"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.setStateBusy(false);
+    drainBindings();
 
     QQuickWindow window;
     window.setGeometry(0, 0, 400, 300);
@@ -436,6 +510,28 @@ int main(int argc, char* argv[]) {
             liquify_preview.finish_count == 1 && liquify_preview.finish_committed
                 && liquify_preview.cancel_count == 0,
             "the committed gesture remains on the GPU mesh until its authoritative frame arrives"
+        )) {
+        return EXIT_FAILURE;
+    }
+    QObject* const liquify_input =
+        liquify->findChild<QObject*>(QStringLiteral("liquifyStrokeInput"));
+    QObject* const liquify_pending_cursor =
+        liquify->findChild<QObject*>(QStringLiteral("liquifyPendingCursor"));
+    if (!require(
+            liquify_input != nullptr && liquify_pending_cursor != nullptr
+                && !liquify_input->property("visible").toBool()
+                && liquify_pending_cursor->property("visible").toBool()
+                && liquify_pending_cursor->property("cursorShape").toInt() == Qt::BusyCursor,
+            "Liquify release swaps its hidden brush pointer for a visible pending cursor"
+        )) {
+        return EXIT_FAILURE;
+    }
+    liquify_preview.publishAuthoritativeFrame();
+    drainBindings();
+    if (!require(
+            liquify_input->property("visible").toBool()
+                && !liquify_pending_cursor->property("visible").toBool(),
+            "the authoritative frame restores Liquify authoring cursor ownership"
         )) {
         return EXIT_FAILURE;
     }

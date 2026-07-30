@@ -369,6 +369,7 @@ BackendSharedGradeNode shared_grade_node(const shadow::desktop::FfiSharedGradeNo
 
 shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source) {
     shadow::desktop::FfiEditSettings settings;
+    settings.foundation.enabled = source.foundation.enabled;
     settings.foundation.optics.enabled = source.foundation.optics.enabled;
     settings.foundation.optics.correct_distortion = source.foundation.optics.correct_distortion;
     settings.foundation.optics.correct_tca = source.foundation.optics.correct_tca;
@@ -390,13 +391,17 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         source.foundation.optics.lens_profile_maker.toStdString();
     settings.foundation.optics.lens_profile_model =
         source.foundation.optics.lens_profile_model.toStdString();
-    settings.foundation.raw_ai_denoise_enabled = source.foundation.raw_ai_denoise_enabled;
-    settings.foundation.raw_ai_denoise_model = source.foundation.raw_ai_denoise_model;
+    settings.foundation.raw_ai_denoise_enabled = source.raw_ai_denoise.enabled;
+    settings.foundation.raw_ai_denoise_model = source.raw_ai_denoise.model;
+    settings.foundation.raw_ai_denoise_amount_percent = source.raw_ai_denoise.amount_percent;
     settings.foundation.raw_white_balance_mode = source.foundation.raw_white_balance_mode;
-    settings.foundation.camera_neutral_red_millionths =
-        source.foundation.camera_neutral_red_millionths;
-    settings.foundation.camera_neutral_blue_millionths =
-        source.foundation.camera_neutral_blue_millionths;
+    settings.foundation.temperature_kelvin = source.foundation.temperature_kelvin;
+    settings.foundation.tint = source.foundation.tint;
+    settings.foundation.as_shot_white_balance_available =
+        source.foundation.as_shot_white_balance_available;
+    settings.foundation.as_shot_temperature_kelvin =
+        source.foundation.as_shot_temperature_kelvin;
+    settings.foundation.as_shot_tint = source.foundation.as_shot_tint;
     settings.grade_nodes.reserve(static_cast<std::size_t>(source.grade_nodes.size()));
     for (const auto& node : source.grade_nodes) {
         settings.grade_nodes.push_back(ffi_grade_node(node));
@@ -463,7 +468,13 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
 
 BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
     BackendGradeStack result;
+    result.raw_ai_denoise = {
+        .enabled = source.foundation.raw_ai_denoise_enabled,
+        .model = source.foundation.raw_ai_denoise_model,
+        .amount_percent = source.foundation.raw_ai_denoise_amount_percent,
+    };
     result.foundation = {
+        .enabled = source.foundation.enabled,
         .optics =
             {
                 .enabled = source.foundation.optics.enabled,
@@ -481,11 +492,14 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
                 .lens_profile_maker = qstring(source.foundation.optics.lens_profile_maker),
                 .lens_profile_model = qstring(source.foundation.optics.lens_profile_model),
             },
-        .raw_ai_denoise_enabled = source.foundation.raw_ai_denoise_enabled,
-        .raw_ai_denoise_model = source.foundation.raw_ai_denoise_model,
         .raw_white_balance_mode = source.foundation.raw_white_balance_mode,
-        .camera_neutral_red_millionths = source.foundation.camera_neutral_red_millionths,
-        .camera_neutral_blue_millionths = source.foundation.camera_neutral_blue_millionths,
+        .temperature_kelvin = source.foundation.temperature_kelvin,
+        .tint = source.foundation.tint,
+        .as_shot_white_balance_available =
+            source.foundation.as_shot_white_balance_available,
+        .as_shot_temperature_kelvin =
+            source.foundation.as_shot_temperature_kelvin,
+        .as_shot_tint = source.foundation.as_shot_tint,
     };
     result.grade_nodes.reserve(checked_qt_vector_size(source.grade_nodes.size(), "grade_nodes"));
     for (const auto& node : source.grade_nodes) {

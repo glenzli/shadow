@@ -2,7 +2,7 @@
 //!
 //! Preview, detail, and export choose different quality policies, but the
 //! photo-private absolute white balance must be identical across all three.
-//! This owner also protects manual camera-space white balance from silently
+//! This owner also protects authored absolute RAW white balance from silently
 //! crossing an RGB compatibility route that can no longer reproduce it.
 
 use anyhow::{Result as AnyResult, bail};

@@ -34,6 +34,10 @@ code should include the narrow semantic owner directly:
   work to that owner.
 - `raw_development_plan.hpp` owns requested RAW intent and capability negotiation, while
   `raw_development_receipt.hpp` owns the auditable execution result.
+- `raw_white_balance.hpp` / `src/raw/raw_white_balance.cpp` own the calibrated
+  photographer-facing temperature/tint contract, CIE white-point conversion,
+  source CameraNeutral interpretation, and DCP/provider-matrix projection.
+  Camera-channel ratios remain internal renderer values.
 - `decoder_metadata.hpp` / `src/decoder/decoder_metadata.cpp` own source facts,
   embedded-preview descriptors, provider-ID selection, and format names.
 - `raw_frame.hpp` owns untouched sensor samples; `reference_pixels.hpp` owns processed reference
@@ -92,12 +96,15 @@ Current contract rules:
   source-bound camera transform and orientation into scene-linear working RGB. Bounded preview
   resampling happens before that linear transform. `src/raw/raw_foundation_source.*` is the sole
   source-route integration owner: it reuses the original RawFrame for calibration, DCP rendering,
-  luminance, and sensor clipping, while the verified foundation supplies the only reconstruction
-  pixels. Its receipt and canonical cache identity include the exact model, implementation,
-  source, artifact, and cache-key identities. Geometry, provenance, or provider-policy mismatch
-  fails without a provider-RGB/original-RAW fallback. The requested RAW plan remains auditable,
-  while its effective AI execution disables overlapping conventional RAW denoise and highlight
-  reconstruction. The explicit overloads in `warm_edit_preview.*` and
+  luminance, sensor clipping, and the original camera-RGB reconstruction. Strength below 100%
+  linearly blends that reconstruction with the cached full-strength AI camera RGB before DCP and
+  working-space conversion; changing strength therefore changes render identity without
+  rematerializing or re-identifying the AI artifact. Its receipt and canonical cache identity
+  include the exact model, implementation, source, artifact, cache-key, and requested-strength
+  identities. Geometry, provenance, or provider-policy mismatch fails without a provider-RGB or
+  original-RAW fallback. The requested RAW plan remains auditable, while its effective AI
+  execution disables overlapping conventional RAW denoise and highlight reconstruction. The
+  explicit overloads in `warm_edit_preview.*` and
   `full_edit_detail_source_preparation.*` then delegate that result through the existing optics,
   source-rendering, Recipe, and display owners. Warm preview stays bounded; detail/export retains
   the complete scene-linear foundation and cannot enter the resident-CFA route.
@@ -125,6 +132,10 @@ Current contract rules:
   pre-demosaic; unsupported CFA layouts remain inspectable but cannot enter Bayer-only
   processing. A later opaque/tiled buffer can remove this copy without changing the frame
   semantics.
+- `src/raw/raw_frame_staging.cpp` owns the short-lived AI sidecar projection of that same
+  provider-neutral frame: the active Bayer rectangle is written as little-endian uint16 samples,
+  with CFA, black/white levels, and decoder identity in a bounded manifest. The sample file is
+  published before the manifest and both stay outside the source tree.
 - Native-size Bayer reconstruction, the precompiled camera transform and orientation are fused
   into one output pass. The CPU path remains the exact reference. On macOS, Metal v1 performs the
   balanced bilinear and high-quality directional-green/colour-difference contracts in fp32 and
@@ -199,8 +210,9 @@ DCP color development has a one-way internal owner graph.
 Bradford adaptation. `src/raw/dcp_color_rendering.*` owns HueSatMap/LookTable/tone-curve
 preparation plus CPU post-matrix execution and Metal backend selection; the reusable Metal
 encoding owner above serves both standalone and fused execution. `src/raw/dcp_color_development.cpp`
-retains camera-neutral interpretation, single/dual-illuminant calibration, matrix-route
-selection, immutable transform composition, and receipt identity.
+retains single/dual-illuminant calibration, matrix-route selection, immutable transform
+composition, and receipt identity; `src/raw/raw_white_balance.cpp` owns camera-neutral
+interpretation and the reversible temperature/tint presentation used by that calibration.
 
 Metal-capable CI or a local release gate should configure
 `SHADOW_REQUIRE_METAL_TESTS=ON`. That mode makes CTest require a real Metal device, forces the
@@ -277,6 +289,11 @@ must introduce a new versioned Recipe-aware operation; it must not overload this
 promote an unowned parser into the public crate facade, or substitute a JPEG proxy for a RAW detail
 tile.
 
+`shadow-image-decode-helper raw-frame-staging` is a separate production input boundary for local
+AI sidecars. It opens the original through the same private-provider router, publishes one
+nonce-bound provider-neutral Bayer staging pair, and never asks the AI provider to re-decode a
+proprietary RAW container.
+
 Lensfun optics has responsibility-named production owners behind the stable `OpticsProvider` API.
 `src/optics/lensfun_profile_catalog.*` owns database selection and loading, normalized camera
 identity lookup, compatible-lens projection, explicit/manual profile resolution, synchronization,
@@ -301,8 +318,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
 - `tests/bayer_demosaic_contract_test.cpp` owns normalized Bayer reconstruction, receipts, and
   unsupported-layout rejection.
 - `tests/raw_foundation_contract_test.cpp` owns verified RawNIND provenance, source-crop
-  admission, bounded camera-RGB preview resampling, camera transform, orientation, and fail-closed
-  invalid-input behavior.
+  admission, bounded camera-RGB preview resampling, original/AI strength blending before the
+  camera transform, orientation, and fail-closed invalid-input behavior.
 - `tests/raw_foundation_source_route_contract_test.cpp` owns explicit source routing, adjusted-plan
   audit, artifact-sensitive cache identity, clipping diagnostics, and the no-fallback boundary.
 - `tests/raw_foundation_edit_surfaces_contract_test.cpp` owns bounded warm-preview and materialized

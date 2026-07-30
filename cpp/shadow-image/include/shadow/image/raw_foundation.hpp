@@ -43,6 +43,7 @@ struct RawFoundationCameraRgbView final {
     Dimensions dimensions;
     std::uint32_t crop_top = 0U;
     std::uint32_t crop_left = 0U;
+    std::uint8_t amount_percent = 100U;
     std::span<const float> samples;
     RawFoundationProvenance provenance;
 
@@ -69,6 +70,16 @@ struct DevelopedRawFoundation final {
 [[nodiscard]] DevelopedRawFoundation develop_raw_foundation(
     const RawFoundationCameraRgbView& foundation,
     const RawFrameDescriptor& source_descriptor,
+    const RawFrameLinearTransform& transform,
+    std::optional<std::uint32_t> preview_max_edge = std::nullopt
+);
+
+/// Blends the verified AI result with the decoded original reconstruction in
+/// camera-linear RGB. The amount is part of the render identity but never the
+/// artifact identity, so slider changes reuse the cached model output.
+[[nodiscard]] DevelopedRawFoundation develop_raw_foundation(
+    const RawFoundationCameraRgbView& foundation,
+    const RawFrame& source_frame,
     const RawFrameLinearTransform& transform,
     std::optional<std::uint32_t> preview_max_edge = std::nullopt
 );

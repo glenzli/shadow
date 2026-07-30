@@ -1,6 +1,7 @@
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/raw_frame_staging.hpp>
 #include <shadow/image/raw_pipeline.hpp>
 
 #include <array>
@@ -546,6 +547,27 @@ int render_neutral_detail_tile(
     return 0;
 }
 
+int stage_raw_frame(
+    const fs::path& input,
+    const fs::path& manifest,
+    const std::string_view nonce
+) {
+    const auto provider = image::make_photo_decoder_provider();
+    const auto session = provider->open(input);
+    const auto receipt = image::write_raw_frame_staging(
+        session->decode_raw_frame(),
+        manifest,
+        nonce
+    );
+    std::cout
+        << image::raw_frame_staging_schema << " raw-frame-staging " << nonce
+        << ' ' << receipt.width
+        << ' ' << receipt.height
+        << ' ' << receipt.sample_bytes
+        << '\n';
+    return 0;
+}
+
 } // namespace
 
 int main(const int argument_count, char** arguments) {
@@ -594,12 +616,20 @@ int main(const int argument_count, char** arguments) {
                 std::string_view(arguments[8])
             );
         }
+        if (command == "raw-frame-staging" && argument_count == 5) {
+            return stage_raw_frame(
+                fs::path(arguments[2]),
+                fs::path(arguments[3]),
+                std::string_view(arguments[4])
+            );
+        }
         std::cerr
             << "usage: shadow-image-decode-helper proxy <input> <output> <max-edge> <jpeg-quality>\n"
             << "       shadow-image-decode-helper probe <input>\n"
             << "       shadow-image-decode-helper preview-receipt <input> <max-edge> <nonce>\n"
             << "       shadow-image-decode-helper metadata-snapshot <input> <nonce>\n"
             << "       shadow-image-decode-helper decoder-snapshot <input> <nonce>\n"
+            << "       shadow-image-decode-helper raw-frame-staging <input> <manifest> <nonce>\n"
             << "       shadow-image-decode-helper neutral-detail-tile <input> <output> <x> <y> <width> <height> <nonce>\n";
         return 2;
     } catch (const image::DecodeError& error) {

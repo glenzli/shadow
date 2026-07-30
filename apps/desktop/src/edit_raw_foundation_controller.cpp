@@ -135,7 +135,7 @@ EditRawFoundationController::EditRawFoundationController(
             resetContext();
         });
     foundation_connection_ =
-        QObject::connect(&owner_, &EditController::foundationChanged, &owner_, [this] {
+        QObject::connect(&owner_, &EditController::rawAiDenoiseRecipeChanged, &owner_, [this] {
             syncRecipeState();
         });
     state_busy_connection_ =
@@ -166,6 +166,10 @@ EditRawFoundationController::~EditRawFoundationController() {
 
 bool EditController::foundationAiDenoiseEnabled() const noexcept {
     return raw_foundation_controller_ && raw_foundation_controller_->enabled();
+}
+
+int EditController::foundationAiDenoiseAmount() const noexcept {
+    return static_cast<int>(grade_stack_.raw_ai_denoise.amount_percent);
 }
 
 bool EditController::foundationAiDenoiseAvailable() const noexcept {
@@ -200,6 +204,18 @@ void EditController::setFoundationAiDenoiseEnabled(const bool enabled) {
     if (raw_foundation_controller_) {
         raw_foundation_controller_->setEnabled(enabled);
     }
+}
+
+void EditController::setFoundationAiDenoiseAmount(const int amount_percent) {
+    if (!active_ || interactionLocked() || amount_percent < 0 || amount_percent > 100
+        || grade_stack_.raw_ai_denoise.amount_percent
+               == static_cast<std::uint8_t>(amount_percent)) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.raw_ai_denoise.amount_percent =
+        static_cast<std::uint8_t>(amount_percent);
+    rawDenoiseEdited(QStringLiteral("amount"), before);
 }
 
 void EditController::startFoundationAiDenoise() {
@@ -255,8 +271,8 @@ void EditRawFoundationController::setEnabled(const bool enabled) {
         return;
     }
     const BackendGradeStack before = owner_.grade_stack_;
-    owner_.grade_stack_.foundation.raw_ai_denoise_enabled = false;
-    owner_.foundationEdited(QStringLiteral("raw_ai_denoise/enabled"), before);
+    owner_.grade_stack_.raw_ai_denoise.enabled = false;
+    owner_.rawDenoiseEdited(QStringLiteral("enabled"), before);
     static_cast<void>(state_.sync_recipe_enabled(false));
     setStatus(raw_foundation_message(QT_TRANSLATE_NOOP(
         "EditController",
@@ -322,7 +338,7 @@ void EditRawFoundationController::cancel() {
 void EditRawFoundationController::resetContext() {
     const bool active =
         owner_.active_ && !owner_.photo_id_.isEmpty() && !owner_.source_path_.isEmpty();
-    const bool recipe_enabled = active && owner_.grade_stack_.foundation.raw_ai_denoise_enabled;
+    const bool recipe_enabled = active && owner_.grade_stack_.raw_ai_denoise.enabled;
     if (const auto token = state_.reset_context(active, recipe_enabled)) {
         try {
             backend_->cancelRawFoundationJob(*token);
@@ -581,7 +597,7 @@ void EditRawFoundationController::finishExecution() {
 }
 
 void EditRawFoundationController::syncRecipeState() {
-    const bool enabled = owner_.active_ && owner_.grade_stack_.foundation.raw_ai_denoise_enabled;
+    const bool enabled = owner_.active_ && owner_.grade_stack_.raw_ai_denoise.enabled;
     if (!state_.sync_recipe_enabled(enabled)) {
         return;
     }
@@ -589,7 +605,7 @@ void EditRawFoundationController::syncRecipeState() {
         pending_recipe_enable_ = false;
         setStatus(raw_foundation_message(QT_TRANSLATE_NOOP(
             "EditController",
-            "AI RAW Denoise is enabled · the Foundation switch is saved with this photo"
+            "AI RAW Denoise is enabled"
         )));
     } else if (!state_.job_busy()) {
         setStatus(raw_foundation_message(QT_TRANSLATE_NOOP(
@@ -613,11 +629,11 @@ void EditRawFoundationController::maybeApplyReady() {
         publishChange();
         return;
     }
-    if (!owner_.grade_stack_.foundation.raw_ai_denoise_enabled) {
+    if (!owner_.grade_stack_.raw_ai_denoise.enabled) {
         const BackendGradeStack before = owner_.grade_stack_;
-        owner_.grade_stack_.foundation.raw_ai_denoise_model = 0;
-        owner_.grade_stack_.foundation.raw_ai_denoise_enabled = true;
-        owner_.foundationEdited(QStringLiteral("raw_ai_denoise/enabled"), before);
+        owner_.grade_stack_.raw_ai_denoise.model = 0;
+        owner_.grade_stack_.raw_ai_denoise.enabled = true;
+        owner_.rawDenoiseEdited(QStringLiteral("enabled"), before);
     }
     pending_recipe_enable_ = false;
     static_cast<void>(state_.sync_recipe_enabled(true));

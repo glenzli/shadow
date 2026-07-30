@@ -80,6 +80,7 @@ cargo xtask native-check
 cargo xtask desktop-i18n-check
 cargo xtask desktop-build
 cargo xtask raw-smoke ./local-reference/sample-assets/raw
+./scripts/run_debug.sh
 cargo run --package shadow-cli -- init ./catalogs/demo.sqlite
 cargo run --package shadow-cli -- scan ./catalogs/demo.sqlite /path/to/photos
 cargo run --package shadow-cli -- scan-cache ./catalogs/demo.sqlite ./catalogs/cache /path/to/photos
@@ -90,6 +91,21 @@ cargo run --package shadow-cli -- inspect-raw /path/to/input.dng
 cargo run --package shadow-cli -- inspect-store ./catalogs/demo.sqlite ./catalogs/cache /path/to/input.dng
 ./build/native-dev/cpp/shadow-image/shadow-raw-probe /path/to/input.dng ./bench-results/raw-probe
 ```
+
+`scripts/run_debug.sh` is the stable launch command for local development. Individual agents build
+and validate in isolated external directories; after a complete current-source build passes the
+desktop, localization, edit, and relevant private-decoder checks, the temporary release steward
+promotes its app with:
+
+```sh
+./scripts/promote_debug_build.sh /absolute/path/to/Shadow.app validation-label
+```
+
+Promotion keeps immutable revision-stamped releases under the sibling `.shadow-local-build`
+directory and atomically advances `current-debug`, so users never need to find an agent's temporary
+build path and a running app is never modified in place. The canonical debug contract includes the
+frozen RawNIND provider and local pinned model: promotion rejects a provider-less candidate, and
+`./scripts/run_debug.sh --check` reports the exact executable/model paths without launching Shadow.
 
 `cargo xtask format` delegates Rust to the repository `rustfmt.toml` and applies
 the repository `.clang-format` to changed C, C++, Objective-C, and Objective-C++

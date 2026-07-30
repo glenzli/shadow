@@ -313,6 +313,7 @@ qt_add_executable(
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
     src/edit_adjustment_controller.cpp
+    src/edit_adjustment_reset_controller.cpp
     src/edit_ai_mask_controller.cpp
     src/edit_ai_mask_controller.hpp
     src/edit_ai_mask_prompt_state.cpp
@@ -652,6 +653,7 @@ qt_add_qml_module(
         qml/PrecisionPointColorSection.qml
         qml/PrecisionPointColorSampleBar.qml
         qml/PrecisionFoundationAdjustments.qml
+        qml/PrecisionRawDenoiseAdjustments.qml
         qml/PrecisionColorMixer.qml
         qml/PrecisionSelectiveColor.qml
         qml/ColorWarperEditor.qml
@@ -2369,6 +2371,7 @@ if(BUILD_TESTING)
         NO_PLUGIN
         QML_FILES
             qml/PrecisionFoundationAdjustments.qml
+            qml/PrecisionRawDenoiseAdjustments.qml
             qml/ShadowAdjustmentSection.qml
             qml/ShadowButton.qml
             qml/ShadowIcon.qml
@@ -2399,6 +2402,42 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-adjustment-controls-contract-test
+        tests/shadow_adjustment_controls_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-adjustment-controls-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-adjustment-controls-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-adjustment-controls-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-adjustment-controls-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-adjustment-controls-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-adjustment-controls-contract
+        COMMAND shadow-adjustment-controls-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-adjustment-controls-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-precision-direct-stroke-interaction-test
         tests/precision_direct_stroke_interaction_test.cpp
         src/edit_stroke_input.cpp
@@ -2424,6 +2463,7 @@ if(BUILD_TESTING)
         NO_PLUGIN
         QML_FILES
             qml/PrecisionActiveStrokeCoverage.qml
+            qml/PrecisionCanvasZoomInput.qml
             qml/PrecisionCanvasPickerInput.qml
             qml/PrecisionCropOverlay.qml
             qml/PrecisionLiquifyOverlay.qml

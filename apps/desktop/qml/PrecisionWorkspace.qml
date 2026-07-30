@@ -31,6 +31,9 @@ Item {
     // Zero means freeform. Positive values are output-space aspect locks used
     // by the crop overlay, never persisted as a second geometry authority.
     property real cropAspectRatioLock: 0
+    property string observedRecipeNodeKind: ""
+    property string observedGradeNodeId: ""
+    property int observedGradeNodeIndex: -1
 
     readonly property bool proxyActive: editor.active
         && precisionCanvas.visiblePreviewSource.length > 0
@@ -75,6 +78,24 @@ Item {
         editor.setRetouchPickerActive(false)
     }
 
+    function reconcileRecipeNodeSelection() {
+        const nextKind = String(editor.selectedRecipeNodeKind || "")
+        const nextId = String(editor.selectedGradeNodeId || "")
+        const nextIndex = Number(editor.selectedGradeNodeIndex)
+        const initialized = observedRecipeNodeKind.length > 0
+            || observedGradeNodeId.length > 0
+            || observedGradeNodeIndex >= 0
+        const selectionChanged = initialized
+            && (nextKind !== observedRecipeNodeKind
+                || nextId !== observedGradeNodeId
+                || nextIndex !== observedGradeNodeIndex)
+        observedRecipeNodeKind = nextKind
+        observedGradeNodeId = nextId
+        observedGradeNodeIndex = nextIndex
+        if (selectionChanged)
+            leaveSpecialTool()
+    }
+
     function cancelTransientInteractionOrLeaveTool() {
         if (editor.pointColorPickerActive) {
             editor.setPointColorPickerActive(false)
@@ -99,6 +120,10 @@ Item {
     Connections {
         target: precision.editor
 
+        function onSelectedGradeNodeChanged() {
+            precision.reconcileRecipeNodeSelection()
+        }
+
         function onSourceIdentityChanged() {
             precision.selectedRetouchContinuous = true
             precision.selectedRetouchIndex = -1
@@ -109,6 +134,12 @@ Item {
             if (!precision.editor.active)
                 precision.leaveSpecialTool()
         }
+    }
+
+    Component.onCompleted: {
+        observedRecipeNodeKind = String(editor.selectedRecipeNodeKind || "")
+        observedGradeNodeId = String(editor.selectedGradeNodeId || "")
+        observedGradeNodeIndex = Number(editor.selectedGradeNodeIndex)
     }
 
     Shortcut {
@@ -172,6 +203,14 @@ Item {
             onMaskToolRequested: {
                 if (precision.activeSpecialTool !== precision.toolMask)
                     precision.setActiveSpecialTool(precision.toolMask)
+            }
+            onCropToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolCrop)
+                    precision.setActiveSpecialTool(precision.toolCrop)
+            }
+            onLiquifyToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolLiquify)
+                    precision.setActiveSpecialTool(precision.toolLiquify)
             }
         }
 

@@ -13,24 +13,22 @@ void run_coalescing_failure_lifetime_contracts() {
         ReviewLibraryQueryCoordinator coordinator(operations(state), model);
         BackendLibraryPhotoFilter first;
         first.camera_key = QStringLiteral("first");
-        coordinator.requestReset(first);
+        coordinator.requestReset(first, BackendLibraryPhotoOrder::CaptureTimeDescending);
         wait_for_first_page(state);
 
         BackendLibraryPhotoFilter latest;
         latest.camera_key = QStringLiteral("latest");
-        coordinator.scheduleReset(latest);
-        coordinator.scheduleReset(latest);
+        coordinator.scheduleReset(latest, BackendLibraryPhotoOrder::FileNameDescending);
+        coordinator.scheduleReset(latest, BackendLibraryPhotoOrder::FileNameDescending);
         QThread::msleep(150);
         QCoreApplication::processEvents();
         release_first_page(state);
         wait_until(
             [&coordinator, &model, &state]() {
-                return !coordinator.refreshing()
-                    && model.rowCount() == 1
-                    && model.data(model.index(0, 0), ReviewModel::PhotoIdRole)
-                           .toString()
-                        == QStringLiteral("latest")
-                    && page_call_count(state) == 2;
+                return !coordinator.refreshing() && model.rowCount() == 1
+                       && model.data(model.index(0, 0), ReviewModel::PhotoIdRole).toString()
+                              == QStringLiteral("latest")
+                       && page_call_count(state) == 2;
             },
             "one coalesced latest reset supersedes the completed older page"
         );
@@ -47,15 +45,15 @@ void run_coalescing_failure_lifetime_contracts() {
         ReviewLibraryQueryCoordinator coordinator(operations(state), model);
         BackendLibraryPhotoFilter filter;
         filter.camera_key = QStringLiteral("paginate");
-        coordinator.requestReset(filter);
+        coordinator.requestReset(filter, BackendLibraryPhotoOrder::CaptureTimeDescending);
         wait_until(
             [&coordinator]() { return !coordinator.refreshing(); },
             "invalid continuation reaches a terminal query state"
         );
         require(
-            coordinator.statusMessage()
-                .translated()
-                .contains(QStringLiteral("invalid continuation cursor")),
+            coordinator.statusMessage().translated().contains(
+                QStringLiteral("invalid continuation cursor")
+            ),
             "invalid continuation is rejected before model publication"
         );
     }
@@ -65,12 +63,12 @@ void run_coalescing_failure_lifetime_contracts() {
         state->fail_count = true;
         ReviewModel model;
         ReviewLibraryQueryCoordinator coordinator(operations(state), model);
-        coordinator.requestReset({});
+        coordinator.requestReset({}, BackendLibraryPhotoOrder::CaptureTimeDescending);
         wait_until(
             [&coordinator]() {
-                return coordinator.statusMessage()
-                    .translated()
-                    .contains(QStringLiteral("count failed"));
+                return coordinator.statusMessage().translated().contains(
+                    QStringLiteral("count failed")
+                );
             },
             "count failure publishes localized diagnostics"
         );
@@ -81,11 +79,8 @@ void run_coalescing_failure_lifetime_contracts() {
         state->block_first_page = true;
         ReviewModel model;
         auto coordinator =
-            std::make_unique<ReviewLibraryQueryCoordinator>(
-                operations(state),
-                model
-            );
-        coordinator->requestReset({});
+            std::make_unique<ReviewLibraryQueryCoordinator>(operations(state), model);
+        coordinator->requestReset({}, BackendLibraryPhotoOrder::CaptureTimeDescending);
         wait_for_first_page(state);
         std::thread releaser([state]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(40));
@@ -95,10 +90,7 @@ void run_coalescing_failure_lifetime_contracts() {
         timer.start();
         coordinator.reset();
         releaser.join();
-        require(
-            timer.elapsed() >= 25,
-            "destruction waits for the active page worker"
-        );
+        require(timer.elapsed() >= 25, "destruction waits for the active page worker");
     }
 }
 

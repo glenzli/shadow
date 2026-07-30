@@ -83,6 +83,8 @@ ShadowAdjustmentSection {
     Layout.fillWidth: true
     title: qsTr("POINT COLOR")
     toolTipText: qsTr("Use the eyedropper to build one or more precise Oklch color ranges from the image.")
+    resetAvailable: true
+    onResetRequested: editor.resetSelectedAdjustmentSection("point_color")
 
     PrecisionPointColorSampleBar {
         Layout.fillWidth: true

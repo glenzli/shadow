@@ -22,14 +22,10 @@ constexpr std::uint32_t MISSING_SOURCE_LOCATION_PAGE_SIZE = 24;
 ReviewSourceHealthCoordinator::ReviewSourceHealthCoordinator(
     Operations operations,
     QObject* parent
-)
-    : QObject(parent),
-      operations_(std::move(operations)) {
-    if (!operations_.source_health || !operations_.missing_locations
+) : QObject(parent), operations_(std::move(operations)) {
+    if (!operations_.source_health || !operations_.remove_source || !operations_.missing_locations
         || !operations_.relink) {
-        throw std::invalid_argument(
-            "complete Review source-health operations are required"
-        );
+        throw std::invalid_argument("complete Review source-health operations are required");
     }
     connect(
         &source_health_watcher_,
@@ -44,6 +40,12 @@ ReviewSourceHealthCoordinator::ReviewSourceHealthCoordinator(
         &ReviewSourceHealthCoordinator::finishMissingLocationTask
     );
     connect(
+        &remove_source_watcher_,
+        &QFutureWatcher<RemoveSourceTaskResult>::finished,
+        this,
+        &ReviewSourceHealthCoordinator::finishRemoveSourceTask
+    );
+    connect(
         &relink_watcher_,
         &QFutureWatcher<RelinkTaskResult>::finished,
         this,
@@ -53,6 +55,7 @@ ReviewSourceHealthCoordinator::ReviewSourceHealthCoordinator(
 
 ReviewSourceHealthCoordinator::~ReviewSourceHealthCoordinator() {
     source_health_watcher_.waitForFinished();
+    remove_source_watcher_.waitForFinished();
     missing_locations_watcher_.waitForFinished();
     relink_watcher_.waitForFinished();
 }
@@ -61,20 +64,22 @@ QVariantList ReviewSourceHealthCoordinator::sourceHealth() const {
     QVariantList result;
     result.reserve(source_health_.size());
     for (const auto& source : source_health_) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("sourceId"), source.source_id},
-            {QStringLiteral("sourcePath"), source.source_display_path},
-            {QStringLiteral("enabled"), source.source_enabled},
-            {
-                QStringLiteral("hasLatestCompletedScan"),
-                source.has_latest_completed_scan,
-            },
-            {QStringLiteral("scanSessionId"), source.scan_session_id},
-            {QStringLiteral("scanCompletedAtMs"), source.scan_completed_at_ms},
-            {QStringLiteral("knownLocations"), source.known_locations},
-            {QStringLiteral("seenLocations"), source.seen_locations},
-            {QStringLiteral("notSeenLocations"), source.not_seen_locations},
-        });
+        result.push_back(
+            QVariantMap{
+                {QStringLiteral("sourceId"), source.source_id},
+                {QStringLiteral("sourcePath"), source.source_display_path},
+                {QStringLiteral("enabled"), source.source_enabled},
+                {
+                    QStringLiteral("hasLatestCompletedScan"),
+                    source.has_latest_completed_scan,
+                },
+                {QStringLiteral("scanSessionId"), source.scan_session_id},
+                {QStringLiteral("scanCompletedAtMs"), source.scan_completed_at_ms},
+                {QStringLiteral("knownLocations"), source.known_locations},
+                {QStringLiteral("seenLocations"), source.seen_locations},
+                {QStringLiteral("notSeenLocations"), source.not_seen_locations},
+            }
+        );
     }
     return result;
 }
@@ -83,23 +88,29 @@ bool ReviewSourceHealthCoordinator::sourceHealthBusy() const noexcept {
     return source_health_running_;
 }
 
+bool ReviewSourceHealthCoordinator::removeSourceBusy() const noexcept {
+    return remove_source_running_;
+}
+
 QVariantList ReviewSourceHealthCoordinator::missingLocations() const {
     QVariantList result;
     result.reserve(missing_locations_.size());
     for (const auto& location : missing_locations_) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("locationId"), location.location_id},
-            {QStringLiteral("photoId"), location.photo_id},
-            {QStringLiteral("title"), location.title},
-            {QStringLiteral("sourcePath"), location.source_display_path},
-            {QStringLiteral("hasCapturedAt"), location.has_captured_at},
-            {
-                QStringLiteral("capturedAtUnixSeconds"),
-                location.captured_at_unix_seconds,
-            },
-            {QStringLiteral("cameraKey"), location.camera_key},
-            {QStringLiteral("lastSeenAtMs"), location.last_seen_at_ms},
-        });
+        result.push_back(
+            QVariantMap{
+                {QStringLiteral("locationId"), location.location_id},
+                {QStringLiteral("photoId"), location.photo_id},
+                {QStringLiteral("title"), location.title},
+                {QStringLiteral("sourcePath"), location.source_display_path},
+                {QStringLiteral("hasCapturedAt"), location.has_captured_at},
+                {
+                    QStringLiteral("capturedAtUnixSeconds"),
+                    location.captured_at_unix_seconds,
+                },
+                {QStringLiteral("cameraKey"), location.camera_key},
+                {QStringLiteral("lastSeenAtMs"), location.last_seen_at_ms},
+            }
+        );
     }
     return result;
 }
@@ -124,8 +135,7 @@ QString ReviewSourceHealthCoordinator::relinkStatusText() const {
     return relink_status_message_.translated();
 }
 
-LocalizedUiMessage
-ReviewSourceHealthCoordinator::globalStatusMessage() const {
+LocalizedUiMessage ReviewSourceHealthCoordinator::globalStatusMessage() const {
     return global_status_message_;
 }
 
@@ -137,9 +147,18 @@ void ReviewSourceHealthCoordinator::refreshSourceHealth() {
     startSourceHealthTask();
 }
 
-void ReviewSourceHealthCoordinator::openMissingLocationReview(
-    const QString& scan_session_id
+void ReviewSourceHealthCoordinator::removeSource(
+    const QString& source_id,
+    const QString& source_path
 ) {
+    const QString normalized_source_id = source_id.trimmed();
+    if (remove_source_running_ || relink_running_ || normalized_source_id.isEmpty()) {
+        return;
+    }
+    startRemoveSourceTask(normalized_source_id, source_path);
+}
+
+void ReviewSourceHealthCoordinator::openMissingLocationReview(const QString& scan_session_id) {
     const QString normalized_scan_id = scan_session_id.trimmed();
     if (normalized_scan_id.isEmpty()) {
         return;
@@ -181,8 +200,8 @@ void ReviewSourceHealthCoordinator::relinkMissingLocation(
 ) {
     const QString normalized_location_id = location_id.trimmed();
     const QString candidate_path = candidate_url.toLocalFile();
-    if (relink_running_ || missing_location_scan_id_.isEmpty()
-        || normalized_location_id.isEmpty() || candidate_path.isEmpty()) {
+    if (relink_running_ || missing_location_scan_id_.isEmpty() || normalized_location_id.isEmpty()
+        || candidate_path.isEmpty()) {
         return;
     }
     startRelinkTask(normalized_location_id, candidate_path);
@@ -226,19 +245,34 @@ ReviewSourceHealthCoordinator::runMissingLocationTask(
     result.request_id = request_id;
     result.append = append;
     try {
-        result.page = operation(
-            result.scan_session_id,
-            after_location_id,
-            MISSING_SOURCE_LOCATION_PAGE_SIZE
-        );
+        result.page =
+            operation(result.scan_session_id, after_location_id, MISSING_SOURCE_LOCATION_PAGE_SIZE);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
     return result;
 }
 
-ReviewSourceHealthCoordinator::RelinkTaskResult
-ReviewSourceHealthCoordinator::runRelinkTask(
+ReviewSourceHealthCoordinator::RemoveSourceTaskResult
+ReviewSourceHealthCoordinator::runRemoveSourceTask(
+    std::function<bool(const QString& source_id)> operation,
+    QString source_id,
+    QString source_path,
+    const quint64 request_id
+) {
+    RemoveSourceTaskResult result;
+    result.source_id = std::move(source_id);
+    result.source_path = std::move(source_path);
+    result.request_id = request_id;
+    try {
+        result.removed = operation(result.source_id);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+ReviewSourceHealthCoordinator::RelinkTaskResult ReviewSourceHealthCoordinator::runRelinkTask(
     std::function<BackendVerifiedSourceRelinkReceipt(
         const QString& scan_session_id,
         const QString& location_id,
@@ -253,11 +287,7 @@ ReviewSourceHealthCoordinator::runRelinkTask(
     result.location_id = location_id;
     result.request_id = request_id;
     try {
-        result.receipt = operation(
-            scan_session_id,
-            location_id,
-            candidate_path
-        );
+        result.receipt = operation(scan_session_id, location_id, candidate_path);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -272,16 +302,34 @@ void ReviewSourceHealthCoordinator::startSourceHealthTask() {
     source_health_running_ = true;
     active_source_health_request_id_ = ++source_health_request_id_;
     emit sourceHealthChanged();
-    source_health_watcher_.setFuture(QtConcurrent::run(
-        runSourceHealthTask,
-        operations_.source_health,
-        active_source_health_request_id_
-    ));
+    source_health_watcher_.setFuture(
+        QtConcurrent::run(
+            runSourceHealthTask,
+            operations_.source_health,
+            active_source_health_request_id_
+        )
+    );
 }
 
-void ReviewSourceHealthCoordinator::startMissingLocationTask(
-    const bool append
+void ReviewSourceHealthCoordinator::startRemoveSourceTask(
+    const QString& source_id,
+    const QString& source_path
 ) {
+    remove_source_running_ = true;
+    active_remove_source_request_id_ = ++remove_source_request_id_;
+    emit sourceHealthChanged();
+    remove_source_watcher_.setFuture(
+        QtConcurrent::run(
+            runRemoveSourceTask,
+            operations_.remove_source,
+            source_id,
+            source_path,
+            active_remove_source_request_id_
+        )
+    );
+}
+
+void ReviewSourceHealthCoordinator::startMissingLocationTask(const bool append) {
     if (missing_locations_running_) {
         missing_locations_refresh_pending_ = true;
         return;
@@ -292,14 +340,16 @@ void ReviewSourceHealthCoordinator::startMissingLocationTask(
     missing_locations_running_ = true;
     active_missing_locations_request_id_ = ++missing_locations_request_id_;
     emit missingLocationReviewChanged();
-    missing_locations_watcher_.setFuture(QtConcurrent::run(
-        runMissingLocationTask,
-        operations_.missing_locations,
-        missing_location_scan_id_,
-        append ? missing_location_next_cursor_ : QString{},
-        active_missing_locations_request_id_,
-        append
-    ));
+    missing_locations_watcher_.setFuture(
+        QtConcurrent::run(
+            runMissingLocationTask,
+            operations_.missing_locations,
+            missing_location_scan_id_,
+            append ? missing_location_next_cursor_ : QString{},
+            active_missing_locations_request_id_,
+            append
+        )
+    );
 }
 
 void ReviewSourceHealthCoordinator::startRelinkTask(
@@ -307,36 +357,32 @@ void ReviewSourceHealthCoordinator::startRelinkTask(
     const QString& candidate_path
 ) {
     relink_running_ = true;
-    relink_status_message_ = source_health_message(QT_TRANSLATE_NOOP(
-        "ReviewController",
-        "Verifying selected source…"
-    ));
+    relink_status_message_ =
+        source_health_message(QT_TRANSLATE_NOOP("ReviewController", "Verifying selected source…"));
     active_relink_request_id_ = ++relink_request_id_;
     emit missingLocationReviewChanged();
-    relink_watcher_.setFuture(QtConcurrent::run(
-        runRelinkTask,
-        operations_.relink,
-        missing_location_scan_id_,
-        location_id,
-        candidate_path,
-        active_relink_request_id_
-    ));
+    relink_watcher_.setFuture(
+        QtConcurrent::run(
+            runRelinkTask,
+            operations_.relink,
+            missing_location_scan_id_,
+            location_id,
+            candidate_path,
+            active_relink_request_id_
+        )
+    );
 }
 
 void ReviewSourceHealthCoordinator::finishSourceHealthTask() {
     SourceHealthTaskResult result = source_health_watcher_.result();
     source_health_running_ = false;
-    const bool accepted =
-        result.request_id == active_source_health_request_id_;
+    const bool accepted = result.request_id == active_source_health_request_id_;
     if (accepted && result.error.isEmpty()) {
         source_health_ = std::move(result.sources);
         emit sourceHealthChanged();
     } else if (accepted) {
         publishGlobalStatus(source_health_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Could not load Library source health · %1"
-            ),
+            QT_TRANSLATE_NOOP("ReviewController", "Could not load Library source health · %1"),
             {result.error}
         ));
         emit sourceHealthChanged();
@@ -348,12 +394,36 @@ void ReviewSourceHealthCoordinator::finishSourceHealthTask() {
     }
 }
 
+void ReviewSourceHealthCoordinator::finishRemoveSourceTask() {
+    RemoveSourceTaskResult result = remove_source_watcher_.result();
+    remove_source_running_ = false;
+    const bool accepted = result.request_id == active_remove_source_request_id_;
+    if (accepted && result.error.isEmpty()) {
+        closeMissingLocationReview();
+        if (result.removed) {
+            emit libraryVisibilityChanged();
+        }
+        publishGlobalStatus(source_health_message(
+            result.removed
+                ? QT_TRANSLATE_NOOP("ReviewController", "Removed Library folder · %1")
+                : QT_TRANSLATE_NOOP("ReviewController", "Library folder was already removed · %1"),
+            {result.source_path}
+        ));
+        refreshSourceHealth();
+    } else if (accepted) {
+        publishGlobalStatus(source_health_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not remove Library folder · %1"),
+            {result.error}
+        ));
+    }
+    emit sourceHealthChanged();
+}
+
 void ReviewSourceHealthCoordinator::finishMissingLocationTask() {
     MissingLocationTaskResult result = missing_locations_watcher_.result();
     missing_locations_running_ = false;
-    const bool accepted =
-        result.request_id == active_missing_locations_request_id_
-        && result.scan_session_id == missing_location_scan_id_;
+    const bool accepted = result.request_id == active_missing_locations_request_id_
+                          && result.scan_session_id == missing_location_scan_id_;
     if (accepted && result.error.isEmpty()) {
         if (result.page.has_scan) {
             if (result.append) {
@@ -361,8 +431,7 @@ void ReviewSourceHealthCoordinator::finishMissingLocationTask() {
             } else {
                 missing_locations_ = std::move(result.page.items);
             }
-            missing_location_next_cursor_ =
-                std::move(result.page.next_location_id);
+            missing_location_next_cursor_ = std::move(result.page.next_location_id);
             missing_locations_has_more_ = result.page.has_more;
         } else {
             missing_locations_.clear();
@@ -372,10 +441,7 @@ void ReviewSourceHealthCoordinator::finishMissingLocationTask() {
         emit missingLocationReviewChanged();
     } else if (accepted) {
         publishGlobalStatus(source_health_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Could not load source scan review · %1"
-            ),
+            QT_TRANSLATE_NOOP("ReviewController", "Could not load source scan review · %1"),
             {result.error}
         ));
         emit missingLocationReviewChanged();
@@ -385,8 +451,7 @@ void ReviewSourceHealthCoordinator::finishMissingLocationTask() {
         emit missingLocationReviewChanged();
     }
 
-    if (missing_locations_refresh_pending_
-        && !missing_location_scan_id_.isEmpty()) {
+    if (missing_locations_refresh_pending_ && !missing_location_scan_id_.isEmpty()) {
         missing_locations_refresh_pending_ = false;
         startMissingLocationTask(false);
     }
@@ -398,19 +463,13 @@ void ReviewSourceHealthCoordinator::finishRelinkTask() {
     const bool accepted = result.request_id == active_relink_request_id_;
     if (accepted && result.error.isEmpty()) {
         relink_status_message_ = source_health_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Verified and linked · %1"
-            ),
+            QT_TRANSLATE_NOOP("ReviewController", "Verified and linked · %1"),
             {result.receipt.display_path}
         );
         publishGlobalStatus(relink_status_message_);
     } else if (accepted) {
         relink_status_message_ = source_health_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Could not link selected source · %1"
-            ),
+            QT_TRANSLATE_NOOP("ReviewController", "Could not link selected source · %1"),
             {result.error}
         );
         publishGlobalStatus(relink_status_message_);
@@ -418,9 +477,7 @@ void ReviewSourceHealthCoordinator::finishRelinkTask() {
     emit missingLocationReviewChanged();
 }
 
-void ReviewSourceHealthCoordinator::publishGlobalStatus(
-    LocalizedUiMessage status
-) {
+void ReviewSourceHealthCoordinator::publishGlobalStatus(LocalizedUiMessage status) {
     global_status_message_ = std::move(status);
     emit globalStatusMessageChanged();
 }

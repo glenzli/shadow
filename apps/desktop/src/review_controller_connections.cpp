@@ -200,6 +200,15 @@ void ReviewController::initializeCoordinatorWiring() {
     );
     connect(
         &source_health_coordinator_,
+        &ReviewSourceHealthCoordinator::libraryVisibilityChanged,
+        this,
+        [this]() {
+            requestLibraryReset();
+            refreshLibraryFacets();
+        }
+    );
+    connect(
+        &source_health_coordinator_,
         &ReviewSourceHealthCoordinator::missingLocationReviewChanged,
         this,
         &ReviewController::missingSourceLocationReviewChanged

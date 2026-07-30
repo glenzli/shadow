@@ -434,12 +434,34 @@ impl SmartAlbumQueryV1 {
     }
 }
 
-/// Stable cursor for capture-time descending Library pages. Photos without
-/// indexed capture time deliberately sort after timestamped photos, then by
-/// photo id, so partially indexed libraries remain complete and deterministic.
+/// User-visible ordering for photo-first Library pages.
+///
+/// Ordering is deliberately not part of [`LibraryPhotoFilter`]: filters are
+/// durable Smart Album membership while ordering is a presentation choice.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+pub enum LibraryPhotoOrder {
+    #[default]
+    CaptureTimeDescending,
+    CaptureTimeAscending,
+    FileNameAscending,
+    FileNameDescending,
+}
+
+/// The typed key carried by a Library page cursor.
+///
+/// A cursor can only be resumed with the same [`LibraryPhotoOrder`] that
+/// produced it. This prevents a direction or dimension change from silently
+/// skipping photos.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum LibraryPhotoCursorValue {
+    CaptureTime(Option<i64>),
+    FileName(String),
+}
+
+/// Stable keyset cursor for one explicitly ordered Library page.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LibraryPhotoCursor {
-    pub captured_at_unix_seconds: Option<i64>,
+    pub value: LibraryPhotoCursorValue,
     pub photo_id: PhotoId,
 }
 

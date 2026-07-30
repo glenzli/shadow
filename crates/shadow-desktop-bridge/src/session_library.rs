@@ -21,10 +21,12 @@ impl DesktopSession {
     pub(crate) fn library_photo_page(
         &self,
         filter: &ffi::FfiLibraryPhotoFilter,
+        order: ffi::FfiLibraryPhotoOrder,
         cursor: &ffi::FfiLibraryPhotoCursor,
         limit: u32,
     ) -> AnyResult<ffi::FfiLibraryPhotoPage> {
-        self.library.photo_page(&self.review, filter, cursor, limit)
+        self.library
+            .photo_page(&self.review, filter, order, cursor, limit)
     }
 
     pub(crate) fn library_photo_count(
@@ -72,6 +74,10 @@ impl DesktopSession {
 
     pub(crate) fn library_source_health(&self) -> AnyResult<Vec<ffi::FfiLibrarySourceHealth>> {
         self.library.ffi_source_health()
+    }
+
+    pub(crate) fn remove_library_source(&self, source_id: &str) -> AnyResult<bool> {
+        self.library.remove_source(source_id)
     }
 
     pub(crate) fn missing_source_location_page(

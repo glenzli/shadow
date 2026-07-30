@@ -14,6 +14,8 @@ ColumnLayout {
     required property var controller
     property string pendingRelinkLocationId: ""
     property url pendingRelinkCandidate: ""
+    property string pendingRemoveSourceId: ""
+    property string pendingRemoveSourcePath: ""
 
     spacing: 8
 
@@ -93,6 +95,81 @@ ColumnLayout {
                             sourceHealth.pendingRelinkCandidate
                         )
                         relinkConfirmPopup.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: removeSourceConfirmPopup
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: 390
+        padding: 18
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+
+        background: Rectangle {
+            radius: 10
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.dangerBorder
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Remove Library folder?")
+                color: Theme.textPrimary
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Remove this folder from Shadow’s Library? Photos available only through this folder leave the Gallery. Edits and original files are kept, and return if the folder is added again.")
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: sourceHealth.pendingRemoveSourcePath
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMeta
+                elide: Text.ElideMiddle
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    compact: true
+                    text: qsTr("CANCEL")
+                    onClicked: removeSourceConfirmPopup.close()
+                }
+
+                ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Danger
+                    text: qsTr("REMOVE FOLDER")
+                    enabled: !sourceHealth.controller.librarySourceRemovalBusy
+                        && !sourceHealth.controller.scanning
+                    onClicked: {
+                        sourceHealth.controller.removeLibrarySource(
+                            sourceHealth.pendingRemoveSourceId,
+                            sourceHealth.pendingRemoveSourcePath
+                        )
+                        removeSourceConfirmPopup.close()
                     }
                 }
             }
@@ -179,6 +256,22 @@ ColumnLayout {
                             color: modelData.enabled ? Theme.accent : Theme.textSubtle
                             font.pixelSize: Theme.fontMeta
                             font.weight: Font.DemiBold
+                        }
+
+                        ShadowIconButton {
+                            source: "qrc:/icons/trash.svg"
+                            variant: ShadowIconButton.Quiet
+                            enabled: !sourceHealth.controller.librarySourceRemovalBusy
+                                && !sourceHealth.controller.scanning
+                            toolTipText: qsTr("REMOVE FOLDER FROM LIBRARY")
+                            accessibleName: toolTipText
+                            onClicked: {
+                                sourceHealth.pendingRemoveSourceId =
+                                    modelData.sourceId
+                                sourceHealth.pendingRemoveSourcePath =
+                                    modelData.sourcePath
+                                removeSourceConfirmPopup.open()
+                            }
                         }
                     }
 

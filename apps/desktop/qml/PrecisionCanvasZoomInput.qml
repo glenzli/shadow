@@ -18,6 +18,11 @@ Item {
     property real pinchStartZoom: 1.0
     property bool wheelGestureActive: false
 
+    // Remove the complete cursor-owning layer when another direct tool owns
+    // the canvas. A disabled MouseArea can otherwise leave its BlankCursor as
+    // the topmost cursor candidate above Crop and other structural tools.
+    visible: interactionEnabled
+
     signal zoomStepRequested(real viewportX, real viewportY, int direction)
     signal continuousZoomStarted()
     signal continuousZoomRequested(
@@ -26,12 +31,13 @@ Item {
 
     MouseArea {
         id: magnifierInput
+        objectName: "canvasZoomMagnifierInput"
 
         anchors.fill: parent
         enabled: zoomInput.interactionEnabled && zoomInput.toolActive
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
-        cursorShape: Qt.BlankCursor
+        cursorShape: enabled ? Qt.BlankCursor : Qt.ArrowCursor
 
         property bool zoomOut: false
 

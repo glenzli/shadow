@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
 import math
 from pathlib import Path
 import time
@@ -11,6 +12,8 @@ from typing import Any
 
 import numpy as np
 import onnxruntime as ort
+
+import raw_frame_staging
 
 
 TILE_EDGE = 512
@@ -284,7 +287,22 @@ def force_rggb_geometry(
 
 def load_raw_as_packed_bayer(
     raw_path: Path,
+    staged_raw_frame: Path | None = None,
 ) -> tuple[np.ndarray, dict[str, object]]:
+    if staged_raw_frame is not None:
+        staged = raw_frame_staging.load(staged_raw_frame)
+        pattern = np.arange(4, dtype=np.uint8).reshape(2, 2)
+        return _pack_normalized_bayer(
+            staged.mosaic,
+            pattern,
+            staged.cfa,
+            np.asarray(staged.black_levels, dtype=np.float32),
+            staged.white_levels[0],
+            decoder_provider_id=staged.provider_id,
+            decoder_provider_version=staged.provider_version,
+            decoded_samples_sha256=staged.samples_sha256,
+        )
+
     import rawpy
 
     with rawpy.imread(str(raw_path)) as raw:
@@ -292,54 +310,76 @@ def load_raw_as_packed_bayer(
         if pattern is None or pattern.shape != (2, 2):
             raise ValueError("RawNIND Bayer audit requires a 2x2 Bayer source")
         description = _color_description(raw)
-        row_offset, column_offset, forced_pattern = force_rggb_geometry(
+        visible = raw.raw_image_visible.astype(np.uint16, copy=True)
+        decoded_samples_sha256 = hashlib.sha256(
+            visible.astype("<u2", copy=False).tobytes()
+        ).hexdigest()
+        return _pack_normalized_bayer(
+            visible,
             pattern,
             description,
+            np.asarray(raw.black_level_per_channel, dtype=np.float32),
+            float(raw.white_level),
+            decoder_provider_id="rawpy",
+            decoder_provider_version=rawpy.__version__,
+            decoded_samples_sha256=decoded_samples_sha256,
         )
-        mosaic = raw.raw_image_visible.astype(np.float32, copy=True)
-        row_end = mosaic.shape[0] - row_offset if row_offset else mosaic.shape[0]
-        column_end = (
-            mosaic.shape[1] - column_offset
-            if column_offset
-            else mosaic.shape[1]
-        )
-        mosaic = mosaic[
-            row_offset:row_end,
-            column_offset:column_end,
-        ]
-        if mosaic.shape[0] % 2 or mosaic.shape[1] % 2:
-            mosaic = mosaic[: mosaic.shape[0] & ~1, : mosaic.shape[1] & ~1]
-        sensor_shape = [int(mosaic.shape[0]), int(mosaic.shape[1])]
-        white_level = float(raw.white_level)
-        black_levels = np.asarray(
-            raw.black_level_per_channel,
-            dtype=np.float32,
-        )
-        planes: list[np.ndarray] = []
-        for row in range(2):
-            for column in range(2):
-                color_index = int(forced_pattern[row, column])
-                black = float(black_levels[color_index])
-                value_range = max(white_level - black, 1.0)
-                plane = np.clip(
-                    (mosaic[row::2, column::2] - black) / value_range,
-                    0.0,
-                    1.0,
-                )
-                planes.append(plane)
-        packed = np.stack(planes, axis=0).astype(np.float32)
-        metadata: dict[str, object] = {
-            "sensor_shape": sensor_shape,
-            "packed_shape": [int(value) for value in packed.shape],
-            "raw_pattern": forced_pattern.astype(int).tolist(),
-            "source_raw_pattern": pattern.astype(int).tolist(),
-            "force_rggb_crop_sensor": [row_offset, column_offset],
-            "color_description": description,
-            "white_level": white_level,
-            "black_level_per_channel": [
-                float(value) for value in black_levels.tolist()
-            ],
-        }
+
+
+def _pack_normalized_bayer(
+    source_mosaic: np.ndarray,
+    pattern: np.ndarray,
+    description: str,
+    black_levels: np.ndarray,
+    white_level: float,
+    *,
+    decoder_provider_id: str,
+    decoder_provider_version: str,
+    decoded_samples_sha256: str,
+) -> tuple[np.ndarray, dict[str, object]]:
+    row_offset, column_offset, forced_pattern = force_rggb_geometry(
+        pattern,
+        description,
+    )
+    mosaic = source_mosaic.astype(np.float32, copy=True)
+    row_end = mosaic.shape[0] - row_offset if row_offset else mosaic.shape[0]
+    column_end = (
+        mosaic.shape[1] - column_offset
+        if column_offset
+        else mosaic.shape[1]
+    )
+    mosaic = mosaic[row_offset:row_end, column_offset:column_end]
+    if mosaic.shape[0] % 2 or mosaic.shape[1] % 2:
+        mosaic = mosaic[: mosaic.shape[0] & ~1, : mosaic.shape[1] & ~1]
+    sensor_shape = [int(mosaic.shape[0]), int(mosaic.shape[1])]
+    planes: list[np.ndarray] = []
+    for row in range(2):
+        for column in range(2):
+            color_index = int(forced_pattern[row, column])
+            black = float(black_levels[color_index])
+            value_range = max(white_level - black, 1.0)
+            plane = np.clip(
+                (mosaic[row::2, column::2] - black) / value_range,
+                0.0,
+                1.0,
+            )
+            planes.append(plane)
+    packed = np.stack(planes, axis=0).astype(np.float32)
+    metadata: dict[str, object] = {
+        "sensor_shape": sensor_shape,
+        "packed_shape": [int(value) for value in packed.shape],
+        "raw_pattern": forced_pattern.astype(int).tolist(),
+        "source_raw_pattern": pattern.astype(int).tolist(),
+        "force_rggb_crop_sensor": [row_offset, column_offset],
+        "color_description": description,
+        "white_level": white_level,
+        "black_level_per_channel": [
+            float(value) for value in black_levels.tolist()
+        ],
+        "decoder_provider_id": decoder_provider_id,
+        "decoder_provider_version": decoder_provider_version,
+        "decoded_samples_sha256": decoded_samples_sha256,
+    }
     return np.ascontiguousarray(packed), metadata
 
 

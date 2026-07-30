@@ -98,6 +98,7 @@ fn cache_identity_covers_source_artifact_model_and_implementation() {
     let identity = RawFoundationRenderIdentity::from_ready(
         &ready,
         RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+        100,
     )
     .expect("render identity");
 
@@ -117,6 +118,17 @@ fn cache_identity_covers_source_artifact_model_and_implementation() {
         identity.implementation_revision,
         RAW_FOUNDATION_IMPLEMENTATION_REVISION
     );
+    assert_eq!(identity.amount_percent, 100);
+    let half = RawFoundationRenderIdentity::from_ready(
+        &ready,
+        RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+        50,
+    )
+    .expect("half-strength render identity");
+    assert_ne!(
+        half, identity,
+        "amount changes render identity without changing artifact provenance"
+    );
 }
 
 #[test]
@@ -124,6 +136,15 @@ fn disabled_recipe_bypasses_while_enabled_recipe_without_ready_output_fails_clos
     assert!(
         select_ready_raw_foundation(None, RawFoundationDenoise::disabled())
             .expect("disabled bypass")
+            .is_none()
+    );
+    let zero_amount =
+        RawFoundationDenoise::enabled(RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0)
+            .with_amount_percent(0)
+            .expect("zero amount");
+    assert!(
+        select_ready_raw_foundation(None, zero_amount)
+            .expect("zero amount is an exact bypass")
             .is_none()
     );
     let error = select_ready_raw_foundation(

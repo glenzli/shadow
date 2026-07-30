@@ -63,6 +63,15 @@ Item {
         gestureFinished()
     }
 
+    function resetToNeutral() {
+        if (!enabled || Math.abs(value - neutralValue) < 0.0000001)
+            return
+        finishGesture()
+        beginGesture()
+        edited(neutralValue)
+        finishGesture()
+    }
+
     onEnabledChanged: {
         if (!enabled)
             finishGesture()
@@ -147,6 +156,12 @@ Item {
                 } else if (field.gestureActive) {
                     field.finishGesture()
                 }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+                onDoubleTapped: field.resetToNeutral()
             }
         }
 

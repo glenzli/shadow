@@ -448,3 +448,23 @@ void EditController::clearSelectedLocalMaskBrush() {
     parameterEdited(QStringLiteral("local_mask/brush/clear"), before);
     emit gradeNodesChanged();
 }
+
+void EditController::resetSelectedLocalMask() {
+    auto* const grade_node = selected_grade_node_index_ < 0
+                                 ? nullptr
+                                 : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
+        || grade_node->local_mask_kind == 0U) {
+        return;
+    }
+    BackendGradeNode reset = *grade_node;
+    initializeLocalMask(reset, grade_node->local_mask_kind);
+    if (reset == *grade_node) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    *grade_node = std::move(reset);
+    parameterEdited(QStringLiteral("local_mask/reset"), before);
+    emit gradeNodesChanged();
+}

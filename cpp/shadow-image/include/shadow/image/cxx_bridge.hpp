@@ -186,6 +186,10 @@ query_libraw_optics_profiles_utf8(rust::Str path);
 // complete camera/lens EXIF through an earlier metadata inspection or a private provider.
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
 query_optics_profiles_for_metadata(const FfiMetadataSnapshot& metadata);
+// Maps a persisted source CameraNeutral to the photographer-facing
+// temperature/tint controls when an exact local DCP calibration is available.
+[[nodiscard]] FfiRawWhiteBalancePresentation
+query_raw_white_balance_presentation_for_metadata(const FfiMetadataSnapshot& metadata);
 [[nodiscard]] rust::String libraw_provider_version();
 [[nodiscard]] rust::String photo_provider_version();
 [[nodiscard]] rust::String edit_preview_generator_implementation_identity();

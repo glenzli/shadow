@@ -29,9 +29,10 @@ query_operations(const std::shared_ptr<DesktopBackend>& backend) {
     return {
         .page = [backend](
                     const BackendLibraryPhotoFilter& filter,
+                    const BackendLibraryPhotoOrder order,
                     const BackendLibraryPhotoCursor& cursor,
                     const std::uint32_t limit
-                ) { return backend->libraryPhotoPage(filter, cursor, limit); },
+                ) { return backend->libraryPhotoPage(filter, order, cursor, limit); },
         .count = [backend](
                      const BackendLibraryPhotoFilter& filter
                  ) { return backend->libraryPhotoCount(filter); },
@@ -79,6 +80,8 @@ source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
     }
     return {
         .source_health = [backend]() { return backend->librarySourceHealth(); },
+        .remove_source =
+            [backend](const QString& source_id) { return backend->removeLibrarySource(source_id); },
         .missing_locations =
             [backend](
                 const QString& scan_session_id,

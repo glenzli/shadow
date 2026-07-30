@@ -87,24 +87,36 @@ class EditController final : public QObject {
         QString recipeRecoveryErrorText READ recipeRecoveryErrorText NOTIFY recipeRecoveryChanged
     )
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
-    // Absolute camera-space source interpretation. These values belong to the
-    // one photo Foundation and remain stable when another Grade Node is
+    // Absolute photographer-facing source interpretation. These values belong
+    // to the one photo Foundation and remain stable when another Grade Node is
     // selected, disabled, duplicated, reordered, or shared.
     Q_PROPERTY(
-        int foundationWhiteBalanceMode READ foundationWhiteBalanceMode WRITE
-            setFoundationWhiteBalanceMode NOTIFY foundationChanged
+        bool foundationEnabled READ foundationEnabled WRITE setFoundationEnabled NOTIFY
+            foundationChanged
     )
     Q_PROPERTY(
-        double foundationCameraNeutralRed READ foundationCameraNeutralRed WRITE
-            setFoundationCameraNeutralRed NOTIFY foundationChanged
+        int foundationWhiteBalanceTemperature READ foundationWhiteBalanceTemperature WRITE
+            setFoundationWhiteBalanceTemperature NOTIFY foundationChanged
     )
     Q_PROPERTY(
-        double foundationCameraNeutralBlue READ foundationCameraNeutralBlue WRITE
-            setFoundationCameraNeutralBlue NOTIFY foundationChanged
+        int foundationWhiteBalanceTint READ foundationWhiteBalanceTint WRITE
+            setFoundationWhiteBalanceTint NOTIFY foundationChanged
+    )
+    Q_PROPERTY(
+        bool foundationWhiteBalanceAtCameraValue READ foundationWhiteBalanceAtCameraValue NOTIFY
+            foundationChanged
+    )
+    Q_PROPERTY(
+        bool foundationWhiteBalanceCameraValueAvailable READ
+            foundationWhiteBalanceCameraValueAvailable NOTIFY foundationChanged
     )
     Q_PROPERTY(
         bool foundationAiDenoiseEnabled READ foundationAiDenoiseEnabled WRITE
             setFoundationAiDenoiseEnabled NOTIFY foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        int foundationAiDenoiseAmount READ foundationAiDenoiseAmount WRITE
+            setFoundationAiDenoiseAmount NOTIFY foundationAiDenoiseChanged
     )
     Q_PROPERTY(
         bool foundationAiDenoiseAvailable READ foundationAiDenoiseAvailable NOTIFY
@@ -231,6 +243,14 @@ class EditController final : public QObject {
     )
     Q_PROPERTY(QString selectedGradeNodeId READ selectedGradeNodeId NOTIFY selectedGradeNodeChanged)
     Q_PROPERTY(bool hasSelectedGradeNode READ hasSelectedGradeNode NOTIFY selectedGradeNodeChanged)
+    Q_PROPERTY(bool foundationSelected READ foundationSelected NOTIFY selectedGradeNodeChanged)
+    Q_PROPERTY(bool rawDenoiseSelected READ rawDenoiseSelected NOTIFY selectedGradeNodeChanged)
+    Q_PROPERTY(
+        QString selectedRecipeNodeKind READ selectedRecipeNodeKind NOTIFY selectedGradeNodeChanged
+    )
+    Q_PROPERTY(
+        bool liquifyNodeMaterialized READ liquifyNodeMaterialized NOTIFY parametersChanged
+    )
     Q_PROPERTY(bool canAddGradeNode READ canAddGradeNode NOTIFY gradeNodeActionsChanged)
     Q_PROPERTY(bool canDeleteGradeNode READ canDeleteGradeNode NOTIFY gradeNodeActionsChanged)
     Q_PROPERTY(bool canMoveGradeNodeUp READ canMoveGradeNodeUp NOTIFY gradeNodeActionsChanged)
@@ -333,10 +353,13 @@ class EditController final : public QObject {
     [[nodiscard]] bool recipeRecoveryRequired() const noexcept;
     [[nodiscard]] QString recipeRecoveryErrorText() const;
     [[nodiscard]] QString statusText() const;
-    [[nodiscard]] int foundationWhiteBalanceMode() const noexcept;
-    [[nodiscard]] double foundationCameraNeutralRed() const noexcept;
-    [[nodiscard]] double foundationCameraNeutralBlue() const noexcept;
+    [[nodiscard]] bool foundationEnabled() const noexcept;
+    [[nodiscard]] int foundationWhiteBalanceTemperature() const noexcept;
+    [[nodiscard]] int foundationWhiteBalanceTint() const noexcept;
+    [[nodiscard]] bool foundationWhiteBalanceAtCameraValue() const noexcept;
+    [[nodiscard]] bool foundationWhiteBalanceCameraValueAvailable() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseEnabled() const noexcept;
+    [[nodiscard]] int foundationAiDenoiseAmount() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseAvailable() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseBusy() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseCanStart() const noexcept;
@@ -382,6 +405,10 @@ class EditController final : public QObject {
     [[nodiscard]] int selectedGradeNodeIndex() const noexcept;
     [[nodiscard]] QString selectedGradeNodeId() const;
     [[nodiscard]] bool hasSelectedGradeNode() const noexcept;
+    [[nodiscard]] bool foundationSelected() const noexcept;
+    [[nodiscard]] bool rawDenoiseSelected() const noexcept;
+    [[nodiscard]] QString selectedRecipeNodeKind() const;
+    [[nodiscard]] bool liquifyNodeMaterialized() const noexcept;
     [[nodiscard]] bool canAddGradeNode() const noexcept;
     [[nodiscard]] bool canDeleteGradeNode() const noexcept;
     [[nodiscard]] bool canMoveGradeNodeUp() const noexcept;
@@ -418,10 +445,11 @@ class EditController final : public QObject {
     void setWhiteBalanceTint(double value);
     void setSaturationFactor(double value);
     void setLutIntensity(double value);
-    void setFoundationWhiteBalanceMode(int mode);
-    void setFoundationCameraNeutralRed(double value);
-    void setFoundationCameraNeutralBlue(double value);
+    void setFoundationEnabled(bool enabled);
+    void setFoundationWhiteBalanceTemperature(int temperature_kelvin);
+    void setFoundationWhiteBalanceTint(int tint);
     void setFoundationAiDenoiseEnabled(bool enabled);
+    void setFoundationAiDenoiseAmount(int amount_percent);
     void setOpticsEnabled(bool enabled);
     void setOpticsDistortionEnabled(bool enabled);
     void setOpticsTcaEnabled(bool enabled);
@@ -462,6 +490,7 @@ class EditController final : public QObject {
     setSelectedLocalMaskPoint(const QString& point, double normalized_x, double normalized_y);
     Q_INVOKABLE void appendSelectedLocalMaskBrushStroke(const QVariantList& points);
     Q_INVOKABLE void clearSelectedLocalMaskBrush();
+    Q_INVOKABLE void resetSelectedLocalMask();
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setMaskToolActive(bool active);
     Q_INVOKABLE bool beginAiMaskPrompt();
@@ -492,6 +521,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void
     setRetouchStrokeSourceOffset(int index, double offset_x_radii, double offset_y_radii);
     Q_INVOKABLE void removeRetouchStroke(int index);
+    Q_INVOKABLE void clearRetouch();
     void setLiquifyBrushRadius(double radius);
     void setLiquifyBrushStrength(double strength);
     void setLiquifyBrushHardness(double hardness);
@@ -509,6 +539,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void setPhotoStraightenDegrees(double degrees);
     Q_INVOKABLE void setCropToolActive(bool active);
     Q_INVOKABLE void resetPhotoGeometry();
+    Q_INVOKABLE void resetSelectedAdjustmentSection(const QString& section_key);
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
     Q_INVOKABLE double parameterValue(const QString& parameter_key) const;
@@ -536,6 +567,7 @@ class EditController final : public QObject {
         const QString& lens_model
     );
     Q_INVOKABLE void clearManualOpticsProfile();
+    Q_INVOKABLE void resetOptics();
     Q_INVOKABLE void selectPointColor(int index);
     void setPointColorScopeActive(bool active);
     Q_INVOKABLE void removeSelectedPointColor();
@@ -557,6 +589,11 @@ class EditController final : public QObject {
     Q_INVOKABLE void addToneCurvePoint(double x, double y);
     Q_INVOKABLE void removeToneCurvePoint(int index);
     Q_INVOKABLE void resetToneCurve();
+    Q_INVOKABLE void resetFoundationWhiteBalance();
+    Q_INVOKABLE void selectFoundationNode();
+    Q_INVOKABLE void selectRawDenoiseNode();
+    Q_INVOKABLE void selectLiquifyNode();
+    Q_INVOKABLE void selectCanvasNode();
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void resetSelectedGradeNode();
@@ -618,6 +655,10 @@ class EditController final : public QObject {
     void recipeRecoveryChanged();
     void statusTextChanged();
     void foundationChanged();
+    // Internal recipe-state notification for the fixed AI RAW Denoise node.
+    // The public QML properties retain their historical foundation-prefixed
+    // names until the desktop API can make a versioned rename.
+    void rawAiDenoiseRecipeChanged();
     void foundationAiDenoiseChanged();
     void opticsChanged();
     void opticsReceiptChanged();
@@ -727,6 +768,7 @@ class EditController final : public QObject {
     void emitBusyChange(bool previous_busy);
     void parameterEdited(const QString& key, const BackendGradeStack& before);
     void foundationEdited(const QString& key, const BackendGradeStack& before);
+    void rawDenoiseEdited(const QString& key, const BackendGradeStack& before);
     void opticsEdited(const QString& key, const BackendGradeStack& before);
     void notifyParametersChanged();
     void handleMaskSelectionChanged();
@@ -845,6 +887,7 @@ class EditController final : public QObject {
     // later interactive frames may be cancelled in favour of the latest value.
     bool first_interactive_frame_presented_ = false;
     int selected_grade_node_index_ = -1;
+    QString selected_recipe_node_kind_ = QStringLiteral("grade");
     int selected_point_color_index_ = -1;
     bool point_color_scope_active_ = false;
     std::optional<PreviewScopeReferenceSelection> point_color_scope_reference_;

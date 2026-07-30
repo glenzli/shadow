@@ -2,7 +2,7 @@
 
 use std::sync::mpsc::SyncSender;
 
-use shadow_domain::{ImportSessionId, LocationId};
+use shadow_domain::{ImportSessionId, LibrarySourceId, LocationId};
 
 use crate::{
     CatalogError, LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationCursor,
@@ -11,6 +11,7 @@ use crate::{
 
 pub(in crate::writer) enum SourceHealthMessage {
     LibrarySources(SyncSender<Result<Vec<LibrarySourceRecord>, CatalogError>>),
+    RemoveLibrarySource(LibrarySourceId, SyncSender<Result<bool, CatalogError>>),
     LibrarySourceHealth(SyncSender<Result<Vec<LibrarySourceHealth>, CatalogError>>),
     MissingSourceLocationPage(
         ImportSessionId,

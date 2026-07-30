@@ -27,6 +27,13 @@ ColumnLayout {
         toolTipText: qsTr("Push pixels non-destructively before the final crop. Liquify stays private to this photo and cannot be shared as a Grade Node.")
         sectionEnabled: liquify.inspector.editor.active
             && !liquify.inspector.editor.stateBusy
+        resetAvailable: true
+        onResetRequested: {
+            liquify.inspector.editor.clearLiquify()
+            liquify.inspector.editor.liquifyBrushRadius = 0.08
+            liquify.inspector.editor.liquifyBrushStrength = 0.5
+            liquify.inspector.editor.liquifyBrushHardness = 0.5
+        }
 
         ShadowSlider {
             Layout.fillWidth: true
@@ -100,15 +107,6 @@ ColumnLayout {
                 onClicked: liquify.inspector.editor.undo()
             }
 
-            ShadowButton {
-                Layout.fillWidth: true
-                compact: true
-                variant: ShadowButton.Ghost
-                text: qsTr("Clear")
-                enabled: liquify.inspector.editor.liquifyStrokes.length > 0
-                toolTipText: qsTr("Remove the complete Liquify node")
-                onClicked: liquify.inspector.editor.clearLiquify()
-            }
         }
 
         Label {

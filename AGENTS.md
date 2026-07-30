@@ -397,3 +397,27 @@ state.
   private module first; take the shared facade only for a small additive
   mapping, compile it, and release. Never retain a facade solely because an
   intermediate cross-layer change is currently broken.
+
+### Canonical runnable debug build
+
+Task-private build directories are validation workspaces, not user-facing application locations.
+The only stable debug entry is `../.shadow-local-build/current-debug/Shadow.app`, launched from the
+repository with `scripts/run_debug.sh`.
+
+- A task may report its private build path as validation evidence, but must not present that path
+  as the application's normal launch command.
+- Only a temporary **canonical debug build steward** may mutate `current-debug`. The steward claims
+  that shared output, waits for all source contracts included by the build to reach buildable
+  handoffs, and validates the complete current-source application rather than assembling a shell
+  and helper from different checkpoints.
+- Before promotion, run the local workspace guard, the canonical desktop build and localization
+  gate, startup/edit smoke coverage, and any installed private-provider smoke relevant to the
+  changed decoder boundary. Record the exact validation label and source scope in the handoff.
+- Promote with `scripts/promote_debug_build.sh /absolute/path/to/Shadow.app <validation-label>`.
+  Promotion copies the candidate into an immutable revision/timestamp directory and atomically
+  advances `current-debug`; it never mutates an app that the user may already be running.
+- The owner of a task-private build may delete it only after its source handoff and any required
+  promotion are complete. The promotion steward does not delete another task's directory. Retain
+  the current promoted release and at least one previous release for rollback; prune older promoted
+  releases only while holding the canonical build lease, never by following or deleting the
+  `current-debug` symlink target indirectly.

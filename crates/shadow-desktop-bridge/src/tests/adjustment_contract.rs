@@ -12,7 +12,7 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph, ImageDomain,
-    LayerContent, LayerInstance, PhotoFoundationNode, PhotoGeometry, PortType, RawCameraNeutral,
+    LayerContent, LayerInstance, PhotoFoundationNode, PhotoGeometry, PortType, RawTemperatureTint,
     RawWhiteBalance, RecipeInputSettings, RecipeSnapshot, UnitInterval, diff_recipe_snapshots,
 };
 use uuid::Uuid;
@@ -116,6 +116,7 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         },
     };
     let grade_stack = GradeStackDraft {
+        raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![GradeNodeDraft {
             fine: expected.clone(),
@@ -257,9 +258,8 @@ fn absolute_foundation_white_balance_is_not_reported_as_grade_temperature_or_tin
     let mut after = before.clone();
     after.foundation = PhotoFoundationNode::new(
         RecipeInputSettings::new(after.foundation.optics().clone()).with_raw_white_balance(
-            RawWhiteBalance::camera_neutral(
-                RawCameraNeutral::from_millionths(850_000, 1_300_000)
-                    .expect("manual camera neutral"),
+            RawWhiteBalance::temperature_tint(
+                RawTemperatureTint::new(5_800, 9).expect("manual temperature/tint"),
             ),
         ),
     );
@@ -300,6 +300,7 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
         intensity: 0.37,
     };
     let grade_stack = GradeStackDraft {
+        raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),

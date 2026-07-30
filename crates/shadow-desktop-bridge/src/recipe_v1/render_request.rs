@@ -59,8 +59,8 @@ pub(crate) fn resolve_recipe_render(
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, template)?;
     let snapshot_digest = shadow_domain::canonical_recipe_snapshot_digest(&snapshot)
         .context("serialize exact Recipe render identity")?;
-    let raw_white_balance = snapshot.foundation_node().raw_white_balance();
-    let raw_ai_denoise = snapshot.foundation_node().raw_ai_denoise();
+    let raw_white_balance = snapshot.foundation_node().effective_raw_white_balance();
+    let raw_ai_denoise = snapshot.raw_ai_denoise_node();
     let managed_rasters =
         FilesystemManagedRasterMaskResolver::open_for_runtime_cache(runtime_cache_root)?;
     Ok(ResolvedRecipeRender {

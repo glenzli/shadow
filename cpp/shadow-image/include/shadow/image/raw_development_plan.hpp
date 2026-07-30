@@ -8,11 +8,11 @@
 
 namespace shadow::image {
 
-inline constexpr std::uint32_t raw_camera_neutral_millionths = 1'000'000U;
-inline constexpr std::uint32_t minimum_raw_camera_neutral_millionths =
-    raw_camera_neutral_millionths / 64U;
-inline constexpr std::uint32_t maximum_raw_camera_neutral_millionths =
-    raw_camera_neutral_millionths * 64U;
+inline constexpr std::uint32_t raw_white_balance_default_temperature_kelvin = 5'500U;
+inline constexpr std::uint32_t raw_white_balance_minimum_temperature_kelvin = 2'000U;
+inline constexpr std::uint32_t raw_white_balance_maximum_temperature_kelvin = 25'000U;
+inline constexpr std::int16_t raw_white_balance_minimum_tint = -150;
+inline constexpr std::int16_t raw_white_balance_maximum_tint = 150;
 
 // A RAW-development plan is deliberately expressed in photographic intent rather than in a
 // particular decoder's switches.  For example, a future provider may map `noise_robust` to an
@@ -68,17 +68,17 @@ enum class RawHighlightRecoveryIntent : std::uint8_t {
 
 // Absolute RAW white balance is a source-development policy, not the
 // processed-RGB temperature/tint offset available to repeatable Grade nodes.
-// CameraNeutral is scale-invariant, so green is implicit at exactly one
-// million and only canonical red/blue integer ratios cross the ABI.
+// Its persisted authoring contract uses the photographic controls people
+// understand. CameraNeutral remains a renderer-derived calibration value.
 enum class RawWhiteBalanceMode : std::uint8_t {
     as_shot,
-    camera_neutral,
+    temperature_tint,
 };
 
 struct RawWhiteBalance final {
     RawWhiteBalanceMode mode = RawWhiteBalanceMode::as_shot;
-    std::uint32_t camera_neutral_red_millionths = raw_camera_neutral_millionths;
-    std::uint32_t camera_neutral_blue_millionths = raw_camera_neutral_millionths;
+    std::uint32_t temperature_kelvin = raw_white_balance_default_temperature_kelvin;
+    std::int16_t tint = 0;
 
     auto operator<=>(const RawWhiteBalance&) const = default;
 };
@@ -87,16 +87,14 @@ struct RawWhiteBalance final {
 valid_raw_white_balance(const RawWhiteBalance& white_balance) noexcept {
     switch (white_balance.mode) {
     case RawWhiteBalanceMode::as_shot:
-        return white_balance.camera_neutral_red_millionths == raw_camera_neutral_millionths
-               && white_balance.camera_neutral_blue_millionths == raw_camera_neutral_millionths;
-    case RawWhiteBalanceMode::camera_neutral:
-        return white_balance.camera_neutral_red_millionths >= minimum_raw_camera_neutral_millionths
-               && white_balance.camera_neutral_red_millionths
-                      <= maximum_raw_camera_neutral_millionths
-               && white_balance.camera_neutral_blue_millionths
-                      >= minimum_raw_camera_neutral_millionths
-               && white_balance.camera_neutral_blue_millionths
-                      <= maximum_raw_camera_neutral_millionths;
+        return white_balance.temperature_kelvin == raw_white_balance_default_temperature_kelvin
+               && white_balance.tint == 0;
+    case RawWhiteBalanceMode::temperature_tint:
+        return white_balance.temperature_kelvin >= raw_white_balance_minimum_temperature_kelvin
+               && white_balance.temperature_kelvin
+                      <= raw_white_balance_maximum_temperature_kelvin
+               && white_balance.tint >= raw_white_balance_minimum_tint
+               && white_balance.tint <= raw_white_balance_maximum_tint;
     }
     return false;
 }
@@ -315,9 +313,9 @@ raw_highlight_recovery_identity_name(const RawHighlightRecoveryIntent intent) no
     switch (white_balance.mode) {
     case RawWhiteBalanceMode::as_shot:
         return "as-shot";
-    case RawWhiteBalanceMode::camera_neutral:
-        return "camera-neutral:" + std::to_string(white_balance.camera_neutral_red_millionths) + ":"
-               + std::to_string(white_balance.camera_neutral_blue_millionths);
+    case RawWhiteBalanceMode::temperature_tint:
+        return "temperature-tint:" + std::to_string(white_balance.temperature_kelvin) + ":"
+               + std::to_string(white_balance.tint);
     }
     throw std::invalid_argument("RAW development plan contains an unknown white-balance mode");
 }
@@ -365,11 +363,11 @@ struct RawDevelopmentCapabilities final {
     // DNG opcode list in RawDevelopmentReceipt. A `provider_default` status alone is useful
     // provenance, but does not qualify: LibRaw v1 therefore leaves this false.
     bool dng_opcode_execution_receipt = false;
-    // True only when this exact development owner consumes the canonical
-    // CameraNeutral plan. `raw_frame` alone is not sufficient: a provider may
-    // expose CFA data to Shadow while its own processed-RGB fallback still
-    // supports only AsShot.
-    bool camera_neutral_white_balance = false;
+    // True only when this exact development owner converts the authored
+    // temperature/tint white point through source calibration. `raw_frame`
+    // alone is not sufficient: a provider may expose CFA data while its own
+    // processed-RGB fallback still supports only AsShot.
+    bool temperature_tint_white_balance = false;
     std::uint32_t supported_intents = 0U;
     std::uint32_t supported_qualities = 0U;
     std::uint32_t supported_dng_opcode_policies = 0U;
@@ -391,7 +389,7 @@ struct RawDevelopmentCapabilities final {
                       != 0U
                && valid_raw_white_balance(plan.white_balance)
                && (plan.white_balance.mode == RawWhiteBalanceMode::as_shot
-                   || camera_neutral_white_balance);
+                   || temperature_tint_white_balance);
     }
     auto operator<=>(const RawDevelopmentCapabilities&) const = default;
 };
@@ -464,8 +462,8 @@ struct RawDevelopmentPlanNegotiation final {
         negotiation.unresolved |= RawDevelopmentPlanAspect::highlight_recovery;
     }
     if (!valid_raw_white_balance(plan.white_balance)
-        || (plan.white_balance.mode == RawWhiteBalanceMode::camera_neutral
-            && !capabilities.camera_neutral_white_balance)) {
+        || (plan.white_balance.mode == RawWhiteBalanceMode::temperature_tint
+            && !capabilities.temperature_tint_white_balance)) {
         negotiation.unresolved |= RawDevelopmentPlanAspect::white_balance;
     }
     if (negotiation.unresolved == RawDevelopmentPlanAspect::none) {

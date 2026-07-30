@@ -12,7 +12,12 @@ Item {
     property string toolTipText: ""
     property bool expanded: true
     property bool sectionEnabled: true
+    property bool resetAvailable: false
+    property bool resetEnabled: true
+    property string resetObjectName: ""
+    property string resetToolTipText: qsTr("Reset panel")
     default property alias contentData: body.data
+    signal resetRequested()
 
     // The inspector is a ColumnLayout of sections.  Give it a complete,
     // explicit height contract so the next header never paints over a trailing
@@ -32,9 +37,24 @@ Item {
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 14
+            anchors.leftMargin: root.resetAvailable ? 6 : 14
             anchors.rightMargin: 12
             spacing: 8
+            z: 1
+
+            ShadowIconButton {
+                objectName: root.resetObjectName
+                visible: root.resetAvailable
+                Layout.preferredWidth: visible ? 24 : 0
+                Layout.preferredHeight: 24
+                buttonSize: 24
+                iconSize: 15
+                source: "qrc:/icons/reset-all.svg"
+                enabled: root.sectionEnabled && root.resetEnabled
+                toolTipText: root.resetToolTipText
+                accessibleName: toolTipText
+                onClicked: root.resetRequested()
+            }
 
             Label {
                 id: titleLabel
@@ -72,6 +92,7 @@ Item {
             id: headerMouse
             anchors.fill: parent
             hoverEnabled: true
+            z: 0
             cursorShape: root.sectionEnabled
                 ? Qt.PointingHandCursor : Qt.ArrowCursor
             enabled: root.sectionEnabled

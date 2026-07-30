@@ -5,12 +5,13 @@ use std::sync::mpsc::SyncSender;
 use crate::{
     CatalogError, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryMapGrid,
     LibraryMapSnapshot, LibraryMapViewport, LibraryPhotoCursor, LibraryPhotoFilter,
-    LibraryPhotoPage,
+    LibraryPhotoOrder, LibraryPhotoPage,
 };
 
 pub(in crate::writer) enum LibraryBrowseMessage {
     PhotoPage(
         LibraryPhotoFilter,
+        LibraryPhotoOrder,
         Option<LibraryPhotoCursor>,
         usize,
         SyncSender<Result<LibraryPhotoPage, CatalogError>>,

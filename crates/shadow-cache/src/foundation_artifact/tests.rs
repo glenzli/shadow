@@ -60,6 +60,9 @@ fn contract() -> FoundationContract {
         raw_preprocessing: RawPreprocessing {
             black_level_per_channel: vec![512.0; 4],
             color_description: "RGBG".to_owned(),
+            decoded_samples_sha256: "4".repeat(64),
+            decoder_provider_id: "shadow.test.raw".to_owned(),
+            decoder_provider_version: "1".to_owned(),
             force_rggb_crop_sensor: [0, 0],
             packed_shape: [4, 2, 3],
             raw_pattern: [[0, 1], [3, 2]],

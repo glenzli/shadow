@@ -4,7 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use shadow_domain::{
-    ImageDimensions, RAW_CAMERA_NEUTRAL_MILLIONTHS, RawCameraNeutral, RawWhiteBalance,
+    ImageDimensions, RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN, RawTemperatureTint,
+    RawWhiteBalance,
 };
 
 use super::{BridgeError, decoder::dimensions, ffi};
@@ -481,45 +482,42 @@ fn raw_highlight_recovery_intent(
     }
 }
 
-fn ffi_raw_white_balance(value: RawWhiteBalance) -> (ffi::FfiRawWhiteBalanceMode, u32, u32) {
+fn ffi_raw_white_balance(value: RawWhiteBalance) -> (ffi::FfiRawWhiteBalanceMode, u32, i16) {
     match value {
         RawWhiteBalance::AsShot => (
             ffi::FfiRawWhiteBalanceMode::AsShot,
-            RAW_CAMERA_NEUTRAL_MILLIONTHS,
-            RAW_CAMERA_NEUTRAL_MILLIONTHS,
+            RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
+            0,
         ),
-        RawWhiteBalance::CameraNeutral { neutral } => (
-            ffi::FfiRawWhiteBalanceMode::CameraNeutral,
-            neutral.red_millionths(),
-            neutral.blue_millionths(),
+        RawWhiteBalance::TemperatureTint { value } => (
+            ffi::FfiRawWhiteBalanceMode::TemperatureTint,
+            value.temperature_kelvin(),
+            value.tint(),
         ),
     }
 }
 
 fn raw_white_balance(
     mode: ffi::FfiRawWhiteBalanceMode,
-    red_millionths: u32,
-    blue_millionths: u32,
+    temperature_kelvin: u32,
+    tint: i16,
 ) -> Result<RawWhiteBalance, BridgeError> {
     match mode {
         ffi::FfiRawWhiteBalanceMode::AsShot => {
-            if red_millionths != RAW_CAMERA_NEUTRAL_MILLIONTHS
-                || blue_millionths != RAW_CAMERA_NEUTRAL_MILLIONTHS
-            {
+            if temperature_kelvin != RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN || tint != 0 {
                 return Err(BridgeError::InvalidRawDevelopmentPlan(
                     "decoder returned non-canonical AsShot RAW white balance",
                 ));
             }
             Ok(RawWhiteBalance::AsShot)
         }
-        ffi::FfiRawWhiteBalanceMode::CameraNeutral => {
-            let neutral = RawCameraNeutral::from_millionths(red_millionths, blue_millionths)
-                .map_err(|_| {
-                    BridgeError::InvalidRawDevelopmentPlan(
-                        "decoder returned an invalid RAW camera neutral",
-                    )
-                })?;
-            Ok(RawWhiteBalance::camera_neutral(neutral))
+        ffi::FfiRawWhiteBalanceMode::TemperatureTint => {
+            let value = RawTemperatureTint::new(temperature_kelvin, tint).map_err(|_| {
+                BridgeError::InvalidRawDevelopmentPlan(
+                    "decoder returned an invalid RAW temperature/tint white balance",
+                )
+            })?;
+            Ok(RawWhiteBalance::temperature_tint(value))
         }
         _ => Err(BridgeError::InvalidRawDevelopmentPlan(
             "decoder returned an unsupported RAW white-balance mode",
@@ -528,8 +526,7 @@ fn raw_white_balance(
 }
 
 pub(super) fn ffi_raw_development_plan(plan: RawDevelopmentPlan) -> ffi::FfiRawDevelopmentPlan {
-    let (white_balance_mode, camera_neutral_red_millionths, camera_neutral_blue_millionths) =
-        ffi_raw_white_balance(plan.white_balance);
+    let (white_balance_mode, temperature_kelvin, tint) = ffi_raw_white_balance(plan.white_balance);
     ffi::FfiRawDevelopmentPlan {
         schema_version: plan.schema_version,
         intent: ffi_raw_development_intent(plan.intent),
@@ -538,8 +535,8 @@ pub(super) fn ffi_raw_development_plan(plan: RawDevelopmentPlan) -> ffi::FfiRawD
         noise_reduction: ffi_raw_noise_reduction_intent(plan.noise_reduction),
         highlight_recovery: ffi_raw_highlight_recovery_intent(plan.highlight_recovery),
         white_balance_mode,
-        camera_neutral_red_millionths,
-        camera_neutral_blue_millionths,
+        temperature_kelvin,
+        tint,
     }
 }
 
@@ -555,8 +552,8 @@ fn raw_development_plan(
         highlight_recovery: raw_highlight_recovery_intent(plan.highlight_recovery)?,
         white_balance: raw_white_balance(
             plan.white_balance_mode,
-            plan.camera_neutral_red_millionths,
-            plan.camera_neutral_blue_millionths,
+            plan.temperature_kelvin,
+            plan.tint,
         )?,
     })
 }

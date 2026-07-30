@@ -86,6 +86,8 @@ ShadowAdjustmentSection {
     title: qsTr("LUT")
     summary: editor.hasLut ? editor.lutTitle : qsTr("None")
     toolTipText: qsTr("Apply a managed .cube LUT to this adjustment node. The library button opens LUT management.")
+    resetAvailable: true
+    onResetRequested: editor.resetSelectedAdjustmentSection("lut")
 
     RowLayout {
         Layout.fillWidth: true

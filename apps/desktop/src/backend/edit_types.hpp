@@ -263,10 +263,25 @@ struct BackendPhotoGeometry final {
 };
 
 struct BackendGradeStack final {
+    // One fixed, photo-local AI source node before Foundation. It cannot be
+    // duplicated, reordered, masked, or shared. Amount changes only the fast
+    // original/cached-result blend.
+    struct RawAiDenoise final {
+        bool enabled = false;
+        std::uint8_t model = 0;
+        std::uint8_t amount_percent = 100;
+
+        bool operator==(const RawAiDenoise&) const = default;
+    } raw_ai_denoise;
+
     // One mandatory, photo-local source-development role. It is deliberately
     // outside the repeatable Grade Node list: neither RAW interpretation nor
     // calibrated optics can be duplicated, reordered, masked, or shared.
     struct Foundation final {
+        // Bypassing preserves every authored Foundation value while required
+        // source decoding remains active.
+        bool enabled = true;
+
         struct Optics final {
             bool enabled = true;
             bool correct_distortion = true;
@@ -286,16 +301,15 @@ struct BackendGradeStack final {
             bool operator==(const Optics&) const = default;
         } optics;
 
-        // One non-repeatable AI RAW denoise slot. 0 is the exact public
-        // RawNIND Bayer release 5.6.0 model identity.
-        bool raw_ai_denoise_enabled = false;
-        std::uint8_t raw_ai_denoise_model = 0;
-
-        // 0 = source As Shot metadata; 1 = the exact camera-space neutral
-        // below. Green is canonically fixed at 1,000,000.
+        // 0 = source As Shot metadata; 1 = authored absolute temperature/tint.
+        // The mode is persistence/reset state, not a user-facing choice: the
+        // shell always presents the current photographic values.
         std::uint8_t raw_white_balance_mode = 0;
-        std::uint32_t camera_neutral_red_millionths = 1'000'000;
-        std::uint32_t camera_neutral_blue_millionths = 1'000'000;
+        std::uint32_t temperature_kelvin = 5'500;
+        std::int16_t tint = 0;
+        bool as_shot_white_balance_available = false;
+        std::uint32_t as_shot_temperature_kelvin = 5'500;
+        std::int16_t as_shot_tint = 0;
 
         bool operator==(const Foundation&) const = default;
     } foundation;

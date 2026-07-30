@@ -4,7 +4,7 @@ use shadow_bridge::{
 use shadow_catalog::{CatalogActor, RegisterAsset};
 use shadow_domain::{
     AssetLocation, EntityId, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec,
-    ProxyPayload, RawCameraNeutral, RawWhiteBalance, RepresentationId, RepresentationKind,
+    ProxyPayload, RawTemperatureTint, RawWhiteBalance, RepresentationId, RepresentationKind,
 };
 
 use super::*;
@@ -50,8 +50,8 @@ fn publication_preserves_recipe_preview_storage_and_reader_identity_contract() {
         bytes: vec![0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9],
     };
     let raw_development_plan =
-        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::camera_neutral(
-            RawCameraNeutral::from_millionths(750_000, 1_500_000).expect("fixture camera neutral"),
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(6_800, -14).expect("fixture temperature/tint"),
         ));
     let raw_pipeline_receipt =
         raw_pipeline_receipt("fixture-raw-pipeline-v1", raw_development_plan);

@@ -101,16 +101,16 @@ void raw_development_plan_is_canonical_and_capability_negotiated() {
 
     auto manual_white_balance = detail;
     manual_white_balance.white_balance = image::RawWhiteBalance{
-        .mode = image::RawWhiteBalanceMode::camera_neutral,
-        .camera_neutral_red_millionths = 500'000U,
-        .camera_neutral_blue_millionths = 250'000U,
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 4'800U,
+        .tint = 17,
     };
     expect(
         image::raw_development_plan_identity(manual_white_balance)
             == "shadow-raw-plan-v1;intent=detail;quality=balanced;opcodes="
                "provider-default;nr=provider-default;highlights=provider-default;"
-               "wb=camera-neutral:500000:250000",
-        "manual CameraNeutral is exact and cache-visible"
+               "wb=temperature-tint:4800:17",
+        "manual temperature and tint are exact and cache-visible"
     );
     const auto unsupported_white_balance =
         image::negotiate_raw_development_plan(manual_white_balance, capabilities);
@@ -120,18 +120,18 @@ void raw_development_plan_is_canonical_and_capability_negotiated() {
                 unsupported_white_balance.unresolved,
                 image::RawDevelopmentPlanAspect::white_balance
             ),
-        "a provider cannot silently render manual CameraNeutral as AsShot"
+        "a provider cannot silently render manual temperature and tint as AsShot"
     );
-    capabilities.camera_neutral_white_balance = true;
+    capabilities.temperature_tint_white_balance = true;
     const auto accepted_white_balance =
         image::negotiate_raw_development_plan(manual_white_balance, capabilities);
     expect(
         accepted_white_balance.accepted() && accepted_white_balance.exact(),
-        "an explicit source developer capability accepts canonical CameraNeutral"
+        "an explicit source developer capability accepts canonical temperature and tint"
     );
 
     auto noncanonical_as_shot = detail;
-    noncanonical_as_shot.white_balance.camera_neutral_red_millionths = 500'000U;
+    noncanonical_as_shot.white_balance.temperature_kelvin = 4'800U;
     try {
         static_cast<void>(image::raw_development_plan_identity(noncanonical_as_shot));
         expect(false, "noncanonical AsShot payload cannot produce a cache identity");

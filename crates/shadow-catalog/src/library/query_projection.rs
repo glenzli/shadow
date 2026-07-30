@@ -30,6 +30,20 @@ pub(super) fn library_photo_query_parts(
                AND EXISTS (
                    SELECT 1 FROM locations l2
                    WHERE l2.representation_id = r2.id AND l2.status = 'online'
+                     AND (
+                         NOT EXISTS (
+                             SELECT 1 FROM location_sources ownership
+                             WHERE ownership.location_id = l2.id
+                         )
+                         OR EXISTS (
+                             SELECT 1
+                             FROM location_sources ownership
+                             JOIN library_sources source
+                               ON source.id = ownership.source_id
+                              AND source.enabled = 1
+                             WHERE ownership.location_id = l2.id
+                         )
+                     )
                )
              ORDER BY CASE r2.kind WHEN 'original_raw' THEN 0 ELSE 1 END,
                       r2.created_at_ms DESC, r2.id DESC
@@ -38,6 +52,20 @@ pub(super) fn library_photo_query_parts(
          JOIN locations l ON l.id = (
              SELECT l3.id FROM locations l3
              WHERE l3.representation_id = r.id AND l3.status = 'online'
+               AND (
+                   NOT EXISTS (
+                       SELECT 1 FROM location_sources ownership
+                       WHERE ownership.location_id = l3.id
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM location_sources ownership
+                       JOIN library_sources source
+                         ON source.id = ownership.source_id
+                        AND source.enabled = 1
+                       WHERE ownership.location_id = l3.id
+                   )
+               )
              ORDER BY l3.created_at_ms DESC, l3.id DESC
              LIMIT 1
          )

@@ -4,6 +4,7 @@
 
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 
 #include <algorithm>
 #include <array>
@@ -44,60 +45,15 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             "RAW frame development requires a canonical white balance"
         );
     }
-    if (white_balance.mode == RawWhiteBalanceMode::camera_neutral) {
-        return {
-            static_cast<double>(white_balance.camera_neutral_red_millionths)
-                / static_cast<double>(raw_camera_neutral_millionths),
-            1.0,
-            static_cast<double>(white_balance.camera_neutral_blue_millionths)
-                / static_cast<double>(raw_camera_neutral_millionths),
-        };
+    const auto neutral = raw_frame_camera_neutral(descriptor, white_balance);
+    if (!neutral.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported_layout,
+            0,
+            "RAW frame cannot resolve the requested photographic white balance"
+        );
     }
-
-    std::array<double, 3U> totals{};
-    std::array<std::uint32_t, 3U> counts{};
-    for (std::size_t site = 0U; site < descriptor.bayer_2x2.size(); ++site) {
-        std::size_t channel = 0U;
-        switch (descriptor.bayer_2x2[site]) {
-        case RawCfaColor::red:
-            channel = 0U;
-            break;
-        case RawCfaColor::green:
-            channel = 1U;
-            break;
-        case RawCfaColor::blue:
-            channel = 2U;
-            break;
-        case RawCfaColor::unknown:
-            throw DecodeError(
-                DecodeErrorCode::unsupported_layout,
-                0,
-                "RAW frame has an unknown CFA colour in its neutral calibration"
-            );
-        }
-        const double neutral = descriptor.as_shot_neutral[site];
-        if (!std::isfinite(neutral) || neutral <= 0.0) {
-            throw DecodeError(
-                DecodeErrorCode::unsupported_layout,
-                0,
-                "RAW frame does not provide a usable as-shot camera neutral"
-            );
-        }
-        totals[channel] += neutral;
-        ++counts[channel];
-    }
-    std::array<double, 3U> result{};
-    for (std::size_t channel = 0U; channel < result.size(); ++channel) {
-        if (counts[channel] == 0U) {
-            throw DecodeError(
-                DecodeErrorCode::unsupported_layout,
-                0,
-                "RAW frame camera neutral does not cover RGB"
-            );
-        }
-        result[channel] = totals[channel] / static_cast<double>(counts[channel]);
-    }
-    return result;
+    return *neutral;
 }
 
 [[nodiscard]] std::array<double, 3U> white_balance_multipliers(

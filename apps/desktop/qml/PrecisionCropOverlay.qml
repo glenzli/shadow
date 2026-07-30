@@ -27,9 +27,13 @@ Item {
         "topLeft", "top", "topRight", "right",
         "bottomRight", "bottom", "bottomLeft", "left"
     ]
+    readonly property bool busy: Boolean(editor.stateBusy)
 
     visible: interactionEnabled && editor.active
-    enabled: visible && !editor.stateBusy
+    // Keep the cursor owner alive while editing is temporarily locked. The
+    // gesture surfaces below are disabled independently, so a busy transition
+    // cannot turn the pointer into an unexplained disappearance.
+    enabled: visible
 
     function clamp01(value) {
         return Math.max(0, Math.min(1, value))
@@ -215,13 +219,15 @@ Item {
     MouseArea {
         objectName: "cropSurfaceCursor"
         anchors.fill: parent
+        z: overlay.busy ? 10 : 0
         acceptedButtons: Qt.NoButton
         hoverEnabled: true
-        cursorShape: Qt.CrossCursor
+        cursorShape: overlay.busy ? Qt.BusyCursor : Qt.CrossCursor
     }
 
     Item {
         id: cropFrame
+        enabled: !overlay.busy
         x: overlay.displayCrop.x * overlay.width
         y: overlay.displayCrop.y * overlay.height
         width: overlay.displayCrop.width * overlay.width
@@ -290,6 +296,7 @@ Item {
         delegate: Rectangle {
             id: handle
             required property string modelData
+            enabled: !overlay.busy
             readonly property bool leftRole:
                 modelData.indexOf("Left") >= 0 || modelData === "left"
             readonly property bool rightRole:

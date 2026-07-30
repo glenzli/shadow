@@ -3,7 +3,7 @@ use shadow_catalog::{
 };
 use shadow_domain::{
     AssetLocation, EntityId, ManagedRasterMask, MaskDefinition, PhotoFoundationNode, Platform,
-    RasterMaskEncoding, RawCameraNeutral, RawFoundationDenoise, RawFoundationDenoiseModel,
+    RasterMaskEncoding, RawFoundationDenoise, RawFoundationDenoiseModel, RawTemperatureTint,
     RawWhiteBalance, RecipeCommit, RecipeCommitId, RecipeId, RecipeInputSettings,
     RecipeOpticsSettings, RepresentationKind,
 };
@@ -39,16 +39,16 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
         })
         .expect("register render-request photo");
 
-    let manual_white_balance = RawWhiteBalance::camera_neutral(
-        RawCameraNeutral::from_millionths(875_000, 1_250_000).expect("manual camera neutral"),
+    let manual_white_balance = RawWhiteBalance::temperature_tint(
+        RawTemperatureTint::new(4_800, 17).expect("manual temperature/tint"),
     );
     let base_draft = GradeStackDraft {
+        raw_ai_denoise: RawFoundationDenoise::enabled(
+            RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+        ),
         foundation: PhotoFoundationNode::new(
             RecipeInputSettings::new(RecipeOpticsSettings::default())
-                .with_raw_white_balance(manual_white_balance)
-                .with_raw_ai_denoise(RawFoundationDenoise::enabled(
-                    RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
-                )),
+                .with_raw_white_balance(manual_white_balance),
         ),
         ..GradeStackDraft::default()
     };
@@ -120,6 +120,33 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
     assert_eq!(resolved.snapshot_digest, expected_digest);
     assert_eq!(resolved.raw_white_balance, manual_white_balance);
     assert!(resolved.raw_ai_denoise.is_enabled());
+
+    let mut bypassed_settings = settings.clone();
+    bypassed_settings.foundation.enabled = false;
+    let bypassed = resolve_recipe_render(
+        &catalog,
+        &root.join("cache"),
+        registered.photo_id,
+        &base_commit_id.to_string(),
+        &bypassed_settings,
+        true,
+    )
+    .expect("resolve bypassed Foundation");
+    assert_eq!(bypassed.raw_white_balance, RawWhiteBalance::AsShot);
+    assert!(bypassed.raw_ai_denoise.is_enabled());
+
+    let mut denoise_bypassed_settings = settings;
+    denoise_bypassed_settings.foundation.raw_ai_denoise_enabled = false;
+    let denoise_bypassed = resolve_recipe_render(
+        &catalog,
+        &root.join("cache"),
+        registered.photo_id,
+        &base_commit_id.to_string(),
+        &denoise_bypassed_settings,
+        true,
+    )
+    .expect("resolve bypassed AI RAW Denoise");
+    assert!(!denoise_bypassed.raw_ai_denoise.is_enabled());
     assert_eq!(
         catalog
             .recipe_ref(registered.photo_id, "working")

@@ -123,7 +123,7 @@ fn subtree_filters_compose_with_exclusion_and_smart_album_queries() {
         ..LibraryPhotoFilter::default()
     };
     let page = catalog
-        .library_photo_page(&filter, None, 16)
+        .library_photo_page(&filter, crate::LibraryPhotoOrder::default(), None, 16)
         .expect("filter by keyword subtrees");
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].photo_id, eagle);

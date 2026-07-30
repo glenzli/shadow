@@ -113,6 +113,26 @@ void ReviewController::setFilterLiked(const QString& liked) {
     filtered_model_.setLikedFilter(liked);
 }
 
+void ReviewController::setLibrarySortKey(const QString& sort_key) {
+    const QString normalized = sort_key.trimmed().toLower();
+    if ((normalized != QStringLiteral("capture_time") && normalized != QStringLiteral("name"))
+        || library_sort_key_ == normalized) {
+        return;
+    }
+    library_sort_key_ = normalized;
+    emit libraryOrderChanged();
+    requestLibraryReset();
+}
+
+void ReviewController::setLibrarySortDescending(const bool descending) {
+    if (library_sort_descending_ == descending) {
+        return;
+    }
+    library_sort_descending_ = descending;
+    emit libraryOrderChanged();
+    requestLibraryReset();
+}
+
 void ReviewController::setFilterExcludedFlag(const QString& flag) {
     filtered_model_.setExcludedFlagFilter(flag);
 }
@@ -146,11 +166,20 @@ void ReviewController::setLibraryAlbumId(const QString& album_id) {
 }
 
 void ReviewController::requestLibraryReset() {
-    query_coordinator_.requestReset(currentLibraryFilter());
+    query_coordinator_.requestReset(currentLibraryFilter(), currentLibraryOrder());
 }
 
 void ReviewController::scheduleFilterQuery() {
-    query_coordinator_.scheduleReset(currentLibraryFilter());
+    query_coordinator_.scheduleReset(currentLibraryFilter(), currentLibraryOrder());
+}
+
+BackendLibraryPhotoOrder ReviewController::currentLibraryOrder() const noexcept {
+    if (library_sort_key_ == QStringLiteral("name")) {
+        return library_sort_descending_ ? BackendLibraryPhotoOrder::FileNameDescending
+                                        : BackendLibraryPhotoOrder::FileNameAscending;
+    }
+    return library_sort_descending_ ? BackendLibraryPhotoOrder::CaptureTimeDescending
+                                    : BackendLibraryPhotoOrder::CaptureTimeAscending;
 }
 
 BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {

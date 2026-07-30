@@ -34,6 +34,9 @@ ShadowAdjustmentSection {
     title: qsTr("SELECTIVE COLOR")
     summary: qsTr("OKLAB · CMYK")
     toolTipText: qsTr("Choose an Oklab color family, then apply a Photoshop-style CMYK correction.")
+    resetAvailable: true
+    onResetRequested:
+        editor.resetSelectedAdjustmentSection("selective_color")
 
     function componentValue(targetIndex, componentIndex) {
         const revision = selectiveColor.editor.parameterRevision

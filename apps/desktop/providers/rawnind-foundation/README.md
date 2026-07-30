@@ -17,6 +17,14 @@ materialization as separate processes. A one-file executable would extract the
 95 MiB runtime on every invocation and can leave its temporary extraction
 directory behind after a hard cancellation.
 
+For desktop planning/materialization, Shadow's isolated decode helper first
+projects the selected decoder's provider-neutral `RawFrame` into a short-lived
+Bayer staging manifest. The frozen provider consumes that manifest through
+`--input-raw-frame`, while the original RAW path remains the source provenance
+identity. This lets the bundled model handle proprietary containers such as
+Nikon HE without linking or rediscovering the private decoder. rawpy stays
+pinned for direct public-dataset/audit invocations that omit the staging input.
+
 ## Build
 
 Create the environment and all output outside the shared source tree:
@@ -78,6 +86,14 @@ provider and dylibs have been copied. A build without
 `SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR` remains valid, but the AI RAW Denoise
 surface reports the provider as unavailable instead of falling back to another
 pixel path.
+
+That optionality applies to ordinary application builds. Shadow's canonical
+developer entry, `scripts/run_debug.sh`, intentionally represents the complete
+debug product and therefore requires this provider, its private runtime, and
+the side-loaded pinned model. `scripts/promote_debug_build.sh` verifies the
+candidate and copied provider/model before advancing `current-debug`; use
+`scripts/run_debug.sh --check` to inspect the resolved canonical paths without
+opening the application.
 
 ## Ownership
 

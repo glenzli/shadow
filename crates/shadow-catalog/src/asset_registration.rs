@@ -8,6 +8,20 @@ use shadow_domain::{
 
 use crate::{Catalog, CatalogError, row_codec::read_id};
 
+/// Produces the persisted, case-insensitive key used by Library name sorting.
+///
+/// `display_path` is presentation text and may use either native separator,
+/// even when a catalog is opened on another platform. Persisting the leaf key
+/// keeps name pagination indexed instead of splitting every path per page.
+pub(crate) fn location_file_name_sort_key(display_path: &str) -> String {
+    display_path
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(display_path)
+        .to_lowercase()
+}
+
 #[derive(Debug, Clone)]
 pub struct RegisterAsset {
     pub kind: RepresentationKind,
@@ -173,14 +187,16 @@ pub(crate) fn insert_asset(
     )?;
     transaction.execute(
         "INSERT INTO locations(
-             id, representation_id, platform, native_path, display_path, status, created_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             id, representation_id, platform, native_path, display_path, sort_name_key,
+             status, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             location_id.as_bytes().as_slice(),
             representation_id.as_bytes().as_slice(),
             request.location.platform.as_str(),
             request.location.native_path,
             request.location.display_path,
+            location_file_name_sort_key(&request.location.display_path),
             LocationStatus::Online.as_str(),
             request.now_ms
         ],

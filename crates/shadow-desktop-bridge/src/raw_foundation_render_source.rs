@@ -31,6 +31,7 @@ pub(crate) struct RawFoundationRenderIdentity {
     model_package_sha256: String,
     model_graph_sha256: String,
     implementation_revision: String,
+    amount_percent: u8,
 }
 
 /// Recipe-selected, session-ready locator with a prevalidated cache identity.
@@ -38,6 +39,7 @@ pub(crate) struct RawFoundationRenderIdentity {
 pub(crate) struct RawFoundationRenderSelection {
     ready: RawFoundationReady,
     model: RawFoundationDenoiseModel,
+    amount_percent: u8,
     pub(crate) identity: RawFoundationRenderIdentity,
 }
 
@@ -45,7 +47,12 @@ impl RawFoundationRenderIdentity {
     pub(crate) fn from_ready(
         ready: &RawFoundationReady,
         model: RawFoundationDenoiseModel,
+        amount_percent: u8,
     ) -> AnyResult<Self> {
+        ensure!(
+            amount_percent <= 100,
+            "RAW foundation amount must be between 0 and 100 percent"
+        );
         ready
             .descriptor
             .validate()
@@ -67,6 +74,7 @@ impl RawFoundationRenderIdentity {
             model_package_sha256: provenance.model_package_sha256().to_owned(),
             model_graph_sha256: provenance.model_graph_sha256().to_owned(),
             implementation_revision: provenance.implementation_revision().to_owned(),
+            amount_percent,
         })
     }
 }
@@ -82,7 +90,7 @@ pub(crate) fn raw_foundation_ready_for_render(
     source: RepresentationFingerprint,
     denoise: RawFoundationDenoise,
 ) -> AnyResult<Option<RawFoundationRenderSelection>> {
-    if !denoise.is_enabled() {
+    if !denoise.is_effective() {
         return Ok(None);
     }
     let ready = service.resolve_ready_for_source(
@@ -98,7 +106,7 @@ fn select_ready_raw_foundation(
     ready: Option<RawFoundationReady>,
     denoise: RawFoundationDenoise,
 ) -> AnyResult<Option<RawFoundationRenderSelection>> {
-    if !denoise.is_enabled() {
+    if !denoise.is_effective() {
         return Ok(None);
     }
     let ready = ready.ok_or_else(|| {
@@ -107,10 +115,12 @@ fn select_ready_raw_foundation(
         )
     })?;
     let model = denoise.model();
-    let identity = RawFoundationRenderIdentity::from_ready(&ready, model)?;
+    let amount_percent = denoise.amount_percent();
+    let identity = RawFoundationRenderIdentity::from_ready(&ready, model, amount_percent)?;
     Ok(Some(RawFoundationRenderSelection {
         ready,
         model,
+        amount_percent,
         identity,
     }))
 }
@@ -140,7 +150,8 @@ pub(crate) fn load_raw_foundation_for_render(
         ready.source == expected_source,
         "ready RAW foundation belongs to a different source revision"
     );
-    let identity = RawFoundationRenderIdentity::from_ready(ready, selection.model)?;
+    let identity =
+        RawFoundationRenderIdentity::from_ready(ready, selection.model, selection.amount_percent)?;
     ensure!(
         identity == selection.identity,
         "ready RAW foundation identity changed after render selection"
@@ -188,6 +199,7 @@ pub(crate) fn load_raw_foundation_for_render(
         },
         verification.force_rggb_crop_sensor[0],
         verification.force_rggb_crop_sensor[1],
+        selection.amount_percent,
         bridge_identity,
         samples,
     )

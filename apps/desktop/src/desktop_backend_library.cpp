@@ -127,6 +127,21 @@ ffi_library_facet_kind(const BackendLibraryFacetKind kind) {
     throw std::invalid_argument("unknown Library facet kind");
 }
 
+[[nodiscard]] shadow::desktop::FfiLibraryPhotoOrder
+ffi_library_photo_order(const BackendLibraryPhotoOrder order) {
+    switch (order) {
+    case BackendLibraryPhotoOrder::CaptureTimeDescending:
+        return shadow::desktop::FfiLibraryPhotoOrder::CaptureTimeDescending;
+    case BackendLibraryPhotoOrder::CaptureTimeAscending:
+        return shadow::desktop::FfiLibraryPhotoOrder::CaptureTimeAscending;
+    case BackendLibraryPhotoOrder::FileNameAscending:
+        return shadow::desktop::FfiLibraryPhotoOrder::FileNameAscending;
+    case BackendLibraryPhotoOrder::FileNameDescending:
+        return shadow::desktop::FfiLibraryPhotoOrder::FileNameDescending;
+    }
+    throw std::invalid_argument("unknown Library photo order");
+}
+
 [[nodiscard]] shadow::desktop::FfiLibraryFacetCursor
 ffi_library_facet_cursor(const BackendLibraryFacetCursor& source) {
     shadow::desktop::FfiLibraryFacetCursor cursor;
@@ -236,6 +251,7 @@ ffi_library_cursor(const BackendLibraryPhotoCursor& source) {
     cursor.photo_id = source.photo_id.toStdString();
     cursor.has_capture_time = source.has_capture_time;
     cursor.captured_at_unix_seconds = source.captured_at_unix_seconds;
+    cursor.file_name = source.file_name.toStdString();
     return cursor;
 }
 
@@ -245,6 +261,7 @@ library_cursor(const shadow::desktop::FfiLibraryPhotoCursor& source) {
         .photo_id = qstring(source.photo_id),
         .has_capture_time = source.has_capture_time,
         .captured_at_unix_seconds = source.captured_at_unix_seconds,
+        .file_name = qstring(source.file_name),
     };
 }
 
@@ -377,11 +394,13 @@ ffi_batch_photo_targets(const QVector<BackendBatchPhotoTarget>& targets) {
 
 BackendLibraryPhotoPage DesktopBackend::libraryPhotoPage(
     const BackendLibraryPhotoFilter& filter,
+    const BackendLibraryPhotoOrder order,
     const BackendLibraryPhotoCursor& cursor,
     const std::uint32_t limit
 ) const {
     const auto source = impl_->session->library_photo_page(
         ffi_library_filter(filter),
+        ffi_library_photo_order(order),
         ffi_library_cursor(cursor),
         limit
     );
@@ -506,6 +525,10 @@ QVector<BackendLibrarySourceHealth> DesktopBackend::librarySourceHealth() const 
         health.push_back(library_source_health(record));
     }
     return health;
+}
+
+bool DesktopBackend::removeLibrarySource(const QString& source_id) const {
+    return impl_->session->remove_library_source(source_id.toStdString());
 }
 
 BackendMissingSourceLocationPage DesktopBackend::missingSourceLocationPage(

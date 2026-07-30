@@ -11,12 +11,14 @@ use shadow_domain::EntityId;
 use crate::{Catalog, CatalogError};
 
 use super::{
-    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFilter,
-    LibraryPhotoPage, MAX_LIBRARY_FACET_PAGE_SIZE, MAX_LIBRARY_PAGE_SIZE,
+    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor,
+    LibraryPhotoCursorValue, LibraryPhotoFilter, LibraryPhotoOrder, LibraryPhotoPage,
+    MAX_LIBRARY_FACET_PAGE_SIZE, MAX_LIBRARY_PAGE_SIZE,
     model::validate_library_photo_filter,
     query_projection::library_photo_query_parts,
     rows::{read_library_facet, read_library_photo},
 };
+use crate::asset_registration::location_file_name_sort_key;
 
 impl Catalog {
     /// Returns one bounded, photo-first Library grid page.
@@ -33,6 +35,7 @@ impl Catalog {
     pub fn library_photo_page(
         &self,
         filter: &LibraryPhotoFilter,
+        order: LibraryPhotoOrder,
         after: Option<&LibraryPhotoCursor>,
         requested_limit: usize,
     ) -> Result<LibraryPhotoPage, CatalogError> {
@@ -60,26 +63,7 @@ impl Catalog {
              {from_sql} WHERE {where_sql}"
         );
         let mut page_values = filter_values;
-        if let Some(cursor) = after {
-            if let Some(captured_at) = cursor.captured_at_unix_seconds {
-                page_sql.push_str(
-                    " AND (f.captured_at_unix_seconds IS NULL
-                              OR f.captured_at_unix_seconds < ?
-                              OR (f.captured_at_unix_seconds = ? AND p.id < ?))",
-                );
-                page_values.push(Value::Integer(captured_at));
-                page_values.push(Value::Integer(captured_at));
-                page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
-            } else {
-                page_sql.push_str(" AND f.captured_at_unix_seconds IS NULL AND p.id < ?");
-                page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
-            }
-        }
-        page_sql.push_str(
-            " ORDER BY CASE WHEN f.captured_at_unix_seconds IS NULL THEN 1 ELSE 0 END,
-                       f.captured_at_unix_seconds DESC, p.id DESC
-              LIMIT ?",
-        );
+        append_library_order(&mut page_sql, &mut page_values, order, after)?;
         page_values.push(Value::Integer(
             i64::try_from(page_size + 1).unwrap_or(i64::MAX),
         ));
@@ -91,10 +75,20 @@ impl Catalog {
         items.truncate(page_size);
         let next_cursor = if has_more {
             items.last().map(|last| LibraryPhotoCursor {
-                captured_at_unix_seconds: last
-                    .facts
-                    .as_ref()
-                    .and_then(|facts| facts.captured_at_unix_seconds),
+                value: match order {
+                    LibraryPhotoOrder::CaptureTimeDescending
+                    | LibraryPhotoOrder::CaptureTimeAscending => {
+                        LibraryPhotoCursorValue::CaptureTime(
+                            last.facts
+                                .as_ref()
+                                .and_then(|facts| facts.captured_at_unix_seconds),
+                        )
+                    }
+                    LibraryPhotoOrder::FileNameAscending
+                    | LibraryPhotoOrder::FileNameDescending => LibraryPhotoCursorValue::FileName(
+                        location_file_name_sort_key(&last.location.display_path),
+                    ),
+                },
                 photo_id: last.photo_id,
             })
         } else {
@@ -194,6 +188,77 @@ impl Catalog {
         };
         Ok(LibraryFacetPage { items, next_cursor })
     }
+}
+
+fn append_library_order(
+    sql: &mut String,
+    values: &mut Vec<Value>,
+    order: LibraryPhotoOrder,
+    after: Option<&LibraryPhotoCursor>,
+) -> Result<(), CatalogError> {
+    match order {
+        LibraryPhotoOrder::CaptureTimeDescending | LibraryPhotoOrder::CaptureTimeAscending => {
+            let descending = order == LibraryPhotoOrder::CaptureTimeDescending;
+            if let Some(cursor) = after {
+                let LibraryPhotoCursorValue::CaptureTime(captured_at) = cursor.value else {
+                    return Err(CatalogError::InvalidLibraryQuery(
+                        "capture-time order requires a capture-time cursor".into(),
+                    ));
+                };
+                if let Some(captured_at) = captured_at {
+                    let comparison = if descending { "<" } else { ">" };
+                    sql.push_str(&format!(
+                        " AND (f.captured_at_unix_seconds IS NULL
+                                  OR f.captured_at_unix_seconds {comparison} ?
+                                  OR (f.captured_at_unix_seconds = ? AND p.id {comparison} ?))"
+                    ));
+                    values.push(Value::Integer(captured_at));
+                    values.push(Value::Integer(captured_at));
+                    values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
+                } else {
+                    let comparison = if descending { "<" } else { ">" };
+                    sql.push_str(&format!(
+                        " AND f.captured_at_unix_seconds IS NULL AND p.id {comparison} ?"
+                    ));
+                    values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
+                }
+            }
+            let direction = if descending { "DESC" } else { "ASC" };
+            sql.push_str(&format!(
+                " ORDER BY CASE WHEN f.captured_at_unix_seconds IS NULL THEN 1 ELSE 0 END,
+                           f.captured_at_unix_seconds {direction}, p.id {direction}
+                  LIMIT ?"
+            ));
+        }
+        LibraryPhotoOrder::FileNameAscending | LibraryPhotoOrder::FileNameDescending => {
+            let descending = order == LibraryPhotoOrder::FileNameDescending;
+            if let Some(cursor) = after {
+                let LibraryPhotoCursorValue::FileName(ref name) = cursor.value else {
+                    return Err(CatalogError::InvalidLibraryQuery(
+                        "file-name order requires a file-name cursor".into(),
+                    ));
+                };
+                if name.is_empty() {
+                    return Err(CatalogError::InvalidLibraryQuery(
+                        "file-name cursor must not be empty".into(),
+                    ));
+                }
+                let comparison = if descending { "<" } else { ">" };
+                sql.push_str(&format!(
+                    " AND (l.sort_name_key {comparison} ?
+                              OR (l.sort_name_key = ? AND p.id {comparison} ?))"
+                ));
+                values.push(Value::Text(name.clone()));
+                values.push(Value::Text(name.clone()));
+                values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
+            }
+            let direction = if descending { "DESC" } else { "ASC" };
+            sql.push_str(&format!(
+                " ORDER BY l.sort_name_key {direction}, p.id {direction} LIMIT ?"
+            ));
+        }
+    }
+    Ok(())
 }
 
 struct LibraryFacetSql {

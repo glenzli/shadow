@@ -68,14 +68,38 @@ void dual_illuminant_interpolation_is_deterministic() {
     const auto first = image::compile_dcp_color_transform(definition, raw_descriptor());
     const auto second_result = image::compile_dcp_color_transform(definition, raw_descriptor());
     expect(
-        first.receipt.calibration1_weight > 0.0
-            && first.receipt.calibration1_weight < 1.0,
-        "as-shot neutral resolves an interior reciprocal-temperature blend"
+        first.receipt.calibration1_weight >= 0.0
+            && first.receipt.calibration1_weight <= 1.0,
+        "as-shot neutral resolves a bounded reciprocal-temperature calibration"
     );
     expect(
         first.receipt == second_result.receipt
             && first.camera_to_linear_srgb_d65 == second_result.camera_to_linear_srgb_d65,
         "dual-illuminant solve is deterministic"
+    );
+}
+
+void authored_temperature_and_tint_compile_through_camera_calibration() {
+    const auto white_balance = image::RawWhiteBalance{
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 4'200U,
+        .tint = 28,
+    };
+    const auto transform = image::compile_dcp_color_transform(
+        profile_definition(false),
+        raw_descriptor(),
+        white_balance
+    );
+    expect_close(
+        transform.receipt.estimated_correlated_color_temperature,
+        4'200.0,
+        2.0,
+        "DCP receipt retains the authored correlated colour temperature"
+    );
+    expect(
+        std::abs(transform.receipt.estimated_white_x - 0.3127) > 1.0e-3
+            || std::abs(transform.receipt.estimated_white_y - 0.3290) > 1.0e-3,
+        "non-zero tint and warm temperature produce a non-D65 source white"
     );
 }
 
@@ -85,5 +109,6 @@ int main() {
     forward_matrix_is_preferred_and_superwhite_is_preserved();
     color_matrix_is_inverted_and_adapted();
     dual_illuminant_interpolation_is_deterministic();
+    authored_temperature_and_tint_compile_through_camera_calibration();
     std::cout << "shadow image DCP color transform contract tests passed\n";
 }

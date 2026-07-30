@@ -25,7 +25,7 @@ use crate::{
         raw_foundation_ready_for_render,
     },
     recipe_v1::{
-        bridge_optics_settings, ensure_foundation_allows_rgb_fallback,
+        bridge_foundation_optics_settings, ensure_foundation_allows_rgb_fallback,
         ensure_foundation_development_receipt, export_foundation_development_plan,
         resolve_recipe_render,
     },
@@ -56,7 +56,7 @@ impl DesktopSession {
             &request.settings,
             request.use_working_recipe,
         )?;
-        let optics = bridge_optics_settings(&request.settings.foundation.optics);
+        let optics = bridge_foundation_optics_settings(&request.settings.foundation);
         let raw_development_plan = export_foundation_development_plan(recipe.raw_white_balance);
         let requirements = DetailSessionRequirements::for_render_plan(&recipe.plan);
         let raw_foundation = raw_foundation_ready_for_render(

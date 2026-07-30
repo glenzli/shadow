@@ -28,6 +28,14 @@ ColumnLayout {
         toolTipText: qsTr("Photo-local orientation. It is applied after grading and never becomes a shared Grade Node.")
         sectionEnabled: geometry.inspector.editor.active
             && !geometry.inspector.editor.stateBusy
+        resetAvailable: true
+        resetEnabled: !geometry.inspector.editor.photoGeometry.identity
+            || geometry.aspectRatioLock > 0
+        resetToolTipText: qsTr("Reset transform")
+        onResetRequested: {
+            geometry.aspectRatioRequested(0.0)
+            geometry.inspector.editor.resetPhotoGeometry()
+        }
 
         RowLayout {
             Layout.fillWidth: true
@@ -64,14 +72,6 @@ ColumnLayout {
             }
 
             Item { Layout.fillWidth: true }
-
-            ShadowIconButton {
-                source: "qrc:/icons/clear.svg"
-                enabled: !geometry.inspector.editor.photoGeometry.identity
-                toolTipText: qsTr("Reset transform")
-                accessibleName: toolTipText
-                onClicked: geometry.inspector.editor.resetPhotoGeometry()
-            }
         }
 
         ShadowSlider {

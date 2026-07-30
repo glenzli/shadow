@@ -13,9 +13,10 @@ use shadow_bridge::{
 };
 use shadow_domain::{
     LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS, MaskBrushPoint,
-    MaskDefinition, NodeId, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn, RawCameraNeutral,
-    RawFoundationDenoise, RawFoundationDenoiseModel, RawWhiteBalance, RecipeInputSettings,
-    RecipeOpticsSettings, RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
+    MaskDefinition, NodeId, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
+    RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN, RawFoundationDenoise, RawFoundationDenoiseModel,
+    RawTemperatureTint, RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RetouchMode,
+    RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
 };
 
 use crate::ffi;
@@ -42,9 +43,8 @@ const LOCAL_MASK_LUMINANCE_RANGE: u8 = 4;
 const LOCAL_MASK_COLOR_RANGE: u8 = 5;
 const LOCAL_MASK_MANAGED_RASTER: u8 = 6;
 const RAW_WHITE_BALANCE_AS_SHOT: u8 = 0;
-const RAW_WHITE_BALANCE_CAMERA_NEUTRAL: u8 = 1;
+const RAW_WHITE_BALANCE_TEMPERATURE_TINT: u8 = 1;
 const RAW_AI_DENOISE_MODEL_RAWNIND_PUBLIC_BAYER_RELEASE_5_6_0: u8 = 0;
-const CAMERA_NEUTRAL_MILLIONTHS: u32 = 1_000_000;
 
 type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>);
 
@@ -444,12 +444,9 @@ fn raw_white_balance_from_ffi(
 ) -> AnyResult<RawWhiteBalance> {
     match foundation.raw_white_balance_mode {
         RAW_WHITE_BALANCE_AS_SHOT => Ok(RawWhiteBalance::AsShot),
-        RAW_WHITE_BALANCE_CAMERA_NEUTRAL => Ok(RawWhiteBalance::camera_neutral(
-            RawCameraNeutral::from_millionths(
-                foundation.camera_neutral_red_millionths,
-                foundation.camera_neutral_blue_millionths,
-            )
-            .context("RAW Foundation CameraNeutral")?,
+        RAW_WHITE_BALANCE_TEMPERATURE_TINT => Ok(RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(foundation.temperature_kelvin, foundation.tint)
+                .context("RAW Foundation temperature/tint")?,
         )),
         other => bail!("RAW Foundation has unsupported white-balance mode {other}"),
     }
@@ -464,38 +461,45 @@ fn raw_ai_denoise_from_ffi(
         }
         other => bail!("RAW Foundation has unsupported AI denoise model {other}"),
     };
-    Ok(RawFoundationDenoise::enabled(model).with_enabled(foundation.raw_ai_denoise_enabled))
+    RawFoundationDenoise::enabled(model)
+        .with_enabled(foundation.raw_ai_denoise_enabled)
+        .with_amount_percent(foundation.raw_ai_denoise_amount_percent)
+        .context("AI RAW denoise amount")
 }
 
 pub(crate) fn ffi_photo_foundation_settings(
     foundation: &PhotoFoundationNode,
+    raw_ai_denoise: RawFoundationDenoise,
 ) -> ffi::FfiPhotoFoundationSettings {
-    let (raw_white_balance_mode, camera_neutral_red_millionths, camera_neutral_blue_millionths) =
-        match foundation.raw_white_balance() {
-            RawWhiteBalance::AsShot => (
-                RAW_WHITE_BALANCE_AS_SHOT,
-                CAMERA_NEUTRAL_MILLIONTHS,
-                CAMERA_NEUTRAL_MILLIONTHS,
-            ),
-            RawWhiteBalance::CameraNeutral { neutral } => (
-                RAW_WHITE_BALANCE_CAMERA_NEUTRAL,
-                neutral.red_millionths(),
-                neutral.blue_millionths(),
-            ),
-        };
-    let raw_ai_denoise = foundation.raw_ai_denoise();
+    let (raw_white_balance_mode, temperature_kelvin, tint) = match foundation.raw_white_balance() {
+        RawWhiteBalance::AsShot => (
+            RAW_WHITE_BALANCE_AS_SHOT,
+            RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
+            0,
+        ),
+        RawWhiteBalance::TemperatureTint { value } => (
+            RAW_WHITE_BALANCE_TEMPERATURE_TINT,
+            value.temperature_kelvin(),
+            value.tint(),
+        ),
+    };
     let raw_ai_denoise_model = match raw_ai_denoise.model() {
         RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0 => {
             RAW_AI_DENOISE_MODEL_RAWNIND_PUBLIC_BAYER_RELEASE_5_6_0
         }
     };
     ffi::FfiPhotoFoundationSettings {
+        enabled: foundation.enabled(),
         optics: ffi_optics_settings(foundation.optics()),
         raw_ai_denoise_enabled: raw_ai_denoise.is_enabled(),
         raw_ai_denoise_model,
+        raw_ai_denoise_amount_percent: raw_ai_denoise.amount_percent(),
         raw_white_balance_mode,
-        camera_neutral_red_millionths,
-        camera_neutral_blue_millionths,
+        temperature_kelvin,
+        tint,
+        as_shot_white_balance_available: false,
+        as_shot_temperature_kelvin: RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
+        as_shot_tint: 0,
     }
 }
 
@@ -518,9 +522,18 @@ pub(crate) fn bridge_optics_settings(settings: &ffi::FfiOpticsSettings) -> Optic
     }
 }
 
+pub(crate) fn bridge_foundation_optics_settings(
+    foundation: &ffi::FfiPhotoFoundationSettings,
+) -> OpticsSettings {
+    let mut settings = bridge_optics_settings(&foundation.optics);
+    settings.enabled &= foundation.enabled;
+    settings
+}
+
 pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> {
     let grade_node = GradeNodeDraft::neutral(label);
     let grade_stack = GradeStackDraft {
+        raw_ai_denoise: RawFoundationDenoise::default(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node.clone()],
         retouch_spots: Vec::new(),
@@ -539,10 +552,11 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
         bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
     let grade_stack = GradeStackDraft {
+        raw_ai_denoise: raw_ai_denoise_from_ffi(&settings.foundation)?,
         foundation: PhotoFoundationNode::new(
             RecipeInputSettings::new(recipe_optics_settings(&settings.foundation.optics))
-                .with_raw_white_balance(raw_white_balance_from_ffi(&settings.foundation)?)
-                .with_raw_ai_denoise(raw_ai_denoise_from_ffi(&settings.foundation)?),
+                .with_enabled(settings.foundation.enabled)
+                .with_raw_white_balance(raw_white_balance_from_ffi(&settings.foundation)?),
         ),
         grade_nodes: settings
             .grade_nodes
@@ -1016,7 +1030,10 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
     grade_stack: GradeStackDraft,
 ) -> AnyResult<ffi::FfiEditSettings> {
     Ok(ffi::FfiEditSettings {
-        foundation: ffi_photo_foundation_settings(&grade_stack.foundation),
+        foundation: ffi_photo_foundation_settings(
+            &grade_stack.foundation,
+            grade_stack.raw_ai_denoise,
+        ),
         grade_nodes: grade_stack
             .grade_nodes
             .into_iter()

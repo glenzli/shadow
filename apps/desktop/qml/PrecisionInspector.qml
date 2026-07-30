@@ -311,7 +311,8 @@ Rectangle {
 
                         PrecisionFoundationAdjustments {
                             Layout.fillWidth: true
-                            visible: inspectorTabStrip.currentIndex === 0
+                            visible: !inspector.editor.rawDenoiseSelected
+                                && inspectorTabStrip.currentIndex === 0
                             editor: inspector.editor
                             gradeControlsEnabled: inspector.editor.gradeNodeEnabled
                             panelRaised: inspector.panelRaised
@@ -321,12 +322,24 @@ Rectangle {
                             accent: inspector.accent
                         }
 
+                        PrecisionRawDenoiseAdjustments {
+                            Layout.fillWidth: true
+                            visible: inspector.editor.rawDenoiseSelected
+                                && inspectorTabStrip.currentIndex === 0
+                            editor: inspector.editor
+                            textPrimary: inspector.textPrimary
+                            textMuted: inspector.textMuted
+                            accent: inspector.accent
+                        }
+
                         ColumnLayout {
                             objectName: "gradeNodeInspector"
                             Layout.fillWidth: true
+                            visible: !inspector.editor.rawDenoiseSelected
                             spacing: 8
-                            enabled: inspector.editor.gradeNodeEnabled
-                            opacity: inspector.editor.gradeNodeEnabled ? 1.0 : 0.42
+                            enabled: inspector.editor.foundationSelected
+                                || inspector.editor.gradeNodeEnabled
+                            opacity: enabled ? 1.0 : 0.42
 
                             Behavior on opacity {
                                 NumberAnimation {
@@ -336,7 +349,8 @@ Rectangle {
 
                             PrecisionColorMixer {
                                 Layout.fillWidth: true
-                                visible: inspectorTabStrip.currentIndex === 0
+                                visible: !inspector.editor.foundationSelected
+                                    && inspectorTabStrip.currentIndex === 0
                                 editor: inspector.editor
                                 panelRaised: inspector.panelRaised
                                 panelBorder: inspector.panelBorder
@@ -347,14 +361,16 @@ Rectangle {
 
                             PrecisionSelectiveColor {
                                 Layout.fillWidth: true
-                                visible: inspectorTabStrip.currentIndex === 0
+                                visible: !inspector.editor.foundationSelected
+                                    && inspectorTabStrip.currentIndex === 0
                                 editor: inspector.editor
                                 panelBorder: inspector.panelBorder
                             }
 
                             PrecisionPointColorSection {
                                 Layout.fillWidth: true
-                                visible: inspectorTabStrip.currentIndex === 0
+                                visible: !inspector.editor.foundationSelected
+                                    && inspectorTabStrip.currentIndex === 0
                                 editor: inspector.editor
                                 analysisScope: analysisScope
                                 previewFrameReady: inspector.previewFrameReady
@@ -365,10 +381,13 @@ Rectangle {
 
                             ShadowAdjustmentSection {
                                 Layout.fillWidth: true
-                                visible: inspectorTabStrip.currentIndex === 0
+                                visible: !inspector.editor.foundationSelected
+                                    && inspectorTabStrip.currentIndex === 0
                                 title: qsTr("COLOR MAP")
                                 summary: qsTr("OKLAB 5×5")
                                 toolTipText: qsTr("Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.")
+                                resetAvailable: true
+                                onResetRequested: inspector.editor.resetColorWarper()
 
                                 ColorWarperEditor {
                                     Layout.fillWidth: true
@@ -381,7 +400,8 @@ Rectangle {
 
                             PrecisionLutSection {
                                 Layout.fillWidth: true
-                                visible: inspectorTabStrip.currentIndex === 1
+                                visible: !inspector.editor.foundationSelected
+                                    && inspectorTabStrip.currentIndex === 1
                                 editor: inspector.editor
                                 lutLibrary: inspector.lutLibrary
                                 textPrimary: inspector.textPrimary
@@ -393,9 +413,14 @@ Rectangle {
 
                             ShadowAdjustmentSection {
                                 Layout.fillWidth: true
-                                visible: inspectorTabStrip.currentIndex === 1
+                                visible: !inspector.editor.foundationSelected
+                                    && inspectorTabStrip.currentIndex === 1
                                 title: qsTr("COLOR GRADING")
                                 toolTipText: qsTr("Tint shadows, midtones, and highlights independently with perceptual color wheels.")
+                                resetAvailable: true
+                                onResetRequested:
+                                    inspector.editor.resetSelectedAdjustmentSection(
+                                        "color_grading")
 
                                 RowLayout {
                                     Layout.fillWidth: true
@@ -484,6 +509,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 inspector: inspector
                                 currentTabIndex: inspectorTabStrip.currentIndex
+                                foundationSelected: inspector.editor.foundationSelected
                                 onOpenOpticsProfileLibraryRequested: inspector.openOpticsProfileLibraryRequested()
                             }
                         }

@@ -293,6 +293,15 @@ impl RecipeSnapshot {
         &self.foundation
     }
 
+    /// Returns the fixed, photo-local AI RAW denoise node.
+    ///
+    /// Recipe v1 retains the historical nested wire field, but this node is a
+    /// sibling source stage evaluated before Foundation and is not governed by
+    /// `PhotoFoundationNode::enabled`.
+    pub const fn raw_ai_denoise_node(&self) -> super::RawFoundationDenoise {
+        self.foundation.input_settings().raw_ai_denoise()
+    }
+
     /// Recipe v1 compatibility projection of the Foundation parameters.
     pub const fn input_settings(&self) -> &RecipeInputSettings {
         self.foundation.input_settings()
@@ -357,6 +366,7 @@ impl RecipeSnapshot {
         if self.schema_version == 0 {
             return Err(RecipeValidationError::ZeroRecipeSchemaVersion);
         }
+        self.raw_ai_denoise_node().validate()?;
         self.foundation.validate()?;
         let mut mask_revisions = HashSet::with_capacity(self.masks.len());
         for mask in &self.masks {

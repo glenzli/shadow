@@ -10,7 +10,10 @@ use shadow_domain::{
 
 use crate::{
     Catalog, CatalogError, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
-    asset_registration::{find_existing_asset, insert_asset, register_asset_in_transaction},
+    asset_registration::{
+        find_existing_asset, insert_asset, location_file_name_sort_key,
+        register_asset_in_transaction,
+    },
     decode_snapshot::representation_fingerprint_in_transaction,
     row_codec::read_id,
 };
@@ -120,11 +123,56 @@ impl Catalog {
     pub fn library_sources(&self) -> Result<Vec<LibrarySourceRecord>, CatalogError> {
         let mut statement = self.connection.prepare(
             "SELECT id, platform, native_path, display_path, enabled, created_at_ms, last_scanned_at_ms
-             FROM library_sources ORDER BY enabled DESC, display_path COLLATE NOCASE, id",
+             FROM library_sources
+             WHERE enabled = 1
+             ORDER BY display_path COLLATE NOCASE, id",
         )?;
         let rows = statement.query_map([], read_library_source)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
+    }
+
+    /// Disables one configured discovery root without deleting any photo,
+    /// representation, location, edit, or file on disk.
+    ///
+    /// Source-to-location evidence is retained so the Library can hide photos
+    /// that are available only through this root and restore them with their
+    /// edits if the same root is added again. A running scan must finish or
+    /// cancel first.
+    pub fn remove_library_source(
+        &mut self,
+        source_id: LibrarySourceId,
+    ) -> Result<bool, CatalogError> {
+        let transaction = self.connection.transaction()?;
+        let enabled = transaction.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM library_sources WHERE id = ?1 AND enabled = 1
+             )",
+            [source_id.as_bytes().as_slice()],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !enabled {
+            return Ok(false);
+        }
+        let has_running_scan = transaction.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM import_sessions
+                 WHERE source_id = ?1 AND state = 'running'
+             )",
+            [source_id.as_bytes().as_slice()],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if has_running_scan {
+            return Err(CatalogError::InvalidLibraryQuery(
+                "a Library folder cannot be removed while it is being scanned".into(),
+            ));
+        }
+        transaction.execute(
+            "UPDATE library_sources SET enabled = 0 WHERE id = ?1",
+            [source_id.as_bytes().as_slice()],
+        )?;
+        transaction.commit()?;
+        Ok(true)
     }
 
     /// Lists configured sources together with their latest completed-scan
@@ -157,7 +205,8 @@ impl Catalog {
                  ORDER BY candidate.finished_at_ms DESC, candidate.id DESC
                  LIMIT 1
              )
-             ORDER BY s.enabled DESC, s.display_path COLLATE NOCASE, s.id",
+             WHERE s.enabled = 1
+             ORDER BY s.display_path COLLATE NOCASE, s.id",
         )?;
         let rows = statement.query_map([], read_library_source_health)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -431,14 +480,16 @@ pub(crate) fn attach_location_to_identity_match(
     let location_id = LocationId::new_v7();
     transaction.execute(
         "INSERT INTO locations(
-             id, representation_id, platform, native_path, display_path, status, created_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, 'online', ?6)",
+             id, representation_id, platform, native_path, display_path, sort_name_key,
+             status, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'online', ?7)",
         params![
             location_id.as_bytes().as_slice(),
             existing.representation_id.as_bytes().as_slice(),
             request.location.platform.as_str(),
             request.location.native_path.as_slice(),
             request.location.display_path,
+            location_file_name_sort_key(&request.location.display_path),
             request.now_ms,
         ],
     )?;

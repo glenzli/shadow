@@ -92,10 +92,12 @@ add_library(
     src/raw/raw_foundation.cpp
     src/raw/raw_foundation_source.cpp
     src/raw/raw_frame_development_plan.cpp
+    src/raw/raw_frame_staging.cpp
     src/raw/raw_frame_region_development.cpp
     src/raw/raw_frame_source_preparation.cpp
     src/raw/raw_frame_source_development.cpp
     src/raw/raw_pipeline.cpp
+    src/raw/raw_white_balance.cpp
     src/raw/resident_raw_source.cpp
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
@@ -909,6 +911,16 @@ if(BUILD_TESTING)
         shadow-image-raw-frame-development-plan-tests
         shadow-image-raw-frame-development-plan-contract
         tests/raw_frame_development_plan_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-frame-staging-tests
+        shadow-image-raw-frame-staging-contract
+        tests/raw_frame_staging_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-white-balance-tests
+        shadow-image-raw-white-balance-contract
+        tests/raw_white_balance_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-resident-raw-source-tests

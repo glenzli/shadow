@@ -14,8 +14,8 @@ use thiserror::Error;
 
 use crate::{
     AdmittedExecution, AiJobRequest, AiTaskKind, AiTaskParameters, CancellationToken,
-    ExecutionLease, InputRole, RawFoundationArtifact, RawNindFoundationPlan,
-    RawNindFoundationPlanningError, RawNindFoundationProvider,
+    ExecutionLease, InputRole, RawFoundationArtifact, RawNindFoundationInput,
+    RawNindFoundationPlan, RawNindFoundationPlanningError, RawNindFoundationProvider,
     RawNindFoundationProviderConfigurationError, RuntimeContractError, RuntimeProgress,
     RuntimeProgressSink, RuntimeTerminalOutcome, RuntimeTerminalReceipt,
     VerifiedRawNindFoundationInstallation, plan_rawnind_foundation,
@@ -100,7 +100,7 @@ pub enum RawFoundationMaterializationError {
 pub fn resolve_cached_rawnind_foundation(
     store: &FoundationArtifactStore,
     installation: &VerifiedRawNindFoundationInstallation,
-    input_raw: impl Into<PathBuf>,
+    input: impl Into<RawNindFoundationInput>,
     expected_source_sha256: &str,
     expected_source_size_bytes: u64,
     cancellation: &CancellationToken,
@@ -108,7 +108,7 @@ pub fn resolve_cached_rawnind_foundation(
     let (_, cached) = plan_and_lookup_cached_foundation(
         store,
         installation,
-        input_raw.into(),
+        input.into(),
         expected_source_sha256,
         expected_source_size_bytes,
         cancellation,
@@ -131,7 +131,7 @@ pub fn materialize_rawnind_foundation(
     installation: &VerifiedRawNindFoundationInstallation,
     lease_id: String,
     execution: AdmittedExecution,
-    input_raw: impl Into<PathBuf>,
+    input: impl Into<RawNindFoundationInput>,
     cancellation: &CancellationToken,
 ) -> Result<RawFoundationMaterializationOutcome, RawFoundationMaterializationError> {
     materialize_rawnind_foundation_with_progress(
@@ -139,7 +139,7 @@ pub fn materialize_rawnind_foundation(
         installation,
         lease_id,
         execution,
-        input_raw,
+        input,
         cancellation,
         &DiscardMaterializationProgress,
     )
@@ -156,22 +156,22 @@ pub fn materialize_rawnind_foundation_with_progress(
     installation: &VerifiedRawNindFoundationInstallation,
     lease_id: String,
     execution: AdmittedExecution,
-    input_raw: impl Into<PathBuf>,
+    input: impl Into<RawNindFoundationInput>,
     cancellation: &CancellationToken,
     progress_sink: &dyn RuntimeProgressSink,
 ) -> Result<RawFoundationMaterializationOutcome, RawFoundationMaterializationError> {
     if lease_id.trim().is_empty() {
         return Err(RawFoundationMaterializationError::InvalidLeaseIdentity);
     }
-    let input = exact_raw_foundation_input(execution.request())
+    let admitted_input = exact_raw_foundation_input(execution.request())
         .ok_or(RawFoundationMaterializationError::InvalidAdmittedRequest)?;
-    let source_sha256 = input.content_hash.clone();
-    let source_size_bytes = input.byte_len;
-    let input_raw = input_raw.into();
+    let source_sha256 = admitted_input.content_hash.clone();
+    let source_size_bytes = admitted_input.byte_len;
+    let input: RawNindFoundationInput = input.into();
     let (plan, cached) = plan_and_lookup_cached_foundation(
         store,
         installation,
-        input_raw.clone(),
+        input.clone(),
         &source_sha256,
         source_size_bytes,
         cancellation,
@@ -186,7 +186,7 @@ pub fn materialize_rawnind_foundation_with_progress(
         installation,
         execution_plan,
         plan.clone(),
-        input_raw,
+        input,
         &partial,
     )?;
     let lease = ExecutionLease::issue(lease_id, execution)?;
@@ -224,7 +224,7 @@ pub fn materialize_rawnind_foundation_with_progress(
 fn plan_and_lookup_cached_foundation(
     store: &FoundationArtifactStore,
     installation: &VerifiedRawNindFoundationInstallation,
-    input_raw: PathBuf,
+    input: RawNindFoundationInput,
     expected_source_sha256: &str,
     expected_source_size_bytes: u64,
     cancellation: &CancellationToken,
@@ -234,7 +234,7 @@ fn plan_and_lookup_cached_foundation(
 > {
     let plan = plan_rawnind_foundation(
         installation,
-        input_raw,
+        input,
         expected_source_sha256,
         expected_source_size_bytes,
         cancellation,

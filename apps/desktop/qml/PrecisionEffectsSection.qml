@@ -11,6 +11,9 @@ ShadowAdjustmentSection {
     required property var inspector
 
     title: qsTranslate("PrecisionWorkspace", "EFFECTS")
+    resetAvailable: true
+    onResetRequested:
+        inspector.editor.resetSelectedAdjustmentSection("effects")
 
     ShadowSubsectionLabel {
         Layout.topMargin: 0

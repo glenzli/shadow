@@ -67,7 +67,10 @@ pub(in crate::tests) fn ffi_parameters(
         saturation_factor,
     };
     ffi::FfiEditSettings {
-        foundation: ffi_photo_foundation_settings(&PhotoFoundationNode::default()),
+        foundation: ffi_photo_foundation_settings(
+            &PhotoFoundationNode::default(),
+            shadow_domain::RawFoundationDenoise::disabled(),
+        ),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),

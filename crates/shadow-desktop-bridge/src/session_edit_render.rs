@@ -25,7 +25,7 @@ use super::{
         raw_foundation_ready_for_render,
     },
     recipe_v1::{
-        bridge_optics_settings, detail_foundation_development_plan,
+        bridge_foundation_optics_settings, detail_foundation_development_plan,
         ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt,
         resolve_recipe_render,
     },
@@ -76,7 +76,7 @@ impl DesktopSession {
             &source,
             request.render_token,
             raw_development_plan,
-            bridge_optics_settings(&request.settings.foundation.optics),
+            bridge_foundation_optics_settings(&request.settings.foundation),
             raw_foundation.as_ref(),
             requirements,
         )?;

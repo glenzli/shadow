@@ -2,179 +2,113 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{
-    RawFoundationDenoise, RecipeInputSettings, RecipeOpticsSettings, RecipeValidationError,
-};
+use super::{RecipeInputSettings, RecipeOpticsSettings, RecipeValidationError};
 
-/// Fixed denominator used by persisted camera-neutral channel ratios.
-///
-/// `CameraNeutral` is defined only up to a common scale. Shadow fixes green to
-/// this integer value so semantically equal manual white balances have one
-/// JSON and cache identity across Rust, C++, preview, detail, and export.
-pub const RAW_CAMERA_NEUTRAL_MILLIONTHS: u32 = 1_000_000;
-
-const MIN_RAW_CAMERA_NEUTRAL_MILLIONTHS: u32 = RAW_CAMERA_NEUTRAL_MILLIONTHS / 64;
-const MAX_RAW_CAMERA_NEUTRAL_MILLIONTHS: u32 = RAW_CAMERA_NEUTRAL_MILLIONTHS * 64;
+pub const RAW_WHITE_BALANCE_MIN_TEMPERATURE_KELVIN: u32 = 2_000;
+pub const RAW_WHITE_BALANCE_MAX_TEMPERATURE_KELVIN: u32 = 25_000;
+pub const RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN: u32 = 5_500;
+pub const RAW_WHITE_BALANCE_MIN_TINT: i16 = -150;
+pub const RAW_WHITE_BALANCE_MAX_TINT: i16 = 150;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-struct RawCameraNeutralWire {
-    red_millionths: u32,
-    blue_millionths: u32,
+struct RawTemperatureTintWire {
+    temperature_kelvin: u32,
+    tint: i16,
 }
 
-/// Canonical manual RAW white point in the source camera's RGB space.
+/// Canonical photographer-facing absolute RAW white point.
 ///
-/// DNG `CameraNeutral` components are scale-invariant. Shadow stores only red
-/// and blue relative to an implicit green of exactly 1.0, quantized to one
-/// millionth. This is an absolute source interpretation for one photo, not a
-/// Kelvin value and not a creative RGB temperature offset.
+/// Temperature is a correlated colour temperature in Kelvin. Tint uses the
+/// conventional photographic green-to-magenta axis: negative values move
+/// toward green and positive values move toward magenta. Camera-space channel
+/// ratios are a renderer-derived implementation detail and are deliberately
+/// not part of the Recipe or desktop editing contract.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "RawCameraNeutralWire", into = "RawCameraNeutralWire")]
-pub struct RawCameraNeutral {
-    red_millionths: u32,
-    blue_millionths: u32,
+#[serde(try_from = "RawTemperatureTintWire", into = "RawTemperatureTintWire")]
+pub struct RawTemperatureTint {
+    temperature_kelvin: u32,
+    tint: i16,
 }
 
-impl RawCameraNeutral {
-    /// Creates a canonical camera neutral from positive RGB components.
-    ///
-    /// The input is normalized by green and rounded to one-millionth units.
-    /// The intentionally broad `1/64..=64` ratio bound prevents reciprocal
-    /// white-balance gains from becoming numerically pathological.
+impl RawTemperatureTint {
+    /// Creates a bounded absolute white-balance value.
     ///
     /// # Errors
     ///
-    /// Returns an error for non-finite, non-positive, or out-of-range channel
-    /// ratios.
-    pub fn new(red: f64, green: f64, blue: f64) -> Result<Self, RecipeValidationError> {
-        if !green.is_finite() || green <= 0.0 {
-            return Err(RecipeValidationError::InvalidRawCameraNeutral {
-                component: "green",
-                value: green,
-            });
+    /// Returns an error when temperature or tint is outside Shadow's
+    /// reproducible photographic authoring range.
+    pub fn new(temperature_kelvin: u32, tint: i16) -> Result<Self, RecipeValidationError> {
+        if !(RAW_WHITE_BALANCE_MIN_TEMPERATURE_KELVIN..=RAW_WHITE_BALANCE_MAX_TEMPERATURE_KELVIN)
+            .contains(&temperature_kelvin)
+        {
+            return Err(RecipeValidationError::InvalidRawWhiteBalanceTemperature(
+                temperature_kelvin,
+            ));
         }
-        let normalized_red = red / green;
-        let normalized_blue = blue / green;
-        Self::from_normalized_components(normalized_red, normalized_blue)
-    }
-
-    /// Restores the exact persisted canonical representation.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when either component is outside the supported
-    /// reciprocal-gain range.
-    pub fn from_millionths(
-        red_millionths: u32,
-        blue_millionths: u32,
-    ) -> Result<Self, RecipeValidationError> {
-        for (component, value) in [("red", red_millionths), ("blue", blue_millionths)] {
-            if !(MIN_RAW_CAMERA_NEUTRAL_MILLIONTHS..=MAX_RAW_CAMERA_NEUTRAL_MILLIONTHS)
-                .contains(&value)
-            {
-                return Err(RecipeValidationError::InvalidRawCameraNeutral {
-                    component,
-                    value: f64::from(value) / f64::from(RAW_CAMERA_NEUTRAL_MILLIONTHS),
-                });
-            }
+        if !(RAW_WHITE_BALANCE_MIN_TINT..=RAW_WHITE_BALANCE_MAX_TINT).contains(&tint) {
+            return Err(RecipeValidationError::InvalidRawWhiteBalanceTint(tint));
         }
         Ok(Self {
-            red_millionths,
-            blue_millionths,
+            temperature_kelvin,
+            tint,
         })
     }
 
-    fn from_normalized_components(red: f64, blue: f64) -> Result<Self, RecipeValidationError> {
-        Self::from_millionths(
-            Self::quantize_normalized_component("red", red)?,
-            Self::quantize_normalized_component("blue", blue)?,
-        )
+    pub const fn temperature_kelvin(self) -> u32 {
+        self.temperature_kelvin
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn quantize_normalized_component(
-        component: &'static str,
-        value: f64,
-    ) -> Result<u32, RecipeValidationError> {
-        if !value.is_finite() || value <= 0.0 || !(1.0 / 64.0..=64.0).contains(&value) {
-            return Err(RecipeValidationError::InvalidRawCameraNeutral { component, value });
-        }
-        // Validation bounds the rounded value to 15_625..=64_000_000, so the
-        // conversion is finite, positive, and exactly representable by u32.
-        Ok((value * f64::from(RAW_CAMERA_NEUTRAL_MILLIONTHS)).round() as u32)
-    }
-
-    pub const fn red_millionths(self) -> u32 {
-        self.red_millionths
-    }
-
-    pub const fn green_millionths(self) -> u32 {
-        RAW_CAMERA_NEUTRAL_MILLIONTHS
-    }
-
-    pub const fn blue_millionths(self) -> u32 {
-        self.blue_millionths
-    }
-
-    pub fn red(self) -> f64 {
-        f64::from(self.red_millionths) / f64::from(RAW_CAMERA_NEUTRAL_MILLIONTHS)
-    }
-
-    pub const fn green(self) -> f64 {
-        1.0
-    }
-
-    pub fn blue(self) -> f64 {
-        f64::from(self.blue_millionths) / f64::from(RAW_CAMERA_NEUTRAL_MILLIONTHS)
+    pub const fn tint(self) -> i16 {
+        self.tint
     }
 }
 
-impl TryFrom<RawCameraNeutralWire> for RawCameraNeutral {
+impl TryFrom<RawTemperatureTintWire> for RawTemperatureTint {
     type Error = RecipeValidationError;
 
-    fn try_from(value: RawCameraNeutralWire) -> Result<Self, Self::Error> {
-        Self::from_millionths(value.red_millionths, value.blue_millionths)
+    fn try_from(value: RawTemperatureTintWire) -> Result<Self, Self::Error> {
+        Self::new(value.temperature_kelvin, value.tint)
     }
 }
 
-impl From<RawCameraNeutral> for RawCameraNeutralWire {
-    fn from(value: RawCameraNeutral) -> Self {
+impl From<RawTemperatureTint> for RawTemperatureTintWire {
+    fn from(value: RawTemperatureTint) -> Self {
         Self {
-            red_millionths: value.red_millionths,
-            blue_millionths: value.blue_millionths,
+            temperature_kelvin: value.temperature_kelvin,
+            tint: value.tint,
         }
     }
 }
 
 /// Absolute RAW white-balance interpretation owned by the Foundation.
 ///
-/// `AsShot` consumes the source metadata. `CameraNeutral` stores one
-/// photographer-selected camera-space neutral. Automatic estimation is not a
-/// variant until Shadow owns a versioned, reproducible algorithm; unsupported
-/// intent therefore cannot be persisted and silently rendered as `AsShot`.
+/// `AsShot` is the compact default/reset state and consumes source metadata.
+/// `TemperatureTint` stores the directly authored absolute photographic value.
+/// The desktop presents one continuous pair of controls; it does not expose
+/// these persistence variants as user-facing modes.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum RawWhiteBalance {
     #[default]
     AsShot,
-    CameraNeutral {
-        neutral: RawCameraNeutral,
+    TemperatureTint {
+        value: RawTemperatureTint,
     },
 }
 
 impl RawWhiteBalance {
-    pub const fn camera_neutral(neutral: RawCameraNeutral) -> Self {
-        Self::CameraNeutral { neutral }
+    pub const fn temperature_tint(value: RawTemperatureTint) -> Self {
+        Self::TemperatureTint { value }
     }
 
     pub const fn is_as_shot(&self) -> bool {
         matches!(self, Self::AsShot)
     }
 
-    pub const fn neutral(self) -> Option<RawCameraNeutral> {
+    pub const fn authored_value(self) -> Option<RawTemperatureTint> {
         match self {
             Self::AsShot => None,
-            Self::CameraNeutral { neutral } => Some(neutral),
+            Self::TemperatureTint { value } => Some(value),
         }
     }
 }
@@ -216,14 +150,26 @@ impl PhotoFoundationNode {
         self.input_settings.optics()
     }
 
+    /// Returns whether optional Foundation interpretation is evaluated.
+    ///
+    /// Required source decoding remains active when this is false; authored
+    /// white balance and optics values stay stored but are bypassed. The
+    /// sibling AI RAW denoise node remains independently enabled or bypassed.
+    pub const fn enabled(&self) -> bool {
+        self.input_settings.enabled()
+    }
+
     /// Returns the absolute RAW white-balance source interpretation.
     pub const fn raw_white_balance(&self) -> RawWhiteBalance {
         self.input_settings.raw_white_balance()
     }
 
-    /// Returns the single-use AI RAW denoise intent for this source.
-    pub const fn raw_ai_denoise(&self) -> RawFoundationDenoise {
-        self.input_settings.raw_ai_denoise()
+    pub const fn effective_raw_white_balance(&self) -> RawWhiteBalance {
+        if self.enabled() {
+            self.raw_white_balance()
+        } else {
+            RawWhiteBalance::AsShot
+        }
     }
 
     /// Removes the node role and returns its Recipe v1 compatibility value.

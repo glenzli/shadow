@@ -32,6 +32,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     }
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi::FfiEditSettings {
         foundation: ffi::FfiPhotoFoundationSettings {
+            enabled: true,
             optics: ffi::FfiOpticsSettings {
                 enabled: true,
                 correct_distortion: true,
@@ -50,9 +51,13 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
             },
             raw_ai_denoise_enabled: false,
             raw_ai_denoise_model: 0,
+            raw_ai_denoise_amount_percent: 100,
             raw_white_balance_mode: 0,
-            camera_neutral_red_millionths: 1_000_000,
-            camera_neutral_blue_millionths: 1_000_000,
+            temperature_kelvin: 5_500,
+            tint: 0,
+            as_shot_white_balance_available: false,
+            as_shot_temperature_kelvin: 5_500,
+            as_shot_tint: 0,
         },
         grade_nodes: vec![created.clone()],
         retouch_spots: Vec::new(),
@@ -89,6 +94,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
 
     let incoming = ffi::FfiEditSettings {
         foundation: ffi::FfiPhotoFoundationSettings {
+            enabled: true,
             optics: ffi::FfiOpticsSettings {
                 enabled: true,
                 correct_distortion: false,
@@ -107,9 +113,13 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
             },
             raw_ai_denoise_enabled: true,
             raw_ai_denoise_model: 0,
+            raw_ai_denoise_amount_percent: 100,
             raw_white_balance_mode: 1,
-            camera_neutral_red_millionths: 825_000,
-            camera_neutral_blue_millionths: 1_375_000,
+            temperature_kelvin: 6_200,
+            tint: -8,
+            as_shot_white_balance_available: true,
+            as_shot_temperature_kelvin: 5_150,
+            as_shot_tint: 6,
         },
         grade_nodes: vec![created],
         retouch_spots: Vec::new(),
@@ -156,11 +166,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     assert!(outgoing.foundation.raw_ai_denoise_enabled);
     assert_eq!(outgoing.foundation.raw_ai_denoise_model, 0);
     assert_eq!(outgoing.foundation.raw_white_balance_mode, 1);
-    assert_eq!(outgoing.foundation.camera_neutral_red_millionths, 825_000);
-    assert_eq!(
-        outgoing.foundation.camera_neutral_blue_millionths,
-        1_375_000
-    );
+    assert_eq!(outgoing.foundation.temperature_kelvin, 6_200);
+    assert_eq!(outgoing.foundation.tint, -8);
 }
 
 #[test]
@@ -191,6 +198,7 @@ fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
 
     let snapshot = grade_stack_recipe_v1_snapshot(
         &GradeStackDraft {
+            raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
             foundation: PhotoFoundationNode::default(),
             grade_nodes: vec![grade_node],
             retouch_spots: Vec::new(),
@@ -316,6 +324,7 @@ fn current_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
     let mut grade_node = GradeNodeDraft::neutral("Custom grade");
     grade_node.basic.exposure_stops = 0.75;
     let grade_stack = GradeStackDraft {
+        raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),

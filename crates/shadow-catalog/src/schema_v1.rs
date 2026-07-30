@@ -40,6 +40,7 @@ CREATE TABLE locations (
     platform          TEXT NOT NULL,
     native_path       BLOB NOT NULL,
     display_path      TEXT NOT NULL,
+    sort_name_key     TEXT NOT NULL,
     status            TEXT NOT NULL
         CHECK (status IN ('online', 'offline', 'needs_revalidation')),
     created_at_ms     INTEGER NOT NULL,
@@ -49,6 +50,8 @@ CREATE TABLE locations (
 
 CREATE INDEX locations_representation_id_idx ON locations(representation_id);
 CREATE INDEX locations_status_idx ON locations(status);
+CREATE INDEX locations_status_sort_name_idx
+    ON locations(status, sort_name_key, id);
 ";
 
 const SCHEMA_V1_IMPORT: &str = r"

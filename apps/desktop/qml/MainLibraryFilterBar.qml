@@ -60,10 +60,83 @@ Rectangle {
     color: filterBar.anyFilterActive
         ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
 
+    Menu {
+        id: sortMenu
+
+        MenuItem {
+            text: qsTranslate("Main", "Capture date · Newest first")
+            checkable: true
+            checked: filterBar.controller.librarySortKey === "capture_time"
+                && filterBar.controller.librarySortDescending
+            onTriggered: {
+                filterBar.controller.librarySortKey = "capture_time"
+                filterBar.controller.librarySortDescending = true
+            }
+        }
+
+        MenuItem {
+            text: qsTranslate("Main", "Capture date · Oldest first")
+            checkable: true
+            checked: filterBar.controller.librarySortKey === "capture_time"
+                && !filterBar.controller.librarySortDescending
+            onTriggered: {
+                filterBar.controller.librarySortKey = "capture_time"
+                filterBar.controller.librarySortDescending = false
+            }
+        }
+
+        MenuSeparator {}
+
+        MenuItem {
+            text: qsTranslate("Main", "Name · A to Z")
+            checkable: true
+            checked: filterBar.controller.librarySortKey === "name"
+                && !filterBar.controller.librarySortDescending
+            onTriggered: {
+                filterBar.controller.librarySortKey = "name"
+                filterBar.controller.librarySortDescending = false
+            }
+        }
+
+        MenuItem {
+            text: qsTranslate("Main", "Name · Z to A")
+            checkable: true
+            checked: filterBar.controller.librarySortKey === "name"
+                && filterBar.controller.librarySortDescending
+            onTriggered: {
+                filterBar.controller.librarySortKey = "name"
+                filterBar.controller.librarySortDescending = true
+            }
+        }
+    }
+
     Row {
         id: filterControls
         anchors.centerIn: parent
         spacing: 2
+
+        ShadowButton {
+            anchors.verticalCenter: parent.verticalCenter
+            compact: true
+            minimumButtonWidth: 64
+            variant: ShadowButton.Ghost
+            text: filterBar.controller.librarySortKey === "name"
+                ? (filterBar.controller.librarySortDescending
+                    ? qsTranslate("Main", "NAME ↓")
+                    : qsTranslate("Main", "NAME ↑"))
+                : (filterBar.controller.librarySortDescending
+                    ? qsTranslate("Main", "DATE ↓")
+                    : qsTranslate("Main", "DATE ↑"))
+            toolTipText: qsTranslate("Main", "Sort Library photos")
+            onClicked: sortMenu.popup()
+        }
+
+        Rectangle {
+            width: 1
+            height: 16
+            anchors.verticalCenter: parent.verticalCenter
+            color: Theme.border
+        }
 
         ShadowIconButton {
             anchors.verticalCenter: parent.verticalCenter

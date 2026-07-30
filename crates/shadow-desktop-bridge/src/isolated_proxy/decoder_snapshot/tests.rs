@@ -87,6 +87,24 @@ fn rejects_stale_or_invalid_child_decoder_snapshots() {
     let response = decoder_snapshot_protocol("decoder-nonce");
     assert!(parse_decoder_snapshot_protocol(&response, "other-nonce").is_err());
 
+    let mut control_byte_fields = String::from_utf8(response.clone())
+        .expect("decoder fixture is UTF-8")
+        .split_whitespace()
+        .map(str::as_bytes)
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    // Field 38 is the GPS-coordinate presence flag. A stale private provider
+    // once projected an old std::string layout into this bool and made the
+    // helper emit NUL instead of the final hexadecimal digit.
+    *control_byte_fields[38]
+        .last_mut()
+        .expect("GPS presence field is non-empty") = 0;
+    let control_byte_response = control_byte_fields.join(&b' ');
+    assert!(
+        parse_decoder_snapshot_protocol(&control_byte_response, "decoder-nonce").is_err(),
+        "control bytes from a malformed native ABI must fail closed"
+    );
+
     let mut fields = String::from_utf8(response)
         .expect("decoder fixture is UTF-8")
         .split_whitespace()

@@ -233,8 +233,10 @@ and a 288-pixel step, which preserves the U-Net's 16-pixel pooling phase.
 
 Tiles are inferred at their original scale, blended with separable weights
 that sum to one, and gain-matched once after stitching. Per-tile gain is
-recorded only as a stability diagnostic. `tiling.py` retains the full-frame
-implementation as a small-image mathematical reference.
+recorded only as a content/stability diagnostic and never gates publication:
+high-dynamic-range scenes can legitimately have very different tile means,
+while only the single full-image gain is applied. `tiling.py` retains the
+full-frame implementation as a small-image mathematical reference.
 
 The bounded lifecycle never creates a full reflected input or a full output
 accumulator. It extracts each 512 x 512 packed tile directly from the borrowed
@@ -351,6 +353,14 @@ One materialization accepts an exact source RAW and one absent, externally
 allocated `.shadowrawf` partial. The sidecar never creates or publishes a
 cache entry; the application independently verifies the completed bytes and
 then publishes that same partial through `FoundationArtifactStore`.
+
+Desktop requests additionally pass `--input-raw-frame` with a request-private
+`shadow-raw-frame-staging-v1` manifest. In that route, the original
+`--input-raw` remains the durable source hash/size identity while the Bayer
+samples come from Shadow's already selected decoder. Decoder id/version and
+the staged-sample SHA-256 enter `raw_preprocessing`, so two decoder outputs
+cannot collide in the foundation cache. Direct audit commands may omit the
+staging argument and retain the pinned rawpy/LibRaw loader.
 
 Before allocating or running inference, the application uses `--plan` with
 the same source and fixed pixel contract. Planning verifies and loads the

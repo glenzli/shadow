@@ -65,11 +65,13 @@ pub use recipe::{
     OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
     PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoLiquifyNode, PhotoQuarterTurn,
     PhotoStructuralNodeRef, PhotoStructuralNodes, PortType, ProcessingStage,
-    RAW_CAMERA_NEUTRAL_MILLIONTHS, RasterMaskEncoding, RawCameraNeutral, RawFoundationDenoise,
-    RawFoundationDenoiseModel, RawWhiteBalance, RecipeBranch, RecipeCommit, RecipeHistory,
-    RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RecipeValidationError, RetouchMode,
-    RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval, VersionName,
-    canonical_recipe_snapshot_digest, local_detail_reference_response,
+    RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT, RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
+    RAW_WHITE_BALANCE_MAX_TEMPERATURE_KELVIN, RAW_WHITE_BALANCE_MAX_TINT,
+    RAW_WHITE_BALANCE_MIN_TEMPERATURE_KELVIN, RAW_WHITE_BALANCE_MIN_TINT, RasterMaskEncoding,
+    RawFoundationDenoise, RawFoundationDenoiseModel, RawTemperatureTint, RawWhiteBalance,
+    RecipeBranch, RecipeCommit, RecipeHistory, RecipeInputSettings, RecipeOpticsSettings,
+    RecipeSnapshot, RecipeValidationError, RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke,
+    UnitInterval, VersionName, canonical_recipe_snapshot_digest, local_detail_reference_response,
 };
 pub use recipe_diff::{
     GraphDiff, IndexedLayer, LayerContentDiff, LayerContentKind, LayerInstanceDiff,

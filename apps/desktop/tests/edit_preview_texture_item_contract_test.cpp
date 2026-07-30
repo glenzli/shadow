@@ -759,8 +759,8 @@ void transient_liquify_lifecycle_waits_for_the_authoritative_generation() {
     );
     item.finishTransientLiquify(true);
     require(
-        item.transientLiquifyActive(),
-        "a committed mesh must cover backend latency instead of snapping back immediately"
+        item.transientLiquifyActive() && item.transientLiquifyPending(),
+        "a committed mesh must expose pending state while covering backend latency"
     );
 
     store->publish(
@@ -774,7 +774,7 @@ void transient_liquify_lifecycle_waits_for_the_authoritative_generation() {
     );
     item.setSource(preview_source(22U));
     require(
-        !item.transientLiquifyActive(),
+        !item.transientLiquifyActive() && !item.transientLiquifyPending(),
         "the next authoritative generation atomically retires the transient mesh"
     );
 
@@ -784,7 +784,7 @@ void transient_liquify_lifecycle_waits_for_the_authoritative_generation() {
     );
     item.finishTransientLiquify(false);
     require(
-        !item.transientLiquifyActive(),
+        !item.transientLiquifyActive() && !item.transientLiquifyPending(),
         "a rejected or cancelled commit removes the display-only deformation"
     );
 

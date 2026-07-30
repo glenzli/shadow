@@ -1,5 +1,6 @@
 use crate::ffi;
-use shadow_domain::{EntityId, KeywordId};
+use shadow_catalog::LibraryPhotoOrder;
+use shadow_domain::{EntityId, KeywordId, PhotoId};
 
 use super::{ffi_library_filter, library_cursor_from_ffi, library_filter_from_ffi};
 
@@ -9,15 +10,35 @@ fn empty_cursor_starts_a_library_page_but_cannot_carry_capture_time() {
         photo_id: String::new(),
         has_capture_time: false,
         captured_at_unix_seconds: 0,
+        file_name: String::new(),
     };
-    assert_eq!(library_cursor_from_ffi(&start).expect("parse start"), None);
+    assert_eq!(
+        library_cursor_from_ffi(LibraryPhotoOrder::default(), &start).expect("parse start"),
+        None
+    );
 
     let invalid = ffi::FfiLibraryPhotoCursor {
         photo_id: String::new(),
         has_capture_time: true,
         captured_at_unix_seconds: 1,
+        file_name: String::new(),
     };
-    assert!(library_cursor_from_ffi(&invalid).is_err());
+    assert!(library_cursor_from_ffi(LibraryPhotoOrder::default(), &invalid).is_err());
+}
+
+#[test]
+fn cursor_sort_value_must_match_the_requested_order() {
+    let photo_id = PhotoId::new_v7().to_string();
+    let name_cursor = ffi::FfiLibraryPhotoCursor {
+        photo_id,
+        has_capture_time: false,
+        captured_at_unix_seconds: 0,
+        file_name: "image.nef".into(),
+    };
+    assert!(library_cursor_from_ffi(LibraryPhotoOrder::FileNameAscending, &name_cursor).is_ok());
+    assert!(
+        library_cursor_from_ffi(LibraryPhotoOrder::CaptureTimeDescending, &name_cursor).is_err()
+    );
 }
 
 #[test]

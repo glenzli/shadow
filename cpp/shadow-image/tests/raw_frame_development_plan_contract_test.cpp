@@ -64,7 +64,7 @@ void prepared_plan_binds_source_policy_and_calibration_once() {
     );
 }
 
-void prepared_plan_applies_manual_camera_neutral_before_every_downstream_grade() {
+void prepared_plan_applies_absolute_temperature_tint_before_every_downstream_grade() {
     const auto frame = synthetic_bayer_frame();
     const auto as_shot = image::raw_pipeline_detail::prepare_raw_frame_development(
         frame,
@@ -75,9 +75,9 @@ void prepared_plan_applies_manual_camera_neutral_before_every_downstream_grade()
     );
     auto manual_plan = image::default_raw_development_plan();
     manual_plan.white_balance = image::RawWhiteBalance{
-        .mode = image::RawWhiteBalanceMode::camera_neutral,
-        .camera_neutral_red_millionths = image::raw_camera_neutral_millionths,
-        .camera_neutral_blue_millionths = image::raw_camera_neutral_millionths,
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 6'500U,
+        .tint = 0,
     };
     const auto manual = image::raw_pipeline_detail::prepare_raw_frame_development(
         frame,
@@ -91,12 +91,14 @@ void prepared_plan_applies_manual_camera_neutral_before_every_downstream_grade()
     const auto& manual_matrix = manual.linear_transform().camera_to_linear_srgb_d65;
     expect(
         as_shot_matrix[0] == 2.0 && as_shot_matrix[4] == 1.0 && as_shot_matrix[8] == 4.0
-            && manual_matrix[0] == 1.0 && manual_matrix[4] == 1.0 && manual_matrix[8] == 1.0,
-        "manual CameraNeutral replaces AsShot multipliers in the prepared scene-linear transform"
+            && std::abs(manual_matrix[0] - 1.0) < 0.08
+            && std::abs(manual_matrix[4] - 1.0) < 0.08
+            && std::abs(manual_matrix[8] - 1.0) < 0.08,
+        "absolute D65-like white balance replaces AsShot multipliers in the prepared transform"
     );
     expect(
         manual.development_plan().white_balance == manual_plan.white_balance,
-        "prepared RAW development retains the exact authored CameraNeutral identity"
+        "prepared RAW development retains the exact authored temperature/tint identity"
     );
 }
 
@@ -109,15 +111,15 @@ void prepared_plan_owns_the_compiled_camera_profile() {
         catalog.profiles.front(),
         frame.descriptor,
         image::RawWhiteBalance{
-            .mode = image::RawWhiteBalanceMode::camera_neutral,
-            .camera_neutral_red_millionths = image::raw_camera_neutral_millionths,
-            .camera_neutral_blue_millionths = image::raw_camera_neutral_millionths,
+            .mode = image::RawWhiteBalanceMode::temperature_tint,
+            .temperature_kelvin = 3'200U,
+            .tint = 24,
         }
     );
     expect(
         transform.camera_to_linear_srgb_d65 != manual_transform.camera_to_linear_srgb_d65
             && transform.receipt.estimated_white_x != manual_transform.receipt.estimated_white_x,
-        "DCP calibration compiles from the requested CameraNeutral rather than hard-coded AsShot"
+        "DCP calibration compiles from authored temperature/tint rather than hard-coded AsShot"
     );
     auto prepared = image::raw_pipeline_detail::prepare_raw_frame_development(
         frame,
@@ -302,7 +304,7 @@ void neural_raw_fallback_flows_through_the_current_developer() {
 
 int main() {
     prepared_plan_binds_source_policy_and_calibration_once();
-    prepared_plan_applies_manual_camera_neutral_before_every_downstream_grade();
+    prepared_plan_applies_absolute_temperature_tint_before_every_downstream_grade();
     prepared_plan_owns_the_compiled_camera_profile();
     full_materializer_consumes_the_prepared_contract();
     preparation_preserves_validation_order();

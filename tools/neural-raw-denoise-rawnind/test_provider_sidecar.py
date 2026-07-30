@@ -49,6 +49,9 @@ def synthetic_preprocessing(packed: np.ndarray) -> dict[str, object]:
         "color_description": "RGBG",
         "white_level": 16383.0,
         "black_level_per_channel": [512.0, 512.0, 512.0, 512.0],
+        "decoder_provider_id": "shadow.test",
+        "decoder_provider_version": "1",
+        "decoded_samples_sha256": "a" * 64,
     }
 
 
@@ -160,6 +163,8 @@ class RawNindProviderSidecarContract(unittest.TestCase):
             source = directory / "source.raw"
             source_bytes = b"synthetic RAW identity"
             source.write_bytes(source_bytes)
+            staged_raw_frame = directory / "frame.shadowrawi"
+            staged_raw_frame.write_text("test", encoding="utf-8")
             packed = np.ones((4, 513, 513), dtype=np.float32)
 
             class PlanOnlySession(FakeSession):
@@ -183,17 +188,19 @@ class RawNindProviderSidecarContract(unittest.TestCase):
                         packed,
                         synthetic_preprocessing(packed),
                     ),
-                ),
+                ) as load_raw,
             ):
                 receipt = provider_sidecar.plan_foundation(
                     model_package=directory / "unused.dtmodel",
                     model_graph=directory / "unused.onnx",
                     manifest_path=MANIFEST,
                     input_raw=source,
+                    input_raw_frame=staged_raw_frame,
                     source_pixel_contract_sha256=(
                         provider_sidecar.EXPECTED_SOURCE_PIXEL_CONTRACT_SHA256
                     ),
                 )
+            load_raw.assert_called_once_with(source.resolve(), staged_raw_frame)
 
             self.assertTrue(
                 receipt.startswith(

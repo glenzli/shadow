@@ -16,6 +16,7 @@ const fn default_manual_vignetting_midpoint() -> u8 {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 #[allow(clippy::struct_excessive_bools)] // Each persisted switch controls an independent correction.
 pub struct RecipeOpticsSettings {
     enabled: bool,
@@ -222,22 +223,38 @@ impl RecipeOpticsSettings {
 /// New aggregate code should model the mandatory Foundation role explicitly.
 /// This value remains public because desktop and persistence adapters still
 /// project the unchanged `input_settings` JSON shape.
-#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecipeInputSettings {
+    #[serde(default = "foundation_enabled", skip_serializing_if = "bool_is_true")]
+    enabled: bool,
+    #[serde(default)]
     optics: RecipeOpticsSettings,
     #[serde(default, skip_serializing_if = "RawWhiteBalance::is_as_shot")]
     raw_white_balance: RawWhiteBalance,
-    #[serde(default, skip_serializing_if = "RawFoundationDenoise::is_disabled")]
+    // Recipe v1 keeps this sibling singleton in the historical
+    // `input_settings` wire object. Semantic ownership belongs to
+    // `RecipeSnapshot::raw_ai_denoise_node`, not the Foundation enable switch.
+    #[serde(
+        default,
+        skip_serializing_if = "RawFoundationDenoise::is_default_state"
+    )]
     raw_ai_denoise: RawFoundationDenoise,
 }
 
 impl RecipeInputSettings {
     pub const fn new(optics: RecipeOpticsSettings) -> Self {
         Self {
+            enabled: true,
             optics,
             raw_white_balance: RawWhiteBalance::AsShot,
             raw_ai_denoise: RawFoundationDenoise::disabled(),
         }
+    }
+
+    #[must_use]
+    pub const fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     #[must_use]
@@ -256,6 +273,10 @@ impl RecipeInputSettings {
         &self.optics
     }
 
+    pub const fn enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub const fn raw_white_balance(&self) -> RawWhiteBalance {
         self.raw_white_balance
     }
@@ -267,6 +288,20 @@ impl RecipeInputSettings {
     pub(super) fn is_default(&self) -> bool {
         *self == Self::default()
     }
+}
+
+impl Default for RecipeInputSettings {
+    fn default() -> Self {
+        Self::new(RecipeOpticsSettings::default())
+    }
+}
+
+const fn foundation_enabled() -> bool {
+    true
+}
+
+const fn bool_is_true(value: &bool) -> bool {
+    *value
 }
 
 #[cfg(test)]

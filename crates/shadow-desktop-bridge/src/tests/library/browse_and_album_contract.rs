@@ -42,7 +42,12 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
 
     let filtered = ffi_library_filter();
     let filtered_page = session
-        .library_photo_page(&filtered, &ffi_library_start_cursor(), 16)
+        .library_photo_page(
+            &filtered,
+            ffi::FfiLibraryPhotoOrder::CaptureTimeDescending,
+            &ffi_library_start_cursor(),
+            16,
+        )
         .expect("query filtered Library page");
     assert_eq!(
         session
@@ -75,6 +80,7 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     let first = session
         .library_photo_page(
             &ffi_library_neutral_filter(),
+            ffi::FfiLibraryPhotoOrder::CaptureTimeDescending,
             &ffi_library_start_cursor(),
             1,
         )
@@ -83,7 +89,12 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     assert_eq!(first.items.len(), 1);
     assert_eq!(first.items[0].photo_id, newest.photo_id.to_string());
     let second = session
-        .library_photo_page(&ffi_library_neutral_filter(), &first.next_cursor, 1)
+        .library_photo_page(
+            &ffi_library_neutral_filter(),
+            ffi::FfiLibraryPhotoOrder::CaptureTimeDescending,
+            &first.next_cursor,
+            1,
+        )
         .expect("read second Library page");
     assert!(!second.has_more);
     assert_eq!(second.items.len(), 1);
@@ -134,7 +145,12 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
         .excluded_keyword_ids_any
         .push(work.id.clone());
     let keyword_page = session
-        .library_photo_page(&keyword_filter, &ffi_library_start_cursor(), 16)
+        .library_photo_page(
+            &keyword_filter,
+            ffi::FfiLibraryPhotoOrder::CaptureTimeDescending,
+            &ffi_library_start_cursor(),
+            16,
+        )
         .expect("query hierarchical include/exclude keyword predicates");
     assert_eq!(keyword_page.items.len(), 1);
     assert_eq!(keyword_page.items[0].photo_id, newest.photo_id.to_string());
@@ -283,6 +299,7 @@ fn ffi_library_start_cursor() -> ffi::FfiLibraryPhotoCursor {
         photo_id: String::new(),
         has_capture_time: false,
         captured_at_unix_seconds: 0,
+        file_name: String::new(),
     }
 }
 

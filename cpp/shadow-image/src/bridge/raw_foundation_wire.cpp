@@ -24,6 +24,7 @@ image::RawFoundationCameraRgbView raw_foundation_view(const FfiRawFoundation& fo
             },
         .crop_top = foundation.crop_top,
         .crop_left = foundation.crop_left,
+        .amount_percent = foundation.amount_percent,
         .samples = std::span<const float>(foundation.samples.data(), foundation.samples.size()),
         .provenance = {
             .source_sha256 = rust_string(foundation.source_sha256),

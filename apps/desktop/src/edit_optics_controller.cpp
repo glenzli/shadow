@@ -290,6 +290,47 @@ void EditController::clearManualOpticsProfile() {
     opticsEdited(QStringLiteral("profile"), before);
 }
 
+void EditController::resetOptics() {
+    if (!active_ || interactionLocked()) {
+        return;
+    }
+    const auto neutral_optics = decltype(grade_stack_.foundation.optics){};
+    const BackendFineEditParameters neutral_fine;
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    const bool fine_changed = grade_node != nullptr
+        && (grade_node->fine.defringe_purple_amount
+                != neutral_fine.defringe_purple_amount
+            || grade_node->fine.defringe_purple_hue_low
+                != neutral_fine.defringe_purple_hue_low
+            || grade_node->fine.defringe_purple_hue_high
+                != neutral_fine.defringe_purple_hue_high
+            || grade_node->fine.defringe_green_amount
+                != neutral_fine.defringe_green_amount
+            || grade_node->fine.defringe_green_hue_low
+                != neutral_fine.defringe_green_hue_low
+            || grade_node->fine.defringe_green_hue_high
+                != neutral_fine.defringe_green_hue_high);
+    if (grade_stack_.foundation.optics == neutral_optics && !fine_changed) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.foundation.optics = neutral_optics;
+    if (fine_changed) {
+        grade_node->fine.defringe_purple_amount = neutral_fine.defringe_purple_amount;
+        grade_node->fine.defringe_purple_hue_low = neutral_fine.defringe_purple_hue_low;
+        grade_node->fine.defringe_purple_hue_high = neutral_fine.defringe_purple_hue_high;
+        grade_node->fine.defringe_green_amount = neutral_fine.defringe_green_amount;
+        grade_node->fine.defringe_green_hue_low = neutral_fine.defringe_green_hue_low;
+        grade_node->fine.defringe_green_hue_high = neutral_fine.defringe_green_hue_high;
+    }
+    opticsEdited(QStringLiteral("reset"), before);
+    if (fine_changed) {
+        notifyParametersChanged();
+    }
+}
+
 void EditController::opticsEdited(
     const QString& key,
     const BackendGradeStack& before

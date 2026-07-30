@@ -352,6 +352,16 @@ mod ffi {
         Lens,
     }
 
+    /// Presentation order for the photo-first Library grid. It remains
+    /// independent from durable Smart Album membership filters.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiLibraryPhotoOrder {
+        CaptureTimeDescending,
+        CaptureTimeAscending,
+        FileNameAscending,
+        FileNameDescending,
+    }
+
     /// Stable continuation for the count-descending facet page. The key is a
     /// deterministic tie-breaker, so a later page never repeats a value.
     #[derive(Debug)]
@@ -491,13 +501,14 @@ mod ffi {
         display_path: String,
     }
 
-    /// Stable cursor for capture-time-descending Library pages. An empty
-    /// photo id is the first page; it must not carry a capture time.
+    /// Stable cursor for one explicitly ordered Library page. An empty photo
+    /// id is the first page and carries neither capture time nor file name.
     #[derive(Debug)]
     struct FfiLibraryPhotoCursor {
         photo_id: String,
         has_capture_time: bool,
         captured_at_unix_seconds: i64,
+        file_name: String,
     }
 
     /// One logical photo selected by Catalog, independent of which directory
@@ -948,16 +959,24 @@ mod ffi {
     /// evaluated before the ordered, repeatable Grade Node list.
     #[derive(Debug, Clone)]
     struct FfiPhotoFoundationSettings {
+        /// Bypasses optional Foundation interpretation while preserving it.
+        enabled: bool,
         optics: FfiOpticsSettings,
         /// Whether the singleton AI RAW denoise node is active.
         raw_ai_denoise_enabled: bool,
         /// 0 = RawNIND public Bayer release 5.6.0.
         raw_ai_denoise_model: u8,
-        /// 0 = source As Shot metadata; 1 = the exact camera-space neutral.
+        /// Fast camera-linear blend between original RAW and cached AI output.
+        raw_ai_denoise_amount_percent: u8,
+        /// 0 = source As Shot metadata; 1 = authored temperature/tint.
         raw_white_balance_mode: u8,
-        /// Green is canonically fixed at 1,000,000.
-        camera_neutral_red_millionths: u32,
-        camera_neutral_blue_millionths: u32,
+        temperature_kelvin: u32,
+        tint: i16,
+        /// Reset/presentation anchor derived from source metadata. These
+        /// fields are not persisted as authored Recipe values.
+        as_shot_white_balance_available: bool,
+        as_shot_temperature_kelvin: u32,
+        as_shot_tint: i16,
     }
 
     /// Complete editable photo stack. Foundation is evaluated first, followed
@@ -1417,6 +1436,7 @@ mod ffi {
         fn library_photo_page(
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
+            order: FfiLibraryPhotoOrder,
             cursor: &FfiLibraryPhotoCursor,
             limit: u32,
         ) -> Result<FfiLibraryPhotoPage>;
@@ -1443,6 +1463,7 @@ mod ffi {
         ) -> Result<FfiLibraryFacetPage>;
         fn library_albums(self: &DesktopSession) -> Result<Vec<FfiLibraryAlbum>>;
         fn library_source_health(self: &DesktopSession) -> Result<Vec<FfiLibrarySourceHealth>>;
+        fn remove_library_source(self: &DesktopSession, source_id: &str) -> Result<bool>;
         fn missing_source_location_page(
             self: &DesktopSession,
             scan_session_id: &str,

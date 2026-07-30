@@ -91,6 +91,9 @@ ColumnLayout {
             : qsTr("None")
         toolTipText: qsTr("Remove small distractions with a feathered heal or a nearby clone source.")
         sectionEnabled: retouch.controlsEnabled
+        resetAvailable: true
+        resetEnabled: retouch.regionCount > 0
+        onResetRequested: retouch.inspector.editor.clearRetouch()
 
         RowLayout {
             Layout.fillWidth: true

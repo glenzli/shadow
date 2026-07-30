@@ -49,7 +49,12 @@ fn actor_routes_photo_pages_counts_facets_and_map_clusters() {
         .expect("index Library facts through actor");
 
     let page = handle
-        .library_photo_page(&LibraryPhotoFilter::default(), None, 16)
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            crate::LibraryPhotoOrder::default(),
+            None,
+            16,
+        )
         .expect("page Library through actor");
     assert_eq!(page.items[0].photo_id, registered.photo_id);
     assert_eq!(

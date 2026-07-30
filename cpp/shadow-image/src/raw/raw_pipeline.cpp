@@ -116,7 +116,7 @@ RawDevelopmentCapabilities shadow_raw_frame_development_capabilities() noexcept 
     RawDevelopmentCapabilities capabilities;
     capabilities.available = true;
     capabilities.raw_frame = true;
-    capabilities.camera_neutral_white_balance = true;
+    capabilities.temperature_tint_white_balance = true;
     capabilities.supported_intents =
         raw_development_intent_mask(RawDevelopmentIntent::preview)
         | raw_development_intent_mask(RawDevelopmentIntent::detail)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 import numpy as np
@@ -108,6 +109,14 @@ class RawNindFullImageTilingContract(unittest.TestCase):
             1e-7,
         )
         self.assertEqual(tiling.gate_failures(result.receipt), [])
+
+        content_variant = replace(
+            result.receipt,
+            local_gain_min=0.25,
+            local_gain_max=1.75,
+            local_gain_relative_span=1.5,
+        )
+        self.assertEqual(tiling.gate_failures(content_variant), [])
 
 
 if __name__ == "__main__":

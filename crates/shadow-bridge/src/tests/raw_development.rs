@@ -1,7 +1,8 @@
 //! RAW development plans, receipts, pipeline provenance, and cache identity contracts.
 
 use shadow_domain::{
-    ImageDimensions, RAW_CAMERA_NEUTRAL_MILLIONTHS, RawCameraNeutral, RawWhiteBalance,
+    ImageDimensions, RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN, RawTemperatureTint,
+    RawWhiteBalance,
 };
 
 use crate::{
@@ -22,8 +23,8 @@ fn ffi_detail_raw_development_plan() -> ffi::FfiRawDevelopmentPlan {
         noise_reduction: ffi::FfiRawNoiseReductionIntent::ProviderDefault,
         highlight_recovery: ffi::FfiRawHighlightRecoveryIntent::ProviderDefault,
         white_balance_mode: ffi::FfiRawWhiteBalanceMode::AsShot,
-        camera_neutral_red_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
-        camera_neutral_blue_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
+        temperature_kelvin: RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
+        tint: 0,
     }
 }
 
@@ -44,8 +45,8 @@ fn recorded_ffi_raw_development_receipt() -> ffi::FfiRawDevelopmentReceipt {
             noise_reduction: ffi::FfiRawNoiseReductionIntent::ProviderDefault,
             highlight_recovery: ffi::FfiRawHighlightRecoveryIntent::ProviderDefault,
             white_balance_mode: ffi::FfiRawWhiteBalanceMode::AsShot,
-            camera_neutral_red_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
-            camera_neutral_blue_millionths: RAW_CAMERA_NEUTRAL_MILLIONTHS,
+            temperature_kelvin: RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
+            tint: 0,
         },
         effective_plan: ffi_detail_raw_development_plan(),
         plan_negotiation_status: ffi::FfiRawDevelopmentPlanNegotiationStatus::Adjusted,
@@ -415,12 +416,12 @@ fn raw_development_plan_identities_are_native_canonical_and_intent_specific() {
     assert!(preview.starts_with("shadow-raw-plan-v1;"));
     assert!(preview.contains(";wb=as-shot"));
 
-    let neutral = RawCameraNeutral::new(0.5, 1.0, 0.25).expect("manual camera neutral");
+    let value = RawTemperatureTint::new(4_800, 17).expect("manual white balance");
     let manual =
-        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::camera_neutral(neutral));
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(value));
     let manual_identity =
         raw_development_plan_identity(manual).expect("manual RAW white-balance identity");
-    assert!(manual_identity.contains(";wb=camera-neutral:500000:250000"));
+    assert!(manual_identity.contains(";wb=temperature-tint:4800:17"));
     assert_ne!(manual_identity, preview);
 
     let invalid = RawDevelopmentPlan {
@@ -435,16 +436,16 @@ fn raw_development_plan_identities_are_native_canonical_and_intent_specific() {
 
 #[test]
 fn raw_white_balance_bridge_round_trips_and_rejects_noncanonical_payloads() {
-    let neutral = RawCameraNeutral::new(0.75, 1.0, 0.5).expect("manual camera neutral");
+    let value = RawTemperatureTint::new(6_200, -8).expect("manual white balance");
     let manual =
-        RawDevelopmentPlan::detail().with_white_balance(RawWhiteBalance::camera_neutral(neutral));
+        RawDevelopmentPlan::detail().with_white_balance(RawWhiteBalance::temperature_tint(value));
     let ffi_manual = crate::raw_development::ffi_raw_development_plan(manual);
     assert!(matches!(
         ffi_manual.white_balance_mode,
-        ffi::FfiRawWhiteBalanceMode::CameraNeutral
+        ffi::FfiRawWhiteBalanceMode::TemperatureTint
     ));
-    assert_eq!(ffi_manual.camera_neutral_red_millionths, 750_000);
-    assert_eq!(ffi_manual.camera_neutral_blue_millionths, 500_000);
+    assert_eq!(ffi_manual.temperature_kelvin, 6_200);
+    assert_eq!(ffi_manual.tint, -8);
 
     let receipt = raw_development_receipt(ffi::FfiRawDevelopmentReceipt {
         requested_plan: ffi_manual,
@@ -456,7 +457,7 @@ fn raw_white_balance_bridge_round_trips_and_rejects_noncanonical_payloads() {
     assert_eq!(receipt.effective_plan, manual);
 
     let mut noncanonical_as_shot = ffi_detail_raw_development_plan();
-    noncanonical_as_shot.camera_neutral_red_millionths = 750_000;
+    noncanonical_as_shot.temperature_kelvin = 6_200;
     let invalid = raw_development_receipt(ffi::FfiRawDevelopmentReceipt {
         requested_plan: noncanonical_as_shot,
         ..recorded_ffi_raw_development_receipt()

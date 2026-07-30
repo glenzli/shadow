@@ -1,11 +1,11 @@
 use shadow_bridge::{RawPipelinePath, RawPipelineReceipt};
-use shadow_domain::{RawCameraNeutral, RawWhiteBalance};
+use shadow_domain::{RawTemperatureTint, RawWhiteBalance};
 
 use super::*;
 
 fn manual_white_balance() -> RawWhiteBalance {
-    RawWhiteBalance::camera_neutral(
-        RawCameraNeutral::from_millionths(812_500, 1_437_500).expect("manual camera neutral"),
+    RawWhiteBalance::temperature_tint(
+        RawTemperatureTint::new(6_400, 12).expect("manual temperature/tint"),
     )
 }
 
@@ -63,7 +63,7 @@ fn manual_white_balance_requires_an_exact_raw_frame_receipt() {
     );
     assert!(
         ensure_foundation_development_receipt(requested, &changed).is_err(),
-        "negotiation may not discard the requested manual neutral"
+        "negotiation may not discard the requested absolute white balance"
     );
 }
 

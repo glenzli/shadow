@@ -276,7 +276,12 @@ fn walk_all_pages(
     let mut seen = HashSet::new();
     loop {
         let page = catalog
-            .library_photo_page(filter, cursor.as_ref(), page_size)
+            .library_photo_page(
+                filter,
+                shadow_catalog::LibraryPhotoOrder::CaptureTimeDescending,
+                cursor.as_ref(),
+                page_size,
+            )
             .map_err(io::Error::other)?;
         if page.items.len() > page_size {
             return Err(io::Error::other("catalog page exceeded requested bound"));

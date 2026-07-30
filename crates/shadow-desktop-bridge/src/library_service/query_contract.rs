@@ -6,7 +6,8 @@
 use anyhow::{Context, Result as AnyResult, bail};
 use shadow_catalog::{
     LibraryApertureRange, LibraryDateRange, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage,
-    LibraryPhotoCursor, LibraryPhotoFilter, SmartAlbumQueryV1,
+    LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter, LibraryPhotoOrder,
+    SmartAlbumQueryV1,
 };
 use shadow_domain::{CollectionId, KeywordId, PhotoFlag, PhotoId};
 
@@ -221,11 +222,12 @@ pub(super) fn ffi_library_facet_page(page: LibraryFacetPage) -> ffi::FfiLibraryF
 }
 
 pub(super) fn library_cursor_from_ffi(
+    order: LibraryPhotoOrder,
     cursor: &ffi::FfiLibraryPhotoCursor,
 ) -> AnyResult<Option<LibraryPhotoCursor>> {
     if cursor.photo_id.is_empty() {
-        if cursor.has_capture_time {
-            bail!("Library cursor capture time requires a photo id");
+        if cursor.has_capture_time || !cursor.file_name.is_empty() {
+            bail!("Library cursor sort value requires a photo id");
         }
         return Ok(None);
     }
@@ -233,12 +235,25 @@ pub(super) fn library_cursor_from_ffi(
         .photo_id
         .parse::<PhotoId>()
         .with_context(|| format!("parse Library cursor photo id {}", cursor.photo_id))?;
-    Ok(Some(LibraryPhotoCursor {
-        captured_at_unix_seconds: cursor
-            .has_capture_time
-            .then_some(cursor.captured_at_unix_seconds),
-        photo_id,
-    }))
+    let value = match order {
+        LibraryPhotoOrder::CaptureTimeDescending | LibraryPhotoOrder::CaptureTimeAscending => {
+            if !cursor.file_name.is_empty() {
+                bail!("capture-time Library cursor cannot carry a file name");
+            }
+            LibraryPhotoCursorValue::CaptureTime(
+                cursor
+                    .has_capture_time
+                    .then_some(cursor.captured_at_unix_seconds),
+            )
+        }
+        LibraryPhotoOrder::FileNameAscending | LibraryPhotoOrder::FileNameDescending => {
+            if cursor.has_capture_time || cursor.file_name.is_empty() {
+                bail!("file-name Library cursor requires only a file name");
+            }
+            LibraryPhotoCursorValue::FileName(cursor.file_name.clone())
+        }
+    };
+    Ok(Some(LibraryPhotoCursor { value, photo_id }))
 }
 
 pub(super) fn empty_ffi_cursor() -> ffi::FfiLibraryPhotoCursor {
@@ -246,14 +261,40 @@ pub(super) fn empty_ffi_cursor() -> ffi::FfiLibraryPhotoCursor {
         photo_id: String::new(),
         has_capture_time: false,
         captured_at_unix_seconds: 0,
+        file_name: String::new(),
     }
 }
 
 pub(super) fn ffi_library_cursor(cursor: &LibraryPhotoCursor) -> ffi::FfiLibraryPhotoCursor {
+    let (has_capture_time, captured_at_unix_seconds, file_name) = match &cursor.value {
+        LibraryPhotoCursorValue::CaptureTime(captured_at) => (
+            captured_at.is_some(),
+            captured_at.unwrap_or_default(),
+            String::new(),
+        ),
+        LibraryPhotoCursorValue::FileName(file_name) => (false, 0, file_name.clone()),
+    };
     ffi::FfiLibraryPhotoCursor {
         photo_id: cursor.photo_id.to_string(),
-        has_capture_time: cursor.captured_at_unix_seconds.is_some(),
-        captured_at_unix_seconds: cursor.captured_at_unix_seconds.unwrap_or_default(),
+        has_capture_time,
+        captured_at_unix_seconds,
+        file_name,
+    }
+}
+
+pub(super) fn library_order_from_ffi(
+    order: ffi::FfiLibraryPhotoOrder,
+) -> AnyResult<LibraryPhotoOrder> {
+    match order {
+        ffi::FfiLibraryPhotoOrder::CaptureTimeDescending => {
+            Ok(LibraryPhotoOrder::CaptureTimeDescending)
+        }
+        ffi::FfiLibraryPhotoOrder::CaptureTimeAscending => {
+            Ok(LibraryPhotoOrder::CaptureTimeAscending)
+        }
+        ffi::FfiLibraryPhotoOrder::FileNameAscending => Ok(LibraryPhotoOrder::FileNameAscending),
+        ffi::FfiLibraryPhotoOrder::FileNameDescending => Ok(LibraryPhotoOrder::FileNameDescending),
+        _ => bail!("unknown Library photo order"),
     }
 }
 

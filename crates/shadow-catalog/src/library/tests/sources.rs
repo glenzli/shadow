@@ -7,6 +7,69 @@ use crate::{
 use shadow_domain::{AssetLocation, Platform, RepresentationKind};
 
 #[test]
+fn removing_a_library_folder_hides_photos_until_the_same_source_is_readded() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let root = AssetLocation::new(Platform::MacOs, b"/archive".to_vec(), "/archive");
+    let scan = catalog
+        .begin_import_session(&root, 1)
+        .expect("begin source scan");
+    let registered = register_scan_entry(&mut catalog, scan, "/archive/original.nef", 2);
+    let source_id = catalog.library_sources().expect("list sources")[0].id;
+
+    assert!(catalog.remove_library_source(source_id).is_err());
+    catalog
+        .finish_import_session(scan, ImportSessionState::Completed, None, 3)
+        .expect("finish scan");
+    assert!(
+        catalog
+            .remove_library_source(source_id)
+            .expect("remove discovery source")
+    );
+    assert!(
+        catalog
+            .library_sources()
+            .expect("list sources after removal")
+            .is_empty()
+    );
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count hidden photos"),
+        0
+    );
+    assert!(
+        !catalog
+            .remove_library_source(source_id)
+            .expect("repeat removal is idempotent")
+    );
+
+    let rescan = catalog
+        .begin_import_session(&root, 4)
+        .expect("re-enable the same discovery source");
+    let reenabled_source = catalog.library_sources().expect("list re-enabled source")[0].id;
+    assert_eq!(reenabled_source, source_id);
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count restored photos"),
+        1
+    );
+    let page = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            crate::LibraryPhotoOrder::default(),
+            None,
+            16,
+        )
+        .expect("page restored photo");
+    assert_eq!(page.items[0].photo_id, registered.photo_id);
+    assert_eq!(page.items[0].location.display_path, "/archive/original.nef");
+    catalog
+        .finish_import_session(rescan, ImportSessionState::Completed, None, 5)
+        .expect("finish re-enabled scan");
+}
+
+#[test]
 fn exact_content_identity_relinks_a_moved_file_without_changing_photo_identity() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let original = register(&mut catalog, "/archive/DSC_0001.NEF");

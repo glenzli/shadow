@@ -101,9 +101,18 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
         grade_stack.liquify.clone(),
         PhotoCanvasNode::new(grade_stack.geometry),
     )?;
+    // Recipe v1 retains the historical nested wire field, while the draft and
+    // UI own AI RAW Denoise as a sibling node before Foundation.
+    let persisted_foundation = shadow_domain::PhotoFoundationNode::new(
+        grade_stack
+            .foundation
+            .input_settings()
+            .clone()
+            .with_raw_ai_denoise(grade_stack.raw_ai_denoise),
+    );
     RecipeSnapshot::new_with_foundation_masks_retouch_strokes_and_structural_nodes(
         CURRENT_RECIPE_SCHEMA_VERSION,
-        grade_stack.foundation.clone(),
+        persisted_foundation,
         recipe_v1_masks,
         grade_stack.retouch_spots.clone(),
         grade_stack.retouch_strokes.clone(),

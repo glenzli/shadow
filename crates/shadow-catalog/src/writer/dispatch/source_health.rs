@@ -9,6 +9,9 @@ pub(super) fn run_source_health_message(catalog: &mut Catalog, message: SourceHe
         SourceHealthMessage::LibrarySources(response) => {
             let _ = response.send(catalog.library_sources());
         }
+        SourceHealthMessage::RemoveLibrarySource(source_id, response) => {
+            let _ = response.send(catalog.remove_library_source(source_id));
+        }
         SourceHealthMessage::LibrarySourceHealth(response) => {
             let _ = response.send(catalog.library_source_health());
         }

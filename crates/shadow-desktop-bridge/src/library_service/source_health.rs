@@ -2,13 +2,23 @@
 
 use anyhow::{Context, Result as AnyResult};
 use shadow_catalog::{LibrarySourceHealth, MissingSourceLocationCursor, MissingSourceLocationPage};
-use shadow_domain::{ImportSessionId, LocationId};
+use shadow_domain::{ImportSessionId, LibrarySourceId, LocationId};
 
 use crate::{ffi, review_service::file_name};
 
 use super::LibraryService;
 
 impl LibraryService {
+    /// Removes only the configured discovery root. Catalog locations, photos,
+    /// edits, and files on disk are deliberately outside this mutation.
+    pub(crate) fn remove_source(&self, source_id: &str) -> AnyResult<bool> {
+        let source_id = source_id
+            .trim()
+            .parse::<LibrarySourceId>()
+            .with_context(|| format!("parse Library source id {source_id}"))?;
+        Ok(self.catalog.remove_library_source(source_id)?)
+    }
+
     /// Projects only observational source-scan evidence. The desktop must
     /// never infer a global missing file or a replacement path from this list.
     pub(crate) fn ffi_source_health(&self) -> AnyResult<Vec<ffi::FfiLibrarySourceHealth>> {

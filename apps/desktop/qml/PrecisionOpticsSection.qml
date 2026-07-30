@@ -15,6 +15,8 @@ ShadowAdjustmentSection {
     signal openProfileLibraryRequested()
 
     title: qsTranslate("PrecisionWorkspace", "OPTICS")
+    resetAvailable: true
+    onResetRequested: inspector.editor.resetOptics()
 
     TabBar {
         id: opticsTabs

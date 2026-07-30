@@ -37,7 +37,7 @@ Application startup is split from environment-driven automation:
   application-shell interaction surface. It preserves the `Main` translation context.
 - [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) composes the responsive bottom status surface
   and workspace status projection. [`qml/MainLibraryFilterBar.qml`](qml/MainLibraryFilterBar.qml)
-  owns Library filter mutations,
+  owns Library filter mutations and the explicit capture-date/file-name order,
   [`qml/MainSelectionDecisionBar.qml`](qml/MainSelectionDecisionBar.qml) owns the current-photo
   decision transaction, and
   [`qml/MainPrecisionProxyStatus.qml`](qml/MainPrecisionProxyStatus.qml) owns read-only proxy
@@ -128,6 +128,8 @@ Its implementation follows the same navigation:
   node is undone, keeping those UI notification invariants independently testable.
 - [`src/edit_adjustment_controller.cpp`](src/edit_adjustment_controller.cpp) owns Grade Node
   adjustment presentation and mutation, LUT, Color Mixer/Warper, grading, and Selective Color.
+- [`src/edit_adjustment_reset_controller.cpp`](src/edit_adjustment_reset_controller.cpp) owns
+  atomic section-level neutralization so every panel-header reset is one undoable history entry.
 - [`src/edit_fine_parameter_registry.*`](src/edit_fine_parameter_registry.hpp) is the single
   inventory for scalar fine-adjustment keys, backend fields, writable bounds, and validation
   labels. Paired defringe endpoints remain read-only here and Point Color ranges remain owned by
@@ -155,14 +157,16 @@ Its implementation follows the same navigation:
   [`src/edit_mask_coverage_contract.hpp`](src/edit_mask_coverage_contract.hpp).
 - [`src/edit_foundation_controller.cpp`](src/edit_foundation_controller.cpp) owns the singleton,
   photo-local RAW Foundation white-balance authoring lifecycle, exact camera-neutral validation,
-  history keys, and preview scheduling. It does not reuse the selected Grade Node's relative RGB
+  history keys, and coalesced prepared-source preview scheduling. RAW temperature/tint changes the
+  camera-domain development plan, so a drag is debounced instead of queueing repeated
+  decode/demosaic work. It does not reuse the selected Grade Node's fast relative RGB
   white-balance controls.
 - [`src/edit_raw_foundation_controller.*`](src/edit_raw_foundation_controller.hpp) owns the
-  non-blocking AI RAW Foundation model probe, job polling, cancellation, stale-photo rejection,
-  terminal retirement, and the single undoable Recipe-enable transition after verified
-  materialization. [`src/edit_raw_foundation_state.*`](src/edit_raw_foundation_state.hpp) is its
-  Qt-free generation state machine. Materialized artifacts remain rebuildable Rust-owned cache
-  state: bypassing the singleton Recipe slot never deletes or serializes an artifact path.
+  non-blocking AI RAW Denoise model probe, job polling, cancellation, stale-photo rejection,
+  terminal retirement, and the fixed photo-local node's undoable bypass/strength transitions.
+  [`src/edit_raw_foundation_state.*`](src/edit_raw_foundation_state.hpp) is its Qt-free generation
+  state machine. Materialized artifacts remain rebuildable Rust-owned cache state: bypassing the
+  node never deletes or serializes an artifact path, and strength changes never rerun the model.
   [`providers/rawnind-foundation/`](providers/rawnind-foundation/README.md) owns the reproducible
   self-contained provider build and optional desktop-bundle copy contract. Public model weights
   remain side-loaded in the versioned application-data model directory; a missing provider or
@@ -327,12 +331,15 @@ Precision presentation follows the same responsibility tree:
 - [`qml/PrecisionCanvasPickerInput.qml`](qml/PrecisionCanvasPickerInput.qml) owns point-color and
   white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
   composition surface.
-- [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) presents the
-  singleton AI RAW Denoise Foundation above photo-local RAW white balance, separately from the
-  selected Grade Node's relative RGB white balance. The AI surface owns its reversible switch,
-  progress, cancellation, retry, and cache-vs-Recipe explanation; the same component then owns
-  Light, Presence, foundational Color and Color Balance, plus the perceptual lightness Curve.
-  These sections share one editor and parameter-gesture contract.
+- [`qml/PrecisionRawDenoiseAdjustments.qml`](qml/PrecisionRawDenoiseAdjustments.qml) presents the
+  fixed bottom AI RAW Denoise node: materialize/retry/cancel state and the cached-result strength
+  gesture. The node-row switch and panel-header reset are reversible bypasses; ordinary idle state
+  carries no explanatory status rows, and the component contains no Foundation or JPEG terminology.
+- [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) presents
+  photo-local RAW white balance separately from the selected Grade Node's relative RGB white
+  balance, then owns Light, Presence, foundational Color and Color Balance, plus the perceptual
+  lightness Curve. These sections share one editor, parameter-gesture contract, and uniform
+  panel-header reset affordance.
 - [`qml/PrecisionColorMixer.qml`](qml/PrecisionColorMixer.qml) owns Color Mixer modes, hue-band
   controls, and their curve editors while keeping the inspector as a composition boundary.
 - [`qml/PrecisionSelectiveColor.qml`](qml/PrecisionSelectiveColor.qml) owns selective-color
@@ -372,7 +379,9 @@ Review presentation keeps the workspace focused on selection and orchestration:
 Library management uses the same page-composition boundary:
 
 - [`qml/LibrarySourceHealthPane.qml`](qml/LibrarySourceHealthPane.qml) owns source-scan evidence,
-  missing-location paging, and exact-content relink confirmation.
+  non-destructive scan-root removal, missing-location paging, and exact-content relink
+  confirmation. Removing a root hides photos available only through that root while preserving
+  their photo, edit, Catalog-location, and source-file records; adding the root again restores them.
 - [`qml/LibraryImportPane.qml`](qml/LibraryImportPane.qml) owns catalog count, folder admission,
   and observable import activity.
 
@@ -486,15 +495,20 @@ Review presentation keeps the workspace as the composition and compatibility sur
   corrections and Library sort/facets use the corrected time and location.
 - [`src/review_source_health_coordinator.cpp`](src/review_source_health_coordinator.cpp) owns the
   complete Library source-health review lifecycle: serialized health refreshes, scan-scoped
-  missing-location paging, stale-page rejection, exact user-selected relink workers, localized
-  status, and destruction wait. Folder scanning only requests a health refresh at its terminal
-  boundary; it does not share this state machine. The responsibility-named
+  missing-location paging, stale-page rejection, asynchronous source removal, exact user-selected
+  relink workers, localized status, and destruction wait. Folder scanning only requests a health
+  refresh at its terminal boundary; it does not share this state machine. The responsibility-named
   [`tests/review_source_health_coordinator/`](tests/review_source_health_coordinator/) suite covers
   refresh coalescing and projection, review switching/closing and keyset continuation, plus relink
   admission, receipts, errors, and lifetime.
   [`review_source_health_backend_contract_test.cpp`](tests/review_source_health_backend_contract_test.cpp)
   additionally runs two completed scans through the real desktop session, pages the resulting
   missing-location evidence, and proves that a wrong complete-file identity cannot relink it.
+- [`src/review_library_query_coordinator.cpp`](src/review_library_query_coordinator.cpp) carries
+  Library order with the filter generation and validates an order-typed continuation cursor.
+  Future Group By is a separate query dimension: capture month, camera, and lens headers must be
+  produced by the indexed Catalog query with a stable group cursor and an explicit within-group
+  order, never by regrouping only the currently loaded page in QML.
 - [`src/review_library_album_coordinator.cpp`](src/review_library_album_coordinator.cpp) owns the
   complete Library album lifecycle: authoritative album snapshots and selection, serialized
   refresh/CRUD/membership workers, refresh coalescing, deleted-selection invalidation, localized
@@ -794,7 +808,7 @@ Qt sliders / named-version actions
 
 Precision exposes an ordered stack of one through sixteen user-facing Grade Nodes. A Grade Node is one complete adjustment layer: its Light, Tone, and Color controls travel together. The left panel supports add, duplicate, delete, move, select, and enabled/bypassed operations; the final executable Grade Node cannot be deleted. The selected Grade Node's inspector exposes every current adjustment at once. Recipe v1 still lowers each Grade Node to a canonical four-Render-Op chain when its curve is absent and a five-Render-Op chain when the optional Tone Curve is present. Those Render Ops are execution details, not separate user nodes. Duplicate copies values, curve, and bypass state but receives a new Grade Node identity and five new Render Op identities. Reorder and bypass retain every existing identity and payload.
 
-The controller treats the complete ordered stack—every stable identity, bypass flag, Basic parameter, Tone Curve payload, and singleton Foundation intent—as one edit-settings value. The Qt/CXX projection preserves the path-free AI RAW denoise enabled/model pair together with RAW white balance and optics; cache locations and materialization state remain runtime-only. Structural commands and bypass toggles are discrete session-undo transitions; slider and curve gestures coalesce against the stable selected Grade Node ID. These undo/redo steps are deliberately separate from durable history. After a short idle debounce, every real edit writes an immutable Recipe snapshot and atomically advances only that photo's `working` ref. Closing Shadow waits for this autosave instead of asking the user to discard changes.
+The controller treats the complete ordered stack—every stable identity, bypass flag, Basic parameter, Tone Curve payload, the independent AI RAW Denoise node, and Foundation intent—as one edit-settings value. The Qt/CXX projection preserves the path-free AI RAW denoise enabled/model/strength tuple separately from RAW white balance and optics; cache locations and materialization state remain runtime-only. Structural commands and bypass toggles are discrete session-undo transitions; sliders and curves coalesce into gestures, including the photo-local denoise-strength gesture. These undo/redo steps are deliberately separate from durable history. After a short idle debounce, every real edit writes an immutable Recipe snapshot and atomically advances only that photo's `working` ref. Closing Shadow waits for this autosave instead of asking the user to discard changes.
 
 Creating a named version first validates stack-wide identity invariants, then stores an immutable Recipe v1 compatibility leaf inside the content-addressed Library tree. The per-photo compatibility Recipe commit and the Library-wide commit, `heads/main`, and both named-version refs publish in one SQLite transaction with mandatory compare-and-swap guards. A Library commit therefore names one comprehensive root that can include photo edits, shared Grade Node heads, masks, Styles, and output state; it is not a collection of unrelated per-slider commits. Autosave commits intentionally create no named ref and do not advance `heads/main`, so the Versions panel remains a concise list of human-created checkpoints. Object packs may be written before publication, but a stale CAS leaves them unreachable and rolls back both commits and every ref movement. Loading an older photo version creates only an in-memory draft and never moves either durable head. Editing that draft produces a new autosaved working branch; creating a named version from it advances from the latest Library root, so newer photo commits and unrelated Library state are not rewound.
 
@@ -847,8 +861,10 @@ pipeline, export renderer, ICC-managed display proof, mip pyramid, GPU backend,
 or neighborhood-operation tile/halo system.
 
 The current UI authors fixed, complete Grade Nodes rather than exposing arbitrary graph wiring.
-Processed-RGB white balance now uses temperature/tint with a neutral-area picker; it remains
-explicitly distinct from future Camera-domain RAW white balance. The application-wide LUT Library
+Processed-RGB white balance uses the fast adjustment/GPU path with temperature/tint and a
+neutral-area picker. Photo-local RAW white balance is explicitly separate: it authors absolute
+camera-domain development and currently rebuilds the prepared RAW source after a coalesced drag.
+The application-wide LUT Library
 can persist multiple source folders, recursively validate 3D `.cube` resources and expose stable
 content identities in a dedicated manager. Valid resources are copied into an application-owned,
 content-addressed store; each Grade Node can select one resource and an intensity directly from

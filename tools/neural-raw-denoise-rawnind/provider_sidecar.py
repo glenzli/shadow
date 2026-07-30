@@ -199,12 +199,16 @@ def _prepare_foundation(
     session: ort.InferenceSession,
     source: Path,
     source_pixel_contract_sha256: str,
+    input_raw_frame: Path | None,
 ) -> tuple[
     np.ndarray,
     stripe_lifecycle.StripePlan,
     foundation_artifact.RawNindFoundationContract,
 ]:
-    packed, raw_preprocessing = inference.load_raw_as_packed_bayer(source)
+    packed, raw_preprocessing = inference.load_raw_as_packed_bayer(
+        source,
+        input_raw_frame,
+    )
     plan = stripe_lifecycle.plan_striped_image(
         packed.shape[1],
         packed.shape[2],
@@ -245,6 +249,7 @@ def plan_foundation(
     manifest_path: Path,
     input_raw: Path,
     source_pixel_contract_sha256: str,
+    input_raw_frame: Path | None = None,
 ) -> str:
     source = _validate_source_and_pixel_contract(
         input_raw,
@@ -259,6 +264,7 @@ def plan_foundation(
         session,
         source,
         source_pixel_contract_sha256,
+        input_raw_frame,
     )
     cache_key = foundation_artifact.artifact_cache_key(
         contract,
@@ -285,6 +291,7 @@ def run_foundation(
     input_raw: Path,
     output_foundation: Path,
     source_pixel_contract_sha256: str,
+    input_raw_frame: Path | None = None,
 ) -> str:
     source = _validate_source_and_pixel_contract(
         input_raw,
@@ -307,6 +314,7 @@ def run_foundation(
             session,
             source,
             source_pixel_contract_sha256,
+            input_raw_frame,
         )
         sink = foundation_artifact.OwnedFoundationArtifactPartialSink(
             output,
@@ -368,6 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-graph", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--input-raw", type=Path)
+    parser.add_argument("--input-raw-frame", type=Path)
     parser.add_argument("--output-foundation", type=Path)
     parser.add_argument("--source-pixel-contract-sha256")
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -390,6 +399,7 @@ def main() -> int:
     arguments = build_parser().parse_args()
     run_arguments = (
         arguments.input_raw,
+        arguments.input_raw_frame,
         arguments.output_foundation,
         arguments.source_pixel_contract_sha256,
     )
@@ -422,13 +432,19 @@ def main() -> int:
                 model_graph=arguments.model_graph,
                 manifest_path=arguments.manifest,
                 input_raw=arguments.input_raw,
+                input_raw_frame=arguments.input_raw_frame,
                 source_pixel_contract_sha256=(
                     arguments.source_pixel_contract_sha256
                 ),
             )
             print(receipt)
             return 0
-        if any(value is None for value in run_arguments):
+        required_run_arguments = (
+            arguments.input_raw,
+            arguments.output_foundation,
+            arguments.source_pixel_contract_sha256,
+        )
+        if any(value is None for value in required_run_arguments):
             raise ValueError(
                 "--run requires --input-raw, --output-foundation, and "
                 "--source-pixel-contract-sha256"
@@ -438,6 +454,7 @@ def main() -> int:
             model_graph=arguments.model_graph,
             manifest_path=arguments.manifest,
             input_raw=arguments.input_raw,
+            input_raw_frame=arguments.input_raw_frame,
             output_foundation=arguments.output_foundation,
             source_pixel_contract_sha256=(
                 arguments.source_pixel_contract_sha256

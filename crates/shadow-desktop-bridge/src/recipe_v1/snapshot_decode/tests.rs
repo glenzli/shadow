@@ -1,7 +1,7 @@
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, ManagedRasterMask,
-    MaskDefinition, PhotoFoundationNode, RasterMaskEncoding, RawCameraNeutral,
-    RawFoundationDenoise, RawFoundationDenoiseModel, RawWhiteBalance, RecipeInputSettings,
+    MaskDefinition, PhotoFoundationNode, RasterMaskEncoding, RawFoundationDenoise,
+    RawFoundationDenoiseModel, RawTemperatureTint, RawWhiteBalance, RecipeInputSettings,
     RecipeOpticsSettings, UnitInterval,
 };
 
@@ -111,16 +111,15 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
 
 #[test]
 fn editable_foundation_white_balance_round_trips_without_template_recovery() {
-    let manual_white_balance = RawWhiteBalance::camera_neutral(
-        RawCameraNeutral::from_millionths(825_000, 1_375_000).expect("manual camera neutral"),
+    let manual_white_balance = RawWhiteBalance::temperature_tint(
+        RawTemperatureTint::new(6_200, -8).expect("manual temperature/tint"),
     );
     let mut original = GradeStackDraft::default();
+    original.raw_ai_denoise =
+        RawFoundationDenoise::enabled(RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0);
     original.foundation = PhotoFoundationNode::new(
         RecipeInputSettings::new(RecipeOpticsSettings::default())
-            .with_raw_white_balance(manual_white_balance)
-            .with_raw_ai_denoise(RawFoundationDenoise::enabled(
-                RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
-            )),
+            .with_raw_white_balance(manual_white_balance),
     );
     original.basic.white_balance_temperature = 0.2;
     original.basic.white_balance_tint = -0.1;
@@ -133,23 +132,23 @@ fn editable_foundation_white_balance_round_trips_without_template_recovery() {
         reopened.foundation.raw_white_balance(),
         manual_white_balance
     );
-    assert!(reopened.foundation.raw_ai_denoise().is_enabled());
+    assert!(reopened.raw_ai_denoise.is_enabled());
 
     let mut ffi = encode_grade_stack_draft_recipe_v1(reopened).expect("project desktop DTO");
     assert!(ffi.foundation.raw_ai_denoise_enabled);
     assert_eq!(ffi.foundation.raw_ai_denoise_model, 0);
     assert_eq!(ffi.foundation.raw_white_balance_mode, 1);
-    assert_eq!(ffi.foundation.camera_neutral_red_millionths, 825_000);
-    assert_eq!(ffi.foundation.camera_neutral_blue_millionths, 1_375_000);
-    ffi.foundation.camera_neutral_red_millionths = 750_000;
-    ffi.foundation.camera_neutral_blue_millionths = 1_250_000;
+    assert_eq!(ffi.foundation.temperature_kelvin, 6_200);
+    assert_eq!(ffi.foundation.tint, -8);
+    ffi.foundation.temperature_kelvin = 4_300;
+    ffi.foundation.tint = 18;
     ffi.grade_nodes[0].basic.white_balance_temperature = -0.35;
     ffi.grade_nodes[0].basic.white_balance_tint = 0.15;
     let projected = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode edited desktop DTO");
     assert_eq!(
         projected.foundation.raw_white_balance(),
-        RawWhiteBalance::camera_neutral(
-            RawCameraNeutral::from_millionths(750_000, 1_250_000).expect("edited camera neutral")
+        RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(4_300, 18).expect("edited temperature/tint")
         ),
         "the desktop DTO is authoritative for the complete Foundation"
     );
@@ -158,14 +157,14 @@ fn editable_foundation_white_balance_round_trips_without_template_recovery() {
 
     assert_eq!(
         round_trip.foundation_node().raw_white_balance(),
-        RawWhiteBalance::camera_neutral(
-            RawCameraNeutral::from_millionths(750_000, 1_250_000).expect("edited camera neutral")
+        RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(4_300, 18).expect("edited temperature/tint")
         )
     );
-    assert!(round_trip.foundation_node().raw_ai_denoise().is_enabled());
+    assert!(round_trip.raw_ai_denoise_node().is_enabled());
     let decoded = decode_grade_stack_draft_from_recipe_v1_snapshot(&round_trip)
         .expect("decode rebuilt Recipe");
-    assert!(decoded.foundation.raw_ai_denoise().is_enabled());
+    assert!(decoded.raw_ai_denoise.is_enabled());
     assert_eq!(decoded.basic.white_balance_temperature, -0.35);
     assert_eq!(decoded.basic.white_balance_tint, 0.15);
 }

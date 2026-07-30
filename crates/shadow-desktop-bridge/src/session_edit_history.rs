@@ -4,6 +4,7 @@
 //! publication of Recipe and Library edit-repository references.
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_bridge::query_raw_white_balance_presentation_from_metadata;
 use shadow_catalog::{
     CatalogError, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
     EditObjectPackWrite, EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation,
@@ -583,6 +584,23 @@ impl DesktopSession {
             .filter(|record| record.commit.message().is_some())
             .map(|record| ffi_edit_version(record, &commits, selected_id))
             .collect::<AnyResult<Vec<_>>>()?;
+        let mut settings = encode_grade_stack_draft_recipe_v1(grade_stack)
+            .context("project persisted Recipe into the editable desktop contract")?;
+        if let Some(metadata) = self
+            .catalog
+            .review_source(photo_id)?
+            .and_then(|raw| raw.metadata)
+            && let Some(presentation) =
+                query_raw_white_balance_presentation_from_metadata(&metadata)
+        {
+            settings.foundation.as_shot_white_balance_available = true;
+            settings.foundation.as_shot_temperature_kelvin = presentation.temperature_kelvin;
+            settings.foundation.as_shot_tint = presentation.tint;
+            if settings.foundation.raw_white_balance_mode == 0 {
+                settings.foundation.temperature_kelvin = presentation.temperature_kelvin;
+                settings.foundation.tint = presentation.tint;
+            }
+        }
         Ok(ffi::FfiPhotoEditState {
             photo_id: photo_id.to_string(),
             source_path: source_path.to_owned(),
@@ -590,8 +608,7 @@ impl DesktopSession {
             is_version_draft,
             working_commit_id: selected_id.map_or_else(String::new, |id| id.to_string()),
             recipe_id: recipe_id.map_or_else(String::new, |id| id.to_string()),
-            settings: encode_grade_stack_draft_recipe_v1(grade_stack)
-                .context("project persisted Recipe into the editable desktop contract")?,
+            settings,
             versions,
         })
     }

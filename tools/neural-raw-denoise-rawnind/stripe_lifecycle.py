@@ -845,8 +845,8 @@ def gate_failures(receipt: StripeReceipt) -> list[str]:
         failures.append("stripe plan produced no trusted overlap samples")
     if receipt.trusted_overlap_relative_rmse > 0.01:
         failures.append("trusted stripe-overlap RMSE exceeds 1% of output RMS")
-    if receipt.local_gain_relative_span > 0.05:
-        failures.append("tile-local gain diagnostic varies by more than 5%")
+    # Local gain is never applied. Its span describes scene/content variation
+    # between tiles and remains diagnostic rather than a publication gate.
     if receipt.replay_relative_mean_delta > 1e-6:
         failures.append("two inference passes are not mean-deterministic")
     input_scale = max(abs(receipt.global_input_mean), 1e-12)

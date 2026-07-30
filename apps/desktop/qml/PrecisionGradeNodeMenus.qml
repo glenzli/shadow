@@ -12,6 +12,9 @@ Item {
 
     required property var editor
 
+    signal cropGeometryRequested
+    signal liquifyRequested
+
     function openAdd(anchorItem) {
         const point = anchorItem.mapToItem(
             addGradeNodePopup.parent,
@@ -74,11 +77,35 @@ Item {
         contentItem: Column {
             spacing: 2
 
+            Label {
+                width: parent.width
+                leftPadding: 10
+                topPadding: 6
+                bottomPadding: 3
+                text: qsTr("STRUCTURAL")
+                color: Theme.textMuted
+                font.pixelSize: 9
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.35
+            }
+
             PopupAction {
-                text: qsTr("New adjustment")
+                text: qsTr("Crop & Geometry")
                 onClicked: {
                     addGradeNodePopup.close()
-                    menus.editor.addGradeNode()
+                    menus.editor.selectCanvasNode()
+                    menus.cropGeometryRequested()
+                }
+            }
+
+            PopupAction {
+                text: menus.editor.liquifyNodeMaterialized
+                    ? qsTr("Open Liquify")
+                    : qsTr("Add Liquify")
+                onClicked: {
+                    addGradeNodePopup.close()
+                    menus.editor.selectLiquifyNode()
+                    menus.liquifyRequested()
                 }
             }
 
@@ -86,6 +113,27 @@ Item {
                 width: parent.width
                 height: 1
                 color: Theme.border
+            }
+
+            Label {
+                width: parent.width
+                leftPadding: 10
+                topPadding: 6
+                bottomPadding: 3
+                text: qsTr("ADJUSTMENTS")
+                color: Theme.textMuted
+                font.pixelSize: 9
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.35
+            }
+
+            PopupAction {
+                text: qsTr("New adjustment")
+                enabled: menus.editor.canAddGradeNode
+                onClicked: {
+                    addGradeNodePopup.close()
+                    menus.editor.addGradeNode()
+                }
             }
 
             Label {
@@ -117,6 +165,7 @@ Item {
                 delegate: PopupAction {
                     required property var modelData
                     text: modelData.label
+                    enabled: menus.editor.canAddGradeNode
                     onClicked: {
                         addGradeNodePopup.close()
                         menus.editor.insertSharedGradeNode(modelData.layerId)

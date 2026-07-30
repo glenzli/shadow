@@ -37,6 +37,10 @@ fn default_layout_keeps_models_outside_the_rebuildable_cache() {
         paths.foundation_store_root,
         Path::new("/Users/test/Library/Application Support/Shadow/cache/ai/raw-foundations")
     );
+    assert_eq!(
+        paths.raw_frame_staging_root,
+        Path::new("/Users/test/Library/Application Support/Shadow/cache/ai/raw-frame-staging")
+    );
 }
 
 #[test]
@@ -82,5 +86,9 @@ fn explicit_installation_overrides_do_not_relocate_the_cache() {
     assert_eq!(
         paths.foundation_store_root,
         Path::new("/data/Shadow/cache/ai/raw-foundations")
+    );
+    assert_eq!(
+        paths.raw_frame_staging_root,
+        Path::new("/data/Shadow/cache/ai/raw-frame-staging")
     );
 }

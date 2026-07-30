@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 import numpy as np
@@ -95,6 +96,23 @@ class RawNindStripeLifecycleContract(unittest.TestCase):
             stripe_lifecycle.gate_failures(striped.receipt),
             [],
         )
+
+    def test_content_dependent_local_gain_span_remains_diagnostic(self) -> None:
+        packed = synthetic_packed(289, 291)
+        plan = stripe_lifecycle.plan_striped_image(289, 291)
+        striped = stripe_lifecycle.run_striped_image(
+            packed,
+            repeat_runner,
+            plan,
+            stripe_lifecycle.DigestStripeSink(),
+        )
+        content_variant = replace(
+            striped.receipt,
+            local_gain_min=0.25,
+            local_gain_max=1.75,
+            local_gain_relative_span=1.5,
+        )
+        self.assertEqual(stripe_lifecycle.gate_failures(content_variant), [])
 
     def test_cancellation_aborts_the_unpublished_sink(self) -> None:
         packed = synthetic_packed(289, 291)

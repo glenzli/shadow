@@ -142,7 +142,7 @@ pub const BASIC_GRAPH_SCHEMA_VERSION: u32 = 1;
 ///
 /// It deliberately describes the node's role rather than limiting the controls it may grow to
 /// contain. This leaves the name clear when AI-assisted tools become a separate surface.
-pub const BASIC_LAYER_LABEL: &str = "Adjustments";
+pub const BASIC_LAYER_LABEL: &str = "Adjustment Node";
 
 #[cfg(test)]
 mod tests;

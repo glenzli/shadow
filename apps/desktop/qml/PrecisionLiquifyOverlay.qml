@@ -13,7 +13,12 @@ Item {
     required property bool interactionEnabled
     required property real outputAspectRatio
 
-    visible: interactionEnabled
+    readonly property bool commitPending:
+        Boolean(previewItem.transientLiquifyPending)
+
+    // The pending state outlives the authoring MouseArea until the next
+    // authoritative preview generation replaces the transient mesh.
+    visible: interactionEnabled || commitPending
     enabled: visible
 
     onInteractionEnabledChanged: {
@@ -39,7 +44,10 @@ Item {
 
     MouseArea {
         id: input
+        objectName: "liquifyStrokeInput"
         anchors.fill: parent
+        visible: overlay.interactionEnabled && !overlay.commitPending
+        enabled: visible
         hoverEnabled: true
         preventStealing: true
         cursorShape: enabled ? Qt.BlankCursor : Qt.ArrowCursor
@@ -154,8 +162,19 @@ Item {
         onCanceled: finishGesture(null, true)
     }
 
+    MouseArea {
+        objectName: "liquifyPendingCursor"
+        anchors.fill: parent
+        z: 10
+        visible: overlay.commitPending
+        enabled: visible
+        acceptedButtons: Qt.NoButton
+        hoverEnabled: true
+        cursorShape: Qt.BusyCursor
+    }
+
     Item {
-        visible: input.containsMouse
+        visible: input.visible && input.containsMouse
         x: input.pointerX
         y: input.pointerY
         width: 1

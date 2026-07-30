@@ -92,6 +92,7 @@ impl VerifiedRawFoundation {
         dimensions: ImageDimensions,
         crop_top: u32,
         crop_left: u32,
+        amount_percent: u8,
         identity: RawFoundationArtifactIdentity,
         samples: Vec<f32>,
     ) -> Result<Self, BridgeError> {
@@ -103,6 +104,11 @@ impl VerifiedRawFoundation {
         if crop_top > 1 || crop_left > 1 {
             return Err(BridgeError::InvalidRawFoundation(
                 "canonical Bayer crop offsets must be zero or one",
+            ));
+        }
+        if amount_percent > 100 {
+            return Err(BridgeError::InvalidRawFoundation(
+                "amount must be between 0 and 100 percent",
             ));
         }
         let sample_count = usize::try_from(dimensions.width)
@@ -143,6 +149,7 @@ impl VerifiedRawFoundation {
                 height: dimensions.height,
                 crop_top,
                 crop_left,
+                amount_percent,
                 source_sha256: identity.source_digest,
                 artifact_file_sha256: identity.artifact_fingerprint,
                 cache_key_sha256: identity.cache_key,
@@ -169,6 +176,11 @@ impl VerifiedRawFoundation {
     #[must_use]
     pub const fn crop_left(&self) -> u32 {
         self.ffi.crop_left
+    }
+
+    #[must_use]
+    pub const fn amount_percent(&self) -> u8 {
+        self.ffi.amount_percent
     }
 
     #[must_use]

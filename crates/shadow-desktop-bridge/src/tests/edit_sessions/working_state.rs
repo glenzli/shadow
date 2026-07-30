@@ -3,8 +3,8 @@
 use rusqlite::{Connection, params};
 use shadow_catalog::{CommitRecipe, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget};
 use shadow_domain::{
-    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, PhotoFoundationNode, PhotoId, RawCameraNeutral,
-    RawFoundationDenoise, RawFoundationDenoiseModel, RawWhiteBalance, RecipeCommit, RecipeCommitId,
+    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, PhotoFoundationNode, PhotoId, RawFoundationDenoise,
+    RawFoundationDenoiseModel, RawTemperatureTint, RawWhiteBalance, RecipeCommit, RecipeCommitId,
     RecipeId, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
 };
 
@@ -103,16 +103,16 @@ fn autosave_advances_working_without_creating_a_named_version() {
 fn autosave_and_reopen_preserve_authored_foundation_white_balance() {
     let (root, session, photo_id_text, source_path) = test_edit_session();
     let photo_id: PhotoId = photo_id_text.parse().expect("photo id");
-    let manual_white_balance = RawWhiteBalance::camera_neutral(
-        RawCameraNeutral::from_millionths(775_000, 1_425_000).expect("manual camera neutral"),
+    let manual_white_balance = RawWhiteBalance::temperature_tint(
+        RawTemperatureTint::new(6_200, -8).expect("manual temperature/tint"),
     );
     let initial_draft = GradeStackDraft {
         foundation: PhotoFoundationNode::new(
             RecipeInputSettings::new(RecipeOpticsSettings::default())
-                .with_raw_white_balance(manual_white_balance)
-                .with_raw_ai_denoise(RawFoundationDenoise::enabled(
-                    RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
-                )),
+                .with_raw_white_balance(manual_white_balance),
+        ),
+        raw_ai_denoise: RawFoundationDenoise::enabled(
+            RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
         ),
         ..GradeStackDraft::default()
     };
@@ -145,20 +145,14 @@ fn autosave_and_reopen_preserve_authored_foundation_white_balance() {
         .photo_edit_state(&photo_id_text, &source_path)
         .expect("open manual Foundation state");
     assert_eq!(state.settings.foundation.raw_white_balance_mode, 1);
-    assert_eq!(
-        state.settings.foundation.camera_neutral_red_millionths,
-        775_000
-    );
-    assert_eq!(
-        state.settings.foundation.camera_neutral_blue_millionths,
-        1_425_000
-    );
+    assert_eq!(state.settings.foundation.temperature_kelvin, 6_200);
+    assert_eq!(state.settings.foundation.tint, -8);
     assert!(state.settings.foundation.raw_ai_denoise_enabled);
     assert_eq!(state.settings.foundation.raw_ai_denoise_model, 0);
-    state.settings.foundation.camera_neutral_red_millionths = 700_000;
-    state.settings.foundation.camera_neutral_blue_millionths = 1_200_000;
-    let authored_white_balance = RawWhiteBalance::camera_neutral(
-        RawCameraNeutral::from_millionths(700_000, 1_200_000).expect("authored camera neutral"),
+    state.settings.foundation.temperature_kelvin = 4_300;
+    state.settings.foundation.tint = 18;
+    let authored_white_balance = RawWhiteBalance::temperature_tint(
+        RawTemperatureTint::new(4_300, 18).expect("authored temperature/tint"),
     );
     state.settings.grade_nodes[0]
         .basic
@@ -195,8 +189,7 @@ fn autosave_and_reopen_preserve_authored_foundation_white_balance() {
         autosaved_record
             .commit
             .snapshot()
-            .foundation_node()
-            .raw_ai_denoise()
+            .raw_ai_denoise_node()
             .is_enabled()
     );
 
@@ -220,14 +213,8 @@ fn autosave_and_reopen_preserve_authored_foundation_white_balance() {
         0.2
     );
     assert_eq!(restored.settings.foundation.raw_white_balance_mode, 1);
-    assert_eq!(
-        restored.settings.foundation.camera_neutral_red_millionths,
-        700_000
-    );
-    assert_eq!(
-        restored.settings.foundation.camera_neutral_blue_millionths,
-        1_200_000
-    );
+    assert_eq!(restored.settings.foundation.temperature_kelvin, 4_300);
+    assert_eq!(restored.settings.foundation.tint, 18);
     assert!(restored.settings.foundation.raw_ai_denoise_enabled);
     assert_eq!(restored.settings.foundation.raw_ai_denoise_model, 0);
     let restored_commit_id: RecipeCommitId = restored
@@ -251,8 +238,7 @@ fn autosave_and_reopen_preserve_authored_foundation_white_balance() {
         restored_record
             .commit
             .snapshot()
-            .foundation_node()
-            .raw_ai_denoise()
+            .raw_ai_denoise_node()
             .is_enabled()
     );
 

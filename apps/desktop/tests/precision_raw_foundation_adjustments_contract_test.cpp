@@ -21,6 +21,10 @@ class FoundationEditorStub final : public QObject {
         bool foundationAiDenoiseEnabled READ foundationAiDenoiseEnabled WRITE
             setFoundationAiDenoiseEnabled NOTIFY aiChanged
     )
+    Q_PROPERTY(
+        int foundationAiDenoiseAmount READ foundationAiDenoiseAmount WRITE
+            setFoundationAiDenoiseAmount NOTIFY aiChanged
+    )
     Q_PROPERTY(bool foundationAiDenoiseAvailable MEMBER ai_available NOTIFY aiChanged)
     Q_PROPERTY(bool foundationAiDenoiseBusy MEMBER ai_busy NOTIFY aiChanged)
     Q_PROPERTY(bool foundationAiDenoiseCanStart MEMBER ai_can_start NOTIFY aiChanged)
@@ -29,12 +33,17 @@ class FoundationEditorStub final : public QObject {
     Q_PROPERTY(double foundationAiDenoiseProgress MEMBER ai_progress NOTIFY aiChanged)
     Q_PROPERTY(QString foundationAiDenoiseStatusText MEMBER ai_status NOTIFY aiChanged)
     Q_PROPERTY(
-        int foundationWhiteBalanceMode MEMBER foundation_white_balance_mode NOTIFY valuesChanged
+        int foundationWhiteBalanceTemperature MEMBER foundation_temperature NOTIFY valuesChanged
     )
-    Q_PROPERTY(double foundationCameraNeutralRed MEMBER foundation_neutral_red NOTIFY valuesChanged)
+    Q_PROPERTY(int foundationWhiteBalanceTint MEMBER foundation_tint NOTIFY valuesChanged)
     Q_PROPERTY(
-        double foundationCameraNeutralBlue MEMBER foundation_neutral_blue NOTIFY valuesChanged
+        bool foundationWhiteBalanceAtCameraValue MEMBER foundation_at_camera NOTIFY valuesChanged
     )
+    Q_PROPERTY(
+        bool foundationWhiteBalanceCameraValueAvailable MEMBER foundation_camera_value_available
+            NOTIFY valuesChanged
+    )
+    Q_PROPERTY(bool foundationSelected MEMBER foundation_selected NOTIFY valuesChanged)
     Q_PROPERTY(
         bool whiteBalancePickerActive MEMBER white_balance_picker_active NOTIFY valuesChanged
     )
@@ -56,6 +65,15 @@ class FoundationEditorStub final : public QObject {
         emit aiChanged();
     }
 
+    [[nodiscard]] int foundationAiDenoiseAmount() const noexcept {
+        return ai_amount;
+    }
+
+    void setFoundationAiDenoiseAmount(const int amount) {
+        ai_amount = amount;
+        emit aiChanged();
+    }
+
     Q_INVOKABLE void startFoundationAiDenoise() {
         ++start_count;
     }
@@ -72,6 +90,11 @@ class FoundationEditorStub final : public QObject {
     Q_INVOKABLE void endParameterEdit(const QString&) {}
     Q_INVOKABLE void setParameterValue(const QString&, double) {}
     Q_INVOKABLE void setWhiteBalancePickerActive(bool) {}
+    Q_INVOKABLE void resetFoundationWhiteBalance() {
+        ++white_balance_reset_count;
+        foundation_at_camera = true;
+        emit valuesChanged();
+    }
 
     void setAiState(
         const bool enabled,
@@ -95,6 +118,7 @@ class FoundationEditorStub final : public QObject {
     bool active = true;
     bool state_busy = false;
     bool ai_enabled = false;
+    int ai_amount = 100;
     bool ai_available = true;
     bool ai_busy = false;
     bool ai_can_start = true;
@@ -102,9 +126,11 @@ class FoundationEditorStub final : public QObject {
     QString ai_phase = QStringLiteral("available");
     double ai_progress = 0.0;
     QString ai_status = QStringLiteral("available");
-    int foundation_white_balance_mode = 0;
-    double foundation_neutral_red = 1.0;
-    double foundation_neutral_blue = 1.0;
+    int foundation_temperature = 6'200;
+    int foundation_tint = -8;
+    bool foundation_at_camera = true;
+    bool foundation_camera_value_available = true;
+    bool foundation_selected = false;
     bool white_balance_picker_active = false;
     double white_balance_temperature = 0.0;
     double white_balance_tint = 0.0;
@@ -115,6 +141,7 @@ class FoundationEditorStub final : public QObject {
     int toggle_count = 0;
     int start_count = 0;
     int cancel_count = 0;
+    int white_balance_reset_count = 0;
 
   signals:
     void aiChanged();
@@ -141,14 +168,15 @@ void drainBindings() {
 int main(int argc, char* argv[]) {
     QGuiApplication application(argc, argv);
     QQmlEngine engine;
-    QQmlComponent component{&engine};
-    component.loadFromModule(
+    QQmlComponent foundation_component{&engine};
+    foundation_component.loadFromModule(
         QStringLiteral("Shadow.RawFoundationAdjustmentsContract"),
         QStringLiteral("PrecisionFoundationAdjustments")
     );
 
     FoundationEditorStub editor;
-    std::unique_ptr<QObject> object{component.createWithInitialProperties({
+    std::unique_ptr<QObject> foundation_object{
+        foundation_component.createWithInitialProperties({
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
         {QStringLiteral("gradeControlsEnabled"), true},
         {QStringLiteral("panelRaised"), QColor{QStringLiteral("#20252b")}},
@@ -158,31 +186,81 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("accent"), QColor{QStringLiteral("#65a8e8")}},
         {QStringLiteral("width"), 320.0},
     })};
-    auto* const root = qobject_cast<QQuickItem*>(object.get());
-    if (!root) {
-        std::cerr << component.errorString().toStdString();
+    auto* const foundation_root = qobject_cast<QQuickItem*>(foundation_object.get());
+    if (!foundation_root) {
+        std::cerr << foundation_component.errorString().toStdString();
+        return EXIT_FAILURE;
+    }
+
+    QQmlComponent denoise_component{&engine};
+    denoise_component.loadFromModule(
+        QStringLiteral("Shadow.RawFoundationAdjustmentsContract"),
+        QStringLiteral("PrecisionRawDenoiseAdjustments")
+    );
+    std::unique_ptr<QObject> denoise_object{denoise_component.createWithInitialProperties({
+        {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {QStringLiteral("textPrimary"), QColor{QStringLiteral("#f2f4f6")}},
+        {QStringLiteral("textMuted"), QColor{QStringLiteral("#9ca6af")}},
+        {QStringLiteral("accent"), QColor{QStringLiteral("#65a8e8")}},
+        {QStringLiteral("width"), 320.0},
+    })};
+    auto* const denoise_root = qobject_cast<QQuickItem*>(denoise_object.get());
+    if (!denoise_root) {
+        std::cerr << denoise_component.errorString().toStdString();
         return EXIT_FAILURE;
     }
     drainBindings();
 
-    auto* const toggle = root->findChild<QQuickItem*>(QStringLiteral("foundationAiDenoiseSwitch"));
+    auto* const amount =
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseAmountSlider"));
     auto* const progress =
-        root->findChild<QQuickItem*>(QStringLiteral("foundationAiDenoiseProgress"));
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseProgress"));
     auto* const start =
-        root->findChild<QQuickItem*>(QStringLiteral("foundationAiDenoiseStartButton"));
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseStartButton"));
     auto* const cancel =
-        root->findChild<QQuickItem*>(QStringLiteral("foundationAiDenoiseCancelButton"));
-    if (!require(toggle != nullptr, "singleton switch is packaged")
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseCancelButton"));
+    auto* const bypass =
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseBypassButton"));
+    auto* const temperature = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("foundationWhiteBalanceTemperatureSlider")
+    );
+    auto* const tint = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("foundationWhiteBalanceTintSlider")
+    );
+    auto* const white_balance_reset =
+        foundation_root->findChild<QQuickItem*>(QStringLiteral("foundationWhiteBalanceResetButton"));
+    if (!require(amount != nullptr, "cached-result amount control is packaged")
         || !require(progress != nullptr, "progress surface is packaged")
         || !require(start != nullptr, "start/retry action is packaged")
         || !require(cancel != nullptr, "cancel action is packaged")
-        || !require(!toggle->property("checked").toBool(), "Recipe starts bypassed")
+        || !require(bypass != nullptr, "header bypass action is packaged")
+        || !require(temperature != nullptr, "absolute Kelvin control is packaged")
+        || !require(tint != nullptr, "absolute tint control is packaged")
+        || !require(white_balance_reset != nullptr, "camera-value reset is packaged")
+        || !require(
+            std::abs(temperature->property("value").toDouble() - 6'200.0) < 0.0001,
+            "camera white balance is presented as Kelvin"
+        )
+        || !require(
+            std::abs(tint->property("value").toDouble() + 8.0) < 0.0001,
+            "camera tint is presented on the photographic tint axis"
+        )
+        || !require(
+            !white_balance_reset->property("enabled").toBool(),
+            "camera-derived value does not expose a redundant mode action"
+        )
+        || !require(
+            std::abs(amount->property("value").toDouble() - 100.0) < 0.0001,
+            "AI denoise starts at full cached-result amount"
+        )
+        || !require(!amount->property("enabled").toBool(), "bypassed amount is read-only")
+        || !require(!bypass->property("enabled").toBool(), "bypassed node disables reset")
         || !require(start->property("visible").toBool(), "available state exposes start")
         || !require(!progress->property("visible").toBool(), "idle state hides progress")) {
         return EXIT_FAILURE;
     }
 
-    QMetaObject::invokeMethod(root, "requestAiDenoiseStart");
+    QMetaObject::invokeMethod(start, "clicked");
     if (!require(editor.start_count == 1, "start action delegates exactly once")) {
         return EXIT_FAILURE;
     }
@@ -206,7 +284,7 @@ int main(int argc, char* argv[]) {
         || !require(!start->property("visible").toBool(), "busy state hides start")) {
         return EXIT_FAILURE;
     }
-    QMetaObject::invokeMethod(root, "requestAiDenoiseCancel");
+    QMetaObject::invokeMethod(cancel, "clicked");
     if (!require(editor.cancel_count == 1, "cancel delegates exactly once")) {
         return EXIT_FAILURE;
     }
@@ -221,16 +299,35 @@ int main(int argc, char* argv[]) {
         QStringLiteral("enabled")
     );
     drainBindings();
-    if (!require(toggle->property("checked").toBool(), "Ready Recipe checks the singleton switch")
+    if (!require(amount->property("enabled").toBool(), "Ready Recipe enables fast amount changes")
         || !require(!progress->property("visible").toBool(), "Ready state hides progress")
-        || !require(!start->property("visible").toBool(), "enabled state hides start")) {
+        || !require(!start->property("visible").toBool(), "enabled state hides start")
+        || !require(bypass->property("enabled").toBool(), "enabled node exposes bypass")) {
         return EXIT_FAILURE;
     }
 
-    QMetaObject::invokeMethod(root, "requestAiDenoiseEnabled", Q_ARG(QVariant, QVariant{false}));
+    QMetaObject::invokeMethod(bypass, "clicked");
+    drainBindings();
+    if (!require(
+            editor.toggle_count == 1 && !editor.foundationAiDenoiseEnabled(),
+            "header bypass delegates one non-destructive Recipe transition"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.foundation_at_camera = false;
+    emit editor.valuesChanged();
+    drainBindings();
+    if (!require(
+            white_balance_reset->property("enabled").toBool(),
+            "an authored absolute value exposes camera-value reset"
+        )) {
+        return EXIT_FAILURE;
+    }
+    QMetaObject::invokeMethod(white_balance_reset, "clicked");
+    drainBindings();
     return require(
-               editor.toggle_count == 1 && !editor.foundationAiDenoiseEnabled(),
-               "bypass delegates one non-destructive Recipe transition"
+               editor.white_balance_reset_count == 1 && editor.foundation_at_camera,
+               "section-header reset restores the camera-derived absolute value"
            )
                ? EXIT_SUCCESS
                : EXIT_FAILURE;

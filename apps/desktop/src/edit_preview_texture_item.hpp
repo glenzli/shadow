@@ -32,6 +32,9 @@ class EditPreviewTextureItem : public QQuickItem {
     Q_PROPERTY(
         bool transientLiquifyActive READ transientLiquifyActive NOTIFY transientLiquifyChanged
     )
+    Q_PROPERTY(
+        bool transientLiquifyPending READ transientLiquifyPending NOTIFY transientLiquifyChanged
+    )
     Q_PROPERTY(FillMode fillMode READ fillMode WRITE setFillMode NOTIFY fillModeChanged)
     Q_PROPERTY(QRectF contentRect READ contentRect NOTIFY contentRectChanged)
 
@@ -58,6 +61,7 @@ class EditPreviewTextureItem : public QQuickItem {
     [[nodiscard]] bool liveFrameAvailable() const noexcept;
     [[nodiscard]] QString presentedGeneration() const;
     [[nodiscard]] bool transientLiquifyActive() const noexcept;
+    [[nodiscard]] bool transientLiquifyPending() const noexcept;
 
     Q_INVOKABLE bool beginTransientLiquify(double radius, double strength, double hardness);
     Q_INVOKABLE bool appendTransientLiquifyPoint(double x, double y, double pressure);

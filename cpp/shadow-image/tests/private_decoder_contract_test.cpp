@@ -20,6 +20,11 @@ using shadow::image::test_support::expect;
 using shadow::image::test_support::failures;
 
 void private_decoder_plugin_abi_is_explicit_and_fail_closed() {
+  expect(
+      image::private_decoder_plugin_interface_contract_token !=
+          0x8e5f4b2ad30c71a9ULL,
+      "the current interface contract rejects providers built before "
+      "AssetMetadata GPS fields");
   try {
     image::validate_private_decoder_plugin_interface_contract(
         image::private_decoder_plugin_interface_contract_token);
@@ -116,12 +121,10 @@ void stale_private_decoder_plugin_is_rejected_before_construction() {
     expect(
         error.code() == image::DecodeErrorCode::unsupported &&
             std::string_view(error.what())
-                    .find(
-                        image::
-                            private_decoder_plugin_interface_contract_symbol) !=
+                    .find("interface contract is stale") !=
                 std::string_view::npos,
-        "a plugin missing the exact interface seal fails closed before its "
-        "aborting factory");
+        "a pre-GPS-layout plugin fails closed on its scalar interface seal "
+        "before its aborting factory");
   }
 #else
   expect(false,

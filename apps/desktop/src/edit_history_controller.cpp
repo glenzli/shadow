@@ -44,8 +44,11 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     const bool photo_local_retouch = parameter_key.startsWith(QStringLiteral("retouch/"));
     const bool photo_local_geometry = parameter_key.startsWith(QStringLiteral("geometry/"));
     const bool photo_local_foundation = parameter_key.startsWith(QStringLiteral("foundation/"));
+    const bool photo_local_raw_denoise =
+        parameter_key.startsWith(QStringLiteral("raw_ai_denoise/"));
     if (!active_ || interactionLocked()
         || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
+            && !photo_local_raw_denoise
             && (grade_node == nullptr || !grade_node->enabled))
         || parameter_key.isEmpty()) {
         return;
@@ -142,7 +145,7 @@ void EditController::resetAllAdjustments() {
 
     BackendGradeNode neutral;
     try {
-        neutral = backend_->newBasicGradeNode(QStringLiteral("Adjustments"));
+        neutral = backend_->newBasicGradeNode(QStringLiteral("Adjustment Node"));
     } catch (const std::exception& error) {
         setStatusMessage(edit_message(
             QT_TRANSLATE_NOOP("EditController", "Could not reset adjustments · %1"),
@@ -207,6 +210,7 @@ void EditController::setGradeStack(
         return;
     }
     const auto old_foundation = grade_stack_.foundation;
+    const auto old_raw_ai_denoise = grade_stack_.raw_ai_denoise;
     const QString old_selected_id = selectedGradeNodeId();
     const int old_selected_index = selected_grade_node_index_;
     const BackendGradeNode* const old_selected = selectedGradeNode();
@@ -235,8 +239,11 @@ void EditController::setGradeStack(
         selection_changed || had_old_selection != has_new_selection
         || (had_old_selection && has_new_selection
             && EditHistoryRestoreProjection::localMaskChanged(old_selected_value, *new_selected));
-    const bool retouch_changed = grade_stack_.retouch_spots != grade_stack.retouch_spots
-                                 || grade_stack_.retouch_strokes != grade_stack.retouch_strokes;
+    const bool photo_local_changed =
+        grade_stack_.retouch_spots != grade_stack.retouch_spots
+        || grade_stack_.retouch_strokes != grade_stack.retouch_strokes
+        || grade_stack_.liquify_strokes != grade_stack.liquify_strokes
+        || grade_stack_.geometry != grade_stack.geometry;
     const bool curve_changed = selection_changed || had_old_selection != has_new_selection
                                || (had_old_selection && has_new_selection
                                    && old_selected_value.fine.oklab_lightness_curve_points
@@ -276,19 +283,25 @@ void EditController::setGradeStack(
     if (grade_node_enabled_changed) {
         emit gradeNodeEnabledChanged();
     }
-    if (basic_changed || local_mask_changed || retouch_changed) {
+    if (basic_changed || local_mask_changed || photo_local_changed) {
         notifyParametersChanged();
     }
     if (curve_changed) {
         emit toneCurveChanged();
     }
-    if (old_foundation.raw_ai_denoise_enabled != grade_stack_.foundation.raw_ai_denoise_enabled
-        || old_foundation.raw_ai_denoise_model != grade_stack_.foundation.raw_ai_denoise_model
+    if (old_raw_ai_denoise != grade_stack_.raw_ai_denoise) {
+        emit rawAiDenoiseRecipeChanged();
+        emit foundationAiDenoiseChanged();
+    }
+    if (old_foundation.enabled != grade_stack_.foundation.enabled
         || old_foundation.raw_white_balance_mode != grade_stack_.foundation.raw_white_balance_mode
-        || old_foundation.camera_neutral_red_millionths
-               != grade_stack_.foundation.camera_neutral_red_millionths
-        || old_foundation.camera_neutral_blue_millionths
-               != grade_stack_.foundation.camera_neutral_blue_millionths) {
+        || old_foundation.temperature_kelvin != grade_stack_.foundation.temperature_kelvin
+        || old_foundation.tint != grade_stack_.foundation.tint
+        || old_foundation.as_shot_white_balance_available
+               != grade_stack_.foundation.as_shot_white_balance_available
+        || old_foundation.as_shot_temperature_kelvin
+               != grade_stack_.foundation.as_shot_temperature_kelvin
+        || old_foundation.as_shot_tint != grade_stack_.foundation.as_shot_tint) {
         emit foundationChanged();
     }
     if (old_foundation.optics != grade_stack_.foundation.optics) {
@@ -300,6 +313,7 @@ void EditController::setGradeStack(
 QString EditController::gradeNodeHistoryKey(const QString& key) const {
     if (key.startsWith(QStringLiteral("retouch/")) || key.startsWith(QStringLiteral("geometry/"))
         || key.startsWith(QStringLiteral("foundation/"))
+        || key.startsWith(QStringLiteral("raw_ai_denoise/"))
         || key.startsWith(QStringLiteral("liquify/"))) {
         return QStringLiteral("photo/%1").arg(key);
     }
