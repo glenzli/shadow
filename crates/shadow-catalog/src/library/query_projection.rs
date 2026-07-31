@@ -22,6 +22,10 @@ pub(super) fn library_photo_query_parts(
     // This keeps one logical row per photo without requiring a directory-derived
     // materialized view. Original rasters are first-class Library sources; RAW
     // retains a stable preference only when both are attached to one logical photo.
+    // A catalog with no source registry remains readable for legacy imports. As
+    // soon as any durable source row exists, however, that registry is the
+    // authoritative Library boundary: an unowned historical path must not
+    // silently reappear after its folder was removed.
     let from_sql = "FROM photos p
          JOIN representations r ON r.id = (
              SELECT r2.id FROM representations r2
@@ -31,17 +35,20 @@ pub(super) fn library_photo_query_parts(
                    SELECT 1 FROM locations l2
                    WHERE l2.representation_id = r2.id AND l2.status = 'online'
                      AND (
-                         NOT EXISTS (
-                             SELECT 1 FROM location_sources ownership
-                             WHERE ownership.location_id = l2.id
-                         )
-                         OR EXISTS (
+                         EXISTS (
                              SELECT 1
                              FROM location_sources ownership
                              JOIN library_sources source
                                ON source.id = ownership.source_id
                               AND source.enabled = 1
                              WHERE ownership.location_id = l2.id
+                         )
+                         OR (
+                             NOT EXISTS (SELECT 1 FROM library_sources)
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM location_sources ownership
+                                 WHERE ownership.location_id = l2.id
+                             )
                          )
                      )
                )
@@ -53,17 +60,20 @@ pub(super) fn library_photo_query_parts(
              SELECT l3.id FROM locations l3
              WHERE l3.representation_id = r.id AND l3.status = 'online'
                AND (
-                   NOT EXISTS (
-                       SELECT 1 FROM location_sources ownership
-                       WHERE ownership.location_id = l3.id
-                   )
-                   OR EXISTS (
+                   EXISTS (
                        SELECT 1
                        FROM location_sources ownership
                        JOIN library_sources source
                          ON source.id = ownership.source_id
                         AND source.enabled = 1
                        WHERE ownership.location_id = l3.id
+                   )
+                   OR (
+                       NOT EXISTS (SELECT 1 FROM library_sources)
+                       AND NOT EXISTS (
+                           SELECT 1 FROM location_sources ownership
+                           WHERE ownership.location_id = l3.id
+                       )
                    )
                )
              ORDER BY l3.created_at_ms DESC, l3.id DESC

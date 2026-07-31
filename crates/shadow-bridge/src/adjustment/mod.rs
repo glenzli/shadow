@@ -29,6 +29,7 @@ pub use detail_effects::{
 pub use geometry::{AdjustmentGeometry, AdjustmentQuarterTurn};
 pub use liquify::{
     AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
+    AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke,
     MAX_ADJUSTMENT_LIQUIFY_POINTS_PER_STROKE, MAX_ADJUSTMENT_LIQUIFY_STROKES,
 };
 pub use local_mask::{

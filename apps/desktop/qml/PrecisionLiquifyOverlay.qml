@@ -2,24 +2,41 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 
-// Direct-manipulation owner for one Liquify push gesture. Pointer samples and
-// swept coverage remain transient here; only release crosses into the
-// controller, producing one durable stroke and one history transition.
+// Direct-manipulation owner for one ordered Liquify gesture. Push uses a local
+// scene-graph mesh for zero-latency feedback. Reconstruct streams one
+// provisional path through the authoritative renderer so it can recover the
+// original coordinate field instead of approximating recovery as reverse push.
 Item {
     id: overlay
 
     required property var editor
     required property var previewItem
     required property bool interactionEnabled
+    required property bool previewReady
+    required property string previewGeneration
     required property real outputAspectRatio
 
     readonly property bool commitPending:
         Boolean(previewItem.transientLiquifyPending)
+    readonly property bool reconstructMode:
+        Number(editor.liquifyBrushMode) === 1
+        && Boolean(editor.liquifyCanReconstruct)
+    property bool authoritativeCommitPending: false
+    property string authoritativeBaseGeneration: ""
 
-    // The pending state outlives the authoring MouseArea until the next
-    // authoritative preview generation replaces the transient mesh.
-    visible: interactionEnabled || commitPending
+    // A committed local Push stays visible until an authoritative generation
+    // replaces it, but it must not block the next stroke or a mode switch.
+    visible: interactionEnabled || commitPending || authoritativeCommitPending
     enabled: visible
+
+    onPreviewGenerationChanged: {
+        if (authoritativeCommitPending
+                && previewGeneration.length > 0
+                && previewGeneration !== authoritativeBaseGeneration) {
+            authoritativeCommitPending = false
+            authoritativeBaseGeneration = ""
+        }
+    }
 
     onInteractionEnabledChanged: {
         if (!interactionEnabled) {
@@ -33,21 +50,20 @@ Item {
     readonly property real brushDiameter:
         Math.max(12, 2 * Number(editor.liquifyBrushRadius)
             * Math.min(width, height))
-
-    PrecisionActiveStrokeCoverage {
-        id: activeCoverage
-        anchors.fill: parent
-        visible: input.gestureActive
-        radiusPixels: overlay.brushDiameter / 2
-        coverageColor: Theme.maskCoverageTint
-    }
+    readonly property real hardnessDiameter: Math.max(
+        4,
+        brushDiameter * Math.max(0,
+            Math.min(1, Number(editor.liquifyBrushHardness)))
+    )
 
     MouseArea {
         id: input
         objectName: "liquifyStrokeInput"
         anchors.fill: parent
-        visible: overlay.interactionEnabled && !overlay.commitPending
-        enabled: visible
+        visible: overlay.interactionEnabled
+        // Readiness admits a gesture. Once pointer capture starts, a source
+        // transition may briefly clear readiness but cannot cancel the stroke.
+        enabled: visible && (gestureActive || overlay.previewReady)
         hoverEnabled: true
         preventStealing: true
         cursorShape: enabled ? Qt.BlankCursor : Qt.ArrowCursor
@@ -59,6 +75,8 @@ Item {
         property real lastSampleY: -1
         property var draftPoints: []
         property bool gpuGestureActive: false
+        property bool authoritativeGestureActive: false
+        property int gestureKind: 0
 
         function normalizedPoint(x, y, pressure) {
             if (width <= 0 || height <= 0)
@@ -96,12 +114,11 @@ Item {
                 mouse.x, mouse.y, mouse.pressure)
             if (normalized === null)
                 return
-            if (lastSampleX >= 0) {
-                activeCoverage.appendSegment(
-                    lastSampleX, lastSampleY, mouse.x, mouse.y)
-            }
             draftPoints.push(normalized)
-            if (gpuGestureActive) {
+            if (authoritativeGestureActive) {
+                overlay.editor.updateLiquifyLiveStrokeFromPreview(
+                    draftPoints, overlay.outputAspectRatio)
+            } else if (gpuGestureActive) {
                 overlay.previewItem.appendTransientLiquifyPoint(
                     normalized.x, normalized.y, normalized.pressure)
             }
@@ -115,7 +132,18 @@ Item {
             if (!canceled)
                 appendPoint(mouse, true)
             let committed = false
-            if (!canceled && draftPoints.length >= 2) {
+            const minimumPointCount = gestureKind === 1 ? 1 : 2
+            if (authoritativeGestureActive) {
+                if (!canceled && draftPoints.length >= minimumPointCount) {
+                    overlay.editor.finishLiquifyLiveStroke()
+                    committed = true
+                    overlay.authoritativeBaseGeneration =
+                        overlay.previewGeneration
+                    overlay.authoritativeCommitPending = true
+                } else {
+                    overlay.editor.cancelLiquifyLiveStroke()
+                }
+            } else if (!canceled && draftPoints.length >= 2) {
                 const previousStrokeCount =
                     overlay.editor.liquifyStrokes.length
                 overlay.editor.addLiquifyStrokeFromPreview(
@@ -130,11 +158,12 @@ Item {
                     overlay.previewItem.finishTransientLiquify(committed)
             }
             gpuGestureActive = false
+            authoritativeGestureActive = false
+            gestureKind = 0
             gestureActive = false
             lastSampleX = -1
             lastSampleY = -1
             draftPoints = []
-            Qt.callLater(activeCoverage.clearStroke)
         }
 
         onPressed: mouse => {
@@ -144,12 +173,26 @@ Item {
             draftPoints = []
             lastSampleX = -1
             lastSampleY = -1
-            gpuGestureActive =
-                overlay.previewItem.beginTransientLiquify(
+            gestureKind = overlay.reconstructMode ? 1 : 0
+            if (gestureKind === 0
+                    && Number(overlay.editor.liquifyBrushMode) !== 0) {
+                overlay.editor.liquifyBrushMode = 0
+            }
+            const needsAuthoritativePath =
+                gestureKind === 1 || overlay.commitPending
+                || overlay.authoritativeCommitPending
+            gpuGestureActive = !needsAuthoritativePath
+                && overlay.previewItem.beginTransientLiquify(
                     Number(overlay.editor.liquifyBrushRadius),
                     Number(overlay.editor.liquifyBrushStrength),
                     Number(overlay.editor.liquifyBrushHardness))
-            activeCoverage.beginStroke(mouse.x, mouse.y)
+            authoritativeGestureActive = !gpuGestureActive
+                && overlay.editor.beginLiquifyLiveStroke()
+            if (!gpuGestureActive && !authoritativeGestureActive) {
+                gestureActive = false
+                gestureKind = 0
+                return
+            }
             appendPoint(mouse, true)
         }
         onPositionChanged: mouse => {
@@ -166,7 +209,7 @@ Item {
         objectName: "liquifyPendingCursor"
         anchors.fill: parent
         z: 10
-        visible: overlay.commitPending
+        visible: overlay.commitPending && !input.visible
         enabled: visible
         acceptedButtons: Qt.NoButton
         hoverEnabled: true
@@ -174,24 +217,55 @@ Item {
     }
 
     Item {
+        id: brushCursor
+        objectName: "liquifyBrushCursor"
+        z: 20
         visible: input.visible && input.containsMouse
         x: input.pointerX
         y: input.pointerY
         width: 1
         height: 1
 
-        Rectangle {
+        Item {
+            objectName: "liquifyBrushOuterRing"
             anchors.centerIn: parent
             width: overlay.brushDiameter
             height: width
-            radius: width / 2
-            color: Theme.transparent
-            border.width: 1
-            border.color: Theme.previewCompareDivider
 
             Rectangle {
                 anchors.fill: parent
-                anchors.margins: 1
+                radius: width / 2
+                color: Theme.transparent
+                border.width: 3
+                border.color: Qt.rgba(0, 0, 0, 0.72)
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: Theme.transparent
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.94)
+            }
+        }
+
+        Item {
+            objectName: "liquifyBrushHardnessRing"
+            anchors.centerIn: parent
+            width: overlay.hardnessDiameter
+            height: width
+            visible: width < overlay.brushDiameter - 3
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: Theme.transparent
+                border.width: 3
+                border.color: Qt.rgba(0, 0, 0, 0.72)
+            }
+
+            Rectangle {
+                anchors.fill: parent
                 radius: width / 2
                 color: Theme.transparent
                 border.width: 1

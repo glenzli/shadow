@@ -134,8 +134,10 @@ pub enum RecipeValidationError {
     InvalidPhotoStraightenDegrees(f64),
     #[error("a persisted liquify node must contain at least one gesture")]
     EmptyLiquifyNode,
-    #[error("liquify gesture contains {0} points; at least two are required")]
+    #[error("liquify push gesture contains {0} points; at least two are required")]
     TooFewLiquifyStrokePoints(usize),
+    #[error("liquify reconstruct gesture must contain at least one point")]
+    EmptyLiquifyReconstruct,
     #[error("liquify gesture contains {0} points, but at most 2048 are supported")]
     TooManyLiquifyStrokePoints(usize),
     #[error("liquify gesture must contain pressured movement")]
@@ -144,6 +146,8 @@ pub enum RecipeValidationError {
     DegenerateLiquifyBrushRadius,
     #[error("liquify brush strength must be greater than zero")]
     DegenerateLiquifyStrength,
+    #[error("liquify reconstruct gesture requires earlier deformation")]
+    LiquifyReconstructWithoutPriorDeformation,
     #[error("liquify node contains {0} gestures, but at most 128 are supported")]
     TooManyLiquifyStrokes(usize),
     #[error("inline layer {layer_id} must have PHOTO scope")]

@@ -159,6 +159,15 @@ void bounded_liquify_index_preserves_reverse_candidates() {
                 .strength = 0.65,
                 .hardness = 0.35,
             },
+            image::PhotoLiquifyReconstructStroke{
+                .points = {
+                    {.x = 0.48, .y = 0.4, .pressure = 0.65},
+                    {.x = 0.56, .y = 0.43, .pressure = 0.8},
+                },
+                .radius = 0.07,
+                .strength = 0.4,
+                .hardness = 0.45,
+            },
             image::PhotoLiquifyPushStroke{
                 .points = {
                     {.x = 0.68, .y = 0.7, .pressure = 0.8},
@@ -244,6 +253,9 @@ void bounded_liquify_index_preserves_reverse_candidates() {
 
             double indexed_x = x;
             double indexed_y = y;
+            double active_weight = 1.0;
+            double reconstructed_x = 0.0;
+            double reconstructed_y = 0.0;
             std::uint32_t previous = std::numeric_limits<std::uint32_t>::max();
             for (std::uint32_t candidate = 0U; candidate < count; ++candidate) {
                 const std::uint32_t stamp_index =
@@ -262,9 +274,19 @@ void bounded_liquify_index_preserves_reverse_candidates() {
                     indexed_x,
                     indexed_y
                 );
-                indexed_x -= stamp.displacement_x * weight;
-                indexed_y -= stamp.displacement_y * weight;
+                if (stamp.kind == image::PreparedPhotoLiquifyStampKind::reconstruct) {
+                    const double amount =
+                        std::clamp(stamp.reconstruction * weight, 0.0, 1.0);
+                    reconstructed_x += active_weight * amount * indexed_x;
+                    reconstructed_y += active_weight * amount * indexed_y;
+                    active_weight *= 1.0 - amount;
+                } else {
+                    indexed_x -= stamp.displacement_x * weight;
+                    indexed_y -= stamp.displacement_y * weight;
+                }
             }
+            indexed_x = reconstructed_x + active_weight * indexed_x;
+            indexed_y = reconstructed_y + active_weight * indexed_y;
             const auto complete = image::detail::inverse_photo_liquify_coordinate(
                 prepared,
                 x,
@@ -279,10 +301,12 @@ void bounded_liquify_index_preserves_reverse_candidates() {
     }
 
     struct AbiStamp final {
+        std::uint32_t kind = 0U;
         float center_x = 0.0F;
         float center_y = 0.0F;
         float displacement_x = 0.0F;
         float displacement_y = 0.0F;
+        float reconstruction = 0.0F;
         float radius = 0.0F;
         float hardness = 0.0F;
     };
@@ -292,19 +316,28 @@ void bounded_liquify_index_preserves_reverse_candidates() {
         return std::bit_cast<float>(plan.liquify_words[index].value);
     };
     for (std::uint32_t stamp = 0U; stamp < parameters.stamp_count; ++stamp) {
-        const std::size_t word = static_cast<std::size_t>(stamp) * 6U;
+        const std::size_t word = static_cast<std::size_t>(stamp) * 8U;
         abi_stamps.push_back(
             AbiStamp{
-                .center_x = abi_float(word),
-                .center_y = abi_float(word + 1U),
-                .displacement_x = abi_float(word + 2U),
-                .displacement_y = abi_float(word + 3U),
-                .radius = abi_float(word + 4U),
-                .hardness = abi_float(word + 5U),
+                .kind = plan.liquify_words[word].value,
+                .center_x = abi_float(word + 1U),
+                .center_y = abi_float(word + 2U),
+                .displacement_x = abi_float(word + 3U),
+                .displacement_y = abi_float(word + 4U),
+                .reconstruction = abi_float(word + 5U),
+                .radius = abi_float(word + 6U),
+                .hardness = abi_float(word + 7U),
             }
         );
     }
-    const auto apply_abi_stamp = [](const AbiStamp& stamp, float& x, float& y) {
+    const auto apply_abi_stamp = [](
+                                     const AbiStamp& stamp,
+                                     float& x,
+                                     float& y,
+                                     float& active_weight,
+                                     float& reconstructed_x,
+                                     float& reconstructed_y
+                                 ) {
         const float distance = std::hypot(x - stamp.center_x, y - stamp.center_y);
         if (distance >= stamp.radius) {
             return;
@@ -319,8 +352,16 @@ void bounded_liquify_index_preserves_reverse_candidates() {
                                    * (bounded * (bounded * 6.0F - 15.0F) + 10.0F);
             weight = std::clamp(1.0F - smoother, 0.0F, 1.0F);
         }
-        x -= stamp.displacement_x * weight;
-        y -= stamp.displacement_y * weight;
+        if (stamp.kind == 1U) {
+            const float amount =
+                std::clamp(stamp.reconstruction * weight, 0.0F, 1.0F);
+            reconstructed_x += active_weight * amount * x;
+            reconstructed_y += active_weight * amount * y;
+            active_weight *= 1.0F - amount;
+        } else {
+            x -= stamp.displacement_x * weight;
+            y -= stamp.displacement_y * weight;
+        }
     };
     const auto indexed_abi_replay = [&](float x, float y) {
         const float bounded_x =
@@ -341,20 +382,46 @@ void bounded_liquify_index_preserves_reverse_candidates() {
         );
         const std::uint32_t offset = plan.liquify_words[range].value;
         const std::uint32_t count = plan.liquify_words[range + 1U].value;
+        float active_weight = 1.0F;
+        float reconstructed_x = 0.0F;
+        float reconstructed_y = 0.0F;
         for (std::uint32_t candidate = 0U; candidate < count; ++candidate) {
             const std::uint32_t stamp = plan.liquify_words[
                 parameters.reference_offset_words + offset + candidate
             ]
                                             .value;
-            apply_abi_stamp(abi_stamps[stamp], x, y);
+            apply_abi_stamp(
+                abi_stamps[stamp],
+                x,
+                y,
+                active_weight,
+                reconstructed_x,
+                reconstructed_y
+            );
         }
-        return std::pair{x, y};
+        return std::pair{
+            reconstructed_x + active_weight * x,
+            reconstructed_y + active_weight * y,
+        };
     };
     const auto complete_abi_replay = [&](float x, float y) {
+        float active_weight = 1.0F;
+        float reconstructed_x = 0.0F;
+        float reconstructed_y = 0.0F;
         for (auto stamp = abi_stamps.rbegin(); stamp != abi_stamps.rend(); ++stamp) {
-            apply_abi_stamp(*stamp, x, y);
+            apply_abi_stamp(
+                *stamp,
+                x,
+                y,
+                active_weight,
+                reconstructed_x,
+                reconstructed_y
+            );
         }
-        return std::pair{x, y};
+        return std::pair{
+            reconstructed_x + active_weight * x,
+            reconstructed_y + active_weight * y,
+        };
     };
     std::vector<float> boundary_x{0.0F, static_cast<float>(dimensions.width - 1U)};
     for (std::uint32_t column = 1U; column < parameters.grid_columns; ++column) {

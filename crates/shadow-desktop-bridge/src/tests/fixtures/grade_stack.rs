@@ -74,6 +74,7 @@ pub(in crate::tests) fn ffi_parameters(
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
             crop_left: 0.0,

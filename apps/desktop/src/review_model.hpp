@@ -28,6 +28,7 @@ struct ReviewLibraryStateValue final {
 struct ReviewItem final {
     QString photo_id;
     QString representation_id;
+    QString location_id;
     QString visual_handle;
     quint64 decision_head_sequence = 0;
     QString decision_flag = QStringLiteral("unflagged");
@@ -39,6 +40,7 @@ struct ReviewItem final {
     bool has_development_edits = false;
     QString title;
     QString source_path;
+    bool source_available = true;
     QString visual_role;
     std::uint32_t visual_width = 0;
     std::uint32_t visual_height = 0;
@@ -77,13 +79,15 @@ struct ReviewItem final {
 class ReviewModel final : public QAbstractListModel {
     Q_OBJECT
 
-public:
+  public:
     enum Role {
         PhotoIdRole = Qt::UserRole + 1,
         RepresentationIdRole,
+        LocationIdRole,
         VisualHandleRole,
         TitleRole,
         SourcePathRole,
+        SourceAvailableRole,
         VisualRole,
         VisualErrorRole,
         VisualWidthRole,
@@ -142,39 +146,23 @@ public:
     void append(QVector<ReviewItem> items);
     // Appends only a current-generation page whose stable keys are unique both
     // within the page and across the already presented rows.
-    [[nodiscard]] bool appendSnapshot(
-        QVector<ReviewItem> items,
-        quint64 generation
-    );
+    [[nodiscard]] bool appendSnapshot(QVector<ReviewItem> items, quint64 generation);
     // Applies only a current-generation snapshot with unique, non-empty stable keys.
-    [[nodiscard]] bool reconcileSnapshot(
-        QVector<ReviewItem> items,
-        quint64 generation
-    );
+    [[nodiscard]] bool reconcileSnapshot(QVector<ReviewItem> items, quint64 generation);
     // Reconciles an ordered from-origin prefix while retaining every existing
     // row whose key is not present in that prefix. This is the live-import
     // operation: no unstable pagination cursor is exposed while the Catalog is
     // still changing.
-    [[nodiscard]] bool reconcilePrefixSnapshot(
-        QVector<ReviewItem> items,
-        quint64 generation
-    );
+    [[nodiscard]] bool reconcilePrefixSnapshot(QVector<ReviewItem> items, quint64 generation);
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
     /// Builds a generation-bound comparison source. Grid roles use their own
     /// immutable lifetime contract when projected through data().
     [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
-    [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(
-        const QString& photo_id
-    ) const;
-    [[nodiscard]] std::optional<ReviewLibraryStateValue> libraryStateFor(
-        const QString& photo_id
-    ) const;
-    [[nodiscard]] bool updateDecision(
-        const QString& photo_id,
-        quint64 head_sequence,
-        const QString& flag,
-        int rating
-    );
+    [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(const QString& photo_id) const;
+    [[nodiscard]] std::optional<ReviewLibraryStateValue>
+    libraryStateFor(const QString& photo_id) const;
+    [[nodiscard]] bool
+    updateDecision(const QString& photo_id, quint64 head_sequence, const QString& flag, int rating);
     /// Applies the Catalog-authoritative durable Library state for a loaded
     /// photo. The stable model key is photo_id; representation_id may change
     /// when a source is relinked without creating a second logical photo.
@@ -185,7 +173,7 @@ public:
         std::int64_t updated_at_ms
     );
 
-private:
+  private:
     QVector<ReviewItem> items_;
     std::atomic<quint64> generation_ = 0;
 };

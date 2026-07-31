@@ -4,6 +4,8 @@
 
 #include <compare>
 #include <cstddef>
+#include <cstdint>
+#include <variant>
 #include <vector>
 
 namespace shadow::image {
@@ -38,22 +40,44 @@ struct PhotoLiquifyPushStroke final {
     auto operator<=>(const PhotoLiquifyPushStroke&) const = default;
 };
 
+/// One authored gesture that attenuates accumulated deformation toward the
+/// original identity mapping.
+struct PhotoLiquifyReconstructStroke final {
+    std::vector<PhotoLiquifyPoint> points;
+    double radius = 0.0;
+    double strength = 1.0;
+    double hardness = 0.5;
+
+    auto operator<=>(const PhotoLiquifyReconstructStroke&) const = default;
+};
+
+using PhotoLiquifyStroke =
+    std::variant<PhotoLiquifyPushStroke, PhotoLiquifyReconstructStroke>;
+
 /// The optional node payload after the Recipe layer has established presence.
 ///
 /// A value of this type is non-empty and belongs to one photograph. It has no
 /// shared identity and is executed before the mandatory Canvas node.
 struct PhotoLiquify final {
-    std::vector<PhotoLiquifyPushStroke> strokes;
+    bool enabled = true;
+    std::vector<PhotoLiquifyStroke> strokes;
 
     auto operator<=>(const PhotoLiquify&) const = default;
 };
 
+enum class PreparedPhotoLiquifyStampKind : std::uint8_t {
+    push = 0,
+    reconstruct = 1,
+};
+
 /// One resolution-specific local translation used by the inverse sampler.
 struct PreparedPhotoLiquifyStamp final {
+    PreparedPhotoLiquifyStampKind kind = PreparedPhotoLiquifyStampKind::push;
     double center_x = 0.0;
     double center_y = 0.0;
     double displacement_x = 0.0;
     double displacement_y = 0.0;
+    double reconstruction = 0.0;
     double radius = 0.0;
     double hardness = 0.0;
 

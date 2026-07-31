@@ -23,12 +23,15 @@ use super::LibraryService;
 impl LibraryService {
     pub(crate) fn metadata_state(&self, photo_id: &str) -> AnyResult<ffi::FfiLibraryMetadataState> {
         let photo_id = parse_photo_id(photo_id)?;
-        ffi_metadata_state(
+        let observed = self.catalog.photo_library_facts(photo_id)?;
+        let effective = self.catalog.effective_photo_library_facts(photo_id)?;
+        let overrides = self.catalog.photo_library_metadata_overrides(photo_id)?;
+        Ok(ffi_metadata_state(
             photo_id,
-            self.catalog.photo_library_facts(photo_id)?,
-            self.catalog.effective_photo_library_facts(photo_id)?,
-            self.catalog.photo_library_metadata_overrides(photo_id)?,
-        )
+            observed.as_ref(),
+            effective.as_ref(),
+            &overrides,
+        ))
     }
 
     pub(crate) fn set_capture_time_override(
@@ -92,23 +95,19 @@ impl LibraryService {
 
 fn ffi_metadata_state(
     photo_id: PhotoId,
-    observed: Option<LibraryPhotoFacts>,
-    effective: Option<LibraryPhotoFacts>,
-    overrides: PhotoLibraryMetadataOverrides,
-) -> AnyResult<ffi::FfiLibraryMetadataState> {
-    let observed_capture = observed
-        .as_ref()
-        .and_then(|facts| facts.captured_at_unix_seconds);
-    let effective_capture = effective
-        .as_ref()
-        .and_then(|facts| facts.captured_at_unix_seconds);
-    let observed_coordinates = observed.as_ref().and_then(coordinates_from_facts);
-    let effective_coordinates = effective.as_ref().and_then(coordinates_from_facts);
+    observed: Option<&LibraryPhotoFacts>,
+    effective: Option<&LibraryPhotoFacts>,
+    overrides: &PhotoLibraryMetadataOverrides,
+) -> ffi::FfiLibraryMetadataState {
+    let observed_capture = observed.and_then(|facts| facts.captured_at_unix_seconds);
+    let effective_capture = effective.and_then(|facts| facts.captured_at_unix_seconds);
+    let observed_coordinates = observed.and_then(coordinates_from_facts);
+    let effective_coordinates = effective.and_then(coordinates_from_facts);
     let (capture_mode, capture_origin, capture_source) =
         override_identity(overrides.capture_time.as_ref());
     let (coordinates_mode, coordinates_origin, coordinates_source) =
         override_identity(overrides.coordinates.as_ref());
-    Ok(ffi::FfiLibraryMetadataState {
+    ffi::FfiLibraryMetadataState {
         photo_id: photo_id.to_string(),
         has_observed_capture_time: observed_capture.is_some(),
         observed_captured_at_unix_seconds: observed_capture.unwrap_or_default(),
@@ -136,7 +135,7 @@ fn ffi_metadata_state(
         coordinates_override_mode: coordinates_mode,
         coordinates_override_origin: coordinates_origin,
         coordinates_source_label: coordinates_source,
-    })
+    }
 }
 
 fn coordinates_from_facts(facts: &LibraryPhotoFacts) -> Option<LibraryCoordinates> {

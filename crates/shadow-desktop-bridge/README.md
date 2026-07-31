@@ -14,6 +14,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Provider-independent Library viewport aggregation | [`src/library_service/map_browse.rs`](src/library_service/map_browse.rs) |
 | Library filter, order, facet, and typed cursor wire contract | [`src/library_service/query_contract.rs`](src/library_service/query_contract.rs) |
 | Hierarchical keyword taxonomy, assignment provenance, batch mutation, and CXX projection | [`src/library_service/keywords.rs`](src/library_service/keywords.rs) |
+| Non-destructive removal of logical photos from active Library projections | [`src/library_service/lifecycle.rs`](src/library_service/lifecycle.rs) |
 | Albums, memberships, and photo-affinity state | [`src/library_service/organization.rs`](src/library_service/organization.rs) |
 | Source inventory removal, source-health, and missing-location projections | [`src/library_service/source_health.rs`](src/library_service/source_health.rs) |
 | Manual capture/GPS correction state and single-photo mutation | [`src/library_service/metadata.rs`](src/library_service/metadata.rs) |
@@ -22,7 +23,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Desktop-session Review and cache-maintenance CXX delegation | [`src/session_review.rs`](src/session_review.rs), [`src/session_cache_maintenance.rs`](src/session_cache_maintenance.rs) |
 | Canonical wall-clock conversion and digest encoding | [`src/wall_clock.rs`](src/wall_clock.rs), [`src/digest_hex.rs`](src/digest_hex.rs) |
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
-| Source relinking | [`src/relink_service.rs`](src/relink_service.rs) |
+| Exact source relinking from scan evidence or an unavailable Library card | [`src/relink_service.rs`](src/relink_service.rs) |
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
 | Exact selected-photo EXIF and technical inspection, independent from virtualized Review pages | [`src/photo_inspection_service.rs`](src/photo_inspection_service.rs), [`src/session_photo_inspection.rs`](src/session_photo_inspection.rs) |
 | Photo source admission, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
@@ -68,11 +69,12 @@ not flattened, silently omitted, or advertised as active UI features. The next e
 extend the Qt/native mask protocol and prove CPU/Metal parity before removing either gate.
 
 The Recipe draft and flat Qt DTO expose the optional, photo-private Liquify structural node as one
-ordered push-stroke vector: empty is the canonical absent node, while every non-empty vector
-materializes exactly one validated `PhotoLiquifyNode`. Points retain original-image normalized
-coordinates and pressure; radius, strength, and hardness round-trip exactly. Snapshot encoding uses
-that editable projection directly, so clearing Liquify removes it even when a base Recipe contained
-one, while unrelated Canvas and Grade Node edits preserve the decoded value.
+enabled flag plus an ordered tagged Push/Reconstruct vector. Empty plus disabled is the canonical
+absent node; every non-empty vector materializes exactly one validated `PhotoLiquifyNode`, and
+Reconstruct is accepted only after prior Push deformation. Points retain original-image normalized
+coordinates and pressure; radius, strength, hardness, and bypass round-trip exactly. Snapshot
+encoding uses that editable projection directly, so clearing Liquify removes it even when a base
+Recipe contained one, while unrelated Canvas and Grade Node edits preserve the decoded value.
 
 The persistent soft-mask math is closed in `shadow-domain`'s condition-mask `reference` owner.
 `all`, `any`, and `not` mean exact minimum, maximum, and `1 - x`; scalar ranges retain the quintic

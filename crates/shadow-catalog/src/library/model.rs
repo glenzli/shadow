@@ -471,6 +471,9 @@ pub struct LibraryPhotoCursor {
 pub struct LibraryPhotoRecord {
     pub photo_id: PhotoId,
     pub representation_id: RepresentationId,
+    /// Exact historical location selected for this grid row. The desktop may
+    /// use it for an explicit relink, but never infers identity from the path.
+    pub location_id: LocationId,
     pub location: AssetLocation,
     pub source: RepresentationFingerprint,
     pub facts: Option<LibraryPhotoFacts>,

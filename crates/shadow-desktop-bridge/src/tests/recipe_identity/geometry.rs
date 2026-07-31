@@ -1,6 +1,6 @@
 //! Photo-local geometry persistence and render-plan contracts.
 
-use shadow_bridge::AdjustmentQuarterTurn;
+use shadow_bridge::{AdjustmentLiquifyStroke, AdjustmentQuarterTurn};
 use shadow_domain::{
     CURRENT_RECIPE_SCHEMA_VERSION, LiquifyPoint, LiquifyStroke, PhotoCanvasNode, PhotoGeometry,
     PhotoLiquifyNode, PhotoQuarterTurn, PhotoStructuralNodes, RecipeSnapshot, UnitInterval,
@@ -94,6 +94,9 @@ fn crop_edits_preserve_liquify_and_the_compiler_projects_exact_warp_values() {
     let compiled = plan.liquify.as_ref().expect("compiled Liquify singleton");
     let [stroke] = compiled.strokes.as_slice() else {
         panic!("expected one compiled Liquify push stroke")
+    };
+    let AdjustmentLiquifyStroke::Push(stroke) = stroke else {
+        panic!("expected compiled Push operation")
     };
     assert_eq!(stroke.radius, 0.1);
     assert_eq!(stroke.strength, 0.75);

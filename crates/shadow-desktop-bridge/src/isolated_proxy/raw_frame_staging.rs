@@ -1,4 +1,4 @@
-//! Short-lived provider-neutral RawFrame staging for local AI sidecars.
+//! Short-lived provider-neutral `RawFrame` staging for local AI sidecars.
 //!
 //! The private decoder stays in the existing crash-isolated helper. Only an
 //! active little-endian Bayer plane and a bounded technical manifest enter a

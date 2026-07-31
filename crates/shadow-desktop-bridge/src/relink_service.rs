@@ -13,7 +13,7 @@ use shadow_catalog::{CatalogHandle, CatalogStore, ImportSessionState, RegisterAs
 use shadow_core::{
     CatalogRelinkConfirmation, PendingStrongRelink, RelinkSource, StrongRelinkVerification,
     WeakRelinkMetadata, apply_confirmed_relink, confirm_verified_relink, native_location,
-    relink_candidate_from_missing_location, verify_pending_relink,
+    native_path_from_location, relink_candidate_from_missing_location, verify_pending_relink,
 };
 use shadow_domain::{ImportSessionId, LocationId, RepresentationKind};
 
@@ -56,17 +56,58 @@ impl RelinkService {
             .trim()
             .parse::<LocationId>()
             .with_context(|| format!("parse source-health location id {location_id}"))?;
-        let candidate_path = Path::new(candidate_path)
-            .canonicalize()
-            .with_context(|| format!("resolve selected source {candidate_path}"))?;
-        let now_ms = current_time_ms()?;
-        let mut catalog = self.catalog.clone();
+        let catalog = self.catalog.clone();
         let missing = catalog
             .missing_source_relink_target(scan_session_id, location_id)?
             .ok_or_else(|| {
                 anyhow!("the selected location is no longer absent from this completed source scan")
             })?
             .location;
+        self.relink_target(&missing, candidate_path)
+    }
+
+    /// Reattaches the exact historical location projected by a current
+    /// Library card. This path is intentionally independent from completed
+    /// scan evidence so a disconnected or externally moved folder can be
+    /// repaired immediately from the main gallery.
+    pub(crate) fn relink_library_source_location(
+        &self,
+        location_id: &str,
+        candidate_path: &str,
+    ) -> AnyResult<VerifiedSourceRelinkReceipt> {
+        let location_id = location_id
+            .trim()
+            .parse::<LocationId>()
+            .with_context(|| format!("parse Library location id {location_id}"))?;
+        let catalog = self.catalog.clone();
+        let missing = catalog
+            .library_source_relink_target(location_id)?
+            .ok_or_else(|| {
+                anyhow!("the selected Library source location is no longer available for relinking")
+            })?
+            .location;
+        if native_path_from_location(&missing.location)
+            .ok()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .is_some_and(|metadata| metadata.is_file())
+        {
+            bail!(
+                "the original source is available again; refresh the Library instead of relinking it"
+            );
+        }
+        self.relink_target(&missing, candidate_path)
+    }
+
+    fn relink_target(
+        &self,
+        missing: &shadow_catalog::MissingSourceLocationRecord,
+        candidate_path: &str,
+    ) -> AnyResult<VerifiedSourceRelinkReceipt> {
+        let candidate_path = Path::new(candidate_path)
+            .canonicalize()
+            .with_context(|| format!("resolve selected source {candidate_path}"))?;
+        let now_ms = current_time_ms()?;
+        let mut catalog = self.catalog.clone();
         if !matches!(
             missing.kind,
             RepresentationKind::OriginalRaw | RepresentationKind::OriginalRaster
@@ -98,7 +139,7 @@ impl RelinkService {
         );
         let pending = PendingStrongRelink::explicitly_selected(
             source,
-            relink_candidate_from_missing_location(&missing),
+            relink_candidate_from_missing_location(missing),
         );
         let verified = match verify_pending_relink(pending)? {
             StrongRelinkVerification::Verified(verified) => verified,
@@ -152,3 +193,6 @@ fn system_time_ms(time: std::time::SystemTime) -> Option<i64> {
     let duration = time.duration_since(std::time::UNIX_EPOCH).ok()?;
     i64::try_from(duration.as_millis()).ok()
 }
+
+#[cfg(test)]
+mod tests;

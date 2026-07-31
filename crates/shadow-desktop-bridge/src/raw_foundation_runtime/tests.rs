@@ -45,6 +45,9 @@ fn request_binds_one_exact_raw_file_to_the_photo_generation() {
 
 #[cfg(unix)]
 #[test]
+// This is one end-to-end publish-and-reuse acceptance transaction against the
+// real sidecar protocol; splitting it would duplicate its guarded fixture.
+#[allow(clippy::too_many_lines)]
 fn real_public_runtime_publishes_then_reuses_the_verified_foundation_when_supplied() {
     use std::os::unix::fs::PermissionsExt;
 

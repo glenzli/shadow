@@ -39,6 +39,32 @@ fi
 rawnind_model_root="$user_home/Library/Application Support/Shadow/Shadow/models/rawnind-public-bayer-release-5.6.0"
 rawnind_package=${SHADOW_RAWNIND_PACKAGE_PATH:-"$rawnind_model_root/rawdenoise-nind.dtmodel"}
 rawnind_graph=${SHADOW_RAWNIND_BAYER_GRAPH_PATH:-"$rawnind_model_root/model_bayer.onnx"}
+
+verify_rawnind_command_surface() {
+    provider=$1
+    provider_help=$("$provider" --help 2>&1) || return 1
+    for required_option in \
+        --model-package \
+        --model-graph \
+        --manifest \
+        --input-raw \
+        --input-raw-frame \
+        --output-foundation \
+        --source-pixel-contract-sha256 \
+        --verify-model \
+        --plan \
+        --run
+    do
+        case "$provider_help" in
+            *"$required_option"*) ;;
+            *)
+                echo "promote debug build: AI RAW Denoise provider is incompatible: missing $required_option" >&2
+                return 1
+                ;;
+        esac
+    done
+}
+
 if [ ! -d "$candidate_app" ] || [ ! -x "$shadow_executable" ]; then
     echo "promote debug build: candidate does not contain an executable Shadow app" >&2
     exit 65
@@ -66,6 +92,10 @@ if [ ! -r "$rawnind_package" ] || [ ! -r "$rawnind_graph" ]; then
     echo "promote debug build: local AI RAW Denoise model files are incomplete" >&2
     echo "Package: $rawnind_package" >&2
     echo "Graph: $rawnind_graph" >&2
+    exit 65
+fi
+if ! verify_rawnind_command_surface "$rawnind_provider"; then
+    echo "promote debug build: rebuild the RawNIND provider from the current Shadow source" >&2
     exit 65
 fi
 if ! "$rawnind_provider" \
@@ -141,6 +171,10 @@ if [ "$shadow_digest" != "$copied_shadow_digest" ] ||
     [ "$rawnind_provider_digest" != "$copied_rawnind_provider_digest" ] ||
     [ "$rawnind_manifest_digest" != "$copied_rawnind_manifest_digest" ]; then
     echo "promote debug build: copied application digest verification failed" >&2
+    exit 74
+fi
+if ! verify_rawnind_command_surface "$copied_rawnind_provider"; then
+    echo "promote debug build: copied AI RAW Denoise provider command surface changed" >&2
     exit 74
 fi
 if ! "$copied_rawnind_provider" \

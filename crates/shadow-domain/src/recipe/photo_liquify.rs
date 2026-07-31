@@ -73,6 +73,17 @@ pub enum LiquifyStroke {
         /// Normalized inner falloff; `1` keeps a harder core.
         hardness: UnitInterval,
     },
+    /// Gradually restores accumulated deformation toward the original image
+    /// mapping inside the swept brush support.
+    Reconstruct {
+        points: Vec<LiquifyPoint>,
+        /// Brush radius as a fraction of the original image's shorter edge.
+        radius: UnitInterval,
+        /// Normalized restoration amount applied by every sampled stamp.
+        strength: UnitInterval,
+        /// Normalized inner falloff; `1` keeps a harder core.
+        hardness: UnitInterval,
+    },
 }
 
 impl LiquifyStroke {
@@ -98,51 +109,103 @@ impl LiquifyStroke {
         Ok(stroke)
     }
 
+    /// Creates one validated local reconstruction gesture.
+    ///
+    /// Unlike Push, a single pressured point is meaningful because it restores
+    /// one stationary brush stamp.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the path is empty or has too many samples, or
+    /// when radius/strength would make the gesture a non-canonical no-op.
+    pub fn reconstruct(
+        points: Vec<LiquifyPoint>,
+        radius: UnitInterval,
+        strength: UnitInterval,
+        hardness: UnitInterval,
+    ) -> Result<Self, RecipeValidationError> {
+        let stroke = Self::Reconstruct {
+            points,
+            radius,
+            strength,
+            hardness,
+        };
+        stroke.validate()?;
+        Ok(stroke)
+    }
+
+    pub const fn is_push(&self) -> bool {
+        matches!(self, Self::Push { .. })
+    }
+
+    pub const fn is_reconstruct(&self) -> bool {
+        matches!(self, Self::Reconstruct { .. })
+    }
+
     /// Returns the authored samples in input order.
     pub fn points(&self) -> &[LiquifyPoint] {
         match self {
-            Self::Push { points, .. } => points,
+            Self::Push { points, .. } | Self::Reconstruct { points, .. } => points,
         }
     }
 
     pub const fn radius(&self) -> UnitInterval {
         match self {
-            Self::Push { radius, .. } => *radius,
+            Self::Push { radius, .. } | Self::Reconstruct { radius, .. } => *radius,
         }
     }
 
     pub const fn strength(&self) -> UnitInterval {
         match self {
-            Self::Push { strength, .. } => *strength,
+            Self::Push { strength, .. } | Self::Reconstruct { strength, .. } => *strength,
         }
     }
 
     pub const fn hardness(&self) -> UnitInterval {
         match self {
-            Self::Push { hardness, .. } => *hardness,
+            Self::Push { hardness, .. } | Self::Reconstruct { hardness, .. } => *hardness,
         }
     }
 
     fn validate(&self) -> Result<(), RecipeValidationError> {
         let points = self.points();
-        if points.len() < 2 {
-            return Err(RecipeValidationError::TooFewLiquifyStrokePoints(
-                points.len(),
-            ));
+        match self {
+            Self::Push { .. } if points.len() < 2 => {
+                return Err(RecipeValidationError::TooFewLiquifyStrokePoints(
+                    points.len(),
+                ));
+            }
+            Self::Reconstruct { .. } if points.is_empty() => {
+                return Err(RecipeValidationError::EmptyLiquifyReconstruct);
+            }
+            _ => {}
         }
         if points.len() > MAX_LIQUIFY_POINTS_PER_STROKE {
             return Err(RecipeValidationError::TooManyLiquifyStrokePoints(
                 points.len(),
             ));
         }
-        let has_effective_motion = points.windows(2).any(|segment| {
-            let from = segment[0];
-            let to = segment[1];
-            (from.x() != to.x() || from.y() != to.y())
-                && (from.pressure() != UnitInterval::ZERO || to.pressure() != UnitInterval::ZERO)
-        });
-        if !has_effective_motion {
-            return Err(RecipeValidationError::DegenerateLiquifyStroke);
+        match self {
+            Self::Push { .. } => {
+                let has_effective_motion = points.windows(2).any(|segment| {
+                    let from = segment[0];
+                    let to = segment[1];
+                    (from.x() != to.x() || from.y() != to.y())
+                        && (from.pressure() != UnitInterval::ZERO
+                            || to.pressure() != UnitInterval::ZERO)
+                });
+                if !has_effective_motion {
+                    return Err(RecipeValidationError::DegenerateLiquifyStroke);
+                }
+            }
+            Self::Reconstruct { .. }
+                if !points
+                    .iter()
+                    .any(|point| point.pressure() != UnitInterval::ZERO) =>
+            {
+                return Err(RecipeValidationError::DegenerateLiquifyStroke);
+            }
+            Self::Reconstruct { .. } => {}
         }
         if self.radius().get() == 0.0 {
             return Err(RecipeValidationError::DegenerateLiquifyBrushRadius);
@@ -161,6 +224,8 @@ impl LiquifyStroke {
 /// to `None` in [`super::PhotoStructuralNodes`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PhotoLiquifyNode {
+    #[serde(default = "liquify_enabled_by_default")]
+    enabled: bool,
     strokes: Vec<LiquifyStroke>,
 }
 
@@ -172,9 +237,27 @@ impl PhotoLiquifyNode {
     /// Returns an error when the node is empty, exceeds its fixed gesture
     /// bound, or contains an invalid gesture.
     pub fn new(strokes: Vec<LiquifyStroke>) -> Result<Self, RecipeValidationError> {
-        let node = Self { strokes };
+        let node = Self {
+            enabled: true,
+            strokes,
+        };
         node.validate()?;
         Ok(node)
+    }
+
+    /// Returns a copy with execution enabled or bypassed.
+    ///
+    /// Bypass retains every authored gesture so it can be restored without
+    /// rebuilding or changing the singleton node's identity.
+    #[must_use]
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Returns whether this materialized node contributes deformation.
+    pub const fn enabled(&self) -> bool {
+        self.enabled
     }
 
     /// Returns authored gestures in their deterministic composition order.
@@ -191,11 +274,20 @@ impl PhotoLiquifyNode {
                 self.strokes.len(),
             ));
         }
+        let mut has_prior_deformation = false;
         for stroke in &self.strokes {
             stroke.validate()?;
+            if stroke.is_reconstruct() && !has_prior_deformation {
+                return Err(RecipeValidationError::LiquifyReconstructWithoutPriorDeformation);
+            }
+            has_prior_deformation |= stroke.is_push();
         }
         Ok(())
     }
+}
+
+const fn liquify_enabled_by_default() -> bool {
+    true
 }
 
 #[cfg(test)]

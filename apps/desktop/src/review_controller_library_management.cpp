@@ -57,6 +57,20 @@ void ReviewController::relinkMissingSourceLocation(
     source_health_coordinator_.relinkMissingLocation(location_id, candidate_url);
 }
 
+void ReviewController::relinkUnavailableSourceLocation(
+    const QString& location_id,
+    const QUrl& candidate_url
+) {
+    source_health_coordinator_.relinkUnavailableLocation(location_id, candidate_url);
+}
+
+void ReviewController::removeUnavailablePhotoFromLibrary(
+    const QString& photo_id,
+    const QString& title
+) {
+    source_health_coordinator_.archiveUnavailablePhoto(photo_id, title);
+}
+
 void ReviewController::createManualLibraryAlbum(const QString& name) {
     album_coordinator_.createManual(name);
 }

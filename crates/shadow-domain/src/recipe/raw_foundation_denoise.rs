@@ -14,6 +14,8 @@ const fn default_amount_percent() -> u8 {
     RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT
 }
 
+// Serde's `skip_serializing_if` callback contract passes the field by reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 const fn amount_is_full(value: &u8) -> bool {
     *value == RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT
 }

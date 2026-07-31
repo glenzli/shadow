@@ -519,8 +519,10 @@ mod ffi {
     struct FfiLibraryPhotoItem {
         photo_id: String,
         representation_id: String,
+        location_id: String,
         title: String,
         source_path: String,
+        source_available: bool,
         source_byte_len: u64,
         has_source_modified_at: bool,
         source_modified_at_ms: i64,
@@ -912,11 +914,13 @@ mod ffi {
         pressure: f64,
     }
 
-    /// One durable push-brush gesture in the singleton Liquify node. An empty
+    /// One durable ordered gesture in the singleton Liquify node. An empty
     /// `liquify_strokes` vector on `FfiEditSettings` canonically means that
     /// the optional node is absent.
     #[derive(Debug, Clone)]
-    struct FfiLiquifyPushStroke {
+    struct FfiLiquifyStroke {
+        /// 0 = Push, 1 = Reconstruct.
+        kind: u8,
         points: Vec<FfiLiquifyPoint>,
         radius: f64,
         strength: f64,
@@ -987,7 +991,10 @@ mod ffi {
         grade_nodes: Vec<FfiGradeNode>,
         retouch_spots: Vec<FfiRetouchSpot>,
         retouch_strokes: Vec<FfiRetouchStroke>,
-        liquify_strokes: Vec<FfiLiquifyPushStroke>,
+        /// False with an empty stroke vector is the canonical absent node.
+        /// A non-empty vector retains this value while bypassed.
+        liquify_enabled: bool,
+        liquify_strokes: Vec<FfiLiquifyStroke>,
         geometry: FfiPhotoGeometry,
     }
 
@@ -1444,6 +1451,8 @@ mod ffi {
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
         ) -> Result<u64>;
+        // The CXX ABI carries viewport bounds as scalar fields.
+        #[allow(clippy::too_many_arguments)]
         fn library_map_snapshot(
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
@@ -1476,6 +1485,12 @@ mod ffi {
             location_id: &str,
             candidate_path: &str,
         ) -> Result<FfiVerifiedSourceRelinkReceipt>;
+        fn relink_library_source_location(
+            self: &DesktopSession,
+            location_id: &str,
+            candidate_path: &str,
+        ) -> Result<FfiVerifiedSourceRelinkReceipt>;
+        fn archive_library_photo(self: &DesktopSession, photo_id: &str) -> Result<bool>;
         fn create_manual_library_album(
             self: &DesktopSession,
             name: &str,

@@ -15,8 +15,9 @@
 /// Owns Review's complete Library source-health review lifecycle.
 ///
 /// A completed folder scan is only an external refresh trigger. This owner
-/// independently serializes source-health reads, missing-location paging, and
-/// exact user-selected relinks; rejects stale review pages; publishes the
+/// independently serializes source-health reads, missing-location paging,
+/// exact user-selected relinks, and non-destructive removal of unavailable
+/// photos; rejects stale review pages; publishes the
 /// stable QML projections and localized terminal status; and waits for every
 /// worker before destruction.
 class ReviewSourceHealthCoordinator final : public QObject {
@@ -38,6 +39,12 @@ class ReviewSourceHealthCoordinator final : public QObject {
             const QString& candidate_path
         )>
             relink;
+        std::function<BackendVerifiedSourceRelinkReceipt(
+            const QString& location_id,
+            const QString& candidate_path
+        )>
+            relink_library;
+        std::function<bool(const QString& photo_id)> archive_photo;
     };
 
     explicit ReviewSourceHealthCoordinator(Operations operations, QObject* parent = nullptr);
@@ -60,6 +67,8 @@ class ReviewSourceHealthCoordinator final : public QObject {
     void closeMissingLocationReview();
     void loadMoreMissingLocations();
     void relinkMissingLocation(const QString& location_id, const QUrl& candidate_url);
+    void relinkUnavailableLocation(const QString& location_id, const QUrl& candidate_url);
+    void archiveUnavailablePhoto(const QString& photo_id, const QString& title);
     void retranslateUi();
 
   signals:
@@ -98,6 +107,14 @@ class ReviewSourceHealthCoordinator final : public QObject {
         quint64 request_id = 0;
     };
 
+    struct ArchivePhotoTaskResult final {
+        bool archived = false;
+        QString error;
+        QString photo_id;
+        QString title;
+        quint64 request_id = 0;
+    };
+
     [[nodiscard]] static SourceHealthTaskResult runSourceHealthTask(
         std::function<QVector<BackendLibrarySourceHealth>()> operation,
         quint64 request_id
@@ -130,15 +147,33 @@ class ReviewSourceHealthCoordinator final : public QObject {
         QString candidate_path,
         quint64 request_id
     );
+    [[nodiscard]] static RelinkTaskResult runLibraryRelinkTask(
+        std::function<BackendVerifiedSourceRelinkReceipt(
+            const QString& location_id,
+            const QString& candidate_path
+        )> operation,
+        QString location_id,
+        QString candidate_path,
+        quint64 request_id
+    );
+    [[nodiscard]] static ArchivePhotoTaskResult runArchivePhotoTask(
+        std::function<bool(const QString& photo_id)> operation,
+        QString photo_id,
+        QString title,
+        quint64 request_id
+    );
 
     void startSourceHealthTask();
     void startRemoveSourceTask(const QString& source_id, const QString& source_path);
     void startMissingLocationTask(bool append);
     void startRelinkTask(const QString& location_id, const QString& candidate_path);
+    void startLibraryRelinkTask(const QString& location_id, const QString& candidate_path);
+    void startArchivePhotoTask(const QString& photo_id, const QString& title);
     void finishSourceHealthTask();
     void finishRemoveSourceTask();
     void finishMissingLocationTask();
     void finishRelinkTask();
+    void finishArchivePhotoTask();
     void publishGlobalStatus(LocalizedUiMessage status);
 
     Operations operations_;
@@ -163,8 +198,12 @@ class ReviewSourceHealthCoordinator final : public QObject {
     quint64 active_relink_request_id_ = 0;
     LocalizedUiMessage relink_status_message_;
     LocalizedUiMessage global_status_message_;
+    bool archive_photo_running_ = false;
+    quint64 archive_photo_request_id_ = 0;
+    quint64 active_archive_photo_request_id_ = 0;
     QFutureWatcher<SourceHealthTaskResult> source_health_watcher_;
     QFutureWatcher<RemoveSourceTaskResult> remove_source_watcher_;
     QFutureWatcher<MissingLocationTaskResult> missing_locations_watcher_;
     QFutureWatcher<RelinkTaskResult> relink_watcher_;
+    QFutureWatcher<ArchivePhotoTaskResult> archive_photo_watcher_;
 };

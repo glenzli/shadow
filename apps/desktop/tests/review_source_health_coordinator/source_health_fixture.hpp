@@ -20,6 +20,9 @@ using MissingLocationOperation =
     std::function<BackendMissingSourceLocationPage(const QString&, const QString&, std::uint32_t)>;
 using RelinkOperation = std::function<
     BackendVerifiedSourceRelinkReceipt(const QString&, const QString&, const QString&)>;
+using LibraryRelinkOperation =
+    std::function<BackendVerifiedSourceRelinkReceipt(const QString&, const QString&)>;
+using ArchivePhotoOperation = std::function<bool(const QString&)>;
 
 inline void require(const bool condition, const std::string& message) {
     if (!condition) {
@@ -47,7 +50,10 @@ inline ReviewSourceHealthCoordinator::Operations operations(
     RelinkOperation relink = [](const QString&,
                                 const QString&,
                                 const QString&) { return BackendVerifiedSourceRelinkReceipt{}; },
-    RemoveSourceOperation remove_source = [](const QString&) { return true; }
+    RemoveSourceOperation remove_source = [](const QString&) { return true; },
+    LibraryRelinkOperation relink_library =
+        [](const QString&, const QString&) { return BackendVerifiedSourceRelinkReceipt{}; },
+    ArchivePhotoOperation archive_photo = [](const QString&) { return true; }
 ) {
     if (!source_health) {
         source_health = [] { return QVector<BackendLibrarySourceHealth>{}; };
@@ -65,11 +71,21 @@ inline ReviewSourceHealthCoordinator::Operations operations(
     if (!remove_source) {
         remove_source = [](const QString&) { return true; };
     }
+    if (!relink_library) {
+        relink_library = [](const QString&, const QString&) {
+            return BackendVerifiedSourceRelinkReceipt{};
+        };
+    }
+    if (!archive_photo) {
+        archive_photo = [](const QString&) { return true; };
+    }
     return {
         .source_health = std::move(source_health),
         .remove_source = std::move(remove_source),
         .missing_locations = std::move(missing_locations),
         .relink = std::move(relink),
+        .relink_library = std::move(relink_library),
+        .archive_photo = std::move(archive_photo),
     };
 }
 

@@ -92,6 +92,25 @@ void tone_curve_drag_is_one_atomic_recipe_step() {
     );
 }
 
+void streamed_preview_can_commit_once_at_gesture_end() {
+    SessionEditHistory<State> history;
+    State current;
+
+    history.beginGesture("liquify/reconstruct/live", current);
+    current.exposure = 1;
+    current.exposure = 2;
+    current.exposure = 3;
+    require(
+        history.undoDepth() == 0,
+        "preview-only mutations stay outside history until the streamed gesture ends"
+    );
+    history.endGesture("liquify/reconstruct/live", current);
+
+    require(history.undoDepth() == 1, "streamed preview mutations commit as one step");
+    current = *history.undo(current);
+    require(current == State{}, "streamed preview undo restores the pre-gesture snapshot");
+}
+
 void a_new_edit_clears_redo() {
     SessionEditHistory<State> history;
     State current;
@@ -168,6 +187,7 @@ int main() {
     continuous_gesture_is_one_step();
     switching_parameters_splits_steps();
     tone_curve_drag_is_one_atomic_recipe_step();
+    streamed_preview_can_commit_once_at_gesture_end();
     a_new_edit_clears_redo();
     grade_node_bypass_is_atomic_and_preserves_adjustments();
     a_net_noop_gesture_preserves_redo();

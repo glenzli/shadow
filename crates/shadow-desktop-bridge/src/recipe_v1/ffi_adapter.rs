@@ -221,9 +221,18 @@ fn exact_managed_raster_percent(
     if (scaled - rounded).abs() > 1.0e-7 {
         bail!("managed raster mask {name} must use exact one-percent increments");
     }
-    Ok(rounded as i16)
+    if rounded < f64::from(i16::MIN) || rounded > f64::from(i16::MAX) {
+        bail!("managed raster mask {name} percentage exceeds i16");
+    }
+    // Finiteness, integrality, and the complete i16 range are checked above.
+    #[allow(clippy::cast_possible_truncation)]
+    let exact = rounded as i16;
+    Ok(exact)
 }
 
+// The tagged FFI mask union is decoded exhaustively in one place so every
+// variant shares the same validation and managed-raster preservation policy.
+#[allow(clippy::too_many_lines)]
 fn local_mask_definition_from_ffi(
     grade_node: &ffi::FfiGradeNode,
     index: usize,
@@ -635,7 +644,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     .with_context(|| format!("retouch stroke {index} is invalid"))
             })
             .collect::<AnyResult<Vec<_>>>()?,
-        liquify: photo_liquify_from_ffi(&settings.liquify_strokes)?,
+        liquify: photo_liquify_from_ffi(&settings.liquify_strokes, settings.liquify_enabled)?,
         geometry: photo_geometry_from_ffi(&settings.geometry)?,
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
@@ -1029,6 +1038,31 @@ pub(crate) fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFi
 pub(crate) fn encode_grade_stack_draft_recipe_v1(
     grade_stack: GradeStackDraft,
 ) -> AnyResult<ffi::FfiEditSettings> {
+    let (liquify_enabled, liquify_strokes) = grade_stack.liquify.map_or_else(
+        || (false, Vec::new()),
+        |node| {
+            let strokes = node
+                .strokes()
+                .iter()
+                .map(|stroke| ffi::FfiLiquifyStroke {
+                    kind: u8::from(stroke.is_reconstruct()),
+                    points: stroke
+                        .points()
+                        .iter()
+                        .map(|point| ffi::FfiLiquifyPoint {
+                            x: point.x().get(),
+                            y: point.y().get(),
+                            pressure: point.pressure().get(),
+                        })
+                        .collect(),
+                    radius: stroke.radius().get(),
+                    strength: stroke.strength().get(),
+                    hardness: stroke.hardness().get(),
+                })
+                .collect();
+            (node.enabled(), strokes)
+        },
+    );
     Ok(ffi::FfiEditSettings {
         foundation: ffi_photo_foundation_settings(
             &grade_stack.foundation,
@@ -1077,28 +1111,8 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 feather: stroke.feather().get(),
             })
             .collect(),
-        liquify_strokes: grade_stack
-            .liquify
-            .map(|node| {
-                node.strokes()
-                    .iter()
-                    .map(|stroke| ffi::FfiLiquifyPushStroke {
-                        points: stroke
-                            .points()
-                            .iter()
-                            .map(|point| ffi::FfiLiquifyPoint {
-                                x: point.x().get(),
-                                y: point.y().get(),
-                                pressure: point.pressure().get(),
-                            })
-                            .collect(),
-                        radius: stroke.radius().get(),
-                        strength: stroke.strength().get(),
-                        hardness: stroke.hardness().get(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+        liquify_enabled,
+        liquify_strokes,
         geometry: ffi_photo_geometry(grade_stack.geometry),
     })
 }

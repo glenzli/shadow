@@ -70,6 +70,69 @@ fn removing_a_library_folder_hides_photos_until_the_same_source_is_readded() {
 }
 
 #[test]
+fn configured_sources_hide_unowned_legacy_locations_and_adopt_matching_aliases() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let source_root = AssetLocation::new(
+        Platform::MacOs,
+        b"/linked/archive".to_vec(),
+        "/linked/archive",
+    );
+    let canonical_root = AssetLocation::new(
+        Platform::MacOs,
+        b"/volumes/archive".to_vec(),
+        "/volumes/archive",
+    );
+    let scan = catalog
+        .begin_import_session(&source_root, 1)
+        .expect("begin source scan");
+    register_scan_entry(&mut catalog, scan, "/linked/archive/owned.nef", 2);
+    catalog
+        .finish_import_session(scan, ImportSessionState::Completed, None, 3)
+        .expect("finish source scan");
+    register(&mut catalog, "/volumes/archive/legacy.nef");
+    register(&mut catalog, "/volumes/archive-old/unrelated.nef");
+    let source_id = catalog.library_sources().expect("list sources")[0].id;
+
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count all photos"),
+        1,
+        "once source membership exists, unrelated legacy locations are not Library roots"
+    );
+    assert!(
+        catalog
+            .remove_library_source_with_legacy_roots(
+                source_id,
+                &[source_root.clone(), canonical_root],
+                4,
+            )
+            .expect("remove source and adopt legacy alias")
+    );
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count photos after source removal"),
+        0,
+        "removing the only configured source leaves no active Library roots"
+    );
+
+    let reenabled = catalog
+        .begin_import_session(&source_root, 5)
+        .expect("re-enable source");
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count restored photos"),
+        2,
+        "the owned photo and adopted alias return, while the unrelated location stays hidden"
+    );
+    catalog
+        .finish_import_session(reenabled, ImportSessionState::Completed, None, 6)
+        .expect("finish re-enabled scan");
+}
+
+#[test]
 fn exact_content_identity_relinks_a_moved_file_without_changing_photo_identity() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let original = register(&mut catalog, "/archive/DSC_0001.NEF");
@@ -294,5 +357,33 @@ fn source_health_pages_scan_absences_without_marking_locations_offline() {
             .library_photo_count(&LibraryPhotoFilter::default())
             .expect("count online Library originals"),
         3
+    );
+}
+
+#[test]
+fn current_library_location_can_be_selected_for_exact_relink_without_scan_absence() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let registered = register(&mut catalog, "/archive/moved.nef");
+
+    let target = catalog
+        .library_source_relink_target(registered.location_id)
+        .expect("read current Library relink target")
+        .expect("active original remains a valid explicit target");
+    assert_eq!(target.location.photo_id, registered.photo_id);
+    assert_eq!(
+        target.location.representation_id,
+        registered.representation_id
+    );
+    assert_eq!(target.location.location_id, registered.location_id);
+    assert_eq!(target.location.location.display_path, "/archive/moved.nef");
+
+    catalog
+        .archive_library_photo(registered.photo_id)
+        .expect("archive photo");
+    assert!(
+        catalog
+            .library_source_relink_target(registered.location_id)
+            .expect("query archived target")
+            .is_none()
     );
 }

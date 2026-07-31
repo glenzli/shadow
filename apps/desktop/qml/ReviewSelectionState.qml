@@ -26,6 +26,7 @@ QtObject {
     property string selectedColorLabel: "none"
     property string selectedTitle: ""
     property string selectedPath: ""
+    property bool selectedSourceAvailable: true
     property string selectedRole: ""
     property string selectedVisualSource: ""
     property int selectedWidth: 0
@@ -146,14 +147,20 @@ QtObject {
         selectedColorLabel = card.colorLabel
         selectedTitle = card.title
         selectedPath = card.sourcePath
+        selectedSourceAvailable = card.sourceAvailable === undefined
+            ? true : Boolean(card.sourceAvailable)
         selectedRole = card.visualRole
         selectedVisualSource = card.visualSource
         selectedWidth = card.visualWidth
         selectedHeight = card.visualHeight
         if (identityChanged) {
             primaryContextInvalidated()
-            controller.requestPhotoInspection(
-                selectedPhotoId, selectedRepresentationId)
+            if (selectedSourceAvailable) {
+                controller.requestPhotoInspection(
+                    selectedPhotoId, selectedRepresentationId)
+            } else {
+                controller.clearPhotoInspection()
+            }
         }
     }
 
@@ -224,6 +231,7 @@ QtObject {
         selectedColorLabel = "none"
         selectedTitle = ""
         selectedPath = ""
+        selectedSourceAvailable = true
         selectedRole = ""
         selectedVisualSource = ""
         selectedWidth = 0

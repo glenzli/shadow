@@ -41,7 +41,7 @@ impl PhotoInspectionService {
             return Ok(unavailable(photo_id, representation_id));
         };
         let effective_facts = self.catalog.effective_photo_library_facts(photo_id)?;
-        Ok(inspection(record, effective_facts))
+        Ok(inspection(record, effective_facts.as_ref()))
     }
 }
 
@@ -101,7 +101,7 @@ fn unavailable(photo_id: PhotoId, representation_id: RepresentationId) -> ffi::F
 #[allow(clippy::too_many_lines)]
 fn inspection(
     record: PhotoInspectionRecord,
-    effective_facts: Option<shadow_catalog::LibraryPhotoFacts>,
+    effective_facts: Option<&shadow_catalog::LibraryPhotoFacts>,
 ) -> ffi::FfiPhotoInspection {
     let has_source_modified_at = record.source.modified_at_ms.is_some();
     let source_modified_at_ms = record.source.modified_at_ms.unwrap_or_default();
@@ -164,10 +164,9 @@ fn inspection(
         },
     );
     let effective_captured_at = effective_facts
-        .as_ref()
         .and_then(|facts| facts.captured_at_unix_seconds)
         .or_else(|| (captured_at_unix_seconds != 0).then_some(captured_at_unix_seconds));
-    let effective_coordinates = effective_facts.as_ref().and_then(|facts| {
+    let effective_coordinates = effective_facts.and_then(|facts| {
         Some((
             facts.latitude_e7?,
             facts.longitude_e7?,

@@ -1,6 +1,7 @@
 use crate::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
-    AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask,
+    AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
+    AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke, AdjustmentLocalMask,
     AdjustmentMaskBrushPoint, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
     AdjustmentRenderOperation, AdjustmentRenderPlan, EditPreviewMaskCoverageRequest,
 };
@@ -152,8 +153,9 @@ fn liquify_presence_paths_and_stroke_partitions_cross_the_flat_wire_exactly() {
     let plan = AdjustmentRenderPlan {
         nodes: vec![layer_start(None)],
         liquify: Some(AdjustmentLiquify {
+            enabled: true,
             strokes: vec![
-                AdjustmentLiquifyPushStroke {
+                AdjustmentLiquifyStroke::Push(AdjustmentLiquifyPushStroke {
                     points: vec![
                         AdjustmentLiquifyPoint {
                             x: 0.1,
@@ -169,29 +171,17 @@ fn liquify_presence_paths_and_stroke_partitions_cross_the_flat_wire_exactly() {
                     radius: 0.07,
                     strength: 0.8,
                     hardness: 0.25,
-                },
-                AdjustmentLiquifyPushStroke {
-                    points: vec![
-                        AdjustmentLiquifyPoint {
-                            x: 0.7,
-                            y: 0.8,
-                            pressure: 0.9,
-                        },
-                        AdjustmentLiquifyPoint {
-                            x: 0.9,
-                            y: 0.6,
-                            pressure: 1.0,
-                        },
-                        AdjustmentLiquifyPoint {
-                            x: 0.8,
-                            y: 0.4,
-                            pressure: 0.5,
-                        },
-                    ],
+                }),
+                AdjustmentLiquifyStroke::Reconstruct(AdjustmentLiquifyReconstructStroke {
+                    points: vec![AdjustmentLiquifyPoint {
+                        x: 0.8,
+                        y: 0.4,
+                        pressure: 0.5,
+                    }],
                     radius: 0.12,
                     strength: 0.4,
                     hardness: 0.75,
-                },
+                }),
             ],
         }),
         geometry: AdjustmentGeometry::identity(),
@@ -200,18 +190,20 @@ fn liquify_presence_paths_and_stroke_partitions_cross_the_flat_wire_exactly() {
 
     let request = ffi_render_request(&plan, 2_048, 90);
     assert!(request.liquify.present);
-    assert_eq!(request.liquify.stroke_point_counts, [2, 3]);
+    assert!(request.liquify.enabled);
+    assert_eq!(request.liquify.stroke_kinds, [0, 1]);
+    assert_eq!(request.liquify.stroke_point_counts, [2, 1]);
     assert_eq!(
         request.liquify.stroke_parameters,
         [0.07, 0.8, 0.25, 0.12, 0.4, 0.75]
     );
-    assert_eq!(request.liquify.points.len(), 5);
+    assert_eq!(request.liquify.points.len(), 3);
     assert_eq!(request.liquify.points[0].x, 0.1);
     assert_eq!(request.liquify.points[0].y, 0.2);
     assert_eq!(request.liquify.points[0].pressure, 0.3);
-    assert_eq!(request.liquify.points[4].x, 0.8);
-    assert_eq!(request.liquify.points[4].y, 0.4);
-    assert_eq!(request.liquify.points[4].pressure, 0.5);
+    assert_eq!(request.liquify.points[2].x, 0.8);
+    assert_eq!(request.liquify.points[2].y, 0.4);
+    assert_eq!(request.liquify.points[2].pressure, 0.5);
 }
 
 #[test]
@@ -223,6 +215,8 @@ fn absent_liquify_uses_an_explicit_empty_wire_payload() {
     };
     let request = ffi_render_request(&plan, 2_048, 90);
     assert!(!request.liquify.present);
+    assert!(!request.liquify.enabled);
+    assert!(request.liquify.stroke_kinds.is_empty());
     assert!(request.liquify.points.is_empty());
     assert!(request.liquify.stroke_point_counts.is_empty());
     assert!(request.liquify.stroke_parameters.is_empty());

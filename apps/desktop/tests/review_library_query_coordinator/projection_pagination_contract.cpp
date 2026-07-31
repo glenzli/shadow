@@ -11,6 +11,7 @@ void run_projection_pagination_contracts() {
         decisions.push_back(std::move(state));
     });
     int query_starts = 0;
+    int initial_page_presentations = 0;
     QObject::connect(
         &coordinator,
         &ReviewLibraryQueryCoordinator::queryStarted,
@@ -22,6 +23,20 @@ void run_projection_pagination_contracts() {
             ++query_starts;
         }
     );
+    QObject::connect(
+        &coordinator,
+        &ReviewLibraryQueryCoordinator::initialPagePresented,
+        [&initial_page_presentations](
+            const BackendLibraryPhotoFilter& filter,
+            const quint64 generation
+        ) {
+            require(
+                filter.camera_key == QStringLiteral("paginate") && generation == 2,
+                "the presented page retains its immutable filter and generation"
+            );
+            ++initial_page_presentations;
+        }
+    );
 
     BackendLibraryPhotoFilter filter;
     filter.camera_key = QStringLiteral("paginate");
@@ -31,7 +46,8 @@ void run_projection_pagination_contracts() {
         "the first page and count reach one ready projection"
     );
     require(
-        query_starts == 1 && model.rowCount() == 1 && coordinator.hasMore() && decisions.size() == 1
+        query_starts == 1 && initial_page_presentations == 1 && model.rowCount() == 1
+            && coordinator.hasMore() && decisions.size() == 1
             && decisions.front().photo_id == QStringLiteral("photo-1")
             && decisions.front().rating == 3,
         "the first page projects its row, decision, count, and continuation"

@@ -188,121 +188,121 @@
 <context>
     <name>EditController</name>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="261"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="277"/>
         <source>AI RAW Denoise bypassed · the verified foundation remains cached</source>
         <translation>AI RAW 降噪已旁路 · 已验证的基础影像仍保留在缓存中</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="553"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="569"/>
         <source>AI RAW Denoise cancelled</source>
         <translation>AI RAW 降噪已取消</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="624"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="640"/>
         <source>AI RAW Denoise enabled · Undo and bypass remain available</source>
         <translation>AI RAW 降噪已启用 · 仍可撤销或旁路</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="567"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="583"/>
         <source>AI RAW Denoise ended without a terminal result</source>
         <translation>AI RAW 降噪结束时未返回终态结果</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="518"/>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="559"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="534"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="575"/>
         <source>AI RAW Denoise failed · %1</source>
         <translation>AI RAW 降噪失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="537"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="553"/>
         <source>AI RAW Denoise foundation is ready · enabling the non-destructive switch…</source>
         <translation>AI RAW 降噪基础影像已就绪 · 正在启用非破坏性开关…</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="389"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="405"/>
         <source>AI RAW Denoise is available · it runs once and remains reversible</source>
         <translation>AI RAW 降噪可用 · 仅需运行一次，并可随时撤销</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="595"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="611"/>
         <source>AI RAW Denoise is bypassed · other adjustments remain editable</source>
         <translation>AI RAW 降噪已旁路 · 其他调整仍可编辑</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="590"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="606"/>
         <source>AI RAW Denoise is enabled</source>
         <translation>AI RAW 降噪已启用</translation>
     </message>
     <message>
         <location filename="../src/edit_raw_foundation_controller.cpp" line="116"/>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="341"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="357"/>
         <source>AI RAW Denoise is off</source>
         <translation>AI RAW 降噪已关闭</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="609"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="625"/>
         <source>AI RAW Denoise is ready · waiting for the current edit transaction…</source>
         <translation>AI RAW 降噪已就绪 · 正在等待当前编辑事务完成…</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="546"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="562"/>
         <source>AI RAW Denoise is unavailable · %1</source>
         <translation>AI RAW 降噪不可用 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="404"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="420"/>
         <source>AI RAW Denoise is unavailable · install the verified local model, then retry · %1</source>
         <translation>AI RAW 降噪不可用 · 请安装已验证的本地模型后重试 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="317"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="333"/>
         <source>Cancelling AI RAW Denoise…</source>
         <translation>正在取消 AI RAW 降噪…</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="280"/>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="339"/>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="365"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="296"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="355"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="381"/>
         <source>Checking the local AI RAW Denoise model…</source>
         <translation>正在检查本地 AI RAW 降噪模型…</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="310"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="326"/>
         <source>Could not cancel AI RAW Denoise · %1</source>
         <translation>无法取消 AI RAW 降噪 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="433"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="449"/>
         <source>Could not start AI RAW Denoise · %1</source>
         <translation>无法启动 AI RAW 降噪 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="493"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="509"/>
         <source>Planning AI RAW Denoise…</source>
         <translation>正在规划 AI RAW 降噪…</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="460"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="476"/>
         <source>Preparing AI RAW Denoise…</source>
         <translation>正在准备 AI RAW 降噪…</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="497"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="513"/>
         <source>Running AI RAW Denoise · %1%</source>
         <translation>正在运行 AI RAW 降噪 · %1%</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="384"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="400"/>
         <source>Saved AI RAW Denoise is enabled · the foundation is verified when rendered</source>
         <translation>已保存的 AI RAW 降噪处于启用状态 · 渲染时会验证基础影像</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="396"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="412"/>
         <source>Saved AI RAW Denoise is enabled, but the required local model is unavailable · %1</source>
         <translation>已保存的 AI RAW 降噪处于启用状态，但所需的本地模型不可用 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_raw_foundation_controller.cpp" line="291"/>
+        <location filename="../src/edit_raw_foundation_controller.cpp" line="307"/>
         <source>Waiting for the previous AI RAW Denoise task to stop…</source>
         <translation>正在等待上一个 AI RAW 降噪任务停止…</translation>
     </message>
@@ -362,12 +362,12 @@
         <translation>调整节点 %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="194"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="198"/>
         <source>Grade Node enabled</source>
         <translation>调色节点已启用</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="195"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="199"/>
         <source>Grade Node bypassed · settings preserved</source>
         <translation>调色节点已旁路 · 设置已保留</translation>
     </message>
@@ -710,69 +710,69 @@
         <translation>正在重置此照片的开发调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="285"/>
-        <location filename="../src/edit_grade_node_controller.cpp" line="483"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="312"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="520"/>
         <location filename="../src/edit_mask_assignment_controller.cpp" line="95"/>
         <source>An edit can contain at most 16 Grade Nodes</source>
         <translation>一项编辑最多可包含 16 个调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="296"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="323"/>
         <source>Could not create Grade Node · %1</source>
         <translation>无法创建调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="306"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="333"/>
         <source>The Grade Node could not be inserted safely</source>
         <translation>无法安全插入该调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="317"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="354"/>
         <source>Added Grade Node · %1</source>
         <translation>已添加调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="335"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="372"/>
         <source>Could not duplicate Grade Node · %1</source>
         <translation>无法复制调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="358"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="395"/>
         <source>The duplicate Grade Node could not be inserted safely</source>
         <translation>无法安全插入复制的调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="371"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="408"/>
         <source>Duplicated Grade Node · %1</source>
         <translation>已复制调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="386"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="423"/>
         <source>Could not load shared Grade Nodes · %1</source>
         <translation>无法加载共享调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="400"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="437"/>
         <source>Give the shared Grade Node a name</source>
         <translation>为共享调色节点命名</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="412"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="449"/>
         <source>Could not share Grade Node · %1</source>
         <translation>无法共享调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="441"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="478"/>
         <source>Shared Grade Node · %1</source>
         <translation>共享调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="489"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="526"/>
         <source>The shared Grade Node could not be inserted safely</source>
         <translation>无法安全插入共享调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="504"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="551"/>
         <source>Applied shared Grade Node · %1</source>
         <translation>已应用共享调色节点 · %1</translation>
     </message>
@@ -836,12 +836,12 @@
         <translation>此画笔蒙版已达到点数上限</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="528"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="575"/>
         <source>Deleted Grade Node · %1</source>
         <translation>已删除调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="550"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="597"/>
         <source>Reordered Grade Node</source>
         <translation>已调整调色节点顺序</translation>
     </message>
@@ -851,47 +851,47 @@
         <translation>无法在曲线的这个位置添加控制点</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="106"/>
+        <location filename="../src/edit_history_controller.cpp" line="111"/>
         <source>Undid the last session adjustment</source>
         <translation>已撤销本次会话中的上一项调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="133"/>
+        <location filename="../src/edit_history_controller.cpp" line="138"/>
         <source>Redid the last session adjustment</source>
         <translation>已重做本次会话中的上一项调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="570"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="617"/>
         <source>Reset the selected Grade Node</source>
         <translation>已重置选中的调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="585"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="632"/>
         <source>Could not clear Grade Nodes · %1</source>
         <translation>无法清空调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="598"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="645"/>
         <source>Cleared all Grade Nodes</source>
         <translation>已清空全部调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="148"/>
+        <location filename="../src/edit_history_controller.cpp" line="153"/>
         <source>Could not reset adjustments · %1</source>
         <translation>无法重置调整 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="161"/>
+        <location filename="../src/edit_history_controller.cpp" line="166"/>
         <source>Reset all adjustments</source>
         <translation>已重置全部调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="175"/>
+        <location filename="../src/edit_history_controller.cpp" line="180"/>
         <source>Discarded working changes and restored the Library version</source>
         <translation>已放弃工作区修改并恢复图库版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="194"/>
+        <location filename="../src/edit_history_controller.cpp" line="199"/>
         <source>Restored the current saved version</source>
         <translation>已恢复当前保存的版本</translation>
     </message>
@@ -1012,7 +1012,7 @@
         <translation>图库目录返回了其他照片的编辑状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="203"/>
+        <location filename="../src/edit_history_controller.cpp" line="208"/>
         <source>The saved edit exceeds the 16-Grade-Node desktop limit</source>
         <translation>保存的编辑超过桌面版 16 个调色节点的上限</translation>
     </message>
@@ -1037,7 +1037,7 @@
         <translation>请先启用选中的调色节点，再编辑其控件</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="252"/>
+        <location filename="../src/edit_history_controller.cpp" line="259"/>
         <source>The saved Tone Curve cannot be represented safely</source>
         <translation>无法安全表示已保存的色调曲线</translation>
     </message>
@@ -1068,7 +1068,7 @@
         <translation>%1 超出支持的预览范围</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.hpp" line="825"/>
+        <location filename="../src/edit_controller.hpp" line="864"/>
         <source>Open a photo from Review to begin editing</source>
         <translation>请从选片中打开一张照片开始编辑</translation>
     </message>
@@ -1190,17 +1190,33 @@
         <translation>本地 SAM 2.1 不可用 · 请检查模型目录 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_liquify_controller.cpp" line="151"/>
+        <location filename="../src/edit_liquify_controller.cpp" line="217"/>
+        <location filename="../src/edit_liquify_controller.cpp" line="315"/>
         <source>Added Liquify stroke</source>
         <translation>已添加液化笔触</translation>
     </message>
     <message>
-        <location filename="../src/edit_liquify_controller.cpp" line="105"/>
+        <location filename="../src/edit_liquify_controller.cpp" line="193"/>
         <source>Liquify supports at most 128 strokes</source>
         <translation>液化最多支持 128 条笔触</translation>
     </message>
     <message>
-        <location filename="../src/edit_liquify_controller.cpp" line="163"/>
+        <location filename="../src/edit_liquify_controller.cpp" line="179"/>
+        <source>Liquify enabled</source>
+        <translation>液化已启用</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_liquify_controller.cpp" line="180"/>
+        <source>Liquify bypassed · strokes preserved</source>
+        <translation>液化已旁路 · 笔画已保留</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_liquify_controller.cpp" line="314"/>
+        <source>Added Liquify reconstruction</source>
+        <translation>已添加液化恢复笔画</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_liquify_controller.cpp" line="344"/>
         <source>Removed Liquify</source>
         <translation>已移除液化</translation>
     </message>
@@ -2472,24 +2488,47 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>LibraryMissingPhotoDialogs</name>
+    <message>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="39"/>
+        <source>Locate original for %1</source>
+        <translation>为 %1 查找原片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="41"/>
+        <source>Photo files (*)</source>
+        <translation>照片文件 (*)</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="50"/>
+        <source>Remove missing photo from Library?</source>
+        <translation>从图库移除失联照片？</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="62"/>
+        <source>%1 will no longer appear in the Library. The original file and Shadow’s non-destructive edits are not deleted.</source>
+        <translation>%1 将不再显示在图库中。原始文件和 Shadow 的无损编辑不会被删除。</translation>
+    </message>
+</context>
+<context>
     <name>LibraryWorkspace</name>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="113"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="128"/>
         <source>Remove Library folder?</source>
         <translation>移除图库文件夹？</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="121"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="136"/>
         <source>Remove this folder from Shadow’s Library? Photos available only through this folder leave the Gallery. Edits and original files are kept, and return if the folder is added again.</source>
         <translation>要从 Shadow 图库中移除此文件夹吗？仅可通过此文件夹访问的照片将从图库中隐藏。编辑记录和原始文件会保留；再次添加此文件夹后，照片会连同编辑记录一起恢复。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="151"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="165"/>
         <source>REMOVE FOLDER</source>
         <translation>移除文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="248"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="271"/>
         <source>REMOVE FOLDER FROM LIBRARY</source>
         <translation>从图库中移除文件夹</translation>
     </message>
@@ -2504,92 +2543,92 @@ R %2 · G %3 · B %4</translation>
         <translation>整理照片并管理本地来源。原始文件保持只读。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="106"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="184"/>
         <source>SOURCE HEALTH</source>
         <translation>来源状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="126"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="204"/>
         <source>REFRESH SOURCE HEALTH</source>
         <translation>刷新来源状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="178"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="259"/>
         <source>ACTIVE</source>
         <translation>正在使用</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="178"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="259"/>
         <source>PAUSED</source>
         <translation>已暂停</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="188"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="286"/>
         <source>No completed scan has been recorded yet.</source>
         <translation>尚未有已完成的扫描记录。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="190"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="288"/>
         <source>The latest scan accounted for all known locations.</source>
         <translation>最近一次扫描已覆盖所有已知位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="191"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="289"/>
         <source>%L1 locations were not seen in this scan.</source>
         <translation>本次扫描未发现 %L1 个位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="205"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="303"/>
         <source>KNOWN  %L1</source>
         <translation>已知  %L1</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="212"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="310"/>
         <source>SEEN  %L1</source>
         <translation>已发现  %L1</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="225"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="323"/>
         <source>This is scan evidence for this source only; photos may remain available elsewhere.</source>
         <translation>这只是该来源的扫描记录；照片仍可能在其他位置可用。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="243"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="341"/>
         <source>REVIEW NOT-SEEN LOCATIONS</source>
         <translation>查看未发现的位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="273"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="371"/>
         <source>NOT-SEEN LOCATIONS</source>
         <translation>未发现的位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="290"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="388"/>
         <source>CLOSE LOCATION REVIEW</source>
         <translation>关闭位置检查</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="300"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="398"/>
         <source>No locations are available for this completed scan.</source>
         <translation>此已完成扫描没有可用的位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="348"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="447"/>
         <source>LOCATE MOVED ORIGINAL</source>
         <translation>定位已移动的原片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="361"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="462"/>
         <source>Verifying complete file…</source>
         <translation>正在验证完整文件…</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="384"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="485"/>
         <source>LOAD MORE LOCATIONS</source>
         <translation>加载更多位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="407"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="508"/>
         <source>No source scans yet. Import a folder to establish one.</source>
         <translation>尚无来源扫描。请导入文件夹以建立扫描记录。</translation>
     </message>
@@ -2624,32 +2663,33 @@ R %2 · G %3 · B %4</translation>
         <translation>选择其他文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="22"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="25"/>
         <source>Choose the moved original file</source>
         <translation>选择已移动的原片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="53"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="56"/>
         <source>Verify and link original</source>
         <translation>验证并链接原片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="61"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="64"/>
         <source>Shadow will read the complete selected file and link it only when its exact content identity belongs to this historical photo. File name, EXIF and size are not used as a match.</source>
         <translation>Shadow 会读取所选文件的完整内容，仅当其精确内容身份属于这张历史照片时才建立链接。文件名、EXIF 和文件大小均不作为匹配依据。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="82"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="85"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="158"/>
         <source>CANCEL</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="88"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="91"/>
         <source>VERIFY AND LINK</source>
         <translation>验证并链接</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="392"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="493"/>
         <source>Select a moved original to verify it. Shadow creates no new Library source and changes nothing unless the complete file identity matches exactly.</source>
         <translation>选择一份已移动的原片进行验证。只有完整文件身份精确匹配时，Shadow 才会链接；否则不会创建新的图库来源，也不会做任何更改。</translation>
     </message>
@@ -2748,52 +2788,52 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="69"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="67"/>
         <source>Capture date · Newest first</source>
         <translation>拍摄日期 · 最新优先</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="81"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="78"/>
         <source>Capture date · Oldest first</source>
         <translation>拍摄日期 · 最早优先</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="95"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="91"/>
         <source>Name · A to Z</source>
         <translation>名称 · A 到 Z</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="107"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="102"/>
         <source>Name · Z to A</source>
         <translation>名称 · Z 到 A</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="132"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="125"/>
         <source>NAME ↓</source>
         <translation>名称 ↓</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="133"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="126"/>
         <source>NAME ↑</source>
         <translation>名称 ↑</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="135"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="128"/>
         <source>DATE ↓</source>
         <translation>日期 ↓</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="136"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="129"/>
         <source>DATE ↑</source>
         <translation>日期 ↑</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="137"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="130"/>
         <source>Sort Library photos</source>
         <translation>排序图库照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="78"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="151"/>
         <source>Open advanced Library filters</source>
         <translation>打开高级图库筛选</translation>
     </message>
@@ -2878,8 +2918,8 @@ R %2 · G %3 · B %4</translation>
         <translation>选片</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="205"/>
         <location filename="../qml/MainStatusBar.qml" line="108"/>
+        <location filename="../qml/MainTitleBar.qml" line="205"/>
         <source>PRECISION</source>
         <translation>精修</translation>
     </message>
@@ -2905,7 +2945,7 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/MainLibraryFilterBar.qml" line="53"/>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="100"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="173"/>
         <source>Clear all Library filters</source>
         <translation>清除图库筛选</translation>
     </message>
@@ -2960,32 +3000,32 @@ R %2 · G %3 · B %4</translation>
         <translation>历史</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="85"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="158"/>
         <source>FILTER</source>
         <translation>筛选</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="154"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="227"/>
         <source>Filter %L1 stars and above</source>
         <translation>筛选 %L1 星及以上</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="175"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="252"/>
         <source>Filter liked photos</source>
         <translation>筛选喜欢的照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="193"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="270"/>
         <source>Filter edited photos</source>
         <translation>筛选已编辑照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="204"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="281"/>
         <source>Filter unedited photos</source>
         <translation>筛选未编辑照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="225"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="302"/>
         <source>Filter %1 color label</source>
         <translation>筛选 %1 颜色标签</translation>
     </message>
@@ -3008,56 +3048,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/MainPrecisionProxyStatus.qml" line="30"/>
         <source>OFF</source>
         <translation>关</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="44"/>
-        <source>SELECTED</source>
-        <translation>已选照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="45"/>
-        <source>NO SELECTION</source>
-        <translation>未选择照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="60"/>
-        <source>Undo the last decision</source>
-        <translation>撤销上一次决策</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="96"/>
-        <source>Mark as picked (P)</source>
-        <translation>标记为入选（P）</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="98"/>
-        <source>Mark as rejected (X)</source>
-        <translation>标记为淘汰（X）</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="99"/>
-        <source>Clear decision flag (U)</source>
-        <translation>清除标记（U）</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="132"/>
-        <source>Clear rating (0)</source>
-        <translation>清除评级（0）</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="154"/>
-        <source>Set rating to %L1 stars (%L1)</source>
-        <translation>设为 %L1 星（%L1）</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="175"/>
-        <source>Clear local color label</source>
-        <translation>清除本地颜色标签</translation>
-    </message>
-    <message>
-        <location filename="../qml/MainSelectionDecisionBar.qml" line="190"/>
-        <source>Set %1 color label</source>
-        <translation>设为 %1 颜色标签</translation>
     </message>
     <message>
         <location filename="../qml/MainStatusBar.qml" line="109"/>
@@ -3547,78 +3537,74 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionWorkspace</name>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="40"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="20"/>
         <source>AI RAW DENOISE</source>
         <translation>AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="69"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="187"/>
-        <source>Apply AI Denoise</source>
-        <translation>应用 AI 降噪</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="90"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="580"/>
         <source>Bypass AI RAW Denoise</source>
         <translation>旁路 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="95"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="585"/>
         <source>Bypass AI RAW Denoise; preserve its cache</source>
         <translation>旁路 AI RAW 降噪；保留其缓存</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="91"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="581"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="104"/>
         <source>Enable AI RAW Denoise</source>
         <translation>启用 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="96"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="586"/>
         <source>Apply AI RAW Denoise</source>
         <translation>应用 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="188"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="25"/>
         <source>A fixed photo-local node before Basic Adjustments.</source>
         <translation>位于基础调整之前的固定照片本地节点。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="31"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="30"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="109"/>
         <source>Turn off AI RAW Denoise</source>
         <translation>关闭 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="59"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="110"/>
+        <source>Run once, then keep a reversible cached foundation</source>
+        <translation>仅运行一次，之后保留可随时撤销的缓存基础影像</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="542"/>
         <source>AI RAW Denoise</source>
         <translation>AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="42"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="23"/>
         <source>OFF</source>
         <translation>关</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="42"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="553"/>
         <source>PROCESSING</source>
         <translation>处理中</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="44"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="555"/>
         <source>SOURCE · %L1%</source>
         <translation>源影像 · %L1%</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="186"/>
-        <source>Retry AI Denoise</source>
-        <translation>重试 AI 降噪</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="589"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="390"/>
         <source>Green to red balance</source>
         <translation>绿色到红色平衡</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="614"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="415"/>
         <source>Blue to yellow balance</source>
         <translation>蓝色到黄色平衡</translation>
     </message>
@@ -3633,92 +3619,109 @@ R %2 · G %3 · B %4</translation>
         <translation>放大镜工具 · 点击放大，按住 Option 点击缩小</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="396"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="188"/>
         <source>Exposure</source>
         <translation>曝光</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="128"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="172"/>
         <source>NODES</source>
         <translation>节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="135"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="179"/>
         <source>GRADES %L1 / %L2</source>
         <translation>调整节点 %L1 / %L2</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="146"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="190"/>
         <source>Add an adjustment or open a structural tool</source>
         <translation>添加调整节点或打开结构工具</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="147"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="191"/>
         <source>Add node</source>
         <translation>添加节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="155"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="199"/>
         <source>CANVAS · FIXED</source>
         <translation>画布 · 固定</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="170"/>
-        <source>PHOTO · SINGLETON</source>
-        <translation>照片独享 · 单例</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="171"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="217"/>
         <source>EMPTY · DRAW TO CREATE</source>
         <translation>空 · 绘制后创建</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="241"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="291"/>
         <source>SHARED · V%1 · ENABLED</source>
         <translation>共享 · V%1 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="241"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="291"/>
         <source>SHARED · V%1 · BYPASSED</source>
         <translation>共享 · V%1 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="241"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="291"/>
         <source>LOCAL · ENABLED</source>
         <translation>本地 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="241"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="291"/>
         <source>LOCAL · BYPASSED</source>
         <translation>本地 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="241"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="291"/>
         <source> · NODE MASK</source>
         <translation> · 节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="261"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="311"/>
         <source>Edit this node mask</source>
         <translation>编辑此节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="261"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="311"/>
         <source>Add a mask to this node</source>
         <translation>为此节点添加蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="280"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="112"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="330"/>
         <source>Bypass %1</source>
         <translation>旁路 %1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="280"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="113"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="330"/>
         <source>Enable %1</source>
         <translation>启用 %1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="505"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="117"/>
+        <source>Bypass node; preserve all settings</source>
+        <translation>旁路节点；保留全部设置</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="118"/>
+        <source>Enable node</source>
+        <translation>启用节点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="215"/>
+        <source>PHOTO · ENABLED</source>
+        <translation>照片 · 已启用</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="216"/>
+        <source>PHOTO · BYPASSED</source>
+        <translation>照片 · 已旁路</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="683"/>
         <source>Read the stack from bottom source to top output. Basic Adjustments and Canvas are fixed structural nodes.</source>
         <translation>节点栈从底部源图读到顶部输出。基础调整和画布是固定结构节点。</translation>
     </message>
@@ -3729,7 +3732,7 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodeMenus.qml" line="93"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="154"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="198"/>
         <source>Crop &amp; Geometry</source>
         <translation>裁剪与几何</translation>
     </message>
@@ -3754,71 +3757,71 @@ R %2 · G %3 · B %4</translation>
         <translation>调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="143"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="144"/>
         <source>SHARED NODES</source>
         <translation>共享节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="157"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="158"/>
         <source>No shared nodes yet</source>
         <translation>尚无共享节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="194"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="196"/>
         <source>Update shared node…</source>
         <translation>更新共享节点…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="195"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="197"/>
         <source>Share node…</source>
         <translation>共享节点…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="205"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="207"/>
         <source>Duplicate as independent</source>
         <translation>复制为独立节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="213"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="215"/>
         <source>Reset node</source>
         <translation>重置节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="223"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="225"/>
         <source>Delete node</source>
         <translation>删除节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="257"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="259"/>
         <source>Shared Grade Node</source>
         <translation>共享调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="264"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="266"/>
         <source>A stable library node can be linked to many photos.</source>
         <translation>稳定的图库级节点可以链接到多张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="272"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="274"/>
         <source>Node name</source>
         <translation>节点名称</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="298"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="118"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="154"/>
         <location filename="../qml/PrecisionResetAllDialog.qml" line="60"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="199"/>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="296"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="110"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="302"/>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="304"/>
         <source>Share</source>
         <translation>共享</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="591"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="22"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="392"/>
         <source>Red</source>
         <translation>红色</translation>
     </message>
@@ -3828,15 +3831,15 @@ R %2 · G %3 · B %4</translation>
         <translation>橙色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="616"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="24"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="417"/>
         <location filename="../qml/PrecisionSelectiveColor.qml" line="30"/>
         <source>Yellow</source>
         <translation>黄色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="590"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="25"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="391"/>
         <source>Green</source>
         <translation>绿色</translation>
     </message>
@@ -3846,8 +3849,8 @@ R %2 · G %3 · B %4</translation>
         <translation>青色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="615"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="27"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="416"/>
         <source>Blue</source>
         <translation>蓝色</translation>
     </message>
@@ -3944,63 +3947,64 @@ R %2 · G %3 · B %4</translation>
         <translation>上下并排</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="283"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="333"/>
         <source>Bypass Grade Node; preserve all adjustments</source>
         <translation>旁路调色节点；保留所有调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="283"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="333"/>
         <source>Enable Grade Node</source>
         <translation>启用调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="370"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="420"/>
         <source>Basic Adjustments</source>
         <translation>基础调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="381"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="431"/>
         <source>SOURCE · ENABLED</source>
         <translation>源图 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="382"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="432"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="557"/>
         <source>SOURCE · BYPASSED</source>
         <translation>源图 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="402"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="452"/>
         <source>Bypass Basic Adjustments</source>
         <translation>旁路基础调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="403"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="408"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="453"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="458"/>
         <source>Enable Basic Adjustments</source>
         <translation>启用基础调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="407"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="457"/>
         <source>Bypass optional source adjustments; preserve their values</source>
         <translation>旁路可选的源图调整，并保留其数值</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="462"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="640"/>
         <source>Duplicate selected Grade Node</source>
         <translation>创建所选调色节点的副本</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="470"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="648"/>
         <source>Delete selected Grade Node</source>
         <translation>删除所选调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="479"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="657"/>
         <source>Move selected Grade Node up</source>
         <translation>上移选中的调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="487"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="665"/>
         <source>Move selected Grade Node down</source>
         <translation>下移选中的调色节点</translation>
     </message>
@@ -4036,6 +4040,7 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionCanvasToolbar.qml" line="206"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="22"/>
         <source>%L1%</source>
         <translation>%L1%</translation>
     </message>
@@ -4137,13 +4142,13 @@ R %2 · G %3 · B %4</translation>
         <translation>调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="389"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="178"/>
         <source>LIGHT</source>
         <translation>明暗</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="539"/>
-        <location filename="../qml/PrecisionColorMixer.qml" line="84"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="86"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="334"/>
         <source>COLOR</source>
         <translation>色彩</translation>
     </message>
@@ -4203,105 +4208,105 @@ R %2 · G %3 · B %4</translation>
         <translation>全部重置</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="219"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="28"/>
         <source>RAW WHITE BALANCE</source>
         <translation>RAW 白平衡</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="318"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="104"/>
         <source>GRADE WHITE BALANCE</source>
         <translation>调色白平衡</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="319"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="105"/>
         <source>Relative processed-RGB temperature and tint for the selected Grade Node.</source>
         <translation>所选调色节点中作用于处理后 RGB 的相对色温与色调。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="330"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="119"/>
         <source>Pick a neutral area for Grade White Balance</source>
         <translation>为调色白平衡选取中性区域</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="264"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="341"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="50"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="130"/>
         <source>Temperature</source>
         <translation>色温</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="222"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="31"/>
         <source>Camera white balance · calibrated Kelvin unavailable</source>
         <translation>相机白平衡 · 无法校准显示 Kelvin</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="223"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="32"/>
         <source>%L1 K · Tint %L2</source>
         <translation>%L1 K · 色调 %L2</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="227"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="36"/>
         <source>Absolute photographic temperature and tint for this RAW. Camera-space calibration remains an internal rendering detail.</source>
         <translation>此 RAW 的绝对摄影色温与色调。相机空间校准仍属于内部渲染细节。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="253"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="42"/>
         <source>Restore the white balance recorded by the camera</source>
         <translation>恢复相机记录的白平衡</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="265"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="51"/>
         <source>Set the absolute RAW white point as a correlated color temperature.</source>
         <translation>以相关色温设置 RAW 的绝对白点。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="291"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="364"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="77"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="153"/>
         <source>Tint</source>
         <translation>色调</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="292"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="78"/>
         <source>Move the absolute RAW white point from green toward magenta.</source>
         <translation>在绿色到洋红色轴上移动 RAW 的绝对白点。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="459"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="251"/>
         <source>Foundational atmosphere and frequency controls evaluated before creative color grading.</source>
         <translation>在创意调色前计算的基础空气感与频率控制。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="466"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="261"/>
         <source>Restore atmospheric separation before creative grading.</source>
         <translation>在创意调色前恢复空气层次。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="471"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="266"/>
         <source>Adjust protected mid-frequency structure without changing color.</source>
         <translation>在不改变颜色的前提下调整受保护的中频结构。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="476"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="271"/>
         <source>Adjust fine lightness detail without sharpening edges or color noise.</source>
         <translation>调整细微明度纹理，而不锐化边缘或颜色噪点。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="583"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="381"/>
         <source>Perceptual global opponent balance after basic color and before hue-keyed color corrections.</source>
         <translation>在基础颜色之后、按色相校正之前，调整感知全局对立色平衡。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="641"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="442"/>
         <source>CURVE</source>
         <translation>曲线</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="642"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="443"/>
         <source>Perceptual lightness curve; hue and chroma are preserved.</source>
         <translation>感知明度曲线；保持色相与色度不变。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionColorMixer.qml" line="188"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="313"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="190"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="325"/>
         <source>Hue</source>
         <translation>色相</translation>
     </message>
@@ -4331,47 +4336,47 @@ R %2 · G %3 · B %4</translation>
         <translation>从照片中取样颜色以开始。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="196"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="198"/>
         <source>TONE SPLIT · USE SEPARATE NODES</source>
         <translation>明暗分区偏色 · 请使用独立节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="198"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="200"/>
         <source>SAMPLE TOO SMALL · REFINE POINT COLOR</source>
         <translation>样本过少 · 请细化点颜色选区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="200"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="202"/>
         <source>ALIGNED · NO NUDGE NEEDED</source>
         <translation>已对齐 · 无需微调</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="201"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="203"/>
         <source>SKIN GUIDE Δ %1</source>
         <translation>肤色参考线 Δ %1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="229"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="231"/>
         <source>Apply the guide direction as a limited starting hue correction for this Point Color. It is undoable and does not change the node mask or global color.</source>
         <translation>将参考线方向作为此点颜色的受限色相起始校正。该操作可撤销，且不会改变节点蒙版或全局颜色。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="276"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="278"/>
         <source>Target hue (OKLCh)</source>
         <translation>目标色相（OKLCh）</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="374"/>
+        <location filename="../qml/PrecisionInspector.qml" line="386"/>
         <source>COLOR MAP</source>
         <translation>颜色映射</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="375"/>
+        <location filename="../qml/PrecisionInspector.qml" line="387"/>
         <source>OKLAB 5×5</source>
         <translation>Oklab 5×5</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="376"/>
+        <location filename="../qml/PrecisionInspector.qml" line="388"/>
         <source>Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.</source>
         <translation>在颜色混合与点颜色之后移动平滑连接的 Oklab 网格。这是独立的色度场校正，不是按色相区分的滑块。</translation>
     </message>
@@ -4388,140 +4393,140 @@ R %2 · G %3 · B %4</translation>
         <translation>无</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLutSection.qml" line="143"/>
+        <location filename="../qml/PrecisionLutSection.qml" line="145"/>
         <source>Choose a LUT</source>
         <translation>选择 LUT</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLutSection.qml" line="344"/>
+        <location filename="../qml/PrecisionLutSection.qml" line="346"/>
         <source>%1³</source>
         <translation>%1³</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLutSection.qml" line="181"/>
+        <location filename="../qml/PrecisionLutSection.qml" line="183"/>
         <source>Manage LUT Library</source>
         <translation>管理 LUT 资料库</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLutSection.qml" line="193"/>
+        <location filename="../qml/PrecisionLutSection.qml" line="195"/>
         <source>Remove LUT from this Grade Node</source>
         <translation>从当前调色节点移除 LUT</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLutSection.qml" line="374"/>
+        <location filename="../qml/PrecisionLutSection.qml" line="376"/>
         <source>Intensity</source>
         <translation>强度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="28"/>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="25"/>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="63"/>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="348"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="31"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="28"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="66"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="350"/>
         <source>Amount</source>
         <translation>数量</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="29"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="32"/>
         <source>Radius</source>
         <translation>半径</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="30"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="33"/>
         <source>Threshold</source>
         <translation>阈值</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="31"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="34"/>
         <source>Masking</source>
         <translation>蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="31"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="33"/>
         <source>PROFILE</source>
         <translation>配置文件</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="34"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="36"/>
         <source>Automatic lens-profile correction with an optional profile override</source>
         <translation>自动匹配镜头配置，也可手动覆盖</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="39"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="41"/>
         <source>MANUAL</source>
         <translation>手动</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="42"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="44"/>
         <source>Residual geometry, vignetting, and color-fringe correction</source>
         <translation>微调几何、暗角与色边</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="137"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="139"/>
         <source>Profile correction disabled</source>
         <translation>配置矫正已关闭</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="141"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="143"/>
         <source>Lensfun unavailable</source>
         <translation>Lensfun 不可用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="145"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="147"/>
         <source>Camera not found</source>
         <translation>未找到相机</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="149"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="151"/>
         <source>Lens not found</source>
         <translation>未找到镜头</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="152"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="154"/>
         <source>Lens metadata unavailable</source>
         <translation>镜头元数据不可用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="217"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="219"/>
         <source>Return to automatic matching</source>
         <translation>恢复自动匹配</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="458"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="250"/>
         <source>PRESENCE</source>
         <translation>存在感</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="291"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="293"/>
         <source>Geometrically realign color channels. This is distinct from purple/green Defringe below.</source>
         <translation>通过几何方式重新对齐颜色通道，与下方的紫/绿边去除不同。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="300"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="302"/>
         <source>Red / Cyan</source>
         <translation>红 / 青</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="301"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="303"/>
         <source>Move the red channel radially against green to correct red/cyan color fringes.</source>
         <translation>相对绿色径向移动红色通道，以校正红/青色边。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="320"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="322"/>
         <source>Blue / Yellow</source>
         <translation>蓝 / 黄</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="321"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="323"/>
         <source>Move the blue channel radially against green to correct blue/yellow color fringes.</source>
         <translation>相对绿色径向移动蓝色通道，以校正蓝/黄色边。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="339"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="341"/>
         <source>Lens shading correction in original optical coordinates. The creative post-crop vignette is in Looks.</source>
         <translation>在原始光学坐标中校正镜头阴影；创意性的裁切后暗角位于“风格”。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="349"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="351"/>
         <source>Brighten or darken the outer lens shading before crop and creative grading.</source>
         <translation>在裁切和创意调色之前提亮或压暗镜头边缘阴影。</translation>
     </message>
@@ -4536,66 +4541,66 @@ R %2 · G %3 · B %4</translation>
         <translation>命名检查点会显示在这里。当前工作调整会自动保存；加载检查点不会删除较新的工作。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="67"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="70"/>
         <source>Luminance</source>
         <translation>明度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="68"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="71"/>
         <source>Detail</source>
         <translation>细节</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="69"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="72"/>
         <source>Color</source>
         <translation>颜色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="465"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="260"/>
         <source>Dehaze</source>
         <translation>去朦胧</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="404"/>
+        <location filename="../qml/PrecisionInspector.qml" line="418"/>
         <source>COLOR GRADING</source>
         <translation>颜色分级</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="458"/>
+        <location filename="../qml/PrecisionInspector.qml" line="476"/>
         <source>Blending</source>
         <translation>混合</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="464"/>
+        <location filename="../qml/PrecisionInspector.qml" line="482"/>
         <source>Balance</source>
         <translation>平衡</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="17"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="20"/>
         <source>GRAIN</source>
         <translation>颗粒</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="36"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="283"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="29"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="78"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="295"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="117"/>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="26"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="27"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="30"/>
         <source>Roughness</source>
         <translation>粗糙度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="55"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="58"/>
         <source>POST-CROP VIGNETTE</source>
         <translation>裁剪后暗角</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="64"/>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="368"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="67"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="370"/>
         <source>Midpoint</source>
         <translation>中点</translation>
     </message>
@@ -4605,7 +4610,7 @@ R %2 · G %3 · B %4</translation>
         <translation>控制捕获锐化与常规降噪。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="65"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="68"/>
         <source>Roundness</source>
         <translation>圆度</translation>
     </message>
@@ -4616,66 +4621,66 @@ R %2 · G %3 · B %4</translation>
         <translation>画笔</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="131"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="139"/>
         <source>NODE MASK</source>
         <translation>节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="232"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="244"/>
         <source>Replace from clipboard</source>
         <translation>从剪贴板替换</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="233"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="245"/>
         <source>Replace this mask with copied geometry · Undo available</source>
         <translation>用已复制的几何替换此蒙版 · 可撤销</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="243"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="255"/>
         <source>Start X</source>
         <translation>起点 X</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="247"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="259"/>
         <source>Start Y</source>
         <translation>起点 Y</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="251"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="263"/>
         <source>End X</source>
         <translation>终点 X</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="255"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="267"/>
         <source>End Y</source>
         <translation>终点 Y</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="260"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="272"/>
         <source>Center X</source>
         <translation>中心 X</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="264"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="276"/>
         <source>Center Y</source>
         <translation>中心 Y</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="278"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="289"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="345"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="69"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="290"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="301"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="357"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="137"/>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="66"/>
         <source>Feather</source>
         <translation>羽化</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="381"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="393"/>
         <source>Invert</source>
         <translation>反相</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="169"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="181"/>
         <source>Clear brush strokes</source>
         <translation>清除画笔笔触</translation>
     </message>
@@ -4702,67 +4707,67 @@ R %2 · G %3 · B %4</translation>
         <translation>候选已就绪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="101"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="109"/>
         <source>Regenerate</source>
         <translation>重新生成</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="121"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="129"/>
         <source>Apply candidate</source>
         <translation>应用候选</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="133"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="141"/>
         <source>Edit the selector attached to this Grade Node.</source>
         <translation>编辑此调色节点的作用选区。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="181"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="193"/>
         <source>Remove this node mask</source>
         <translation>移除此节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="195"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="207"/>
         <source>Create mask</source>
         <translation>创建蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="206"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="218"/>
         <source>Paste as mask</source>
         <translation>粘贴为蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="209"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="221"/>
         <source>Attach the copied mask geometry to this node</source>
         <translation>将已复制的蒙版几何附加到此节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="223"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="235"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="224"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="236"/>
         <source>Copy this mask geometry</source>
         <translation>复制此蒙版几何</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="268"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="280"/>
         <source>Width</source>
         <translation>宽度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="273"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="285"/>
         <source>Height</source>
         <translation>高度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="338"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="350"/>
         <source>Expand / Contract</source>
         <translation>扩张 / 收缩</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="393"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="405"/>
         <source>Invert node mask</source>
         <translation>反转节点蒙版</translation>
     </message>
@@ -4792,40 +4797,40 @@ R %2 · G %3 · B %4</translation>
         <translation>版本名称</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="412"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="204"/>
         <source>Contrast</source>
         <translation>对比度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="431"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="426"/>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="67"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="70"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="218"/>
+        <location filename="../qml/PrecisionInspector.qml" line="449"/>
         <source>Highlights</source>
         <translation>高光</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="417"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="427"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="219"/>
+        <location filename="../qml/PrecisionInspector.qml" line="435"/>
         <source>Shadows</source>
         <translation>阴影</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="428"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="220"/>
         <source>Whites</source>
         <translation>白色色阶</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="429"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="221"/>
         <source>Blacks</source>
         <translation>黑色色阶</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="562"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="360"/>
         <source>Vibrance</source>
         <translation>自然饱和度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="582"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="380"/>
         <source>COLOR BALANCE</source>
         <translation>颜色平衡</translation>
     </message>
@@ -4835,7 +4840,7 @@ R %2 · G %3 · B %4</translation>
         <translation>颜色混合</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionColorMixer.qml" line="96"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="98"/>
         <source>HUE</source>
         <translation>色相</translation>
     </message>
@@ -4845,22 +4850,22 @@ R %2 · G %3 · B %4</translation>
         <translation>可选颜色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSelectiveColor.qml" line="130"/>
+        <location filename="../qml/PrecisionSelectiveColor.qml" line="133"/>
         <source>RELATIVE</source>
         <translation>相对</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSelectiveColor.qml" line="132"/>
+        <location filename="../qml/PrecisionSelectiveColor.qml" line="135"/>
         <source>Scale the existing CMYK component</source>
         <translation>按现有 CMYK 成分比例调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSelectiveColor.qml" line="135"/>
+        <location filename="../qml/PrecisionSelectiveColor.qml" line="138"/>
         <source>ABSOLUTE</source>
         <translation>绝对</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSelectiveColor.qml" line="137"/>
+        <location filename="../qml/PrecisionSelectiveColor.qml" line="140"/>
         <source>Add or remove a fixed CMYK amount</source>
         <translation>直接增减固定 CMYK 量</translation>
     </message>
@@ -4906,44 +4911,44 @@ R %2 · G %3 · B %4</translation>
         <translation>取消点颜色取样 · Esc</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="110"/>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="121"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="112"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="123"/>
         <source>SKIN CHECK</source>
         <translation>肤色检查</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="109"/>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="120"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="111"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="122"/>
         <source>SKIN REFERENCE LOCKED</source>
         <translation>肤色参考已锁定</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="107"/>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="122"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="109"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="124"/>
         <source>Sample a representative skin midtone, freeze its diagnostic pixels, and inspect shadow, midtone, and highlight alignment in the Vectorscope.</source>
         <translation>取样有代表性的肤色中间调，冻结诊断像素，并在矢量示波器中检查阴影、中间调与高光的对齐情况。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="277"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="323"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="335"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="279"/>
         <source>Range</source>
         <translation>范围</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="278"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="307"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="332"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="319"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="344"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="280"/>
         <source>Softness</source>
         <translation>柔化</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="279"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="281"/>
         <source>Hue shift</source>
         <translation>色相偏移</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="281"/>
-        <location filename="../qml/PrecisionColorMixer.qml" line="190"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="192"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="283"/>
         <source>Lightness</source>
         <translation>明度</translation>
     </message>
@@ -4963,15 +4968,15 @@ R %2 · G %3 · B %4</translation>
         <translation>颜色分级、LUT 与成片效果</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="280"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="546"/>
-        <location filename="../qml/PrecisionColorMixer.qml" line="189"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="191"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="344"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="282"/>
         <source>Chroma</source>
         <translation>色度</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionColorMixer.qml" line="33"/>
-        <location filename="../qml/PrecisionColorMixer.qml" line="83"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="85"/>
         <source>OKLCH</source>
         <translation>OKLCH</translation>
     </message>
@@ -4981,17 +4986,17 @@ R %2 · G %3 · B %4</translation>
         <translation>分别调整各颜色范围的色相、色度和 Oklab 明度。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionColorMixer.qml" line="85"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="87"/>
         <source>CURVES</source>
         <translation>曲线</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionColorMixer.qml" line="97"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="99"/>
         <source>CHROMA</source>
         <translation>色度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionColorMixer.qml" line="98"/>
+        <location filename="../qml/PrecisionColorMixer.qml" line="100"/>
         <source>LIGHTNESS</source>
         <translation>明度</translation>
     </message>
@@ -5006,12 +5011,12 @@ R %2 · G %3 · B %4</translation>
         <translation>先选择 Oklab 颜色范围，再应用 Photoshop 风格的 CMYK 校正。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSelectiveColor.qml" line="146"/>
+        <location filename="../qml/PrecisionSelectiveColor.qml" line="149"/>
         <source>Lightness lock</source>
         <translation>明度锁定</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSelectiveColor.qml" line="147"/>
+        <location filename="../qml/PrecisionSelectiveColor.qml" line="150"/>
         <source>Preserve the source Oklab lightness after CMYK correction. 0% follows Selective Color; 100% changes hue and chroma only.</source>
         <translation>CMYK 校正后保留原始 Oklab 明度。0% 完全遵循可选颜色；100% 仅改变色相和色度。</translation>
     </message>
@@ -5021,12 +5026,12 @@ R %2 · G %3 · B %4</translation>
         <translation>使用吸管从图像建立一个或多个精确的 Oklch 颜色范围。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="405"/>
+        <location filename="../qml/PrecisionInspector.qml" line="419"/>
         <source>Tint shadows, midtones, and highlights independently with perceptual color wheels.</source>
         <translation>用感知色轮分别为阴影、中间调和高光着色。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="424"/>
+        <location filename="../qml/PrecisionInspector.qml" line="442"/>
         <source>Midtones</source>
         <translation>中间调</translation>
     </message>
@@ -5041,52 +5046,52 @@ R %2 · G %3 · B %4</translation>
         <translation>细节</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="470"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="265"/>
         <source>Clarity</source>
         <translation>清晰度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="475"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="270"/>
         <source>Texture</source>
         <translation>纹理</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="483"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="278"/>
         <source>Microcontrast</source>
         <translation>局部对比</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="484"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="279"/>
         <source>Adjust broad edge-aware lightness contrast independently from Clarity and Texture.</source>
         <translation>独立于清晰度与纹理，调整保边的大范围明度对比。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="515"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="310"/>
         <source>Scale</source>
         <translation>尺度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="516"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="311"/>
         <source>Choose the spatial scale used by Local Contrast, from medium to broad structure.</source>
         <translation>选择局部对比度作用的空间尺度，从中等到宽广结构。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="20"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="23"/>
         <source>SHARPENING</source>
         <translation>锐化</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="21"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="24"/>
         <source>Conventional capture sharpening. Use after frequency detail, and mask it to avoid sharpening smooth noise.</source>
         <translation>常规捕获锐化。应在频率细节之后使用，并通过蒙版避免锐化平滑区域中的噪声。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="59"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="62"/>
         <source>DENOISE</source>
         <translation>降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailSection.qml" line="60"/>
+        <location filename="../qml/PrecisionDetailSection.qml" line="63"/>
         <source>The controls below denoise the current RGB preview immediately with separate luminance and color passes. RAW files can additionally use a conservative sensor-domain pass for full-size processing and export; JPEG and HEIF retain the same responsive RGB controls.</source>
         <translation>下方控制会立即以独立的明度与颜色通道为当前 RGB 预览降噪。RAW 在全尺寸处理和导出时还可使用保守的传感器域处理；JPEG 与 HEIF 保持相同的快速 RGB 控制。</translation>
     </message>
@@ -5096,112 +5101,112 @@ R %2 · G %3 · B %4</translation>
         <translation>光学</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="97"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="99"/>
         <source>NO PROFILE</source>
         <translation>不使用配置</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="99"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="101"/>
         <source>PROFILE OVERRIDE</source>
         <translation>手动配置</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="102"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="104"/>
         <source>AUTOMATIC PROFILE</source>
         <translation>自动配置</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="123"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="125"/>
         <source>No profile correction</source>
         <translation>不应用配置文件校正</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="127"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="129"/>
         <source>Preparing lens profile…</source>
         <translation>正在准备镜头配置…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="133"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="135"/>
         <source>Lens profile matched</source>
         <translation>已匹配镜头配置</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="192"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="194"/>
         <source>EXIF camera and lens matching</source>
         <translation>根据 EXIF 匹配相机和镜头</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="204"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="206"/>
         <source>Choose or override lens profile</source>
         <translation>选择或覆盖镜头配置</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="235"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="237"/>
         <source>No profile correction is applied.</source>
         <translation>未应用配置文件校正。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="239"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="241"/>
         <source>All calibrated corrections from this profile are applied together.</source>
         <translation>此配置文件中所有已标定的校正将作为整体应用。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="242"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="244"/>
         <source>No matching profile correction is available for this photo.</source>
         <translation>此照片没有可匹配的配置文件校正。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="254"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="256"/>
         <source>A profile is one coherent correction. Distortion, lateral chromatic aberration, lens shading, and automatic crop use every calibrated record that Lensfun provides; residual adjustments live in Manual.</source>
         <translation>一个配置文件是一套完整校正。畸变、横向色差、镜头暗角与自动裁切会使用 Lensfun 提供的全部已标定数据；残余校正在“手动”中处理。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="272"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="274"/>
         <source>Distortion</source>
         <translation>畸变</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="273"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="275"/>
         <source>Residual radial geometry correction applied after the selected profile.</source>
         <translation>在所选配置之后应用径向几何微调。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="290"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="292"/>
         <source>CHROMATIC ABERRATION</source>
         <translation>色差</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="338"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="340"/>
         <source>VIGNETTING</source>
         <translation>暗角</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="383"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="385"/>
         <source>DEFRINGE</source>
         <translation>去色边</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="384"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="386"/>
         <source>Suppress purple and green chromatic fringes within the selected hue ranges.</source>
         <translation>在选定色相范围内抑制紫色和绿色色边。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="393"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="395"/>
         <source>Purple amount</source>
         <translation>紫边量</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="418"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="420"/>
         <source>Purple hue</source>
         <translation>紫边色相</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="439"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="441"/>
         <source>Green amount</source>
         <translation>绿边量</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionOpticsSection.qml" line="463"/>
+        <location filename="../qml/PrecisionOpticsSection.qml" line="465"/>
         <source>Green hue</source>
         <translation>绿边色相</translation>
     </message>
@@ -5211,12 +5216,12 @@ R %2 · G %3 · B %4</translation>
         <translation>效果</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="18"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="21"/>
         <source>Add a controlled photographic grain after the main color and tone adjustments.</source>
         <translation>在主要色彩和明暗调整后添加可控的摄影颗粒。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="56"/>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="59"/>
         <source>Apply a creative vignette after cropping; this is separate from optical lens-vignetting correction.</source>
         <translation>在裁剪后应用创意暗角；它独立于光学镜头暗角校正。</translation>
     </message>
@@ -5306,27 +5311,27 @@ R %2 · G %3 · B %4</translation>
         <translation>照片独有的方向变换，会在调色后应用，且不会成为共享调色节点。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="40"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="48"/>
         <source>Rotate counterclockwise</source>
         <translation>逆时针旋转</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="47"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="55"/>
         <source>Rotate clockwise</source>
         <translation>顺时针旋转</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="54"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="62"/>
         <source>Flip horizontally</source>
         <translation>水平翻转</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="61"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="69"/>
         <source>Flip vertically</source>
         <translation>垂直翻转</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="71"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="34"/>
         <source>Reset transform</source>
         <translation>重置变换</translation>
     </message>
@@ -5381,26 +5386,26 @@ R %2 · G %3 · B %4</translation>
         <translation>使用带羽化的修复或附近仿制源移除小瑕疵。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="108"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="87"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="111"/>
         <source>Heal</source>
         <translation>修复</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="107"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="85"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="110"/>
         <source>Blend a defect from its surrounding pixels</source>
         <translation>用周围像素融合瑕疵</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="122"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="98"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="125"/>
         <source>Clone</source>
         <translation>仿制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="121"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="97"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="124"/>
         <source>Copy a same-shaped nearby source</source>
         <translation>从附近复制同形来源区域</translation>
     </message>
@@ -5425,17 +5430,17 @@ R %2 · G %3 · B %4</translation>
         <translation>已绘制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="140"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="143"/>
         <source>Drag on the image to paint · Esc stops painting</source>
         <translation>在图像上拖动画笔 · Esc 停止绘制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="142"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="145"/>
         <source>Select a repair region below or on the image.</source>
         <translation>在下方或图像上选择修复区域。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="143"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="146"/>
         <source>Choose Heal or Clone, then paint on the image.</source>
         <translation>选择修复或仿制，然后在图像上绘制。</translation>
     </message>
@@ -5530,12 +5535,12 @@ R %2 · G %3 · B %4</translation>
         <translation>颜色范围</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="295"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="307"/>
         <source>Lower</source>
         <translation>下限</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="301"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="313"/>
         <source>Upper</source>
         <translation>上限</translation>
     </message>
@@ -5560,23 +5565,22 @@ R %2 · G %3 · B %4</translation>
         <translation>AI 主体</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="107"/>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="83"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="91"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="58"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="66"/>
         <source>Exclude</source>
         <translation>排除</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="102"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="110"/>
         <source>Generate</source>
         <translation>生成</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="99"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="107"/>
         <source>Generating…</source>
         <translation>生成中…</translation>
     </message>
@@ -5586,7 +5590,7 @@ R %2 · G %3 · B %4</translation>
         <translation>正在识别主体…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="49"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="57"/>
         <source>Include</source>
         <translation>包含</translation>
     </message>
@@ -5601,7 +5605,7 @@ R %2 · G %3 · B %4</translation>
         <translation>在所选调色节点上使用 SAM 2.1 提示点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="74"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="82"/>
         <source>Undo point</source>
         <translation>撤销提示点</translation>
     </message>
@@ -5611,27 +5615,52 @@ R %2 · G %3 · B %4</translation>
         <translation>%1 条笔触</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="37"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="52"/>
+        <source>Push</source>
+        <translation>推移</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="53"/>
+        <source>Move pixels along the pointer path.</source>
+        <translation>沿指针路径推移像素。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="64"/>
+        <source>Reconstruct</source>
+        <translation>恢复</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="67"/>
+        <source>Restore deformation toward the original image mapping.</source>
+        <translation>将变形恢复至原始图像映射。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="79"/>
         <source>Brush radius as a percentage of the original image&apos;s shorter edge.</source>
         <translation>画笔半径占原图较短边的百分比。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="55"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="97"/>
         <source>Controls how far pixels follow each pointer segment.</source>
         <translation>控制像素沿每个指针线段移动的距离。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="120"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="154"/>
+        <source>Paint over a deformed area to restore its original mapping. The authoritative preview updates while you drag, then commits as one undoable stroke.</source>
+        <translation>在变形区域上涂抹以恢复其原始映射。拖动时会更新权威预览，松手后作为一个可撤销笔画提交。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="155"/>
         <source>Drag on the image to push pixels. The path stays local while dragging, then commits as one undoable stroke.</source>
         <translation>在图像上拖动以推动像素。拖动时路径仅保留在本地，松手后作为一次可撤销笔触提交。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="72"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="114"/>
         <source>Hardness</source>
         <translation>硬度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="73"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="115"/>
         <source>Keeps a larger solid core before the brush falloff.</source>
         <translation>在画笔衰减前保留更大的实心核心区域。</translation>
     </message>
@@ -5641,8 +5670,8 @@ R %2 · G %3 · B %4</translation>
         <translation>液化</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="212"/>
         <location filename="../qml/PrecisionInspector.qml" line="172"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="168"/>
         <source>Liquify</source>
         <translation>液化</translation>
     </message>
@@ -5652,17 +5681,18 @@ R %2 · G %3 · B %4</translation>
         <translation>在最终裁剪前以非破坏方式推动像素。液化仅属于当前照片，不能作为调色节点共享。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="54"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="96"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="39"/>
         <source>Strength</source>
         <translation>强度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="97"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="139"/>
         <source>Undo</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLiquifyTools.qml" line="99"/>
+        <location filename="../qml/PrecisionLiquifyTools.qml" line="141"/>
         <source>Undo the last session adjustment</source>
         <translation>撤销本次会话中的上一次调整</translation>
     </message>
@@ -5771,7 +5801,7 @@ Technical detail: %1</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="200"/>
+        <location filename="../src/main.cpp" line="201"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -5779,17 +5809,17 @@ Technical detail: %1</source>
 <context>
     <name>ReviewController</name>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="424"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="517"/>
         <source>Removed Library folder · %1</source>
         <translation>已移除图库文件夹 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="429"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="518"/>
         <source>Library folder was already removed · %1</source>
         <translation>图库文件夹已被移除 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="438"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="524"/>
         <source>Could not remove Library folder · %1</source>
         <translation>无法移除图库文件夹 · %1</translation>
     </message>
@@ -5964,17 +5994,17 @@ Technical detail: %1</source>
         <translation>无法获取导入进度 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="365"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="361"/>
         <source>Live Library refresh delayed · import is still safe and continuing · %1</source>
         <translation>实时图库刷新延迟 · 导入仍在安全继续 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="370"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="366"/>
         <source>Library refresh failed · visible photos retained · %1</source>
         <translation>资料库刷新失败 · 保留当前可见照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="490"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="476"/>
         <source>Could not count Library photos · %1</source>
         <translation>无法统计资料库照片 · %1</translation>
     </message>
@@ -6029,24 +6059,39 @@ Technical detail: %1</source>
         <translation>无法更新资料库相册 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="336"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="494"/>
         <source>Could not load Library source health · %1</source>
         <translation>无法加载资料库来源状态 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="375"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="553"/>
         <source>Could not load source scan review · %1</source>
         <translation>无法加载来源扫描检查 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="401"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="575"/>
         <source>Verified and linked · %1</source>
         <translation>已验证并链接 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="410"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="582"/>
         <source>Could not link selected source · %1</source>
         <translation>无法链接所选来源 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_source_health_coordinator.cpp" line="600"/>
+        <source>Removed photo from Library · %1</source>
+        <translation>已从图库移除照片 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_source_health_coordinator.cpp" line="601"/>
+        <source>Photo was already removed from Library · %1</source>
+        <translation>照片已从图库移除 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_source_health_coordinator.cpp" line="606"/>
+        <source>Could not remove photo from Library · %1</source>
+        <translation>无法从图库移除照片 · %1</translation>
     </message>
     <message>
         <location filename="../src/review_comparison_coordinator.cpp" line="295"/>
@@ -6135,7 +6180,8 @@ Technical detail: %1</source>
         <translation>正在更新资料库整理…</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="310"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="433"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="454"/>
         <source>Verifying selected source…</source>
         <translation>正在验证所选来源…</translation>
     </message>
@@ -6180,7 +6226,7 @@ Technical detail: %1</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="424"/>
+        <location filename="../src/review_controller.hpp" line="448"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -6190,7 +6236,7 @@ Technical detail: %1</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="428"/>
+        <location filename="../src/review_controller.hpp" line="452"/>
         <location filename="../src/review_decision_coordinator.hpp" line="121"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
@@ -6282,22 +6328,27 @@ Technical detail: %1</source>
 <context>
     <name>ReviewPhotoCard</name>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="194"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="195"/>
+        <source>ORIGINAL NOT FOUND</source>
+        <translation>找不到原片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoCard.qml" line="220"/>
         <source>PREVIEW PENDING</source>
         <translation>预览等待中</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="194"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="220"/>
         <source>NO VISUAL</source>
         <translation>无图像</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="240"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="266"/>
         <source>%L1 × %L2</source>
         <translation>%L1 × %L2</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="241"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="267"/>
         <source>awaiting cache</source>
         <translation>等待缓存</translation>
     </message>
@@ -6305,67 +6356,77 @@ Technical detail: %1</source>
 <context>
     <name>ReviewPhotoContextMenu</name>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="138"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="152"/>
         <source>Open in Precision</source>
         <translation>在精修中打开</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="153"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="169"/>
+        <source>Relink original…</source>
+        <translation>重新链接原片…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="185"/>
+        <source>Remove from Library…</source>
+        <translation>从图库移除…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="203"/>
         <source>Remove Like</source>
         <translation>取消喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="153"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="203"/>
         <source>Like</source>
         <translation>喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="169"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="220"/>
         <source>Clear pick flag</source>
         <translation>清除入选标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="169"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="220"/>
         <source>Pick</source>
         <translation>入选</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="184"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="235"/>
         <source>Clear reject flag</source>
         <translation>清除淘汰标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="184"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="235"/>
         <source>Reject</source>
         <translation>淘汰</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="198"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="249"/>
         <source>Rating</source>
         <translation>星级</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="218"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="269"/>
         <source>%1 star</source>
         <translation>%1 星</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="235"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="286"/>
         <source>Add to Album</source>
         <translation>添加到相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="273"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="324"/>
         <source>Apply Shared Node</source>
         <translation>应用共享调整节点</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="314"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="365"/>
         <source>More shared nodes…</source>
         <translation>更多共享节点…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="330"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="381"/>
         <source>Export photo</source>
         <translation>导出照片</translation>
     </message>
@@ -6651,8 +6712,8 @@ Technical detail: %1</source>
         <translation>%L1 次解码失败 · %L2 次预览失败 · 已取消 %L3 个</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="32"/>
         <location filename="../qml/ReviewComparisonEvidence.qml" line="40"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="32"/>
         <source>COMPARE EVIDENCE</source>
         <translation>比较证据</translation>
     </message>

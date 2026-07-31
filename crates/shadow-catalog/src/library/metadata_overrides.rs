@@ -416,7 +416,7 @@ fn read_capture_time_override(
             "clear" => None,
             _ => return Err(invalid_persisted_mode("capture time", &mode)),
         },
-        origin: read_origin(row.get(3)?)?,
+        origin: read_origin(&row.get::<_, String>(3)?)?,
         source_label: row.get(4)?,
         updated_at_ms: row.get(5)?,
     }))
@@ -439,14 +439,14 @@ fn read_coordinates_override(
             "clear" => None,
             _ => return Err(invalid_persisted_mode("coordinates", &mode)),
         },
-        origin: read_origin(row.get(10)?)?,
+        origin: read_origin(&row.get::<_, String>(10)?)?,
         source_label: row.get(11)?,
         updated_at_ms: row.get(12)?,
     }))
 }
 
-fn read_origin(value: String) -> rusqlite::Result<LibraryMetadataOverrideOrigin> {
-    match value.as_str() {
+fn read_origin(value: &str) -> rusqlite::Result<LibraryMetadataOverrideOrigin> {
+    match value {
         "manual" => Ok(LibraryMetadataOverrideOrigin::Manual),
         "gpx" => Ok(LibraryMetadataOverrideOrigin::Gpx),
         _ => Err(rusqlite::Error::InvalidQuery),

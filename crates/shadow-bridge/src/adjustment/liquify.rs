@@ -32,10 +32,33 @@ pub struct AdjustmentLiquifyPushStroke {
     pub hardness: f64,
 }
 
+/// One authored local restoration gesture.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdjustmentLiquifyReconstructStroke {
+    pub points: Vec<AdjustmentLiquifyPoint>,
+    /// Brush radius as a fraction of the original image's shorter edge.
+    pub radius: f64,
+    /// Normalized amount blended toward the identity mapping.
+    pub strength: f64,
+    /// Normalized inner falloff; `1` keeps a harder core.
+    pub hardness: f64,
+}
+
+/// One ordered authored operation in the singleton Liquify node.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdjustmentLiquifyStroke {
+    Push(AdjustmentLiquifyPushStroke),
+    Reconstruct(AdjustmentLiquifyReconstructStroke),
+}
+
 /// The optional, singleton Liquify payload in a photo render plan.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustmentLiquify {
-    pub strokes: Vec<AdjustmentLiquifyPushStroke>,
+    /// Whether the materialized node contributes deformation. A bypassed
+    /// payload remains present so detail-session capability admission does not
+    /// churn while the user compares before and after.
+    pub enabled: bool,
+    pub strokes: Vec<AdjustmentLiquifyStroke>,
 }
 
 impl AdjustmentLiquify {
@@ -45,11 +68,43 @@ impl AdjustmentLiquify {
                 "photo liquify must contain 1 through 128 gestures",
             ));
         }
+        let mut has_prior_deformation = false;
         for stroke in &self.strokes {
-            validate_push_stroke(stroke)?;
+            match stroke {
+                AdjustmentLiquifyStroke::Push(stroke) => {
+                    validate_push_stroke(stroke)?;
+                    has_prior_deformation = true;
+                }
+                AdjustmentLiquifyStroke::Reconstruct(stroke) => {
+                    if !has_prior_deformation {
+                        return Err(BridgeError::InvalidEditRequest(
+                            "photo liquify reconstruct gesture requires earlier deformation",
+                        ));
+                    }
+                    validate_reconstruct_stroke(stroke)?;
+                }
+            }
         }
         Ok(())
     }
+}
+
+fn validate_reconstruct_stroke(
+    stroke: &AdjustmentLiquifyReconstructStroke,
+) -> Result<(), BridgeError> {
+    if stroke.points.is_empty() || stroke.points.len() > MAX_ADJUSTMENT_LIQUIFY_POINTS_PER_STROKE {
+        return Err(BridgeError::InvalidEditRequest(
+            "photo liquify reconstruct gesture must contain 1 through 2048 samples",
+        ));
+    }
+    validate_brush(stroke.radius, stroke.strength, stroke.hardness)?;
+    validate_points(&stroke.points)?;
+    if !stroke.points.iter().any(|point| point.pressure > 0.0) {
+        return Err(BridgeError::InvalidEditRequest(
+            "photo liquify reconstruct gesture must contain effective pressure",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_push_stroke(stroke: &AdjustmentLiquifyPushStroke) -> Result<(), BridgeError> {
@@ -58,24 +113,8 @@ fn validate_push_stroke(stroke: &AdjustmentLiquifyPushStroke) -> Result<(), Brid
             "photo liquify push gesture must contain 2 through 2048 samples",
         ));
     }
-    validate_unit_parameter(stroke.radius)?;
-    validate_unit_parameter(stroke.strength)?;
-    validate_unit_parameter(stroke.hardness)?;
-    if stroke.radius == 0.0 {
-        return Err(BridgeError::InvalidEditRequest(
-            "photo liquify push radius must be greater than zero",
-        ));
-    }
-    if stroke.strength == 0.0 {
-        return Err(BridgeError::InvalidEditRequest(
-            "photo liquify push strength must be greater than zero",
-        ));
-    }
-    for point in &stroke.points {
-        validate_unit_parameter(point.x)?;
-        validate_unit_parameter(point.y)?;
-        validate_unit_parameter(point.pressure)?;
-    }
+    validate_brush(stroke.radius, stroke.strength, stroke.hardness)?;
+    validate_points(&stroke.points)?;
     if !stroke.points.windows(2).any(|segment| {
         let from = segment[0];
         let to = segment[1];
@@ -87,6 +126,32 @@ fn validate_push_stroke(stroke: &AdjustmentLiquifyPushStroke) -> Result<(), Brid
         return Err(BridgeError::InvalidEditRequest(
             "photo liquify push gesture must contain effective pressured movement",
         ));
+    }
+    Ok(())
+}
+
+fn validate_brush(radius: f64, strength: f64, hardness: f64) -> Result<(), BridgeError> {
+    validate_unit_parameter(radius)?;
+    validate_unit_parameter(strength)?;
+    validate_unit_parameter(hardness)?;
+    if radius == 0.0 {
+        return Err(BridgeError::InvalidEditRequest(
+            "photo liquify brush radius must be greater than zero",
+        ));
+    }
+    if strength == 0.0 {
+        return Err(BridgeError::InvalidEditRequest(
+            "photo liquify brush strength must be greater than zero",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_points(points: &[AdjustmentLiquifyPoint]) -> Result<(), BridgeError> {
+    for point in points {
+        validate_unit_parameter(point.x)?;
+        validate_unit_parameter(point.y)?;
+        validate_unit_parameter(point.pressure)?;
     }
     Ok(())
 }

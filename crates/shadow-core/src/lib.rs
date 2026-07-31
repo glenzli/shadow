@@ -57,7 +57,7 @@ pub use library_metadata::{
     GpsMatchPreview, GpsMatchProposal, GpsMatchSettings, GpsPhotoCapture, GpxImportError, GpxTrack,
     GpxTrackPoint, load_gpx_track, match_photos_to_gpx,
 };
-pub use native_path::{NativePathError, native_location};
+pub use native_path::{NativePathError, native_location, native_path_from_location};
 pub use performance::{
     DecodePerformance, DurationStats, IMPORT_ENGINE_PERFORMANCE_SCHEMA_VERSION,
     ImportEnginePerformance, ScanPerformance, TechnicalPerformance,

@@ -1,6 +1,7 @@
 use anyhow::Result as AnyResult;
 use shadow_bridge::{
-    AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask,
+    AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
+    AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke, AdjustmentLocalMask,
     AdjustmentRasterMaskEncoding,
 };
 use shadow_domain::{
@@ -152,29 +153,54 @@ fn liquify_compilation_preserves_authored_paths_and_brush_units_exactly() {
             unit(0.4),
         )
         .expect("push gesture"),
+        LiquifyStroke::reconstruct(
+            vec![LiquifyPoint::with_pressure(
+                unit(0.45),
+                unit(0.55),
+                unit(0.75),
+            )],
+            unit(0.08),
+            unit(0.35),
+            unit(0.25),
+        )
+        .expect("reconstruct gesture"),
     ])
-    .expect("Liquify node");
+    .expect("Liquify node")
+    .with_enabled(false);
 
     assert_eq!(
         adjustment_liquify(&node),
         AdjustmentLiquify {
-            strokes: vec![AdjustmentLiquifyPushStroke {
-                points: vec![
-                    AdjustmentLiquifyPoint {
-                        x: 0.1,
-                        y: 0.2,
-                        pressure: 0.3,
-                    },
-                    AdjustmentLiquifyPoint {
-                        x: 0.7,
-                        y: 0.8,
-                        pressure: 0.9,
-                    },
-                ],
-                radius: 0.12,
-                strength: 0.65,
-                hardness: 0.4,
-            }],
+            enabled: false,
+            strokes: vec![
+                AdjustmentLiquifyStroke::Push(AdjustmentLiquifyPushStroke {
+                    points: vec![
+                        AdjustmentLiquifyPoint {
+                            x: 0.1,
+                            y: 0.2,
+                            pressure: 0.3,
+                        },
+                        AdjustmentLiquifyPoint {
+                            x: 0.7,
+                            y: 0.8,
+                            pressure: 0.9,
+                        },
+                    ],
+                    radius: 0.12,
+                    strength: 0.65,
+                    hardness: 0.4,
+                }),
+                AdjustmentLiquifyStroke::Reconstruct(AdjustmentLiquifyReconstructStroke {
+                    points: vec![AdjustmentLiquifyPoint {
+                        x: 0.45,
+                        y: 0.55,
+                        pressure: 0.75,
+                    }],
+                    radius: 0.08,
+                    strength: 0.35,
+                    hardness: 0.25,
+                }),
+            ],
         }
     );
 }

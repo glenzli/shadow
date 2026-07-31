@@ -12,16 +12,13 @@ namespace {
 
 [[nodiscard]] bool is_decision_flag(const QString& flag) {
     return flag == QStringLiteral("unflagged") || flag == QStringLiteral("picked")
-        || flag == QStringLiteral("rejected");
+           || flag == QStringLiteral("rejected");
 }
 
 [[nodiscard]] bool is_color_label(const QString& color_label) {
-    return color_label == QStringLiteral("none")
-        || color_label == QStringLiteral("red")
-        || color_label == QStringLiteral("yellow")
-        || color_label == QStringLiteral("green")
-        || color_label == QStringLiteral("blue")
-        || color_label == QStringLiteral("purple");
+    return color_label == QStringLiteral("none") || color_label == QStringLiteral("red")
+           || color_label == QStringLiteral("yellow") || color_label == QStringLiteral("green")
+           || color_label == QStringLiteral("blue") || color_label == QStringLiteral("purple");
 }
 
 [[nodiscard]] bool has_unique_stable_keys(const QVector<ReviewItem>& items) {
@@ -42,16 +39,16 @@ void append_role(QList<int>& roles, const int role) {
     }
 }
 
-[[nodiscard]] QList<int> changed_roles(
-    const ReviewItem& current,
-    const ReviewItem& replacement
-) {
+[[nodiscard]] QList<int> changed_roles(const ReviewItem& current, const ReviewItem& replacement) {
     QList<int> roles;
     if (current.photo_id != replacement.photo_id) {
         append_role(roles, ReviewModel::PhotoIdRole);
     }
     if (current.representation_id != replacement.representation_id) {
         append_role(roles, ReviewModel::RepresentationIdRole);
+    }
+    if (current.location_id != replacement.location_id) {
+        append_role(roles, ReviewModel::LocationIdRole);
     }
     if (current.visual_handle != replacement.visual_handle) {
         append_role(roles, ReviewModel::VisualHandleRole);
@@ -62,6 +59,9 @@ void append_role(QList<int>& roles, const int role) {
     }
     if (current.source_path != replacement.source_path) {
         append_role(roles, ReviewModel::SourcePathRole);
+    }
+    if (current.source_available != replacement.source_available) {
+        append_role(roles, ReviewModel::SourceAvailableRole);
     }
     if (current.visual_role != replacement.visual_role) {
         append_role(roles, ReviewModel::VisualRole);
@@ -76,24 +76,39 @@ void append_role(QList<int>& roles, const int role) {
     if (current.visual_height != replacement.visual_height) {
         append_role(roles, ReviewModel::VisualHeightRole);
     }
-    if (current.has_metadata != replacement.has_metadata) append_role(roles, ReviewModel::HasMetadataRole);
-    if (current.camera_make != replacement.camera_make) append_role(roles, ReviewModel::CameraMakeRole);
-    if (current.camera_model != replacement.camera_model) append_role(roles, ReviewModel::CameraModelRole);
-    if (current.lens_make != replacement.lens_make) append_role(roles, ReviewModel::LensMakeRole);
-    if (current.lens_model != replacement.lens_model) append_role(roles, ReviewModel::LensModelRole);
-    if (current.captured_at_unix_seconds != replacement.captured_at_unix_seconds) append_role(roles, ReviewModel::CapturedAtUnixSecondsRole);
-    if (current.iso_speed != replacement.iso_speed) append_role(roles, ReviewModel::IsoSpeedRole);
-    if (current.exposure_time_seconds != replacement.exposure_time_seconds) append_role(roles, ReviewModel::ExposureTimeSecondsRole);
-    if (current.aperture_f_number != replacement.aperture_f_number) append_role(roles, ReviewModel::ApertureFNumberRole);
-    if (current.focal_length_mm != replacement.focal_length_mm) append_role(roles, ReviewModel::FocalLengthMmRole);
-    if (current.focal_length_35mm != replacement.focal_length_35mm) append_role(roles, ReviewModel::FocalLength35mmRole);
-    if (current.raw_width != replacement.raw_width) append_role(roles, ReviewModel::RawWidthRole);
-    if (current.raw_height != replacement.raw_height) append_role(roles, ReviewModel::RawHeightRole);
-    if (current.sensor_bits != replacement.sensor_bits) append_role(roles, ReviewModel::SensorBitsRole);
-    if (current.cfa_pattern != replacement.cfa_pattern) append_role(roles, ReviewModel::CfaPatternRole);
-    if (current.dng_version != replacement.dng_version) append_role(roles, ReviewModel::DngVersionRole);
-    if (current.has_technical_observation
-        != replacement.has_technical_observation) {
+    if (current.has_metadata != replacement.has_metadata)
+        append_role(roles, ReviewModel::HasMetadataRole);
+    if (current.camera_make != replacement.camera_make)
+        append_role(roles, ReviewModel::CameraMakeRole);
+    if (current.camera_model != replacement.camera_model)
+        append_role(roles, ReviewModel::CameraModelRole);
+    if (current.lens_make != replacement.lens_make)
+        append_role(roles, ReviewModel::LensMakeRole);
+    if (current.lens_model != replacement.lens_model)
+        append_role(roles, ReviewModel::LensModelRole);
+    if (current.captured_at_unix_seconds != replacement.captured_at_unix_seconds)
+        append_role(roles, ReviewModel::CapturedAtUnixSecondsRole);
+    if (current.iso_speed != replacement.iso_speed)
+        append_role(roles, ReviewModel::IsoSpeedRole);
+    if (current.exposure_time_seconds != replacement.exposure_time_seconds)
+        append_role(roles, ReviewModel::ExposureTimeSecondsRole);
+    if (current.aperture_f_number != replacement.aperture_f_number)
+        append_role(roles, ReviewModel::ApertureFNumberRole);
+    if (current.focal_length_mm != replacement.focal_length_mm)
+        append_role(roles, ReviewModel::FocalLengthMmRole);
+    if (current.focal_length_35mm != replacement.focal_length_35mm)
+        append_role(roles, ReviewModel::FocalLength35mmRole);
+    if (current.raw_width != replacement.raw_width)
+        append_role(roles, ReviewModel::RawWidthRole);
+    if (current.raw_height != replacement.raw_height)
+        append_role(roles, ReviewModel::RawHeightRole);
+    if (current.sensor_bits != replacement.sensor_bits)
+        append_role(roles, ReviewModel::SensorBitsRole);
+    if (current.cfa_pattern != replacement.cfa_pattern)
+        append_role(roles, ReviewModel::CfaPatternRole);
+    if (current.dng_version != replacement.dng_version)
+        append_role(roles, ReviewModel::DngVersionRole);
+    if (current.has_technical_observation != replacement.has_technical_observation) {
         append_role(roles, ReviewModel::HasTechnicalObservationRole);
     }
     if (current.technical_input_width != replacement.technical_input_width) {
@@ -102,12 +117,10 @@ void append_role(QList<int>& roles, const int role) {
     if (current.technical_input_height != replacement.technical_input_height) {
         append_role(roles, ReviewModel::TechnicalInputHeightRole);
     }
-    if (current.technical_preprocessing_version
-        != replacement.technical_preprocessing_version) {
+    if (current.technical_preprocessing_version != replacement.technical_preprocessing_version) {
         append_role(roles, ReviewModel::TechnicalPreprocessingVersionRole);
     }
-    if (current.technical_implementation_version
-        != replacement.technical_implementation_version) {
+    if (current.technical_implementation_version != replacement.technical_implementation_version) {
         append_role(roles, ReviewModel::TechnicalImplementationVersionRole);
     }
     if (current.mean_luma != replacement.mean_luma) {
@@ -149,8 +162,7 @@ void append_role(QList<int>& roles, const int role) {
     if (current.color_label != replacement.color_label) {
         append_role(roles, ReviewModel::ColorLabelRole);
     }
-    if (current.library_state_updated_at_ms
-        != replacement.library_state_updated_at_ms) {
+    if (current.library_state_updated_at_ms != replacement.library_state_updated_at_ms) {
         append_role(roles, ReviewModel::LibraryStateUpdatedAtMsRole);
     }
     if (current.has_development_edits != replacement.has_development_edits) {
@@ -180,12 +192,16 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.photo_id;
     case RepresentationIdRole:
         return item.representation_id;
+    case LocationIdRole:
+        return item.location_id;
     case VisualHandleRole:
         return item.visual_handle;
     case TitleRole:
         return item.title;
     case SourcePathRole:
         return item.source_path;
+    case SourceAvailableRole:
+        return item.source_available;
     case VisualRole:
         return item.visual_role;
     case VisualErrorRole:
@@ -203,22 +219,38 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
             generation_.load(std::memory_order_acquire),
             ReviewVisualLifetime::Grid
         );
-    case HasMetadataRole: return item.has_metadata;
-    case CameraMakeRole: return item.camera_make;
-    case CameraModelRole: return item.camera_model;
-    case LensMakeRole: return item.lens_make;
-    case LensModelRole: return item.lens_model;
-    case CapturedAtUnixSecondsRole: return QVariant::fromValue(item.captured_at_unix_seconds);
-    case IsoSpeedRole: return item.iso_speed;
-    case ExposureTimeSecondsRole: return item.exposure_time_seconds;
-    case ApertureFNumberRole: return item.aperture_f_number;
-    case FocalLengthMmRole: return item.focal_length_mm;
-    case FocalLength35mmRole: return item.focal_length_35mm;
-    case RawWidthRole: return QVariant::fromValue(item.raw_width);
-    case RawHeightRole: return QVariant::fromValue(item.raw_height);
-    case SensorBitsRole: return QVariant::fromValue(item.sensor_bits);
-    case CfaPatternRole: return item.cfa_pattern;
-    case DngVersionRole: return item.dng_version;
+    case HasMetadataRole:
+        return item.has_metadata;
+    case CameraMakeRole:
+        return item.camera_make;
+    case CameraModelRole:
+        return item.camera_model;
+    case LensMakeRole:
+        return item.lens_make;
+    case LensModelRole:
+        return item.lens_model;
+    case CapturedAtUnixSecondsRole:
+        return QVariant::fromValue(item.captured_at_unix_seconds);
+    case IsoSpeedRole:
+        return item.iso_speed;
+    case ExposureTimeSecondsRole:
+        return item.exposure_time_seconds;
+    case ApertureFNumberRole:
+        return item.aperture_f_number;
+    case FocalLengthMmRole:
+        return item.focal_length_mm;
+    case FocalLength35mmRole:
+        return item.focal_length_35mm;
+    case RawWidthRole:
+        return QVariant::fromValue(item.raw_width);
+    case RawHeightRole:
+        return QVariant::fromValue(item.raw_height);
+    case SensorBitsRole:
+        return QVariant::fromValue(item.sensor_bits);
+    case CfaPatternRole:
+        return item.cfa_pattern;
+    case DngVersionRole:
+        return item.dng_version;
     case HasTechnicalObservationRole:
         return item.has_technical_observation;
     case TechnicalInputWidthRole:
@@ -268,9 +300,11 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
     return {
         {PhotoIdRole, "photoId"},
         {RepresentationIdRole, "representationId"},
+        {LocationIdRole, "locationId"},
         {VisualHandleRole, "visualHandle"},
         {TitleRole, "title"},
         {SourcePathRole, "sourcePath"},
+        {SourceAvailableRole, "sourceAvailable"},
         {VisualRole, "visualRole"},
         {VisualErrorRole, "visualError"},
         {VisualWidthRole, "visualWidth"},
@@ -323,8 +357,7 @@ void ReviewModel::replace(QVector<ReviewItem> items, const quint64 generation) {
 }
 
 void ReviewModel::setGeneration(const quint64 generation) {
-    const quint64 previous =
-        generation_.exchange(generation, std::memory_order_acq_rel);
+    const quint64 previous = generation_.exchange(generation, std::memory_order_acq_rel);
     if (previous == generation || items_.isEmpty()) {
         return;
     }
@@ -347,10 +380,7 @@ void ReviewModel::append(QVector<ReviewItem> items) {
     endInsertRows();
 }
 
-bool ReviewModel::appendSnapshot(
-    QVector<ReviewItem> items,
-    const quint64 generation
-) {
+bool ReviewModel::appendSnapshot(QVector<ReviewItem> items, const quint64 generation) {
     if (!isGenerationCurrent(generation) || !has_unique_stable_keys(items)
         || !has_unique_stable_keys(items_)) {
         return false;
@@ -370,10 +400,7 @@ bool ReviewModel::appendSnapshot(
     return true;
 }
 
-bool ReviewModel::reconcileSnapshot(
-    QVector<ReviewItem> items,
-    const quint64 generation
-) {
+bool ReviewModel::reconcileSnapshot(QVector<ReviewItem> items, const quint64 generation) {
     if (!isGenerationCurrent(generation) || !has_unique_stable_keys(items)
         || !has_unique_stable_keys(items_)) {
         return false;
@@ -393,8 +420,7 @@ bool ReviewModel::reconcileSnapshot(
         }
 
         const qsizetype last = row;
-        while (row > 0
-               && !desired_keys.contains(items_.at(row - 1).photo_id)) {
+        while (row > 0 && !desired_keys.contains(items_.at(row - 1).photo_id)) {
             --row;
         }
         const qsizetype first = row;
@@ -405,8 +431,7 @@ bool ReviewModel::reconcileSnapshot(
 
     for (qsizetype target_row = 0; target_row < items.size(); ++target_row) {
         const auto& desired = items.at(target_row);
-        if (target_row >= items_.size()
-            || items_.at(target_row).photo_id != desired.photo_id) {
+        if (target_row >= items_.size() || items_.at(target_row).photo_id != desired.photo_id) {
             const auto existing = std::find_if(
                 items_.cbegin() + std::min(target_row, items_.size()),
                 items_.cend(),
@@ -415,11 +440,7 @@ bool ReviewModel::reconcileSnapshot(
                 }
             );
             if (existing == items_.cend()) {
-                beginInsertRows(
-                    {},
-                    static_cast<int>(target_row),
-                    static_cast<int>(target_row)
-                );
+                beginInsertRows({}, static_cast<int>(target_row), static_cast<int>(target_row));
                 items_.insert(target_row, desired);
                 endInsertRows();
                 continue;
@@ -448,10 +469,7 @@ bool ReviewModel::reconcileSnapshot(
     return true;
 }
 
-bool ReviewModel::reconcilePrefixSnapshot(
-    QVector<ReviewItem> items,
-    const quint64 generation
-) {
+bool ReviewModel::reconcilePrefixSnapshot(QVector<ReviewItem> items, const quint64 generation) {
     if (!isGenerationCurrent(generation) || !has_unique_stable_keys(items)
         || !has_unique_stable_keys(items_)) {
         return false;
@@ -484,16 +502,11 @@ QString ReviewModel::visualSourceFor(const QString& ticket) const {
     );
 }
 
-std::optional<ReviewDecisionValue> ReviewModel::decisionFor(
-    const QString& photo_id
-) const {
-    const auto item = std::find_if(
-        items_.cbegin(),
-        items_.cend(),
-        [&photo_id](const ReviewItem& candidate) {
+std::optional<ReviewDecisionValue> ReviewModel::decisionFor(const QString& photo_id) const {
+    const auto item =
+        std::find_if(items_.cbegin(), items_.cend(), [&photo_id](const ReviewItem& candidate) {
             return candidate.photo_id == photo_id;
-        }
-    );
+        });
     if (item == items_.cend()) {
         return std::nullopt;
     }
@@ -504,16 +517,11 @@ std::optional<ReviewDecisionValue> ReviewModel::decisionFor(
     };
 }
 
-std::optional<ReviewLibraryStateValue> ReviewModel::libraryStateFor(
-    const QString& photo_id
-) const {
-    const auto item = std::find_if(
-        items_.cbegin(),
-        items_.cend(),
-        [&photo_id](const ReviewItem& candidate) {
+std::optional<ReviewLibraryStateValue> ReviewModel::libraryStateFor(const QString& photo_id) const {
+    const auto item =
+        std::find_if(items_.cbegin(), items_.cend(), [&photo_id](const ReviewItem& candidate) {
             return candidate.photo_id == photo_id;
-        }
-    );
+        });
     if (item == items_.cend()) {
         return std::nullopt;
     }
@@ -572,9 +580,8 @@ bool ReviewModel::updateLibraryState(
         if (item.photo_id != photo_id) {
             continue;
         }
-        const bool state_changed = item.liked != liked
-            || item.color_label != color_label
-            || item.library_state_updated_at_ms != updated_at_ms;
+        const bool state_changed = item.liked != liked || item.color_label != color_label
+                                   || item.library_state_updated_at_ms != updated_at_ms;
         if (!state_changed) {
             continue;
         }

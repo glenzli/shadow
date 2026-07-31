@@ -101,7 +101,8 @@ namespace {
 [[nodiscard]] QString initialScanFolder() {
     QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
 #if defined(SHADOW_DESKTOP_DEV_SAMPLE_FOLDER)
-    if (initial_folder.isEmpty()) {
+    if (initial_folder.isEmpty()
+        && qEnvironmentVariableIntValue("SHADOW_DESKTOP_AUTO_SCAN_SAMPLES") == 1) {
         const QDir development_samples(
             QString::fromUtf8(SHADOW_DESKTOP_DEV_SAMPLE_FOLDER)
         );

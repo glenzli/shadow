@@ -45,6 +45,10 @@ impl StagedDerivedRasterProposal {
 }
 
 /// Application-facing terminal state for one staged provider execution.
+// The staged proposal deliberately retains one complete, lease-bound authority
+// value until apply time; boxing would make this local terminal handoff heap-own
+// an otherwise single-move payload solely to equalize enum variant sizes.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum DerivedRasterStageOutcome {
     Staged(StagedDerivedRasterProposal),
@@ -88,6 +92,11 @@ where
 }
 
 /// Progress-forwarding form of [`execute_and_stage_derived_raster`].
+///
+/// # Errors
+///
+/// Returns an error only when runtime succeeded but the proposal store could
+/// not verify and stage those exact bytes.
 pub fn execute_and_stage_derived_raster_with_progress<P>(
     store: &FilesystemDerivedRasterStore,
     promotion_id: String,

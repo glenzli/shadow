@@ -192,16 +192,30 @@ void require(const bool condition, const std::string& message) {
         .source_offset_y_radii = 2.2,
         .feather = 0.45,
     }};
-    stack.liquify_strokes = {{
-        .points =
-            {
-                {.x = 0.21, .y = 0.22, .pressure = 0.23},
-                {.x = 0.61, .y = 0.62, .pressure = 0.63},
-            },
-        .radius = 0.14,
-        .strength = 0.57,
-        .hardness = 0.76,
-    }};
+    stack.liquify_enabled = false;
+    stack.liquify_strokes = {
+        {
+            .kind = 0,
+            .points =
+                {
+                    {.x = 0.21, .y = 0.22, .pressure = 0.23},
+                    {.x = 0.61, .y = 0.62, .pressure = 0.63},
+                },
+            .radius = 0.14,
+            .strength = 0.57,
+            .hardness = 0.76,
+        },
+        {
+            .kind = 1,
+            .points =
+                {
+                    {.x = 0.41, .y = 0.42, .pressure = 0.83},
+                },
+            .radius = 0.09,
+            .strength = 0.37,
+            .hardness = 0.46,
+        },
+    };
     stack.geometry = {
         .crop_left = 0.01,
         .crop_top = 0.02,

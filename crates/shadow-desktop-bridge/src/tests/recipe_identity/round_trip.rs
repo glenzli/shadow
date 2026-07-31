@@ -62,6 +62,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         grade_nodes: vec![created.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
             crop_left: 0.0,
@@ -124,6 +125,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         grade_nodes: vec![created],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
             crop_left: 0.0,

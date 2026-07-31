@@ -32,7 +32,17 @@ pub fn native_location(path: &Path) -> AssetLocation {
 
 pub(crate) use native_location as encode_location;
 
-pub(crate) fn decode_location(location: &AssetLocation) -> Result<PathBuf, NativePathError> {
+/// Decodes a stored native location for the current operating system.
+///
+/// The display path is deliberately ignored because it may be lossy. Callers
+/// that need to inspect or canonicalize a durable location must use this
+/// native representation instead.
+///
+/// # Errors
+///
+/// Returns an error when the stored location belongs to another platform or,
+/// on Windows, contains an invalid native UTF-16 byte sequence.
+pub fn native_path_from_location(location: &AssetLocation) -> Result<PathBuf, NativePathError> {
     let current = current_platform();
     if location.platform != current {
         return Err(NativePathError::PlatformMismatch {
@@ -48,6 +58,8 @@ pub(crate) fn decode_location(location: &AssetLocation) -> Result<PathBuf, Nativ
 
     Ok(PathBuf::from(native_path))
 }
+
+pub(crate) use native_path_from_location as decode_location;
 
 #[cfg(target_os = "macos")]
 const fn current_platform() -> Platform {
@@ -101,3 +113,6 @@ fn decode_os_string(value: &[u8]) -> Result<OsString, NativePathError> {
         .collect::<Vec<_>>();
     Ok(OsString::from_wide(&wide))
 }
+
+#[cfg(test)]
+mod tests;

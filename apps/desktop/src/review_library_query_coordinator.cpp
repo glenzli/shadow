@@ -304,7 +304,6 @@ void ReviewLibraryQueryCoordinator::beginReset() {
         terminal_refresh_active_ = true;
     }
     emit queryStarted(active_filter_, generation_);
-    startCount();
     startPage(PageKind::InitialReset);
 }
 
@@ -438,6 +437,10 @@ void ReviewLibraryQueryCoordinator::finishPage() {
         emit workStateChanged();
         beginReset();
         return;
+    }
+    if (result.kind == PageKind::InitialReset) {
+        startCount();
+        emit initialPagePresented(active_filter_, generation_);
     }
     requestReadyStatus();
     emit workStateChanged();

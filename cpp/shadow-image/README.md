@@ -442,8 +442,10 @@ New production code should include the narrow semantic owner directly:
 - `photo_geometry.hpp` owns crop/orientation state, the shared integer layout, coordinate mapping,
   and geometry application. `src/edit/photo_geometry_sampling.hpp` is the narrow internal inverse
   mapping shared by RGB geometry and scalar selection coverage.
-- `photo_liquify.hpp` / `src/edit/photo_liquify.cpp` own validated stroke preparation and inverse
-  push-warp sampling; they do not own Canvas order, tiling, or backend selection.
+- `photo_liquify.hpp` / `src/edit/photo_liquify.cpp` own validated ordered Push/Reconstruct
+  preparation and inverse coordinate-field replay. Reconstruct attenuates earlier deformation
+  toward identity rather than synthesizing a reverse push; these owners do not own Canvas order,
+  tiling, or backend selection.
 - `photo_structural_rendering.hpp` / `src/edit/photo_structural_rendering.cpp` own the fixed
   Liquify-to-Canvas CPU structural order, conservative tile preimages, and the fused single-sample
   execution used by warm preview and full-detail rendering.

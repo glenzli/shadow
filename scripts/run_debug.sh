@@ -22,6 +22,31 @@ rawnind_model_root="$user_home/Library/Application Support/Shadow/Shadow/models/
 rawnind_package=${SHADOW_RAWNIND_PACKAGE_PATH:-"$rawnind_model_root/rawdenoise-nind.dtmodel"}
 rawnind_graph=${SHADOW_RAWNIND_BAYER_GRAPH_PATH:-"$rawnind_model_root/model_bayer.onnx"}
 
+verify_rawnind_command_surface() {
+    provider=$1
+    provider_help=$("$provider" --help 2>&1) || return 1
+    for required_option in \
+        --model-package \
+        --model-graph \
+        --manifest \
+        --input-raw \
+        --input-raw-frame \
+        --output-foundation \
+        --source-pixel-contract-sha256 \
+        --verify-model \
+        --plan \
+        --run
+    do
+        case "$provider_help" in
+            *"$required_option"*) ;;
+            *)
+                echo "Shadow AI RAW Denoise provider is incompatible: missing $required_option." >&2
+                return 1
+                ;;
+        esac
+    done
+}
+
 if [ ! -x "$shadow_executable" ]; then
     echo "Shadow has no promoted canonical debug build." >&2
     echo "Expected: $canonical_app" >&2
@@ -58,6 +83,10 @@ fi
 if [ ! -r "$rawnind_graph" ]; then
     echo "Shadow AI RAW Denoise model graph is missing." >&2
     echo "Expected: $rawnind_graph" >&2
+    exit 69
+fi
+if ! verify_rawnind_command_surface "$rawnind_provider"; then
+    echo "Rebuild and promote the RawNIND provider from the current Shadow source." >&2
     exit 69
 fi
 if ! "$rawnind_provider" \

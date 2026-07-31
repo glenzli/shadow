@@ -6,10 +6,12 @@
 //! - [`browse`] owns photo pages, facets, and signed visual presentation;
 //! - [`organization`] owns albums, memberships, and photo-affinity state;
 //! - [`keywords`] owns the hierarchy and committed photo assignments;
+//! - [`lifecycle`] owns non-destructive removal from active Library projections;
 //! - [`metadata`] owns observed/effective metadata projection and routes
 //!   independent capture-time and GPX preview lifecycles;
 //! - [`map_browse`] owns provider-independent spatial aggregation;
-//! - [`source_health`] owns observational scan and missing-location views;
+//! - [`source_health`] owns reversible source removal plus observational scan
+//!   and missing-location views;
 //! - [`query_contract`] owns the typed CXX filter/facet/cursor conversion shared
 //!   by browsing and smart albums.
 //!
@@ -19,6 +21,7 @@
 
 mod browse;
 mod keywords;
+mod lifecycle;
 mod map_browse;
 mod metadata;
 mod organization;

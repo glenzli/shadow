@@ -13,6 +13,8 @@ fn point_prompt_requires_one_foreground_point() {
 }
 
 #[test]
+// Prompt coordinates are exact UnitInterval projections of literal inputs.
+#[allow(clippy::float_cmp)]
 fn point_prompt_preserves_order_and_polarity() {
     let points = subject_mask_points(&[
         ffi::FfiSubjectMaskPoint {
@@ -36,6 +38,8 @@ fn point_prompt_preserves_order_and_polarity() {
 }
 
 #[test]
+// Identity geometry is defined by these exact neutral floating-point values.
+#[allow(clippy::float_cmp)]
 fn identity_input_geometry_removes_every_final_canvas_transform() {
     let geometry = identity_ffi_geometry();
 

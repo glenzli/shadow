@@ -629,7 +629,6 @@ qt_add_qml_module(
         qml/MainTitleBar.qml
         qml/MainLibraryFilterBar.qml
         qml/MainPrecisionProxyStatus.qml
-        qml/MainSelectionDecisionBar.qml
         qml/MainStatusBar.qml
         qml/MapProviderSettingsDialog.qml
         qml/AutosaveFailureRecovery.qml
@@ -697,6 +696,7 @@ qt_add_qml_module(
         qml/ReviewSystemCollections.qml
         qml/ReviewSharedGradePicker.qml
         qml/ReviewPhotoCard.qml
+        qml/LibraryMissingPhotoDialogs.qml
         qml/ReviewComparisonSlots.qml
         qml/ReviewPhotoContextMenu.qml
         qml/ReviewExifSection.qml

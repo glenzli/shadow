@@ -6,6 +6,8 @@ void role_names_and_types_are_stable() {
     ReviewItem item;
     item.photo_id = QStringLiteral("photo-a");
     item.representation_id = QStringLiteral("representation-a");
+    item.location_id = QStringLiteral("location-a");
+    item.source_available = false;
     item.visual_handle = QStringLiteral("visual-handle-a");
     item.decision_head_sequence = 42;
     item.decision_flag = QStringLiteral("picked");
@@ -35,6 +37,8 @@ void role_names_and_types_are_stable() {
         const char* name;
     };
     constexpr std::array expected_roles{
+        ExpectedRole{ReviewModel::LocationIdRole, "locationId"},
+        ExpectedRole{ReviewModel::SourceAvailableRole, "sourceAvailable"},
         ExpectedRole{ReviewModel::VisualHandleRole, "visualHandle"},
         ExpectedRole{ReviewModel::DecisionHeadSequenceRole, "decisionHeadSequence"},
         ExpectedRole{ReviewModel::DecisionFlagRole, "decisionFlag"},
@@ -71,55 +75,52 @@ void role_names_and_types_are_stable() {
     }
 
     require(
-        value(model, 0, ReviewModel::VisualHandleRole).typeId()
-                == QMetaType::QString
+        value(model, 0, ReviewModel::LocationIdRole).toString() == QStringLiteral("location-a")
+            && value(model, 0, ReviewModel::SourceAvailableRole).typeId() == QMetaType::Bool
+            && !value(model, 0, ReviewModel::SourceAvailableRole).toBool(),
+        "source recovery identity and reachability must retain stable QML types"
+    );
+
+    require(
+        value(model, 0, ReviewModel::VisualHandleRole).typeId() == QMetaType::QString
             && value(model, 0, ReviewModel::VisualHandleRole).toString()
-                == QStringLiteral("visual-handle-a"),
+                   == QStringLiteral("visual-handle-a"),
         "opaque visual identity must be exposed as a string"
     );
     require(
-        value(model, 0, ReviewModel::DecisionHeadSequenceRole).typeId()
-                == QMetaType::ULongLong
-            && value(model, 0, ReviewModel::DecisionHeadSequenceRole).toULongLong()
-                == 42,
+        value(model, 0, ReviewModel::DecisionHeadSequenceRole).typeId() == QMetaType::ULongLong
+            && value(model, 0, ReviewModel::DecisionHeadSequenceRole).toULongLong() == 42,
         "decision head must retain its full unsigned sequence"
     );
     require(
-        value(model, 0, ReviewModel::DecisionFlagRole).typeId()
-                == QMetaType::QString
-            && value(model, 0, ReviewModel::DecisionFlagRole).toString()
-                == QStringLiteral("picked")
-            && value(model, 0, ReviewModel::DecisionRatingRole).typeId()
-                == QMetaType::Int
+        value(model, 0, ReviewModel::DecisionFlagRole).typeId() == QMetaType::QString
+            && value(model, 0, ReviewModel::DecisionFlagRole).toString() == QStringLiteral("picked")
+            && value(model, 0, ReviewModel::DecisionRatingRole).typeId() == QMetaType::Int
             && value(model, 0, ReviewModel::DecisionRatingRole).toInt() == 4,
         "manual flag and rating must expose stable QML types"
     );
     require(
         value(model, 0, ReviewModel::LikedRole).typeId() == QMetaType::Bool
             && value(model, 0, ReviewModel::LikedRole).toBool()
-            && value(model, 0, ReviewModel::ColorLabelRole).toString()
-                == QStringLiteral("blue")
+            && value(model, 0, ReviewModel::ColorLabelRole).toString() == QStringLiteral("blue")
             && value(model, 0, ReviewModel::LibraryStateUpdatedAtMsRole).toLongLong()
-                == 1'724'000'000'123,
+                   == 1'724'000'000'123,
         "Catalog-backed Library organization state must retain its QML types"
     );
     require(
-        value(model, 0, ReviewModel::HasTechnicalObservationRole).typeId()
-            == QMetaType::Bool,
+        value(model, 0, ReviewModel::HasTechnicalObservationRole).typeId() == QMetaType::Bool,
         "observation presence must be a QML boolean"
     );
     require(
-        value(model, 0, ReviewModel::TechnicalInputWidthRole).typeId()
-                == QMetaType::UInt
-            && value(model, 0, ReviewModel::TechnicalInputHeightRole).typeId()
-                == QMetaType::UInt,
+        value(model, 0, ReviewModel::TechnicalInputWidthRole).typeId() == QMetaType::UInt
+            && value(model, 0, ReviewModel::TechnicalInputHeightRole).typeId() == QMetaType::UInt,
         "analysis dimensions must retain unsigned integer types"
     );
     require(
         value(model, 0, ReviewModel::TechnicalPreprocessingVersionRole).typeId()
                 == QMetaType::QString
             && value(model, 0, ReviewModel::TechnicalImplementationVersionRole).typeId()
-                == QMetaType::QString,
+                   == QMetaType::QString,
         "provenance must be exposed as strings"
     );
 

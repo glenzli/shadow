@@ -436,9 +436,11 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         }
         settings.retouch_strokes.push_back(std::move(ffi_stroke));
     }
+    settings.liquify_enabled = source.liquify_enabled;
     settings.liquify_strokes.reserve(static_cast<std::size_t>(source.liquify_strokes.size()));
     for (const auto& stroke : source.liquify_strokes) {
-        shadow::desktop::FfiLiquifyPushStroke ffi_stroke{
+        shadow::desktop::FfiLiquifyStroke ffi_stroke{
+            .kind = stroke.kind,
             .radius = stroke.radius,
             .strength = stroke.strength,
             .hardness = stroke.hardness,
@@ -541,11 +543,13 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         }
         result.retouch_strokes.push_back(std::move(decoded));
     }
+    result.liquify_enabled = source.liquify_enabled;
     result.liquify_strokes.reserve(
         checked_qt_vector_size(source.liquify_strokes.size(), "liquify_strokes")
     );
     for (const auto& stroke : source.liquify_strokes) {
-        BackendLiquifyPushStroke decoded{
+        BackendLiquifyStroke decoded{
+            .kind = stroke.kind,
             .radius = stroke.radius,
             .strength = stroke.strength,
             .hardness = stroke.hardness,

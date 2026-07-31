@@ -109,6 +109,8 @@ inline float2 warm_inverse_liquify_coordinate(
         valid = false;
         return coordinate;
     }
+    float active_weight = 1.0f;
+    float2 reconstructed = float2(0.0f);
     for (uint reference = 0u; reference < reference_count; ++reference) {
         const uint stamp_index = words[
             parameters.reference_offset_words + reference_offset + reference
@@ -118,18 +120,22 @@ inline float2 warm_inverse_liquify_coordinate(
             valid = false;
             return coordinate;
         }
-        const uint stamp_word = stamp_index * 6u;
+        const uint stamp_word = stamp_index * 8u;
+        const uint kind = words[stamp_word];
         const float2 center = float2(
-            as_type<float>(words[stamp_word]),
-            as_type<float>(words[stamp_word + 1u])
+            as_type<float>(words[stamp_word + 1u]),
+            as_type<float>(words[stamp_word + 2u])
         );
         const float2 displacement = float2(
-            as_type<float>(words[stamp_word + 2u]),
-            as_type<float>(words[stamp_word + 3u])
+            as_type<float>(words[stamp_word + 3u]),
+            as_type<float>(words[stamp_word + 4u])
         );
-        const float radius = as_type<float>(words[stamp_word + 4u]);
-        const float hardness = as_type<float>(words[stamp_word + 5u]);
-        if (!all(isfinite(center)) || !all(isfinite(displacement))
+        const float reconstruction = as_type<float>(words[stamp_word + 5u]);
+        const float radius = as_type<float>(words[stamp_word + 6u]);
+        const float hardness = as_type<float>(words[stamp_word + 7u]);
+        if (kind > 1u || !all(isfinite(center)) || !all(isfinite(displacement))
+            || !isfinite(reconstruction) || reconstruction < 0.0f
+            || reconstruction > 1.0f
             || !isfinite(radius) || radius <= 0.0f
             || !isfinite(hardness) || hardness < 0.0f || hardness > 1.0f) {
             report_adjustment_failure(status, status_bad_resource, 0u);
@@ -148,9 +154,15 @@ inline float2 warm_inverse_liquify_coordinate(
             weight = 1.0f - warm_liquify_smootherstep(falloff_position);
         }
         weight = clamp(weight, 0.0f, 1.0f);
-        coordinate -= displacement * weight;
+        if (kind == 1u) {
+            const float amount = clamp(reconstruction * weight, 0.0f, 1.0f);
+            reconstructed += active_weight * amount * coordinate;
+            active_weight *= 1.0f - amount;
+        } else {
+            coordinate -= displacement * weight;
+        }
     }
-    return coordinate;
+    return reconstructed + active_weight * coordinate;
 }
 
 inline WarmGeometryLookup warm_geometry_lookup(

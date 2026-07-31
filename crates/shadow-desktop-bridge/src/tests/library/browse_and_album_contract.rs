@@ -60,8 +60,10 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     let item = &filtered_page.items[0];
     assert_eq!(item.photo_id, newest.photo_id.to_string());
     assert_eq!(item.representation_id, newest.representation_id.to_string());
+    assert_eq!(item.location_id, newest.location_id.to_string());
     assert_eq!(item.title, "newest.nef");
     assert_eq!(item.source_path, newest_path.to_string_lossy());
+    assert!(item.source_available);
     assert_eq!(item.source_byte_len, 20_000);
     assert!(item.has_source_modified_at);
     assert_eq!(item.source_modified_at_ms, 200);
@@ -76,6 +78,18 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     assert_eq!(item.decision_head_sequence, decision.sequence);
     assert_eq!(item.decision_flag, ffi::FfiDecisionFlag::Picked);
     assert_eq!(item.decision_rating, 4);
+
+    std::fs::remove_file(&newest_path).expect("disconnect newest source");
+    let unavailable = session
+        .library_photo_page(
+            &filtered,
+            ffi::FfiLibraryPhotoOrder::CaptureTimeDescending,
+            &ffi_library_start_cursor(),
+            16,
+        )
+        .expect("refresh unavailable Library source");
+    assert_eq!(unavailable.items.len(), 1);
+    assert!(!unavailable.items[0].source_available);
 
     let first = session
         .library_photo_page(
@@ -245,6 +259,17 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     assert_eq!(deleted.deleted_keyword_count, 2);
     assert_eq!(deleted.deleted_assignment_count, 0);
 
+    assert!(
+        session
+            .archive_library_photo(&older.photo_id.to_string())
+            .expect("archive Library photo through bridge")
+    );
+    assert!(
+        !session
+            .archive_library_photo(&older.photo_id.to_string())
+            .expect("repeat bridge archive")
+    );
+
     drop(session);
     std::fs::remove_dir_all(root).expect("remove Library fixture");
 }
@@ -310,6 +335,13 @@ fn register_library_fixture(
     modified_at_ms: Option<i64>,
     captured_at_unix_seconds: i64,
 ) -> shadow_catalog::RegisteredAsset {
+    std::fs::create_dir_all(path.parent().expect("Library fixture parent"))
+        .expect("create Library source folder");
+    std::fs::write(
+        path,
+        vec![0_u8; usize::try_from(byte_len).expect("bounded fixture size")],
+    )
+    .expect("write Library source fixture");
     let display_path = path.to_string_lossy().into_owned();
     let registered = session
         .catalog

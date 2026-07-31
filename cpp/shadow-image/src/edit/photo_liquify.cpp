@@ -74,16 +74,28 @@ bool PreparedPhotoLiquify::valid() const noexcept {
         if (!std::isfinite(stamp.center_x) || !std::isfinite(stamp.center_y)) {
             return false;
         }
-        if (
-            !std::isfinite(stamp.displacement_x)
-            || !std::isfinite(stamp.displacement_y) || !std::isfinite(stamp.radius)
-            || stamp.radius <= 0.0 || !normalized(stamp.hardness)
-            || (stamp.displacement_x == 0.0 && stamp.displacement_y == 0.0)
-        ) {
+        if (!std::isfinite(stamp.displacement_x)
+            || !std::isfinite(stamp.displacement_y)
+            || !std::isfinite(stamp.reconstruction) || !std::isfinite(stamp.radius)
+            || stamp.radius <= 0.0 || !normalized(stamp.hardness)) {
             return false;
         }
-        required_displacement_bound +=
-            std::hypot(stamp.displacement_x, stamp.displacement_y);
+        switch (stamp.kind) {
+        case PreparedPhotoLiquifyStampKind::push:
+            if (stamp.reconstruction != 0.0
+                || (stamp.displacement_x == 0.0 && stamp.displacement_y == 0.0)) {
+                return false;
+            }
+            required_displacement_bound +=
+                std::hypot(stamp.displacement_x, stamp.displacement_y);
+            break;
+        case PreparedPhotoLiquifyStampKind::reconstruct:
+            if (stamp.displacement_x != 0.0 || stamp.displacement_y != 0.0
+                || stamp.reconstruction <= 0.0 || stamp.reconstruction > 1.0) {
+                return false;
+            }
+            break;
+        }
     }
     return std::isfinite(required_displacement_bound)
         && maximum_displacement_pixels >= required_displacement_bound;
@@ -96,26 +108,53 @@ void validate_photo_liquify(const PhotoLiquify& liquify) {
     if (liquify.strokes.size() > maximum_photo_liquify_strokes) {
         invalid_liquify("node exceeds the supported gesture bound");
     }
-    for (const auto& stroke : liquify.strokes) {
-        if (stroke.points.size() < 2U) {
-            invalid_liquify("push gesture must contain at least two samples");
+    bool has_prior_deformation = false;
+    for (const auto& operation : liquify.strokes) {
+        const auto& points = std::visit([](const auto& stroke) -> const auto& {
+            return stroke.points;
+        }, operation);
+        const double radius =
+            std::visit([](const auto& stroke) { return stroke.radius; }, operation);
+        const double strength =
+            std::visit([](const auto& stroke) { return stroke.strength; }, operation);
+        const double hardness =
+            std::visit([](const auto& stroke) { return stroke.hardness; }, operation);
+        const bool reconstruct =
+            std::holds_alternative<PhotoLiquifyReconstructStroke>(operation);
+        if (reconstruct && !has_prior_deformation) {
+            invalid_liquify("reconstruct gesture requires earlier deformation");
         }
-        if (stroke.points.size() > maximum_photo_liquify_points_per_stroke) {
-            invalid_liquify("push gesture exceeds the supported sample bound");
+        if ((!reconstruct && points.size() < 2U) || (reconstruct && points.empty())) {
+            invalid_liquify(
+                reconstruct ? "reconstruct gesture must contain at least one sample"
+                            : "push gesture must contain at least two samples"
+            );
         }
-        if (!normalized(stroke.radius) || stroke.radius == 0.0) {
-            invalid_liquify("push radius must be normalized and greater than zero");
+        if (points.size() > maximum_photo_liquify_points_per_stroke) {
+            invalid_liquify("gesture exceeds the supported sample bound");
         }
-        if (!normalized(stroke.strength) || stroke.strength == 0.0) {
-            invalid_liquify("push strength must be normalized and greater than zero");
+        if (!normalized(radius) || radius == 0.0) {
+            invalid_liquify("brush radius must be normalized and greater than zero");
         }
-        if (!normalized(stroke.hardness)) {
-            invalid_liquify("push hardness must be normalized");
+        if (!normalized(strength) || strength == 0.0) {
+            invalid_liquify("brush strength must be normalized and greater than zero");
         }
-        for (const auto& point : stroke.points) {
+        if (!normalized(hardness)) {
+            invalid_liquify("brush hardness must be normalized");
+        }
+        for (const auto& point : points) {
             if (!normalized(point.x) || !normalized(point.y) || !normalized(point.pressure)) {
-                invalid_liquify("push samples must contain normalized finite values");
+                invalid_liquify("gesture samples must contain normalized finite values");
             }
+        }
+        if (reconstruct) {
+            if (std::none_of(points.begin(), points.end(), [](const PhotoLiquifyPoint& point) {
+                    return point.pressure > 0.0;
+                })) {
+                invalid_liquify("reconstruct gesture must contain effective pressure");
+            }
+        } else {
+            has_prior_deformation = true;
         }
     }
 }
@@ -135,7 +174,78 @@ PreparedPhotoLiquify prepare_photo_liquify(
     const double shorter_edge = static_cast<double>(
         std::min(source_dimensions.width, source_dimensions.height)
     );
-    for (const auto& stroke : liquify.strokes) {
+    for (const auto& operation : liquify.strokes) {
+        if (const auto* const reconstruct =
+                std::get_if<PhotoLiquifyReconstructStroke>(&operation);
+            reconstruct != nullptr) {
+            const double radius = std::max(0.5, reconstruct->radius * shorter_edge);
+            const double maximum_spacing = std::max(0.5, radius * 0.25);
+            const auto append_reconstruct_stamp =
+                [&](const PhotoLiquifyPoint& point, const double amount) {
+                    if (amount <= 0.0) {
+                        return;
+                    }
+                    if (prepared.stamps.size() >= maximum_prepared_photo_liquify_stamps) {
+                        invalid_liquify(
+                            "prepared stamp count exceeds the fixed execution bound"
+                        );
+                    }
+                    prepared.stamps.push_back(PreparedPhotoLiquifyStamp{
+                        .kind = PreparedPhotoLiquifyStampKind::reconstruct,
+                        .center_x = edge_coordinate(point.x, source_dimensions.width),
+                        .center_y = edge_coordinate(point.y, source_dimensions.height),
+                        .reconstruction = amount,
+                        .radius = radius,
+                        .hardness = reconstruct->hardness,
+                    });
+                };
+            append_reconstruct_stamp(
+                reconstruct->points.front(),
+                reconstruct->strength * reconstruct->points.front().pressure
+            );
+            for (std::size_t point_index = 1U; point_index < reconstruct->points.size();
+                 ++point_index) {
+                const auto& from = reconstruct->points[point_index - 1U];
+                const auto& to = reconstruct->points[point_index];
+                const double from_x = edge_coordinate(from.x, source_dimensions.width);
+                const double from_y = edge_coordinate(from.y, source_dimensions.height);
+                const double delta_x =
+                    edge_coordinate(to.x, source_dimensions.width) - from_x;
+                const double delta_y =
+                    edge_coordinate(to.y, source_dimensions.height) - from_y;
+                const double length = std::hypot(delta_x, delta_y);
+                if (length == 0.0) {
+                    continue;
+                }
+                const std::size_t step_count = static_cast<std::size_t>(
+                    std::max(1.0, std::ceil(length / maximum_spacing))
+                );
+                if (step_count > maximum_prepared_photo_liquify_stamps - prepared.stamps.size()) {
+                    invalid_liquify("prepared stamp count exceeds the fixed execution bound");
+                }
+                const double inverse_step_count = 1.0 / static_cast<double>(step_count);
+                for (std::size_t step = 1U; step <= step_count; ++step) {
+                    const double interpolation =
+                        static_cast<double>(step) * inverse_step_count;
+                    const double pressure =
+                        from.pressure + (to.pressure - from.pressure) * interpolation;
+                    const double segment_amount =
+                        std::clamp(reconstruct->strength * pressure, 0.0, 1.0);
+                    const double amount = 1.0
+                        - std::pow(1.0 - segment_amount, inverse_step_count);
+                    append_reconstruct_stamp(
+                        PhotoLiquifyPoint{
+                            .x = from.x + (to.x - from.x) * interpolation,
+                            .y = from.y + (to.y - from.y) * interpolation,
+                            .pressure = pressure,
+                        },
+                        amount
+                    );
+                }
+            }
+            continue;
+        }
+        const auto& stroke = std::get<PhotoLiquifyPushStroke>(operation);
         const double radius = std::max(0.5, stroke.radius * shorter_edge);
         // A quarter-radius upper spacing keeps neighbouring radial supports
         // overlapping while a half-pixel floor bounds very small proxy work.
@@ -174,6 +284,7 @@ PreparedPhotoLiquify prepare_photo_liquify(
                     continue;
                 }
                 prepared.stamps.push_back(PreparedPhotoLiquifyStamp{
+                    .kind = PreparedPhotoLiquifyStampKind::push,
                     .center_x = from_x + delta_x * interpolation,
                     .center_y = from_y + delta_y * interpolation,
                     .displacement_x = displacement_x,

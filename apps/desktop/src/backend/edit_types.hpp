@@ -234,16 +234,16 @@ struct BackendLiquifyPoint final {
     bool operator==(const BackendLiquifyPoint&) const = default;
 };
 
-// One durable push-brush gesture in the photo-private singleton Liquify node.
-// An empty vector on BackendGradeStack canonically means that the node is
-// absent; there is no independently toggleable or shareable node instance.
-struct BackendLiquifyPushStroke final {
+// One durable ordered gesture in the photo-private singleton Liquify node.
+struct BackendLiquifyStroke final {
+    // 0 = Push, 1 = Reconstruct.
+    std::uint8_t kind = 0;
     QVector<BackendLiquifyPoint> points;
     double radius = 0.08;
     double strength = 0.5;
     double hardness = 0.5;
 
-    bool operator==(const BackendLiquifyPushStroke&) const = default;
+    bool operator==(const BackendLiquifyStroke&) const = default;
 };
 
 // Framing belongs to a photo, not to a reusable Grade Node. Keeping this
@@ -316,7 +316,10 @@ struct BackendGradeStack final {
     QVector<BackendGradeNode> grade_nodes;
     QVector<BackendRetouchSpot> retouch_spots;
     QVector<BackendRetouchStroke> retouch_strokes;
-    QVector<BackendLiquifyPushStroke> liquify_strokes;
+    // Empty strokes plus false is the canonical absent-node projection.
+    // A materialized node retains this flag while bypassed.
+    bool liquify_enabled = false;
+    QVector<BackendLiquifyStroke> liquify_strokes;
     BackendPhotoGeometry geometry;
 
     bool operator==(const BackendGradeStack&) const = default;

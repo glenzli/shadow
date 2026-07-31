@@ -125,7 +125,7 @@ PreparedPhotoStructuralRendering prepare_photo_structural_rendering(
         .geometry = geometry,
         .geometry_layout = photo_geometry_layout(source_dimensions, geometry),
     };
-    if (liquify != nullptr) {
+    if (liquify != nullptr && liquify->enabled) {
         result.liquify = prepare_photo_liquify(source_dimensions, *liquify);
     }
     return result;

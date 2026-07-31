@@ -42,6 +42,8 @@ Item {
     readonly property alias selectedColorLabel: selectionState.selectedColorLabel
     readonly property alias selectedTitle: selectionState.selectedTitle
     readonly property alias selectedPath: selectionState.selectedPath
+    readonly property alias selectedSourceAvailable:
+        selectionState.selectedSourceAvailable
     readonly property alias selectedRole: selectionState.selectedRole
     readonly property alias selectedVisualSource: selectionState.selectedVisualSource
     readonly property alias selectedWidth: selectionState.selectedWidth
@@ -114,6 +116,7 @@ Item {
     // therefore admissible; EditController owns any later open serialization.
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
         && selectedRepresentationId.length > 0 && selectedPath.length > 0
+        && selectedSourceAvailable
         && !comparison.compareMode
     readonly property var currentLibraryAlbum: {
         const albums = controller.libraryAlbums
@@ -205,6 +208,12 @@ Item {
         workspace: review
     }
 
+    LibraryMissingPhotoDialogs {
+        id: missingPhotoDialogs
+        anchors.fill: parent
+        controller: review.controller
+    }
+
     readonly property color panel: Theme.panel
     readonly property color panelRaised: Theme.panelRaised
     readonly property color border: Theme.border
@@ -256,6 +265,14 @@ Item {
         keywordPopup.present()
     }
 
+    function relinkUnavailablePhoto(photoId, locationId, title, sourcePath) {
+        missingPhotoDialogs.relink(photoId, locationId, title, sourcePath)
+    }
+
+    function removeUnavailablePhoto(photoId, title, sourcePath) {
+        missingPhotoDialogs.confirmRemoval(photoId, title, sourcePath)
+    }
+
     function updatePrimaryPhoto(card) {
         selectionState.updatePrimaryPhoto(card)
     }
@@ -269,6 +286,7 @@ Item {
             "photoId": String(cluster.photoId || ""),
             "representationId": String(cluster.representationId || ""),
             "sourcePath": String(cluster.sourcePath || ""),
+            "sourceAvailable": true,
             "title": String(cluster.title || ""),
             "visualHandle": "",
             "decisionHeadSequence": 0,

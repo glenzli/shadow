@@ -15,6 +15,7 @@ enum class BackendReviewDecisionFlag : std::uint8_t {
 struct BackendReviewItem final {
     QString photo_id;
     QString representation_id;
+    QString location_id;
     QString visual_handle;
     std::uint64_t decision_head_sequence = 0;
     BackendReviewDecisionFlag decision_flag = BackendReviewDecisionFlag::Unflagged;
@@ -27,6 +28,7 @@ struct BackendReviewItem final {
     bool has_development_edits = false;
     QString title;
     QString source_path;
+    bool source_available = true;
     QString visual_role;
     std::uint32_t visual_width = 0;
     std::uint32_t visual_height = 0;

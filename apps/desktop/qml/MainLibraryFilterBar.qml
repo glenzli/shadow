@@ -244,7 +244,11 @@ Rectangle {
             iconSize: 15
             source: "qrc:/icons/heart-filled.svg"
             selected: filterBar.controller.filterLiked === "liked"
-            foregroundColor: selected ? Theme.accent : Theme.textMuted
+            foregroundColor: Theme.likeAccent
+            selectedSurfaceColor: Theme.likeSurface
+            selectedHoverSurfaceColor: Theme.likeHoverSurface
+            selectedPressedSurfaceColor: Theme.likePressedSurface
+            selectedIconColor: Theme.likeAccent
             toolTipText: qsTranslate("Main", "Filter liked photos")
             accessibleName: toolTipText
             onClicked: filterBar.controller.filterLiked =

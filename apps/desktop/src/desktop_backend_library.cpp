@@ -273,6 +273,7 @@ library_review_item(const shadow::desktop::FfiLibraryPhotoItem& source) {
     return {
         .photo_id = qstring(source.photo_id),
         .representation_id = qstring(source.representation_id),
+        .location_id = qstring(source.location_id),
         .visual_handle = qstring(source.visual_handle),
         .decision_head_sequence = source.decision_head_sequence,
         .decision_flag = decision_flag(source.decision_flag),
@@ -283,6 +284,7 @@ library_review_item(const shadow::desktop::FfiLibraryPhotoItem& source) {
         .has_development_edits = source.has_development_edits,
         .title = qstring(source.title),
         .source_path = qstring(source.source_path),
+        .source_available = source.source_available,
         .visual_role = qstring(source.visual_role),
         .visual_width = source.visual_width,
         .visual_height = source.visual_height,
@@ -562,6 +564,20 @@ BackendVerifiedSourceRelinkReceipt DesktopBackend::relinkMissingSourceLocation(
         location_id.toStdString(),
         candidate_path.toStdString()
     ));
+}
+
+BackendVerifiedSourceRelinkReceipt DesktopBackend::relinkLibrarySourceLocation(
+    const QString& location_id,
+    const QString& candidate_path
+) const {
+    return verified_source_relink_receipt(impl_->session->relink_library_source_location(
+        location_id.toStdString(),
+        candidate_path.toStdString()
+    ));
+}
+
+bool DesktopBackend::archiveLibraryPhoto(const QString& photo_id) const {
+    return impl_->session->archive_library_photo(photo_id.toStdString());
 }
 
 BackendLibraryAlbum DesktopBackend::createManualLibraryAlbum(const QString& name) const {

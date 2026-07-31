@@ -57,8 +57,7 @@ void replace_and_append_keep_their_items_intact() {
     model.replace({replacement}, 11);
     require(model.rowCount() == 1, "replace must remove the previous page");
     require(
-        value(model, 0, ReviewModel::PhotoIdRole).toString()
-                == QStringLiteral("replacement")
+        value(model, 0, ReviewModel::PhotoIdRole).toString() == QStringLiteral("replacement")
             && !value(model, 0, ReviewModel::HasTechnicalObservationRole).toBool(),
         "replace must expose only the new item's observation state"
     );
@@ -92,14 +91,11 @@ void snapshot_reconciliation_updates_visual_and_technical_roles_in_place() {
 
     ModelSignalCounts observed;
     observe_model(model, observed);
-    require(
-        model.reconcileSnapshot({updated}, 21),
-        "a current keyed snapshot must reconcile"
-    );
+    require(model.reconcileSnapshot({updated}, 21), "a current keyed snapshot must reconcile");
     require(
         stable_index.isValid() && stable_index.row() == 0 && observed.resets == 0
-            && observed.inserted == 0 && observed.removed == 0
-            && observed.moved == 0 && observed.changed == 1,
+            && observed.inserted == 0 && observed.removed == 0 && observed.moved == 0
+            && observed.changed == 1,
         "field refresh must preserve the row and emit only dataChanged"
     );
     for (const auto role : {
@@ -139,7 +135,9 @@ void snapshot_reconciliation_updates_visual_and_technical_roles_in_place() {
 
 void photo_identity_survives_representation_relink() {
     ReviewItem original = keyed_item("a", "Original");
+    original.location_id = QStringLiteral("location-old");
     original.source_path = QStringLiteral("/old/location/a.raw");
+    original.source_available = false;
     original.visual_handle = QStringLiteral("visual-old");
     ReviewModel model;
     model.replace({original}, 22);
@@ -147,7 +145,9 @@ void photo_identity_survives_representation_relink() {
 
     ReviewItem relinked = original;
     relinked.representation_id = QStringLiteral("a-relinked-representation");
+    relinked.location_id = QStringLiteral("location-new");
     relinked.source_path = QStringLiteral("/new/location/a.raw");
+    relinked.source_available = true;
     relinked.visual_handle = QStringLiteral("visual-relinked");
 
     ModelSignalCounts observed;
@@ -157,23 +157,26 @@ void photo_identity_survives_representation_relink() {
         "a relinked representation must reconcile under the original photo id"
     );
     require(
-        model.rowCount() == 1 && selected.isValid() && selected.row() == 0
-            && observed.resets == 0 && observed.inserted == 0
-            && observed.removed == 0 && observed.moved == 0
+        model.rowCount() == 1 && selected.isValid() && selected.row() == 0 && observed.resets == 0
+            && observed.inserted == 0 && observed.removed == 0 && observed.moved == 0
             && observed.changed == 1,
         "a relink must update the existing logical photo instead of duplicating it"
     );
     require(
-        value(model, 0, ReviewModel::PhotoIdRole).toString()
-                == QStringLiteral("a-photo")
+        value(model, 0, ReviewModel::PhotoIdRole).toString() == QStringLiteral("a-photo")
             && value(model, 0, ReviewModel::RepresentationIdRole).toString()
-                == QStringLiteral("a-relinked-representation")
+                   == QStringLiteral("a-relinked-representation")
             && value(model, 0, ReviewModel::SourcePathRole).toString()
-                == QStringLiteral("/new/location/a.raw")
+                   == QStringLiteral("/new/location/a.raw")
+            && value(model, 0, ReviewModel::LocationIdRole).toString()
+                   == QStringLiteral("location-new")
+            && value(model, 0, ReviewModel::SourceAvailableRole).toBool()
             && value(model, 0, ReviewModel::VisualHandleRole).toString()
-                == QStringLiteral("visual-relinked")
+                   == QStringLiteral("visual-relinked")
             && observed.last_changed_roles.contains(ReviewModel::RepresentationIdRole)
             && observed.last_changed_roles.contains(ReviewModel::SourcePathRole)
+            && observed.last_changed_roles.contains(ReviewModel::LocationIdRole)
+            && observed.last_changed_roles.contains(ReviewModel::SourceAvailableRole)
             && observed.last_changed_roles.contains(ReviewModel::VisualHandleRole),
         "photo-first reconciliation must project the replacement representation fields"
     );

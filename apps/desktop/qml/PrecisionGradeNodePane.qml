@@ -38,8 +38,11 @@ Rectangle {
         required property string nodeStatus
         required property string nodeGlyph
         required property bool nodeSelected
+        property bool bypassAvailable: false
+        property bool nodeEnabled: true
 
         signal activated
+        signal enabledToggled(bool enabled)
 
         Layout.fillWidth: true
         Layout.preferredHeight: 52
@@ -97,10 +100,51 @@ Rectangle {
                     elide: Text.ElideRight
                 }
             }
+
+            Switch {
+                id: structuralEnabledSwitch
+                visible: structuralRow.bypassAvailable
+                Layout.preferredWidth: visible ? 36 : 0
+                Layout.preferredHeight: 22
+                checked: structuralRow.nodeEnabled
+                enabled: pane.editor.active && !pane.editor.stateBusy
+                Accessible.name: checked
+                    ? qsTr("Bypass %1").arg(structuralRow.nodeLabel)
+                    : qsTr("Enable %1").arg(structuralRow.nodeLabel)
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: checked
+                    ? qsTr("Bypass node; preserve all settings")
+                    : qsTr("Enable node")
+                onClicked: structuralRow.enabledToggled(checked)
+                indicator: Rectangle {
+                    implicitWidth: 34
+                    implicitHeight: 18
+                    x: (structuralEnabledSwitch.width - width) / 2
+                    y: (structuralEnabledSwitch.height - height) / 2
+                    radius: height / 2
+                    color: structuralEnabledSwitch.checked
+                        ? Theme.switchOnSurface : Theme.switchOffSurface
+                    border.color: structuralEnabledSwitch.checked
+                        ? Theme.switchOnBorder : Theme.switchOffBorder
+                    Rectangle {
+                        width: 12
+                        height: 12
+                        y: 3
+                        x: structuralEnabledSwitch.checked
+                            ? parent.width - width - 3 : 3
+                        radius: width / 2
+                        color: structuralEnabledSwitch.checked
+                            ? pane.accent : pane.textMuted
+                    }
+                }
+                contentItem: Item {}
+            }
         }
 
         MouseArea {
             anchors.fill: parent
+            anchors.rightMargin: structuralRow.bypassAvailable ? 44 : 0
             acceptedButtons: Qt.LeftButton
             cursorShape: Qt.PointingHandCursor
             onClicked: structuralRow.activated()
@@ -167,10 +211,16 @@ Rectangle {
                 || pane.editor.selectedRecipeNodeKind === "liquify"
             nodeLabel: qsTr("Liquify")
             nodeStatus: pane.editor.liquifyNodeMaterialized
-                ? qsTr("PHOTO · SINGLETON")
+                ? (pane.editor.liquifyNodeEnabled
+                    ? qsTr("PHOTO · ENABLED")
+                    : qsTr("PHOTO · BYPASSED"))
                 : qsTr("EMPTY · DRAW TO CREATE")
             nodeGlyph: "L"
             nodeSelected: pane.editor.selectedRecipeNodeKind === "liquify"
+            bypassAvailable: pane.editor.liquifyNodeMaterialized
+            nodeEnabled: pane.editor.liquifyNodeEnabled
+            onEnabledToggled: enabled =>
+                pane.editor.liquifyNodeEnabled = enabled
             onActivated: {
                 pane.editor.selectLiquifyNode()
                 pane.liquifyToolRequested()

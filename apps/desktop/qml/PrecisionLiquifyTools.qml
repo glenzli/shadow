@@ -30,9 +30,44 @@ ColumnLayout {
         resetAvailable: true
         onResetRequested: {
             liquify.inspector.editor.clearLiquify()
+            liquify.inspector.editor.liquifyBrushMode = 0
             liquify.inspector.editor.liquifyBrushRadius = 0.08
             liquify.inspector.editor.liquifyBrushStrength = 0.5
             liquify.inspector.editor.liquifyBrushHardness = 0.5
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 8
+            spacing: 6
+
+            ShadowButton {
+                Layout.fillWidth: true
+                compact: true
+                selected:
+                    liquify.inspector.editor.liquifyBrushMode === 0
+                    || !liquify.inspector.editor.liquifyCanReconstruct
+                text: qsTr("Push")
+                toolTipText: qsTr("Move pixels along the pointer path.")
+                onClicked:
+                    liquify.inspector.editor.liquifyBrushMode = 0
+            }
+
+            ShadowButton {
+                Layout.fillWidth: true
+                compact: true
+                selected:
+                    liquify.inspector.editor.liquifyBrushMode === 1
+                    && liquify.inspector.editor.liquifyCanReconstruct
+                text: qsTr("Reconstruct")
+                enabled: liquify.inspector.editor.liquifyCanReconstruct
+                    && liquify.inspector.editor.liquifyNodeEnabled
+                toolTipText: qsTr("Restore deformation toward the original image mapping.")
+                onClicked:
+                    liquify.inspector.editor.liquifyBrushMode = 1
+            }
         }
 
         ShadowSlider {
@@ -115,7 +150,9 @@ ColumnLayout {
             Layout.rightMargin: 14
             Layout.topMargin: 8
             Layout.bottomMargin: 10
-            text: qsTr("Drag on the image to push pixels. The path stays local while dragging, then commits as one undoable stroke.")
+            text: liquify.inspector.editor.liquifyBrushMode === 1
+                ? qsTr("Paint over a deformed area to restore its original mapping. The authoritative preview updates while you drag, then commits as one undoable stroke.")
+                : qsTr("Drag on the image to push pixels. The path stays local while dragging, then commits as one undoable stroke.")
             color: Theme.textMuted
             font.pixelSize: 10
             wrapMode: Text.WordWrap

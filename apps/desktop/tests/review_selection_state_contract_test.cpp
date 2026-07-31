@@ -92,6 +92,7 @@ class FakeReviewCard final : public QObject {
     Q_PROPERTY(QString colorLabel MEMBER color_label CONSTANT)
     Q_PROPERTY(QString title MEMBER title CONSTANT)
     Q_PROPERTY(QString sourcePath MEMBER source_path CONSTANT)
+    Q_PROPERTY(bool sourceAvailable MEMBER source_available CONSTANT)
     Q_PROPERTY(QString visualRole MEMBER visual_role CONSTANT)
     Q_PROPERTY(QString visualSource MEMBER visual_source CONSTANT)
     Q_PROPERTY(int visualWidth MEMBER visual_width CONSTANT)
@@ -110,6 +111,7 @@ public:
     QString color_label = QStringLiteral("none");
     QString title = QStringLiteral("Selected");
     QString source_path = QStringLiteral("/photos/selected.nef");
+    bool source_available = true;
     QString visual_role = QStringLiteral("generated_proxy");
     QString visual_source = QStringLiteral("image://shadow/selected");
     int visual_width = 1'600;

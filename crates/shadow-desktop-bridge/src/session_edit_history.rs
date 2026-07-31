@@ -408,7 +408,7 @@ impl DesktopSession {
                                 expected_working: Option<RecipeCommitId>|
          -> AnyResult<CommitRecipe> {
             let snapshot = grade_stack_recipe_v1_snapshot(
-                &grade_stack,
+                grade_stack,
                 parent.map(|record| record.commit.snapshot()),
             )?;
             let (recipe_id, parents) = if let Some(record) = parent {

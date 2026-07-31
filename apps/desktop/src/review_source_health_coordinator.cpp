@@ -24,7 +24,7 @@ ReviewSourceHealthCoordinator::ReviewSourceHealthCoordinator(
     QObject* parent
 ) : QObject(parent), operations_(std::move(operations)) {
     if (!operations_.source_health || !operations_.remove_source || !operations_.missing_locations
-        || !operations_.relink) {
+        || !operations_.relink || !operations_.relink_library || !operations_.archive_photo) {
         throw std::invalid_argument("complete Review source-health operations are required");
     }
     connect(
@@ -51,6 +51,12 @@ ReviewSourceHealthCoordinator::ReviewSourceHealthCoordinator(
         this,
         &ReviewSourceHealthCoordinator::finishRelinkTask
     );
+    connect(
+        &archive_photo_watcher_,
+        &QFutureWatcher<ArchivePhotoTaskResult>::finished,
+        this,
+        &ReviewSourceHealthCoordinator::finishArchivePhotoTask
+    );
 }
 
 ReviewSourceHealthCoordinator::~ReviewSourceHealthCoordinator() {
@@ -58,6 +64,7 @@ ReviewSourceHealthCoordinator::~ReviewSourceHealthCoordinator() {
     remove_source_watcher_.waitForFinished();
     missing_locations_watcher_.waitForFinished();
     relink_watcher_.waitForFinished();
+    archive_photo_watcher_.waitForFinished();
 }
 
 QVariantList ReviewSourceHealthCoordinator::sourceHealth() const {
@@ -152,7 +159,8 @@ void ReviewSourceHealthCoordinator::removeSource(
     const QString& source_path
 ) {
     const QString normalized_source_id = source_id.trimmed();
-    if (remove_source_running_ || relink_running_ || normalized_source_id.isEmpty()) {
+    if (remove_source_running_ || relink_running_ || archive_photo_running_
+        || normalized_source_id.isEmpty()) {
         return;
     }
     startRemoveSourceTask(normalized_source_id, source_path);
@@ -200,11 +208,35 @@ void ReviewSourceHealthCoordinator::relinkMissingLocation(
 ) {
     const QString normalized_location_id = location_id.trimmed();
     const QString candidate_path = candidate_url.toLocalFile();
-    if (relink_running_ || missing_location_scan_id_.isEmpty() || normalized_location_id.isEmpty()
-        || candidate_path.isEmpty()) {
+    if (relink_running_ || archive_photo_running_ || missing_location_scan_id_.isEmpty()
+        || normalized_location_id.isEmpty() || candidate_path.isEmpty()) {
         return;
     }
     startRelinkTask(normalized_location_id, candidate_path);
+}
+
+void ReviewSourceHealthCoordinator::relinkUnavailableLocation(
+    const QString& location_id,
+    const QUrl& candidate_url
+) {
+    const QString normalized_location_id = location_id.trimmed();
+    const QString candidate_path = candidate_url.toLocalFile();
+    if (relink_running_ || archive_photo_running_ || normalized_location_id.isEmpty()
+        || candidate_path.isEmpty()) {
+        return;
+    }
+    startLibraryRelinkTask(normalized_location_id, candidate_path);
+}
+
+void ReviewSourceHealthCoordinator::archiveUnavailablePhoto(
+    const QString& photo_id,
+    const QString& title
+) {
+    const QString normalized_photo_id = photo_id.trimmed();
+    if (archive_photo_running_ || relink_running_ || normalized_photo_id.isEmpty()) {
+        return;
+    }
+    startArchivePhotoTask(normalized_photo_id, title);
 }
 
 void ReviewSourceHealthCoordinator::retranslateUi() {
@@ -294,6 +326,45 @@ ReviewSourceHealthCoordinator::RelinkTaskResult ReviewSourceHealthCoordinator::r
     return result;
 }
 
+ReviewSourceHealthCoordinator::RelinkTaskResult ReviewSourceHealthCoordinator::runLibraryRelinkTask(
+    std::function<BackendVerifiedSourceRelinkReceipt(
+        const QString& location_id,
+        const QString& candidate_path
+    )> operation,
+    QString location_id,
+    QString candidate_path,
+    const quint64 request_id
+) {
+    RelinkTaskResult result;
+    result.location_id = location_id;
+    result.request_id = request_id;
+    try {
+        result.receipt = operation(location_id, candidate_path);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+ReviewSourceHealthCoordinator::ArchivePhotoTaskResult
+ReviewSourceHealthCoordinator::runArchivePhotoTask(
+    std::function<bool(const QString& photo_id)> operation,
+    QString photo_id,
+    QString title,
+    const quint64 request_id
+) {
+    ArchivePhotoTaskResult result;
+    result.photo_id = std::move(photo_id);
+    result.title = std::move(title);
+    result.request_id = request_id;
+    try {
+        result.archived = operation(result.photo_id);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
 void ReviewSourceHealthCoordinator::startSourceHealthTask() {
     if (source_health_running_) {
         source_health_refresh_pending_ = true;
@@ -369,6 +440,43 @@ void ReviewSourceHealthCoordinator::startRelinkTask(
             location_id,
             candidate_path,
             active_relink_request_id_
+        )
+    );
+}
+
+void ReviewSourceHealthCoordinator::startLibraryRelinkTask(
+    const QString& location_id,
+    const QString& candidate_path
+) {
+    relink_running_ = true;
+    relink_status_message_ =
+        source_health_message(QT_TRANSLATE_NOOP("ReviewController", "Verifying selected source…"));
+    active_relink_request_id_ = ++relink_request_id_;
+    emit missingLocationReviewChanged();
+    relink_watcher_.setFuture(
+        QtConcurrent::run(
+            runLibraryRelinkTask,
+            operations_.relink_library,
+            location_id,
+            candidate_path,
+            active_relink_request_id_
+        )
+    );
+}
+
+void ReviewSourceHealthCoordinator::startArchivePhotoTask(
+    const QString& photo_id,
+    const QString& title
+) {
+    archive_photo_running_ = true;
+    active_archive_photo_request_id_ = ++archive_photo_request_id_;
+    archive_photo_watcher_.setFuture(
+        QtConcurrent::run(
+            runArchivePhotoTask,
+            operations_.archive_photo,
+            photo_id,
+            title,
+            active_archive_photo_request_id_
         )
     );
 }
@@ -467,6 +575,7 @@ void ReviewSourceHealthCoordinator::finishRelinkTask() {
             {result.receipt.display_path}
         );
         publishGlobalStatus(relink_status_message_);
+        emit libraryVisibilityChanged();
     } else if (accepted) {
         relink_status_message_ = source_health_message(
             QT_TRANSLATE_NOOP("ReviewController", "Could not link selected source · %1"),
@@ -475,6 +584,31 @@ void ReviewSourceHealthCoordinator::finishRelinkTask() {
         publishGlobalStatus(relink_status_message_);
     }
     emit missingLocationReviewChanged();
+}
+
+void ReviewSourceHealthCoordinator::finishArchivePhotoTask() {
+    ArchivePhotoTaskResult result = archive_photo_watcher_.result();
+    archive_photo_running_ = false;
+    const bool accepted = result.request_id == active_archive_photo_request_id_;
+    if (accepted && result.error.isEmpty()) {
+        if (result.archived) {
+            emit libraryVisibilityChanged();
+        }
+        publishGlobalStatus(source_health_message(
+            result.archived
+                ? QT_TRANSLATE_NOOP("ReviewController", "Removed photo from Library · %1")
+                : QT_TRANSLATE_NOOP(
+                      "ReviewController",
+                      "Photo was already removed from Library · %1"
+                  ),
+            {result.title}
+        ));
+    } else if (accepted) {
+        publishGlobalStatus(source_health_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not remove photo from Library · %1"),
+            {result.error}
+        ));
+    }
 }
 
 void ReviewSourceHealthCoordinator::publishGlobalStatus(LocalizedUiMessage status) {

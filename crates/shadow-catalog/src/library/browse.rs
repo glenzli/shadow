@@ -59,7 +59,8 @@ impl Catalog {
                         SELECT 1 FROM recipe_refs edit_ref
                         WHERE edit_ref.photo_id = p.id
                           AND edit_ref.name = 'working'
-                    )
+                    ),
+                    l.id
              {from_sql} WHERE {where_sql}"
         );
         let mut page_values = filter_values;
@@ -207,28 +208,31 @@ fn append_library_order(
                 };
                 if let Some(captured_at) = captured_at {
                     let comparison = if descending { "<" } else { ">" };
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " AND (f.captured_at_unix_seconds IS NULL
                                   OR f.captured_at_unix_seconds {comparison} ?
                                   OR (f.captured_at_unix_seconds = ? AND p.id {comparison} ?))"
-                    ));
+                    );
                     values.push(Value::Integer(captured_at));
                     values.push(Value::Integer(captured_at));
                     values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
                 } else {
                     let comparison = if descending { "<" } else { ">" };
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " AND f.captured_at_unix_seconds IS NULL AND p.id {comparison} ?"
-                    ));
+                    );
                     values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
                 }
             }
             let direction = if descending { "DESC" } else { "ASC" };
-            sql.push_str(&format!(
+            let _ = write!(
+                sql,
                 " ORDER BY CASE WHEN f.captured_at_unix_seconds IS NULL THEN 1 ELSE 0 END,
                            f.captured_at_unix_seconds {direction}, p.id {direction}
                   LIMIT ?"
-            ));
+            );
         }
         LibraryPhotoOrder::FileNameAscending | LibraryPhotoOrder::FileNameDescending => {
             let descending = order == LibraryPhotoOrder::FileNameDescending;
@@ -244,18 +248,20 @@ fn append_library_order(
                     ));
                 }
                 let comparison = if descending { "<" } else { ">" };
-                sql.push_str(&format!(
+                let _ = write!(
+                    sql,
                     " AND (l.sort_name_key {comparison} ?
                               OR (l.sort_name_key = ? AND p.id {comparison} ?))"
-                ));
+                );
                 values.push(Value::Text(name.clone()));
                 values.push(Value::Text(name.clone()));
                 values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
             }
             let direction = if descending { "DESC" } else { "ASC" };
-            sql.push_str(&format!(
+            let _ = write!(
+                sql,
                 " ORDER BY l.sort_name_key {direction}, p.id {direction} LIMIT ?"
-            ));
+            );
         }
     }
     Ok(())

@@ -65,6 +65,7 @@ class ReviewLibraryQueryCoordinator final : public QObject {
     void itemCountChanged();
     void decisionsReconciled();
     void queryStarted(const BackendLibraryPhotoFilter& filter, quint64 generation);
+    void initialPagePresented(const BackendLibraryPhotoFilter& filter, quint64 generation);
     void resetPresentationStarted();
     void statusMessageChanged();
     void readyStatusRequested();

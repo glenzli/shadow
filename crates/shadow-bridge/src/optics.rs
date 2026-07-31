@@ -75,7 +75,7 @@ pub struct OpticsProfileCandidate {
     pub lens_model: String,
 }
 
-/// Calibrated photographer-facing presentation of the source CameraNeutral.
+/// Calibrated photographer-facing presentation of the source `CameraNeutral`.
 ///
 /// Absence means that the persisted metadata cannot be mapped without
 /// guessing, normally because no exact DCP camera profile is installed.

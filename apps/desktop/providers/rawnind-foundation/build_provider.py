@@ -44,6 +44,18 @@ ENTRY_POINT = (
 )
 MODEL_MANIFEST = PROVIDER_DIRECTORY / "model-manifest.json"
 DESKTOP_MANIFEST_NAME = "shadow-rawnind-foundation-model-manifest.json"
+REQUIRED_COMMAND_OPTIONS = (
+    "--model-package",
+    "--model-graph",
+    "--manifest",
+    "--input-raw",
+    "--input-raw-frame",
+    "--output-foundation",
+    "--source-pixel-contract-sha256",
+    "--verify-model",
+    "--plan",
+    "--run",
+)
 
 
 def _arguments() -> argparse.Namespace:
@@ -155,8 +167,21 @@ def _run_pyinstaller(output_root: Path) -> Path:
         text=True,
         timeout=60,
     )
-    if help_probe.returncode != 0 or "--verify-model" not in help_probe.stdout:
-        raise RuntimeError("frozen RawNIND provider failed its command-line probe")
+    missing_options = [
+        option
+        for option in REQUIRED_COMMAND_OPTIONS
+        if option not in help_probe.stdout
+    ]
+    if help_probe.returncode != 0 or missing_options:
+        diagnostic = (
+            f"; missing options: {', '.join(missing_options)}"
+            if missing_options
+            else ""
+        )
+        raise RuntimeError(
+            "frozen RawNIND provider failed its command-line probe"
+            f"{diagnostic}"
+        )
     return bundle
 
 

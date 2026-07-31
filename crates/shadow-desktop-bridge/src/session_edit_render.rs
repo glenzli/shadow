@@ -121,6 +121,9 @@ impl DesktopSession {
         Ok(())
     }
 
+    // Source fingerprinting, cache admission, decoder fallback, and cache
+    // publication form one indivisible detail-session preparation transaction.
+    #[allow(clippy::too_many_lines)]
     fn edit_detail_session(
         &self,
         source: &ReviewItemRecord,

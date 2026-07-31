@@ -12,6 +12,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -29,6 +30,12 @@ class FakeDirectStrokeEditor final : public QObject {
     Q_PROPERTY(double liquifyBrushRadius READ liquifyBrushRadius CONSTANT)
     Q_PROPERTY(double liquifyBrushStrength READ liquifyBrushStrength CONSTANT)
     Q_PROPERTY(double liquifyBrushHardness READ liquifyBrushHardness CONSTANT)
+    Q_PROPERTY(
+        int liquifyBrushMode READ liquifyBrushMode WRITE setLiquifyBrushMode NOTIFY
+            liquifyBrushChanged
+    )
+    Q_PROPERTY(bool liquifyCanReconstruct READ liquifyCanReconstruct NOTIFY parametersChanged)
+    Q_PROPERTY(bool liquifyNodeEnabled READ liquifyNodeEnabled NOTIFY parametersChanged)
     Q_PROPERTY(QVariantList liquifyStrokes READ liquifyStrokes NOTIFY parametersChanged)
 
   public:
@@ -87,6 +94,22 @@ class FakeDirectStrokeEditor final : public QObject {
     [[nodiscard]] double liquifyBrushHardness() const noexcept {
         return 0.4;
     }
+    [[nodiscard]] int liquifyBrushMode() const noexcept {
+        return liquify_brush_mode;
+    }
+    void setLiquifyBrushMode(const int mode) {
+        if (liquify_brush_mode == mode) {
+            return;
+        }
+        liquify_brush_mode = mode;
+        emit liquifyBrushChanged();
+    }
+    [[nodiscard]] bool liquifyCanReconstruct() const noexcept {
+        return !liquify_strokes.isEmpty();
+    }
+    [[nodiscard]] bool liquifyNodeEnabled() const noexcept {
+        return !liquify_strokes.isEmpty();
+    }
     [[nodiscard]] QVariantList liquifyStrokes() const {
         return liquify_strokes;
     }
@@ -113,6 +136,30 @@ class FakeDirectStrokeEditor final : public QObject {
         liquify_strokes.push_back(QVariantMap{{QStringLiteral("points"), points}});
         emit parametersChanged();
     }
+    Q_INVOKABLE bool beginLiquifyLiveStroke() {
+        ++liquify_live_begin_count;
+        liquify_live_kind = liquify_brush_mode;
+        return liquify_live_kind == 0 || liquifyCanReconstruct();
+    }
+    Q_INVOKABLE void updateLiquifyLiveStrokeFromPreview(
+        const QVariantList& points,
+        const double output_aspect_ratio
+    ) {
+        ++liquify_live_update_count;
+        committed_liquify_points = points;
+        committed_liquify_aspect = output_aspect_ratio;
+    }
+    Q_INVOKABLE void finishLiquifyLiveStroke() {
+        ++liquify_live_finish_count;
+        liquify_strokes.push_back(QVariantMap{
+            {QStringLiteral("kind"), liquify_live_kind},
+            {QStringLiteral("points"), committed_liquify_points},
+        });
+        emit parametersChanged();
+    }
+    Q_INVOKABLE void cancelLiquifyLiveStroke() {
+        ++liquify_live_cancel_count;
+    }
     Q_INVOKABLE void setSelectedLocalMaskPoint(const QString&, double, double) {}
     Q_INVOKABLE void setSelectedLocalMaskValue(const QString&, double) {}
     Q_INVOKABLE void setWhiteBalanceFromPreview(double, double, const QString&) {}
@@ -122,11 +169,17 @@ class FakeDirectStrokeEditor final : public QObject {
     int spot_commit_count = 0;
     int mask_commit_count = 0;
     int liquify_commit_count = 0;
+    int liquify_live_begin_count = 0;
+    int liquify_live_update_count = 0;
+    int liquify_live_finish_count = 0;
+    int liquify_live_cancel_count = 0;
+    int liquify_live_kind = -1;
     QVariantList committed_points;
     QVariantList committed_mask_points;
     QVariantList committed_liquify_points;
     QVariantList liquify_strokes;
     double committed_liquify_aspect = 0.0;
+    int liquify_brush_mode = 0;
     bool state_busy = false;
 
   signals:
@@ -134,6 +187,7 @@ class FakeDirectStrokeEditor final : public QObject {
     void parametersChanged();
     void selectedGradeNodeChanged();
     void stateBusyChanged();
+    void liquifyBrushChanged();
 };
 
 class FakeLiquifyPreview final : public QObject {
@@ -155,7 +209,7 @@ class FakeLiquifyPreview final : public QObject {
         begin_radius = radius;
         begin_strength = strength;
         begin_hardness = hardness;
-        return true;
+        return begin_allowed;
     }
 
     Q_INVOKABLE bool
@@ -202,6 +256,7 @@ class FakeLiquifyPreview final : public QObject {
     QPointF last_point;
     bool finish_committed = false;
     bool transient_liquify_pending = false;
+    bool begin_allowed = true;
 
   signals:
     void transientLiquifyChanged();
@@ -462,6 +517,8 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
         {QStringLiteral("previewItem"), QVariant::fromValue(&liquify_preview)},
         {QStringLiteral("interactionEnabled"), true},
+        {QStringLiteral("previewReady"), true},
+        {QStringLiteral("previewGeneration"), QStringLiteral("21")},
         {QStringLiteral("outputAspectRatio"), 4.0 / 3.0},
         {QStringLiteral("width"), 400.0},
         {QStringLiteral("height"), 300.0},
@@ -517,21 +574,101 @@ int main(int argc, char* argv[]) {
         liquify->findChild<QObject*>(QStringLiteral("liquifyStrokeInput"));
     QObject* const liquify_pending_cursor =
         liquify->findChild<QObject*>(QStringLiteral("liquifyPendingCursor"));
+    QObject* const liquify_brush_cursor =
+        liquify->findChild<QObject*>(QStringLiteral("liquifyBrushCursor"));
+    QObject* const liquify_outer_ring =
+        liquify->findChild<QObject*>(QStringLiteral("liquifyBrushOuterRing"));
+    QObject* const liquify_hardness_ring =
+        liquify->findChild<QObject*>(QStringLiteral("liquifyBrushHardnessRing"));
     if (!require(
             liquify_input != nullptr && liquify_pending_cursor != nullptr
-                && !liquify_input->property("visible").toBool()
-                && liquify_pending_cursor->property("visible").toBool()
-                && liquify_pending_cursor->property("cursorShape").toInt() == Qt::BusyCursor,
-            "Liquify release swaps its hidden brush pointer for a visible pending cursor"
+                && liquify_input->property("visible").toBool()
+                && liquify_input->property("enabled").toBool()
+                && !liquify_pending_cursor->property("visible").toBool(),
+            "a pending local Push remains visible without blocking the next Liquify gesture"
+        )
+        || !require(
+            liquify_brush_cursor != nullptr
+                && liquify_brush_cursor->property("visible").toBool()
+                && liquify_outer_ring != nullptr
+                && liquify_hardness_ring != nullptr
+                && std::abs(liquify_outer_ring->property("width").toDouble() - 48.0) < 0.01
+                && std::abs(liquify_hardness_ring->property("width").toDouble() - 19.2) < 0.01,
+            "Liquify feedback is a radius and hardness brush cursor over the live image"
         )) {
         return EXIT_FAILURE;
     }
+
+    editor.setLiquifyBrushMode(1);
+    drainBindings();
+    const int transient_begin_count = liquify_preview.begin_count;
+    sendMouse(window, QEvent::MouseButtonPress, QPointF{160, 120}, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseMove, QPointF{190, 135}, Qt::NoButton, Qt::LeftButton);
+    liquify->setProperty("previewReady", false);
+    drainBindings();
+    sendMouse(window, QEvent::MouseMove, QPointF{230, 145}, Qt::NoButton, Qt::LeftButton);
+    if (!require(
+            editor.liquify_live_begin_count == 1 && editor.liquify_live_kind == 1
+                && editor.liquify_live_update_count >= 3
+                && editor.liquify_live_finish_count == 0
+                && editor.liquify_live_cancel_count == 0
+                && liquify_preview.begin_count == transient_begin_count,
+            "Reconstruct survives a preview-readiness transition while streaming one authoritative "
+            "path without restarting the Push mesh"
+        )) {
+        return EXIT_FAILURE;
+    }
+    sendMouse(window, QEvent::MouseButtonRelease, QPointF{250, 150}, Qt::LeftButton, Qt::NoButton);
+    if (!require(
+            editor.liquify_live_finish_count == 1
+                && editor.liquify_live_cancel_count == 0
+                && editor.committed_liquify_points.size() >= 3
+                && editor.committed_liquify_aspect == 4.0 / 3.0,
+            "Reconstruct release commits the streamed path as one ordered operation even when its "
+            "first frame changes source readiness"
+        )) {
+        return EXIT_FAILURE;
+    }
+    liquify->setProperty("previewReady", true);
     liquify_preview.publishAuthoritativeFrame();
     drainBindings();
+
+    // Releasing an authoritative stroke schedules one newer generation. Until
+    // it presents, a following Push must stay on the authoritative path rather
+    // than applying a new local mesh over a stale texture.
+    editor.setLiquifyBrushMode(0);
+    const int transient_begin_before_pending_push = liquify_preview.begin_count;
+    const int live_begin_before_pending_push = editor.liquify_live_begin_count;
+    sendMouse(window, QEvent::MouseButtonPress, QPointF{75, 185}, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseMove, QPointF{130, 195}, Qt::NoButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseButtonRelease, QPointF{185, 205}, Qt::LeftButton, Qt::NoButton);
     if (!require(
-            liquify_input->property("visible").toBool()
-                && !liquify_pending_cursor->property("visible").toBool(),
-            "the authoritative frame restores Liquify authoring cursor ownership"
+            liquify_preview.begin_count == transient_begin_before_pending_push
+                && editor.liquify_live_begin_count == live_begin_before_pending_push + 1
+                && editor.liquify_live_kind == 0,
+            "a Push following an unsettled authoritative stroke cannot rebase a local mesh over "
+            "the stale generation"
+        )) {
+        return EXIT_FAILURE;
+    }
+    liquify->setProperty("previewGeneration", QStringLiteral("22"));
+    drainBindings();
+
+    // A CPU/fallback source can display a decoded preview without admitting a
+    // local Scene Graph texture. Push must still preview through the same
+    // authoritative live-stroke lifecycle instead of silently drawing nothing.
+    liquify_preview.begin_allowed = false;
+    const int live_begin_before_fallback = editor.liquify_live_begin_count;
+    const int live_finish_before_fallback = editor.liquify_live_finish_count;
+    sendMouse(window, QEvent::MouseButtonPress, QPointF{90, 210}, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseMove, QPointF{150, 220}, Qt::NoButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseButtonRelease, QPointF{220, 230}, Qt::LeftButton, Qt::NoButton);
+    if (!require(
+            editor.liquify_live_begin_count == live_begin_before_fallback + 1
+                && editor.liquify_live_kind == 0
+                && editor.liquify_live_finish_count == live_finish_before_fallback + 1
+                && editor.liquify_live_cancel_count == 0,
+            "Push falls back to authoritative live preview when the local display mesh is unavailable"
         )) {
         return EXIT_FAILURE;
     }

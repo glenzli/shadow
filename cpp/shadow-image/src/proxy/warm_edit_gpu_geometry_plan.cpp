@@ -16,7 +16,7 @@ namespace {
 inline constexpr std::uint32_t warm_liquify_grid_axis_limit = 256U;
 inline constexpr double warm_liquify_target_cell_side = 32.0;
 inline constexpr std::size_t warm_liquify_reference_limit = 1'048'576U;
-inline constexpr std::uint32_t warm_liquify_stamp_words = 6U;
+inline constexpr std::uint32_t warm_liquify_stamp_words = 8U;
 inline constexpr std::uint32_t warm_liquify_cell_range_words = 2U;
 
 [[nodiscard]] bool is_transposed(const PhotoQuarterTurn quarter_turn) noexcept {
@@ -85,10 +85,12 @@ struct WarmLiquifyLowering final {
 };
 
 struct WarmLiquifyStampAbi final {
+    std::uint32_t kind = 0U;
     float center_x = 0.0F;
     float center_y = 0.0F;
     float displacement_x = 0.0F;
     float displacement_y = 0.0F;
+    float reconstruction = 0.0F;
     float radius = 0.0F;
     float hardness = 0.0F;
 };
@@ -128,16 +130,20 @@ struct WarmLiquifyStampAbi final {
     abi_stamps.reserve(liquify->stamps.size());
     for (const PreparedPhotoLiquifyStamp& stamp : liquify->stamps) {
         const WarmLiquifyStampAbi abi{
+            .kind = static_cast<std::uint32_t>(stamp.kind),
             .center_x = static_cast<float>(stamp.center_x),
             .center_y = static_cast<float>(stamp.center_y),
             .displacement_x = static_cast<float>(stamp.displacement_x),
             .displacement_y = static_cast<float>(stamp.displacement_y),
+            .reconstruction = static_cast<float>(stamp.reconstruction),
             .radius = static_cast<float>(stamp.radius),
             .hardness = static_cast<float>(stamp.hardness),
         };
-        if (!std::isfinite(abi.center_x) || !std::isfinite(abi.center_y)
+        if (abi.kind > 1U || !std::isfinite(abi.center_x) || !std::isfinite(abi.center_y)
             || !std::isfinite(abi.displacement_x)
-            || !std::isfinite(abi.displacement_y) || !std::isfinite(abi.radius)
+            || !std::isfinite(abi.displacement_y) || !std::isfinite(abi.reconstruction)
+            || abi.reconstruction < 0.0F || abi.reconstruction > 1.0F
+            || !std::isfinite(abi.radius)
             || abi.radius <= 0.0F || !std::isfinite(abi.hardness)
             || abi.hardness < 0.0F || abi.hardness >= 1.0F) {
             return WarmLiquifyLowering{
@@ -259,12 +265,15 @@ struct WarmLiquifyStampAbi final {
             }
         }
         reference_count += added;
+        const double displacement =
+            stamp.kind == 0U
+            ? std::hypot(
+                  static_cast<double>(stamp.displacement_x),
+                  static_cast<double>(stamp.displacement_y)
+              )
+            : 0.0;
         later_displacement_bound = std::nextafter(
-            later_displacement_bound
-                + std::hypot(
-                    static_cast<double>(stamp.displacement_x),
-                    static_cast<double>(stamp.displacement_y)
-                ),
+            later_displacement_bound + displacement,
             std::numeric_limits<double>::infinity()
         );
         ++later_operation_count;
@@ -276,10 +285,12 @@ struct WarmLiquifyStampAbi final {
         + cell_count * warm_liquify_cell_range_words + reference_count
     );
     for (const WarmLiquifyStampAbi& stamp : abi_stamps) {
+        append_word(result.words, stamp.kind);
         append_float(result.words, stamp.center_x);
         append_float(result.words, stamp.center_y);
         append_float(result.words, stamp.displacement_x);
         append_float(result.words, stamp.displacement_y);
+        append_float(result.words, stamp.reconstruction);
         append_float(result.words, stamp.radius);
         append_float(result.words, stamp.hardness);
     }

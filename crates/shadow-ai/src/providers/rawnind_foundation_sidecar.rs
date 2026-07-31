@@ -220,7 +220,7 @@ pub fn plan_rawnind_foundation(
     let input = input.into();
     let input_raw = input.source_raw();
     let metadata =
-        fs::metadata(&input_raw).map_err(|_| RawNindFoundationPlanningError::SourceUnavailable)?;
+        fs::metadata(input_raw).map_err(|_| RawNindFoundationPlanningError::SourceUnavailable)?;
     if !metadata.is_file() || metadata.len() != expected_source_size_bytes {
         return Err(RawNindFoundationPlanningError::SourceIdentityChanged);
     }

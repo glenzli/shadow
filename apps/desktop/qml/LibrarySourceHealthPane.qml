@@ -6,8 +6,9 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-// Owns source-scan evidence, missing-location paging, and the exact-content
-// relink confirmation transaction. It never creates a new Library source.
+// Owns reversible source removal, source-scan evidence, missing-location
+// paging, and the exact-content relink confirmation transaction. It never
+// creates a new Library source.
 ColumnLayout {
     id: sourceHealth
 
@@ -214,8 +215,8 @@ ColumnLayout {
             model: sourceHealth.controller.librarySourceHealth
 
             delegate: Rectangle {
+                id: sourceRow
                 required property var modelData
-                readonly property var sourceHealth: modelData
 
                 Layout.fillWidth: true
                 implicitHeight: sourceHealthContent.implicitHeight + 28
@@ -238,22 +239,26 @@ ColumnLayout {
 
                         ShadowIcon {
                             source: "qrc:/icons/add-folder.svg"
-                            color: modelData.enabled ? Theme.textMuted : Theme.textSubtle
+                            color: sourceRow.modelData.enabled
+                                ? Theme.textMuted : Theme.textSubtle
                             size: 16
                         }
 
                         Label {
                             Layout.fillWidth: true
-                            text: modelData.sourcePath
-                            color: modelData.enabled ? Theme.textPrimary : Theme.textMuted
+                            text: sourceRow.modelData.sourcePath
+                            color: sourceRow.modelData.enabled
+                                ? Theme.textPrimary : Theme.textMuted
                             font.pixelSize: Theme.fontSection
                             font.weight: Font.DemiBold
                             elide: Text.ElideMiddle
                         }
 
                         Label {
-                            text: modelData.enabled ? qsTr("ACTIVE") : qsTr("PAUSED")
-                            color: modelData.enabled ? Theme.accent : Theme.textSubtle
+                            text: sourceRow.modelData.enabled
+                                ? qsTr("ACTIVE") : qsTr("PAUSED")
+                            color: sourceRow.modelData.enabled
+                                ? Theme.accent : Theme.textSubtle
                             font.pixelSize: Theme.fontMeta
                             font.weight: Font.DemiBold
                         }
@@ -267,9 +272,9 @@ ColumnLayout {
                             accessibleName: toolTipText
                             onClicked: {
                                 sourceHealth.pendingRemoveSourceId =
-                                    modelData.sourceId
+                                    sourceRow.modelData.sourceId
                                 sourceHealth.pendingRemoveSourcePath =
-                                    modelData.sourcePath
+                                    sourceRow.modelData.sourcePath
                                 removeSourceConfirmPopup.open()
                             }
                         }
@@ -277,13 +282,13 @@ ColumnLayout {
 
                     Label {
                         Layout.fillWidth: true
-                        text: !modelData.hasLatestCompletedScan
+                        text: !sourceRow.modelData.hasLatestCompletedScan
                             ? qsTr("No completed scan has been recorded yet.")
-                            : Number(modelData.notSeenLocations) === 0
+                            : Number(sourceRow.modelData.notSeenLocations) === 0
                                 ? qsTr("The latest scan accounted for all known locations.")
                                 : qsTr("%L1 locations were not seen in this scan.")
-                                    .arg(Number(modelData.notSeenLocations).toLocaleString())
-                        color: Number(modelData.notSeenLocations) > 0
+                                    .arg(Number(sourceRow.modelData.notSeenLocations).toLocaleString())
+                        color: Number(sourceRow.modelData.notSeenLocations) > 0
                             ? Theme.textSecondary : Theme.textMuted
                         font.pixelSize: Theme.fontMeta
                         wrapMode: Text.WordWrap
@@ -291,19 +296,19 @@ ColumnLayout {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: modelData.hasLatestCompletedScan
+                        visible: sourceRow.modelData.hasLatestCompletedScan
                         spacing: 18
 
                         Label {
                             text: qsTr("KNOWN  %L1")
-                                .arg(Number(modelData.knownLocations).toLocaleString())
+                                .arg(Number(sourceRow.modelData.knownLocations).toLocaleString())
                             color: Theme.textMuted
                             font.pixelSize: Theme.fontMeta
                         }
 
                         Label {
                             text: qsTr("SEEN  %L1")
-                                .arg(Number(modelData.seenLocations).toLocaleString())
+                                .arg(Number(sourceRow.modelData.seenLocations).toLocaleString())
                             color: Theme.textMuted
                             font.pixelSize: Theme.fontMeta
                         }
@@ -313,8 +318,8 @@ ColumnLayout {
 
                     Label {
                         Layout.fillWidth: true
-                        visible: modelData.hasLatestCompletedScan
-                            && Number(modelData.notSeenLocations) > 0
+                        visible: sourceRow.modelData.hasLatestCompletedScan
+                            && Number(sourceRow.modelData.notSeenLocations) > 0
                         text: qsTr("This is scan evidence for this source only; photos may remain available elsewhere.")
                         color: Theme.textSubtle
                         font.pixelSize: Theme.fontMeta
@@ -323,20 +328,20 @@ ColumnLayout {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: modelData.hasLatestCompletedScan
-                            && Number(modelData.notSeenLocations) > 0
+                        visible: sourceRow.modelData.hasLatestCompletedScan
+                            && Number(sourceRow.modelData.notSeenLocations) > 0
 
                         Item { Layout.fillWidth: true }
 
                         ShadowIconButton {
                             visible: sourceHealth.controller.missingSourceLocationScanId
-                                !== sourceHealth.scanSessionId
+                                !== sourceRow.modelData.scanSessionId
                             source: "qrc:/icons/metadata.svg"
                             variant: ShadowIconButton.Quiet
                             toolTipText: qsTr("REVIEW NOT-SEEN LOCATIONS")
                             accessibleName: toolTipText
                             onClicked: sourceHealth.controller.openMissingSourceLocationReview(
-                                sourceHealth.scanSessionId
+                                sourceRow.modelData.scanSessionId
                             )
                         }
                     }
@@ -344,7 +349,7 @@ ColumnLayout {
                     Rectangle {
                         Layout.fillWidth: true
                         visible: sourceHealth.controller.missingSourceLocationScanId
-                            === sourceHealth.scanSessionId
+                            === sourceRow.modelData.scanSessionId
                         implicitHeight: missingLocationContent.implicitHeight + 20
                         radius: Theme.controlRadius
                         color: Theme.surfaceSubtle
@@ -400,6 +405,7 @@ ColumnLayout {
                                 model: sourceHealth.controller.missingSourceLocations
 
                                 delegate: ColumnLayout {
+                                    id: missingLocationRow
                                     required property var modelData
 
                                     Layout.fillWidth: true
@@ -407,7 +413,7 @@ ColumnLayout {
 
                                     Label {
                                         Layout.fillWidth: true
-                                        text: modelData.title
+                                        text: missingLocationRow.modelData.title
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fontMeta
                                         font.weight: Font.DemiBold
@@ -416,7 +422,7 @@ ColumnLayout {
 
                                     Label {
                                         Layout.fillWidth: true
-                                        text: modelData.sourcePath
+                                        text: missingLocationRow.modelData.sourcePath
                                         color: Theme.textSubtle
                                         font.pixelSize: Theme.fontMeta
                                         elide: Text.ElideMiddle
@@ -424,8 +430,8 @@ ColumnLayout {
 
                                     Label {
                                         Layout.fillWidth: true
-                                        visible: modelData.cameraKey.length > 0
-                                        text: modelData.cameraKey
+                                        visible: missingLocationRow.modelData.cameraKey.length > 0
+                                        text: missingLocationRow.modelData.cameraKey
                                         color: Theme.textSubtle
                                         font.pixelSize: Theme.fontMeta
                                         elide: Text.ElideRight
@@ -442,7 +448,8 @@ ColumnLayout {
                                             accessibleName: toolTipText
                                             enabled: !sourceHealth.controller.sourceRelinkBusy
                                             onClicked: {
-                                                sourceHealth.pendingRelinkLocationId = modelData.locationId
+                                                sourceHealth.pendingRelinkLocationId =
+                                                    missingLocationRow.modelData.locationId
                                                 relinkFileDialog.open()
                                             }
                                         }
@@ -450,7 +457,8 @@ ColumnLayout {
                                         Label {
                                             Layout.fillWidth: true
                                             visible: sourceHealth.controller.sourceRelinkBusy
-                                                && sourceHealth.pendingRelinkLocationId === modelData.locationId
+                                                && sourceHealth.pendingRelinkLocationId
+                                                    === missingLocationRow.modelData.locationId
                                             text: qsTr("Verifying complete file…")
                                             color: Theme.textMuted
                                             font.pixelSize: Theme.fontMeta

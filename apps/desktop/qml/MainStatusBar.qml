@@ -95,13 +95,6 @@ Rectangle {
             active: statusBar.precisionWorkspace.proxyActive
         }
 
-        MainSelectionDecisionBar {
-            visible: statusBar.workspaceIndex === 0
-            Layout.alignment: Qt.AlignVCenter
-            controller: statusBar.controller
-            reviewWorkspace: statusBar.reviewWorkspace
-        }
-
         Label {
             visible: statusBar.workspaceIndex !== 0
             text: statusBar.workspaceIndex === 1

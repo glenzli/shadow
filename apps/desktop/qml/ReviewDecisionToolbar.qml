@@ -111,8 +111,7 @@ Item {
             selectedHoverSurfaceColor: Theme.likeHoverSurface
             selectedPressedSurfaceColor: Theme.likePressedSurface
             selectedIconColor: Theme.likeAccent
-            foregroundColor: root.review.selectedLiked
-                ? Theme.likeAccent : Theme.textMuted
+            foregroundColor: Theme.likeAccent
             toolTipText: root.review.selectedLiked
                 ? qsTr("Remove Like from selected photo")
                 : qsTr("Like selected photo")

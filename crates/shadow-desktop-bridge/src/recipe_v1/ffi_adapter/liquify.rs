@@ -9,15 +9,20 @@ use shadow_domain::{
 use crate::ffi;
 
 pub(super) fn photo_liquify_from_ffi(
-    strokes: &[ffi::FfiLiquifyPushStroke],
+    strokes: &[ffi::FfiLiquifyStroke],
+    enabled: bool,
 ) -> AnyResult<Option<PhotoLiquifyNode>> {
     if strokes.is_empty() {
+        if enabled {
+            bail!("an absent Liquify node cannot be enabled");
+        }
         return Ok(None);
     }
     if strokes.len() > MAX_LIQUIFY_STROKES_PER_NODE {
         bail!("Liquify supports at most {MAX_LIQUIFY_STROKES_PER_NODE} strokes");
     }
 
+    let mut has_prior_deformation = false;
     let strokes = strokes
         .iter()
         .enumerate()
@@ -40,23 +45,35 @@ pub(super) fn photo_liquify_from_ffi(
                     ))
                 })
                 .collect::<AnyResult<Vec<_>>>()?;
-            LiquifyStroke::push(
-                points,
-                UnitInterval::new(stroke.radius).with_context(|| {
-                    format!("Liquify stroke {stroke_index} radius must be in [0, 1]")
-                })?,
-                UnitInterval::new(stroke.strength).with_context(|| {
-                    format!("Liquify stroke {stroke_index} strength must be in [0, 1]")
-                })?,
-                UnitInterval::new(stroke.hardness).with_context(|| {
-                    format!("Liquify stroke {stroke_index} hardness must be in [0, 1]")
-                })?,
-            )
-            .with_context(|| format!("Liquify stroke {stroke_index} is invalid"))
+            let radius = UnitInterval::new(stroke.radius).with_context(|| {
+                format!("Liquify stroke {stroke_index} radius must be in [0, 1]")
+            })?;
+            let strength = UnitInterval::new(stroke.strength).with_context(|| {
+                format!("Liquify stroke {stroke_index} strength must be in [0, 1]")
+            })?;
+            let hardness = UnitInterval::new(stroke.hardness).with_context(|| {
+                format!("Liquify stroke {stroke_index} hardness must be in [0, 1]")
+            })?;
+            let result = match stroke.kind {
+                0 => {
+                    has_prior_deformation = true;
+                    LiquifyStroke::push(points, radius, strength, hardness)
+                }
+                1 if has_prior_deformation => {
+                    LiquifyStroke::reconstruct(points, radius, strength, hardness)
+                }
+                1 => {
+                    bail!("Liquify reconstruct stroke {stroke_index} requires earlier deformation")
+                }
+                other => bail!("Liquify stroke {stroke_index} has unsupported kind {other}"),
+            };
+            result.with_context(|| format!("Liquify stroke {stroke_index} is invalid"))
         })
         .collect::<AnyResult<Vec<_>>>()?;
     Ok(Some(
-        PhotoLiquifyNode::new(strokes).context("Liquify node is invalid")?,
+        PhotoLiquifyNode::new(strokes)
+            .context("Liquify node is invalid")?
+            .with_enabled(enabled),
     ))
 }
 

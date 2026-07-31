@@ -366,6 +366,10 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void loadMoreMissingSourceLocations();
     Q_INVOKABLE void
     relinkMissingSourceLocation(const QString& location_id, const QUrl& candidate_url);
+    Q_INVOKABLE void
+    relinkUnavailableSourceLocation(const QString& location_id, const QUrl& candidate_url);
+    Q_INVOKABLE void
+    removeUnavailablePhotoFromLibrary(const QString& photo_id, const QString& title);
     Q_INVOKABLE void createManualLibraryAlbum(const QString& name);
     Q_INVOKABLE void createSmartLibraryAlbum(const QString& name);
     Q_INVOKABLE void renameLibraryAlbum(const QString& album_id, const QString& name);

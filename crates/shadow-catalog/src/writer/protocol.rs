@@ -17,6 +17,7 @@ mod library_browse;
 mod library_collections;
 mod library_facts;
 mod library_keywords;
+mod library_lifecycle;
 mod library_metadata_overrides;
 mod review_projection;
 mod source_health;
@@ -33,6 +34,7 @@ pub(super) use library_browse::LibraryBrowseMessage;
 pub(super) use library_collections::LibraryCollectionsMessage;
 pub(super) use library_facts::LibraryFactsMessage;
 pub(super) use library_keywords::LibraryKeywordsMessage;
+pub(super) use library_lifecycle::LibraryLifecycleMessage;
 pub(super) use library_metadata_overrides::LibraryMetadataOverridesMessage;
 pub(super) use review_projection::ReviewProjectionMessage;
 pub(super) use source_health::SourceHealthMessage;
@@ -46,6 +48,7 @@ pub(super) enum Message {
     SourceHealth(SourceHealthMessage),
     LibraryFacts(LibraryFactsMessage),
     LibraryKeywords(LibraryKeywordsMessage),
+    LibraryLifecycle(LibraryLifecycleMessage),
     LibraryMetadataOverrides(LibraryMetadataOverridesMessage),
     LibraryCollections(LibraryCollectionsMessage),
     LibraryBrowse(LibraryBrowseMessage),

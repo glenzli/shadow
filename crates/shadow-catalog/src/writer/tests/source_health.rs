@@ -1,6 +1,6 @@
 use shadow_domain::{AssetLocation, ImportSessionId, Platform, RepresentationKind};
 
-use crate::{CatalogStore, ImportSessionState, RegisterAsset, RegisteredAsset};
+use crate::{CatalogStore, ImportSessionState, LibraryPhotoFilter, RegisterAsset, RegisteredAsset};
 
 use crate::writer::{CatalogActor, CatalogHandle};
 
@@ -88,6 +88,55 @@ fn actor_routes_source_inventory_health_and_missing_location_review() {
             .missing_source_relink_target(second_scan, observed_again.location_id)
             .expect("check observed location through actor")
             .is_none()
+    );
+    actor.shutdown().expect("shutdown actor");
+}
+
+#[test]
+fn actor_routes_reversible_legacy_root_adoption() {
+    let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+    let mut handle = actor.handle();
+    let source_root = AssetLocation::new(Platform::MacOs, b"/linked".to_vec(), "/linked");
+    let scan = handle
+        .begin_import_session(&source_root, 1)
+        .expect("begin source scan");
+    register_scan_entry(&mut handle, scan, "/linked/owned.nef", 2);
+    handle
+        .finish_import_session(scan, ImportSessionState::Completed, None, 3)
+        .expect("finish source scan");
+    handle
+        .register_asset(&RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: AssetLocation::new(
+                Platform::MacOs,
+                b"/canonical/legacy.nef".to_vec(),
+                "/canonical/legacy.nef",
+            ),
+            byte_len: 100,
+            modified_at_ms: Some(10),
+            now_ms: 3,
+        })
+        .expect("register legacy location");
+    let source_id = handle.library_sources().expect("list sources")[0].id;
+
+    assert!(
+        handle
+            .remove_library_source_with_legacy_roots(
+                source_id,
+                vec![AssetLocation::new(
+                    Platform::MacOs,
+                    b"/canonical".to_vec(),
+                    "/canonical",
+                )],
+                4,
+            )
+            .expect("remove source through actor")
+    );
+    assert_eq!(
+        handle
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count hidden photos"),
+        0
     );
     actor.shutdown().expect("shutdown actor");
 }

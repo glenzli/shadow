@@ -7,6 +7,7 @@
 //!
 //! Start with [`model`] for the public vocabulary, [`browse`] for photo-grid queries,
 //! [`map_browse`] for bounded spatial aggregation, [`collections`] for albums and affinity state,
+//! [`lifecycle`] for non-destructive removal from active Library projections,
 //! [`keywords`] for hierarchical semantic organization, [`facts`] for indexed metadata, and
 //! [`sources`] for scan roots, exact content identity, and relocation. [`query_projection`] keeps
 //! every Library presentation on one filter contract.
@@ -23,6 +24,7 @@ mod collections;
 mod facts;
 mod integrity;
 mod keywords;
+mod lifecycle;
 mod map_browse;
 mod metadata_overrides;
 mod model;

@@ -42,6 +42,20 @@ namespace {
     return rgb_raster(9U, 9U, std::move(samples));
 }
 
+[[nodiscard]] image::PhotoLiquify push_then_reconstruct() {
+    auto result = horizontal_push();
+    result.strokes.push_back(image::PhotoLiquifyReconstructStroke{
+        .points =
+            {
+                {.x = 0.5, .y = 0.5, .pressure = 1.0},
+            },
+        .radius = 0.25,
+        .strength = 1.0,
+        .hardness = 1.0,
+    });
+    return result;
+}
+
 void preparation_is_resolution_specific_deterministic_and_bounded() {
     const auto prepared = image::prepare_photo_liquify({9U, 9U}, horizontal_push());
     expect(prepared.valid(), "prepared push gesture is executable");
@@ -87,6 +101,33 @@ void inverse_composition_moves_content_with_one_final_sample() {
     );
 }
 
+void reconstruct_blends_the_accumulated_mapping_toward_identity() {
+    const auto input = horizontal_gradient();
+    const auto push = image::apply_photo_liquify(
+        input,
+        image::prepare_photo_liquify(input.dimensions, horizontal_push())
+    );
+    const auto reconstructed_plan =
+        image::prepare_photo_liquify(input.dimensions, push_then_reconstruct());
+    const auto reconstructed = image::apply_photo_liquify(input, reconstructed_plan);
+    const std::size_t center = (4U * 9U + 4U) * 3U;
+
+    expect(
+        std::abs(push.samples[center] - input.samples[center]) > 1.0e-4F,
+        "the Push fixture deforms the reconstruction target"
+    );
+    expect_close(
+        reconstructed.samples[center],
+        input.samples[center],
+        "a full-strength Reconstruct stamp restores the original mapping at its centre"
+    );
+    expect(
+        reconstructed_plan.stamps.back().kind
+            == image::PreparedPhotoLiquifyStampKind::reconstruct,
+        "prepared operations retain the authored Reconstruct kind"
+    );
+}
+
 void malformed_and_resolution_mismatched_inputs_fail_closed() {
     bool rejected_empty = false;
     try {
@@ -96,8 +137,30 @@ void malformed_and_resolution_mismatched_inputs_fail_closed() {
     }
     expect(rejected_empty, "empty persisted Liquify nodes are rejected");
 
+    bool rejected_reconstruct_first = false;
+    try {
+        image::validate_photo_liquify(image::PhotoLiquify{
+            .strokes = {
+                image::PhotoLiquifyReconstructStroke{
+                    .points = {{.x = 0.5, .y = 0.5, .pressure = 1.0}},
+                    .radius = 0.1,
+                    .strength = 0.5,
+                    .hardness = 0.5,
+                },
+            },
+        });
+    } catch (const image::DecodeError& error) {
+        rejected_reconstruct_first =
+            error.code() == image::DecodeErrorCode::invalid_request;
+    }
+    expect(
+        rejected_reconstruct_first,
+        "Reconstruct cannot exist before any deformation in the ordered node"
+    );
+
     auto duplicate_points = horizontal_push();
-    duplicate_points.strokes[0].points[1] = duplicate_points.strokes[0].points[0];
+    auto& push = std::get<image::PhotoLiquifyPushStroke>(duplicate_points.strokes[0]);
+    push.points[1] = push.points[0];
     bool rejected_noop = false;
     try {
         static_cast<void>(image::prepare_photo_liquify({9U, 9U}, duplicate_points));
@@ -129,6 +192,7 @@ void malformed_and_resolution_mismatched_inputs_fail_closed() {
 int main() {
     preparation_is_resolution_specific_deterministic_and_bounded();
     inverse_composition_moves_content_with_one_final_sample();
+    reconstruct_blends_the_accumulated_mapping_toward_identity();
     malformed_and_resolution_mismatched_inputs_fail_closed();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

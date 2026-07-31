@@ -168,6 +168,9 @@ fn validate_color_range(
     validate_normalized_mask_value(softness)
 }
 
+// Keep every variant's public-wire invariant in one exhaustive match so a new
+// mask kind cannot bypass validation by being omitted from a secondary router.
+#[allow(clippy::too_many_lines)]
 pub(super) fn validate_adjustment_local_mask(
     mask: &AdjustmentLocalMask,
 ) -> Result<(), BridgeError> {

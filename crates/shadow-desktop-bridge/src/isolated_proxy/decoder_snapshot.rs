@@ -328,22 +328,41 @@ fn parse_decoder_snapshot_capabilities(fields: &[&str]) -> Result<DecodeCapabili
                 fields[10],
                 "RAW development opcode receipt",
             )?,
-            supported_intents: parse_metadata_u32(fields[11], "RAW development intents")?,
-            supported_qualities: parse_metadata_u32(fields[12], "RAW development qualities")?,
-            supported_dng_opcode_policies: parse_metadata_u32(
+            supported_intents: parse_decoder_snapshot_mask(
+                fields[11],
+                "RAW development intents",
+                0b0111,
+            )?,
+            supported_qualities: parse_decoder_snapshot_mask(
+                fields[12],
+                "RAW development qualities",
+                0b0111,
+            )?,
+            supported_dng_opcode_policies: parse_decoder_snapshot_mask(
                 fields[13],
                 "RAW development opcode policies",
+                0b0111,
             )?,
-            supported_noise_reduction_intents: parse_metadata_u32(
+            supported_noise_reduction_intents: parse_decoder_snapshot_mask(
                 fields[14],
                 "RAW development denoise intents",
+                0b1111,
             )?,
-            supported_highlight_recovery_intents: parse_metadata_u32(
+            supported_highlight_recovery_intents: parse_decoder_snapshot_mask(
                 fields[15],
                 "RAW development highlight intents",
+                0b1111,
             )?,
         },
     })
+}
+
+fn parse_decoder_snapshot_mask(encoded: &str, label: &str, known_bits: u32) -> Result<u32> {
+    let value = parse_metadata_u32(encoded, label)?;
+    if value & !known_bits != 0 {
+        bail!("isolated RAW decoder snapshot {label} contains unknown bits");
+    }
+    Ok(value)
 }
 
 fn parse_decoder_snapshot_preview(fields: &[&str]) -> Result<PreviewDescriptorSnapshot> {

@@ -570,7 +570,10 @@ mod ffi {
     #[derive(Debug)]
     struct FfiPhotoLiquify {
         present: bool,
+        enabled: bool,
         points: Vec<FfiPhotoLiquifyPoint>,
+        /// 0 = Push, 1 = Reconstruct.
+        stroke_kinds: Vec<u8>,
         stroke_point_counts: Vec<u32>,
         stroke_parameters: Vec<f64>,
     }

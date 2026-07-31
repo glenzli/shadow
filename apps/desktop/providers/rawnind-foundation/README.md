@@ -8,9 +8,10 @@ Python installation.
 `build_provider.py` freezes the checked-in sidecar together with CPython,
 NumPy, rawpy, and ONNX Runtime into one relocatable PyInstaller `onedir`
 bundle. It rejects a changed Python minor version or dependency set, refuses
-to write inside the repository or over an existing output, probes the frozen
-command surface, optionally verifies the pinned public model, and emits a
-complete SHA-256 inventory in `build-receipt.json`.
+to write inside the repository or over an existing output, verifies the full
+desktop command surface (including isolated `--input-raw-frame` planning),
+optionally verifies the pinned public model, and emits a complete SHA-256
+inventory in `build-receipt.json`.
 
 The `onedir` layout is intentional. Shadow invokes verification, planning, and
 materialization as separate processes. A one-file executable would extract the
@@ -91,9 +92,9 @@ That optionality applies to ordinary application builds. Shadow's canonical
 developer entry, `scripts/run_debug.sh`, intentionally represents the complete
 debug product and therefore requires this provider, its private runtime, and
 the side-loaded pinned model. `scripts/promote_debug_build.sh` verifies the
-candidate and copied provider/model before advancing `current-debug`; use
-`scripts/run_debug.sh --check` to inspect the resolved canonical paths without
-opening the application.
+candidate and copied provider/model command surface before advancing
+`current-debug`; `scripts/run_debug.sh --check` repeats that compatibility gate
+and reports the resolved canonical paths without opening the application.
 
 ## Ownership
 

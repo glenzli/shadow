@@ -15,6 +15,13 @@ void run_coalescing_failure_lifetime_contracts() {
         first.camera_key = QStringLiteral("first");
         coordinator.requestReset(first, BackendLibraryPhotoOrder::CaptureTimeDescending);
         wait_for_first_page(state);
+        {
+            std::lock_guard lock(state->mutex);
+            require(
+                state->count_calls.isEmpty(),
+                "the initial page reaches the serialized Catalog before its aggregate count"
+            );
+        }
 
         BackendLibraryPhotoFilter latest;
         latest.camera_key = QStringLiteral("latest");
@@ -36,6 +43,13 @@ void run_coalescing_failure_lifetime_contracts() {
             coordinator.generation() == 3,
             "each executed reset advances exactly one model generation"
         );
+        {
+            std::lock_guard lock(state->mutex);
+            require(
+                state->count_calls == QVector<QString>{QStringLiteral("latest")},
+                "only the presented reset schedules its secondary aggregate count"
+            );
+        }
     }
 
     {

@@ -110,17 +110,22 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
 }
 
 #[test]
+// These values must survive the exact desktop DTO and Recipe round trip.
+#[allow(clippy::float_cmp)]
 fn editable_foundation_white_balance_round_trips_without_template_recovery() {
     let manual_white_balance = RawWhiteBalance::temperature_tint(
         RawTemperatureTint::new(6_200, -8).expect("manual temperature/tint"),
     );
-    let mut original = GradeStackDraft::default();
-    original.raw_ai_denoise =
-        RawFoundationDenoise::enabled(RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0);
-    original.foundation = PhotoFoundationNode::new(
-        RecipeInputSettings::new(RecipeOpticsSettings::default())
-            .with_raw_white_balance(manual_white_balance),
-    );
+    let mut original = GradeStackDraft {
+        raw_ai_denoise: RawFoundationDenoise::enabled(
+            RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+        ),
+        foundation: PhotoFoundationNode::new(
+            RecipeInputSettings::new(RecipeOpticsSettings::default())
+                .with_raw_white_balance(manual_white_balance),
+        ),
+        ..GradeStackDraft::default()
+    };
     original.basic.white_balance_temperature = 0.2;
     original.basic.white_balance_tint = -0.1;
     let snapshot =

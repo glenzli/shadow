@@ -300,6 +300,8 @@ const fn foundation_enabled() -> bool {
     true
 }
 
+// Serde's `skip_serializing_if` callback contract passes the field by reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 const fn bool_is_true(value: &bool) -> bool {
     *value
 }

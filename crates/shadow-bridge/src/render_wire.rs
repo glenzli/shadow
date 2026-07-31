@@ -2,9 +2,10 @@
 
 use super::{
     adjustment::{
-        AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentLiquify, AdjustmentLocalMask,
-        AdjustmentQuarterTurn, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
-        AdjustmentRenderOperation, AdjustmentRenderPlan, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
+        AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentLiquify,
+        AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentQuarterTurn,
+        AdjustmentRasterMaskEncoding, AdjustmentRenderNode, AdjustmentRenderOperation,
+        AdjustmentRenderPlan, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
     },
     decoder::{dimensions, preview_codec},
     detail_session::{DetailTileRect, DetailTileRequest},
@@ -53,7 +54,9 @@ fn ffi_photo_liquify(liquify: Option<&AdjustmentLiquify>) -> ffi::FfiPhotoLiquif
     let Some(liquify) = liquify else {
         return ffi::FfiPhotoLiquify {
             present: false,
+            enabled: false,
             points: Vec::new(),
+            stroke_kinds: Vec::new(),
             stroke_point_counts: Vec::new(),
             stroke_parameters: Vec::new(),
         };
@@ -61,25 +64,48 @@ fn ffi_photo_liquify(liquify: Option<&AdjustmentLiquify>) -> ffi::FfiPhotoLiquif
     let point_count = liquify
         .strokes
         .iter()
-        .map(|stroke| stroke.points.len())
+        .map(|stroke| match stroke {
+            AdjustmentLiquifyStroke::Push(stroke) => stroke.points.len(),
+            AdjustmentLiquifyStroke::Reconstruct(stroke) => stroke.points.len(),
+        })
         .sum();
     let mut points = Vec::with_capacity(point_count);
+    let mut stroke_kinds = Vec::with_capacity(liquify.strokes.len());
     let mut stroke_point_counts = Vec::with_capacity(liquify.strokes.len());
     let mut stroke_parameters = Vec::with_capacity(liquify.strokes.len() * 3);
     for stroke in &liquify.strokes {
+        let (kind, stroke_points, radius, strength, hardness) = match stroke {
+            AdjustmentLiquifyStroke::Push(stroke) => (
+                0,
+                stroke.points.as_slice(),
+                stroke.radius,
+                stroke.strength,
+                stroke.hardness,
+            ),
+            AdjustmentLiquifyStroke::Reconstruct(stroke) => (
+                1,
+                stroke.points.as_slice(),
+                stroke.radius,
+                stroke.strength,
+                stroke.hardness,
+            ),
+        };
+        stroke_kinds.push(kind);
         stroke_point_counts.push(
-            u32::try_from(stroke.points.len()).expect("validated Liquify point count fits u32"),
+            u32::try_from(stroke_points.len()).expect("validated Liquify point count fits u32"),
         );
-        points.extend(stroke.points.iter().map(|point| ffi::FfiPhotoLiquifyPoint {
+        points.extend(stroke_points.iter().map(|point| ffi::FfiPhotoLiquifyPoint {
             x: point.x,
             y: point.y,
             pressure: point.pressure,
         }));
-        stroke_parameters.extend([stroke.radius, stroke.strength, stroke.hardness]);
+        stroke_parameters.extend([radius, strength, hardness]);
     }
     ffi::FfiPhotoLiquify {
         present: true,
+        enabled: liquify.enabled,
         points,
+        stroke_kinds,
         stroke_point_counts,
         stroke_parameters,
     }

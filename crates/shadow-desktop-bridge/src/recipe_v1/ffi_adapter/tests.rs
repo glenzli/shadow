@@ -300,8 +300,8 @@ fn current_qt_dto_rejects_persisted_composite_condition_masks() {
 
 #[test]
 #[allow(clippy::float_cmp)] // The normalized FFI slots are an exact persistence boundary.
-fn singleton_liquify_round_trips_exactly_through_the_desktop_dto() {
-    let stroke = LiquifyStroke::push(
+fn ordered_bypassed_liquify_round_trips_exactly_through_the_desktop_dto() {
+    let push = LiquifyStroke::push(
         vec![
             LiquifyPoint::with_pressure(unit(0.2), unit(0.3), unit(0.4)),
             LiquifyPoint::with_pressure(unit(0.6), unit(0.7), unit(0.8)),
@@ -311,14 +311,30 @@ fn singleton_liquify_round_trips_exactly_through_the_desktop_dto() {
         unit(0.72),
     )
     .expect("valid push stroke");
-    let node = PhotoLiquifyNode::new(vec![stroke]).expect("singleton Liquify");
+    let reconstruct = LiquifyStroke::reconstruct(
+        vec![LiquifyPoint::with_pressure(
+            unit(0.5),
+            unit(0.45),
+            unit(0.65),
+        )],
+        unit(0.09),
+        unit(0.35),
+        unit(0.4),
+    )
+    .expect("valid reconstruct stroke");
+    let node = PhotoLiquifyNode::new(vec![push, reconstruct])
+        .expect("ordered Liquify")
+        .with_enabled(false);
     let draft = GradeStackDraft {
         liquify: Some(node.clone()),
         ..GradeStackDraft::default()
     };
 
     let wire = encode_grade_stack_draft_recipe_v1(draft).expect("encode Liquify");
-    assert_eq!(wire.liquify_strokes.len(), 1);
+    assert!(!wire.liquify_enabled);
+    assert_eq!(wire.liquify_strokes.len(), 2);
+    assert_eq!(wire.liquify_strokes[0].kind, 0);
+    assert_eq!(wire.liquify_strokes[1].kind, 1);
     assert_eq!(wire.liquify_strokes[0].points.len(), 2);
     assert_eq!(wire.liquify_strokes[0].points[0].x, 0.2);
     assert_eq!(wire.liquify_strokes[0].points[0].y, 0.3);
@@ -326,6 +342,8 @@ fn singleton_liquify_round_trips_exactly_through_the_desktop_dto() {
     assert_eq!(wire.liquify_strokes[0].radius, 0.12);
     assert_eq!(wire.liquify_strokes[0].strength, 0.55);
     assert_eq!(wire.liquify_strokes[0].hardness, 0.72);
+    assert_eq!(wire.liquify_strokes[1].points.len(), 1);
+    assert_eq!(wire.liquify_strokes[1].points[0].pressure, 0.65);
 
     let decoded = decode_grade_stack_draft_recipe_v1(&wire).expect("decode Liquify");
     assert_eq!(decoded.liquify, Some(node));
@@ -339,7 +357,8 @@ fn singleton_liquify_round_trips_exactly_through_the_desktop_dto() {
 fn malformed_liquify_strokes_fail_closed_at_the_desktop_boundary() {
     let mut wire =
         encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("neutral wire");
-    wire.liquify_strokes.push(ffi::FfiLiquifyPushStroke {
+    wire.liquify_strokes.push(ffi::FfiLiquifyStroke {
+        kind: 0,
         points: vec![ffi::FfiLiquifyPoint {
             x: 0.5,
             y: 0.5,

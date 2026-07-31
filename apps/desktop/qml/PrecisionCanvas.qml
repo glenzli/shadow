@@ -536,13 +536,16 @@ Rectangle {
                     z: 104
                     editor: canvas.editor
                     previewItem: liveEditedPreview
+                    previewReady: canvas.previewFrameReady
+                    previewGeneration: canvas.readyPreviewGeneration
                     outputAspectRatio:
                         canvas.imagePixelWidth
                         / Math.max(1, canvas.imagePixelHeight)
                     interactionEnabled:
                         canvas.activeToolMode === canvas.toolLiquify
                         && !canvas.comparisonActive
-                        && canvas.previewFrameReady
+                        && (!canvas.editor.liquifyNodeMaterialized
+                            || canvas.editor.liquifyNodeEnabled)
                 }
 
                 PrecisionCanvasPickerInput {

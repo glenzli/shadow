@@ -4,15 +4,16 @@ use shadow_domain::ImageDimensions;
 
 use crate::{
     AdjustmentGeometry, AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
-    AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan, BridgeError,
-    DetailSessionRequirements, DetailTileRect, DetailTileRequest, LibRawEditDetailSession,
-    MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE, OpticsSettings,
-    PhotoEditDetailSession, RawDevelopmentPlan,
+    AdjustmentLiquifyStroke, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
+    BridgeError, DetailSessionRequirements, DetailTileRect, DetailTileRequest,
+    LibRawEditDetailSession, MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE,
+    OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
 };
 
 fn liquify() -> AdjustmentLiquify {
     AdjustmentLiquify {
-        strokes: vec![AdjustmentLiquifyPushStroke {
+        enabled: true,
+        strokes: vec![AdjustmentLiquifyStroke::Push(AdjustmentLiquifyPushStroke {
             points: vec![
                 AdjustmentLiquifyPoint {
                     x: 0.25,
@@ -28,7 +29,7 @@ fn liquify() -> AdjustmentLiquify {
             radius: 0.1,
             strength: 0.75,
             hardness: 0.5,
-        }],
+        })],
     }
 }
 
@@ -53,6 +54,14 @@ fn detail_source_requirements_are_derived_from_the_complete_structural_plan() {
 
     let structural = DetailSessionRequirements::for_render_plan(&plan(Some(liquify())));
     assert!(structural.requires_cpu_replay());
+
+    let mut bypassed = liquify();
+    bypassed.enabled = false;
+    let bypassed_structural = DetailSessionRequirements::for_render_plan(&plan(Some(bypassed)));
+    assert!(
+        bypassed_structural.requires_cpu_replay(),
+        "bypass preserves CPU-capable source admission so re-enable never reopens the photo"
+    );
 }
 
 #[test]

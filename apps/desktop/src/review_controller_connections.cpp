@@ -271,10 +271,20 @@ void ReviewController::initializeCoordinatorWiring() {
     );
     connect(
         &query_coordinator_,
-        &ReviewLibraryQueryCoordinator::queryStarted,
+        &ReviewLibraryQueryCoordinator::initialPagePresented,
         this,
-        [this](const BackendLibraryPhotoFilter& filter, const quint64 generation) {
+        [this,
+         startup_dependencies_loaded =
+             false](const BackendLibraryPhotoFilter& filter, const quint64 generation) mutable {
             facet_coordinator_.refresh(filter, generation);
+            if (startup_dependencies_loaded) {
+                return;
+            }
+            startup_dependencies_loaded = true;
+            refreshSharedGradeNodes();
+            refreshLibraryAlbums();
+            refreshLibraryKeywords();
+            refreshLibrarySourceHealth();
         }
     );
     connect(
@@ -327,11 +337,5 @@ void ReviewController::initializeCoordinatorWiring() {
     if (auto* const application = QCoreApplication::instance()) {
         application->installEventFilter(this);
     }
-    QTimer::singleShot(0, this, [this]() {
-        refreshSharedGradeNodes();
-        refreshLibraryAlbums();
-        refreshLibraryKeywords();
-        refreshLibrarySourceHealth();
-        requestLibraryReset();
-    });
+    QTimer::singleShot(0, this, [this]() { requestLibraryReset(); });
 }

@@ -100,6 +100,12 @@ source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
                 return backend
                     ->relinkMissingSourceLocation(scan_session_id, location_id, candidate_path);
             },
+        .relink_library =
+            [backend](const QString& location_id, const QString& candidate_path) {
+                return backend->relinkLibrarySourceLocation(location_id, candidate_path);
+            },
+        .archive_photo =
+            [backend](const QString& photo_id) { return backend->archiveLibraryPhoto(photo_id); },
     };
 }
 

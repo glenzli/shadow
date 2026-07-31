@@ -59,6 +59,9 @@ impl DesktopSession {
         }
     }
 
+    // Render capture, prompt projection, runtime staging, cancellation, and
+    // proposal publication are one bounded subject-mask job transaction.
+    #[allow(clippy::too_many_lines)]
     fn execute_subject_mask_job_inner(
         &self,
         photo_id: &str,

@@ -22,7 +22,7 @@ Pick / Reject / 0–5 rating command
   → forward-only current projection → append-only inverse-event undo
 ```
 
-QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
+QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
 
 ## Desktop source index
 
@@ -38,8 +38,6 @@ Application startup is split from environment-driven automation:
 - [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) composes the responsive bottom status surface
   and workspace status projection. [`qml/MainLibraryFilterBar.qml`](qml/MainLibraryFilterBar.qml)
   owns Library filter mutations and the explicit capture-date/file-name order,
-  [`qml/MainSelectionDecisionBar.qml`](qml/MainSelectionDecisionBar.qml) owns the current-photo
-  decision transaction, and
   [`qml/MainPrecisionProxyStatus.qml`](qml/MainPrecisionProxyStatus.qml) owns read-only proxy
   state presentation. Every child uses the stable `Main` translation context explicitly.
 - [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
@@ -177,10 +175,13 @@ Its implementation follows the same navigation:
   clone picker state, continuous strokes, legacy spots, automatic Heal donors, and source-offset
   editing for both Heal and Clone.
 - [`src/edit_liquify_controller.cpp`](src/edit_liquify_controller.cpp) owns the photo-private
-  singleton Liquify projection, transient brush defaults, and one-stroke/one-history commit
-  boundary. [`src/edit_liquify_coordinates.cpp`](src/edit_liquify_coordinates.cpp) owns the exact
-  post-Canvas-to-original coordinate inversion. `EditController` remains only their stable
-  QObject/QML facade rather than absorbing the new gesture semantics.
+  singleton Liquify projection, node bypass, Push/Reconstruct brush mode, and one-gesture/one-
+  history boundary. Push prefers the local display mesh, then falls back to the same provisional
+  authoritative lifecycle as Reconstruct when a live texture is unavailable or the prior Push is
+  still awaiting replacement. Provisional Recipe state becomes durable only on release.
+  [`src/edit_liquify_coordinates.cpp`](src/edit_liquify_coordinates.cpp) owns the exact post-
+  Canvas-to-original coordinate inversion. `EditController` remains only their stable QObject/QML
+  facade rather than absorbing the gesture semantics.
 - [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
   presentation, point normalization and editing, gesture integration, history, and preview timing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
@@ -225,9 +226,11 @@ Its implementation follows the same navigation:
   `Image` may inspect a texture factory through `image()` while resolving color space, which would
   force a full-frame readback before native import.
   [`src/edit_preview_liquify_mesh.*`](src/edit_preview_liquify_mesh.hpp) owns the bounded
-  display-only Scene Graph grid for one active Liquify gesture. Pointer samples deform vertex
+  display-only Scene Graph grid for one active Push gesture. Pointer samples deform vertex
   positions while reusing the settled texture; the outer ring stays pinned, cancellation restores
   the quad, and the next authoritative preview generation retires a committed transient mesh.
+  Reconstruct deliberately does not use this push-only approximation. A pending local mesh never
+  blocks a following gesture or a Push/Reconstruct mode switch.
 - [`src/edit_preview_provider.*`](src/edit_preview_provider.hpp) retains settled JPEG, scope/R8,
   full-detail, and explicit image-readback responsibilities. The last settled `Image` remains
   underneath the live item during interaction, so fallback and generation transitions do not
@@ -280,14 +283,19 @@ Precision presentation follows the same responsibility tree:
   selected region's size, feather, mode, and removal gestures. Any number of authored regions
   therefore feeds one inspector rather than one repeated control tree per region.
 - [`qml/PrecisionActiveStrokeCoverage.qml`](qml/PrecisionActiveStrokeCoverage.qml) owns only the
-  incremental swept-area feedback for the pointer gesture currently in flight. Mask, Retouch, and
-  Liquify input keep that feedback independent of preview generation churn, then perform one
-  history and preview mutation when the pointer is released. Persistent coverage remains with the
-  feature-specific overlays.
+  incremental swept-area feedback for the pointer gesture currently in flight. Mask and Retouch
+  input keep that feedback independent of preview generation churn, then perform one history and
+  preview mutation when the pointer is released. Persistent coverage remains with the feature-
+  specific overlays.
 - [`qml/PrecisionLiquifyOverlay.qml`](qml/PrecisionLiquifyOverlay.qml) owns Liquify pointer
-  sampling, cursor, and transient swept-path feedback; it crosses into the controller only at
-  release. [`qml/PrecisionLiquifyTools.qml`](qml/PrecisionLiquifyTools.qml) owns the next-stroke
-  radius, strength, hardness, undo, and whole-node removal controls.
+  sampling, admission, and a high-contrast radius/hardness brush cursor. The live deformation is
+  the gesture feedback, so Liquify never paints a coverage trail over the photograph. Preview
+  readiness admits a new gesture but a brief readiness transition cannot cancel an already
+  captured gesture. Push uses the local mesh when possible and otherwise streams through the same
+  authoritative interactive rendering path as Reconstruct; release remains the single history/
+  persistence boundary.
+  [`qml/PrecisionLiquifyTools.qml`](qml/PrecisionLiquifyTools.qml) owns Push/Reconstruct selection,
+  next-gesture radius, strength, hardness, undo, and whole-node removal controls.
 - [`qml/PrecisionCropOverlay.qml`](qml/PrecisionCropOverlay.qml) retains its direct manipulation
   and explicit full-surface cursor while a replacement preview frame is rendering; the last
   presented frame remains the valid geometry surface during that transition.
@@ -355,7 +363,10 @@ Precision presentation follows the same responsibility tree:
 Review presentation keeps the workspace focused on selection and orchestration:
 
 - [`qml/ReviewGallerySurface.qml`](qml/ReviewGallerySurface.qml) owns grid and single-photo
-  presentation, incremental paging, comparison, empty/busy states, and decision-toolbar placement.
+  presentation, incremental paging, comparison, empty/busy states, and the sole selected-photo
+  decision-toolbar placement. [`qml/ReviewDecisionToolbar.qml`](qml/ReviewDecisionToolbar.qml)
+  owns that floating pick/reject/rating/Like/color interaction contract across grid and single-photo
+  presentation; the application status bar does not duplicate it.
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns gallery layout and batch
   command presentation while emitting external popup/navigation intents.
 - [`qml/ReviewLibrarySidebar.qml`](qml/ReviewLibrarySidebar.qml) is the Library-side navigation
@@ -370,6 +381,10 @@ Review presentation keeps the workspace focused on selection and orchestration:
   geometry. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
   evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
   clipping, so the two browsing modes keep one visual contract without sharing interaction state.
+  A grid card whose original is currently unreachable keeps its cached visual and presents an
+  explicit missing badge; [`qml/LibraryMissingPhotoDialogs.qml`](qml/LibraryMissingPhotoDialogs.qml)
+  owns the stable relink picker and non-destructive Library-removal confirmation after the
+  virtualized card has released its context menu.
 - [`qml/ReviewPhotoInspector.qml`](qml/ReviewPhotoInspector.qml) is the selected-photo scrolling
   index. [`qml/ReviewPhotoSummary.qml`](qml/ReviewPhotoSummary.qml) owns visual identity,
   [`qml/ReviewExifSection.qml`](qml/ReviewExifSection.qml) owns configurable metadata and retry,
@@ -496,8 +511,9 @@ Review presentation keeps the workspace as the composition and compatibility sur
 - [`src/review_source_health_coordinator.cpp`](src/review_source_health_coordinator.cpp) owns the
   complete Library source-health review lifecycle: serialized health refreshes, scan-scoped
   missing-location paging, stale-page rejection, asynchronous source removal, exact user-selected
-  relink workers, localized status, and destruction wait. Folder scanning only requests a health
-  refresh at its terminal boundary; it does not share this state machine. The responsibility-named
+  relink workers from either scan evidence or a current unavailable grid location, non-destructive
+  logical-photo removal, localized status, and destruction wait. Folder scanning only requests a
+  health refresh at its terminal boundary; it does not share this state machine. The responsibility-named
   [`tests/review_source_health_coordinator/`](tests/review_source_health_coordinator/) suite covers
   refresh coalescing and projection, review switching/closing and keyset continuation, plus relink
   admission, receipts, errors, and lifetime.
@@ -730,13 +746,14 @@ QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
 
 `SHADOW_DESKTOP_SCAN_FOLDER=/absolute/folder` optionally starts one scan after launch. It is intended for local visual regression and does not bypass the folder picker in normal use.
 
-Non-Release desktop builds also scan the ignored
-`local-reference/sample-assets/raw/` fixture folder at startup when no explicit
-`SHADOW_DESKTOP_SCAN_FOLDER` is supplied. The import is idempotent, so the
-development Library automatically picks up newly added local DNG/RAW fixtures
-without duplicating existing assets. Keeping this scope on the source fixtures
-also prevents generated `raw-probe/` JPEG/PGM/PPM artifacts from entering the
-Library. Release builds never embed or scan this repository-local path.
+Non-Release desktop builds can scan the ignored
+`local-reference/sample-assets/raw/` fixture folder by setting
+`SHADOW_DESKTOP_AUTO_SCAN_SAMPLES=1` when no explicit
+`SHADOW_DESKTOP_SCAN_FOLDER` is supplied. This is deliberately opt-in so a
+normal debug launch cannot silently restore a Library folder the user removed.
+The import is idempotent and remains limited to source fixtures, preventing
+generated `raw-probe/` JPEG/PGM/PPM artifacts from entering the Library.
+Release builds never embed or scan this repository-local path.
 
 `SHADOW_DESKTOP_DATA_ROOT=/absolute/folder` overrides the local Catalog/cache directory for isolated smoke tests. Normal launches continue to use Qt's per-user application-data location.
 

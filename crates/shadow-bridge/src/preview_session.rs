@@ -325,6 +325,11 @@ impl LibRawEditPreviewSession {
     ///
     /// Only white balance may differ from the source session's request. The returned session owns
     /// fresh colour/DCP provenance and GPU edit state; the source session remains usable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the plan is invalid or is not a preview request, when the source
+    /// session has no native handle, or when native RAW rebinding cannot prepare a new session.
     pub fn rebind_raw_development_plan(
         &self,
         raw_development_plan: RawDevelopmentPlan,

@@ -93,21 +93,55 @@ ColumnLayout {
             Layout.rightMargin: 14
             spacing: 6
 
-            ShadowButton {
-                objectName: "rawAiDenoiseStartButton"
+            CheckBox {
+                id: enabledCheckBox
+                objectName: "rawAiDenoiseEnabledCheckBox"
                 Layout.fillWidth: true
-                visible: !denoise.editor.foundationAiDenoiseEnabled
-                    && !denoise.editor.foundationAiDenoiseBusy
-                enabled: denoise.editor.foundationAiDenoiseCanStart
-                compact: true
-                variant: ShadowButton.Tinted
-                text:
-                    denoise.editor.foundationAiDenoisePhase === "failed"
-                    || denoise.editor.foundationAiDenoisePhase === "unavailable"
-                    || denoise.editor.foundationAiDenoisePhase === "cancelled"
-                        ? qsTr("Retry AI Denoise")
-                        : qsTr("Apply AI Denoise")
-                onClicked: denoise.editor.startFoundationAiDenoise()
+                implicitHeight: 28
+                checked: denoise.editor.foundationAiDenoiseEnabled
+                enabled: !denoise.editor.foundationAiDenoiseBusy
+                    && (checked || denoise.editor.foundationAiDenoiseCanStart)
+                text: qsTr("Enable AI RAW Denoise")
+                Accessible.name: text
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: checked
+                    ? qsTr("Turn off AI RAW Denoise")
+                    : qsTr("Run once, then keep a reversible cached foundation")
+                onClicked:
+                    denoise.editor.foundationAiDenoiseEnabled =
+                        !denoise.editor.foundationAiDenoiseEnabled
+
+                indicator: Rectangle {
+                    implicitWidth: 16
+                    implicitHeight: 16
+                    x: 0
+                    y: Math.round((enabledCheckBox.height - height) / 2)
+                    radius: 4
+                    color: enabledCheckBox.checked
+                        ? Theme.switchOnSurface : Theme.switchOffSurface
+                    border.width: 1
+                    border.color: enabledCheckBox.checked
+                        ? Theme.switchOnBorder : Theme.borderStrong
+
+                    ShadowIcon {
+                        anchors.centerIn: parent
+                        visible: enabledCheckBox.checked
+                        source: "qrc:/icons/check.svg"
+                        color: denoise.accent
+                        size: 11
+                    }
+                }
+
+                contentItem: Label {
+                    leftPadding: 24
+                    text: enabledCheckBox.text
+                    color: enabledCheckBox.enabled
+                        ? denoise.textPrimary : denoise.textMuted
+                    font.pixelSize: 10
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
             }
 
             ShadowButton {

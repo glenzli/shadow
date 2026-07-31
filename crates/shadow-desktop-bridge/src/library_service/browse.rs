@@ -2,6 +2,7 @@
 
 use anyhow::{Result as AnyResult, bail};
 use shadow_catalog::{CachedArtifactRecord, LibraryPhotoPage, LibraryPhotoRecord};
+use shadow_core::native_path_from_location;
 use shadow_domain::PhotoFlag;
 
 use crate::{
@@ -120,6 +121,10 @@ fn ffi_library_photo(
     cached_visual: Option<&CachedArtifactRecord>,
     review: &ReviewService,
 ) -> AnyResult<ffi::FfiLibraryPhotoItem> {
+    let source_available = native_path_from_location(&record.location)
+        .ok()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .is_some_and(|metadata| metadata.is_file());
     let visual = review.grid_visual(
         record.photo_id,
         record.representation_id,
@@ -199,8 +204,10 @@ fn ffi_library_photo(
     Ok(ffi::FfiLibraryPhotoItem {
         photo_id: record.photo_id.to_string(),
         representation_id: record.representation_id.to_string(),
+        location_id: record.location_id.to_string(),
         title: file_name(&record.location.display_path),
         source_path: record.location.display_path,
+        source_available,
         source_byte_len: record.source.byte_len,
         has_source_modified_at: record.source.modified_at_ms.is_some(),
         source_modified_at_ms: record.source.modified_at_ms.unwrap_or_default(),

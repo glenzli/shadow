@@ -1,6 +1,6 @@
 //! Client adapters for Library source inventory and missing-location review.
 
-use shadow_domain::{ImportSessionId, LibrarySourceId, LocationId};
+use shadow_domain::{AssetLocation, ImportSessionId, LibrarySourceId, LocationId};
 
 use crate::{
     CatalogError, LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationCursor,
@@ -26,6 +26,25 @@ impl CatalogHandle {
         self.request(|response| {
             Message::SourceHealth(SourceHealthMessage::RemoveLibrarySource(
                 source_id, response,
+            ))
+        })
+    }
+
+    /// Removes a source after adopting unowned locations beneath equivalent
+    /// legacy roots so older imports follow the same reversible visibility
+    /// lifecycle.
+    pub fn remove_library_source_with_legacy_roots(
+        &self,
+        source_id: LibrarySourceId,
+        legacy_roots: Vec<AssetLocation>,
+        observed_at_ms: i64,
+    ) -> Result<bool, CatalogError> {
+        self.request(|response| {
+            Message::SourceHealth(SourceHealthMessage::RemoveLibrarySourceWithLegacyRoots(
+                source_id,
+                legacy_roots,
+                observed_at_ms,
+                response,
             ))
         })
     }
@@ -66,6 +85,20 @@ impl CatalogHandle {
         self.request(|response| {
             Message::SourceHealth(SourceHealthMessage::MissingSourceRelinkTarget(
                 scan_session_id,
+                location_id,
+                response,
+            ))
+        })
+    }
+
+    /// Reads the active original location selected by a photo-first Library
+    /// row before an explicit exact reattach.
+    pub fn library_source_relink_target(
+        &self,
+        location_id: LocationId,
+    ) -> Result<Option<MissingSourceRelinkTarget>, CatalogError> {
+        self.request(|response| {
+            Message::SourceHealth(SourceHealthMessage::LibrarySourceRelinkTarget(
                 location_id,
                 response,
             ))

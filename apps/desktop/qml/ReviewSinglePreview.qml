@@ -136,9 +136,11 @@ Item {
                 id: filmCard
                 required property string photoId
                 required property string representationId
+                required property string locationId
                 required property string visualHandle
                 required property string title
                 required property string sourcePath
+                required property bool sourceAvailable
                 required property string visualRole
                 required property string visualError
                 required property int visualWidth
@@ -218,12 +220,32 @@ Item {
                 ReviewPhotoAffinity {
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.rightMargin: 5
-                    anchors.topMargin: 5
+                    anchors.rightMargin: 10
+                    anchors.topMargin: 9
                     liked: filmCard.liked
                     showRating: false
-                    floating: true
                     iconSize: 12
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    anchors.leftMargin: 5
+                    anchors.bottomMargin: 5
+                    width: 22
+                    height: 22
+                    radius: Theme.compactControlRadius
+                    visible: !filmCard.sourceAvailable
+                    color: Theme.warningSurface
+                    border.width: 1
+                    border.color: Theme.warningBorder
+
+                    ShadowIcon {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/shared-link.svg"
+                        color: Theme.warningText
+                        size: 12
+                    }
                 }
 
                 ReviewPhotoAffinity {
@@ -255,7 +277,13 @@ Item {
                         root.review.selectPhoto(filmCard, mouse.modifiers)
                     onDoubleClicked: {
                         root.review.selectPhoto(filmCard, 0)
-                        root.review.openSelectedPhoto()
+                        if (filmCard.sourceAvailable) {
+                            root.review.openSelectedPhoto()
+                        } else {
+                            root.review.relinkUnavailablePhoto(
+                                filmCard.photoId, filmCard.locationId,
+                                filmCard.title, filmCard.sourcePath)
+                        }
                     }
                 }
             }

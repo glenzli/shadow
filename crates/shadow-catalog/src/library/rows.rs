@@ -32,6 +32,7 @@ pub(super) fn read_library_photo(row: &rusqlite::Row<'_>) -> rusqlite::Result<Li
     Ok(LibraryPhotoRecord {
         photo_id,
         representation_id,
+        location_id: read_id(row, 31)?,
         location: AssetLocation::new(platform, row.get(3)?, row.get::<_, String>(4)?),
         source,
         facts: read_library_facts_from_columns(row, 7)?,

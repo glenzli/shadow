@@ -45,12 +45,30 @@ inverse_photo_liquify_coordinate(
     double x,
     double y
 ) noexcept {
+    double active_weight = 1.0;
+    double reconstructed_x = 0.0;
+    double reconstructed_y = 0.0;
     for (auto stamp = liquify.stamps.rbegin(); stamp != liquify.stamps.rend(); ++stamp) {
         const double weight = photo_liquify_stamp_weight(*stamp, x, y);
-        x -= stamp->displacement_x * weight;
-        y -= stamp->displacement_y * weight;
+        if (stamp->kind == PreparedPhotoLiquifyStampKind::reconstruct) {
+            // At this point every later-authored operation has already been
+            // undone, while earlier deformation still remains in `x/y`.
+            // Capture the current identity branch and attenuate how much of
+            // that earlier deformation can affect the final coordinate.
+            const double reconstruction =
+                std::clamp(stamp->reconstruction * weight, 0.0, 1.0);
+            reconstructed_x += active_weight * reconstruction * x;
+            reconstructed_y += active_weight * reconstruction * y;
+            active_weight *= 1.0 - reconstruction;
+        } else {
+            x -= stamp->displacement_x * weight;
+            y -= stamp->displacement_y * weight;
+        }
     }
-    return PhotoLiquifySourceCoordinate{.x = x, .y = y};
+    return PhotoLiquifySourceCoordinate{
+        .x = reconstructed_x + active_weight * x,
+        .y = reconstructed_y + active_weight * y,
+    };
 }
 
 } // namespace shadow::image::detail

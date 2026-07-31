@@ -14,6 +14,7 @@ Item {
 
     readonly property string photoId: String(entry.photoId || "")
     readonly property string representationId: String(entry.representationId || "")
+    readonly property string locationId: String(entry.locationId || "")
     readonly property string visualHandle: String(entry.visualHandle || "")
     readonly property var decisionHeadSequence: entry.decisionHeadSequence || 0
     readonly property string decisionFlag: String(entry.decisionFlag || "unflagged")
@@ -23,6 +24,8 @@ Item {
     readonly property bool hasDevelopmentEdits: Boolean(entry.hasDevelopmentEdits)
     readonly property string title: String(entry.title || "")
     readonly property string sourcePath: String(entry.sourcePath || "")
+    readonly property bool sourceAvailable: entry.sourceAvailable === undefined
+        ? true : Boolean(entry.sourceAvailable)
     readonly property string visualRole: String(entry.visualRole || "")
     readonly property string visualError: String(entry.visualError || "")
     readonly property int visualWidth: Number(entry.visualWidth || 0)
@@ -165,12 +168,34 @@ Item {
         ReviewPhotoAffinity {
             anchors.top: parent.top
             anchors.right: parent.right
-            anchors.topMargin: 10
-            anchors.rightMargin: card.decisionFlag === "unflagged" ? 10 : 42
+            anchors.topMargin: 14
+            anchors.rightMargin: card.decisionFlag === "unflagged" ? 15 : 47
             liked: card.liked
             showRating: false
-            floating: true
             iconSize: 13
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.bottom: caption.top
+            anchors.leftMargin: 10
+            anchors.bottomMargin: 10
+            height: 26
+            width: missingSourceLabel.implicitWidth + 18
+            radius: Theme.compactControlRadius
+            visible: !card.sourceAvailable
+            color: Theme.warningSurface
+            border.width: 1
+            border.color: Theme.warningBorder
+
+            Label {
+                id: missingSourceLabel
+                anchors.centerIn: parent
+                text: qsTr("ORIGINAL NOT FOUND")
+                color: Theme.warningText
+                font.pixelSize: Theme.fontMeta
+                font.weight: Font.DemiBold
+            }
         }
 
         Rectangle {
@@ -288,14 +313,22 @@ Item {
                     card.workspace.controller.refreshSharedGradeNodes()
                     cardMenu.openAt(
                         cardMouse, mouse.x, mouse.y, card.workspace,
-                        card.photoId, card.liked, card.decisionFlag)
+                        card.photoId, card.locationId, card.title,
+                        card.sourcePath, card.sourceAvailable,
+                        card.liked, card.decisionFlag)
                 }
             }
             onDoubleClicked: mouse => {
                 if (mouse.button !== Qt.LeftButton)
                     return
                 card.workspace.selectPhoto(card, 0)
-                card.workspace.openSelectedPhoto()
+                if (card.sourceAvailable) {
+                    card.workspace.openSelectedPhoto()
+                } else {
+                    card.workspace.relinkUnavailablePhoto(
+                        card.photoId, card.locationId,
+                        card.title, card.sourcePath)
+                }
             }
         }
     }

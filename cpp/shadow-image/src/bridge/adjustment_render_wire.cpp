@@ -664,8 +664,8 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
 
 std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) {
     if (!source.present) {
-        if (!source.points.empty() || !source.stroke_point_counts.empty()
-            || !source.stroke_parameters.empty()) {
+        if (source.enabled || !source.points.empty() || !source.stroke_kinds.empty()
+            || !source.stroke_point_counts.empty() || !source.stroke_parameters.empty()) {
             throw_invalid_adjustment_plan(
                 "absent photo liquify must use the canonical empty payload"
             );
@@ -674,6 +674,7 @@ std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) 
     }
     if (source.stroke_point_counts.empty()
         || source.stroke_point_counts.size() > image::maximum_photo_liquify_strokes
+        || source.stroke_kinds.size() != source.stroke_point_counts.size()
         || source.stroke_parameters.size() != source.stroke_point_counts.size() * 3U) {
         throw_invalid_adjustment_plan(
             "photo liquify contains invalid stroke partitions or parameters"
@@ -681,10 +682,22 @@ std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) 
     }
 
     std::size_t expected_point_count = 0U;
-    for (const std::uint32_t point_count : source.stroke_point_counts) {
-        if (point_count < 2U || point_count > image::maximum_photo_liquify_points_per_stroke) {
-            throw_invalid_adjustment_plan("photo liquify push gesture has an invalid point count");
+    bool has_prior_deformation = false;
+    for (std::size_t stroke_index = 0U; stroke_index < source.stroke_point_counts.size();
+         ++stroke_index) {
+        const std::uint8_t kind = source.stroke_kinds[stroke_index];
+        const std::uint32_t point_count = source.stroke_point_counts[stroke_index];
+        if (kind > 1U
+            || point_count < (kind == 0U ? 2U : 1U)
+            || point_count > image::maximum_photo_liquify_points_per_stroke) {
+            throw_invalid_adjustment_plan("photo liquify gesture has an invalid kind or point count");
         }
+        if (kind == 1U && !has_prior_deformation) {
+            throw_invalid_adjustment_plan(
+                "photo liquify reconstruct gesture requires earlier deformation"
+            );
+        }
+        has_prior_deformation |= kind == 0U;
         expected_point_count += point_count;
     }
     if (expected_point_count != source.points.size()) {
@@ -694,20 +707,18 @@ std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) 
     }
 
     image::PhotoLiquify result;
+    result.enabled = source.enabled;
     result.strokes.reserve(source.stroke_point_counts.size());
     std::size_t point_offset = 0U;
     for (std::size_t stroke_index = 0U; stroke_index < source.stroke_point_counts.size();
          ++stroke_index) {
-        image::PhotoLiquifyPushStroke stroke{
-            .radius = source.stroke_parameters[stroke_index * 3U],
-            .strength = source.stroke_parameters[stroke_index * 3U + 1U],
-            .hardness = source.stroke_parameters[stroke_index * 3U + 2U],
-        };
+        const std::uint8_t kind = source.stroke_kinds[stroke_index];
         const std::size_t point_count = source.stroke_point_counts[stroke_index];
-        stroke.points.reserve(point_count);
+        std::vector<image::PhotoLiquifyPoint> points;
+        points.reserve(point_count);
         for (std::size_t point_index = 0U; point_index < point_count; ++point_index) {
             const auto& point = source.points[point_offset + point_index];
-            stroke.points.push_back(
+            points.push_back(
                 image::PhotoLiquifyPoint{
                     .x = point.x,
                     .y = point.y,
@@ -716,7 +727,24 @@ std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) 
             );
         }
         point_offset += point_count;
-        result.strokes.push_back(std::move(stroke));
+        const double radius = source.stroke_parameters[stroke_index * 3U];
+        const double strength = source.stroke_parameters[stroke_index * 3U + 1U];
+        const double hardness = source.stroke_parameters[stroke_index * 3U + 2U];
+        if (kind == 0U) {
+            result.strokes.push_back(image::PhotoLiquifyPushStroke{
+                .points = std::move(points),
+                .radius = radius,
+                .strength = strength,
+                .hardness = hardness,
+            });
+        } else {
+            result.strokes.push_back(image::PhotoLiquifyReconstructStroke{
+                .points = std::move(points),
+                .radius = radius,
+                .strength = strength,
+                .hardness = hardness,
+            });
+        }
     }
     image::validate_photo_liquify(result);
     return result;

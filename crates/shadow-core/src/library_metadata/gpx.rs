@@ -113,6 +113,12 @@ enum ActiveText {
     Time,
 }
 
+/// Loads one bounded GPX track and retains only valid, timed track points.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read, exceeds the safety limits,
+/// contains invalid XML/text encoding, or has no usable timed track points.
 pub fn load_gpx_track(path: &Path) -> Result<GpxTrack, GpxImportError> {
     let metadata = std::fs::metadata(path).map_err(|source| io_error(path, source))?;
     if metadata.len() > MAX_GPX_BYTES {
@@ -139,12 +145,15 @@ pub fn load_gpx_track(path: &Path) -> Result<GpxTrack, GpxImportError> {
                             ..PendingTrackPoint::default()
                         });
                     }
-                    b"ele" if pending.is_some() => {
-                        pending.as_mut().expect("checked pending").active_text =
-                            ActiveText::Elevation;
+                    b"ele" => {
+                        if let Some(point) = pending.as_mut() {
+                            point.active_text = ActiveText::Elevation;
+                        }
                     }
-                    b"time" if pending.is_some() => {
-                        pending.as_mut().expect("checked pending").active_text = ActiveText::Time;
+                    b"time" => {
+                        if let Some(point) = pending.as_mut() {
+                            point.active_text = ActiveText::Time;
+                        }
                     }
                     _ => {}
                 }
@@ -176,11 +185,13 @@ pub fn load_gpx_track(path: &Path) -> Result<GpxTrack, GpxImportError> {
             Event::End(element) => {
                 let name = element.local_name();
                 match name.as_ref() {
-                    b"ele" | b"time" if pending.is_some() => {
-                        pending.as_mut().expect("checked pending").active_text = ActiveText::None;
+                    b"ele" | b"time" => {
+                        if let Some(point) = pending.as_mut() {
+                            point.active_text = ActiveText::None;
+                        }
                     }
                     b"trkpt" => {
-                        if let Some(point) = pending.take().and_then(finish_point) {
+                        if let Some(point) = pending.take().as_ref().and_then(finish_point) {
                             if points.len() >= MAX_TRACK_POINTS {
                                 return Err(GpxImportError::TooManyTrackPoints);
                             }
@@ -208,6 +219,12 @@ pub fn load_gpx_track(path: &Path) -> Result<GpxTrack, GpxImportError> {
     })
 }
 
+/// Matches capture timestamps to the nearest accepted point or interpolation.
+///
+/// # Errors
+///
+/// Returns an error when the maximum gap or camera clock offset falls outside
+/// the bounded matching contract.
 pub fn match_photos_to_gpx(
     track: &GpxTrack,
     photos: &[GpsPhotoCapture],
@@ -234,12 +251,14 @@ pub fn match_photos_to_gpx(
             target,
             i64::from(settings.maximum_gap_seconds),
         ) {
+            let Ok(nearest_track_delta_seconds) = u32::try_from(nearest_delta) else {
+                continue;
+            };
             proposals.push(GpsMatchProposal {
                 photo_id: photo.photo_id,
                 captured_at_unix_seconds: photo.captured_at_unix_seconds,
                 matched_at_unix_seconds: target,
-                nearest_track_delta_seconds: u32::try_from(nearest_delta)
-                    .expect("bounded by maximum u32 gap"),
+                nearest_track_delta_seconds,
                 coordinates,
             });
         }
@@ -374,7 +393,7 @@ fn degrees_e7(value: f64) -> i32 {
     (value * 10_000_000.0).round() as i32
 }
 
-fn finish_point(point: PendingTrackPoint) -> Option<GpxTrackPoint> {
+fn finish_point(point: &PendingTrackPoint) -> Option<GpxTrackPoint> {
     let latitude = point.latitude_degrees?;
     let longitude = point.longitude_degrees?;
     if !latitude.is_finite()
@@ -425,7 +444,7 @@ fn append_bounded(destination: &mut String, value: &str) {
 fn digest_file(path: &Path) -> Result<[u8; 32], GpxImportError> {
     let mut file = File::open(path).map_err(|source| io_error(path, source))?;
     let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024];
     loop {
         let read = file
             .read(&mut buffer)

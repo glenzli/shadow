@@ -77,7 +77,7 @@ struct WarmPhotoGeometryParameters final {
 };
 
 // Liquify is lowered beside Canvas as one immutable packed side table:
-// six words per stamp, two words per cell range, then one word per reverse-
+// eight words per stamp, two words per cell range, then one word per reverse-
 // ordered stamp reference. Cell candidates are a conservative superset, so
 // the Metal kernel preserves the CPU sampler's exact temporal composition.
 struct WarmPhotoLiquifyParameters final {

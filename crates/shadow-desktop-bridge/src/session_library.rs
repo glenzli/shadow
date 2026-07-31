@@ -36,6 +36,13 @@ impl DesktopSession {
         self.library.photo_count(filter)
     }
 
+    pub(crate) fn archive_library_photo(&self, photo_id: &str) -> AnyResult<bool> {
+        self.library.archive_photo(photo_id)
+    }
+
+    // CXX exposes viewport bounds as scalar ABI fields; the service immediately
+    // groups them into the two domain value objects below.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn library_map_snapshot(
         &self,
         filter: &ffi::FfiLibraryPhotoFilter,
@@ -102,6 +109,17 @@ impl DesktopSession {
             candidate_path,
         )?;
         Ok(ffi_verified_source_relink_receipt(receipt))
+    }
+
+    pub(crate) fn relink_library_source_location(
+        &self,
+        location_id: &str,
+        candidate_path: &str,
+    ) -> AnyResult<ffi::FfiVerifiedSourceRelinkReceipt> {
+        Ok(ffi_verified_source_relink_receipt(
+            self.relink
+                .relink_library_source_location(location_id, candidate_path)?,
+        ))
     }
 
     pub(crate) fn create_manual_library_album(
@@ -228,6 +246,8 @@ impl DesktopSession {
         self.library.delete_keyword_subtree_ffi(keyword_id)
     }
 
+    // CXX transfers QStringList-equivalent values as an owned Rust vector.
+    #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn assign_library_keyword(
         &self,
         keyword_id: &str,
@@ -237,6 +257,8 @@ impl DesktopSession {
             .assign_manual_keyword_ffi(keyword_id, &photo_ids, current_time_ms()?)
     }
 
+    // CXX transfers QStringList-equivalent values as an owned Rust vector.
+    #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn remove_library_keyword(
         &self,
         keyword_id: &str,

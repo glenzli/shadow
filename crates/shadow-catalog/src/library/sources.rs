@@ -143,6 +143,22 @@ impl Catalog {
         &mut self,
         source_id: LibrarySourceId,
     ) -> Result<bool, CatalogError> {
+        self.remove_library_source_with_legacy_roots(source_id, &[], 0)
+    }
+
+    /// Disables a discovery root after adopting unowned legacy locations
+    /// beneath any equivalent filesystem roots supplied by the caller.
+    ///
+    /// Older imports predate durable source ownership, and the same folder may
+    /// have been observed once through a symlink and once through its resolved
+    /// path. Associating only currently unowned locations keeps removal
+    /// reversible without stealing a location from another configured source.
+    pub fn remove_library_source_with_legacy_roots(
+        &mut self,
+        source_id: LibrarySourceId,
+        legacy_roots: &[AssetLocation],
+        observed_at_ms: i64,
+    ) -> Result<bool, CatalogError> {
         let transaction = self.connection.transaction()?;
         let enabled = transaction.query_row(
             "SELECT EXISTS(
@@ -166,6 +182,9 @@ impl Catalog {
             return Err(CatalogError::InvalidLibraryQuery(
                 "a Library folder cannot be removed while it is being scanned".into(),
             ));
+        }
+        for root in legacy_roots {
+            attach_unowned_locations_beneath_root(&transaction, source_id, root, observed_at_ms)?;
         }
         transaction.execute(
             "UPDATE library_sources SET enabled = 0 WHERE id = ?1",
@@ -329,6 +348,113 @@ impl Catalog {
             .optional()
             .map_err(Into::into)
     }
+
+    /// Returns one active original location selected directly from the
+    /// photo-first Library for an explicit user-confirmed reattach.
+    ///
+    /// Unlike [`Self::missing_source_relink_target`], this boundary does not
+    /// require a completed scan: a disconnected drive or externally moved
+    /// folder can make the current grid location unreachable before another
+    /// scan has produced absence evidence. Exact content verification still
+    /// decides whether the candidate may be attached.
+    pub fn library_source_relink_target(
+        &self,
+        location_id: LocationId,
+    ) -> Result<Option<MissingSourceRelinkTarget>, CatalogError> {
+        self.connection
+            .query_row(
+                "SELECT p.id, r.id, l.id, l.platform, l.native_path, l.display_path,
+                        r.kind, r.byte_len, r.modified_at_ms,
+                        f.captured_at_unix_seconds, f.camera_key,
+                        COALESCE((
+                            SELECT MAX(source_locations.last_seen_at_ms)
+                            FROM location_sources source_locations
+                            WHERE source_locations.location_id = l.id
+                        ), l.created_at_ms)
+                 FROM locations l
+                 JOIN representations r ON r.id = l.representation_id
+                 JOIN photos p ON p.id = r.photo_id
+                 LEFT JOIN photo_library_facts f ON f.photo_id = p.id
+                 WHERE l.id = ?1
+                   AND p.lifecycle_state = 'active'
+                   AND r.kind IN ('original_raw', 'original_raster')
+                   AND l.status = 'online'
+                   AND (
+                       NOT EXISTS (
+                           SELECT 1 FROM location_sources ownership
+                           WHERE ownership.location_id = l.id
+                       )
+                       OR EXISTS (
+                           SELECT 1
+                           FROM location_sources ownership
+                           JOIN library_sources source
+                             ON source.id = ownership.source_id
+                            AND source.enabled = 1
+                           WHERE ownership.location_id = l.id
+                       )
+                   )",
+                params![location_id.as_bytes().as_slice()],
+                |row| {
+                    Ok(MissingSourceRelinkTarget {
+                        location: read_missing_source_location(row)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+}
+
+fn attach_unowned_locations_beneath_root(
+    transaction: &Transaction<'_>,
+    source_id: LibrarySourceId,
+    root: &AssetLocation,
+    observed_at_ms: i64,
+) -> rusqlite::Result<()> {
+    if root.native_path.is_empty() {
+        return Ok(());
+    }
+    let descendant_prefix = descendant_prefix(root);
+    transaction.execute(
+        "INSERT INTO location_sources(location_id, source_id, first_seen_at_ms, last_seen_at_ms)
+         SELECT location.id, ?1, ?5, ?5
+         FROM locations location
+         WHERE location.platform = ?2
+           AND (
+               location.native_path = ?3
+               OR substr(location.native_path, 1, length(?4)) = ?4
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM location_sources ownership
+               WHERE ownership.location_id = location.id
+           )",
+        params![
+            source_id.as_bytes().as_slice(),
+            root.platform.as_str(),
+            root.native_path.as_slice(),
+            descendant_prefix,
+            observed_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+fn descendant_prefix(root: &AssetLocation) -> Vec<u8> {
+    let mut prefix = root.native_path.clone();
+    match root.platform {
+        shadow_domain::Platform::Windows => {
+            let ends_with_separator = prefix.ends_with(&[b'\\', 0]) || prefix.ends_with(&[b'/', 0]);
+            if !ends_with_separator {
+                prefix.extend_from_slice(&[b'\\', 0]);
+            }
+        }
+        shadow_domain::Platform::MacOs | shadow_domain::Platform::OtherUnix => {
+            if !prefix.ends_with(b"/") {
+                prefix.push(b'/');
+            }
+        }
+    }
+    prefix
 }
 
 pub(crate) fn upsert_library_source_in_transaction(

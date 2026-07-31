@@ -103,6 +103,15 @@ geometry_context(
                 .strength = 0.66,
                 .hardness = 0.27,
             },
+            image::PhotoLiquifyReconstructStroke{
+                .points = {
+                    {.x = 0.48, .y = 0.37, .pressure = 0.62},
+                    {.x = 0.55, .y = 0.4, .pressure = 0.88},
+                },
+                .radius = 0.08,
+                .strength = 0.43,
+                .hardness = 0.39,
+            },
             image::PhotoLiquifyPushStroke{
                 .points = {
                     {.x = 0.72, .y = 0.73, .pressure = 0.83},
@@ -224,7 +233,7 @@ void resident_liquify_and_canvas_match_the_cpu_oracle() {
     expect(
         gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
             && gpu.output.has_value() && gpu.output->analyzed_linear.has_value(),
-        "pressure-bearing Liquify and Canvas stay in one resident Metal geometry dispatch"
+        "Push, Reconstruct and Canvas stay in one resident Metal geometry dispatch"
     );
     if (!gpu.output || !gpu.output->analyzed_linear) {
         return;
@@ -247,7 +256,7 @@ void resident_liquify_and_canvas_match_the_cpu_oracle() {
     }
     expect(
         parity,
-        "resident Metal Liquify tracks the CPU reverse-stamp and fused Canvas oracle"
+        "resident Metal Push/Reconstruct tracks the CPU reverse-stamp and fused Canvas oracle"
     );
     const auto cpu_display = image::render_linear_srgb_to_display_srgb8_with_backend(
         cpu,

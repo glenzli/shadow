@@ -67,6 +67,9 @@ impl Catalog {
     ///
     /// This query does not contact a tile, search, or geocoding service. Coordinates come from
     /// Shadow's effective metadata projection, including manual and GPX corrections.
+    // Keep SQL construction, positional bindings, and result decoding together;
+    // their order is one audited spatial-query contract.
+    #[allow(clippy::too_many_lines)]
     pub fn library_map_snapshot(
         &self,
         filter: &LibraryPhotoFilter,

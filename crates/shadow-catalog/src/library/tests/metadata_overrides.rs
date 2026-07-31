@@ -41,7 +41,7 @@ fn corrections_survive_rescan_and_drive_effective_library_queries() {
     let corrected_time = 1_704_067_200;
     let corrected_coordinates = LibraryCoordinates {
         latitude_e7: 312_304_000,
-        longitude_e7: 1214_735_000,
+        longitude_e7: 1_214_735_000,
         place_name: "Shanghai".into(),
     };
     catalog

@@ -216,6 +216,10 @@ class EditController final : public QObject {
     // exposes its ordered gestures, not a reusable node-list identity.
     Q_PROPERTY(QVariantList liquifyStrokes READ liquifyStrokes NOTIFY parametersChanged)
     Q_PROPERTY(
+        bool liquifyNodeEnabled READ liquifyNodeEnabled WRITE setLiquifyNodeEnabled NOTIFY
+            parametersChanged
+    )
+    Q_PROPERTY(
         double liquifyBrushRadius READ liquifyBrushRadius WRITE setLiquifyBrushRadius NOTIFY
             liquifyBrushChanged
     )
@@ -226,6 +230,13 @@ class EditController final : public QObject {
     Q_PROPERTY(
         double liquifyBrushHardness READ liquifyBrushHardness WRITE setLiquifyBrushHardness NOTIFY
             liquifyBrushChanged
+    )
+    Q_PROPERTY(
+        int liquifyBrushMode READ liquifyBrushMode WRITE setLiquifyBrushMode NOTIFY
+            liquifyBrushChanged
+    )
+    Q_PROPERTY(
+        bool liquifyCanReconstruct READ liquifyCanReconstruct NOTIFY parametersChanged
     )
     // Crop/orientation is photo-local too. It is intentionally not a Grade
     // Node control, because framing must never become a shared style.
@@ -395,9 +406,12 @@ class EditController final : public QObject {
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
     [[nodiscard]] QVariantList liquifyStrokes() const;
+    [[nodiscard]] bool liquifyNodeEnabled() const noexcept;
     [[nodiscard]] double liquifyBrushRadius() const noexcept;
     [[nodiscard]] double liquifyBrushStrength() const noexcept;
     [[nodiscard]] double liquifyBrushHardness() const noexcept;
+    [[nodiscard]] int liquifyBrushMode() const noexcept;
+    [[nodiscard]] bool liquifyCanReconstruct() const noexcept;
     [[nodiscard]] QVariantMap photoGeometry() const;
     [[nodiscard]] bool cropToolActive() const noexcept;
     [[nodiscard]] QVariantList gradeNodes() const;
@@ -525,8 +539,15 @@ class EditController final : public QObject {
     void setLiquifyBrushRadius(double radius);
     void setLiquifyBrushStrength(double strength);
     void setLiquifyBrushHardness(double hardness);
+    void setLiquifyBrushMode(int mode);
+    void setLiquifyNodeEnabled(bool enabled);
     Q_INVOKABLE void
     addLiquifyStrokeFromPreview(const QVariantList& points, double output_aspect_ratio);
+    Q_INVOKABLE bool beginLiquifyLiveStroke();
+    Q_INVOKABLE void
+    updateLiquifyLiveStrokeFromPreview(const QVariantList& points, double output_aspect_ratio);
+    Q_INVOKABLE void finishLiquifyLiveStroke();
+    Q_INVOKABLE void cancelLiquifyLiveStroke();
     Q_INVOKABLE void clearLiquify();
     Q_INVOKABLE void rotatePhotoClockwise();
     Q_INVOKABLE void rotatePhotoCounterClockwise();
@@ -897,6 +918,13 @@ class EditController final : public QObject {
     double liquify_brush_radius_ = 0.08;
     double liquify_brush_strength_ = 0.5;
     double liquify_brush_hardness_ = 0.5;
+    int liquify_brush_mode_ = 0;
+    // When the settled texture cannot accept another local mesh immediately,
+    // both Push and Reconstruct use this one provisional Recipe lifecycle.
+    // The entire ordered stroke remains preview-only until release.
+    std::optional<BackendGradeStack> liquify_live_before_;
+    qsizetype liquify_live_index_ = -1;
+    int liquify_live_kind_ = -1;
     bool white_balance_picker_active_ = false;
     bool crop_tool_active_ = false;
     bool mask_tool_active_ = false;

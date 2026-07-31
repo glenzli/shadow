@@ -5,9 +5,10 @@ use std::{collections::HashSet, path::Path};
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentLiquify,
-    AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLocalMask, AdjustmentRenderNode,
-    AdjustmentRenderOperation, AdjustmentRenderPlan, AdjustmentRetouchStroke,
-    AdjustmentRetouchStrokePoint, AdjustmentSpotHealTarget,
+    AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLiquifyReconstructStroke,
+    AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentRenderPlan, AdjustmentRetouchStroke, AdjustmentRetouchStrokePoint,
+    AdjustmentSpotHealTarget,
     COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     ColorRangeParameters,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
@@ -217,6 +218,7 @@ fn validate_recipe_compilation_contract(snapshot: &RecipeSnapshot) -> AnyResult<
 
 fn adjustment_liquify(liquify: &PhotoLiquifyNode) -> AdjustmentLiquify {
     AdjustmentLiquify {
+        enabled: liquify.enabled(),
         strokes: liquify
             .strokes()
             .iter()
@@ -226,7 +228,7 @@ fn adjustment_liquify(liquify: &PhotoLiquifyNode) -> AdjustmentLiquify {
                     radius,
                     strength,
                     hardness,
-                } => AdjustmentLiquifyPushStroke {
+                } => AdjustmentLiquifyStroke::Push(AdjustmentLiquifyPushStroke {
                     points: points
                         .iter()
                         .map(|point| AdjustmentLiquifyPoint {
@@ -238,7 +240,25 @@ fn adjustment_liquify(liquify: &PhotoLiquifyNode) -> AdjustmentLiquify {
                     radius: radius.get(),
                     strength: strength.get(),
                     hardness: hardness.get(),
-                },
+                }),
+                LiquifyStroke::Reconstruct {
+                    points,
+                    radius,
+                    strength,
+                    hardness,
+                } => AdjustmentLiquifyStroke::Reconstruct(AdjustmentLiquifyReconstructStroke {
+                    points: points
+                        .iter()
+                        .map(|point| AdjustmentLiquifyPoint {
+                            x: point.x().get(),
+                            y: point.y().get(),
+                            pressure: point.pressure().get(),
+                        })
+                        .collect(),
+                    radius: radius.get(),
+                    strength: strength.get(),
+                    hardness: hardness.get(),
+                }),
             })
             .collect(),
     }

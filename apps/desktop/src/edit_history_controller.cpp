@@ -46,9 +46,11 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     const bool photo_local_foundation = parameter_key.startsWith(QStringLiteral("foundation/"));
     const bool photo_local_raw_denoise =
         parameter_key.startsWith(QStringLiteral("raw_ai_denoise/"));
+    const bool photo_local_liquify =
+        parameter_key.startsWith(QStringLiteral("liquify/"));
     if (!active_ || interactionLocked()
         || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
-            && !photo_local_raw_denoise
+            && !photo_local_raw_denoise && !photo_local_liquify
             && (grade_node == nullptr || !grade_node->enabled))
         || parameter_key.isEmpty()) {
         return;
@@ -242,6 +244,7 @@ void EditController::setGradeStack(
     const bool photo_local_changed =
         grade_stack_.retouch_spots != grade_stack.retouch_spots
         || grade_stack_.retouch_strokes != grade_stack.retouch_strokes
+        || grade_stack_.liquify_enabled != grade_stack.liquify_enabled
         || grade_stack_.liquify_strokes != grade_stack.liquify_strokes
         || grade_stack_.geometry != grade_stack.geometry;
     const bool curve_changed = selection_changed || had_old_selection != has_new_selection
@@ -324,6 +327,9 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
 }
 
 void EditController::finishActiveGesture() {
+    if (liquify_live_before_.has_value()) {
+        cancelLiquifyLiveStroke();
+    }
     active_parameter_gestures_.clear();
     first_interactive_frame_presented_ = false;
     cancelActivePreview(true);

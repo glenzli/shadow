@@ -215,8 +215,8 @@ int main(int argc, char* argv[]) {
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseAmountSlider"));
     auto* const progress =
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseProgress"));
-    auto* const start =
-        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseStartButton"));
+    auto* const enabled_checkbox =
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseEnabledCheckBox"));
     auto* const cancel =
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseCancelButton"));
     auto* const bypass =
@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
         foundation_root->findChild<QQuickItem*>(QStringLiteral("foundationWhiteBalanceResetButton"));
     if (!require(amount != nullptr, "cached-result amount control is packaged")
         || !require(progress != nullptr, "progress surface is packaged")
-        || !require(start != nullptr, "start/retry action is packaged")
+        || !require(enabled_checkbox != nullptr, "enable checkbox is packaged")
         || !require(cancel != nullptr, "cancel action is packaged")
         || !require(bypass != nullptr, "header bypass action is packaged")
         || !require(temperature != nullptr, "absolute Kelvin control is packaged")
@@ -255,13 +255,27 @@ int main(int argc, char* argv[]) {
         )
         || !require(!amount->property("enabled").toBool(), "bypassed amount is read-only")
         || !require(!bypass->property("enabled").toBool(), "bypassed node disables reset")
-        || !require(start->property("visible").toBool(), "available state exposes start")
+        || !require(
+            enabled_checkbox->property("visible").toBool(),
+            "available state exposes the enable checkbox"
+        )
+        || !require(
+            enabled_checkbox->property("enabled").toBool()
+                && !enabled_checkbox->property("checked").toBool(),
+            "available state exposes an unchecked actionable checkbox"
+        )
         || !require(!progress->property("visible").toBool(), "idle state hides progress")) {
         return EXIT_FAILURE;
     }
 
-    QMetaObject::invokeMethod(start, "clicked");
-    if (!require(editor.start_count == 1, "start action delegates exactly once")) {
+    QMetaObject::invokeMethod(enabled_checkbox, "clicked");
+    drainBindings();
+    if (!require(
+            editor.toggle_count == 1 && editor.foundationAiDenoiseEnabled()
+                && enabled_checkbox->property("checked").toBool(),
+            "checkbox delegates one enable transition through the Recipe property"
+        )
+        || !require(editor.start_count == 0, "checkbox does not bypass the property lifecycle")) {
         return EXIT_FAILURE;
     }
 
@@ -281,7 +295,11 @@ int main(int argc, char* argv[]) {
             "bounded progress reaches the control"
         )
         || !require(cancel->property("visible").toBool(), "busy state exposes cancel")
-        || !require(!start->property("visible").toBool(), "busy state hides start")) {
+        || !require(
+            enabled_checkbox->property("visible").toBool()
+                && !enabled_checkbox->property("enabled").toBool(),
+            "busy state keeps the checkbox visible but locked"
+        )) {
         return EXIT_FAILURE;
     }
     QMetaObject::invokeMethod(cancel, "clicked");
@@ -301,15 +319,39 @@ int main(int argc, char* argv[]) {
     drainBindings();
     if (!require(amount->property("enabled").toBool(), "Ready Recipe enables fast amount changes")
         || !require(!progress->property("visible").toBool(), "Ready state hides progress")
-        || !require(!start->property("visible").toBool(), "enabled state hides start")
+        || !require(
+            enabled_checkbox->property("checked").toBool()
+                && enabled_checkbox->property("enabled").toBool(),
+            "Ready state exposes a checked reversible checkbox"
+        )
         || !require(bypass->property("enabled").toBool(), "enabled node exposes bypass")) {
         return EXIT_FAILURE;
     }
 
+    QMetaObject::invokeMethod(enabled_checkbox, "clicked");
+    drainBindings();
+    if (!require(
+            editor.toggle_count == 2 && !editor.foundationAiDenoiseEnabled()
+                && !enabled_checkbox->property("checked").toBool(),
+            "checkbox delegates one non-destructive bypass transition"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.setAiState(
+        true,
+        false,
+        false,
+        false,
+        QStringLiteral("ready"),
+        1.0,
+        QStringLiteral("enabled")
+    );
+    drainBindings();
     QMetaObject::invokeMethod(bypass, "clicked");
     drainBindings();
     if (!require(
-            editor.toggle_count == 1 && !editor.foundationAiDenoiseEnabled(),
+            editor.toggle_count == 3 && !editor.foundationAiDenoiseEnabled(),
             "header bypass delegates one non-destructive Recipe transition"
         )) {
         return EXIT_FAILURE;

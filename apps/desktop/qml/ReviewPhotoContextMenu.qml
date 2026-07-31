@@ -16,6 +16,10 @@ Popup {
     // delegate when the Review grid recycles its row.
     property var workspace: null
     property string photoId: ""
+    property string locationId: ""
+    property string photoTitle: ""
+    property string photoSourcePath: ""
+    property bool photoSourceAvailable: true
     property bool photoLiked: false
     property string photoDecisionFlag: "unflagged"
     property bool albumsExpanded: false
@@ -32,9 +36,14 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     function openAt(item, localX, localY, workspaceValue, photoIdValue,
-                    likedValue, decisionFlagValue) {
+                    locationIdValue, titleValue, sourcePathValue,
+                    sourceAvailableValue, likedValue, decisionFlagValue) {
         workspace = workspaceValue
         photoId = String(photoIdValue)
+        locationId = String(locationIdValue)
+        photoTitle = String(titleValue)
+        photoSourcePath = String(sourcePathValue)
+        photoSourceAvailable = Boolean(sourceAvailableValue)
         photoLiked = Boolean(likedValue)
         photoDecisionFlag = String(decisionFlagValue)
         albumsExpanded = false
@@ -52,6 +61,10 @@ Popup {
             parent = ownerItem
         workspace = null
         photoId = ""
+        locationId = ""
+        photoTitle = ""
+        photoSourcePath = ""
+        photoSourceAvailable = true
         photoLiked = false
         photoDecisionFlag = "unflagged"
     }
@@ -77,6 +90,7 @@ Popup {
         property bool expandable: false
         property bool expanded: false
         property int indent: 0
+        property color iconColor: Theme.textSecondary
         signal activated()
 
         width: parent ? parent.width : 0
@@ -99,7 +113,7 @@ Popup {
             ShadowIcon {
                 visible: row.iconSource.toString().length > 0
                 source: row.iconSource
-                color: row.actionEnabled ? Theme.textSecondary : Theme.textDisabled
+                color: row.actionEnabled ? row.iconColor : Theme.textDisabled
                 size: 15
             }
 
@@ -139,6 +153,7 @@ Popup {
             iconSource: "qrc:/icons/edit.svg"
             actionEnabled: root.hasWorkspace
                 && root.workspace.canOpenSelectedPhoto
+                && root.photoSourceAvailable
             onActivated: {
                 if (!root.hasWorkspace)
                     return
@@ -150,9 +165,45 @@ Popup {
         Divider {}
 
         MenuRow {
+            visible: !root.photoSourceAvailable
+            text: qsTr("Relink original…")
+            iconSource: "qrc:/icons/shared-link.svg"
+            iconColor: Theme.warningText
+            actionEnabled: root.hasWorkspace && root.locationId.length > 0
+            onActivated: {
+                if (!root.hasWorkspace)
+                    return
+                root.workspace.relinkUnavailablePhoto(
+                    root.photoId, root.locationId,
+                    root.photoTitle, root.photoSourcePath)
+                root.close()
+            }
+        }
+
+        MenuRow {
+            visible: !root.photoSourceAvailable
+            text: qsTr("Remove from Library…")
+            iconSource: "qrc:/icons/trash.svg"
+            iconColor: Theme.dangerText
+            actionEnabled: root.hasWorkspace && root.photoId.length > 0
+            onActivated: {
+                if (!root.hasWorkspace)
+                    return
+                root.workspace.removeUnavailablePhoto(
+                    root.photoId, root.photoTitle, root.photoSourcePath)
+                root.close()
+            }
+        }
+
+        Divider {
+            visible: !root.photoSourceAvailable
+        }
+
+        MenuRow {
             text: root.photoLiked ? qsTr("Remove Like") : qsTr("Like")
             iconSource: root.photoLiked
                 ? "qrc:/icons/heart-filled.svg" : "qrc:/icons/heart.svg"
+            iconColor: Theme.likeAccent
             actionEnabled: root.hasWorkspace
                 && root.workspace.canMutateDecision
             onActivated: {
