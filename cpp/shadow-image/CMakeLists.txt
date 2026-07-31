@@ -97,6 +97,7 @@ add_library(
     src/raw/raw_frame_source_preparation.cpp
     src/raw/raw_frame_source_development.cpp
     src/raw/raw_pipeline.cpp
+    src/raw/raw_preview_rebinding.cpp
     src/raw/raw_white_balance.cpp
     src/raw/resident_raw_source.cpp
     src/raw/sensor_clipping.cpp
@@ -921,6 +922,11 @@ if(BUILD_TESTING)
         shadow-image-raw-white-balance-tests
         shadow-image-raw-white-balance-contract
         tests/raw_white_balance_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-preview-rebinding-tests
+        shadow-image-raw-preview-rebinding-contract
+        tests/raw_preview_rebinding_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-resident-raw-source-tests

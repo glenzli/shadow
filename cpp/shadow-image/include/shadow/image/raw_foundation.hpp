@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace shadow::image {
 
@@ -59,6 +60,38 @@ struct DevelopedRawFoundation final {
 
     [[nodiscard]] bool valid() const noexcept;
 };
+
+// Owned, bounded camera-space basis for an AI RAW preview. It is oriented exactly like the
+// eventual scene-linear output but deliberately contains no white balance, camera matrix, DCP,
+// optics, or Recipe state. Retaining this small basis lets temperature/tint changes reuse the
+// irreversible AI reconstruction without retaining the full artifact or decoding the RAW again.
+struct PreparedRawFoundationCameraRgb final {
+    Dimensions dimensions;
+    std::size_t row_stride_bytes = 0U;
+    std::vector<float> samples;
+    Dimensions source_camera_rgb_dimensions;
+    bool bounded_preview = false;
+    std::string cache_identity;
+
+    [[nodiscard]] bool valid() const noexcept;
+};
+
+[[nodiscard]] PreparedRawFoundationCameraRgb prepare_raw_foundation_camera_rgb(
+    const RawFoundationCameraRgbView& foundation,
+    const RawFrameDescriptor& source_descriptor,
+    std::optional<std::uint32_t> preview_max_edge = std::nullopt
+);
+
+[[nodiscard]] PreparedRawFoundationCameraRgb prepare_raw_foundation_camera_rgb(
+    const RawFoundationCameraRgbView& foundation,
+    const RawFrame& source_frame,
+    std::optional<std::uint32_t> preview_max_edge = std::nullopt
+);
+
+[[nodiscard]] DevelopedRawFoundation develop_prepared_raw_foundation(
+    const PreparedRawFoundationCameraRgb& prepared,
+    const RawFrameLinearTransform& transform
+);
 
 /// Applies the source-bound camera-to-working transform to a verified AI
 /// foundation. A preview edge produces a bounded camera-RGB raster before the

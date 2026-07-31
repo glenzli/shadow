@@ -154,11 +154,10 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     return result;
 }
 
-[[nodiscard]] DevelopedRawFoundation develop_raw_foundation_impl(
+[[nodiscard]] PreparedRawFoundationCameraRgb prepare_raw_foundation_camera_rgb_impl(
     const RawFoundationCameraRgbView& foundation,
     const RawFrameDescriptor& source_descriptor,
     const RawFrame* const source_frame,
-    const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge
 ) {
     if (!foundation.matches_source(source_descriptor)) {
@@ -178,13 +177,6 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     if (source_frame != nullptr) {
         detail::validate_bayer_frame(*source_frame, "AI RAW foundation amount blending");
     }
-    if (!transform.valid()) {
-        throw DecodeError(
-            DecodeErrorCode::invalid_request,
-            0,
-            "AI RAW foundation requires a finite camera-to-working transform"
-        );
-    }
     if (preview_max_edge.has_value() && *preview_max_edge == 0U) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
@@ -198,10 +190,14 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                                      : foundation.dimensions;
     const Dimensions output_dimensions =
         oriented_dimensions(camera_rgb_dimensions, source_descriptor.orientation);
-    SceneLinearRgbFrame output{
+    PreparedRawFoundationCameraRgb output{
         .dimensions = output_dimensions,
         .row_stride_bytes = static_cast<std::size_t>(output_dimensions.width) * 3U * sizeof(float),
         .samples = std::vector<float>(checked_sample_count(output_dimensions)),
+        .source_camera_rgb_dimensions = camera_rgb_dimensions,
+        .bounded_preview = camera_rgb_dimensions != foundation.dimensions,
+        .cache_identity = foundation.provenance.cache_identity()
+                          + ";amount-percent=" + std::to_string(foundation.amount_percent),
     };
     const float ai_amount = static_cast<float>(foundation.amount_percent) / 100.0F;
     detail::parallel_for_rows(
@@ -234,36 +230,21 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                     const std::size_t output_index =
                         (static_cast<std::size_t>(output_y) * output_dimensions.width + output_x)
                         * 3U;
-                    for (std::size_t output_channel = 0U; output_channel < 3U; ++output_channel) {
-                        double value = 0.0;
-                        for (std::size_t input_channel = 0U; input_channel < 3U; ++input_channel) {
-                            value +=
-                                transform
-                                    .camera_to_linear_srgb_d65[output_channel * 3U + input_channel]
-                                * static_cast<double>(camera[input_channel]);
-                        }
-                        output.samples[output_index + output_channel] = static_cast<float>(value);
+                    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                        output.samples[output_index + channel] = camera[channel];
                     }
                 }
             }
         }
     );
-    DevelopedRawFoundation developed{
-        .scene_linear = std::move(output),
-        .camera_rgb_dimensions = camera_rgb_dimensions,
-        .bounded_preview = camera_rgb_dimensions != foundation.dimensions,
-        .cache_identity =
-            foundation.provenance.cache_identity()
-            + ";amount-percent=" + std::to_string(foundation.amount_percent),
-    };
-    if (!developed.valid()) {
+    if (!output.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,
             0,
-            "AI RAW foundation produced an invalid scene-linear raster"
+            "AI RAW foundation produced an invalid camera-space preview basis"
         );
     }
-    return developed;
+    return output;
 }
 
 } // namespace
@@ -329,18 +310,111 @@ bool DevelopedRawFoundation::valid() const noexcept {
            && camera_rgb_dimensions.height > 0U && !cache_identity.empty();
 }
 
+bool PreparedRawFoundationCameraRgb::valid() const noexcept {
+    const std::uint64_t pixel_count = dimensions.pixel_count();
+    const std::uint64_t maximum_samples =
+        static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) / 3U;
+    if (dimensions.width == 0U || dimensions.height == 0U
+        || source_camera_rgb_dimensions.width == 0U || source_camera_rgb_dimensions.height == 0U
+        || row_stride_bytes != static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float)
+        || pixel_count > maximum_samples
+        || samples.size() != static_cast<std::size_t>(pixel_count * 3U) || cache_identity.empty()) {
+        return false;
+    }
+    return std::all_of(samples.begin(), samples.end(), [](const float value) {
+        return std::isfinite(value);
+    });
+}
+
+PreparedRawFoundationCameraRgb prepare_raw_foundation_camera_rgb(
+    const RawFoundationCameraRgbView& foundation,
+    const RawFrameDescriptor& source_descriptor,
+    const std::optional<std::uint32_t> preview_max_edge
+) {
+    return prepare_raw_foundation_camera_rgb_impl(
+        foundation,
+        source_descriptor,
+        nullptr,
+        preview_max_edge
+    );
+}
+
+PreparedRawFoundationCameraRgb prepare_raw_foundation_camera_rgb(
+    const RawFoundationCameraRgbView& foundation,
+    const RawFrame& source_frame,
+    const std::optional<std::uint32_t> preview_max_edge
+) {
+    return prepare_raw_foundation_camera_rgb_impl(
+        foundation,
+        source_frame.descriptor,
+        &source_frame,
+        preview_max_edge
+    );
+}
+
+DevelopedRawFoundation develop_prepared_raw_foundation(
+    const PreparedRawFoundationCameraRgb& prepared,
+    const RawFrameLinearTransform& transform
+) {
+    if (!prepared.valid() || !transform.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "AI RAW foundation colour binding requires a valid camera basis and transform"
+        );
+    }
+    SceneLinearRgbFrame output{
+        .dimensions = prepared.dimensions,
+        .row_stride_bytes = prepared.row_stride_bytes,
+        .samples = std::vector<float>(prepared.samples.size()),
+    };
+    detail::parallel_for_rows(
+        prepared.dimensions.height,
+        8U,
+        [&](const std::uint32_t first_row, const std::uint32_t last_row) {
+            for (std::uint32_t y = first_row; y < last_row; ++y) {
+                for (std::uint32_t x = 0U; x < prepared.dimensions.width; ++x) {
+                    const std::size_t index =
+                        (static_cast<std::size_t>(y) * prepared.dimensions.width + x) * 3U;
+                    for (std::size_t output_channel = 0U; output_channel < 3U; ++output_channel) {
+                        double value = 0.0;
+                        for (std::size_t input_channel = 0U; input_channel < 3U; ++input_channel) {
+                            value +=
+                                transform
+                                    .camera_to_linear_srgb_d65[output_channel * 3U + input_channel]
+                                * static_cast<double>(prepared.samples[index + input_channel]);
+                        }
+                        output.samples[index + output_channel] = static_cast<float>(value);
+                    }
+                }
+            }
+        }
+    );
+    DevelopedRawFoundation developed{
+        .scene_linear = std::move(output),
+        .camera_rgb_dimensions = prepared.source_camera_rgb_dimensions,
+        .bounded_preview = prepared.bounded_preview,
+        .cache_identity = prepared.cache_identity,
+    };
+    if (!developed.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "AI RAW foundation produced an invalid rebound scene-linear raster"
+        );
+    }
+    return developed;
+}
+
 DevelopedRawFoundation develop_raw_foundation(
     const RawFoundationCameraRgbView& foundation,
     const RawFrameDescriptor& source_descriptor,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge
 ) {
-    return develop_raw_foundation_impl(
-        foundation,
-        source_descriptor,
-        nullptr,
-        transform,
-        preview_max_edge
+    return develop_prepared_raw_foundation(
+        prepare_raw_foundation_camera_rgb(foundation, source_descriptor, preview_max_edge),
+        transform
     );
 }
 
@@ -350,12 +424,9 @@ DevelopedRawFoundation develop_raw_foundation(
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge
 ) {
-    return develop_raw_foundation_impl(
-        foundation,
-        source_frame.descriptor,
-        &source_frame,
-        transform,
-        preview_max_edge
+    return develop_prepared_raw_foundation(
+        prepare_raw_foundation_camera_rgb(foundation, source_frame, preview_max_edge),
+        transform
     );
 }
 

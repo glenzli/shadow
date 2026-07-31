@@ -108,6 +108,9 @@ class EditPreviewHandle final {
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
     [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiSensorClippingMask sensor_clipping_mask() const;
+    [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle>
+    rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const;
     [[nodiscard]] FfiEncodedProxy
     render_adjustment_plan(const FfiAdjustmentRenderRequest& request) const;
     [[nodiscard]] FfiAnalyzedEditPreview

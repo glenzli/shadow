@@ -61,6 +61,7 @@ fn key() -> WarmEditPreviewSessionKey {
         max_edge: 64,
         source_environment_cache_identity: "source-environment-v1-fixture".to_owned(),
         requested_raw_development_plan_identity: "shadow-raw-plan-v1;fixture=preview".to_owned(),
+        raw_development_plan: RawDevelopmentPlan::preview(),
         optics: OpticsSettings::default(),
         raw_foundation: None,
     }
@@ -132,6 +133,26 @@ fn identical_full_key_returns_the_same_prepared_session() {
     assert_eq!(prepare_count.load(Ordering::SeqCst), 1);
     assert_eq!(cache.entries.lock().expect("cache entries").len(), 1);
     std::fs::remove_dir_all(root).expect("remove warm-preview fixture");
+}
+
+#[test]
+fn only_white_balance_can_share_a_rebinding_source() {
+    let base = key();
+    let mut white_balance_variant = base.clone();
+    white_balance_variant.raw_development_plan =
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(6_800, 18).expect("manual temperature/tint"),
+        ));
+    white_balance_variant
+        .requested_raw_development_plan_identity
+        .push_str("-manual-white-balance");
+    assert!(!base.matches(&white_balance_variant));
+    assert!(base.shares_rebindable_raw_source(&white_balance_variant));
+
+    let mut sensor_stage_variant = white_balance_variant;
+    sensor_stage_variant.raw_development_plan.noise_reduction =
+        shadow_bridge::RawNoiseReductionIntent::NoiseRobust;
+    assert!(!base.shares_rebindable_raw_source(&sensor_stage_variant));
 }
 
 #[test]

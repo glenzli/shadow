@@ -354,11 +354,11 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_d
     const std::uint32_t max_edge,
     const FfiRawDevelopmentPlan& plan
 ) const {
-    auto prepared = image::prepare_warm_edit_preview(
+    auto prepared = image::prepare_rebindable_warm_edit_preview(
         *session_,
         max_edge,
         raw_development_plan(plan),
-        optics_provider_.get(),
+        optics_provider_,
         optics_settings_
     );
     raw_development_receipt_ = prepared.raw_development_receipt();
@@ -373,12 +373,12 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_f
 ) const {
     const image::RawFoundationCameraRgbView view =
         raw_foundation_wire::raw_foundation_view(foundation);
-    auto prepared = image::prepare_warm_edit_preview(
+    auto prepared = image::prepare_rebindable_warm_edit_preview(
         *session_,
         max_edge,
         raw_development_plan(plan),
         view,
-        optics_provider_.get(),
+        optics_provider_,
         optics_settings_
     );
     raw_development_receipt_ = prepared.raw_development_receipt();
@@ -415,6 +415,17 @@ FfiSensorClippingMask EditPreviewHandle::sensor_clipping_mask() const {
     const auto& mask = session_.sensor_clipping_mask();
     return mask.has_value() ? cxx_bridge_projection::sensor_clipping_mask(*mask)
                             : FfiSensorClippingMask{};
+}
+
+bool EditPreviewHandle::supports_raw_development_rebinding() const noexcept {
+    return session_.supports_raw_development_rebinding();
+}
+
+std::unique_ptr<EditPreviewHandle>
+EditPreviewHandle::rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const {
+    return std::make_unique<EditPreviewHandle>(
+        session_.rebind_raw_development_plan(raw_development_plan(plan))
+    );
 }
 
 bool EditPreviewCancellationHandle::cancel() const noexcept {

@@ -179,6 +179,9 @@ template <typename T> struct CancellableEditPreviewResult final {
 namespace detail {
 class WarmEditGpuSession;
 }
+namespace raw_pipeline_detail {
+class RawPreviewRebindingSource;
+}
 
 class WarmEditPreviewSession final {
   public:
@@ -201,6 +204,12 @@ class WarmEditPreviewSession final {
     // Runtime-only observability for tests and future diagnostics. These counters never enter
     // Recipe, catalog, or cache identities.
     [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;
+    // RAW-only fast path. A rebound session shares the immutable decoded/denoised camera-space
+    // foundation but owns a fresh scene-linear proxy, DCP receipt and GPU edit session. Raster
+    // sessions and legacy borrowed-optics preparations deliberately report false.
+    [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
+    [[nodiscard]] WarmEditPreviewSession
+    rebind_raw_development_plan(const RawDevelopmentPlan& raw_development_plan) const;
     // Interactive presentation path. The returned Bitmap payload is tightly
     // packed display-sRGB RGB8 (`width * 3` bytes per row) and deliberately
     // skips JPEG encoding. It remains transient and is never a durable cache
@@ -309,7 +318,11 @@ class WarmEditPreviewSession final {
         RawDevelopmentReceipt raw_development_receipt,
         RawPipelineReceipt raw_pipeline_receipt,
         OpticsProfileReceipt optics_receipt,
-        std::optional<SensorClippingMask> sensor_clipping_mask
+        std::optional<SensorClippingMask> sensor_clipping_mask,
+        std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source =
+            nullptr,
+        std::shared_ptr<const OpticsProvider> retained_optics_provider = nullptr,
+        OpticsSettings retained_optics_settings = default_optics_settings()
     );
 
     FloatRgbImage working_proxy_;
@@ -320,6 +333,9 @@ class WarmEditPreviewSession final {
     std::optional<SensorClippingMask> sensor_clipping_mask_;
     std::shared_ptr<detail::WarmEditGpuSession> warm_gpu_session_;
     std::string warm_gpu_diagnostic_;
+    std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source_;
+    std::shared_ptr<const OpticsProvider> retained_optics_provider_;
+    OpticsSettings retained_optics_settings_;
 
     friend WarmEditPreviewSession prepare_warm_edit_preview(
         const DecodeSession& session,
@@ -342,7 +358,42 @@ class WarmEditPreviewSession final {
         const OpticsProvider* optics_provider,
         const OpticsSettings& optics_settings
     );
+    friend WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+        const DecodeSession& session,
+        std::uint32_t max_edge,
+        const RawDevelopmentPlan& raw_development_plan,
+        std::shared_ptr<const OpticsProvider> optics_provider,
+        const OpticsSettings& optics_settings
+    );
+    friend WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+        const DecodeSession& session,
+        std::uint32_t max_edge,
+        const RawDevelopmentPlan& raw_development_plan,
+        const RawFoundationCameraRgbView& foundation,
+        std::shared_ptr<const OpticsProvider> optics_provider,
+        const OpticsSettings& optics_settings
+    );
 };
+
+// Bridge-facing ownership-preserving preparation. The ordinary pointer overloads remain useful
+// to focused native callers, while desktop sessions use these entry points so a later RAW colour
+// rebind can safely reapply the same immutable optics provider without borrowing DecodeHandle.
+[[nodiscard]] WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const DecodeSession& session,
+    std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+[[nodiscard]] WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const DecodeSession& session,
+    std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
 
 // Decodes processed linear-light sRGB-primary u16 once and stores only a max-edge-bounded linear
 // float proxy. Normalization precedes bilinear downsampling; no transfer is decoded and the

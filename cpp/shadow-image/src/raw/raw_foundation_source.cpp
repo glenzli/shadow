@@ -17,7 +17,9 @@ inline constexpr std::string_view raw_foundation_pipeline_identity =
     "shadow-raw-foundation-developer-v1:verified-linear-camera-rgb:"
     "camera-matrix:scene-linear-f32";
 
-[[nodiscard]] RawDevelopmentReceipt finalize_raw_foundation_receipt(
+} // namespace
+
+RawDevelopmentReceipt finalize_raw_foundation_receipt(
     const PreparedRawFrameDevelopment& prepared,
     const RawDevelopmentPlan& requested_plan,
     const RawDevelopmentPlanNegotiationStatus negotiation_status,
@@ -86,7 +88,19 @@ inline constexpr std::string_view raw_foundation_pipeline_identity =
     return receipt;
 }
 
-} // namespace
+RawPipelineReceipt finalize_raw_foundation_pipeline_receipt(
+    RawPipelineReceipt prepared,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const std::string_view foundation_cache_identity
+) {
+    return finalize_raw_frame_pipeline_receipt(
+        std::move(prepared),
+        RawDevelopmentBackend::cpu,
+        highlight_recovery,
+        foundation_cache_identity,
+        raw_foundation_pipeline_identity
+    );
+}
 
 DevelopedSourceReference materialize_prepared_raw_foundation_source(
     PreparedRawFrameSource prepared,
@@ -133,12 +147,10 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
         developed.cache_identity,
         dcp_execution_backend
     );
-    pipeline = finalize_raw_frame_pipeline_receipt(
+    pipeline = finalize_raw_foundation_pipeline_receipt(
         std::move(pipeline),
-        RawDevelopmentBackend::cpu,
         effective_plan.highlight_recovery,
-        developed.cache_identity,
-        raw_foundation_pipeline_identity
+        developed.cache_identity
     );
     return DevelopedSourceReference{
         .source = std::move(developed.scene_linear),

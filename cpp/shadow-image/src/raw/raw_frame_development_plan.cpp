@@ -303,6 +303,63 @@ double PreparedRawFrameDevelopment::source_scene_luminance_percentile() const no
     return source_scene_luminance_percentile_;
 }
 
+PreparedRawFrameDevelopment PreparedRawFrameDevelopment::rebind_color(
+    const RawDevelopmentPlan development_plan,
+    RawFrameLinearTransform linear_transform,
+    std::optional<DcpColorTransform> camera_profile,
+    const double source_scene_luminance_percentile
+) const {
+    RawDevelopmentPlan fixed_binding = development_plan_;
+    fixed_binding.white_balance = development_plan.white_balance;
+    if (development_plan != fixed_binding || !linear_transform.valid()
+        || !std::isfinite(source_scene_luminance_percentile)
+        || source_scene_luminance_percentile < 0.0) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "RAW preview colour rebinding may change only a canonical white balance"
+        );
+    }
+    return PreparedRawFrameDevelopment(
+        descriptor_,
+        development_plan,
+        preview_max_edge_,
+        std::move(linear_transform),
+        std::move(camera_profile),
+        neural_raw_denoise_,
+        raw_denoise_,
+        requested_backend_,
+        reconstruction_dimensions_,
+        diagnostic_dimensions_,
+        source_scene_luminance_percentile
+    );
+}
+
+RawFrameLinearTransform prepare_raw_frame_linear_transform(
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance,
+    const DcpColorTransform* camera_profile
+) {
+    if (!valid_raw_white_balance(white_balance)) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "RAW frame colour binding requires a canonical white balance"
+        );
+    }
+    if (camera_profile != nullptr) {
+        if (!camera_profile->valid()) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "RAW frame colour binding received an invalid DCP transform"
+            );
+        }
+        return RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65};
+    }
+    return generic_raw_frame_transform(descriptor, white_balance);
+}
+
 PreparedRawFrameDevelopment prepare_raw_frame_development(
     const RawFrame& frame,
     RawDevelopmentPlan development_plan,
@@ -348,10 +405,11 @@ PreparedRawFrameDevelopment prepare_raw_frame_development(
         );
     }
 
-    const RawFrameLinearTransform transform =
-        camera_profile.has_value()
-            ? RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65}
-            : generic_raw_frame_transform(frame.descriptor, development_plan.white_balance);
+    const RawFrameLinearTransform transform = prepare_raw_frame_linear_transform(
+        frame.descriptor,
+        development_plan.white_balance,
+        camera_profile.has_value() ? &*camera_profile : nullptr
+    );
     const DcpColorTransform* camera_profile_ptr =
         camera_profile.has_value() ? &*camera_profile : nullptr;
     // Measure the source once before preview downsampling, CFA denoise, and the detail branch.

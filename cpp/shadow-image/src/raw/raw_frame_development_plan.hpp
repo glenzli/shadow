@@ -29,13 +29,21 @@ class PreparedRawFrameDevelopment final {
     [[nodiscard]] std::optional<std::uint32_t> preview_max_edge() const noexcept;
     [[nodiscard]] const RawFrameLinearTransform& linear_transform() const noexcept;
     [[nodiscard]] const DcpColorTransform* camera_profile() const noexcept;
-    [[nodiscard]] const detail::PreparedNeuralRawDenoise&
-    neural_raw_denoise() const noexcept;
+    [[nodiscard]] const detail::PreparedNeuralRawDenoise& neural_raw_denoise() const noexcept;
     [[nodiscard]] const detail::PreparedRawBayerDenoise& raw_denoise() const noexcept;
     [[nodiscard]] RawDevelopmentBackendMode requested_backend() const noexcept;
     [[nodiscard]] Dimensions reconstruction_dimensions() const noexcept;
     [[nodiscard]] Dimensions diagnostic_dimensions() const noexcept;
     [[nodiscard]] double source_scene_luminance_percentile() const noexcept;
+    // Creates a new immutable colour binding over the same already-prepared sensor stages.
+    // Only the absolute camera white balance and its compiled colour transform may differ;
+    // demosaic geometry, denoise policy, backend selection and preview bounds remain fixed.
+    [[nodiscard]] PreparedRawFrameDevelopment rebind_color(
+        RawDevelopmentPlan development_plan,
+        RawFrameLinearTransform linear_transform,
+        std::optional<DcpColorTransform> camera_profile,
+        double source_scene_luminance_percentile
+    ) const;
 
   private:
     PreparedRawFrameDevelopment(
@@ -79,6 +87,15 @@ class PreparedRawFrameDevelopment final {
     std::optional<std::uint32_t> preview_max_edge,
     std::optional<DcpColorTransform> camera_profile,
     double iso_sensitivity
+);
+
+// Compiles only the camera-space colour decision. This is intentionally separate from complete
+// sensor-stage preparation so an interactive RAW preview can reuse its decoded/denoised
+// foundation while temperature/tint recompiles white balance and DCP state.
+[[nodiscard]] RawFrameLinearTransform prepare_raw_frame_linear_transform(
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance,
+    const DcpColorTransform* camera_profile
 );
 
 // Execution contributes only facts that cannot be known during preparation. Keeping receipt

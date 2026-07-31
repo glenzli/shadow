@@ -22,6 +22,7 @@ struct DevelopedRawFrame;
 class ResidentRawSource;
 struct ResidentRawSourceAttempt;
 class PreparedRawFrameSource;
+struct PreparedRawPreviewRebinding;
 
 [[nodiscard]] ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
     PreparedRawFrameSource prepared,
@@ -53,7 +54,8 @@ class PreparedRawFrameSource final {
         PreparedRawFrameDevelopment development,
         RawPipelineReceipt pipeline,
         RawDevelopmentPlanNegotiationStatus plan_negotiation_status,
-        AssetMetadata metadata
+        AssetMetadata metadata,
+        std::optional<CameraProfileDefinition> camera_profile_definition
     );
 
     RawFrame frame_;
@@ -62,6 +64,7 @@ class PreparedRawFrameSource final {
     RawDevelopmentPlanNegotiationStatus plan_negotiation_status_ =
         RawDevelopmentPlanNegotiationStatus::rejected;
     AssetMetadata metadata_;
+    std::optional<CameraProfileDefinition> camera_profile_definition_;
     std::shared_ptr<const detail::PreparedRegionOpticsSourceIdentity> region_optics_identity_;
 
     friend PreparedRawFrameSource prepare_raw_frame_source(
@@ -85,6 +88,13 @@ class PreparedRawFrameSource final {
     friend ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
         PreparedRawFrameSource prepared,
         detail::PreparedSceneLinearRegionOptics optics
+    );
+    friend PreparedRawPreviewRebinding
+    prepare_raw_preview_rebinding(PreparedRawFrameSource prepared);
+    friend PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
+        PreparedRawFrameSource prepared,
+        const shadow::image::RawFoundationCameraRgbView& foundation,
+        const RawDevelopmentPlan& requested_plan
     );
 };
 

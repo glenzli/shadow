@@ -40,10 +40,12 @@ PreparedRawFrameSource::PreparedRawFrameSource(
     PreparedRawFrameDevelopment development,
     RawPipelineReceipt pipeline,
     const RawDevelopmentPlanNegotiationStatus plan_negotiation_status,
-    AssetMetadata metadata
+    AssetMetadata metadata,
+    std::optional<CameraProfileDefinition> camera_profile_definition
 ) :
     frame_(std::move(frame)), development_(std::move(development)), pipeline_(std::move(pipeline)),
     plan_negotiation_status_(plan_negotiation_status), metadata_(std::move(metadata)),
+    camera_profile_definition_(std::move(camera_profile_definition)),
     region_optics_identity_(new detail::PreparedRegionOpticsSourceIdentity()) {}
 
 const PreparedRawFrameDevelopment& PreparedRawFrameSource::development() const noexcept {
@@ -106,8 +108,10 @@ PreparedRawFrameSource prepare_raw_frame_source(
     const CameraProfileDefinition* camera_profile =
         match_camera_profile(camera_profiles, session.metadata());
     std::optional<DcpColorTransform> dcp_transform;
+    std::optional<CameraProfileDefinition> camera_profile_definition;
     pipeline.camera_profile_status = RawCameraProfileStatus::no_match;
     if (camera_profile != nullptr) {
+        camera_profile_definition = *camera_profile;
         pipeline.camera_profile_identity = camera_profile->content_identity;
         pipeline.camera_profile_name = camera_profile->profile.profile_name.empty()
                                            ? camera_profile->profile.unique_camera_model
@@ -140,7 +144,8 @@ PreparedRawFrameSource prepare_raw_frame_source(
         std::move(development),
         std::move(pipeline),
         negotiation.status,
-        session.metadata()
+        session.metadata(),
+        std::move(camera_profile_definition)
     );
 }
 

@@ -125,6 +125,7 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/raw/raw_frame_source_preparation.cpp",
     "src/raw/raw_frame_source_development.cpp",
     "src/raw/raw_pipeline.cpp",
+    "src/raw/raw_preview_rebinding.cpp",
     "src/raw/raw_white_balance.cpp",
     "src/raw/resident_raw_source.cpp",
     "src/raw/sensor_clipping.cpp",
@@ -294,6 +295,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/raw/raw_denoise_plan.hpp",
     "src/raw/raw_frame_development_plan.hpp",
     "src/raw/raw_frame_source_development.hpp",
+    "src/raw/raw_preview_rebinding.hpp",
 ];
 
 fn parse_flag(name: &str, default: bool) -> bool {

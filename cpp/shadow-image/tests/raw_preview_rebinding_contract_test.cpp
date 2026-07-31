@@ -1,0 +1,134 @@
+#include "raw_pipeline_contract_test_support.hpp"
+#include "scoped_environment.hpp"
+
+#include <shadow/image/raw_foundation.hpp>
+
+#include <array>
+#include <string>
+#include <vector>
+
+namespace {
+
+using shadow::image::test_support::ScopedEnvironment;
+
+constexpr std::string_view source_digest =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+constexpr std::string_view artifact_digest =
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+constexpr std::string_view cache_key_digest =
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+
+[[nodiscard]] image::RawDevelopmentPlan manual_white_balance_plan() {
+    auto plan = image::preview_raw_development_plan();
+    plan.white_balance = {
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 6'800U,
+        .tint = 18,
+    };
+    return plan;
+}
+
+[[nodiscard]] image::RawFoundationCameraRgbView foundation(const std::vector<float>& pixels) {
+    return image::RawFoundationCameraRgbView{
+        .dimensions = {4U, 4U},
+        .samples = pixels,
+        .provenance = {
+            .source_sha256 = std::string(source_digest),
+            .artifact_file_sha256 = std::string(artifact_digest),
+            .cache_key_sha256 = std::string(cache_key_digest),
+            .model_identity = std::string(image::raw_foundation_model_identity),
+            .implementation_revision = std::string(image::raw_foundation_implementation_revision),
+        },
+    };
+}
+
+void ordinary_raw_rebinds_without_a_second_decode() {
+    SyntheticRawSession decoder(synthetic_bayer_frame());
+    const auto initial =
+        image::prepare_warm_edit_preview(decoder, 4U, image::preview_raw_development_plan());
+    expect(
+        initial.supports_raw_development_rebinding(),
+        "owned RawFrame warm preview advertises camera-space colour rebinding"
+    );
+
+    const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
+    expect(
+        decoder.raw_frame_count() == 1U && decoder.processed_count() == 0U,
+        "ordinary RAW white-balance rebinding neither decodes nor enters provider RGB"
+    );
+    expect(
+        rebound.raw_development_receipt().requested_plan.white_balance
+                == manual_white_balance_plan().white_balance
+            && initial.raw_development_receipt().requested_plan.white_balance.mode
+                   == image::RawWhiteBalanceMode::as_shot,
+        "rebound and original immutable sessions retain independent exact RAW receipts"
+    );
+
+    const std::array<image::AdjustmentNode, 0U> neutral{};
+    const auto original_pixels = initial.render_rgb8(neutral);
+    const auto rebound_pixels = rebound.render_rgb8(neutral);
+    expect(
+        original_pixels.bytes != rebound_pixels.bytes,
+        "camera-domain white-balance rebinding changes the rendered preview"
+    );
+
+    auto incompatible = manual_white_balance_plan();
+    incompatible.noise_reduction = image::RawNoiseReductionIntent::noise_robust;
+    try {
+        static_cast<void>(initial.rebind_raw_development_plan(incompatible));
+        expect(false, "rebinding must reject a sensor-stage plan change");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::invalid_request,
+            "sensor-stage changes fail before a camera-space rebind"
+        );
+    }
+}
+
+void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
+    const std::vector<float> pixels = [] {
+        std::vector<float> values(4U * 4U * 3U);
+        for (std::size_t index = 0U; index < values.size(); index += 3U) {
+            values[index] = 0.125F;
+            values[index + 1U] = 0.25F;
+            values[index + 2U] = 0.5F;
+        }
+        return values;
+    }();
+    SyntheticRawSession decoder(synthetic_bayer_frame());
+    const auto initial = image::prepare_warm_edit_preview(
+        decoder,
+        2U,
+        image::preview_raw_development_plan(),
+        foundation(pixels)
+    );
+    const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
+    expect(
+        initial.supports_raw_development_rebinding() && decoder.raw_frame_count() == 1U
+            && decoder.processed_count() == 0U,
+        "AI RAW foundation rebind shares its bounded camera RGB and source calibration"
+    );
+    expect(
+        rebound.raw_pipeline_receipt().pipeline_identity.find(artifact_digest) != std::string::npos
+            && rebound.raw_development_receipt().effective_plan.noise_reduction
+                   == image::RawNoiseReductionIntent::disabled
+            && rebound.raw_development_receipt().effective_plan.white_balance
+                   == manual_white_balance_plan().white_balance,
+        "AI rebound retains foundation identity and its adjusted sensor-stage provenance"
+    );
+
+    const std::array<image::AdjustmentNode, 0U> neutral{};
+    expect(
+        initial.render_rgb8(neutral).bytes != rebound.render_rgb8(neutral).bytes,
+        "AI camera-RGB foundation receives the new camera-domain colour binding"
+    );
+}
+
+} // namespace
+
+int main() {
+    const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "cpu");
+    ordinary_raw_rebinds_without_a_second_decode();
+    ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode();
+    return failures == 0 ? 0 : 1;
+}

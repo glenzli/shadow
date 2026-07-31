@@ -719,6 +719,11 @@ mod ffi {
         fn raw_development_receipt(self: &EditPreviewHandle) -> Result<FfiRawDevelopmentReceipt>;
         fn raw_pipeline_receipt(self: &EditPreviewHandle) -> Result<FfiRawPipelineReceipt>;
         fn sensor_clipping_mask(self: &EditPreviewHandle) -> FfiSensorClippingMask;
+        fn supports_raw_development_rebinding(self: &EditPreviewHandle) -> bool;
+        fn rebind_raw_development_plan(
+            self: &EditPreviewHandle,
+            plan: &FfiRawDevelopmentPlan,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,

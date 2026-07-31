@@ -108,6 +108,13 @@ Current contract rules:
   `full_edit_detail_source_preparation.*` then delegate that result through the existing optics,
   source-rendering, Recipe, and display owners. Warm preview stays bounded; detail/export retains
   the complete scene-linear foundation and cannot enter the resident-CFA route.
+  `src/raw/raw_preview_rebinding.*` owns the interactive exception to otherwise fixed source
+  development: ordinary RAW keeps one already-neural/conventionally-denoised sensor frame, while
+  an AI foundation keeps only its bounded oriented Camera RGB. A temperature/tint-only request
+  recompiles the generic camera transform or exact DCP and publishes a new immutable warm
+  session, receipt, optics result, and GPU edit source without reopening the decoder or repeating
+  denoise. Any quality, opcode, denoise, highlight, source, foundation, or optics change fails
+  this narrow reuse contract and returns to normal source preparation.
   `src/raw/raw_frame_source_preparation.*` owns the one-time session decode, plan negotiation,
   exact-DCP admission, final RawFrame pipeline receipt, and unforgeable source identity shared by
   materialized and resident consumers. Only that owner may prepare region optics for publication,
@@ -324,6 +331,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   audit, artifact-sensitive cache identity, clipping diagnostics, and the no-fallback boundary.
 - `tests/raw_foundation_edit_surfaces_contract_test.cpp` owns bounded warm-preview and materialized
   full-detail publication, real RGB8/tile rendering, and surface-level no-fallback behavior.
+- `tests/raw_preview_rebinding_contract_test.cpp` owns one-decode RAW/AI camera-space reuse,
+  independent old/new white-balance receipts, changed output pixels, and sensor-stage rejection.
 - `tests/raw_development_plan_contract_test.cpp` owns default intents, cache identity, provider
   capability negotiation, schema rejection, and the explicit absence of RAW provenance.
 - `tests/libraw_reference_development_contract_test.cpp` owns LibRaw settings validation,

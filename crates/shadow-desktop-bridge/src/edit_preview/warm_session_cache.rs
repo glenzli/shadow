@@ -41,6 +41,7 @@ struct WarmEditPreviewSessionKey {
     /// Reusing an effective-plan match would attach the earlier request's
     /// immutable provenance receipt to a different request.
     requested_raw_development_plan_identity: String,
+    raw_development_plan: RawDevelopmentPlan,
     optics: OpticsSettings,
     raw_foundation: Option<RawFoundationRenderIdentity>,
 }
@@ -55,6 +56,19 @@ impl WarmEditPreviewSessionKey {
                 &self.requested_raw_development_plan_identity,
                 &requested.requested_raw_development_plan_identity,
             )
+            && self.raw_development_plan == requested.raw_development_plan
+            && self.optics == requested.optics
+            && self.raw_foundation == requested.raw_foundation
+    }
+
+    fn shares_rebindable_raw_source(&self, requested: &Self) -> bool {
+        let mut requested_fixed = requested.raw_development_plan;
+        requested_fixed.white_balance = self.raw_development_plan.white_balance;
+        self.representation_id == requested.representation_id
+            && self.source == requested.source
+            && self.max_edge == requested.max_edge
+            && self.source_environment_cache_identity == requested.source_environment_cache_identity
+            && self.raw_development_plan == requested_fixed
             && self.optics == requested.optics
             && self.raw_foundation == requested.raw_foundation
     }
@@ -113,6 +127,7 @@ impl WarmEditPreviewSessionCache {
             max_edge,
             source_environment_cache_identity: source_environment_cache_identity.to_owned(),
             requested_raw_development_plan_identity,
+            raw_development_plan,
             optics: optics.clone(),
             raw_foundation: raw_foundation.map(|selection| selection.identity.clone()),
         };
@@ -167,6 +182,34 @@ impl WarmEditPreviewSessionCache {
                 .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
             if let Some(session) = take_matching_session(&mut entries, &key)? {
                 return Ok(session);
+            }
+            if let Some(source) = entries
+                .iter()
+                .find(|entry| {
+                    entry.key.shares_rebindable_raw_source(&key)
+                        && entry.session.supports_raw_development_rebinding()
+                })
+                .map(|entry| Arc::clone(&entry.session))
+            {
+                drop(entries);
+                let rebound = Arc::new(
+                    source
+                        .rebind_raw_development_plan(key.raw_development_plan)
+                        .context("rebind warm preview RAW white balance")?,
+                );
+                let mut entries = self
+                    .entries
+                    .lock()
+                    .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
+                if let Some(session) = take_matching_session(&mut entries, &key)? {
+                    return Ok(session);
+                }
+                entries.push_front(WarmEditPreviewSessionEntry {
+                    key,
+                    session: Arc::clone(&rebound),
+                });
+                entries.truncate(MAX_WARM_EDIT_PREVIEW_SESSIONS);
+                return Ok(rebound);
             }
         }
 

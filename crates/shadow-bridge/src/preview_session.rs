@@ -311,6 +311,36 @@ impl LibRawEditPreviewSession {
         })
     }
 
+    /// Returns whether this session retained an immutable RAW camera-space basis that can be
+    /// rebound to a different absolute white balance without reopening the source or repeating
+    /// sensor-domain denoise.
+    #[must_use]
+    pub fn supports_raw_development_rebinding(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(ffi::EditPreviewHandle::supports_raw_development_rebinding)
+    }
+
+    /// Creates a new immutable preview session over the same decoded/denoised RAW basis.
+    ///
+    /// Only white balance may differ from the source session's request. The returned session owns
+    /// fresh colour/DCP provenance and GPU edit state; the source session remains usable.
+    pub fn rebind_raw_development_plan(
+        &self,
+        raw_development_plan: RawDevelopmentPlan,
+    ) -> Result<Self, BridgeError> {
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "warm edit preview rebinding requires preview RAW-development intent",
+            ));
+        }
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let rebound =
+            handle.rebind_raw_development_plan(&ffi_raw_development_plan(raw_development_plan))?;
+        Self::from_prepared_handle(rebound)
+    }
+
     /// Returns the fixed pixel dimensions of every preview from this session.
     #[must_use]
     pub const fn dimensions(&self) -> ImageDimensions {
