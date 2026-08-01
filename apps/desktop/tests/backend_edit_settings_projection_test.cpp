@@ -144,7 +144,9 @@ void require(const bool condition, const std::string& message) {
 
     BackendGradeStack stack;
     stack.raw_ai_denoise = {
+        .present = true,
         .enabled = true,
+        .bypassed = true,
         .model = 0,
         .amount_percent = 43,
     };
@@ -217,6 +219,8 @@ void require(const bool condition, const std::string& message) {
         },
     };
     stack.geometry = {
+        .present = true,
+        .enabled = false,
         .crop_left = 0.01,
         .crop_top = 0.02,
         .crop_right = 0.91,

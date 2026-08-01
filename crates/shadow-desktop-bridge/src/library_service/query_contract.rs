@@ -52,6 +52,8 @@ pub(super) fn library_filter_from_ffi(
         capture_month: optional_filter_text(&filter.capture_month),
         camera_key: optional_filter_text(&filter.camera_key),
         lens_key: optional_filter_text(&filter.lens_key),
+        country_key: optional_filter_text(&filter.country_key),
+        locality_key: optional_filter_text(&filter.locality_key),
         aperture,
         liked: filter.has_liked.then_some(filter.liked),
         color_label: optional_filter_text(&filter.color_label),
@@ -143,6 +145,8 @@ pub(super) fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryP
         capture_month: filter.capture_month.unwrap_or_default(),
         camera_key: filter.camera_key.unwrap_or_default(),
         lens_key: filter.lens_key.unwrap_or_default(),
+        country_key: filter.country_key.unwrap_or_default(),
+        locality_key: filter.locality_key.unwrap_or_default(),
         has_aperture_minimum,
         aperture_minimum_milli,
         has_aperture_maximum,
@@ -176,6 +180,8 @@ pub(super) fn library_facet_kind_from_ffi(
         ffi::FfiLibraryFacetKind::CaptureMonth => Ok(LibraryFacetKind::CaptureMonth),
         ffi::FfiLibraryFacetKind::Camera => Ok(LibraryFacetKind::Camera),
         ffi::FfiLibraryFacetKind::Lens => Ok(LibraryFacetKind::Lens),
+        ffi::FfiLibraryFacetKind::Country => Ok(LibraryFacetKind::Country),
+        ffi::FfiLibraryFacetKind::City => Ok(LibraryFacetKind::City),
         _ => bail!("unknown Library facet kind"),
     }
 }

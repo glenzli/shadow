@@ -7,13 +7,17 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/raw_frame_staging.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <stop_token>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace shadow::bridge {
@@ -21,6 +25,16 @@ namespace shadow::bridge {
 using namespace cxx_bridge_projection;
 
 namespace {
+
+[[nodiscard]] std::filesystem::path staging_path_from_utf8(const rust::Str path) {
+    const std::string_view bytes(path.data(), path.size());
+    std::u8string encoded;
+    encoded.reserve(bytes.size());
+    for (const char byte : bytes) {
+        encoded.push_back(static_cast<char8_t>(static_cast<unsigned char>(byte)));
+    }
+    return std::filesystem::path(encoded);
+}
 
 [[nodiscard]] std::optional<std::uint32_t>
 mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
@@ -218,6 +232,26 @@ FfiMetadataSnapshot DecodeHandle::metadata() const {
     snapshot.exposure_time_seconds = metadata.exposure_time_seconds;
     snapshot.aperture_f_number = metadata.aperture_f_number;
     snapshot.focal_length_mm = metadata.focal_length_mm;
+    snapshot.has_focus_observation = metadata.focus_observation.has_value();
+    snapshot.focus_observation_schema_version = 0U;
+    snapshot.focus_observation_source = 0U;
+    snapshot.focus_observation_center_x = 0.0;
+    snapshot.focus_observation_center_y = 0.0;
+    snapshot.focus_observation_width = 0.0;
+    snapshot.focus_observation_height = 0.0;
+    snapshot.focus_observation_confirmed = false;
+    snapshot.focus_observation_confidence = 0.0;
+    if (metadata.focus_observation.has_value()) {
+        const auto& focus = *metadata.focus_observation;
+        snapshot.focus_observation_schema_version = focus.schema_version;
+        snapshot.focus_observation_source = static_cast<std::uint8_t>(focus.source);
+        snapshot.focus_observation_center_x = focus.center_x;
+        snapshot.focus_observation_center_y = focus.center_y;
+        snapshot.focus_observation_width = focus.width;
+        snapshot.focus_observation_height = focus.height;
+        snapshot.focus_observation_confirmed = focus.focus_confirmed;
+        snapshot.focus_observation_confidence = focus.confidence;
+    }
     snapshot.captured_at_unix_seconds = metadata.captured_at_unix_seconds;
     snapshot.has_gps_coordinates = metadata.has_gps_coordinates;
     snapshot.gps_latitude_degrees = metadata.gps_latitude_degrees;
@@ -378,6 +412,31 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_f
         max_edge,
         raw_development_plan(plan),
         view,
+        optics_provider_,
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
+    return std::make_unique<EditPreviewHandle>(std::move(prepared));
+}
+
+std::unique_ptr<EditPreviewHandle>
+DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation,
+    const rust::Str staging_manifest_path
+) const {
+    const image::RawFoundationCameraRgbView view =
+        raw_foundation_wire::raw_foundation_view(foundation);
+    image::RawFrame staged_frame =
+        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+    auto prepared = image::prepare_rebindable_warm_edit_preview(
+        *session_,
+        max_edge,
+        raw_development_plan(plan),
+        view,
+        std::move(staged_frame),
         optics_provider_,
         optics_settings_
     );
@@ -692,6 +751,33 @@ std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_raw
         *session_,
         raw_development_plan(plan),
         view,
+        image::FullEditDetailSourceRequirements{
+            .requires_cpu_replay = requirements.requires_cpu_replay,
+        },
+        optics_provider_.get(),
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
+    return std::make_unique<FullEditDetailHandle>(std::move(prepared));
+}
+
+std::unique_ptr<FullEditDetailHandle>
+DecodeHandle::prepare_edit_detail_with_staged_raw_foundation(
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation,
+    const rust::Str staging_manifest_path,
+    const FfiDetailSessionRequirements& requirements
+) const {
+    const image::RawFoundationCameraRgbView view =
+        raw_foundation_wire::raw_foundation_view(foundation);
+    image::RawFrame staged_frame =
+        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+    auto prepared = image::prepare_full_edit_detail(
+        *session_,
+        raw_development_plan(plan),
+        view,
+        std::move(staged_frame),
         image::FullEditDetailSourceRequirements{
             .requires_cpu_replay = requirements.requires_cpu_replay,
         },

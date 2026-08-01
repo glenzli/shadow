@@ -187,6 +187,15 @@ class FullEditDetailSession final {
         const DecodeSession& session,
         const RawDevelopmentPlan& raw_development_plan,
         const RawFoundationCameraRgbView& foundation,
+        RawFrame staged_frame,
+        const FullEditDetailSourceRequirements& requirements,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
+    friend FullEditDetailSession prepare_full_edit_detail(
+        const DecodeSession& session,
+        const RawDevelopmentPlan& raw_development_plan,
+        const RawFoundationCameraRgbView& foundation,
         const FullEditDetailSourceRequirements& requirements,
         const OpticsProvider* optics_provider,
         const OpticsSettings& optics_settings
@@ -231,6 +240,16 @@ class FullEditDetailSession final {
     const DecodeSession& session,
     const RawDevelopmentPlan& raw_development_plan,
     const RawFoundationCameraRgbView& foundation,
+    const FullEditDetailSourceRequirements& requirements = {},
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& metadata_session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    RawFrame staged_frame,
     const FullEditDetailSourceRequirements& requirements = {},
     const OpticsProvider* optics_provider = nullptr,
     const OpticsSettings& optics_settings = default_optics_settings()

@@ -73,6 +73,15 @@ void complete_ffi_projection_preserves_every_field() {
     source.sensor_bits = 14;
     source.cfa_pattern = rust::String("RGGB");
     source.dng_version = rust::String("1.6.0.0");
+    source.has_focus_observation = true;
+    source.focus_observation_schema_version = 1;
+    source.focus_observation_source = rust::String("camera_focus_area");
+    source.focus_observation_center_x = 0.625;
+    source.focus_observation_center_y = 0.375;
+    source.focus_observation_width = 0.125;
+    source.focus_observation_height = 0.25;
+    source.focus_observation_confirmed = true;
+    source.focus_observation_confidence = 1.0;
     source.has_technical_observation = true;
     source.technical_input_width = 2'048;
     source.technical_input_height = 1'365;
@@ -137,6 +146,21 @@ void complete_ffi_projection_preserves_every_field() {
     require(result.sensor_bits == 14, "sensor_bits bits");
     require(result.cfa_pattern == QStringLiteral("RGGB"), "cfa_pattern");
     require(result.dng_version == QStringLiteral("1.6.0.0"), "dng_version");
+    require(result.has_focus_observation, "has_focus_observation");
+    require(
+        result.focus_observation_schema_version == 1,
+        "focus_observation_schema_version"
+    );
+    require(
+        result.focus_observation_source == QStringLiteral("camera_focus_area"),
+        "focus_observation_source"
+    );
+    require_double(result.focus_observation_center_x, 0.625, "focus center x");
+    require_double(result.focus_observation_center_y, 0.375, "focus center y");
+    require_double(result.focus_observation_width, 0.125, "focus width");
+    require_double(result.focus_observation_height, 0.25, "focus height");
+    require(result.focus_observation_confirmed, "focus confirmed");
+    require_double(result.focus_observation_confidence, 1.0, "focus confidence");
     require(
         result.has_technical_observation,
         "has_technical_observation"

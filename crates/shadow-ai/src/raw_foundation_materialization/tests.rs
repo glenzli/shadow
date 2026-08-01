@@ -74,3 +74,5 @@ fn publication_status_preserves_cache_hit_provenance() {
         RawFoundationMaterializationDisposition::ReusedConcurrent
     );
 }
+
+const _: () = assert!(RAW_FOUNDATION_PUBLISHING_PROGRESS < crate::RUNTIME_PROGRESS_COMPLETE);

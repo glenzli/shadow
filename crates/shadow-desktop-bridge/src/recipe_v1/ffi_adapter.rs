@@ -13,7 +13,7 @@ use shadow_bridge::{
 };
 use shadow_domain::{
     LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS, MaskBrushPoint,
-    MaskDefinition, NodeId, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
+    MaskDefinition, NodeId, PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
     RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN, RawFoundationDenoise, RawFoundationDenoiseModel,
     RawTemperatureTint, RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RetouchMode,
     RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
@@ -370,8 +370,18 @@ fn photo_geometry_from_ffi(geometry: &ffi::FfiPhotoGeometry) -> AnyResult<PhotoG
     .map_err(Into::into)
 }
 
-fn ffi_photo_geometry(geometry: PhotoGeometry) -> ffi::FfiPhotoGeometry {
+fn photo_canvas_from_ffi(geometry: &ffi::FfiPhotoGeometry) -> AnyResult<PhotoCanvasNode> {
+    let canvas = PhotoCanvasNode::new(photo_geometry_from_ffi(geometry)?)
+        .with_present(geometry.present)
+        .with_enabled(geometry.enabled);
+    Ok(canvas)
+}
+
+fn ffi_photo_canvas(canvas: PhotoCanvasNode) -> ffi::FfiPhotoGeometry {
+    let geometry = canvas.geometry();
     ffi::FfiPhotoGeometry {
+        present: canvas.is_present(),
+        enabled: canvas.enabled(),
         crop_left: geometry.crop_left().get(),
         crop_top: geometry.crop_top().get(),
         crop_right: geometry.crop_right().get(),
@@ -470,8 +480,10 @@ fn raw_ai_denoise_from_ffi(
         }
         other => bail!("RAW Foundation has unsupported AI denoise model {other}"),
     };
-    RawFoundationDenoise::enabled(model)
+    RawFoundationDenoise::added(model)
+        .with_present(foundation.raw_ai_denoise_present)
         .with_enabled(foundation.raw_ai_denoise_enabled)
+        .with_bypassed(foundation.raw_ai_denoise_bypassed)
         .with_amount_percent(foundation.raw_ai_denoise_amount_percent)
         .context("AI RAW denoise amount")
 }
@@ -500,7 +512,9 @@ pub(crate) fn ffi_photo_foundation_settings(
     ffi::FfiPhotoFoundationSettings {
         enabled: foundation.enabled(),
         optics: ffi_optics_settings(foundation.optics()),
+        raw_ai_denoise_present: raw_ai_denoise.is_present(),
         raw_ai_denoise_enabled: raw_ai_denoise.is_enabled(),
+        raw_ai_denoise_bypassed: raw_ai_denoise.is_bypassed(),
         raw_ai_denoise_model,
         raw_ai_denoise_amount_percent: raw_ai_denoise.amount_percent(),
         raw_white_balance_mode,
@@ -548,7 +562,7 @@ pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> 
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
     grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate new Basic Grade Node")?;
     encode_grade_node_draft_recipe_v1(grade_node)
@@ -645,7 +659,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
             })
             .collect::<AnyResult<Vec<_>>>()?,
         liquify: photo_liquify_from_ffi(&settings.liquify_strokes, settings.liquify_enabled)?,
-        geometry: photo_geometry_from_ffi(&settings.geometry)?,
+        canvas: photo_canvas_from_ffi(&settings.geometry)?,
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     // Domain construction authoritatively validates labels and the complete
@@ -1113,7 +1127,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
             .collect(),
         liquify_enabled,
         liquify_strokes,
-        geometry: ffi_photo_geometry(grade_stack.geometry),
+        geometry: ffi_photo_canvas(grade_stack.canvas),
     })
 }
 

@@ -267,6 +267,21 @@ map_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewLibraryPlaceResolutionCoordinator::Operations
+place_resolution_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library place-resolution backend is required");
+    }
+    return {
+        .candidates = [backend](const std::uint32_t limit) {
+            return backend->libraryPlaceResolutionCandidates(limit);
+        },
+        .record = [backend](const BackendLibraryPlaceResolutionResult& result) {
+            return backend->recordLibraryPlaceResolution(result);
+        },
+    };
+}
+
 [[nodiscard]] ReviewLibraryOrganizationCoordinator::Operations
 organization_operations(const std::shared_ptr<DesktopBackend>& backend, ReviewModel& model) {
     if (!backend) {

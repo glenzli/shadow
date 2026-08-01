@@ -1,4 +1,5 @@
 #include <shadow/image/decoder_error.hpp>
+#include <shadow/image/focus_observation.hpp>
 #include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/decoder_types.hpp>
@@ -443,6 +444,45 @@ static_assert(
     metadata.exposure_time_seconds = capture.shutter;
     metadata.aperture_f_number = capture.aperture;
     metadata.focal_length_mm = capture.focal_len;
+    const auto& maker_notes = decoder.imgdata.makernotes;
+    const int focus_record_count = std::clamp(
+        maker_notes.common.afcount,
+        0,
+        LIBRAW_AFDATA_MAXCOUNT
+    );
+    for (int index = 0; index < focus_record_count; ++index) {
+        const auto& record = maker_notes.common.afdata[static_cast<std::size_t>(index)];
+        if (record.AFInfoData_tag != 0x00b7U || record.AFInfoData == nullptr) {
+            continue;
+        }
+        if (record.AFInfoData_order != 0x4949 && record.AFInfoData_order != 0x4d4d) {
+            continue;
+        }
+        const auto byte_order = record.AFInfoData_order == 0x4949
+            ? FocusRecordByteOrder::little_endian
+            : FocusRecordByteOrder::big_endian;
+        metadata.focus_observation = nikon_focus_observation(
+            record.AFInfoData_version,
+            byte_order,
+            std::span<const std::uint8_t>{
+                record.AFInfoData,
+                static_cast<std::size_t>(record.AFInfoData_length),
+            },
+            sizes.flip
+        );
+        if (metadata.focus_observation.has_value()) {
+            break;
+        }
+    }
+    if (!metadata.focus_observation.has_value()) {
+        const auto& location = maker_notes.sony.FocusLocation;
+        metadata.focus_observation = sony_focus_observation(
+            std::array<std::uint16_t, 4U>{
+                location[0U], location[1U], location[2U], location[3U],
+            },
+            sizes.flip
+        );
+    }
     metadata.captured_at_unix_seconds = static_cast<std::int64_t>(capture.timestamp);
     if (capture.parsed_gps.gpsparsed != 0) {
         const auto latitude = libraw_gps_coordinate(

@@ -83,6 +83,22 @@ PreparedRawFrameSource prepare_raw_frame_source(
     const std::optional<std::uint32_t> preview_max_edge,
     const CameraProfileCatalog& camera_profiles
 ) {
+    return prepare_raw_frame_source(
+        session,
+        session.decode_raw_frame(),
+        requested_plan,
+        preview_max_edge,
+        camera_profiles
+    );
+}
+
+PreparedRawFrameSource prepare_raw_frame_source(
+    const DecodeSession& session,
+    RawFrame frame,
+    const RawDevelopmentPlan& requested_plan,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const CameraProfileCatalog& camera_profiles
+) {
     const RawDevelopmentPlanNegotiation negotiation =
         negotiate_shadow_raw_frame_development_plan(requested_plan);
     if (!negotiation.accepted()) {
@@ -92,8 +108,6 @@ PreparedRawFrameSource prepare_raw_frame_source(
             "Shadow's RawFrame developer cannot honor the requested development plan"
         );
     }
-
-    RawFrame frame = session.decode_raw_frame();
     RawPipelineReceipt pipeline;
     pipeline.path = RawPipelinePath::shadow_raw_frame;
     pipeline.source_provider_id = frame.descriptor.provider_id;

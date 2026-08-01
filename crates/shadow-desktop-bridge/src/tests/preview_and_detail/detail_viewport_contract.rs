@@ -30,12 +30,31 @@ fn detail_viewport_tiles_cover_center_and_clipped_edges_without_duplicates() {
 
     let bottom_right =
         detail_viewport_rects(dimensions, 1.0, 1.0, 512, 512, 512).expect("tile edge viewport");
-    assert!(bottom_right.iter().any(|rect| {
-        rect.x == 1_024 && rect.y == 512 && rect.width == 276 && rect.height == 388
-    }));
-    assert!(bottom_right.iter().all(|rect| {
-        rect.x + rect.width <= dimensions.width && rect.y + rect.height <= dimensions.height
-    }));
+    assert_eq!(
+        bottom_right,
+        [shadow_bridge::DetailTileRect {
+            x: 788,
+            y: 388,
+            width: 512,
+            height: 512,
+        }]
+    );
+
+    let retina_loupe = detail_viewport_rects(
+        ImageDimensions {
+            width: 8_256,
+            height: 5_504,
+        },
+        0.5,
+        0.5,
+        588,
+        320,
+        1_024,
+    )
+    .expect("bound one exact Retina loupe region");
+    assert_eq!(retina_loupe.len(), 1);
+    assert_eq!(retina_loupe[0].width, 588);
+    assert_eq!(retina_loupe[0].height, 320);
 }
 
 #[test]

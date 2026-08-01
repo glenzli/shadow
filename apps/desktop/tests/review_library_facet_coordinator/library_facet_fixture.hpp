@@ -68,6 +68,10 @@ inline QString kind_name(const BackendLibraryFacetKind kind) {
         return QStringLiteral("camera");
     case BackendLibraryFacetKind::Lens:
         return QStringLiteral("lens");
+    case BackendLibraryFacetKind::Country:
+        return QStringLiteral("country");
+    case BackendLibraryFacetKind::City:
+        return QStringLiteral("city");
     }
     return QStringLiteral("unknown");
 }

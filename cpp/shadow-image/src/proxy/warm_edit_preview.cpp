@@ -351,6 +351,35 @@ struct PreparedWarmEditProxy final {
     return prepared;
 }
 
+[[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_foundation_reference(
+    const DecodeSession& metadata_session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    RawFrame staged_frame,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    auto rebindable = raw_pipeline_detail::prepare_raw_foundation_preview_rebinding(
+        metadata_session,
+        std::move(staged_frame),
+        raw_development_plan,
+        foundation,
+        max_edge,
+        raw_pipeline_policy_from_environment(),
+        default_camera_profile_catalog()
+    );
+    auto prepared = finish_warm_edit_proxy(
+        metadata_session.metadata(),
+        max_edge,
+        std::move(rebindable.developed),
+        optics_provider,
+        optics_settings
+    );
+    prepared.raw_rebinding_source = std::move(rebindable.source);
+    return prepared;
+}
+
 } // namespace
 
 bool EditPreviewExecutionReceipt::valid() const noexcept {
@@ -1135,6 +1164,43 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         max_edge,
         raw_development_plan,
         foundation,
+        optics_provider.get(),
+        optics_settings
+    );
+    return WarmEditPreviewSession(
+        std::move(prepared.working_proxy),
+        max_edge,
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
+        std::move(prepared.optics_receipt),
+        std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.raw_rebinding_source),
+        std::move(optics_provider),
+        optics_settings
+    );
+}
+
+WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const DecodeSession& metadata_session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    RawFrame staged_frame,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    validate_warm_edit_max_edge(max_edge);
+    proxy_detail::validate_raw_development_plan_intent(
+        raw_development_plan,
+        RawDevelopmentIntent::preview,
+        "staged rebindable AI RAW foundation warm edit preview"
+    );
+    auto prepared = prepare_warm_edit_proxy_from_foundation_reference(
+        metadata_session,
+        max_edge,
+        raw_development_plan,
+        foundation,
+        std::move(staged_frame),
         optics_provider.get(),
         optics_settings
     );

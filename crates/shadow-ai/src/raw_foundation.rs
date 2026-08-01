@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub const RAW_FOUNDATION_MEDIA_TYPE: &str = "application/x-shadow-raw-foundation";
-pub const RAW_FOUNDATION_ENCODING_VERSION: u32 = 2;
+pub const RAW_FOUNDATION_ENCODING_VERSION: u32 = 1;
 pub const MAX_RAW_FOUNDATION_IMPLEMENTATION_REVISION_BYTES: usize = 256;
 
 /// Identity of the exact RAW source and decoded sensor contract.

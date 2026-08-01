@@ -11,7 +11,7 @@ use crate::{CatalogError, export_queue};
 /// The only on-disk Catalog shape supported by this development build.
 pub(crate) const SCHEMA_VERSION: i64 = 1;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r29-library-keywords";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r30-library-place-resolution";
 
 const SCHEMA_V1_CORE: &str = r"
 CREATE TABLE photos (
@@ -667,6 +667,40 @@ CREATE INDEX photo_library_effective_geo_idx
     ON photo_library_effective_facts(latitude_e7, longitude_e7, photo_id)
     WHERE latitude_e7 IS NOT NULL AND longitude_e7 IS NOT NULL;
 
+CREATE TABLE library_place_resolutions (
+    latitude_e7         INTEGER NOT NULL
+        CHECK (latitude_e7 BETWEEN -900000000 AND 900000000),
+    longitude_e7        INTEGER NOT NULL
+        CHECK (longitude_e7 BETWEEN -1800000000 AND 1800000000),
+    country_code        TEXT NOT NULL DEFAULT '' CHECK (length(country_code) <= 16),
+    country_name        TEXT NOT NULL DEFAULT '' CHECK (length(country_name) <= 256),
+    country_key         TEXT NOT NULL CHECK (length(country_key) BETWEEN 1 AND 512),
+    administrative_area TEXT NOT NULL DEFAULT '' CHECK (length(administrative_area) <= 256),
+    locality            TEXT NOT NULL DEFAULT '' CHECK (length(locality) <= 256),
+    locality_key        TEXT NOT NULL DEFAULT '' CHECK (length(locality_key) <= 512),
+    locality_label      TEXT NOT NULL DEFAULT '' CHECK (length(locality_label) <= 1024),
+    display_name        TEXT NOT NULL DEFAULT '' CHECK (length(display_name) <= 1024),
+    provider_id         TEXT NOT NULL CHECK (length(provider_id) BETWEEN 1 AND 128),
+    provider_version    TEXT NOT NULL DEFAULT '' CHECK (length(provider_version) <= 128),
+    locale              TEXT NOT NULL DEFAULT '' CHECK (length(locale) <= 64),
+    resolved_at_ms      INTEGER NOT NULL CHECK (resolved_at_ms >= 0),
+    PRIMARY KEY (latitude_e7, longitude_e7),
+    CHECK (
+        country_code <> '' OR country_name <> ''
+    ),
+    CHECK (
+        (locality = '' AND locality_key = '' AND locality_label = '')
+        OR
+        (locality <> '' AND locality_key <> '' AND locality_label <> '')
+    )
+) STRICT;
+
+CREATE INDEX library_place_resolutions_country_idx
+    ON library_place_resolutions(country_key, latitude_e7, longitude_e7);
+CREATE INDEX library_place_resolutions_locality_idx
+    ON library_place_resolutions(locality_key, latitude_e7, longitude_e7)
+    WHERE locality_key <> '';
+
 CREATE TABLE photo_library_state (
     photo_id       BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
     liked          INTEGER NOT NULL DEFAULT 0 CHECK (liked IN (0, 1)),
@@ -755,7 +789,7 @@ CREATE INDEX locations_representation_status_current_idx
 const SCHEMA_V1_STATE: &str = r"
 CREATE TABLE catalog_schema (
     version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r29-library-keywords'),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r30-library-place-resolution'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";

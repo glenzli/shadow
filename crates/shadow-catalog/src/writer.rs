@@ -15,6 +15,7 @@
 //! `library_metadata_overrides` owns user corrections and their effective projection;
 //! `library_collections` owns affinity state, albums, and membership;
 //! `library_browse` owns photo-first pages, counts, and bounded facets;
+//! `library_place_resolution` owns unresolved coordinate discovery and coordinate-bound writes;
 //! `decode_snapshot` owns provider observations and output-freshness queries;
 //! `cached_artifact` owns content-addressed visual references and reachability;
 //! `technical_observation` owns exact visual-quality evidence revisions;

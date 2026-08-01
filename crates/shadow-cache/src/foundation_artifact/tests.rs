@@ -91,6 +91,27 @@ fn stripe_bytes(y_start: u32, rows: u32, width: u32) -> Vec<u8> {
     result
 }
 
+fn publication_wire(publication: &StripePublication) -> StripePublicationWire {
+    StripePublicationWire {
+        first_pass_raw_output_mean_f64_bits: format!(
+            "{:016x}",
+            publication.first_pass_raw_output_mean.to_bits()
+        ),
+        global_gain_f64_bits: format!("{:016x}", publication.global_gain.to_bits()),
+        global_input_mean_f64_bits: format!("{:016x}", publication.global_input_mean.to_bits()),
+        output_mean_f64_bits: format!("{:016x}", publication.output_mean.to_bits()),
+        producer: publication.producer.clone(),
+        replay_relative_mean_delta_f64_bits: format!(
+            "{:016x}",
+            publication.replay_relative_mean_delta.to_bits()
+        ),
+        second_pass_raw_output_mean_f64_bits: format!(
+            "{:016x}",
+            publication.second_pass_raw_output_mean.to_bits()
+        ),
+    }
+}
+
 fn write_fixture(path: &Path) -> FoundationArtifactVerification {
     let contract = contract();
     let shape = [3, 4, 6];
@@ -152,13 +173,14 @@ fn write_fixture(path: &Path) -> FoundationArtifactVerification {
         replay_relative_mean_delta: 0.0,
         second_pass_raw_output_mean: 0.25,
     };
+    let publication_wire = publication_wire(&publication);
     let payload_bytes = stripes.iter().map(|stripe| stripe.byte_length).sum();
     let sequence_sha256 = hex_digest(sequence_hasher.finalize());
     let artifact_identity = canonical_sha256(&ArtifactIdentityMaterial {
         cache_key_sha256: &cache_key,
         header_sha256: &header_sha256,
         payload_bytes,
-        publication: &publication,
+        publication: &publication_wire,
         schema: ARTIFACT_SCHEMA,
         sequence_sha256: &sequence_sha256,
         stripes: &stripes,
@@ -169,7 +191,7 @@ fn write_fixture(path: &Path) -> FoundationArtifactVerification {
         cache_key_sha256: cache_key,
         header_sha256,
         payload_bytes,
-        publication,
+        publication: publication_wire,
         schema: ARTIFACT_SCHEMA.to_owned(),
         sequence_sha256,
         stripes,
@@ -232,14 +254,34 @@ fn cache_key_changes_with_the_source_pixel_contract() {
 }
 
 #[test]
-fn artifact_v1_magic_is_not_accepted_as_v2() {
-    let path = fixture_path("v1-magic");
+fn publication_identity_uses_language_neutral_ieee_754_bits() {
+    let publication = StripePublication {
+        first_pass_raw_output_mean: 0.25,
+        global_gain: 1.078_623_532_432_493_7e-6,
+        global_input_mean: 0.5,
+        output_mean: 0.5,
+        producer: PUBLICATION_PRODUCER.to_owned(),
+        replay_relative_mean_delta: 0.0,
+        second_pass_raw_output_mean: 0.25,
+    };
+
+    let encoded = canonical_json(&publication_wire(&publication))
+        .expect("encode publication identity material");
+    assert_eq!(
+        String::from_utf8(encoded).expect("identity material is UTF-8"),
+        r#"{"first_pass_raw_output_mean_f64_bits":"3fd0000000000000","global_gain_f64_bits":"3eb218a71dabc6c4","global_input_mean_f64_bits":"3fe0000000000000","output_mean_f64_bits":"3fe0000000000000","producer":"rawnind-bayer-two-pass-stripe-v1","replay_relative_mean_delta_f64_bits":"0000000000000000","second_pass_raw_output_mean_f64_bits":"3fd0000000000000"}"#
+    );
+}
+
+#[test]
+fn unknown_artifact_magic_is_rejected() {
+    let path = fixture_path("unknown-magic");
     write_fixture(&path);
     let mut file = OpenOptions::new()
         .write(true)
         .open(&path)
         .expect("open fixture");
-    file.write_all(b"SHRAWF01").expect("replace magic");
+    file.write_all(b"SHRAWF99").expect("replace magic");
     file.sync_all().expect("sync changed magic");
 
     assert!(matches!(

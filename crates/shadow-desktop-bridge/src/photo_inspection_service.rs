@@ -7,7 +7,7 @@
 use anyhow::{Context, Result as AnyResult};
 use shadow_catalog::{CatalogHandle, PhotoInspectionRecord, TechnicalObservationRevision};
 use shadow_core::technical_analysis_preprocessing_version;
-use shadow_domain::{PhotoId, RepresentationId};
+use shadow_domain::{FocusObservationSource, PhotoId, RepresentationId};
 
 use crate::ffi;
 
@@ -82,6 +82,15 @@ fn unavailable(photo_id: PhotoId, representation_id: RepresentationId) -> ffi::F
         sensor_bits: 0,
         cfa_pattern: String::new(),
         dng_version: String::new(),
+        has_focus_observation: false,
+        focus_observation_schema_version: 0,
+        focus_observation_source: String::new(),
+        focus_observation_center_x: 0.0,
+        focus_observation_center_y: 0.0,
+        focus_observation_width: 0.0,
+        focus_observation_height: 0.0,
+        focus_observation_confirmed: false,
+        focus_observation_confidence: 0.0,
         has_technical_observation: false,
         technical_input_width: 0,
         technical_input_height: 0,
@@ -107,6 +116,11 @@ fn inspection(
     let source_modified_at_ms = record.source.modified_at_ms.unwrap_or_default();
     let metadata = record.metadata;
     let has_metadata = metadata.is_some();
+    let focus_observation = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.focus_observation.as_ref())
+        .filter(|observation| observation.is_valid())
+        .cloned();
     let (
         camera_make,
         camera_model,
@@ -173,6 +187,14 @@ fn inspection(
             facts.place_name.clone(),
         ))
     });
+    let focus_observation_source =
+        focus_observation
+            .as_ref()
+            .map_or("", |observation| match observation.source {
+                FocusObservationSource::Unknown => "",
+                FocusObservationSource::CameraFocusArea => "camera_focus_area",
+                FocusObservationSource::CameraFocusLocation => "camera_focus_location",
+            });
     let technical = record.technical;
     let has_technical_observation = technical.is_some();
     let (
@@ -262,6 +284,29 @@ fn inspection(
         sensor_bits,
         cfa_pattern,
         dng_version,
+        has_focus_observation: focus_observation.is_some(),
+        focus_observation_schema_version: focus_observation
+            .as_ref()
+            .map_or(0, |observation| observation.schema_version),
+        focus_observation_source: focus_observation_source.to_owned(),
+        focus_observation_center_x: focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.center_x),
+        focus_observation_center_y: focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.center_y),
+        focus_observation_width: focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.width),
+        focus_observation_height: focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.height),
+        focus_observation_confirmed: focus_observation
+            .as_ref()
+            .is_some_and(|observation| observation.focus_confirmed),
+        focus_observation_confidence: focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.confidence),
         has_technical_observation,
         technical_input_width,
         technical_input_height,

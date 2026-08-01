@@ -8,7 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use shadow_cache::{
-    FoundationArtifactPublicationStatus, FoundationArtifactStore, FoundationArtifactStoreError,
+    FoundationArtifactPublicationStatus, FoundationArtifactReader, FoundationArtifactStore,
+    FoundationArtifactStoreError,
 };
 use thiserror::Error;
 
@@ -21,6 +22,8 @@ use crate::{
     VerifiedRawNindFoundationInstallation, plan_rawnind_foundation,
     providers::descriptor_from_planned_verification,
 };
+
+const RAW_FOUNDATION_PUBLISHING_PROGRESS: u16 = 9_700;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RawFoundationMaterializationDisposition {
@@ -36,6 +39,7 @@ pub struct MaterializedRawFoundation {
     path: PathBuf,
     plan: RawNindFoundationPlan,
     runtime_receipt: Option<RuntimeTerminalReceipt<RawFoundationArtifact>>,
+    verified_reader: Option<FoundationArtifactReader>,
 }
 
 impl MaterializedRawFoundation {
@@ -57,6 +61,16 @@ impl MaterializedRawFoundation {
 
     pub const fn runtime_receipt(&self) -> Option<&RuntimeTerminalReceipt<RawFoundationArtifact>> {
         self.runtime_receipt.as_ref()
+    }
+
+    /// Transfers the exact file descriptor that established a cached hit.
+    ///
+    /// Fresh publication already completes its verification before this value
+    /// is built, but its publication transaction does not retain a reader.
+    /// Cached lookup does retain the verified descriptor so the render owner
+    /// can read pixels without scanning the same large artifact a second time.
+    pub fn take_verified_reader(&mut self) -> Option<FoundationArtifactReader> {
+        self.verified_reader.take()
     }
 }
 
@@ -203,6 +217,10 @@ pub fn materialize_rawnind_foundation_with_progress(
         }
     };
 
+    progress_sink.publish(RuntimeProgress {
+        phase_code: "publishing".into(),
+        completed_basis_points: RAW_FOUNDATION_PUBLISHING_PROGRESS,
+    });
     let publication = store.publish_verified_partial(plan.cache_key_sha256(), &partial)?;
     let descriptor = descriptor_from_planned_verification(publication.verification, &plan)
         .map_err(|()| RawFoundationMaterializationError::InvalidVerifiedDescriptor)?;
@@ -217,6 +235,7 @@ pub fn materialize_rawnind_foundation_with_progress(
             path: publication.path,
             plan,
             runtime_receipt: Some(runtime_receipt),
+            verified_reader: None,
         },
     )))
 }
@@ -243,7 +262,6 @@ fn plan_and_lookup_cached_foundation(
         return Ok((plan, None));
     };
     let verification = reader.verification().clone();
-    drop(reader);
     let path = verification.path.clone();
     let descriptor = descriptor_from_planned_verification(verification, &plan)
         .map_err(|()| RawFoundationMaterializationError::InvalidVerifiedDescriptor)?;
@@ -255,6 +273,7 @@ fn plan_and_lookup_cached_foundation(
             path,
             plan,
             runtime_receipt: None,
+            verified_reader: Some(reader),
         }),
     ))
 }

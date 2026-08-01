@@ -195,10 +195,15 @@ Rectangle {
 
         StructuralNodeRow {
             objectName: "canvasNodeRow"
+            visible: pane.editor.canvasNodeMaterialized
             nodeLabel: qsTr("Crop & Geometry")
-            nodeStatus: qsTr("CANVAS · FIXED")
+            nodeStatus: pane.editor.canvasNodeEnabled
+                ? qsTr("PHOTO · ENABLED") : qsTr("PHOTO · BYPASSED")
             nodeGlyph: "C"
             nodeSelected: pane.editor.selectedRecipeNodeKind === "canvas"
+            bypassAvailable: true
+            nodeEnabled: pane.editor.canvasNodeEnabled
+            onEnabledToggled: enabled => pane.editor.canvasNodeEnabled = enabled
             onActivated: {
                 pane.editor.selectCanvasNode()
                 pane.cropToolRequested()
@@ -500,6 +505,7 @@ Rectangle {
         Rectangle {
             id: rawDenoiseNodeRow
             objectName: "rawDenoiseNodeRow"
+            visible: pane.editor.rawDenoiseNodeMaterialized
             Layout.fillWidth: true
             Layout.preferredHeight: 52
             radius: 6
@@ -540,7 +546,7 @@ Rectangle {
                     Label {
                         Layout.fillWidth: true
                         text: qsTr("AI RAW Denoise")
-                        color: pane.editor.foundationAiDenoiseEnabled
+                        color: pane.editor.rawDenoiseNodeVisible
                             ? pane.textPrimary : pane.textSecondary
                         font.pixelSize: 11
                         font.weight: Font.Medium
@@ -549,13 +555,17 @@ Rectangle {
 
                     Label {
                         Layout.fillWidth: true
-                        text: pane.editor.foundationAiDenoiseBusy
+                        text: !pane.editor.rawDenoiseNodeVisible
+                            ? qsTr("NODE · HIDDEN")
+                            : (pane.editor.foundationAiDenoiseBusy
                             ? qsTr("PROCESSING")
                             : (pane.editor.foundationAiDenoiseEnabled
                                 ? qsTr("SOURCE · %L1%").arg(
                                     pane.editor.foundationAiDenoiseAmount)
-                                : qsTr("SOURCE · BYPASSED"))
-                        color: pane.editor.foundationAiDenoiseEnabled
+                                : (pane.editor.foundationAiDenoiseCanApply
+                                    ? qsTr("SOURCE · AI OFF")
+                                    : qsTr("SOURCE · NOT GENERATED"))))
+                        color: pane.editor.rawDenoiseNodeVisible
                             ? (pane.editor.rawDenoiseSelected
                                 ? Theme.accentTextMuted : pane.textMuted)
                             : Theme.textMuted
@@ -566,53 +576,29 @@ Rectangle {
                     }
                 }
 
-                Switch {
-                    id: rawDenoiseEnabledSwitch
-                    objectName: "rawDenoiseEnabledSwitch"
-                    Layout.preferredWidth: 36
-                    Layout.preferredHeight: 22
-                    checked: pane.editor.foundationAiDenoiseEnabled
+                ShadowIconButton {
+                    id: rawDenoiseVisibilityButton
+                    objectName: "rawDenoiseVisibilityButton"
+                    buttonSize: 28
+                    iconSize: 16
+                    variant: ShadowIconButton.Ghost
+                    source: pane.editor.rawDenoiseNodeVisible
+                        ? "qrc:/icons/overlay-show.svg"
+                        : "qrc:/icons/overlay-hide.svg"
+                    foregroundColor: pane.editor.rawDenoiseNodeVisible
+                        ? pane.textSecondary : pane.textMuted
                     enabled: pane.editor.active
                         && !pane.editor.stateBusy
-                        && !pane.editor.foundationAiDenoiseBusy
-                        && (checked || pane.editor.foundationAiDenoiseCanStart)
-                    Accessible.name: checked
-                        ? qsTr("Bypass AI RAW Denoise")
-                        : qsTr("Enable AI RAW Denoise")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: checked
-                        ? qsTr("Bypass AI RAW Denoise; preserve its cache")
-                        : qsTr("Apply AI RAW Denoise")
+                    toolTipText: pane.editor.rawDenoiseNodeVisible
+                        ? qsTr("Hide AI RAW Denoise node")
+                        : qsTr("Show AI RAW Denoise node")
+                    accessibleName: toolTipText
+                    Accessible.checked: pane.editor.rawDenoiseNodeVisible
                     onClicked: {
                         pane.editor.selectRawDenoiseNode()
-                        pane.editor.foundationAiDenoiseEnabled = checked
+                        pane.editor.rawDenoiseNodeVisible =
+                            !pane.editor.rawDenoiseNodeVisible
                     }
-
-                    indicator: Rectangle {
-                        implicitWidth: 34
-                        implicitHeight: 18
-                        x: (rawDenoiseEnabledSwitch.width - width) / 2
-                        y: (rawDenoiseEnabledSwitch.height - height) / 2
-                        radius: height / 2
-                        color: rawDenoiseEnabledSwitch.checked
-                            ? Theme.switchOnSurface : Theme.switchOffSurface
-                        border.color: rawDenoiseEnabledSwitch.checked
-                            ? Theme.switchOnBorder : Theme.switchOffBorder
-
-                        Rectangle {
-                            width: 12
-                            height: 12
-                            y: 3
-                            x: rawDenoiseEnabledSwitch.checked
-                                ? parent.width - width - 3 : 3
-                            radius: width / 2
-                            color: rawDenoiseEnabledSwitch.checked
-                                ? pane.accent : pane.textMuted
-                        }
-                    }
-
-                    contentItem: Item {}
                 }
             }
 
@@ -672,6 +658,34 @@ Rectangle {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            visible: pane.editor.selectedRecipeNodeKind === "raw_denoise"
+                || pane.editor.selectedRecipeNodeKind === "canvas"
+            spacing: 5
+
+            Item {
+                Layout.fillWidth: true
+            }
+
+            ShadowIconButton {
+                objectName: "deleteFixedPhotoNodeButton"
+                source: "qrc:/icons/trash.svg"
+                toolTipText: pane.editor.selectedRecipeNodeKind === "raw_denoise"
+                    ? qsTr("Remove AI RAW Denoise")
+                    : qsTr("Remove Crop & Geometry")
+                accessibleName: toolTipText
+                enabled: pane.editor.active && !pane.editor.stateBusy
+                    && !pane.editor.foundationAiDenoiseBusy
+                onClicked: {
+                    if (pane.editor.selectedRecipeNodeKind === "raw_denoise")
+                        pane.editor.removeRawDenoiseNode()
+                    else
+                        pane.editor.removeCanvasNode()
+                }
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 1
@@ -680,7 +694,7 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Read the stack from bottom source to top output. Basic Adjustments and Canvas are fixed structural nodes.")
+            text: qsTr("Read from bottom source to top output. Fixed-order photo nodes appear only after you add them.")
             color: Theme.textSubtle
             wrapMode: Text.WordWrap
             font.pixelSize: 10

@@ -391,7 +391,9 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         source.foundation.optics.lens_profile_maker.toStdString();
     settings.foundation.optics.lens_profile_model =
         source.foundation.optics.lens_profile_model.toStdString();
+    settings.foundation.raw_ai_denoise_present = source.raw_ai_denoise.present;
     settings.foundation.raw_ai_denoise_enabled = source.raw_ai_denoise.enabled;
+    settings.foundation.raw_ai_denoise_bypassed = source.raw_ai_denoise.bypassed;
     settings.foundation.raw_ai_denoise_model = source.raw_ai_denoise.model;
     settings.foundation.raw_ai_denoise_amount_percent = source.raw_ai_denoise.amount_percent;
     settings.foundation.raw_white_balance_mode = source.foundation.raw_white_balance_mode;
@@ -399,8 +401,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
     settings.foundation.tint = source.foundation.tint;
     settings.foundation.as_shot_white_balance_available =
         source.foundation.as_shot_white_balance_available;
-    settings.foundation.as_shot_temperature_kelvin =
-        source.foundation.as_shot_temperature_kelvin;
+    settings.foundation.as_shot_temperature_kelvin = source.foundation.as_shot_temperature_kelvin;
     settings.foundation.as_shot_tint = source.foundation.as_shot_tint;
     settings.grade_nodes.reserve(static_cast<std::size_t>(source.grade_nodes.size()));
     for (const auto& node : source.grade_nodes) {
@@ -456,6 +457,8 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         settings.liquify_strokes.push_back(std::move(ffi_stroke));
     }
     settings.geometry = {
+        .present = source.geometry.present,
+        .enabled = source.geometry.enabled,
         .crop_left = source.geometry.crop_left,
         .crop_top = source.geometry.crop_top,
         .crop_right = source.geometry.crop_right,
@@ -471,7 +474,9 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
 BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
     BackendGradeStack result;
     result.raw_ai_denoise = {
+        .present = source.foundation.raw_ai_denoise_present,
         .enabled = source.foundation.raw_ai_denoise_enabled,
+        .bypassed = source.foundation.raw_ai_denoise_bypassed,
         .model = source.foundation.raw_ai_denoise_model,
         .amount_percent = source.foundation.raw_ai_denoise_amount_percent,
     };
@@ -497,10 +502,8 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         .raw_white_balance_mode = source.foundation.raw_white_balance_mode,
         .temperature_kelvin = source.foundation.temperature_kelvin,
         .tint = source.foundation.tint,
-        .as_shot_white_balance_available =
-            source.foundation.as_shot_white_balance_available,
-        .as_shot_temperature_kelvin =
-            source.foundation.as_shot_temperature_kelvin,
+        .as_shot_white_balance_available = source.foundation.as_shot_white_balance_available,
+        .as_shot_temperature_kelvin = source.foundation.as_shot_temperature_kelvin,
         .as_shot_tint = source.foundation.as_shot_tint,
     };
     result.grade_nodes.reserve(checked_qt_vector_size(source.grade_nodes.size(), "grade_nodes"));
@@ -567,6 +570,8 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         result.liquify_strokes.push_back(std::move(decoded));
     }
     result.geometry = {
+        .present = source.geometry.present,
+        .enabled = source.geometry.enabled,
         .crop_left = source.geometry.crop_left,
         .crop_top = source.geometry.crop_top,
         .crop_right = source.geometry.crop_right,

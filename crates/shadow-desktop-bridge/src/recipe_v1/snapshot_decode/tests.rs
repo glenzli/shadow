@@ -141,6 +141,7 @@ fn editable_foundation_white_balance_round_trips_without_template_recovery() {
 
     let mut ffi = encode_grade_stack_draft_recipe_v1(reopened).expect("project desktop DTO");
     assert!(ffi.foundation.raw_ai_denoise_enabled);
+    assert!(!ffi.foundation.raw_ai_denoise_bypassed);
     assert_eq!(ffi.foundation.raw_ai_denoise_model, 0);
     assert_eq!(ffi.foundation.raw_white_balance_mode, 1);
     assert_eq!(ffi.foundation.temperature_kelvin, 6_200);

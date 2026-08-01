@@ -21,15 +21,13 @@ fn liquify_node() -> PhotoLiquifyNode {
 }
 
 #[test]
-fn structural_topology_is_optional_liquify_then_mandatory_canvas() {
+fn structural_topology_visits_only_present_nodes_in_fixed_order() {
     let identity = PhotoStructuralNodes::default();
     assert!(identity.liquify().is_none());
-    assert_eq!(
-        identity.iter().collect::<Vec<_>>(),
-        vec![PhotoStructuralNodeRef::Canvas(identity.canvas())]
-    );
+    assert!(!identity.canvas().is_present());
+    assert!(identity.iter().next().is_none());
 
-    let nodes = PhotoStructuralNodes::new(Some(liquify_node()), PhotoCanvasNode::identity())
+    let nodes = PhotoStructuralNodes::new(Some(liquify_node()), PhotoCanvasNode::added())
         .expect("valid fixed topology");
     assert_eq!(
         nodes.iter().collect::<Vec<_>>(),

@@ -8,9 +8,10 @@
 //! Start with [`model`] for the public vocabulary, [`browse`] for photo-grid queries,
 //! [`map_browse`] for bounded spatial aggregation, [`collections`] for albums and affinity state,
 //! [`lifecycle`] for non-destructive removal from active Library projections,
-//! [`keywords`] for hierarchical semantic organization, [`facts`] for indexed metadata, and
-//! [`sources`] for scan roots, exact content identity, and relocation. [`query_projection`] keeps
-//! every Library presentation on one filter contract.
+//! [`keywords`] for hierarchical semantic organization, [`facts`] for indexed metadata,
+//! [`place_resolution`] for coordinate-bound country and city facts, and [`sources`] for scan
+//! roots, exact content identity, and relocation. [`query_projection`] keeps every Library
+//! presentation on one filter contract.
 //!
 //! Fallible `Catalog` methods in this subsystem uniformly propagate
 //! [`CatalogError`](crate::CatalogError) from input validation, `SQLite`
@@ -28,6 +29,7 @@ mod lifecycle;
 mod map_browse;
 mod metadata_overrides;
 mod model;
+mod place_resolution;
 mod query_projection;
 mod rows;
 mod sources;
@@ -44,14 +46,17 @@ pub use model::{
     LibraryKeywordMutationReceipt, LibraryKeywordRecord, LibraryMetadataOverride,
     LibraryMetadataOverrideAction, LibraryMetadataOverrideOrigin, LibraryPhotoCursor,
     LibraryPhotoCursorValue, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoKeyword,
-    LibraryPhotoOrder, LibraryPhotoPage, LibraryPhotoRecord, LibrarySourceHealth,
-    LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE, MAX_LIBRARY_KEYWORD_FILTERS,
-    MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS, MAX_LIBRARY_PAGE_SIZE, MissingSourceLocationCursor,
-    MissingSourceLocationPage, MissingSourceLocationRecord, MissingSourceRelinkTarget,
-    PhotoLibraryMetadataOverrides, PhotoLibraryState, RecordRepresentationContentIdentity,
-    RecordRepresentationContentIdentityStatus, RelinkMatch, SetPhotoLibraryMetadataOverrides,
-    SetPhotoLibraryState, SmartAlbumQueryV1, library_equipment_key,
+    LibraryPhotoOrder, LibraryPhotoPage, LibraryPhotoRecord, LibraryPlaceResolution,
+    LibraryPlaceResolutionCandidate, LibrarySourceHealth, LibrarySourceRecord,
+    MAX_LIBRARY_FACET_PAGE_SIZE, MAX_LIBRARY_KEYWORD_FILTERS, MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS,
+    MAX_LIBRARY_PAGE_SIZE, MissingSourceLocationCursor, MissingSourceLocationPage,
+    MissingSourceLocationRecord, MissingSourceRelinkTarget, PhotoLibraryMetadataOverrides,
+    PhotoLibraryState, RecordLibraryPlaceResolution, RecordLibraryPlaceResolutionStatus,
+    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RelinkMatch,
+    SetPhotoLibraryMetadataOverrides, SetPhotoLibraryState, SmartAlbumQueryV1,
+    library_equipment_key,
 };
+pub use place_resolution::MAX_LIBRARY_PLACE_RESOLUTION_CANDIDATES;
 pub(crate) use sources::{
     attach_location_to_identity_match, attach_location_to_library_source, find_identity_match,
     record_content_identity_if_current_in_transaction, upsert_library_source_in_transaction,

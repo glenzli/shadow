@@ -15,7 +15,7 @@ namespace shadow::image {
 inline constexpr std::string_view raw_foundation_model_identity =
     "rawnind-public-bayer-release-5.6.0";
 inline constexpr std::string_view raw_foundation_implementation_revision =
-    "rawnind-public-bayer-foundation-20260731.1";
+    "rawnind-public-bayer-foundation-v1";
 
 /// Path-free identity of one verified AI RAW foundation.
 ///

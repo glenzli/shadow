@@ -362,7 +362,7 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
         retouch_spots: snapshot.retouch_spots().to_vec(),
         retouch_strokes: snapshot.retouch_strokes().to_vec(),
         liquify: snapshot.structural_nodes().liquify().cloned(),
-        geometry: snapshot.canvas_node().geometry(),
+        canvas: *snapshot.canvas_node(),
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     Ok(grade_stack)

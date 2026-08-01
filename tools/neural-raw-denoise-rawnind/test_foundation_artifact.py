@@ -61,6 +61,37 @@ def execution_identity() -> dict[str, object]:
 
 
 class RawNindFoundationArtifactContract(unittest.TestCase):
+    def test_publication_identity_uses_language_neutral_ieee_754_bits(
+        self,
+    ) -> None:
+        publication = stripe_lifecycle.StripePublication(
+            producer="rawnind-bayer-two-pass-stripe-v1",
+            global_input_mean=0.5,
+            first_pass_raw_output_mean=0.25,
+            second_pass_raw_output_mean=0.25,
+            replay_relative_mean_delta=0.0,
+            global_gain=1.0786235324324937e-06,
+            output_mean=0.5,
+        )
+
+        encoded = foundation_artifact._canonical_json(
+            foundation_artifact._publication_identity_material(publication)
+        ).decode("ascii")
+        self.assertEqual(
+            encoded,
+            "".join(
+                [
+                    '{"first_pass_raw_output_mean_f64_bits":"3fd0000000000000",',
+                    '"global_gain_f64_bits":"3eb218a71dabc6c4",',
+                    '"global_input_mean_f64_bits":"3fe0000000000000",',
+                    '"output_mean_f64_bits":"3fe0000000000000",',
+                    '"producer":"rawnind-bayer-two-pass-stripe-v1",',
+                    '"replay_relative_mean_delta_f64_bits":"0000000000000000",',
+                    '"second_pass_raw_output_mean_f64_bits":"3fd0000000000000"}',
+                ]
+            ),
+        )
+
     def _produce(
         self,
         directory: Path,

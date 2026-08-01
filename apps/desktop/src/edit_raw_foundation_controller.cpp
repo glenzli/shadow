@@ -55,6 +55,25 @@ constexpr int RAW_FOUNDATION_PROGRESS_POLL_MS = 80;
     return result;
 }
 
+[[nodiscard]] EditRawFoundationNoiseTaskResult assess_raw_foundation_noise(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& photo_id,
+    const QString& source_path,
+    const std::uint64_t context_generation
+) {
+    EditRawFoundationNoiseTaskResult result{
+        .photo_id = photo_id,
+        .source_path = source_path,
+        .context_generation = context_generation,
+    };
+    try {
+        result.assessment = backend->assessRawFoundationNoise(photo_id, source_path);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
 [[nodiscard]] shadow::desktop::EditRawFoundationPhase
 edit_phase(const BackendRawFoundationJobPhase phase) noexcept {
     using BackendPhase = BackendRawFoundationJobPhase;
@@ -130,6 +149,12 @@ EditRawFoundationController::EditRawFoundationController(
         &owner_,
         [this] { finishExecution(); }
     );
+    QObject::connect(
+        &noise_watcher_,
+        &QFutureWatcher<EditRawFoundationNoiseTaskResult>::finished,
+        &owner_,
+        [this] { finishNoiseAssessment(); }
+    );
     source_identity_connection_ =
         QObject::connect(&owner_, &EditController::sourceIdentityChanged, &owner_, [this] {
             resetContext();
@@ -150,6 +175,7 @@ EditRawFoundationController::~EditRawFoundationController() {
     QObject::disconnect(state_busy_connection_);
     QObject::disconnect(&probe_watcher_, nullptr, &owner_, nullptr);
     QObject::disconnect(&execution_watcher_, nullptr, &owner_, nullptr);
+    QObject::disconnect(&noise_watcher_, nullptr, &owner_, nullptr);
     QObject::disconnect(&progress_timer_, nullptr, &owner_, nullptr);
     progress_timer_.stop();
     if (const auto token = state_.request_cancellation()) {
@@ -158,6 +184,7 @@ EditRawFoundationController::~EditRawFoundationController() {
         } catch (...) {}
     }
     probe_watcher_.waitForFinished();
+    noise_watcher_.waitForFinished();
     execution_watcher_.waitForFinished();
     if (execution_watcher_.future().isValid()) {
         retireTerminal(execution_watcher_.result().status);
@@ -176,12 +203,20 @@ bool EditController::foundationAiDenoiseAvailable() const noexcept {
     return raw_foundation_controller_ && raw_foundation_controller_->available();
 }
 
+bool EditController::foundationAiDenoiseRequested() const noexcept {
+    return raw_foundation_controller_ && raw_foundation_controller_->requested();
+}
+
 bool EditController::foundationAiDenoiseBusy() const noexcept {
     return raw_foundation_controller_ && raw_foundation_controller_->busy();
 }
 
 bool EditController::foundationAiDenoiseCanStart() const noexcept {
     return raw_foundation_controller_ && raw_foundation_controller_->canStart();
+}
+
+bool EditController::foundationAiDenoiseCanApply() const noexcept {
+    return raw_foundation_controller_ && raw_foundation_controller_->canApply();
 }
 
 bool EditController::foundationAiDenoiseCanCancel() const noexcept {
@@ -200,6 +235,28 @@ QString EditController::foundationAiDenoiseStatusText() const {
     return raw_foundation_controller_ ? raw_foundation_controller_->statusText() : QString{};
 }
 
+bool EditController::foundationAiDenoiseNoiseAssessmentBusy() const noexcept {
+    return raw_foundation_controller_ && raw_foundation_controller_->noiseAssessmentBusy();
+}
+
+QString EditController::foundationAiDenoiseNoiseLevel() const {
+    return raw_foundation_controller_ ? raw_foundation_controller_->noiseLevel()
+                                      : QStringLiteral("unknown");
+}
+
+int EditController::foundationAiDenoiseNoiseScore() const noexcept {
+    return raw_foundation_controller_ ? raw_foundation_controller_->noiseScore() : 0;
+}
+
+int EditController::foundationAiDenoiseNoiseConfidence() const noexcept {
+    return raw_foundation_controller_ ? raw_foundation_controller_->noiseConfidence() : 0;
+}
+
+QString EditController::foundationAiDenoiseNoiseRecommendation() const {
+    return raw_foundation_controller_ ? raw_foundation_controller_->noiseRecommendationText()
+                                      : QString{};
+}
+
 void EditController::setFoundationAiDenoiseEnabled(const bool enabled) {
     if (raw_foundation_controller_) {
         raw_foundation_controller_->setEnabled(enabled);
@@ -207,14 +264,14 @@ void EditController::setFoundationAiDenoiseEnabled(const bool enabled) {
 }
 
 void EditController::setFoundationAiDenoiseAmount(const int amount_percent) {
-    if (!active_ || interactionLocked() || amount_percent < 0 || amount_percent > 100
+    if (!active_ || interactionLocked() || !grade_stack_.raw_ai_denoise.present
+        || amount_percent < 0 || amount_percent > 100
         || grade_stack_.raw_ai_denoise.amount_percent
                == static_cast<std::uint8_t>(amount_percent)) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
-    grade_stack_.raw_ai_denoise.amount_percent =
-        static_cast<std::uint8_t>(amount_percent);
+    grade_stack_.raw_ai_denoise.amount_percent = static_cast<std::uint8_t>(amount_percent);
     rawDenoiseEdited(QStringLiteral("amount"), before);
 }
 
@@ -234,6 +291,12 @@ bool EditRawFoundationController::enabled() const noexcept {
     return state_.recipe_enabled();
 }
 
+bool EditRawFoundationController::requested() const noexcept {
+    return state_.recipe_enabled() || pending_recipe_enable_ || start_after_probe_
+           || start_when_execution_idle_
+           || (state_.job_busy() && !state_.cancellation_requested());
+}
+
 bool EditRawFoundationController::available() const noexcept {
     return state_.runtime_available();
 }
@@ -243,7 +306,14 @@ bool EditRawFoundationController::busy() const noexcept {
 }
 
 bool EditRawFoundationController::canStart() const noexcept {
-    return state_.active() && !state_.recipe_enabled() && !busy() && !owner_.interactionLocked();
+    return state_.active() && owner_.grade_stack_.raw_ai_denoise.present && !state_.recipe_enabled()
+           && !busy() && !owner_.interactionLocked();
+}
+
+bool EditRawFoundationController::canApply() const noexcept {
+    return state_.active() && owner_.grade_stack_.raw_ai_denoise.present
+           && state_.materialized_ready() && !state_.recipe_enabled() && !busy()
+           && !owner_.interactionLocked();
 }
 
 bool EditRawFoundationController::canCancel() const noexcept {
@@ -262,9 +332,92 @@ QString EditRawFoundationController::statusText() const {
     return status_message_.translated();
 }
 
+bool EditRawFoundationController::noiseAssessmentBusy() const noexcept {
+    return noise_watcher_.isRunning();
+}
+
+QString EditRawFoundationController::noiseLevel() const {
+    if (!noise_assessment_) {
+        return QStringLiteral("unknown");
+    }
+    switch (noise_assessment_->level) {
+    case BackendRawFoundationNoiseLevel::Low:
+        return QStringLiteral("low");
+    case BackendRawFoundationNoiseLevel::Moderate:
+        return QStringLiteral("moderate");
+    case BackendRawFoundationNoiseLevel::High:
+        return QStringLiteral("high");
+    }
+    return QStringLiteral("unknown");
+}
+
+int EditRawFoundationController::noiseScore() const noexcept {
+    return noise_assessment_ ? static_cast<int>(noise_assessment_->score_percent) : 0;
+}
+
+int EditRawFoundationController::noiseConfidence() const noexcept {
+    return noise_assessment_ ? static_cast<int>(noise_assessment_->confidence_percent) : 0;
+}
+
+QString EditRawFoundationController::noiseRecommendationText() const {
+    if (noise_watcher_.isRunning()) {
+        return raw_foundation_message(
+                   QT_TRANSLATE_NOOP("EditController", "Analyzing source RAW noise…")
+        )
+            .translated();
+    }
+    if (!noise_assessment_error_.isEmpty() || !noise_assessment_) {
+        return raw_foundation_message(QT_TRANSLATE_NOOP(
+                   "EditController",
+                   "Noise advice unavailable · inspect at 100% before generating"
+        ))
+            .translated();
+    }
+    if (noise_assessment_->confidence_percent < 50U) {
+        return raw_foundation_message(QT_TRANSLATE_NOOP(
+                   "EditController",
+                   "Noise estimate uncertain · inspect at 100% before generating"
+        ))
+            .translated();
+    }
+    switch (noise_assessment_->level) {
+    case BackendRawFoundationNoiseLevel::Low:
+        return raw_foundation_message(QT_TRANSLATE_NOOP(
+                   "EditController",
+                   "Low noise · AI denoise likely unnecessary"
+        ))
+            .translated();
+    case BackendRawFoundationNoiseLevel::Moderate:
+        return raw_foundation_message(QT_TRANSLATE_NOOP(
+                   "EditController",
+                   "Some noise · use AI denoise only when needed"
+        ))
+            .translated();
+    case BackendRawFoundationNoiseLevel::High:
+        return raw_foundation_message(
+                   QT_TRANSLATE_NOOP("EditController", "High noise · AI denoise is recommended")
+        )
+            .translated();
+    }
+    return {};
+}
+
 void EditRawFoundationController::setEnabled(const bool enabled) {
     if (enabled) {
-        start();
+        if (!owner_.grade_stack_.raw_ai_denoise.present || state_.recipe_enabled()
+            || owner_.interactionLocked()) {
+            return;
+        }
+        if (!state_.materialized_ready()) {
+            setStatus(raw_foundation_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "Generate AI RAW Denoise before applying this node"
+            )));
+            publishChange();
+            return;
+        }
+        pending_recipe_enable_ = true;
+        maybeApplyReady();
         return;
     }
     if (!state_.recipe_enabled() || !owner_.active_ || owner_.interactionLocked()) {
@@ -282,7 +435,8 @@ void EditRawFoundationController::setEnabled(const bool enabled) {
 }
 
 void EditRawFoundationController::start() {
-    if (!state_.active() || state_.recipe_enabled() || owner_.interactionLocked()) {
+    if (!state_.active() || !owner_.grade_stack_.raw_ai_denoise.present || state_.recipe_enabled()
+        || owner_.interactionLocked()) {
         return;
     }
     if (state_.materialized_ready()) {
@@ -314,6 +468,41 @@ void EditRawFoundationController::start() {
     startJob();
 }
 
+void EditRawFoundationController::nodeAdded() {
+    if (!owner_.active_ || !owner_.grade_stack_.raw_ai_denoise.present) {
+        return;
+    }
+    node_present_ = true;
+    setStatus(raw_foundation_message(
+        QT_TRANSLATE_NOOP("EditController", "Checking the local AI RAW Denoise model…")
+    ));
+    publishChange();
+    // requestProbe coalesces with an in-flight probe and queues one fresh
+    // generation. This matters when a node is removed and immediately added
+    // again before the stale provider probe has returned.
+    requestProbe(false);
+    requestNoiseAssessment();
+}
+
+void EditRawFoundationController::nodeRemoved() {
+    node_present_ = false;
+    if (const auto token = state_.reset_context(owner_.active_, false)) {
+        try {
+            backend_->cancelRawFoundationJob(*token);
+        } catch (...) {}
+    }
+    progress_timer_.stop();
+    pending_recipe_enable_ = false;
+    start_after_probe_ = false;
+    start_when_execution_idle_ = false;
+    probe_requested_ = false;
+    noise_assessment_requested_ = false;
+    noise_assessment_.reset();
+    noise_assessment_error_.clear();
+    setStatus(raw_foundation_message(QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise is off")));
+    publishChange();
+}
+
 void EditRawFoundationController::cancel() {
     const auto token = state_.request_cancellation();
     if (!token) {
@@ -338,7 +527,8 @@ void EditRawFoundationController::cancel() {
 void EditRawFoundationController::resetContext() {
     const bool active =
         owner_.active_ && !owner_.photo_id_.isEmpty() && !owner_.source_path_.isEmpty();
-    const bool recipe_enabled = active && owner_.grade_stack_.raw_ai_denoise.enabled;
+    const bool node_present = active && owner_.grade_stack_.raw_ai_denoise.present;
+    const bool recipe_enabled = node_present && owner_.grade_stack_.raw_ai_denoise.enabled;
     if (const auto token = state_.reset_context(active, recipe_enabled)) {
         try {
             backend_->cancelRawFoundationJob(*token);
@@ -348,17 +538,24 @@ void EditRawFoundationController::resetContext() {
     pending_recipe_enable_ = false;
     start_after_probe_ = false;
     start_when_execution_idle_ = false;
-    probe_requested_ = active;
+    probe_requested_ = node_present;
+    noise_assessment_requested_ = node_present;
+    noise_assessment_.reset();
+    noise_assessment_error_.clear();
+    node_present_ = node_present;
     setStatus(
-        active
+        node_present
             ? raw_foundation_message(
                   QT_TRANSLATE_NOOP("EditController", "Checking the local AI RAW Denoise model…")
               )
             : raw_foundation_message(QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise is off"))
     );
     publishChange();
-    if (active && !probe_watcher_.isRunning()) {
+    if (node_present && !probe_watcher_.isRunning()) {
         requestProbe(false);
+    }
+    if (node_present) {
+        requestNoiseAssessment();
     }
 }
 
@@ -429,6 +626,54 @@ void EditRawFoundationController::finishProbe() {
     publishChange();
     if (should_start && available) {
         startJob();
+    }
+}
+
+void EditRawFoundationController::requestNoiseAssessment() {
+    if (!state_.active() || !owner_.grade_stack_.raw_ai_denoise.present) {
+        return;
+    }
+    noise_assessment_requested_ = true;
+    if (noise_watcher_.isRunning()) {
+        return;
+    }
+    noise_assessment_requested_ = false;
+    noise_assessment_.reset();
+    noise_assessment_error_.clear();
+    const auto context_generation = state_.context_generation();
+    const QString photo_id = owner_.photo_id_;
+    const QString source_path = owner_.source_path_;
+    noise_watcher_.setFuture(QtConcurrent::run(
+        assess_raw_foundation_noise,
+        backend_,
+        photo_id,
+        source_path,
+        context_generation
+    ));
+    publishChange();
+}
+
+void EditRawFoundationController::finishNoiseAssessment() {
+    const EditRawFoundationNoiseTaskResult task = noise_watcher_.result();
+    const bool current = owner_.grade_stack_.raw_ai_denoise.present
+                         && contextIsCurrent(
+                             task.context_generation,
+                             task.photo_id,
+                             task.source_path
+                         );
+    if (current) {
+        if (task.error.isEmpty()) {
+            noise_assessment_ = task.assessment;
+            noise_assessment_error_.clear();
+        } else {
+            noise_assessment_.reset();
+            noise_assessment_error_ = task.error;
+        }
+        publishChange();
+    }
+    if (noise_assessment_requested_ && state_.active()
+        && owner_.grade_stack_.raw_ai_denoise.present) {
+        requestNoiseAssessment();
     }
 }
 
@@ -508,6 +753,17 @@ void EditRawFoundationController::pollJob() {
         setStatus(
             raw_foundation_message(QT_TRANSLATE_NOOP("EditController", "Planning AI RAW Denoise…"))
         );
+    } else if (status.phase_code == QStringLiteral("verifying")
+               || status.phase_code == QStringLiteral("provider_verified")) {
+        setStatus(raw_foundation_message(
+            QT_TRANSLATE_NOOP("EditController", "Verifying AI RAW Denoise result · %1%"),
+            {static_cast<int>(status.completed_basis_points / 100U)}
+        ));
+    } else if (status.phase_code == QStringLiteral("publishing")) {
+        setStatus(raw_foundation_message(
+            QT_TRANSLATE_NOOP("EditController", "Saving AI RAW Denoise result · %1%"),
+            {static_cast<int>(status.completed_basis_points / 100U)}
+        ));
     } else {
         setStatus(raw_foundation_message(
             QT_TRANSLATE_NOOP("EditController", "Running AI RAW Denoise · %1%"),
@@ -597,16 +853,27 @@ void EditRawFoundationController::finishExecution() {
 }
 
 void EditRawFoundationController::syncRecipeState() {
-    const bool enabled = owner_.active_ && owner_.grade_stack_.raw_ai_denoise.enabled;
+    const bool present = owner_.active_ && owner_.grade_stack_.raw_ai_denoise.present;
+    const bool enabled = present && owner_.grade_stack_.raw_ai_denoise.enabled;
+    if (present != node_present_) {
+        if (present) {
+            nodeAdded();
+        } else {
+            nodeRemoved();
+        }
+    }
     if (!state_.sync_recipe_enabled(enabled)) {
         return;
     }
     if (enabled) {
         pending_recipe_enable_ = false;
-        setStatus(raw_foundation_message(QT_TRANSLATE_NOOP(
-            "EditController",
-            "AI RAW Denoise is enabled"
-        )));
+        setStatus(
+            raw_foundation_message(QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise is enabled"))
+        );
+    } else if (!present) {
+        setStatus(
+            raw_foundation_message(QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise is off"))
+        );
     } else if (!state_.job_busy()) {
         setStatus(raw_foundation_message(QT_TRANSLATE_NOOP(
             "EditController",
@@ -618,6 +885,7 @@ void EditRawFoundationController::syncRecipeState() {
 
 void EditRawFoundationController::maybeApplyReady() {
     if (!pending_recipe_enable_ || !state_.active() || !state_.materialized_ready()
+        || !owner_.grade_stack_.raw_ai_denoise.present
         || !contextIsCurrent(state_.context_generation(), owner_.photo_id_, owner_.source_path_)) {
         return;
     }
@@ -631,6 +899,7 @@ void EditRawFoundationController::maybeApplyReady() {
     }
     if (!owner_.grade_stack_.raw_ai_denoise.enabled) {
         const BackendGradeStack before = owner_.grade_stack_;
+        owner_.grade_stack_.raw_ai_denoise.present = true;
         owner_.grade_stack_.raw_ai_denoise.model = 0;
         owner_.grade_stack_.raw_ai_denoise.enabled = true;
         owner_.rawDenoiseEdited(QStringLiteral("enabled"), before);

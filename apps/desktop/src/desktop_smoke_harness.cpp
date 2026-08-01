@@ -52,6 +52,8 @@ void installDesktopSmokeHarness(
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_METAL_PREVIEW_SMOKE");
     const bool software_preview_smoke =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_SOFTWARE_PREVIEW_SMOKE");
+    const bool rapid_preview_smoke =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_RAPID_PREVIEW_SMOKE");
     const bool streaming_scan_smoke =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_STREAMING_SCAN_SMOKE");
     const bool reopen_library_smoke =
@@ -111,6 +113,7 @@ void installDesktopSmokeHarness(
             {
                 .request_before = request_before,
                 .request_full_detail = true,
+                .rapid_parameter_updates = rapid_preview_smoke,
                 .transport_expectation =
                     metal_preview_smoke ? DesktopSmoke::EditPreviewTransportExpectation::MetalNative
                     : software_preview_smoke
@@ -130,6 +133,7 @@ void installDesktopSmokeHarness(
             {
                 .request_before = request_before,
                 .request_full_detail = false,
+                .rapid_parameter_updates = rapid_preview_smoke,
                 .transport_expectation =
                     metal_preview_smoke ? DesktopSmoke::EditPreviewTransportExpectation::MetalNative
                     : software_preview_smoke

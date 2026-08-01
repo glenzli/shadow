@@ -147,7 +147,11 @@ impl DesktopSession {
         let points = display_points
             .into_iter()
             .map(|point| {
-                map_output_prompt_to_original(point, grade_stack.geometry, coordinate_extent)
+                map_output_prompt_to_original(
+                    point,
+                    grade_stack.canvas.effective_geometry(),
+                    coordinate_extent,
+                )
             })
             .collect();
         let prepared_input = self
@@ -222,7 +226,7 @@ impl DesktopSession {
                         &preview.samples,
                         preview.raster_extent,
                         preview.coordinate_extent,
-                        grade_stack.geometry,
+                        grade_stack.canvas.effective_geometry(),
                         output_extent,
                     )
                     .context("subject-mask candidate preview projection is invalid")?;
@@ -357,6 +361,8 @@ fn subject_mask_points(points: &[ffi::FfiSubjectMaskPoint]) -> AnyResult<Vec<Mas
 
 const fn identity_ffi_geometry() -> ffi::FfiPhotoGeometry {
     ffi::FfiPhotoGeometry {
+        present: false,
+        enabled: true,
         crop_left: 0.0,
         crop_top: 0.0,
         crop_right: 1.0,

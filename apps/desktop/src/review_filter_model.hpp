@@ -36,6 +36,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] QString captureMonth() const;
     [[nodiscard]] QString cameraKey() const;
     [[nodiscard]] QString lensKey() const;
+    [[nodiscard]] QString countryKey() const;
+    [[nodiscard]] QString localityKey() const;
     [[nodiscard]] QStringList keywordIdsAll() const;
     [[nodiscard]] QStringList excludedKeywordIdsAny() const;
     [[nodiscard]] bool hasActiveServerFilter() const;
@@ -53,6 +55,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     void setCaptureMonth(const QString& capture_month);
     void setCameraKey(const QString& camera_key);
     void setLensKey(const QString& lens_key);
+    void setCountryKey(const QString& country_key);
+    void setLocalityKey(const QString& locality_key);
     void setKeywordIdsAll(const QStringList& keyword_ids);
     void setExcludedKeywordIdsAny(const QStringList& keyword_ids);
     Q_INVOKABLE void clearFilters();
@@ -84,6 +88,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     QString capture_month_;
     QString camera_key_;
     QString lens_key_;
+    QString country_key_;
+    QString locality_key_;
     QStringList keyword_ids_all_;
     QStringList excluded_keyword_ids_any_;
 };

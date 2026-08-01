@@ -28,6 +28,16 @@ fn parses_a_nonce_bound_child_metadata_snapshot() {
         snapshot.metadata.focal_length_35mm.to_bits(),
         36.0_f64.to_bits()
     );
+    let focus = snapshot
+        .metadata
+        .focus_observation
+        .as_ref()
+        .expect("camera focus observation");
+    assert_eq!(focus.center_x.to_bits(), 0.625_f64.to_bits());
+    assert_eq!(focus.center_y.to_bits(), 0.375_f64.to_bits());
+    assert_eq!(focus.width.to_bits(), 0.125_f64.to_bits());
+    assert_eq!(focus.height.to_bits(), 0.25_f64.to_bits());
+    assert!(focus.focus_confirmed);
     let gps = snapshot.metadata.gps.expect("GPS metadata");
     assert_eq!(gps.latitude_degrees.to_bits(), 31.23_f64.to_bits());
     assert_eq!(gps.longitude_degrees.to_bits(), 121.4735_f64.to_bits());

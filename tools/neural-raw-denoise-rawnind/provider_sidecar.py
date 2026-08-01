@@ -26,7 +26,7 @@ MODEL_RECEIPT_PREFIX = "shadow-rawnind-foundation-model-v1"
 PLAN_RECEIPT_PREFIX = "shadow-rawnind-foundation-plan-v1"
 FOUNDATION_RECEIPT_PREFIX = "shadow-rawnind-foundation-v1"
 EXPECTED_MANIFEST_SHA256 = (
-    "d3d56084216df66ed4aba057700b0c157c2539b78374f137e0a6eb8c5d3f181f"
+    "60f1727e358c6504dbb8dd52531a80494a3ac9d04c60fdc02b9e7b3bcedc4d43"
 )
 EXPECTED_RUNTIME_VERSION = "1.24.4"
 EXPECTED_MODEL_ID = "darktable-ai/rawnind-public-bayer"
@@ -36,7 +36,7 @@ EXPECTED_MODEL_REVISION = (
 EXPECTED_ARTIFACT_SET_BLAKE3 = (
     "51bfabe88964e78ac74007e7b499e61ed07dc9dba51c28f3d0d495becb611d94"
 )
-EXPECTED_PREPROCESSING_VERSION = "rawnind-bayer-foundation-20260730.1"
+EXPECTED_PREPROCESSING_VERSION = "rawnind-bayer-foundation-v1"
 EXPECTED_GRAPH_MEMBER = "rawdenoise-nind/model_bayer.onnx"
 EXPECTED_SOURCE_PIXEL_CONTRACT_SHA256 = (
     "e1998069001c14d01251cc3d6e2bc2aa66b807f3f17d246e7ee7270528302f7f"

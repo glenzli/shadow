@@ -98,6 +98,8 @@ fn raw_foundation_identity() -> RawFoundationRenderIdentity {
             modified_at_ms: Some(17),
         },
         disposition: shadow_ai::RawFoundationMaterializationDisposition::Published,
+        verified_reader: None,
+        raw_frame_staging: None,
     };
     RawFoundationRenderIdentity::from_ready(
         &ready,

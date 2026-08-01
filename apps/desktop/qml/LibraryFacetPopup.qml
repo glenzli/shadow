@@ -12,11 +12,15 @@ Popup {
         controller.filterCaptureMonth.length > 0
         || controller.filterCameraKey.length > 0
         || controller.filterLensKey.length > 0
+        || controller.filterCountryKey.length > 0
+        || controller.filterLocalityKey.length > 0
 
     parent: Overlay.overlay
     modal: false
     focus: true
     width: Math.min(380, parent.width - 32)
+    implicitHeight: contentColumn.implicitHeight + topPadding + bottomPadding
+    height: Math.min(implicitHeight, parent.height - 72)
     x: Math.round((parent.width - width) / 2)
     y: Math.min(58, Math.max(16, parent.height - height - 16))
     padding: 12
@@ -132,6 +136,7 @@ Popup {
     }
 
     contentItem: ColumnLayout {
+        id: contentColumn
         spacing: 10
 
         RowLayout {
@@ -162,31 +167,64 @@ Popup {
             wrapMode: Text.WordWrap
         }
 
-        FacetGroup {
-            controller: root.controller
-            kind: "month"
-            title: qsTr("DATES")
-            selectedKey: root.controller.filterCaptureMonth
-            values: root.controller.libraryCaptureMonthFacets
-            emptyText: qsTr("No capture dates match the current Library view.")
-        }
+        ScrollView {
+            id: facetScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredHeight: Math.min(facetColumn.implicitHeight, 620)
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-        FacetGroup {
-            controller: root.controller
-            kind: "camera"
-            title: qsTr("CAMERAS")
-            selectedKey: root.controller.filterCameraKey
-            values: root.controller.libraryCameraFacets
-            emptyText: qsTr("No cameras match the current Library view.")
-        }
+            ColumnLayout {
+                id: facetColumn
+                width: facetScroll.availableWidth
+                spacing: 10
 
-        FacetGroup {
-            controller: root.controller
-            kind: "lens"
-            title: qsTr("LENSES")
-            selectedKey: root.controller.filterLensKey
-            values: root.controller.libraryLensFacets
-            emptyText: qsTr("No lenses match the current Library view.")
+                FacetGroup {
+                    controller: root.controller
+                    kind: "country"
+                    title: qsTr("COUNTRIES")
+                    selectedKey: root.controller.filterCountryKey
+                    values: root.controller.libraryCountryFacets
+                    emptyText: qsTr("No countries match the current Library view.")
+                }
+
+                FacetGroup {
+                    controller: root.controller
+                    kind: "city"
+                    title: qsTr("CITIES")
+                    selectedKey: root.controller.filterLocalityKey
+                    values: root.controller.libraryCityFacets
+                    emptyText: qsTr("No cities match the current Library view.")
+                }
+
+                FacetGroup {
+                    controller: root.controller
+                    kind: "month"
+                    title: qsTr("DATES")
+                    selectedKey: root.controller.filterCaptureMonth
+                    values: root.controller.libraryCaptureMonthFacets
+                    emptyText: qsTr("No capture dates match the current Library view.")
+                }
+
+                FacetGroup {
+                    controller: root.controller
+                    kind: "camera"
+                    title: qsTr("CAMERAS")
+                    selectedKey: root.controller.filterCameraKey
+                    values: root.controller.libraryCameraFacets
+                    emptyText: qsTr("No cameras match the current Library view.")
+                }
+
+                FacetGroup {
+                    controller: root.controller
+                    kind: "lens"
+                    title: qsTr("LENSES")
+                    selectedKey: root.controller.filterLensKey
+                    values: root.controller.libraryLensFacets
+                    emptyText: qsTr("No lenses match the current Library view.")
+                }
+            }
         }
 
         RowLayout {
@@ -202,6 +240,8 @@ Popup {
                     root.controller.clearLibraryFacet("month")
                     root.controller.clearLibraryFacet("camera")
                     root.controller.clearLibraryFacet("lens")
+                    root.controller.clearLibraryFacet("country")
+                    root.controller.clearLibraryFacet("city")
                 }
             }
         }

@@ -69,6 +69,7 @@ pub(super) fn snapshot(provider_id: &str, version: &str, preview_ids: &[usize]) 
             exposure_time_seconds: 1.0 / 125.0,
             aperture_f_number: 5.6,
             focal_length_mm: 35.0,
+            focus_observation: None,
             captured_at_unix_seconds: 1_700_000_000,
             gps: Some(GpsMetadataSnapshot {
                 latitude_degrees: 31.23,

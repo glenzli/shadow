@@ -8,11 +8,20 @@ namespace {
 
 constexpr int CROP_PREVIEW_THROTTLE_MS = 16;
 
+[[nodiscard]] bool authored_geometry_is_identity(const BackendPhotoGeometry& geometry) noexcept {
+    return geometry.crop_left == 0.0 && geometry.crop_top == 0.0 && geometry.crop_right == 1.0
+           && geometry.crop_bottom == 1.0 && geometry.quarter_turn == 0
+           && geometry.straighten_degrees == 0.0 && !geometry.flip_horizontal
+           && !geometry.flip_vertical;
+}
+
 } // namespace
 
 QVariantMap EditController::photoGeometry() const {
     const auto& geometry = grade_stack_.geometry;
     return {
+        {QStringLiteral("present"), geometry.present},
+        {QStringLiteral("enabled"), geometry.enabled},
         {QStringLiteral("cropLeft"), geometry.crop_left},
         {QStringLiteral("cropTop"), geometry.crop_top},
         {QStringLiteral("cropRight"), geometry.crop_right},
@@ -21,7 +30,7 @@ QVariantMap EditController::photoGeometry() const {
         {QStringLiteral("straightenDegrees"), geometry.straighten_degrees},
         {QStringLiteral("flipHorizontal"), geometry.flip_horizontal},
         {QStringLiteral("flipVertical"), geometry.flip_vertical},
-        {QStringLiteral("identity"), geometry == BackendPhotoGeometry{}},
+        {QStringLiteral("identity"), authored_geometry_is_identity(geometry)},
     };
 }
 
@@ -30,7 +39,7 @@ bool EditController::cropToolActive() const noexcept {
 }
 
 void EditController::rotatePhotoClockwise() {
-    if (!active_ || interactionLocked()) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present) {
         return;
     }
     finishActiveGesture();
@@ -43,7 +52,7 @@ void EditController::rotatePhotoClockwise() {
 }
 
 void EditController::rotatePhotoCounterClockwise() {
-    if (!active_ || interactionLocked()) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present) {
         return;
     }
     finishActiveGesture();
@@ -56,7 +65,7 @@ void EditController::rotatePhotoCounterClockwise() {
 }
 
 void EditController::flipPhotoHorizontally() {
-    if (!active_ || interactionLocked()) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present) {
         return;
     }
     finishActiveGesture();
@@ -72,7 +81,7 @@ void EditController::flipPhotoHorizontally() {
 }
 
 void EditController::flipPhotoVertically() {
-    if (!active_ || interactionLocked()) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present) {
         return;
     }
     finishActiveGesture();
@@ -91,15 +100,14 @@ void EditController::setCenteredPhotoCropAspectRatio(
     const double output_aspect_ratio,
     const double current_output_aspect_ratio
 ) {
-    if (!active_ || interactionLocked() || !std::isfinite(output_aspect_ratio)
-        || !std::isfinite(current_output_aspect_ratio) || output_aspect_ratio <= 0.0
-        || current_output_aspect_ratio <= 0.0) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present
+        || !std::isfinite(output_aspect_ratio) || !std::isfinite(current_output_aspect_ratio)
+        || output_aspect_ratio <= 0.0 || current_output_aspect_ratio <= 0.0) {
         return;
     }
     constexpr double minimum_aspect_ratio = 1.0 / 8.0;
     constexpr double maximum_aspect_ratio = 8.0;
-    if (output_aspect_ratio < minimum_aspect_ratio
-        || output_aspect_ratio > maximum_aspect_ratio) {
+    if (output_aspect_ratio < minimum_aspect_ratio || output_aspect_ratio > maximum_aspect_ratio) {
         return;
     }
 
@@ -108,10 +116,10 @@ void EditController::setCenteredPhotoCropAspectRatio(
     // ratio before the centered crop is solved. That keeps “4:5” visually
     // consistent whether the photo was rotated before or after choosing it.
     const bool quarter_turn_is_odd = grade_stack_.geometry.quarter_turn % 2U != 0U;
-    const double source_target_aspect = quarter_turn_is_odd
-        ? 1.0 / output_aspect_ratio : output_aspect_ratio;
-    const double source_current_aspect = quarter_turn_is_odd
-        ? 1.0 / current_output_aspect_ratio : current_output_aspect_ratio;
+    const double source_target_aspect =
+        quarter_turn_is_odd ? 1.0 / output_aspect_ratio : output_aspect_ratio;
+    const double source_current_aspect =
+        quarter_turn_is_odd ? 1.0 / current_output_aspect_ratio : current_output_aspect_ratio;
     if (!std::isfinite(source_target_aspect) || !std::isfinite(source_current_aspect)
         || source_target_aspect <= 0.0 || source_current_aspect <= 0.0) {
         return;
@@ -151,9 +159,9 @@ void EditController::setPhotoCropBounds(
     const double crop_bottom
 ) {
     constexpr double minimum_crop_extent = 0.01;
-    if (!active_ || interactionLocked()
-        || !std::isfinite(crop_left) || !std::isfinite(crop_top)
-        || !std::isfinite(crop_right) || !std::isfinite(crop_bottom)) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present
+        || !std::isfinite(crop_left) || !std::isfinite(crop_top) || !std::isfinite(crop_right)
+        || !std::isfinite(crop_bottom)) {
         return;
     }
 
@@ -161,8 +169,7 @@ void EditController::setPhotoCropBounds(
     const double top = std::clamp(crop_top, 0.0, 1.0);
     const double right = std::clamp(crop_right, 0.0, 1.0);
     const double bottom = std::clamp(crop_bottom, 0.0, 1.0);
-    if (right - left < minimum_crop_extent
-        || bottom - top < minimum_crop_extent) {
+    if (right - left < minimum_crop_extent || bottom - top < minimum_crop_extent) {
         return;
     }
 
@@ -177,10 +184,7 @@ void EditController::setPhotoCropBounds(
     }
 
     setFullResolutionState(false, false, 0);
-    recordWorkingTransition(
-        gradeNodeHistoryKey(QStringLiteral("geometry/crop/bounds")),
-        before
-    );
+    recordWorkingTransition(gradeNodeHistoryKey(QStringLiteral("geometry/crop/bounds")), before);
     notifyParametersChanged();
     setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
     // While the crop tool is open the preview intentionally renders the
@@ -192,6 +196,9 @@ void EditController::setPhotoCropBounds(
 }
 
 void EditController::setCropToolActive(const bool active) {
+    if (active && (!active_ || interactionLocked() || !grade_stack_.geometry.present)) {
+        return;
+    }
     if (crop_tool_active_ == active) {
         return;
     }
@@ -207,7 +214,7 @@ void EditController::setCropToolActive(const bool active) {
 }
 
 void EditController::setPhotoStraightenDegrees(const double degrees) {
-    if (!active_ || interactionLocked() || !std::isfinite(degrees)
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present || !std::isfinite(degrees)
         || degrees < -45.0 || degrees > 45.0
         || grade_stack_.geometry.straighten_degrees == degrees) {
         return;
@@ -219,12 +226,14 @@ void EditController::setPhotoStraightenDegrees(const double degrees) {
 }
 
 void EditController::resetPhotoGeometry() {
-    if (!active_ || interactionLocked() || grade_stack_.geometry == BackendPhotoGeometry{}) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present
+        || authored_geometry_is_identity(grade_stack_.geometry)) {
         return;
     }
     finishActiveGesture();
     const BackendGradeStack before = grade_stack_;
-    grade_stack_.geometry = BackendPhotoGeometry{};
+    const bool enabled = grade_stack_.geometry.enabled;
+    grade_stack_.geometry = BackendPhotoGeometry{.present = true, .enabled = enabled};
     setFullResolutionState(false, false, 0);
     parameterEdited(QStringLiteral("geometry/reset"), before);
 }

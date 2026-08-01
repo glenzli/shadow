@@ -104,6 +104,15 @@ struct BackendPhotoInspection final {
     std::uint32_t sensor_bits = 0;
     QString cfa_pattern;
     QString dng_version;
+    bool has_focus_observation = false;
+    std::uint32_t focus_observation_schema_version = 0;
+    QString focus_observation_source;
+    double focus_observation_center_x = 0.0;
+    double focus_observation_center_y = 0.0;
+    double focus_observation_width = 0.0;
+    double focus_observation_height = 0.0;
+    bool focus_observation_confirmed = false;
+    double focus_observation_confidence = 0.0;
     bool has_technical_observation = false;
     std::uint32_t technical_input_width = 0;
     std::uint32_t technical_input_height = 0;

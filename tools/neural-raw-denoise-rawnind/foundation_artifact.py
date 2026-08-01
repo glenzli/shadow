@@ -22,11 +22,11 @@ import stripe_lifecycle
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_EXTENSION = ".shadowrawf"
-ARTIFACT_SCHEMA = "shadow-raw-foundation-artifact-v2"
-HEADER_SCHEMA = "shadow-raw-foundation-header-v2"
-CACHE_KEY_SCHEMA = "shadow-raw-foundation-cache-key-v2"
-IMPLEMENTATION_REVISION = "rawnind-public-bayer-foundation-20260731.1"
-FILE_MAGIC = b"SHRAWF02"
+ARTIFACT_SCHEMA = "shadow-raw-foundation-artifact-v1"
+HEADER_SCHEMA = "shadow-raw-foundation-header-v1"
+CACHE_KEY_SCHEMA = "shadow-raw-foundation-cache-key-v1"
+IMPLEMENTATION_REVISION = "rawnind-public-bayer-foundation-v1"
+FILE_MAGIC = b"SHRAWF01"
 FOOTER_MAGIC = b"SHRFEND1"
 HEADER_PREFIX = struct.Struct("<8sQ")
 FOOTER = struct.Struct("<8sQQ32s")
@@ -462,6 +462,44 @@ def artifact_cache_key(
     return _sha256_bytes(_canonical_json(material))
 
 
+def _f64_identity(value: float) -> str:
+    return struct.pack(">d", value).hex()
+
+
+def _f64_from_identity(value: object, label: str) -> float:
+    if (
+        not isinstance(value, str)
+        or len(value) != 16
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(
+            f"{label} must be 16 lowercase IEEE-754 hexadecimal digits"
+        )
+    return struct.unpack(">d", bytes.fromhex(value))[0]
+
+
+def _publication_identity_material(
+    publication: stripe_lifecycle.StripePublication,
+) -> dict[str, object]:
+    return {
+        "first_pass_raw_output_mean_f64_bits": _f64_identity(
+            publication.first_pass_raw_output_mean
+        ),
+        "global_gain_f64_bits": _f64_identity(publication.global_gain),
+        "global_input_mean_f64_bits": _f64_identity(
+            publication.global_input_mean
+        ),
+        "output_mean_f64_bits": _f64_identity(publication.output_mean),
+        "producer": publication.producer,
+        "replay_relative_mean_delta_f64_bits": _f64_identity(
+            publication.replay_relative_mean_delta
+        ),
+        "second_pass_raw_output_mean_f64_bits": _f64_identity(
+            publication.second_pass_raw_output_mean
+        ),
+    }
+
+
 def _identity_material(manifest: dict[str, object]) -> dict[str, object]:
     return {
         key: value
@@ -589,7 +627,7 @@ class AtomicFoundationArtifactSink(stripe_lifecycle.DigestStripeSink):
             "cache_key_sha256": artifact_cache_key(self.contract, shape),
             "header_sha256": self._header_sha256,
             "payload_bytes": self.byte_count,
-            "publication": asdict(publication),
+            "publication": _publication_identity_material(publication),
             "schema": ARTIFACT_SCHEMA,
             "sequence_sha256": self.sequence_sha256,
             "stripes": [asdict(stripe) for stripe in self._stripes],
@@ -724,7 +762,7 @@ class OwnedFoundationArtifactPartialSink(AtomicFoundationArtifactSink):
             "cache_key_sha256": artifact_cache_key(self.contract, shape),
             "header_sha256": self._header_sha256,
             "payload_bytes": self.byte_count,
-            "publication": asdict(publication),
+            "publication": _publication_identity_material(publication),
             "schema": ARTIFACT_SCHEMA,
             "sequence_sha256": self.sequence_sha256,
             "stripes": [asdict(stripe) for stripe in self._stripes],
@@ -845,17 +883,46 @@ def _publication_from_json(
     payload = _require_exact_keys(
         value,
         {
+            "first_pass_raw_output_mean_f64_bits",
+            "global_gain_f64_bits",
+            "global_input_mean_f64_bits",
+            "output_mean_f64_bits",
             "producer",
-            "global_input_mean",
-            "first_pass_raw_output_mean",
-            "second_pass_raw_output_mean",
-            "replay_relative_mean_delta",
-            "global_gain",
-            "output_mean",
+            "replay_relative_mean_delta_f64_bits",
+            "second_pass_raw_output_mean_f64_bits",
         },
         "stripe publication",
     )
-    publication = stripe_lifecycle.StripePublication(**payload)
+    producer = payload["producer"]
+    if not isinstance(producer, str):
+        raise ValueError("stripe publication producer must be text")
+    publication = stripe_lifecycle.StripePublication(
+        producer=producer,
+        global_input_mean=_f64_from_identity(
+            payload["global_input_mean_f64_bits"],
+            "global input mean",
+        ),
+        first_pass_raw_output_mean=_f64_from_identity(
+            payload["first_pass_raw_output_mean_f64_bits"],
+            "first-pass RAW output mean",
+        ),
+        second_pass_raw_output_mean=_f64_from_identity(
+            payload["second_pass_raw_output_mean_f64_bits"],
+            "second-pass RAW output mean",
+        ),
+        replay_relative_mean_delta=_f64_from_identity(
+            payload["replay_relative_mean_delta_f64_bits"],
+            "replay relative mean delta",
+        ),
+        global_gain=_f64_from_identity(
+            payload["global_gain_f64_bits"],
+            "global gain",
+        ),
+        output_mean=_f64_from_identity(
+            payload["output_mean_f64_bits"],
+            "output mean",
+        ),
+    )
     stripe_lifecycle.validate_publication(publication)
     return publication
 
@@ -935,6 +1002,7 @@ def _verify_stream(
         raise ValueError("manifest cache key differs from the header")
     if manifest["header_sha256"] != _sha256_bytes(header_bytes):
         raise ValueError("foundation artifact header digest mismatch")
+    publication = _publication_from_json(manifest["publication"])
     artifact_identity = _validate_sha256(
         manifest["artifact_identity_sha256"],
         "foundation artifact identity",
@@ -947,7 +1015,6 @@ def _verify_stream(
         manifest["sequence_sha256"],
         "stripe sequence",
     )
-    publication = _publication_from_json(manifest["publication"])
     stripe_values = manifest["stripes"]
     if (
         not isinstance(stripe_values, list)

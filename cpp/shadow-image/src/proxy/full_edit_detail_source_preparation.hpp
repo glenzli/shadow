@@ -77,4 +77,14 @@ struct PreparedFullEditDetailSource final {
     const OpticsSettings& optics_settings
 );
 
+[[nodiscard]] PreparedFullEditDetailSource prepare_full_edit_detail_source(
+    const DecodeSession& metadata_session,
+    RawFrame staged_frame,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+);
+
 } // namespace shadow::image::proxy_detail

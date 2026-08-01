@@ -27,6 +27,8 @@ use crate::{
     RuntimeProvider, RuntimeUsage,
 };
 
+const RAW_FOUNDATION_PROVIDER_VERIFIED_PROGRESS: u16 = 9_500;
+
 use super::local_process::{ProcessFailure, wait_with_bounded_output};
 
 pub const RAWNIND_FOUNDATION_PROVIDER_ID: &str = "shadow.rawnind.foundation-sidecar";
@@ -43,8 +45,7 @@ pub const RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256: &str =
     "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901";
 pub const RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256: &str =
     "e1998069001c14d01251cc3d6e2bc2aa66b807f3f17d246e7ee7270528302f7f";
-pub const RAWNIND_FOUNDATION_IMPLEMENTATION_REVISION: &str =
-    "rawnind-public-bayer-foundation-20260731.1";
+pub const RAWNIND_FOUNDATION_IMPLEMENTATION_REVISION: &str = "rawnind-public-bayer-foundation-v1";
 pub const RAWNIND_FOUNDATION_MODEL_RECEIPT_PREFIX: &str = "shadow-rawnind-foundation-model-v1";
 pub const RAWNIND_FOUNDATION_PLAN_RECEIPT_PREFIX: &str = "shadow-rawnind-foundation-plan-v1";
 pub const RAWNIND_FOUNDATION_RECEIPT_PREFIX: &str = "shadow-rawnind-foundation-v1";
@@ -194,7 +195,7 @@ impl VerifiedRawNindFoundationInstallation {
     }
 }
 
-/// Computes the complete v2 cache identity without running a model tile.
+/// Computes the complete cache identity without running a model tile.
 ///
 /// The sidecar still verifies and loads the exact admitted model/runtime,
 /// decodes the RAW, and derives the deterministic preprocessing/stripe
@@ -708,7 +709,14 @@ impl RawNindFoundationProvider {
                 },
             ));
         };
-        publish_progress(progress, "complete", crate::RUNTIME_PROGRESS_COMPLETE);
+        // The provider output is independently verified, but the store still
+        // has to publish it durably. Reserve 100% for the job's terminal Ready
+        // state so the desktop never presents a usable result prematurely.
+        publish_progress(
+            progress,
+            "provider_verified",
+            RAW_FOUNDATION_PROVIDER_VERIFIED_PROGRESS,
+        );
         RawNindFoundationOutcome::Succeeded(Box::new(descriptor))
     }
 

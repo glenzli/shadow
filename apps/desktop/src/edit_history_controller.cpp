@@ -46,8 +46,7 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     const bool photo_local_foundation = parameter_key.startsWith(QStringLiteral("foundation/"));
     const bool photo_local_raw_denoise =
         parameter_key.startsWith(QStringLiteral("raw_ai_denoise/"));
-    const bool photo_local_liquify =
-        parameter_key.startsWith(QStringLiteral("liquify/"));
+    const bool photo_local_liquify = parameter_key.startsWith(QStringLiteral("liquify/"));
     if (!active_ || interactionLocked()
         || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
             && !photo_local_raw_denoise && !photo_local_liquify
@@ -223,6 +222,11 @@ void EditController::setGradeStack(
         preferred_grade_node_id.isEmpty() ? old_selected_id : preferred_grade_node_id;
     const int new_selected_index =
         GradeNodeStack::resolvedSelection(grade_stack, requested_id, old_selected_index);
+    const bool structural_selection_changed =
+        (selected_recipe_node_kind_ == QStringLiteral("raw_denoise")
+         && !grade_stack.raw_ai_denoise.present)
+        || (selected_recipe_node_kind_ == QStringLiteral("canvas")
+            && !grade_stack.geometry.present);
     const BackendGradeNode* const new_selected =
         new_selected_index < 0 ? nullptr : &grade_stack.grade_nodes.at(new_selected_index);
     const bool has_new_selection = new_selected != nullptr;
@@ -241,12 +245,11 @@ void EditController::setGradeStack(
         selection_changed || had_old_selection != has_new_selection
         || (had_old_selection && has_new_selection
             && EditHistoryRestoreProjection::localMaskChanged(old_selected_value, *new_selected));
-    const bool photo_local_changed =
-        grade_stack_.retouch_spots != grade_stack.retouch_spots
-        || grade_stack_.retouch_strokes != grade_stack.retouch_strokes
-        || grade_stack_.liquify_enabled != grade_stack.liquify_enabled
-        || grade_stack_.liquify_strokes != grade_stack.liquify_strokes
-        || grade_stack_.geometry != grade_stack.geometry;
+    const bool photo_local_changed = grade_stack_.retouch_spots != grade_stack.retouch_spots
+                                     || grade_stack_.retouch_strokes != grade_stack.retouch_strokes
+                                     || grade_stack_.liquify_enabled != grade_stack.liquify_enabled
+                                     || grade_stack_.liquify_strokes != grade_stack.liquify_strokes
+                                     || grade_stack_.geometry != grade_stack.geometry;
     const bool curve_changed = selection_changed || had_old_selection != has_new_selection
                                || (had_old_selection && has_new_selection
                                    && old_selected_value.fine.oklab_lightness_curve_points
@@ -262,6 +265,9 @@ void EditController::setGradeStack(
     }
     grade_stack_ = std::move(grade_stack);
     selected_grade_node_index_ = new_selected_index;
+    if (structural_selection_changed) {
+        selected_recipe_node_kind_ = QStringLiteral("grade");
+    }
     if (local_mask_changed && !selection_changed) {
         handleSelectedLocalMaskMutation();
     }
@@ -277,10 +283,10 @@ void EditController::setGradeStack(
     if (list_changed) {
         emit gradeNodesChanged();
     }
-    if (selection_changed) {
+    if (selection_changed || structural_selection_changed) {
         emit selectedGradeNodeChanged();
     }
-    if (list_changed || selection_changed) {
+    if (list_changed || selection_changed || structural_selection_changed) {
         emit gradeNodeActionsChanged();
     }
     if (grade_node_enabled_changed) {

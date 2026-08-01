@@ -5,8 +5,9 @@
 //!
 //! Start with [`catalog`] for connection lifecycle, [`asset_registration`] for idempotent
 //! source registration, [`schema_v1`] for the on-disk shape, [`writer`] for serialized
-//! mutation dispatch, and the responsibility-named repository modules below for feature
-//! reads and transactions.
+//! mutation dispatch, and [`library`] for photo-first browsing plus coordinate-bound place
+//! resolution. The responsibility-named repository modules below own feature reads and
+//! transactions.
 
 mod asset_registration;
 mod backup;
@@ -72,13 +73,16 @@ pub use library::{
     LibraryMapSnapshot, LibraryMapViewport, LibraryMetadataOverride, LibraryMetadataOverrideAction,
     LibraryMetadataOverrideOrigin, LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFacts,
     LibraryPhotoFilter, LibraryPhotoKeyword, LibraryPhotoOrder, LibraryPhotoPage,
-    LibraryPhotoRecord, LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE,
+    LibraryPhotoRecord, LibraryPlaceResolution, LibraryPlaceResolutionCandidate,
+    LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE,
     MAX_LIBRARY_KEYWORD_FILTERS, MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS, MAX_LIBRARY_MAP_CELLS,
-    MAX_LIBRARY_MAP_GRID_AXIS, MAX_LIBRARY_PAGE_SIZE, MissingSourceLocationCursor,
-    MissingSourceLocationPage, MissingSourceLocationRecord, MissingSourceRelinkTarget,
-    PhotoLibraryMetadataOverrides, PhotoLibraryState, RecordRepresentationContentIdentity,
-    RecordRepresentationContentIdentityStatus, RelinkMatch, SetPhotoLibraryMetadataOverrides,
-    SetPhotoLibraryState, SmartAlbumQueryV1, library_equipment_key,
+    MAX_LIBRARY_MAP_GRID_AXIS, MAX_LIBRARY_PAGE_SIZE, MAX_LIBRARY_PLACE_RESOLUTION_CANDIDATES,
+    MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceLocationRecord,
+    MissingSourceRelinkTarget, PhotoLibraryMetadataOverrides, PhotoLibraryState,
+    RecordLibraryPlaceResolution, RecordLibraryPlaceResolutionStatus,
+    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RelinkMatch,
+    SetPhotoLibraryMetadataOverrides, SetPhotoLibraryState, SmartAlbumQueryV1,
+    library_equipment_key,
 };
 pub use recipe::{
     CommitRecipe, MAX_RECIPE_HISTORY_PAGE_SIZE, RecipeCommitRecord, RecipeHistoryCursor,

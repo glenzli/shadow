@@ -80,6 +80,9 @@ pub(super) fn library_photo_query_parts(
              LIMIT 1
          )
          LEFT JOIN photo_library_effective_facts f ON f.photo_id = p.id
+         LEFT JOIN library_place_resolutions place
+           ON place.latitude_e7 = f.latitude_e7
+          AND place.longitude_e7 = f.longitude_e7
          LEFT JOIN photo_library_state s ON s.photo_id = p.id
          LEFT JOIN photo_decision_current dc ON dc.photo_id = p.id
          LEFT JOIN photo_decision_events de
@@ -115,6 +118,14 @@ pub(super) fn library_photo_query_parts(
     if let Some(lens_key) = filter.lens_key.as_deref() {
         clauses.push("f.lens_key = ?".to_owned());
         values.push(Value::Text(normalize_query_key(lens_key)));
+    }
+    if let Some(country_key) = filter.country_key.as_deref() {
+        clauses.push("place.country_key = ?".to_owned());
+        values.push(Value::Text(normalize_query_key(country_key)));
+    }
+    if let Some(locality_key) = filter.locality_key.as_deref() {
+        clauses.push("place.locality_key = ?".to_owned());
+        values.push(Value::Text(normalize_query_key(locality_key)));
     }
     if let Some(range) = filter.aperture {
         if let Some(minimum) = range.minimum_milli {

@@ -114,6 +114,7 @@ fn optics_profile_discovery_uses_catalog_metadata_without_opening_raw_pixels() {
                     exposure_time_seconds: 1.0 / 2_000.0,
                     aperture_f_number: 6.3,
                     focal_length_mm: 300.0,
+                    focus_observation: None,
                     captured_at_unix_seconds: 1_660_000_000,
                     gps: None,
                     lens_make: "Nikon".into(),

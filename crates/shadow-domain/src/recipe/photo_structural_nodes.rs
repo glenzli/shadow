@@ -9,17 +9,17 @@ use super::{PhotoCanvasNode, PhotoLiquifyNode, RecipeValidationError};
 pub enum PhotoStructuralNodeRef<'a> {
     /// Optional deformation of the uncropped, original-coordinate canvas.
     Liquify(&'a PhotoLiquifyNode),
-    /// Mandatory final crop, orientation, mirror, and straighten node.
+    /// Optional final crop, orientation, mirror, and straighten node.
     Canvas(&'a PhotoCanvasNode),
 }
 
 /// The complete structural-node topology owned by one Recipe snapshot.
 ///
 /// This is intentionally not a general node vector. Its shape encodes the
-/// product rules directly: Liquify is photo-private and may occur zero or one
-/// time; Canvas is photo-private and occurs exactly once; execution order is
-/// always `Liquify -> Canvas`. Grade Nodes remain the repeatable/shareable
-/// adjustment system.
+/// product rules directly: Liquify and Canvas are photo-private and may each
+/// occur zero or one time; when present, execution order is always
+/// `Liquify -> Canvas`. Grade Nodes remain the repeatable/shareable adjustment
+/// system.
 ///
 /// `canvas` retains the serialized Recipe v1 field name `geometry`. When this
 /// value is flattened into [`super::RecipeSnapshot`], existing geometry JSON
@@ -41,7 +41,7 @@ impl PhotoStructuralNodes {
     ///
     /// # Errors
     ///
-    /// Returns an error when the optional liquify or mandatory canvas node
+    /// Returns an error when the optional liquify or optional canvas node
     /// contains invalid authored state.
     pub fn new(
         liquify: Option<PhotoLiquifyNode>,
@@ -65,7 +65,8 @@ impl PhotoStructuralNodes {
         self.liquify.as_ref()
     }
 
-    /// Returns the mandatory final-canvas node.
+    /// Returns the fixed final-canvas slot, which may be absent from the
+    /// authored processing stack.
     pub const fn canvas(&self) -> &PhotoCanvasNode {
         &self.canvas
     }
@@ -76,9 +77,11 @@ impl PhotoStructuralNodes {
             .as_ref()
             .map(PhotoStructuralNodeRef::Liquify)
             .into_iter()
-            .chain(std::iter::once(PhotoStructuralNodeRef::Canvas(
-                &self.canvas,
-            )))
+            .chain(
+                self.canvas
+                    .is_present()
+                    .then_some(PhotoStructuralNodeRef::Canvas(&self.canvas)),
+            )
     }
 
     pub(super) fn validate(&self) -> Result<(), RecipeValidationError> {

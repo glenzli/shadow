@@ -31,9 +31,10 @@ pub use decision::{
 };
 pub use decode::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
-    GpsMetadataSnapshot, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot,
-    PreviewByteOrder, PreviewCodec, PreviewDescriptorSnapshot, PreviewPayload, ProxyPayload,
-    RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
+    FocusObservationSnapshot, FocusObservationSource, GpsMetadataSnapshot, ImageDimensions,
+    ImageMargins, PendingCorrectionsSnapshot, PreviewByteOrder, PreviewCodec,
+    PreviewDescriptorSnapshot, PreviewPayload, ProxyPayload, RawDevelopmentCapabilitySnapshot,
+    RawMetadataSnapshot,
 };
 pub use edit_repository::{
     EditCommitId, EditEntityChangeV1, EditEntityEntryV1, EditEntityMapV1, EditObject,

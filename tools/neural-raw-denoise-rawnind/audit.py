@@ -235,7 +235,7 @@ def run(arguments: argparse.Namespace) -> int:
         )
 
     report = {
-        "schema": "shadow-rawnind-public-foundation-audit-v3",
+        "schema": "shadow-rawnind-public-foundation-audit-v1",
         "status": (
             (
                 "foundation_candidate_artifact_gate_passed"

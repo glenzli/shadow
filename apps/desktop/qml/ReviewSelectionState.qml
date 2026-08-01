@@ -83,6 +83,24 @@ QtObject {
         String(selectedInspection.cfaPattern || "")
     readonly property string selectedDngVersion:
         String(selectedInspection.dngVersion || "")
+    readonly property bool selectedHasFocusObservation:
+        Boolean(selectedInspection.hasFocusObservation)
+    readonly property int selectedFocusObservationSchemaVersion:
+        Number(selectedInspection.focusObservationSchemaVersion || 0)
+    readonly property string selectedFocusObservationSource:
+        String(selectedInspection.focusObservationSource || "")
+    readonly property real selectedFocusObservationCenterX:
+        Number(selectedInspection.focusObservationCenterX || 0)
+    readonly property real selectedFocusObservationCenterY:
+        Number(selectedInspection.focusObservationCenterY || 0)
+    readonly property real selectedFocusObservationWidth:
+        Number(selectedInspection.focusObservationWidth || 0)
+    readonly property real selectedFocusObservationHeight:
+        Number(selectedInspection.focusObservationHeight || 0)
+    readonly property bool selectedFocusObservationConfirmed:
+        Boolean(selectedInspection.focusObservationConfirmed)
+    readonly property real selectedFocusObservationConfidence:
+        Number(selectedInspection.focusObservationConfidence || 0)
     readonly property bool selectedHasTechnicalObservation:
         Boolean(selectedInspection.hasTechnicalObservation)
     readonly property int selectedTechnicalInputWidth:

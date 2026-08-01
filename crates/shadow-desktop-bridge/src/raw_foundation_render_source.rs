@@ -129,6 +129,7 @@ fn select_ready_raw_foundation(
 #[derive(Debug)]
 pub(crate) struct LoadedRawFoundation {
     pub(crate) foundation: VerifiedRawFoundation,
+    pub(crate) staging_manifest_path: Option<std::path::PathBuf>,
 }
 
 /// Loads the exact session-ready artifact for an unchanged Catalog source.
@@ -173,13 +174,16 @@ pub(crate) fn load_raw_foundation_for_render(
         "RAW foundation was generated from different source bytes"
     );
 
-    let mut reader = FoundationArtifactReader::open(&ready.path)
-        .with_context(|| format!("verify RAW foundation artifact {}", ready.path.display()))?;
-    ensure_descriptor_matches(reader.verification(), &ready.descriptor)?;
-    let verification = reader.verification().clone();
-    let samples = reader
-        .read_interleaved_rows(0, verification.height)
-        .context("read verified RAW foundation pixels")?;
+    let (verification, samples) = if let Some(verified_reader) = &ready.verified_reader {
+        let mut reader = verified_reader
+            .lock()
+            .map_err(|_| anyhow::anyhow!("verified RAW foundation reader is poisoned"))?;
+        read_verified_foundation(&mut reader, &ready.descriptor)?
+    } else {
+        let mut reader = FoundationArtifactReader::open(&ready.path)
+            .with_context(|| format!("verify RAW foundation artifact {}", ready.path.display()))?;
+        read_verified_foundation(&mut reader, &ready.descriptor)?
+    };
     let observed_after =
         fingerprint_source(expected_source_path).context("re-inventory RAW foundation source")?;
     if observed_after != expected_source {
@@ -204,7 +208,25 @@ pub(crate) fn load_raw_foundation_for_render(
         samples,
     )
     .context("build verified native RAW foundation transfer")?;
-    Ok(LoadedRawFoundation { foundation })
+    Ok(LoadedRawFoundation {
+        foundation,
+        staging_manifest_path: ready
+            .raw_frame_staging
+            .as_ref()
+            .map(|staging| staging.manifest_path().to_path_buf()),
+    })
+}
+
+fn read_verified_foundation(
+    reader: &mut FoundationArtifactReader,
+    descriptor: &RawFoundationArtifact,
+) -> AnyResult<(FoundationArtifactVerification, Vec<f32>)> {
+    ensure_descriptor_matches(reader.verification(), descriptor)?;
+    let verification = reader.verification().clone();
+    let samples = reader
+        .read_interleaved_rows(0, verification.height)
+        .context("read verified RAW foundation pixels")?;
+    Ok((verification, samples))
 }
 
 fn ensure_descriptor_matches(

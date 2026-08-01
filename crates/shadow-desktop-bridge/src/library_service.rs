@@ -10,6 +10,7 @@
 //! - [`metadata`] owns observed/effective metadata projection and routes
 //!   independent capture-time and GPX preview lifecycles;
 //! - [`map_browse`] owns provider-independent spatial aggregation;
+//! - [`place_resolution`] owns provider-neutral unresolved coordinate and result projection;
 //! - [`source_health`] owns reversible source removal plus observational scan
 //!   and missing-location views;
 //! - [`query_contract`] owns the typed CXX filter/facet/cursor conversion shared
@@ -25,6 +26,7 @@ mod lifecycle;
 mod map_browse;
 mod metadata;
 mod organization;
+mod place_resolution;
 mod query_contract;
 mod source_health;
 

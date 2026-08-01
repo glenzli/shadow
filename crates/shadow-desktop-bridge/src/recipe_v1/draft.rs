@@ -5,8 +5,9 @@ use shadow_bridge::{
     PerceptualColorParameters, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
-    LayerId, LayerRevisionId, MaskDefinition, PhotoFoundationNode, PhotoGeometry, PhotoLiquifyNode,
-    RawFoundationDenoise, RetouchSpot, RetouchStroke, operation::BASIC_LAYER_LABEL,
+    LayerId, LayerRevisionId, MaskDefinition, PhotoCanvasNode, PhotoFoundationNode,
+    PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke,
+    operation::BASIC_LAYER_LABEL,
 };
 
 use super::GradeNodeRecipeV1Identity;
@@ -104,7 +105,7 @@ impl GradeNodeDraft {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GradeStackDraft {
-    /// Fixed, photo-private AI RAW denoise node evaluated before Foundation.
+    /// Optional fixed, photo-private AI RAW denoise node evaluated before Foundation.
     pub(crate) raw_ai_denoise: RawFoundationDenoise,
     /// Mandatory photo-private source-development state. The desktop optics
     /// controls are currently only one projection of this singleton.
@@ -119,8 +120,8 @@ pub(crate) struct GradeStackDraft {
     /// Optional singleton photo-private Liquify node. It is structural,
     /// non-shareable, and always evaluates immediately before Canvas.
     pub(crate) liquify: Option<PhotoLiquifyNode>,
-    /// Editable projection of the mandatory photo-private Canvas node.
-    pub(crate) geometry: PhotoGeometry,
+    /// Editable projection of the optional fixed photo-private Canvas node.
+    pub(crate) canvas: PhotoCanvasNode,
 }
 
 impl Default for GradeStackDraft {
@@ -132,7 +133,7 @@ impl Default for GradeStackDraft {
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
             liquify: None,
-            geometry: PhotoGeometry::identity(),
+            canvas: PhotoCanvasNode::identity(),
         }
     }
 }

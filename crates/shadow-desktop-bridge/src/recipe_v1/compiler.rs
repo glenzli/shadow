@@ -192,7 +192,7 @@ fn compile_recipe_render_plan_with_resolver(
             .structural_nodes()
             .liquify()
             .map(adjustment_liquify),
-        geometry: adjustment_geometry(snapshot.canvas_node().geometry()),
+        geometry: adjustment_geometry(snapshot.geometry()),
     };
     plan.validate()
         .context("validate compiled Recipe render plan")?;

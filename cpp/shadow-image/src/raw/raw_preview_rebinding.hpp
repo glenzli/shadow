@@ -77,4 +77,14 @@ prepare_raw_preview_rebinding(PreparedRawFrameSource prepared);
     const CameraProfileCatalog& camera_profiles
 );
 
+[[nodiscard]] PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
+    const DecodeSession& metadata_session,
+    RawFrame staged_frame,
+    const RawDevelopmentPlan& requested_plan,
+    const RawFoundationCameraRgbView& foundation,
+    std::uint32_t max_edge,
+    const RawPipelinePolicy& policy,
+    const CameraProfileCatalog& camera_profiles
+);
+
 } // namespace shadow::image::raw_pipeline_detail

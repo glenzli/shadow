@@ -12,7 +12,7 @@ use std::{
     path::PathBuf,
     process::Command,
     str::FromStr,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use shadow_ai::{
@@ -28,7 +28,8 @@ use shadow_ai::{
     verify_rawnind_foundation_installation,
 };
 use shadow_cache::{
-    FoundationArtifactError, FoundationArtifactStore, FoundationArtifactStoreError, sha256_file,
+    FoundationArtifactError, FoundationArtifactReader, FoundationArtifactStore,
+    FoundationArtifactStoreError, sha256_file,
 };
 use shadow_catalog::RepresentationFingerprint;
 use shadow_core::fingerprint_source;
@@ -38,6 +39,9 @@ use thiserror::Error;
 use self::config::RawFoundationRuntimePaths;
 use crate::isolated_proxy::{
     IsolatedRawFrameStaging, configured_helper_path, stage_isolated_raw_frame,
+};
+use crate::raw_foundation_noise_assessment::{
+    RawFoundationNoiseAssessment, RawFoundationNoiseAssessmentError, assess_staged_bayer_noise,
 };
 
 const MEBIBYTE: u64 = 1024 * 1024;
@@ -68,14 +72,28 @@ pub(crate) struct RawFoundationRuntimeAvailability {
     pub(crate) runtime_version: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub(crate) struct RawFoundationReady {
     pub(crate) descriptor: RawFoundationArtifact,
     pub(crate) path: PathBuf,
     pub(crate) source_path: PathBuf,
     pub(crate) source: RepresentationFingerprint,
     pub(crate) disposition: RawFoundationMaterializationDisposition,
+    pub(crate) verified_reader: Option<Arc<Mutex<FoundationArtifactReader>>>,
+    pub(crate) raw_frame_staging: Option<Arc<IsolatedRawFrameStaging>>,
 }
+
+impl PartialEq for RawFoundationReady {
+    fn eq(&self, other: &Self) -> bool {
+        self.descriptor == other.descriptor
+            && self.path == other.path
+            && self.source_path == other.source_path
+            && self.source == other.source
+            && self.disposition == other.disposition
+    }
+}
+
+impl Eq for RawFoundationReady {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RawFoundationRuntimeOutcome {
@@ -210,7 +228,26 @@ impl RawFoundationRuntime {
         {
             return Err(RawFoundationRuntimeError::SourceChanged);
         }
-        Ok(runtime_outcome(outcome, &invocation.input_raw, before))
+        Ok(runtime_outcome(
+            outcome,
+            &invocation.input_raw,
+            before,
+            staging.map(Arc::new),
+        ))
+    }
+
+    /// Estimates visible sensor noise from the isolated provider-neutral Bayer
+    /// staging. This path never verifies, admits, or executes the AI model.
+    pub(crate) fn assess_noise(
+        &self,
+        input_raw: &std::path::Path,
+    ) -> Result<RawFoundationNoiseAssessment, RawFoundationRuntimeError> {
+        let staging = self.stage_decoded_raw_frame(input_raw)?.ok_or_else(|| {
+            RawFoundationRuntimeError::DecodedInput(
+                "isolated RAW decode helper is unavailable".to_owned(),
+            )
+        })?;
+        Ok(assess_staged_bayer_noise(staging.manifest_path())?)
     }
 
     /// Recomputes the exact plan and resolves only an existing verified cache hit.
@@ -257,7 +294,9 @@ impl RawFoundationRuntime {
         {
             return Err(RawFoundationRuntimeError::SourceChanged);
         }
-        Ok(cached.map(|materialized| ready_from_materialized(&materialized, input_raw, before)))
+        Ok(cached.map(|mut materialized| {
+            ready_from_materialized(&mut materialized, input_raw, before, staging.map(Arc::new))
+        }))
     }
 
     fn stage_decoded_raw_frame(
@@ -335,13 +374,15 @@ fn runtime_outcome(
     outcome: RawFoundationMaterializationOutcome,
     source_path: &std::path::Path,
     source: RepresentationFingerprint,
+    raw_frame_staging: Option<Arc<IsolatedRawFrameStaging>>,
 ) -> RawFoundationRuntimeOutcome {
     match outcome {
-        RawFoundationMaterializationOutcome::Ready(materialized) => {
+        RawFoundationMaterializationOutcome::Ready(mut materialized) => {
             RawFoundationRuntimeOutcome::Ready(Box::new(ready_from_materialized(
-                &materialized,
+                &mut materialized,
                 source_path,
                 source,
+                raw_frame_staging,
             )))
         }
         RawFoundationMaterializationOutcome::Terminal(receipt) => match receipt.outcome {
@@ -362,9 +403,10 @@ fn runtime_outcome(
 }
 
 fn ready_from_materialized(
-    materialized: &MaterializedRawFoundation,
+    materialized: &mut MaterializedRawFoundation,
     source_path: &std::path::Path,
     source: RepresentationFingerprint,
+    raw_frame_staging: Option<Arc<IsolatedRawFrameStaging>>,
 ) -> RawFoundationReady {
     RawFoundationReady {
         descriptor: materialized.descriptor().clone(),
@@ -372,6 +414,10 @@ fn ready_from_materialized(
         source_path: source_path.to_path_buf(),
         source,
         disposition: materialized.disposition(),
+        verified_reader: materialized
+            .take_verified_reader()
+            .map(|reader| Arc::new(Mutex::new(reader))),
+        raw_frame_staging,
     }
 }
 
@@ -462,6 +508,8 @@ pub(crate) enum RawFoundationRuntimeError {
     SourceChanged,
     #[error("RAW foundation could not stage the decoded Bayer input: {0}")]
     DecodedInput(String),
+    #[error("RAW foundation could not assess source noise: {0}")]
+    NoiseAssessment(#[from] RawFoundationNoiseAssessmentError),
     #[error("RAW foundation cache resolution was cancelled")]
     Cancelled,
     #[error("RAW foundation runtime state is poisoned")]

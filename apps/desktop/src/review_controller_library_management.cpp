@@ -16,6 +16,10 @@ void ReviewController::setLibraryFacet(const QString& kind, const QString& key) 
         setFilterCameraKey(key);
     } else if (normalized_kind == QStringLiteral("lens")) {
         setFilterLensKey(key);
+    } else if (normalized_kind == QStringLiteral("country")) {
+        setFilterCountryKey(key);
+    } else if (normalized_kind == QStringLiteral("city")) {
+        setFilterLocalityKey(key);
     }
 }
 

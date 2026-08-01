@@ -26,7 +26,7 @@ fn photo_geometry_round_trips_without_becoming_a_grade_node() {
     )
     .expect("valid photo-local geometry");
     let grade_stack = GradeStackDraft {
-        geometry,
+        canvas: PhotoCanvasNode::new(geometry),
         ..GradeStackDraft::default()
     };
 
@@ -49,11 +49,41 @@ fn photo_geometry_round_trips_without_becoming_a_grade_node() {
     assert!(!plan.geometry.flip_vertical);
 
     let ffi = encode_grade_stack_draft_recipe_v1(grade_stack).expect("encode Grade Stack");
+    assert!(ffi.geometry.present);
+    assert!(ffi.geometry.enabled);
     assert_eq!(ffi.geometry.quarter_turn, 1);
     assert!(ffi.geometry.flip_horizontal);
     assert!(!ffi.geometry.flip_vertical);
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode photo geometry");
-    assert_eq!(decoded.geometry, geometry);
+    assert_eq!(decoded.canvas.geometry(), geometry);
+}
+
+#[test]
+#[allow(clippy::float_cmp)] // The FFI field is the exact authored Recipe value, not a computed result.
+fn bypassed_canvas_round_trips_authored_geometry_without_compiling_it() {
+    let geometry = PhotoGeometry::identity()
+        .with_straighten_degrees(3.0)
+        .expect("valid authored straighten");
+    let grade_stack = GradeStackDraft {
+        canvas: PhotoCanvasNode::new(geometry).with_enabled(false),
+        ..GradeStackDraft::default()
+    };
+
+    let ffi = encode_grade_stack_draft_recipe_v1(grade_stack).expect("encode bypassed Canvas");
+    assert!(ffi.geometry.present);
+    assert!(!ffi.geometry.enabled);
+    assert_eq!(ffi.geometry.straighten_degrees, 3.0);
+
+    let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode bypassed Canvas");
+    assert!(decoded.canvas.is_present());
+    assert!(!decoded.canvas.enabled());
+    assert_eq!(decoded.canvas.geometry(), geometry);
+
+    let snapshot = grade_stack_recipe_v1_snapshot(&decoded, None).expect("persist bypassed Canvas");
+    assert_eq!(snapshot.canvas_node().geometry(), geometry);
+    assert_eq!(snapshot.geometry(), PhotoGeometry::identity());
+    let plan = compile_recipe_render_plan(&snapshot).expect("compile bypassed Canvas");
+    assert_eq!(plan.geometry, shadow_bridge::AdjustmentGeometry::identity());
 }
 
 #[test]
@@ -119,7 +149,7 @@ fn crop_edits_preserve_liquify_and_the_compiler_projects_exact_warp_values() {
         false,
     )
     .expect("changed crop");
-    crop_projection.geometry = changed_geometry;
+    crop_projection.canvas = PhotoCanvasNode::new(changed_geometry);
     let rebuilt = grade_stack_recipe_v1_snapshot(&crop_projection, Some(&structural))
         .expect("rebuild from Canvas projection");
 

@@ -276,6 +276,27 @@ void append_metadata_snapshot_fields(
     const image::AssetMetadata& metadata,
     const std::size_t maximum_text_bytes
 ) {
+    const auto has_valid_focus = metadata.focus_observation.has_value()
+        && metadata.focus_observation->schema_version == image::focus_observation_schema_version
+        && metadata.focus_observation->source != image::FocusObservationSource::unknown
+        && std::isfinite(metadata.focus_observation->center_x)
+        && std::isfinite(metadata.focus_observation->center_y)
+        && std::isfinite(metadata.focus_observation->width)
+        && std::isfinite(metadata.focus_observation->height)
+        && std::isfinite(metadata.focus_observation->confidence)
+        && metadata.focus_observation->center_x >= 0.0
+        && metadata.focus_observation->center_x <= 1.0
+        && metadata.focus_observation->center_y >= 0.0
+        && metadata.focus_observation->center_y <= 1.0
+        && metadata.focus_observation->width >= 0.0
+        && metadata.focus_observation->width <= 1.0
+        && metadata.focus_observation->height >= 0.0
+        && metadata.focus_observation->height <= 1.0
+        && metadata.focus_observation->confidence >= 0.0
+        && metadata.focus_observation->confidence <= 1.0;
+    const auto focus = has_valid_focus
+        ? *metadata.focus_observation
+        : image::FocusObservation{};
     output
         << ' ' << hex_encode_bounded(metadata.make, maximum_text_bytes, "make")
         << ' ' << hex_encode_bounded(metadata.model, maximum_text_bytes, "model")
@@ -318,7 +339,16 @@ void append_metadata_snapshot_fields(
         << ' ' << fixed_hex_f64(metadata.gps_altitude_meters, "GPS altitude")
         << ' ' << hex_encode_bounded(metadata.lens_make, maximum_text_bytes, "lens make")
         << ' ' << hex_encode_bounded(metadata.lens_model, maximum_text_bytes, "lens model")
-        << ' ' << fixed_hex_f64(metadata.focal_length_35mm, "35 mm focal length");
+        << ' ' << fixed_hex_f64(metadata.focal_length_35mm, "35 mm focal length")
+        << ' ' << fixed_hex_u64(has_valid_focus ? 1U : 0U)
+        << ' ' << fixed_hex_u64(focus.schema_version)
+        << ' ' << fixed_hex_u64(static_cast<std::uint8_t>(focus.source))
+        << ' ' << fixed_hex_f64(focus.center_x, "focus center x")
+        << ' ' << fixed_hex_f64(focus.center_y, "focus center y")
+        << ' ' << fixed_hex_f64(focus.width, "focus width")
+        << ' ' << fixed_hex_f64(focus.height, "focus height")
+        << ' ' << fixed_hex_u64(focus.focus_confirmed ? 1U : 0U)
+        << ' ' << fixed_hex_f64(focus.confidence, "focus confidence");
 }
 
 void append_decoder_snapshot_capability_fields(
@@ -414,7 +444,7 @@ int snapshot_metadata(const fs::path& input, const std::string_view nonce) {
     const auto& provider_info = provider->info();
     const auto& metadata = session->metadata();
     std::cout
-        << "shadow-metadata-v3 metadata-snapshot " << nonce << ' '
+        << "shadow-metadata-v4 metadata-snapshot " << nonce << ' '
         << hex_encode_bounded(provider_info.id, max_identity_text_bytes, "router provider id") << ' '
         << hex_encode_bounded(
                provider_info.version, max_identity_text_bytes, "router provider version"
@@ -452,7 +482,7 @@ int snapshot_decoder(const fs::path& input, const std::string_view nonce) {
         : session->raw_development_capabilities();
 
     std::cout
-        << "shadow-inspect-v4 decoder-snapshot " << nonce << ' '
+        << "shadow-inspect-v5 decoder-snapshot " << nonce << ' '
         << hex_encode_bounded(
                provider_info.id,
                max_decoder_snapshot_identity_text_bytes,

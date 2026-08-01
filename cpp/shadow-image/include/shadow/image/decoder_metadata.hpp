@@ -1,6 +1,7 @@
 #pragma once
 
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/focus_observation.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 
 #include <array>
@@ -52,6 +53,10 @@ struct AssetMetadata final {
     // unknown, never infinity or a guessed substitute. Lens vignetting calibration is
     // distance-dependent, so optical correction must leave that component disabled without it.
     double focus_distance_meters = 0.0;
+    // Optional camera-authored AF point/area in the display-oriented,
+    // uncropped source space. This remains capture evidence rather than a
+    // sharpness judgment or a post-Recipe viewport coordinate.
+    std::optional<FocusObservation> focus_observation;
     std::int64_t captured_at_unix_seconds = 0;
     bool has_gps_coordinates = false;
     double gps_latitude_degrees = 0.0;

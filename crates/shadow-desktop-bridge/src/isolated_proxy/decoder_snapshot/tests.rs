@@ -118,7 +118,7 @@ fn rejects_stale_or_invalid_child_decoder_snapshots() {
         .split_whitespace()
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
-    impossible_count[57] = "0000000000000041".to_owned();
+    impossible_count[66] = "0000000000000041".to_owned();
     assert!(
         parse_decoder_snapshot_protocol(impossible_count.join(" ").as_bytes(), "decoder-nonce")
             .is_err()

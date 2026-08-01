@@ -4,6 +4,9 @@
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 
 #include <array>
@@ -17,6 +20,12 @@
 static_assert(std::same_as<
               decltype(std::declval<const DesktopBackend&>().probeRawFoundationRuntime()),
               BackendRawFoundationRuntimeStatus>);
+static_assert(std::same_as<
+              decltype(std::declval<const DesktopBackend&>().assessRawFoundationNoise(
+                  std::declval<const QString&>(),
+                  std::declval<const QString&>()
+              )),
+              BackendRawFoundationNoiseAssessment>);
 
 namespace {
 
@@ -60,6 +69,23 @@ void complete_projection_preserves_every_field() {
     );
     require(projected_runtime.runtime_version == QStringLiteral("tract-0.21"), "runtime version");
     require(projected_runtime.diagnostic == QStringLiteral("verified"), "runtime diagnostic");
+
+    shadow::desktop::FfiRawFoundationNoiseAssessment noise;
+    noise.level = shadow::desktop::FfiRawFoundationNoiseLevel::Moderate;
+    noise.score_percent = 57;
+    noise.confidence_percent = 83;
+    noise.diagnostic = rust::String("staged Bayer residual v1");
+    const auto projected_noise = project_raw_foundation_noise_assessment(noise);
+    require(
+        projected_noise.level == BackendRawFoundationNoiseLevel::Moderate,
+        "noise level"
+    );
+    require(projected_noise.score_percent == 57, "noise score");
+    require(projected_noise.confidence_percent == 83, "noise confidence");
+    require(
+        projected_noise.diagnostic == QStringLiteral("staged Bayer residual v1"),
+        "noise diagnostic"
+    );
 
     shadow::desktop::FfiRawFoundationJobStatus source;
     source.job_token = 17;
@@ -135,6 +161,51 @@ void production_session_projects_pollable_cancellation() {
     backend.retireRawFoundationJob(failed_token);
 }
 
+void optional_real_raw_noise_acceptance() {
+    const char* const configured = std::getenv("SHADOW_TEST_RAW_FOUNDATION_NOISE_SOURCE");
+    if (configured == nullptr) {
+        return;
+    }
+    const QFileInfo source{QString::fromUtf8(configured)};
+    require(source.isFile(), "configured noise source is a file");
+    QTemporaryDir root;
+    require(root.isValid(), "real RAW acceptance root");
+    const QString input_directory = root.filePath(QStringLiteral("input"));
+    require(QDir{}.mkpath(input_directory), "real RAW input directory");
+    const QString copied_source = QDir{input_directory}.filePath(source.fileName());
+    require(QFile::copy(source.absoluteFilePath(), copied_source), "copy real RAW fixture");
+
+    const DesktopBackend backend{
+        root.filePath(QStringLiteral("catalog.sqlite")),
+        root.filePath(QStringLiteral("cache")),
+    };
+    backend.beginFolderScan(1);
+    const auto report = backend.scanFolder(input_directory, 1);
+    require(
+        report.supported_files == 1 && report.inserted == 1,
+        "one real RAW enters the Catalog"
+    );
+    const auto page = backend.libraryPhotoPage(
+        BackendLibraryPhotoFilter{},
+        BackendLibraryPhotoOrder::FileNameAscending,
+        BackendLibraryPhotoCursor{},
+        8
+    );
+    require(page.items.size() == 1, "real RAW is queryable");
+    const auto& item = page.items.front();
+    const auto assessment = backend.assessRawFoundationNoise(item.photo_id, item.source_path);
+    require(assessment.score_percent <= 100, "real RAW noise score is bounded");
+    require(
+        assessment.confidence_percent >= 20 && assessment.confidence_percent <= 100,
+        "real RAW confidence is bounded"
+    );
+    require(!assessment.diagnostic.isEmpty(), "real RAW assessment is auditable");
+    std::cout << "real RAW noise assessment: level="
+              << static_cast<int>(assessment.level)
+              << " score=" << static_cast<int>(assessment.score_percent)
+              << " confidence=" << static_cast<int>(assessment.confidence_percent) << '\n';
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -143,6 +214,7 @@ int main(int argc, char* argv[]) {
         phase_projection_is_total();
         complete_projection_preserves_every_field();
         production_session_projects_pollable_cancellation();
+        optional_real_raw_noise_acceptance();
     } catch (const std::exception& error) {
         std::cerr << "RAW foundation production path failed: " << error.what() << '\n';
         return EXIT_FAILURE;

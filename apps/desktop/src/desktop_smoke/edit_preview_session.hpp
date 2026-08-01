@@ -17,6 +17,7 @@ enum class EditPreviewTransportExpectation {
 struct EditPreviewSessionOptions final {
     bool request_before = false;
     bool request_full_detail = false;
+    bool rapid_parameter_updates = false;
     EditPreviewTransportExpectation transport_expectation = EditPreviewTransportExpectation::None;
 };
 

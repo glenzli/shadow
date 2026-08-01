@@ -26,6 +26,7 @@ Rectangle {
 
     required property var editor
     required property var editPreviewPresentation
+    required property var captureMetadata
     required property int activeToolMode
     required property real cropAspectRatioLock
     required property bool selectedRetouchContinuous
@@ -45,6 +46,11 @@ Rectangle {
     property int comparisonMode: comparisonWipeVertical
     property real comparisonPosition: 0.5
     property bool maskOverlayVisible: true
+    property alias detailLoupeVisible: detailLoupeState.shown
+    property alias detailLoupeFollowPointer: detailLoupeState.followPointer
+    property alias detailLoupeZoomFactor: detailLoupeState.zoomFactor
+    property alias detailLoupeTargetKind: detailLoupeState.targetKind
+    property alias detailLoupeFocusConfirmed: detailLoupeState.focusConfirmed
 
     // Public display-only diagnostic state. This never mutates the edit stack.
     property bool zebraEnabled: false
@@ -67,6 +73,8 @@ Rectangle {
     readonly property bool detailImageReady: detailImageReadyState
     readonly property bool detailImageLoadFailed: detailImageLoadFailedState
     readonly property bool showingFullDetail: !fitView && zoomFactor >= 1.0 && !comparisonActive && editor.detailMode && editor.detailTiles.length > 0 && detailImageReadyState
+    readonly property bool detailLoupeAvailable: editor.active
+        && activeToolMode === toolNone && !comparisonActive
 
     // Private transport state. The public read-only properties above keep the
     // surrounding workspace from reaching into image or Flickable ids.
@@ -109,11 +117,16 @@ Rectangle {
 
     onZoomFactorChanged: viewStateChanged()
     onFitViewChanged: viewStateChanged()
-    onComparisonActiveChanged: comparisonStateChanged()
+    onComparisonActiveChanged: {
+        if (comparisonActive && detailLoupeVisible)
+            detailLoupeState.close()
+        comparisonStateChanged()
+    }
     onComparisonModeChanged: comparisonStateChanged()
     onComparisonPositionChanged: comparisonStateChanged()
     onZebraEnabledChanged: analysisOverlayStateChanged()
     onActiveToolModeChanged: {
+        detailLoupeState.close()
         zoomToolActive = false;
         comparisonActive = false;
         resetView();
@@ -130,6 +143,7 @@ Rectangle {
     }
 
     function activateComparison(mode) {
+        detailLoupeState.close();
         resetView();
         comparisonMode = mode;
         comparisonPosition = 0.5;
@@ -145,6 +159,17 @@ Rectangle {
         previewFlick.contentX = 0;
         previewFlick.contentY = 0;
         editor.leaveDetailMode();
+        if (detailLoupeVisible)
+            Qt.callLater(detailLoupeState.requestDetail);
+    }
+
+    function toggleDetailLoupe() {
+        if (detailLoupeVisible)
+            detailLoupeState.close()
+        else if (detailLoupeAvailable) {
+            resetView()
+            detailLoupeState.open()
+        }
     }
 
     function normalizedCenterX() {
@@ -182,6 +207,11 @@ Rectangle {
     }
 
     function requestVisibleDetail() {
+        if (detailLoupeVisible && fitView && !comparisonActive
+                && editor.active) {
+            detailLoupeState.requestDetail()
+            return
+        }
         if (fitView || zoomFactor < 1.0 || comparisonActive || !editor.active) {
             editor.leaveDetailMode();
             return;
@@ -210,6 +240,7 @@ Rectangle {
     }
 
     function zoomAtViewport(viewportX, viewportY, value, settleDetail) {
+        detailLoupeState.close()
         const anchorX = normalizedAtViewportX(viewportX);
         const anchorY = normalizedAtViewportY(viewportY);
         fitView = false;
@@ -250,6 +281,7 @@ Rectangle {
     }
 
     function beginContinuousZoom() {
+        detailLoupeState.close()
         directViewportSettle.stop();
         detailImageReadyState = false;
         detailImageLoadFailedState = false;
@@ -285,6 +317,8 @@ Rectangle {
     }
 
     onDeviceScaleChanged: {
+        if (detailLoupeVisible && fitView)
+            return
         if (!componentReady || fitView || zoomFactor < 1.0 || !editor.active)
             return;
         editor.leaveDetailMode();
@@ -303,11 +337,22 @@ Rectangle {
         onTriggered: canvas.requestVisibleDetail()
     }
 
+    PrecisionDetailLoupeState {
+        id: detailLoupeState
+        editor: canvas.editor
+        captureMetadata: canvas.captureMetadata
+        requestAvailable: canvas.detailLoupeAvailable && canvas.fitView
+        deviceScale: canvas.deviceScale
+        viewportWidth: detailLoupe.detailViewportWidth
+        viewportHeight: detailLoupe.detailViewportHeight
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
         PrecisionCanvasToolbar {
+            id: canvasToolbar
             editor: canvas.editor
             zebraEnabled: canvas.zebraEnabled
             comparisonActive: canvas.comparisonActive
@@ -320,6 +365,8 @@ Rectangle {
             fitView: canvas.fitView
             zoomFactor: canvas.zoomFactor
             zoomToolActive: canvas.zoomToolActive
+            detailLoupeVisible: canvas.detailLoupeVisible
+            detailLoupeAvailable: canvas.detailLoupeAvailable
             onZebraToggleRequested: canvas.zebraEnabled = !canvas.zebraEnabled
             onComparisonDisableRequested: canvas.comparisonActive = false
             onComparisonModeRequested: mode => canvas.activateComparison(mode)
@@ -329,6 +376,7 @@ Rectangle {
                 canvas.zoomToolActive = !canvas.zoomToolActive;
             }
             onFitRequested: canvas.resetView()
+            onDetailLoupeToggleRequested: canvas.toggleDetailLoupe()
         }
 
         Flickable {
@@ -559,6 +607,27 @@ Rectangle {
                     displayScale: canvas.displayScale
                     interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
                 }
+
+                HoverHandler {
+                    enabled: canvas.detailLoupeVisible
+                        && canvas.detailLoupeFollowPointer
+                        && canvas.detailLoupeAvailable
+                    cursorShape: Qt.CrossCursor
+                    onPointChanged: detailLoupeState.setTarget(
+                        point.position.x / Math.max(1, photoSurface.width),
+                        point.position.y / Math.max(1, photoSurface.height))
+                }
+
+                TapHandler {
+                    enabled: canvas.detailLoupeVisible
+                        && !canvas.detailLoupeFollowPointer
+                        && canvas.detailLoupeAvailable
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
+                    onTapped: eventPoint => detailLoupeState.setTarget(
+                        eventPoint.position.x / Math.max(1, photoSurface.width),
+                        eventPoint.position.y / Math.max(1, photoSurface.height))
+                }
             }
 
             ScrollBar.horizontal: ScrollBar {
@@ -588,7 +657,9 @@ Rectangle {
         parent: previewFlick
         anchors.fill: parent
         z: 150
-        interactionEnabled: canvas.editor.active && !canvas.comparisonActive && canvas.activeToolMode === canvas.toolNone
+        interactionEnabled: canvas.editor.active && !canvas.comparisonActive
+            && canvas.activeToolMode === canvas.toolNone
+            && !canvas.detailLoupeVisible
         toolActive: canvas.zoomToolActive
         fitView: canvas.fitView
         zoomFactor: canvas.zoomFactor
@@ -618,5 +689,26 @@ Rectangle {
         comparisonWipeVertical: canvas.comparisonWipeVertical
         comparisonWipeHorizontal: canvas.comparisonWipeHorizontal
         comparisonSideBySide: canvas.comparisonSideBySide
+    }
+
+    PrecisionDetailLoupe {
+        id: detailLoupe
+        z: 240
+        visible: canvas.detailLoupeVisible
+        enabled: visible
+        editor: canvas.editor
+        followPointer: canvas.detailLoupeFollowPointer
+        zoomFactor: canvas.detailLoupeZoomFactor
+        targetCenterX: detailLoupeState.centerX
+        targetCenterY: detailLoupeState.centerY
+        deviceScale: canvas.deviceScale
+        dragTopBoundary: canvasToolbar.height + 8
+        targetKind: canvas.detailLoupeTargetKind
+        focusConfirmed: canvas.detailLoupeFocusConfirmed
+        onCloseRequested: detailLoupeState.close()
+        onFollowPointerToggleRequested:
+            detailLoupeState.toggleFollowPointer()
+        onZoomFactorRequested: value =>
+            detailLoupeState.setZoomFactor(value)
     }
 }

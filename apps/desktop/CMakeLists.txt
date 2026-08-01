@@ -114,6 +114,22 @@ if(APPLE AND SHADOW_ENABLE_METAL)
 else()
     set(SHADOW_CARGO_NATIVE_VARIANT cpu)
 endif()
+
+if(APPLE)
+    set(
+        SHADOW_LIBRARY_REVERSE_GEOCODER_SOURCE
+        src/library_reverse_geocoder_mac.mm
+    )
+    set_source_files_properties(
+        src/library_reverse_geocoder_mac.mm
+        PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+    )
+else()
+    set(
+        SHADOW_LIBRARY_REVERSE_GEOCODER_SOURCE
+        src/library_reverse_geocoder_stub.cpp
+    )
+endif()
 set(
     SHADOW_CARGO_TARGET_DIRECTORY
     "${CMAKE_CURRENT_BINARY_DIR}/cargo-target-${SHADOW_CARGO_NATIVE_VARIANT}"
@@ -330,6 +346,7 @@ qt_add_executable(
     src/edit_analysis_controller.cpp
     src/edit_raw_foundation_controller.cpp
     src/edit_raw_foundation_controller.hpp
+    src/edit_processing_stack_controller.cpp
     src/edit_raw_foundation_state.cpp
     src/edit_raw_foundation_state.hpp
     src/edit_detail_render_controller.cpp
@@ -388,6 +405,8 @@ qt_add_executable(
     src/export_task_runner.hpp
     src/justified_review_layout_model.cpp
     src/justified_review_layout_model.hpp
+    src/library_reverse_geocoder.hpp
+    ${SHADOW_LIBRARY_REVERSE_GEOCODER_SOURCE}
     src/history_coordinator.cpp
     src/history_coordinator.hpp
     src/history_model.cpp
@@ -448,6 +467,8 @@ qt_add_executable(
     src/review_library_map_coordinator.hpp
     src/review_library_metadata_coordinator.cpp
     src/review_library_metadata_coordinator.hpp
+    src/review_library_place_resolution_coordinator.cpp
+    src/review_library_place_resolution_coordinator.hpp
     src/review_library_organization_coordinator.cpp
     src/review_library_organization_coordinator.hpp
     src/review_library_query_coordinator.cpp
@@ -513,6 +534,7 @@ qt_add_resources(
         icons/compare-wipe-horizontal.svg
         icons/compare-wipe-vertical.svg
         icons/crop.svg
+        icons/detail-loupe.svg
         icons/duplicate.svg
         icons/edit.svg
         icons/edit-off.svg
@@ -548,6 +570,7 @@ qt_add_resources(
         icons/node-add.svg
         icons/overlay-hide.svg
         icons/overlay-show.svg
+        icons/pin.svg
         icons/pick.svg
         icons/redo.svg
         icons/reject.svg
@@ -590,6 +613,8 @@ if(APPLE)
         PRIVATE
             "-framework AppKit"
             "-framework CoreFoundation"
+            "-framework CoreLocation"
+            "-framework MapKit"
             "-framework Metal"
             "-framework Security"
     )
@@ -642,6 +667,7 @@ qt_add_qml_module(
         qml/Main.qml
         qml/MainTitleBar.qml
         qml/MainLibraryFilterBar.qml
+        qml/MainLibrarySortMenu.qml
         qml/MainPrecisionProxyStatus.qml
         qml/MainStatusBar.qml
         qml/MapProviderSettingsDialog.qml
@@ -650,6 +676,8 @@ qt_add_qml_module(
         qml/OpticsProfileManagerWindow.qml
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
+        qml/PrecisionDetailLoupe.qml
+        qml/PrecisionDetailLoupeState.qml
         qml/PrecisionActiveStrokeCoverage.qml
         qml/PrecisionAiMaskPromptOverlay.qml
         qml/PrecisionCanvasPickerInput.qml
@@ -2059,6 +2087,7 @@ if(BUILD_TESTING)
         src/backend/raw_foundation_projection.hpp
         src/desktop_backend.cpp
         src/desktop_backend.hpp
+        src/desktop_backend_library.cpp
         src/desktop_backend_raw_foundation.cpp
         src/folder_scan_backend.cpp
         src/folder_scan_backend.hpp
@@ -2483,6 +2512,61 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-precision-ai-mask-prompt-overlay-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-detail-loupe-contract-test
+        tests/precision_detail_loupe_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-detail-loupe-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-detail-loupe-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-precision-detail-loupe-contract-test
+        URI Shadow.DetailLoupeContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PrecisionDetailLoupe.qml
+            qml/PrecisionDetailLoupeState.qml
+            qml/ShadowButton.qml
+            qml/ShadowIcon.qml
+            qml/ShadowIconButton.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-precision-detail-loupe-contract-test
+        shadow-precision-detail-loupe-contract-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES
+            icons/close.svg
+            icons/pin.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-detail-loupe-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-detail-loupe-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-detail-loupe-contract
+        COMMAND shadow-precision-detail-loupe-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-detail-loupe-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
@@ -3015,6 +3099,41 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-library-facet-coordinator
         COMMAND shadow-review-library-facet-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-library-place-resolution-coordinator-test
+        tests/review_library_place_resolution_coordinator_test.cpp
+        src/review_library_place_resolution_coordinator.cpp
+        src/review_library_place_resolution_coordinator.hpp
+        src/library_reverse_geocoder.hpp
+    )
+    target_compile_features(
+        shadow-review-library-place-resolution-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-library-place-resolution-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-library-place-resolution-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-library-place-resolution-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-library-place-resolution-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-library-place-resolution-coordinator
+        COMMAND shadow-review-library-place-resolution-coordinator-test
     )
 
     add_executable(

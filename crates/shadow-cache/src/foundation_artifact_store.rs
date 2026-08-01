@@ -173,27 +173,38 @@ impl FoundationArtifactStore {
             })?;
         create_directory(parent)?;
 
-        let status = if destination.exists() {
-            Self::verify_existing_matches(&destination, &partial_verification)?;
-            FoundationArtifactPublicationStatus::ReusedExisting
+        let (status, verification) = if destination.exists() {
+            let verification = Self::verify_existing_matches(&destination, &partial_verification)?;
+            (
+                FoundationArtifactPublicationStatus::ReusedExisting,
+                verification,
+            )
         } else {
             match fs::hard_link(partial_path, &destination) {
                 Ok(()) => {
                     sync_directory(parent)?;
-                    Self::verify_existing_matches(&destination, &partial_verification)?;
-                    FoundationArtifactPublicationStatus::Published
+                    // The destination is another name for the exact inode that
+                    // was completely verified above. Reopening it here would
+                    // rescan a foundation hundreds of MiB in size without
+                    // adding another integrity boundary.
+                    let mut verification = partial_verification;
+                    verification.path = destination
+                        .canonicalize()
+                        .map_err(|source| store_io_error(&destination, source))?;
+                    (FoundationArtifactPublicationStatus::Published, verification)
                 }
                 Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {
-                    Self::verify_existing_matches(&destination, &partial_verification)?;
-                    FoundationArtifactPublicationStatus::ReusedExisting
+                    let verification =
+                        Self::verify_existing_matches(&destination, &partial_verification)?;
+                    (
+                        FoundationArtifactPublicationStatus::ReusedExisting,
+                        verification,
+                    )
                 }
                 Err(source) => return Err(store_io_error(&destination, source)),
             }
         };
         self.discard_partial(partial_path)?;
-        let verification = FoundationArtifactReader::open(&destination)?
-            .verification()
-            .clone();
         let path = verification.path.clone();
         Ok(FoundationArtifactPublication {
             status,
@@ -265,7 +276,7 @@ impl FoundationArtifactStore {
     fn verify_existing_matches(
         path: &Path,
         expected: &FoundationArtifactVerification,
-    ) -> Result<(), FoundationArtifactStoreError> {
+    ) -> Result<FoundationArtifactVerification, FoundationArtifactStoreError> {
         let existing = FoundationArtifactReader::open(path)?;
         let existing = existing.verification();
         if existing.cache_key_sha256 != expected.cache_key_sha256
@@ -275,7 +286,7 @@ impl FoundationArtifactStore {
         {
             return Err(FoundationArtifactStoreError::ConflictingArtifact);
         }
-        Ok(())
+        Ok(existing.clone())
     }
 
     fn ensure_owned_partial(&self, path: &Path) -> Result<(), FoundationArtifactStoreError> {

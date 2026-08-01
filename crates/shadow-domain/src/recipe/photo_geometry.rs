@@ -40,19 +40,23 @@ pub struct PhotoGeometry {
     flip_vertical: bool,
 }
 
-/// The mandatory, photo-local final-canvas node.
+/// The optional, photo-local final-canvas node.
 ///
-/// Every Recipe owns exactly one of these nodes. An unedited photo keeps the
-/// node in its identity state; resetting or "deleting" Crop in the UI means
-/// replacing its geometry with [`PhotoGeometry::identity`], not removing a
-/// structural slot. The role itself is the stable identity, so it deliberately
-/// has no user-generated node id and can never be shared as a Grade Node.
+/// Its execution slot and order are fixed even though the node is absent from
+/// a new Recipe's visible processing stack. Adding an identity crop records
+/// `present`; bypassing records `enabled = false` while retaining every
+/// authored geometry value. The role has no user-generated node id and can
+/// never be duplicated, reordered, masked, or shared as a Grade Node.
 ///
-/// The transparent representation preserves the existing Recipe v1
-/// `geometry` payload while making the singleton node explicit in memory.
+/// Flattening retains the existing Recipe v1 `geometry` object while adding
+/// the two lifecycle fields beside its crop/orientation parameters.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
 pub struct PhotoCanvasNode {
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    present: bool,
+    #[serde(default = "bool_true", skip_serializing_if = "bool_is_true")]
+    enabled: bool,
+    #[serde(flatten)]
     geometry: PhotoGeometry,
 }
 
@@ -63,16 +67,55 @@ impl Default for PhotoCanvasNode {
 }
 
 impl PhotoCanvasNode {
-    /// Returns the mandatory canvas node in its no-op state.
+    /// Returns the canonical absent Canvas node.
     pub const fn identity() -> Self {
         Self {
+            present: false,
+            enabled: true,
             geometry: PhotoGeometry::identity(),
         }
     }
 
-    /// Wraps one validated crop/orientation value in the singleton canvas role.
+    /// Adds the singleton Canvas node with one validated authored geometry.
     pub const fn new(geometry: PhotoGeometry) -> Self {
-        Self { geometry }
+        Self {
+            present: true,
+            enabled: true,
+            geometry,
+        }
+    }
+
+    /// Adds an identity Canvas ready for direct crop/geometry authoring.
+    pub const fn added() -> Self {
+        Self::new(PhotoGeometry::identity())
+    }
+
+    #[must_use]
+    pub const fn with_present(mut self, present: bool) -> Self {
+        self.present = present;
+        if !present {
+            self.enabled = true;
+            self.geometry = PhotoGeometry::identity();
+        }
+        self
+    }
+
+    #[must_use]
+    pub const fn with_enabled(mut self, enabled: bool) -> Self {
+        if self.is_present() {
+            self.enabled = enabled;
+        }
+        self
+    }
+
+    /// Older Recipe v1 geometry payloads predate `present`; non-identity
+    /// authored geometry therefore remains authoritative evidence of presence.
+    pub const fn is_present(&self) -> bool {
+        self.present || !self.geometry.is_identity()
+    }
+
+    pub const fn enabled(&self) -> bool {
+        self.enabled
     }
 
     /// Returns the crop/orientation parameters owned by this node.
@@ -80,14 +123,37 @@ impl PhotoCanvasNode {
         self.geometry
     }
 
-    /// Returns whether this mandatory node currently changes no pixels.
+    /// Returns the geometry that may participate in rendering.
+    pub const fn effective_geometry(self) -> PhotoGeometry {
+        if self.is_present() && self.enabled {
+            self.geometry
+        } else {
+            PhotoGeometry::identity()
+        }
+    }
+
+    /// Returns whether the optional Canvas node is canonically absent.
     pub const fn is_identity(&self) -> bool {
-        self.geometry.is_identity()
+        !self.is_present() && self.enabled && self.geometry.is_identity()
     }
 
     pub(super) fn validate(self) -> Result<(), RecipeValidationError> {
         self.geometry.validate()
     }
+}
+
+const fn bool_true() -> bool {
+    true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn bool_is_true(value: &bool) -> bool {
+    *value
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn bool_is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for PhotoGeometry {

@@ -13,7 +13,7 @@
 
 /// Owns Review's generation-bound Library facet projection.
 ///
-/// One worker fetches the three independently bounded facet dimensions from
+/// One worker fetches the five independently bounded facet dimensions from
 /// the same immutable filter snapshot. The coordinator rejects stale
 /// generations, coalesces refreshes onto the latest input, publishes the
 /// stable QML projection and localized failure, and waits on destruction.
@@ -38,6 +38,8 @@ class ReviewLibraryFacetCoordinator final : public QObject {
     [[nodiscard]] QVariantList captureMonths() const;
     [[nodiscard]] QVariantList cameras() const;
     [[nodiscard]] QVariantList lenses() const;
+    [[nodiscard]] QVariantList countries() const;
+    [[nodiscard]] QVariantList cities() const;
     [[nodiscard]] QVariantMap systemCollectionCounts() const;
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] LocalizedUiMessage globalStatusMessage() const;
@@ -54,6 +56,8 @@ class ReviewLibraryFacetCoordinator final : public QObject {
         BackendLibraryFacetPage capture_months;
         BackendLibraryFacetPage cameras;
         BackendLibraryFacetPage lenses;
+        BackendLibraryFacetPage countries;
+        BackendLibraryFacetPage cities;
         std::uint64_t all_photo_count = 0;
         std::uint64_t liked_photo_count = 0;
         std::uint64_t five_star_photo_count = 0;
@@ -84,6 +88,8 @@ class ReviewLibraryFacetCoordinator final : public QObject {
     BackendLibraryFacetPage capture_months_;
     BackendLibraryFacetPage cameras_;
     BackendLibraryFacetPage lenses_;
+    BackendLibraryFacetPage countries_;
+    BackendLibraryFacetPage cities_;
     std::uint64_t all_photo_count_ = 0;
     std::uint64_t liked_photo_count_ = 0;
     std::uint64_t five_star_photo_count_ = 0;

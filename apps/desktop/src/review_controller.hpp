@@ -11,6 +11,7 @@
 #include "review_library_keyword_coordinator.hpp"
 #include "review_library_map_coordinator.hpp"
 #include "review_library_metadata_coordinator.hpp"
+#include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
@@ -91,6 +92,14 @@ class ReviewController final : public QObject {
         QString filterLensKey READ filterLensKey WRITE setFilterLensKey NOTIFY filtersChanged
     )
     Q_PROPERTY(
+        QString filterCountryKey READ filterCountryKey WRITE setFilterCountryKey NOTIFY
+            filtersChanged
+    )
+    Q_PROPERTY(
+        QString filterLocalityKey READ filterLocalityKey WRITE setFilterLocalityKey NOTIFY
+            filtersChanged
+    )
+    Q_PROPERTY(
         QStringList filterKeywordIdsAll READ filterKeywordIdsAll WRITE setFilterKeywordIdsAll NOTIFY
             filtersChanged
     )
@@ -106,6 +115,10 @@ class ReviewController final : public QObject {
         QVariantList libraryCameraFacets READ libraryCameraFacets NOTIFY libraryFacetsChanged
     )
     Q_PROPERTY(QVariantList libraryLensFacets READ libraryLensFacets NOTIFY libraryFacetsChanged)
+    Q_PROPERTY(
+        QVariantList libraryCountryFacets READ libraryCountryFacets NOTIFY libraryFacetsChanged
+    )
+    Q_PROPERTY(QVariantList libraryCityFacets READ libraryCityFacets NOTIFY libraryFacetsChanged)
     Q_PROPERTY(bool libraryFacetsBusy READ libraryFacetsBusy NOTIFY libraryFacetsChanged)
     Q_PROPERTY(QVariantList libraryKeywords READ libraryKeywords NOTIFY libraryKeywordsChanged)
     Q_PROPERTY(
@@ -223,11 +236,15 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterCaptureMonth() const;
     [[nodiscard]] QString filterCameraKey() const;
     [[nodiscard]] QString filterLensKey() const;
+    [[nodiscard]] QString filterCountryKey() const;
+    [[nodiscard]] QString filterLocalityKey() const;
     [[nodiscard]] QStringList filterKeywordIdsAll() const;
     [[nodiscard]] QStringList filterExcludedKeywordIdsAny() const;
     [[nodiscard]] QVariantList libraryCaptureMonthFacets() const;
     [[nodiscard]] QVariantList libraryCameraFacets() const;
     [[nodiscard]] QVariantList libraryLensFacets() const;
+    [[nodiscard]] QVariantList libraryCountryFacets() const;
+    [[nodiscard]] QVariantList libraryCityFacets() const;
     [[nodiscard]] bool libraryFacetsBusy() const noexcept;
     [[nodiscard]] QVariantList libraryKeywords() const;
     [[nodiscard]] QVariantList libraryPhotoKeywords() const;
@@ -276,6 +293,8 @@ class ReviewController final : public QObject {
     void setFilterCaptureMonth(const QString& capture_month);
     void setFilterCameraKey(const QString& camera_key);
     void setFilterLensKey(const QString& lens_key);
+    void setFilterCountryKey(const QString& country_key);
+    void setFilterLocalityKey(const QString& locality_key);
     void setFilterKeywordIdsAll(const QStringList& keyword_ids);
     void setFilterExcludedKeywordIdsAny(const QStringList& keyword_ids);
     void setLibraryAlbumId(const QString& album_id);
@@ -439,6 +458,7 @@ class ReviewController final : public QObject {
     ReviewSourceHealthCoordinator source_health_coordinator_;
     ReviewLibraryAlbumCoordinator album_coordinator_;
     ReviewLibraryFacetCoordinator facet_coordinator_;
+    ReviewLibraryPlaceResolutionCoordinator place_resolution_coordinator_;
     ReviewLibraryKeywordCoordinator keyword_coordinator_;
     ReviewLibraryMapCoordinator map_coordinator_;
     ReviewLibraryMetadataCoordinator metadata_coordinator_;

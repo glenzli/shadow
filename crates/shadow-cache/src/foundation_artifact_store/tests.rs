@@ -67,6 +67,15 @@ fn real_artifact_publication_and_recovery_are_optionally_verified() {
         .expect("publish first artifact");
     assert_eq!(first.status, FoundationArtifactPublicationStatus::Published);
     assert!(!first_partial.exists());
+    assert_eq!(first.verification.path, first.path);
+    assert_eq!(
+        first.path,
+        store
+            .resolve(&cache_key)
+            .expect("live path")
+            .canonicalize()
+            .expect("canonical live path")
+    );
 
     let second_partial = copy_to_owned_partial(&store, &cache_key, &source);
     let second = store
@@ -89,7 +98,7 @@ fn real_artifact_publication_and_recovery_are_optionally_verified() {
     let rows = cached
         .read_interleaved_rows(540, 36)
         .expect("read cached cross-stripe rows");
-    assert_eq!(rows.len(), 36 * 5_202 * 3);
+    assert_eq!(rows.len(), 36 * first.verification.width as usize * 3);
     assert!(rows.iter().all(|value| value.is_finite()));
 
     fs::remove_dir_all(root).expect("remove external test cache");

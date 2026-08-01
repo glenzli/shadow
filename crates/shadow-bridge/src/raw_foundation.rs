@@ -11,8 +11,7 @@ use super::{BridgeError, ffi};
 /// Exact public model admitted by the native foundation source route.
 pub const RAW_FOUNDATION_MODEL_IDENTITY: &str = "rawnind-public-bayer-release-5.6.0";
 /// Pixel-contract implementation revision paired with [`RAW_FOUNDATION_MODEL_IDENTITY`].
-pub const RAW_FOUNDATION_IMPLEMENTATION_REVISION: &str =
-    "rawnind-public-bayer-foundation-20260731.1";
+pub const RAW_FOUNDATION_IMPLEMENTATION_REVISION: &str = "rawnind-public-bayer-foundation-v1";
 /// A transfer can never exceed the native materialized scene-linear retained-buffer limit.
 pub const MAX_RAW_FOUNDATION_TRANSFER_BYTES: usize = 1_024 * 1_024 * 1_024;
 

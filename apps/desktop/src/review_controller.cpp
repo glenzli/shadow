@@ -21,6 +21,10 @@ ReviewController::ReviewController(
     source_health_coordinator_(BackendOperations::source_health_operations(backend_)),
     album_coordinator_(BackendOperations::album_operations(backend_)),
     facet_coordinator_(BackendOperations::facet_operations(backend_)),
+    place_resolution_coordinator_(
+        BackendOperations::place_resolution_operations(backend_),
+        makeSystemLibraryReverseGeocoder()
+    ),
     keyword_coordinator_(BackendOperations::keyword_operations(backend_)),
     map_coordinator_(BackendOperations::map_operations(backend_)),
     metadata_coordinator_(BackendOperations::metadata_operations(backend_)),
@@ -177,6 +181,14 @@ QString ReviewController::filterLensKey() const {
     return filtered_model_.lensKey();
 }
 
+QString ReviewController::filterCountryKey() const {
+    return filtered_model_.countryKey();
+}
+
+QString ReviewController::filterLocalityKey() const {
+    return filtered_model_.localityKey();
+}
+
 QStringList ReviewController::filterKeywordIdsAll() const {
     return filtered_model_.keywordIdsAll();
 }
@@ -195,6 +207,14 @@ QVariantList ReviewController::libraryCameraFacets() const {
 
 QVariantList ReviewController::libraryLensFacets() const {
     return facet_coordinator_.lenses();
+}
+
+QVariantList ReviewController::libraryCountryFacets() const {
+    return facet_coordinator_.countries();
+}
+
+QVariantList ReviewController::libraryCityFacets() const {
+    return facet_coordinator_.cities();
 }
 
 bool ReviewController::libraryFacetsBusy() const noexcept {

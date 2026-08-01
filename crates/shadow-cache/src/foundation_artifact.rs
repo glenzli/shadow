@@ -14,7 +14,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const FILE_MAGIC: &[u8; 8] = b"SHRAWF02";
+const FILE_MAGIC: &[u8; 8] = b"SHRAWF01";
 const FOOTER_MAGIC: &[u8; 8] = b"SHRFEND1";
 const HEADER_PREFIX_BYTES: usize = 16;
 const HEADER_PREFIX_FILE_BYTES: u64 = 16;
@@ -22,11 +22,11 @@ const FOOTER_BYTES: usize = 56;
 const FOOTER_FILE_BYTES: u64 = 56;
 const MAX_JSON_BYTES: u64 = 16 * 1024 * 1024;
 const HASH_CHUNK_BYTES: usize = 1024 * 1024;
-const HEADER_SCHEMA: &str = "shadow-raw-foundation-header-v2";
-const ARTIFACT_SCHEMA: &str = "shadow-raw-foundation-artifact-v2";
-const CACHE_KEY_SCHEMA: &str = "shadow-raw-foundation-cache-key-v2";
+const HEADER_SCHEMA: &str = "shadow-raw-foundation-header-v1";
+const ARTIFACT_SCHEMA: &str = "shadow-raw-foundation-artifact-v1";
+const CACHE_KEY_SCHEMA: &str = "shadow-raw-foundation-cache-key-v1";
 const SEQUENCE_FORMAT: &str = "shadow-linear-camera-rgb-f32-stripe-chw-v1";
-const IMPLEMENTATION_REVISION: &str = "rawnind-public-bayer-foundation-20260731.1";
+const IMPLEMENTATION_REVISION: &str = "rawnind-public-bayer-foundation-v1";
 const PACKAGE_SHA256: &str = "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af";
 const BAYER_GRAPH_SHA256: &str = "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901";
 const SOURCE_PIXEL_CONTRACT_SHA256: &str =
@@ -361,6 +361,38 @@ struct StripePublication {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct StripePublicationWire {
+    first_pass_raw_output_mean_f64_bits: String,
+    global_gain_f64_bits: String,
+    global_input_mean_f64_bits: String,
+    output_mean_f64_bits: String,
+    producer: String,
+    replay_relative_mean_delta_f64_bits: String,
+    second_pass_raw_output_mean_f64_bits: String,
+}
+
+impl StripePublicationWire {
+    fn decode(&self) -> Result<StripePublication, FoundationArtifactError> {
+        Ok(StripePublication {
+            first_pass_raw_output_mean: parse_f64_identity(
+                &self.first_pass_raw_output_mean_f64_bits,
+            )?,
+            global_gain: parse_f64_identity(&self.global_gain_f64_bits)?,
+            global_input_mean: parse_f64_identity(&self.global_input_mean_f64_bits)?,
+            output_mean: parse_f64_identity(&self.output_mean_f64_bits)?,
+            producer: self.producer.clone(),
+            replay_relative_mean_delta: parse_f64_identity(
+                &self.replay_relative_mean_delta_f64_bits,
+            )?,
+            second_pass_raw_output_mean: parse_f64_identity(
+                &self.second_pass_raw_output_mean_f64_bits,
+            )?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StripeEntry {
     byte_length: u64,
     index: usize,
@@ -377,7 +409,7 @@ struct FoundationManifest {
     cache_key_sha256: String,
     header_sha256: String,
     payload_bytes: u64,
-    publication: StripePublication,
+    publication: StripePublicationWire,
     schema: String,
     sequence_sha256: String,
     stripes: Vec<StripeEntry>,
@@ -395,7 +427,7 @@ struct ArtifactIdentityMaterial<'a> {
     cache_key_sha256: &'a str,
     header_sha256: &'a str,
     payload_bytes: u64,
-    publication: &'a StripePublication,
+    publication: &'a StripePublicationWire,
     schema: &'a str,
     sequence_sha256: &'a str,
     stripes: &'a [StripeEntry],
@@ -587,7 +619,8 @@ fn validate_manifest_identity(
             "header digest does not match the manifest",
         ));
     }
-    validate_publication(&manifest.publication)?;
+    let publication = manifest.publication.decode()?;
+    validate_publication(&publication)?;
     let artifact_identity = canonical_sha256(&ArtifactIdentityMaterial {
         cache_key_sha256: &manifest.cache_key_sha256,
         header_sha256: &manifest.header_sha256,
@@ -929,6 +962,22 @@ fn validate_publication(publication: &StripePublication) -> Result<(), Foundatio
 
 fn close(left: f64, right: f64, relative: f64, absolute: f64) -> bool {
     (left - right).abs() <= absolute.max(relative * left.abs().max(right.abs()))
+}
+
+fn parse_f64_identity(value: &str) -> Result<f64, FoundationArtifactError> {
+    if value.len() != 16
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(FoundationArtifactError::Invalid(
+            "publication float identity is not 16 lowercase hexadecimal digits",
+        ));
+    }
+    let bits = u64::from_str_radix(value, 16).map_err(|_| {
+        FoundationArtifactError::Invalid("publication float identity is outside the f64 range")
+    })?;
+    Ok(f64::from_bits(bits))
 }
 
 fn ensure_little_endian() -> Result<(), FoundationArtifactError> {

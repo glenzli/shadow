@@ -106,6 +106,8 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     filtered.setCaptureMonth(QStringLiteral("2026-07"));
     filtered.setCameraKey(QStringLiteral("Canon EOS R"));
     filtered.setLensKey(QStringLiteral("RF24-105MM F4 L IS USM"));
+    filtered.setCountryKey(QStringLiteral(" CN "));
+    filtered.setLocalityKey(QStringLiteral("CN\u001fShanghai\u001fShanghai"));
     require(
         filtered.captureMonth() == QStringLiteral("2026-07"),
         "capture months must retain the canonical YYYY-MM key"
@@ -117,6 +119,14 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     require(
         filtered.lensKey() == QStringLiteral("rf24-105mm f4 l is usm"),
         "lens facet keys must use catalog-compatible normalization"
+    );
+    require(
+        filtered.countryKey() == QStringLiteral("cn"),
+        "country facet keys must use catalog-compatible normalization"
+    );
+    require(
+        filtered.localityKey() == QStringLiteral("cn\u001fshanghai\u001fshanghai"),
+        "city facet keys must remain structured Catalog identities"
     );
     require(filtered.hasActiveServerFilter(), "metadata facets must request a fresh page");
 

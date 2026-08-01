@@ -69,6 +69,13 @@ class PreparedRawFrameSource final {
 
     friend PreparedRawFrameSource prepare_raw_frame_source(
         const DecodeSession& session,
+        RawFrame frame,
+        const RawDevelopmentPlan& requested_plan,
+        std::optional<std::uint32_t> preview_max_edge,
+        const CameraProfileCatalog& camera_profiles
+    );
+    friend PreparedRawFrameSource prepare_raw_frame_source(
+        const DecodeSession& session,
         const RawDevelopmentPlan& requested_plan,
         std::optional<std::uint32_t> preview_max_edge,
         const CameraProfileCatalog& camera_profiles
@@ -100,6 +107,17 @@ class PreparedRawFrameSource final {
 
 [[nodiscard]] PreparedRawFrameSource prepare_raw_frame_source(
     const DecodeSession& session,
+    const RawDevelopmentPlan& requested_plan,
+    std::optional<std::uint32_t> preview_max_edge,
+    const CameraProfileCatalog& camera_profiles
+);
+
+// Uses a helper-produced provider-neutral frame while retaining the ordinary
+// in-process session only for already-safe metadata, profiles, and optics.
+// This is the crash-isolated counterpart of the decode-owning overload.
+[[nodiscard]] PreparedRawFrameSource prepare_raw_frame_source(
+    const DecodeSession& session,
+    RawFrame frame,
     const RawDevelopmentPlan& requested_plan,
     std::optional<std::uint32_t> preview_max_edge,
     const CameraProfileCatalog& camera_profiles

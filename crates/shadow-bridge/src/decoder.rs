@@ -4,8 +4,9 @@ use std::path::Path;
 
 use shadow_domain::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
-    GpsMetadataSnapshot, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewCodec,
-    PreviewDescriptorSnapshot, RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
+    FocusObservationSnapshot, FocusObservationSource, GpsMetadataSnapshot, ImageDimensions,
+    ImageMargins, PendingCorrectionsSnapshot, PreviewCodec, PreviewDescriptorSnapshot,
+    RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
 };
 
 use super::{BridgeError, ffi};
@@ -110,6 +111,7 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
     let provider = handle.provider();
     let metadata = handle.metadata();
     let gps = ffi_gps_metadata(&metadata);
+    let focus_observation = ffi_focus_observation(&metadata);
     let capabilities = handle.capabilities();
     let previews = handle.previews();
 
@@ -153,6 +155,7 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
             exposure_time_seconds: metadata.exposure_time_seconds,
             aperture_f_number: metadata.aperture_f_number,
             focal_length_mm: metadata.focal_length_mm,
+            focus_observation,
             captured_at_unix_seconds: metadata.captured_at_unix_seconds,
             gps,
             lens_make: metadata.lens_make,
@@ -193,6 +196,28 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
         },
         previews: previews.iter().map(preview_descriptor).collect(),
     }
+}
+
+fn ffi_focus_observation(metadata: &ffi::FfiMetadataSnapshot) -> Option<FocusObservationSnapshot> {
+    if !metadata.has_focus_observation {
+        return None;
+    }
+    let source = match metadata.focus_observation_source {
+        1 => FocusObservationSource::CameraFocusArea,
+        2 => FocusObservationSource::CameraFocusLocation,
+        _ => return None,
+    };
+    let observation = FocusObservationSnapshot {
+        schema_version: metadata.focus_observation_schema_version,
+        source,
+        center_x: metadata.focus_observation_center_x,
+        center_y: metadata.focus_observation_center_y,
+        width: metadata.focus_observation_width,
+        height: metadata.focus_observation_height,
+        focus_confirmed: metadata.focus_observation_confirmed,
+        confidence: metadata.focus_observation_confidence,
+    };
+    observation.is_valid().then_some(observation)
 }
 
 fn ffi_gps_metadata(metadata: &ffi::FfiMetadataSnapshot) -> Option<GpsMetadataSnapshot> {

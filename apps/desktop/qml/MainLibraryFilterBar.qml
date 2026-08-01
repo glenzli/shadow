@@ -60,54 +60,9 @@ Rectangle {
     color: filterBar.anyFilterActive
         ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
 
-    Menu {
+    MainLibrarySortMenu {
         id: sortMenu
-
-        MenuItem {
-            text: qsTranslate("Main", "Capture date · Newest first")
-            checkable: true
-            checked: filterBar.controller.librarySortKey === "capture_time"
-                && filterBar.controller.librarySortDescending
-            onTriggered: {
-                filterBar.controller.librarySortKey = "capture_time"
-                filterBar.controller.librarySortDescending = true
-            }
-        }
-
-        MenuItem {
-            text: qsTranslate("Main", "Capture date · Oldest first")
-            checkable: true
-            checked: filterBar.controller.librarySortKey === "capture_time"
-                && !filterBar.controller.librarySortDescending
-            onTriggered: {
-                filterBar.controller.librarySortKey = "capture_time"
-                filterBar.controller.librarySortDescending = false
-            }
-        }
-
-        MenuSeparator {}
-
-        MenuItem {
-            text: qsTranslate("Main", "Name · A to Z")
-            checkable: true
-            checked: filterBar.controller.librarySortKey === "name"
-                && !filterBar.controller.librarySortDescending
-            onTriggered: {
-                filterBar.controller.librarySortKey = "name"
-                filterBar.controller.librarySortDescending = false
-            }
-        }
-
-        MenuItem {
-            text: qsTranslate("Main", "Name · Z to A")
-            checkable: true
-            checked: filterBar.controller.librarySortKey === "name"
-                && filterBar.controller.librarySortDescending
-            onTriggered: {
-                filterBar.controller.librarySortKey = "name"
-                filterBar.controller.librarySortDescending = true
-            }
-        }
+        controller: filterBar.controller
     }
 
     Row {
@@ -116,6 +71,7 @@ Rectangle {
         spacing: 2
 
         ShadowButton {
+            id: sortButton
             anchors.verticalCenter: parent.verticalCenter
             compact: true
             minimumButtonWidth: 64
@@ -128,7 +84,7 @@ Rectangle {
                     ? qsTranslate("Main", "DATE ↓")
                     : qsTranslate("Main", "DATE ↑"))
             toolTipText: qsTranslate("Main", "Sort Library photos")
-            onClicked: sortMenu.popup()
+            onClicked: sortMenu.presentFrom(sortButton)
         }
 
         Rectangle {
@@ -166,6 +122,7 @@ Rectangle {
         }
 
         ShadowIconButton {
+            anchors.verticalCenter: parent.verticalCenter
             buttonSize: 24
             iconSize: 14
             source: "qrc:/icons/clear.svg"
@@ -194,6 +151,7 @@ Rectangle {
             delegate: ShadowIconButton {
                 required property string filterValue
                 required property url iconSource
+                anchors.verticalCenter: parent.verticalCenter
                 buttonSize: 24
                 iconSize: 15
                 source: iconSource
@@ -217,6 +175,7 @@ Rectangle {
 
             delegate: ShadowIconButton {
                 required property int index
+                anchors.verticalCenter: parent.verticalCenter
                 buttonSize: 24
                 iconSize: 15
                 source: "qrc:/icons/star-filled.svg"
@@ -240,6 +199,7 @@ Rectangle {
         }
 
         ShadowIconButton {
+            anchors.verticalCenter: parent.verticalCenter
             buttonSize: 24
             iconSize: 15
             source: "qrc:/icons/heart-filled.svg"
@@ -263,6 +223,7 @@ Rectangle {
         }
 
         ShadowIconButton {
+            anchors.verticalCenter: parent.verticalCenter
             buttonSize: 24
             iconSize: 15
             source: "qrc:/icons/edit.svg"
@@ -274,6 +235,7 @@ Rectangle {
         }
 
         ShadowIconButton {
+            anchors.verticalCenter: parent.verticalCenter
             buttonSize: 24
             iconSize: 15
             source: "qrc:/icons/edit-off.svg"
@@ -296,6 +258,7 @@ Rectangle {
 
             delegate: ShadowColorLabelButton {
                 required property string modelData
+                anchors.verticalCenter: parent.verticalCenter
                 labelColor: Theme.colorLabel(modelData)
                 selected:
                     filterBar.controller.filterColorLabel === modelData

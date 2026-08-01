@@ -70,6 +70,7 @@ ColumnLayout {
     Repeater {
         model: [
             { id: "captured_at", label: qsTranslate("ReviewWorkspace", "CAPTURED") },
+            { id: "location", label: qsTranslate("ReviewWorkspace", "LOCATION") },
             { id: "camera", label: qsTranslate("ReviewWorkspace", "CAMERA") },
             { id: "lens", label: qsTranslate("ReviewWorkspace", "LENS") },
             { id: "exposure", label: qsTranslate("ReviewWorkspace", "SHUTTER") },

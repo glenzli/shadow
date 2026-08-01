@@ -20,12 +20,21 @@ struct RawFrameStagingReceipt final {
 };
 
 /// Publishes one provider-neutral active Bayer plane for a short-lived local
-/// AI sidecar transaction. The manifest is published last, so its presence
-/// always implies a complete little-endian uint16 sample file.
+/// AI/render transaction. The manifest is published last, so its presence
+/// always implies a complete little-endian uint16 sample file. The v1
+/// manifest carries the complete active-frame colour/orientation descriptor;
+/// no consumer needs to reopen the originating private provider.
 [[nodiscard]] RawFrameStagingReceipt write_raw_frame_staging(
     const RawFrame& frame,
     const std::filesystem::path& manifest_path,
     std::string_view nonce
+);
+
+/// Reconstitutes the exact active provider-neutral RawFrame written by
+/// [`write_raw_frame_staging`]. Both files are strictly bounded and validated
+/// before any sample enters RAW development.
+[[nodiscard]] RawFrame read_raw_frame_staging(
+    const std::filesystem::path& manifest_path
 );
 
 } // namespace shadow::image

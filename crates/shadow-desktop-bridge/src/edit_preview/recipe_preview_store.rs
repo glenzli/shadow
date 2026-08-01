@@ -5,6 +5,11 @@
 //! transaction: execution identities, variant and generator identity, blob
 //! storage, and the source-checked Catalog reference.
 
+use std::{
+    sync::{OnceLock, mpsc},
+    thread,
+};
+
 use anyhow::{Context, Result as AnyResult};
 use shadow_bridge::{
     EditPreviewExecutionReceipt, RawDevelopmentPlan, RawPipelineReceipt,
@@ -38,6 +43,107 @@ pub(crate) struct RecipePreviewStoreRequest<'a> {
     pub(crate) raw_pipeline_receipt: &'a RawPipelineReceipt,
     pub(crate) edit_execution_receipt: &'a EditPreviewExecutionReceipt,
     pub(crate) source_environment_cache_identity: &'a str,
+}
+
+#[derive(Debug)]
+pub(crate) struct RecipePreviewStoreJob {
+    pub(crate) catalog: CatalogHandle,
+    pub(crate) loader: CachedArtifactLoader,
+    pub(crate) representation_id: RepresentationId,
+    pub(crate) expected_source: RepresentationFingerprint,
+    pub(crate) proxy: ProxyPayload,
+    pub(crate) recipe_snapshot_digest: [u8; 32],
+    pub(crate) max_edge: u32,
+    pub(crate) jpeg_quality: u8,
+    pub(crate) raw_development_plan: RawDevelopmentPlan,
+    pub(crate) raw_pipeline_receipt: RawPipelineReceipt,
+    pub(crate) edit_execution_receipt: EditPreviewExecutionReceipt,
+    pub(crate) source_environment_cache_identity: String,
+}
+
+impl RecipePreviewStoreJob {
+    fn store(&self) -> AnyResult<()> {
+        store_recipe_preview(
+            &self.catalog,
+            &self.loader,
+            RecipePreviewStoreRequest {
+                representation_id: self.representation_id,
+                expected_source: self.expected_source,
+                proxy: &self.proxy,
+                recipe_snapshot_digest: self.recipe_snapshot_digest,
+                max_edge: self.max_edge,
+                jpeg_quality: self.jpeg_quality,
+                raw_development_plan: self.raw_development_plan,
+                raw_pipeline_receipt: &self.raw_pipeline_receipt,
+                edit_execution_receipt: &self.edit_execution_receipt,
+                source_environment_cache_identity: &self.source_environment_cache_identity,
+            },
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum RecipePreviewStoreEnqueue {
+    Queued,
+    Dropped,
+}
+
+// Durable previews are rebuildable and must never hold the completed pixels
+// hostage. Keep a small bounded queue: normal settled edits are preserved,
+// while an unavailable or saturated cache drops work instead of propagating
+// storage latency back into the interactive renderer and Qt publication path.
+const RECIPE_PREVIEW_STORE_QUEUE_CAPACITY: usize = 4;
+static RECIPE_PREVIEW_STORE_SENDER: OnceLock<Option<mpsc::SyncSender<RecipePreviewStoreJob>>> =
+    OnceLock::new();
+
+fn recipe_preview_store_sender() -> Option<&'static mpsc::SyncSender<RecipePreviewStoreJob>> {
+    RECIPE_PREVIEW_STORE_SENDER
+        .get_or_init(|| {
+            let (sender, receiver) =
+                mpsc::sync_channel::<RecipePreviewStoreJob>(RECIPE_PREVIEW_STORE_QUEUE_CAPACITY);
+            match thread::Builder::new()
+                .name("shadow-recipe-preview-cache".to_owned())
+                .spawn(move || {
+                    while let Ok(job) = receiver.recv() {
+                        if let Err(error) = job.store() {
+                            eprintln!("Shadow: could not cache edited preview: {error:#}");
+                        }
+                    }
+                }) {
+                Ok(_) => Some(sender),
+                Err(error) => {
+                    eprintln!("Shadow: could not start edited-preview cache worker: {error}");
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+fn try_enqueue_rebuildable_cache_job<T>(
+    sender: &mpsc::SyncSender<T>,
+    job: T,
+) -> RecipePreviewStoreEnqueue {
+    match sender.try_send(job) {
+        Ok(()) => RecipePreviewStoreEnqueue::Queued,
+        Err(mpsc::TrySendError::Full(_)) => {
+            eprintln!(
+                "Shadow: edited-preview cache queue is full; skipping rebuildable cache write"
+            );
+            RecipePreviewStoreEnqueue::Dropped
+        }
+        Err(mpsc::TrySendError::Disconnected(_)) => {
+            eprintln!("Shadow: edited-preview cache worker is unavailable");
+            RecipePreviewStoreEnqueue::Dropped
+        }
+    }
+}
+
+pub(crate) fn defer_recipe_preview_store(job: RecipePreviewStoreJob) -> RecipePreviewStoreEnqueue {
+    let Some(sender) = recipe_preview_store_sender() else {
+        return RecipePreviewStoreEnqueue::Dropped;
+    };
+    try_enqueue_rebuildable_cache_job(sender, job)
 }
 
 /// Persists one rendered edit preview with exact source, Recipe, RAW, edit,

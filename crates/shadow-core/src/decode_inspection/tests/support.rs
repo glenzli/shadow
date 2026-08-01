@@ -88,6 +88,7 @@ pub(super) fn sample_snapshot() -> DecoderSnapshot {
             exposure_time_seconds: 0.0,
             aperture_f_number: 0.0,
             focal_length_mm: 0.0,
+            focus_observation: None,
             captured_at_unix_seconds: 0,
             gps: None,
             lens_make: String::new(),

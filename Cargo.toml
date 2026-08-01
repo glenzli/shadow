@@ -60,3 +60,12 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
+
+# Foundation artifacts are hundreds of MiB. Keep their mandatory integrity
+# verification practical in the desktop debug build instead of running the
+# cryptographic hot loop with opt-level 0.
+[profile.dev.package.shadow-cache]
+opt-level = 3
+
+[profile.test.package.shadow-cache]
+opt-level = 3

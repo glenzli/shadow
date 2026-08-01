@@ -38,6 +38,7 @@ add_library(
     src/decoder/decoder_metadata.cpp
     src/decoder/decoder_types.cpp
     src/decoder/dng_noise_profile.cpp
+    src/decoder/focus_observation.cpp
     src/decoder/libraw_runtime.cpp
     src/decoder/libraw_reference_development.cpp
     src/decoder/libraw_decoder.cpp
@@ -362,6 +363,11 @@ if(BUILD_TESTING)
         shadow-image-decoder-metadata-tests
         shadow-image-decoder-metadata-contract
         tests/decoder_metadata_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-focus-observation-tests
+        shadow-image-focus-observation-contract
+        tests/focus_observation_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-raster-gps-metadata-tests

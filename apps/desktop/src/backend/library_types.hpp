@@ -27,6 +27,8 @@ struct BackendLibraryPhotoFilter final {
     QString capture_month;
     QString camera_key;
     QString lens_key;
+    QString country_key;
+    QString locality_key;
     bool has_aperture_minimum = false;
     std::uint32_t aperture_minimum_milli = 0;
     bool has_aperture_maximum = false;
@@ -50,6 +52,36 @@ enum class BackendLibraryFacetKind : std::uint8_t {
     CaptureMonth,
     Camera,
     Lens,
+    Country,
+    City,
+};
+
+/// Exact coordinate work discovered by the Catalog. The provider may
+/// prioritize coordinates shared by several current photos.
+struct BackendLibraryPlaceResolutionCandidate final {
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
+    std::uint64_t photo_count = 0;
+};
+
+/// Provider-neutral structured reverse-geocoding output. Stable facet keys
+/// and the final write time are deliberately not caller-controlled.
+struct BackendLibraryPlaceResolutionResult final {
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
+    QString country_code;
+    QString country_name;
+    QString administrative_area;
+    QString locality;
+    QString display_name;
+    QString provider_id;
+    QString provider_version;
+    QString locale;
+};
+
+enum class BackendRecordLibraryPlaceResolutionStatus : std::uint8_t {
+    Recorded,
+    CoordinatesNoLongerUsed,
 };
 
 enum class BackendLibraryPhotoOrder : std::uint8_t {

@@ -255,7 +255,7 @@ fn photo_geometry_is_recipe_local() {
 }
 
 #[test]
-fn liquify_is_optional_before_the_mandatory_canvas_and_round_trips_flattened() {
+fn liquify_round_trips_without_materializing_an_absent_canvas() {
     let point = |x, y| {
         LiquifyPoint::new(
             UnitInterval::new(x).expect("normalized x"),
@@ -289,6 +289,7 @@ fn liquify_is_optional_before_the_mandatory_canvas_and_round_trips_flattened() {
 
     assert_eq!(snapshot.structural_nodes().liquify(), Some(&liquify));
     assert!(snapshot.canvas_node().is_identity());
+    assert!(!snapshot.canvas_node().is_present());
     let encoded = serde_json::to_string(&snapshot).expect("serialize structural nodes");
     assert!(encoded.contains("\"liquify\""));
     assert!(!encoded.contains("\"geometry\""));
@@ -297,6 +298,38 @@ fn liquify_is_optional_before_the_mandatory_canvas_and_round_trips_flattened() {
         serde_json::from_str(&encoded).expect("deserialize structural nodes");
     decoded.validate().expect("validate structural nodes");
     assert_eq!(decoded, snapshot);
+}
+
+#[test]
+fn added_canvas_bypass_preserves_authored_geometry_but_not_render_effect() {
+    let geometry = PhotoGeometry::identity()
+        .with_straighten_degrees(-4.0)
+        .expect("valid straighten");
+    let canvas = PhotoCanvasNode::new(geometry).with_enabled(false);
+    let snapshot =
+        RecipeSnapshot::new_with_input_settings_masks_retouch_strokes_and_structural_nodes(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            RecipeInputSettings::default(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            PhotoStructuralNodes::new(None, canvas).expect("valid optional Canvas"),
+            vec![inline_layer()],
+        )
+        .expect("Recipe with bypassed Canvas");
+
+    assert!(snapshot.canvas_node().is_present());
+    assert!(!snapshot.canvas_node().enabled());
+    assert_eq!(snapshot.canvas_node().geometry(), geometry);
+    assert_eq!(snapshot.geometry(), PhotoGeometry::identity());
+
+    let encoded = serde_json::to_string(&snapshot).expect("serialize bypassed Canvas");
+    assert!(encoded.contains("\"geometry\""));
+    assert!(encoded.contains("\"present\":true"));
+    assert!(encoded.contains("\"enabled\":false"));
+    let decoded: RecipeSnapshot =
+        serde_json::from_str(&encoded).expect("deserialize bypassed Canvas");
+    assert_eq!(decoded.canvas_node(), snapshot.canvas_node());
 }
 
 #[test]

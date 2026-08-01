@@ -235,7 +235,8 @@ QStringList UiPreferences::defaultExifFields() {
 
 QStringList UiPreferences::normalizeExifFields(const QStringList& fields) {
     static const QStringList allowed{
-        QStringLiteral("captured_at"), QStringLiteral("camera"),
+        QStringLiteral("captured_at"), QStringLiteral("location"),
+        QStringLiteral("camera"),
         QStringLiteral("lens"), QStringLiteral("exposure"),
         QStringLiteral("aperture"), QStringLiteral("iso"),
         QStringLiteral("focal_length"), QStringLiteral("dimensions"),

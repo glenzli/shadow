@@ -97,13 +97,23 @@ fn open_export_session(
 ) -> AnyResult<PhotoEditDetailSession> {
     if let Some(selection) = raw_foundation {
         let loaded = load_raw_foundation_for_render(selection, native_path, source)?;
-        let session = PhotoEditDetailSession::open_with_raw_foundation(
-            native_path,
-            raw_plan,
-            &loaded.foundation,
-            optics,
-            requirements,
-        )
+        let session = match loaded.staging_manifest_path.as_deref() {
+            Some(staging_manifest) => PhotoEditDetailSession::open_with_staged_raw_foundation(
+                native_path,
+                staging_manifest,
+                raw_plan,
+                &loaded.foundation,
+                optics,
+                requirements,
+            ),
+            None => PhotoEditDetailSession::open_with_raw_foundation(
+                native_path,
+                raw_plan,
+                &loaded.foundation,
+                optics,
+                requirements,
+            ),
+        }
         .context("prepare export from verified AI RAW foundation")?;
         ensure_foundation_development_receipt(raw_plan, session.raw_pipeline_receipt())?;
         return Ok(session);

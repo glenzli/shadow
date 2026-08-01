@@ -142,7 +142,8 @@ bool EditController::foundationSelected() const noexcept {
 }
 
 bool EditController::rawDenoiseSelected() const noexcept {
-    return selected_recipe_node_kind_ == QStringLiteral("raw_denoise");
+    return grade_stack_.raw_ai_denoise.present
+           && selected_recipe_node_kind_ == QStringLiteral("raw_denoise");
 }
 
 QString EditController::selectedRecipeNodeKind() const {
@@ -171,8 +172,7 @@ bool EditController::canMoveGradeNodeUp() const noexcept {
 bool EditController::canMoveGradeNodeDown() const noexcept {
     const int count = static_cast<int>(grade_stack_.grade_nodes.size());
     return active_ && !interactionLocked() && hasSelectedGradeNode()
-           && selected_grade_node_index_ >= 0
-           && selected_grade_node_index_ + 1 < count;
+           && selected_grade_node_index_ >= 0 && selected_grade_node_index_ + 1 < count;
 }
 
 bool EditController::gradeNodeEnabled() const noexcept {
@@ -211,8 +211,7 @@ void EditController::selectGradeNode(const int index) {
     setPointColorPickerActive(false);
     setRetouchPickerActive(false);
     setWhiteBalancePickerActive(false);
-    const bool left_structural =
-        selected_recipe_node_kind_ != QStringLiteral("grade");
+    const bool left_structural = selected_recipe_node_kind_ != QStringLiteral("grade");
     selected_recipe_node_kind_ = QStringLiteral("grade");
     setGradeStack(grade_stack_, grade_stack_.grade_nodes.at(index).grade_node_id);
     if (left_structural) {
@@ -248,7 +247,7 @@ void EditController::selectFoundationNode() {
 }
 
 void EditController::selectRawDenoiseNode() {
-    if (!active_ || interactionLocked()
+    if (!active_ || interactionLocked() || !grade_stack_.raw_ai_denoise.present
         || selected_recipe_node_kind_ == QStringLiteral("raw_denoise")) {
         return;
     }
@@ -289,7 +288,7 @@ void EditController::selectLiquifyNode() {
 }
 
 void EditController::selectCanvasNode() {
-    if (!active_ || interactionLocked()
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present
         || selected_recipe_node_kind_ == QStringLiteral("canvas")) {
         return;
     }
@@ -334,8 +333,7 @@ void EditController::addGradeNode() {
         ));
         return;
     }
-    const bool left_structural =
-        selected_recipe_node_kind_ != QStringLiteral("grade");
+    const bool left_structural = selected_recipe_node_kind_ != QStringLiteral("grade");
     selected_recipe_node_kind_ = QStringLiteral("grade");
     setGradeStack(std::move(updated), grade_node.grade_node_id);
     if (left_structural) {
@@ -530,8 +528,7 @@ void EditController::insertSharedGradeNode(const QString& layer_id) {
             return;
         }
     }
-    const bool left_structural =
-        selected_recipe_node_kind_ != QStringLiteral("grade");
+    const bool left_structural = selected_recipe_node_kind_ != QStringLiteral("grade");
     selected_recipe_node_kind_ = QStringLiteral("grade");
     setGradeStack(std::move(updated), inserted.grade_node_id);
     if (left_structural) {

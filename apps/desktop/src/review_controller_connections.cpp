@@ -109,6 +109,18 @@ void ReviewController::initializeCoordinatorWiring() {
         [this]() { setStatusMessage(facet_coordinator_.globalStatusMessage()); }
     );
     connect(
+        &place_resolution_coordinator_,
+        &ReviewLibraryPlaceResolutionCoordinator::placesChanged,
+        this,
+        [this]() {
+            refreshLibraryFacets();
+            if (!filtered_model_.countryKey().isEmpty()
+                || !filtered_model_.localityKey().isEmpty()) {
+                scheduleFilterQuery();
+            }
+        }
+    );
+    connect(
         &keyword_coordinator_,
         &ReviewLibraryKeywordCoordinator::keywordsChanged,
         this,
@@ -277,6 +289,9 @@ void ReviewController::initializeCoordinatorWiring() {
          startup_dependencies_loaded =
              false](const BackendLibraryPhotoFilter& filter, const quint64 generation) mutable {
             facet_coordinator_.refresh(filter, generation);
+            if (!import_coordinator_.scanning()) {
+                place_resolution_coordinator_.start();
+            }
             if (startup_dependencies_loaded) {
                 return;
             }

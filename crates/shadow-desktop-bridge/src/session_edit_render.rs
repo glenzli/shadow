@@ -171,13 +171,23 @@ impl DesktopSession {
         ensure_native_decode_is_admitted(&self.cache_root, &native_path)?;
         let prepared_session = if let Some(selection) = raw_foundation {
             let loaded = load_raw_foundation_for_render(selection, &native_path, source.source)?;
-            let prepared = PhotoEditDetailSession::open_with_raw_foundation(
-                &native_path,
-                raw_development_plan,
-                &loaded.foundation,
-                &optics,
-                requirements,
-            )
+            let prepared = match loaded.staging_manifest_path.as_deref() {
+                Some(staging_manifest) => PhotoEditDetailSession::open_with_staged_raw_foundation(
+                    &native_path,
+                    staging_manifest,
+                    raw_development_plan,
+                    &loaded.foundation,
+                    &optics,
+                    requirements,
+                ),
+                None => PhotoEditDetailSession::open_with_raw_foundation(
+                    &native_path,
+                    raw_development_plan,
+                    &loaded.foundation,
+                    &optics,
+                    requirements,
+                ),
+            }
             .context("prepare full detail from verified AI RAW foundation")?;
             ensure_foundation_development_receipt(
                 raw_development_plan,

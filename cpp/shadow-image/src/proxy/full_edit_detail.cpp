@@ -660,4 +660,39 @@ FullEditDetailSession prepare_full_edit_detail(
     );
 }
 
+FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& metadata_session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    RawFrame staged_frame,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    auto prepared = proxy_detail::prepare_full_edit_detail_source(
+        metadata_session,
+        std::move(staged_frame),
+        raw_development_plan,
+        foundation,
+        requirements,
+        optics_provider,
+        optics_settings
+    );
+    if (prepared.resident()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "staged AI RAW foundation source preparation published a resident CFA source"
+        );
+    }
+    return FullEditDetailSession(
+        std::move(std::get<DevelopedSourcePixels>(prepared.source)),
+        prepared.retained_bytes,
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
+        std::move(prepared.optics_receipt),
+        std::move(prepared.source_rendering)
+    );
+}
+
 } // namespace shadow::image

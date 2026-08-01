@@ -30,7 +30,7 @@ fn provenance() -> RawFoundationProvenance {
         "d".repeat(64),
         "e".repeat(64),
         "f".repeat(64),
-        "rawnind-public-bayer-foundation-20260731.1".into(),
+        "rawnind-public-bayer-foundation-v1".into(),
     )
     .expect("valid foundation provenance")
 }
@@ -63,7 +63,7 @@ fn foundation_is_a_fixed_full_resolution_domain_transition() {
     assert_eq!(foundation.source().source_size_bytes(), 42_000_000);
     assert_eq!(
         foundation.provenance().implementation_revision(),
-        "rawnind-public-bayer-foundation-20260731.1"
+        "rawnind-public-bayer-foundation-v1"
     );
 }
 

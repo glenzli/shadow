@@ -71,6 +71,12 @@ fn real_public_runtime_publishes_then_reuses_the_verified_foundation_when_suppli
     let package = PathBuf::from(&values[2]);
     let graph = PathBuf::from(&values[3]);
     let raw = PathBuf::from(&values[4]);
+    let expected_width = std::env::var("SHADOW_TEST_RAWNIND_EXPECTED_WIDTH")
+        .map_or(Ok(3908_u32), |value| value.parse())
+        .expect("valid expected RawNIND width");
+    let expected_height = std::env::var("SHADOW_TEST_RAWNIND_EXPECTED_HEIGHT")
+        .map_or(Ok(2600_u32), |value| value.parse())
+        .expect("valid expected RawNIND height");
     let sequence = REAL_FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(
         "shadow-desktop-rawnind-runtime-{}-{sequence}",
@@ -123,14 +129,14 @@ fn real_public_runtime_publishes_then_reuses_the_verified_foundation_when_suppli
         )
         .expect("first desktop materialization");
     let RawFoundationRuntimeOutcome::Ready(first) = first else {
-        panic!("first desktop materialization was not ready");
+        panic!("first desktop materialization was not ready: {first:?}");
     };
     assert_eq!(
         first.disposition,
         RawFoundationMaterializationDisposition::Published
     );
-    assert_eq!(first.descriptor.raster_extent().width, 3908);
-    assert_eq!(first.descriptor.raster_extent().height, 2600);
+    assert_eq!(first.descriptor.raster_extent().width, expected_width);
+    assert_eq!(first.descriptor.raster_extent().height, expected_height);
     assert_eq!(first.source_path, raw);
     assert_eq!(
         first.source,
@@ -150,7 +156,7 @@ fn real_public_runtime_publishes_then_reuses_the_verified_foundation_when_suppli
         )
         .expect("cached desktop materialization");
     let RawFoundationRuntimeOutcome::Ready(second) = second else {
-        panic!("cached desktop materialization was not ready");
+        panic!("cached desktop materialization was not ready: {second:?}");
     };
     assert_eq!(
         second.disposition,

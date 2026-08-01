@@ -55,6 +55,15 @@ pub(super) fn metadata_snapshot_protocol(nonce: &str) -> Vec<u8> {
         "4e494b4f4e",                         // NIKON
         "4e494b4b4f52205a2032342d3132306d6d", // NIKKOR Z 24-120mm
         "4042000000000000",                   // 36mm equivalent
+        ONE,                                  // focus observation available
+        ONE,                                  // focus observation schema
+        ONE,                                  // camera focus area
+        "3fe4000000000000",                   // center x: 0.625
+        "3fd8000000000000",                   // center y: 0.375
+        "3fc0000000000000",                   // width: 0.125
+        "3fd0000000000000",                   // height: 0.25
+        ONE,                                  // focus confirmed
+        "3ff0000000000000",                   // confidence: 1.0
     ]);
     assert_eq!(fields.len(), METADATA_SNAPSHOT_FIELD_COUNT);
     fields.join(" ").into_bytes()

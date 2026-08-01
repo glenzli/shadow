@@ -28,7 +28,7 @@
   "quantization": {
     "kind": "none"
   },
-  "preprocessing_version": "rawnind-bayer-foundation-20260730.1",
+  "preprocessing_version": "rawnind-bayer-foundation-v1",
   "inputs": [
     {
       "name": "input",

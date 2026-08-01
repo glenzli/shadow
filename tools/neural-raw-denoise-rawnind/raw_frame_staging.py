@@ -14,15 +14,35 @@ SCHEMA = "shadow-raw-frame-staging-v1"
 MAX_MANIFEST_BYTES = 16 * 1024
 MAX_DIMENSION = 100_000
 FIELDS = {
+    "descriptor_contract",
     "width",
     "height",
     "cfa",
     "black",
     "white",
+    "orientation",
+    "bits_per_sample",
+    "as_shot_neutral",
+    "camera_to_xyz_d50",
+    "camera_to_linear_srgb_d65",
+    "pending_dng_opcode_bytes",
     "provider_id_hex",
     "provider_version_hex",
     "sample_bytes",
 }
+
+
+def _finite_values(value: str, count: int, label: str) -> list[float]:
+    fields = value.split(",")
+    if len(fields) != count:
+        raise ValueError(f"staged RAW frame {label} has the wrong number of values")
+    try:
+        values = [float(field) for field in fields]
+    except ValueError as error:
+        raise ValueError(f"staged RAW frame {label} is not numeric") from error
+    if any(not np.isfinite(item) for item in values):
+        raise ValueError(f"staged RAW frame {label} is not finite")
+    return values
 
 
 @dataclass(frozen=True)
@@ -98,11 +118,15 @@ def load(manifest_path: Path) -> StagedRawFrame:
         pairs[key] = value
     if set(pairs) != FIELDS:
         raise ValueError("staged RAW frame manifest fields changed")
+    if pairs["descriptor_contract"] != "active-camera-colour-v1":
+        raise ValueError("staged RAW frame descriptor contract is unsupported")
 
     try:
         width = int(pairs["width"])
         height = int(pairs["height"])
         declared_sample_bytes = int(pairs["sample_bytes"])
+        orientation = int(pairs["orientation"])
+        bits_per_sample = int(pairs["bits_per_sample"])
     except ValueError as error:
         raise ValueError(
             "staged RAW frame dimensions are not integers"
@@ -114,6 +138,8 @@ def load(manifest_path: Path) -> StagedRawFrame:
         or height > MAX_DIMENSION
     ):
         raise ValueError("staged RAW frame dimensions are out of range")
+    if orientation not in {0, 3, 5, 6} or not 1 <= bits_per_sample <= 16:
+        raise ValueError("staged RAW frame orientation or bit depth is unsupported")
     expected_sample_bytes = width * height * 2
     if declared_sample_bytes != expected_sample_bytes:
         raise ValueError("staged RAW frame sample byte count changed")
@@ -132,6 +158,27 @@ def load(manifest_path: Path) -> StagedRawFrame:
         raise ValueError(
             "RawNIND staging currently requires one shared sensor white level"
         )
+    neutral = _finite_values(pairs["as_shot_neutral"], 4, "as-shot neutral")
+    if any(value <= 0.0 for value in neutral):
+        raise ValueError("staged RAW frame as-shot neutral is invalid")
+    for field, label in (
+        ("camera_to_xyz_d50", "D50 camera matrix"),
+        ("camera_to_linear_srgb_d65", "linear sRGB camera matrix"),
+    ):
+        if pairs[field] != "-":
+            matrix = _finite_values(pairs[field], 9, label)
+            if not any(value != 0.0 for value in matrix):
+                raise ValueError(f"staged RAW frame {label} is empty")
+    if (
+        pairs["camera_to_xyz_d50"] == "-"
+        and pairs["camera_to_linear_srgb_d65"] == "-"
+    ):
+        raise ValueError("staged RAW frame has no camera colour transform")
+    opcode_bytes = _finite_values(
+        pairs["pending_dng_opcode_bytes"], 3, "DNG opcode sizes"
+    )
+    if any(value < 0.0 or not value.is_integer() for value in opcode_bytes):
+        raise ValueError("staged RAW frame DNG opcode sizes are invalid")
 
     provider_id = _decode_identity(pairs["provider_id_hex"], "provider id")
     provider_version = _decode_identity(

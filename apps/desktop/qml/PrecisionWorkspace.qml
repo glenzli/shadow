@@ -57,6 +57,13 @@ Item {
         const nextTool = activeSpecialTool === requestedTool
             ? toolNone : requestedTool
 
+        if (nextTool === toolCrop) {
+            editor.addCanvasNode()
+            if (!editor.canvasNodeMaterialized)
+                return
+            editor.selectCanvasNode()
+        }
+
         editor.setPointColorPickerActive(false)
         editor.setWhiteBalancePickerActive(false)
         if (nextTool !== toolRepair)
@@ -221,6 +228,7 @@ Item {
             editor: precision.editor
             editPreviewPresentation:
                 precision.editPreviewPresentation
+            captureMetadata: precision.captureMetadata
             activeToolMode: precision.activeSpecialTool
             cropAspectRatioLock: precision.cropAspectRatioLock
             selectedRetouchContinuous:

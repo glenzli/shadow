@@ -6,8 +6,28 @@ use shadow_domain::{
     AssetLocation, EntityId, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec,
     ProxyPayload, RawTemperatureTint, RawWhiteBalance, RepresentationId, RepresentationKind,
 };
+use std::time::{Duration, Instant};
 
 use super::*;
+
+#[test]
+fn saturated_durable_cache_queue_never_blocks_preview_publication() {
+    let (sender, _receiver) = mpsc::sync_channel(1);
+    assert_eq!(
+        try_enqueue_rebuildable_cache_job(&sender, 1_u8),
+        RecipePreviewStoreEnqueue::Queued
+    );
+
+    let started = Instant::now();
+    assert_eq!(
+        try_enqueue_rebuildable_cache_job(&sender, 2_u8),
+        RecipePreviewStoreEnqueue::Dropped
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(50),
+        "a saturated rebuildable-cache queue must return immediately"
+    );
+}
 
 #[test]
 #[allow(clippy::too_many_lines)]

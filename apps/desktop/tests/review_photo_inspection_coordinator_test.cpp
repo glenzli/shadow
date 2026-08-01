@@ -84,6 +84,15 @@ void complete_presentation_preserves_every_backend_field() {
     source.sensor_bits = 14;
     source.cfa_pattern = QStringLiteral("RGGB");
     source.dng_version = QStringLiteral("1.6.0.0");
+    source.has_focus_observation = true;
+    source.focus_observation_schema_version = 1;
+    source.focus_observation_source = QStringLiteral("camera_focus_area");
+    source.focus_observation_center_x = 0.625;
+    source.focus_observation_center_y = 0.375;
+    source.focus_observation_width = 0.125;
+    source.focus_observation_height = 0.25;
+    source.focus_observation_confirmed = true;
+    source.focus_observation_confidence = 1.0;
     source.has_technical_observation = true;
     source.technical_input_width = 2'048;
     source.technical_input_height = 1'365;
@@ -242,6 +251,38 @@ void complete_presentation_preserves_every_backend_field() {
         result.value(QStringLiteral("dngVersion")).toString()
             == source.dng_version,
         "dngVersion"
+    );
+    require(
+        result.value(QStringLiteral("hasFocusObservation")).toBool(),
+        "hasFocusObservation"
+    );
+    require(
+        result.value(QStringLiteral("focusObservationSchemaVersion")).toUInt()
+            == source.focus_observation_schema_version,
+        "focusObservationSchemaVersion"
+    );
+    require(
+        result.value(QStringLiteral("focusObservationSource")).toString()
+            == source.focus_observation_source,
+        "focusObservationSource"
+    );
+    require(
+        std::abs(
+            result.value(QStringLiteral("focusObservationCenterX")).toDouble()
+            - source.focus_observation_center_x
+        ) < 1.0e-12,
+        "focusObservationCenterX"
+    );
+    require(
+        std::abs(
+            result.value(QStringLiteral("focusObservationCenterY")).toDouble()
+            - source.focus_observation_center_y
+        ) < 1.0e-12,
+        "focusObservationCenterY"
+    );
+    require(
+        result.value(QStringLiteral("focusObservationConfirmed")).toBool(),
+        "focusObservationConfirmed"
     );
     require(
         result.value(QStringLiteral("hasTechnicalObservation")).toBool(),

@@ -142,13 +142,25 @@ impl WarmEditPreviewSessionCache {
                 Some(selection) => {
                     let loaded =
                         load_raw_foundation_for_render(selection, &native_path, source.source)?;
-                    let prepared = PhotoEditPreviewSession::open_with_raw_foundation(
-                        &native_path,
-                        max_edge,
-                        raw_development_plan,
-                        &loaded.foundation,
-                        optics,
-                    )
+                    let prepared = match loaded.staging_manifest_path.as_deref() {
+                        Some(staging_manifest) => {
+                            PhotoEditPreviewSession::open_with_staged_raw_foundation(
+                                &native_path,
+                                staging_manifest,
+                                max_edge,
+                                raw_development_plan,
+                                &loaded.foundation,
+                                optics,
+                            )
+                        }
+                        None => PhotoEditPreviewSession::open_with_raw_foundation(
+                            &native_path,
+                            max_edge,
+                            raw_development_plan,
+                            &loaded.foundation,
+                            optics,
+                        ),
+                    }
                     .context("prepare preview from verified AI RAW foundation")?;
                     ensure_foundation_development_receipt(
                         raw_development_plan,

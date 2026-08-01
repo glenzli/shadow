@@ -153,6 +153,18 @@ void ReviewController::setFilterLensKey(const QString& lens_key) {
     filtered_model_.setLensKey(lens_key);
 }
 
+void ReviewController::setFilterCountryKey(const QString& country_key) {
+    const QString previous = filtered_model_.countryKey();
+    filtered_model_.setCountryKey(country_key);
+    if (filtered_model_.countryKey() != previous && !filtered_model_.localityKey().isEmpty()) {
+        filtered_model_.setLocalityKey({});
+    }
+}
+
+void ReviewController::setFilterLocalityKey(const QString& locality_key) {
+    filtered_model_.setLocalityKey(locality_key);
+}
+
 void ReviewController::setFilterKeywordIdsAll(const QStringList& keyword_ids) {
     filtered_model_.setKeywordIdsAll(keyword_ids);
 }
@@ -224,6 +236,8 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     filter.capture_month = filtered_model_.captureMonth();
     filter.camera_key = filtered_model_.cameraKey();
     filter.lens_key = filtered_model_.lensKey();
+    filter.country_key = filtered_model_.countryKey();
+    filter.locality_key = filtered_model_.localityKey();
     filter.album_id = album_coordinator_.albumId();
     filter.keyword_ids_all = filtered_model_.keywordIdsAll();
     filter.excluded_keyword_ids_any = filtered_model_.excludedKeywordIdsAny();

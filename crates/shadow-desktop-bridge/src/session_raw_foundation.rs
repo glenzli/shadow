@@ -11,6 +11,7 @@ use shadow_domain::PhotoId;
 
 use super::{
     DesktopSession, ffi,
+    raw_foundation_noise_assessment::{RawFoundationNoiseAssessment, RawFoundationNoiseLevel},
     raw_foundation_runtime::{RawFoundationInvocation, RawFoundationReady},
     raw_foundation_service::{RawFoundationJobPhase, RawFoundationJobSnapshot},
     session_photo_source::catalog_native_path,
@@ -45,6 +46,17 @@ impl DesktopSession {
         Ok(self
             .raw_foundations
             .begin_job(request_id.to_owned(), generation)?)
+    }
+
+    pub(crate) fn assess_raw_foundation_noise(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+    ) -> AnyResult<ffi::FfiRawFoundationNoiseAssessment> {
+        let native_path = self.validated_raw_foundation_source(photo_id, source_path)?;
+        Ok(ffi_noise_assessment(
+            self.raw_foundation_runtime.assess_noise(&native_path)?,
+        ))
     }
 
     pub(crate) fn cancel_raw_foundation_job(&self, job_token: u64) -> AnyResult<()> {
@@ -121,6 +133,21 @@ impl DesktopSession {
             );
         }
         catalog_native_path(&source)
+    }
+}
+
+fn ffi_noise_assessment(
+    assessment: RawFoundationNoiseAssessment,
+) -> ffi::FfiRawFoundationNoiseAssessment {
+    ffi::FfiRawFoundationNoiseAssessment {
+        level: match assessment.level {
+            RawFoundationNoiseLevel::Low => ffi::FfiRawFoundationNoiseLevel::Low,
+            RawFoundationNoiseLevel::Moderate => ffi::FfiRawFoundationNoiseLevel::Moderate,
+            RawFoundationNoiseLevel::High => ffi::FfiRawFoundationNoiseLevel::High,
+        },
+        score_percent: assessment.score_percent,
+        confidence_percent: assessment.confidence_percent,
+        diagnostic: assessment.diagnostic,
     }
 }
 

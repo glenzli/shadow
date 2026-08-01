@@ -12,8 +12,9 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph, ImageDomain,
-    LayerContent, LayerInstance, PhotoFoundationNode, PhotoGeometry, PortType, RawTemperatureTint,
-    RawWhiteBalance, RecipeInputSettings, RecipeSnapshot, UnitInterval, diff_recipe_snapshots,
+    LayerContent, LayerInstance, PhotoCanvasNode, PhotoFoundationNode, PortType,
+    RawTemperatureTint, RawWhiteBalance, RecipeInputSettings, RecipeSnapshot, UnitInterval,
+    diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -125,7 +126,7 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
 
     let ffi_round_trip = decode_grade_stack_draft_recipe_v1(
@@ -306,7 +307,7 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
     let snapshot =
         grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persist managed LUT selection");

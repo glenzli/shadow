@@ -293,7 +293,25 @@ ApplicationWindow {
                 isoSpeed: reviewWorkspace.selectedIsoSpeed,
                 exposureTimeSeconds: reviewWorkspace.selectedExposureTimeSeconds,
                 apertureFNumber: reviewWorkspace.selectedApertureFNumber,
-                focalLengthMm: reviewWorkspace.selectedFocalLengthMm
+                focalLengthMm: reviewWorkspace.selectedFocalLengthMm,
+                hasFocusObservation:
+                    reviewWorkspace.selectedHasFocusObservation,
+                focusObservationSchemaVersion:
+                    reviewWorkspace.selectedFocusObservationSchemaVersion,
+                focusObservationSource:
+                    reviewWorkspace.selectedFocusObservationSource,
+                focusObservationCenterX:
+                    reviewWorkspace.selectedFocusObservationCenterX,
+                focusObservationCenterY:
+                    reviewWorkspace.selectedFocusObservationCenterY,
+                focusObservationWidth:
+                    reviewWorkspace.selectedFocusObservationWidth,
+                focusObservationHeight:
+                    reviewWorkspace.selectedFocusObservationHeight,
+                focusObservationConfirmed:
+                    reviewWorkspace.selectedFocusObservationConfirmed,
+                focusObservationConfidence:
+                    reviewWorkspace.selectedFocusObservationConfidence
             })
             onOpenLutLibraryRequested: window.openLutManager()
             onOpenOpticsProfileLibraryRequested: window.openOpticsProfileManager()

@@ -128,6 +128,42 @@ QVariantMap ReviewPhotoInspectionCoordinator::presentation() const {
         {QStringLiteral("cfaPattern"), source.cfa_pattern},
         {QStringLiteral("dngVersion"), source.dng_version},
         {
+            QStringLiteral("hasFocusObservation"),
+            source.has_focus_observation,
+        },
+        {
+            QStringLiteral("focusObservationSchemaVersion"),
+            source.focus_observation_schema_version,
+        },
+        {
+            QStringLiteral("focusObservationSource"),
+            source.focus_observation_source,
+        },
+        {
+            QStringLiteral("focusObservationCenterX"),
+            source.focus_observation_center_x,
+        },
+        {
+            QStringLiteral("focusObservationCenterY"),
+            source.focus_observation_center_y,
+        },
+        {
+            QStringLiteral("focusObservationWidth"),
+            source.focus_observation_width,
+        },
+        {
+            QStringLiteral("focusObservationHeight"),
+            source.focus_observation_height,
+        },
+        {
+            QStringLiteral("focusObservationConfirmed"),
+            source.focus_observation_confirmed,
+        },
+        {
+            QStringLiteral("focusObservationConfidence"),
+            source.focus_observation_confidence,
+        },
+        {
             QStringLiteral("hasTechnicalObservation"),
             source.has_technical_observation,
         },

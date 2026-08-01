@@ -18,6 +18,7 @@ mod library_facts;
 mod library_keywords;
 mod library_lifecycle;
 mod library_metadata_overrides;
+mod library_place_resolution;
 mod review_projection;
 mod source_health;
 mod source_identity;
@@ -35,6 +36,7 @@ use library_facts::run_library_facts_message;
 use library_keywords::run_library_keywords_message;
 use library_lifecycle::run_library_lifecycle_message;
 use library_metadata_overrides::run_library_metadata_overrides_message;
+use library_place_resolution::run_library_place_resolution_message;
 use review_projection::run_review_projection_message;
 use source_health::run_source_health_message;
 use source_identity::run_source_identity_message;
@@ -61,6 +63,9 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                 run_library_collections_message(&mut catalog, message);
             }
             Message::LibraryBrowse(message) => run_library_browse_message(&mut catalog, message),
+            Message::LibraryPlaceResolution(message) => {
+                run_library_place_resolution_message(&mut catalog, message);
+            }
             Message::DecodeSnapshot(message) => run_decode_snapshot_message(&mut catalog, message),
             Message::CachedArtifact(message) => run_cached_artifact_message(&mut catalog, message),
             Message::TechnicalObservation(message) => {

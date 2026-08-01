@@ -262,7 +262,13 @@ EditDetailTaskResult renderDetail(
     EditDetailTaskResult result;
     result.generation = generation;
     try {
-        const std::uint32_t tile_side = std::max(viewport_width, viewport_height) > 4'096U
+        const std::uint32_t longest_side = std::max(viewport_width, viewport_height);
+        // A loupe-sized viewport fits inside the native 1024px tile bound. Ask
+        // the bridge for one exact region instead of expanding a small view to
+        // as many as four 512px cache-grid tiles. Large presentation surfaces
+        // retain the established adaptive grid and its bounded tile count.
+        const std::uint32_t tile_side = longest_side <= EDIT_LARGE_DETAIL_TILE_SIDE
+                || longest_side > 4'096U
             ? EDIT_LARGE_DETAIL_TILE_SIDE
             : EDIT_DETAIL_TILE_SIDE;
         result.viewport = compose_detail_viewport(

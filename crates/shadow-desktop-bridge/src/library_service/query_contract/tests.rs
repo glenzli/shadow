@@ -103,6 +103,24 @@ fn keyword_filter_ids_round_trip_without_becoming_untyped_text() {
     );
 }
 
+#[test]
+fn structured_place_filter_keys_round_trip_without_using_display_labels() {
+    let filter = ffi::FfiLibraryPhotoFilter {
+        country_key: " CN ".into(),
+        locality_key: "cn\u{1f}shanghai\u{1f}shanghai".into(),
+        ..neutral_ffi_filter()
+    };
+    let typed = library_filter_from_ffi(&filter).expect("parse structured place keys");
+    assert_eq!(typed.country_key.as_deref(), Some("CN"));
+    assert_eq!(
+        typed.locality_key.as_deref(),
+        Some("cn\u{1f}shanghai\u{1f}shanghai")
+    );
+    let projected = ffi_library_filter(typed);
+    assert_eq!(projected.country_key, "CN");
+    assert_eq!(projected.locality_key, "cn\u{1f}shanghai\u{1f}shanghai");
+}
+
 fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
     ffi::FfiLibraryPhotoFilter {
         has_capture_start: false,
@@ -112,6 +130,8 @@ fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
         capture_month: String::new(),
         camera_key: String::new(),
         lens_key: String::new(),
+        country_key: String::new(),
+        locality_key: String::new(),
         has_aperture_minimum: false,
         aperture_minimum_milli: 0,
         has_aperture_maximum: false,

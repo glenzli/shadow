@@ -135,6 +135,21 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
     assert_eq!(bypassed.raw_white_balance, RawWhiteBalance::AsShot);
     assert!(bypassed.raw_ai_denoise.is_enabled());
 
+    let mut hidden_denoise_settings = settings.clone();
+    hidden_denoise_settings.foundation.raw_ai_denoise_bypassed = true;
+    let hidden_denoise = resolve_recipe_render(
+        &catalog,
+        &root.join("cache"),
+        registered.photo_id,
+        &base_commit_id.to_string(),
+        &hidden_denoise_settings,
+        true,
+    )
+    .expect("resolve hidden AI RAW Denoise node");
+    assert!(hidden_denoise.raw_ai_denoise.is_enabled());
+    assert!(hidden_denoise.raw_ai_denoise.is_bypassed());
+    assert!(!hidden_denoise.raw_ai_denoise.is_effective());
+
     let mut denoise_bypassed_settings = settings;
     denoise_bypassed_settings.foundation.raw_ai_denoise_enabled = false;
     let denoise_bypassed = resolve_recipe_render(

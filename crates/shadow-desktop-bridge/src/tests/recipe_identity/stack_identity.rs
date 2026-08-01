@@ -2,7 +2,7 @@
 
 use shadow_bridge::AdjustmentRenderOperation;
 use shadow_domain::{
-    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, NodeId, PhotoFoundationNode, PhotoGeometry,
+    CURRENT_RECIPE_SCHEMA_VERSION, EntityId, NodeId, PhotoCanvasNode, PhotoFoundationNode,
     RecipeSnapshot, diff_recipe_snapshots,
 };
 
@@ -67,7 +67,7 @@ fn grade_stack_rejects_cross_grade_node_render_op_identity_reuse() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
 
     let ffi_error = decode_grade_stack_draft_recipe_v1(
@@ -194,7 +194,7 @@ fn template_rejects_retained_identity_rewrite_and_deleted_node_reuse() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
     assert!(
         grade_stack_recipe_v1_snapshot(&replacement_settings, Some(&base))
@@ -215,7 +215,7 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
                 retouch_spots: Vec::new(),
                 retouch_strokes: Vec::new(),
                 liquify: None,
-                geometry: PhotoGeometry::identity(),
+                canvas: PhotoCanvasNode::identity(),
             },
             None
         )
@@ -232,7 +232,7 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
     let snapshot = grade_stack_recipe_v1_snapshot(&sixteen, None).expect("sixteen-node snapshot");
     assert_eq!(

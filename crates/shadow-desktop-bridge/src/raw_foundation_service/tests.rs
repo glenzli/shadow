@@ -49,6 +49,8 @@ fn ready(source_path: &str, modified_at_ms: i64) -> RawFoundationReady {
             modified_at_ms: Some(modified_at_ms),
         },
         disposition: RawFoundationMaterializationDisposition::Published,
+        verified_reader: None,
+        raw_frame_staging: None,
     }
 }
 

@@ -27,13 +27,13 @@ void run_coalescing_failure_lifetime_contracts() {
         }
         state->condition.notify_all();
         wait_until(
-            [&coordinator, &state]() { return !coordinator.busy() && call_count(state) == 12; },
+            [&coordinator, &state]() { return !coordinator.busy() && call_count(state) == 16; },
             "stale batch is replaced by one coalesced latest-generation batch"
         );
         require(
             coordinator.cameras().front().toMap().value(QStringLiteral("key"))
                     == QStringLiteral("latest-camera")
-                && call_count(state) == 12,
+                && call_count(state) == 16,
             "only the latest generation reaches the visible projection"
         );
     }
@@ -76,7 +76,7 @@ void run_coalescing_failure_lifetime_contracts() {
         timer.start();
         coordinator.reset();
         releaser.join();
-        require(timer.elapsed() >= 25, "destruction waits for the active three-facet batch");
+        require(timer.elapsed() >= 25, "destruction waits for the active five-facet batch");
     }
 }
 

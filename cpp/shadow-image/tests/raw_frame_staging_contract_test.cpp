@@ -27,7 +27,7 @@ image::RawFrame frame_fixture() {
     frame.descriptor.storage_dimensions = {6U, 6U};
     frame.descriptor.active_dimensions = {4U, 4U};
     frame.descriptor.active_margins = {1U, 1U, 1U, 1U};
-    frame.descriptor.orientation = 1;
+    frame.descriptor.orientation = 0;
     frame.descriptor.cfa_layout = image::RawFrameCfaLayout::bayer_2x2;
     frame.descriptor.bayer_2x2 = {
         image::RawCfaColor::red,
@@ -40,6 +40,12 @@ image::RawFrame frame_fixture() {
     frame.descriptor.black_levels = {64U, 65U, 66U, 67U};
     frame.descriptor.white_levels = {16'383U, 16'383U, 16'383U, 16'383U};
     frame.descriptor.as_shot_neutral = {2.0, 1.0, 1.5, 1.0};
+    frame.descriptor.camera_to_linear_srgb_d65 = {
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+    };
+    frame.descriptor.has_camera_to_linear_srgb_d65 = true;
     frame.samples.resize(36U);
     for (std::size_t index = 0U; index < frame.samples.size(); ++index) {
         frame.samples[index] = static_cast<std::uint16_t>(index);
@@ -82,6 +88,12 @@ void active_plane_and_shifted_cfa_are_published_atomically() {
     expect(samples.size() == 32U, "sample file size");
     expect(samples[0] == 7U && samples[1] == 0U, "first active sample");
     expect(samples[30] == 28U && samples[31] == 0U, "last active sample");
+    const auto restored = image::read_raw_frame_staging(manifest);
+    expect(restored.descriptor.active_dimensions == image::Dimensions{4U, 4U}, "restored dimensions");
+    expect(restored.descriptor.cfa_pattern == "BGGR", "restored active CFA");
+    expect(restored.descriptor.black_levels == std::array<std::uint32_t, 4U>{67U, 66U, 65U, 64U}, "restored site levels");
+    expect(restored.descriptor.has_camera_to_linear_srgb_d65, "restored camera transform");
+    expect(restored.samples.front() == 7U && restored.samples.back() == 28U, "restored samples");
     expect(
         !fs::exists(
             manifest.string() + ".partial-01234567-89ab-cdef-0123-456789abcdef"

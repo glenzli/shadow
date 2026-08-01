@@ -31,6 +31,7 @@ int main(int argc, char* argv[]) {
         preferences.setLanguageMode(QStringLiteral("en"));
         preferences.setLibraryThumbnailScale(284);
         preferences.setExifFieldVisible(QStringLiteral("cfa"), true);
+        preferences.setExifFieldVisible(QStringLiteral("location"), true);
         preferences.setExifFieldVisible(QStringLiteral("lens"), false);
         if (!expect(preferences.appearanceMode() == QStringLiteral("dark"))
             || !expect(preferences.effectiveAppearance() == QStringLiteral("dark"))
@@ -39,6 +40,7 @@ int main(int argc, char* argv[]) {
             || !expect(preferences.effectiveLanguage() == QStringLiteral("en"))
             || !expect(QLocale().name() == QStringLiteral("en_US"))
             || !expect(preferences.exifFieldVisible(QStringLiteral("cfa")))
+            || !expect(preferences.exifFieldVisible(QStringLiteral("location")))
             || !expect(!preferences.exifFieldVisible(QStringLiteral("lens")))
             || !expect(preferences.libraryThumbnailScale() == 284)) {
             return EXIT_FAILURE;
@@ -50,6 +52,7 @@ int main(int argc, char* argv[]) {
         if (!expect(reopened.appearanceMode() == QStringLiteral("dark"))
             || !expect(reopened.languageMode() == QStringLiteral("en"))
             || !expect(reopened.exifFieldVisible(QStringLiteral("cfa")))
+            || !expect(reopened.exifFieldVisible(QStringLiteral("location")))
             || !expect(!reopened.exifFieldVisible(QStringLiteral("lens")))
             || !expect(reopened.libraryThumbnailScale() == 284)) {
             return EXIT_FAILURE;

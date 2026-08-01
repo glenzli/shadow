@@ -205,6 +205,43 @@ fn ffi_metadata_snapshot(metadata: &RawMetadataSnapshot) -> ffi::FfiMetadataSnap
         exposure_time_seconds: metadata.exposure_time_seconds,
         aperture_f_number: metadata.aperture_f_number,
         focal_length_mm: metadata.focal_length_mm,
+        has_focus_observation: metadata.focus_observation.is_some(),
+        focus_observation_schema_version: metadata
+            .focus_observation
+            .as_ref()
+            .map_or(0, |observation| observation.schema_version),
+        focus_observation_source: metadata
+            .focus_observation
+            .as_ref()
+            .map_or(0, |observation| match observation.source {
+                shadow_domain::FocusObservationSource::Unknown => 0,
+                shadow_domain::FocusObservationSource::CameraFocusArea => 1,
+                shadow_domain::FocusObservationSource::CameraFocusLocation => 2,
+            }),
+        focus_observation_center_x: metadata
+            .focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.center_x),
+        focus_observation_center_y: metadata
+            .focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.center_y),
+        focus_observation_width: metadata
+            .focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.width),
+        focus_observation_height: metadata
+            .focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.height),
+        focus_observation_confirmed: metadata
+            .focus_observation
+            .as_ref()
+            .is_some_and(|observation| observation.focus_confirmed),
+        focus_observation_confidence: metadata
+            .focus_observation
+            .as_ref()
+            .map_or(0.0, |observation| observation.confidence),
         captured_at_unix_seconds: metadata.captured_at_unix_seconds,
         has_gps_coordinates: metadata.gps.is_some(),
         gps_latitude_degrees: metadata

@@ -246,10 +246,12 @@ struct BackendLiquifyStroke final {
     bool operator==(const BackendLiquifyStroke&) const = default;
 };
 
-// Framing belongs to a photo, not to a reusable Grade Node. Keeping this
-// compact normalized representation at the shell boundary makes every preview,
-// detail tile, and export resolve the same crop/orientation contract.
+// Optional final Canvas node. Presence is distinct from bypass so the stack
+// may hide an unadded node while retaining authored geometry when bypassed.
+// Framing belongs to one photo and can never be shared as a Grade Node.
 struct BackendPhotoGeometry final {
+    bool present = false;
+    bool enabled = true;
     double crop_left = 0.0;
     double crop_top = 0.0;
     double crop_right = 1.0;
@@ -263,11 +265,13 @@ struct BackendPhotoGeometry final {
 };
 
 struct BackendGradeStack final {
-    // One fixed, photo-local AI source node before Foundation. It cannot be
-    // duplicated, reordered, masked, or shared. Amount changes only the fast
-    // original/cached-result blend.
+    // One optional fixed, photo-local AI source node before Foundation. It
+    // cannot be duplicated, reordered, masked, or shared. Presence is distinct
+    // from bypass; amount changes only the fast original/cached-result blend.
     struct RawAiDenoise final {
+        bool present = false;
         bool enabled = false;
+        bool bypassed = false;
         std::uint8_t model = 0;
         std::uint8_t amount_percent = 100;
 
@@ -380,6 +384,21 @@ enum class BackendRawFoundationJobPhase : std::uint8_t {
     Unavailable,
     Cancelled,
     Failed,
+};
+
+enum class BackendRawFoundationNoiseLevel : std::uint8_t {
+    Low,
+    Moderate,
+    High,
+};
+
+struct BackendRawFoundationNoiseAssessment final {
+    BackendRawFoundationNoiseLevel level = BackendRawFoundationNoiseLevel::Low;
+    std::uint8_t score_percent = 0;
+    std::uint8_t confidence_percent = 0;
+    QString diagnostic;
+
+    bool operator==(const BackendRawFoundationNoiseAssessment&) const = default;
 };
 
 struct BackendRawFoundationRuntimeStatus final {

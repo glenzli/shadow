@@ -80,6 +80,20 @@ pub(super) fn detail_viewport_rects(
     }
     let (left, right) = detail_axis_span(full.width, center_x, viewport_width)?;
     let (top, bottom) = detail_axis_span(full.height, center_y, viewport_height)?;
+    let exact_width = right - left;
+    let exact_height = bottom - top;
+    if exact_width <= tile_side && exact_height <= tile_side {
+        // The floating detail loupe is smaller than one native tile. Preserve
+        // its exact requested region instead of snapping outward to a fixed
+        // cache grid: this keeps 100%/200% inspection exact while avoiding up
+        // to four tiles of invisible work on every new pinned position.
+        return Ok(vec![DetailTileRect {
+            x: left,
+            y: top,
+            width: exact_width,
+            height: exact_height,
+        }]);
+    }
     let first_x = left / tile_side * tile_side;
     let first_y = top / tile_side * tile_side;
     let mut rects = Vec::new();

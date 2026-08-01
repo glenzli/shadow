@@ -11,8 +11,8 @@ use shadow_bridge::{
 };
 
 use super::{
-    OwnedEditedPreview, RecipePreviewStoreRequest, WarmEditPreviewSourceRequest,
-    cancelled_edited_preview, completed_edited_preview, store_recipe_preview,
+    OwnedEditedPreview, RecipePreviewStoreJob, WarmEditPreviewSourceRequest,
+    cancelled_edited_preview, completed_edited_preview, defer_recipe_preview_store,
 };
 use crate::{
     DesktopSession, ffi,
@@ -284,27 +284,23 @@ impl DesktopSession {
                 let CompletedEditPreview::Materialized(rendered) = &rendered else {
                     bail!("settled edit preview has no materialized execution receipt");
                 };
-                // The on-screen result remains responsive if disk caching is
-                // temporarily unavailable. Only a completed settled current
-                // Recipe may enter the durable Gallery cache.
-                if let Err(error) = store_recipe_preview(
-                    &self.catalog,
-                    &self.loader,
-                    RecipePreviewStoreRequest {
-                        representation_id: source.representation_id,
-                        expected_source: source.source,
-                        proxy: &rendered.proxy,
-                        recipe_snapshot_digest: recipe.snapshot_digest,
-                        max_edge: request.max_edge,
-                        jpeg_quality: request.jpeg_quality,
-                        raw_development_plan,
-                        raw_pipeline_receipt: session.raw_pipeline_receipt(),
-                        edit_execution_receipt: &rendered.execution,
-                        source_environment_cache_identity: &source_environment_cache_identity,
-                    },
-                ) {
-                    eprintln!("Shadow: could not cache edited preview: {error:#}");
-                }
+                // The completed frame is already the authoritative on-screen
+                // result. Durable Gallery caching is rebuildable background
+                // work and must never delay publication back to Qt.
+                let _ = defer_recipe_preview_store(RecipePreviewStoreJob {
+                    catalog: self.catalog.clone(),
+                    loader: self.loader.clone(),
+                    representation_id: source.representation_id,
+                    expected_source: source.source,
+                    proxy: rendered.proxy.clone(),
+                    recipe_snapshot_digest: recipe.snapshot_digest,
+                    max_edge: request.max_edge,
+                    jpeg_quality: request.jpeg_quality,
+                    raw_development_plan,
+                    raw_pipeline_receipt: session.raw_pipeline_receipt().clone(),
+                    edit_execution_receipt: rendered.execution.clone(),
+                    source_environment_cache_identity,
+                });
             }
             match rendered {
                 CompletedEditPreview::Interactive(frame) => Ok(OwnedEditedPreview::interactive(

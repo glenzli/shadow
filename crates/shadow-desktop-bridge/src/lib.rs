@@ -34,6 +34,7 @@ mod session_preview_store;
 
 // Non-destructive edit contracts and shared Grade Node application.
 mod edit_version_diff;
+mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
 mod raw_foundation_runtime;
 mod raw_foundation_service;
@@ -230,6 +231,15 @@ mod ffi {
         sensor_bits: u32,
         cfa_pattern: String,
         dng_version: String,
+        has_focus_observation: bool,
+        focus_observation_schema_version: u32,
+        focus_observation_source: String,
+        focus_observation_center_x: f64,
+        focus_observation_center_y: f64,
+        focus_observation_width: f64,
+        focus_observation_height: f64,
+        focus_observation_confirmed: bool,
+        focus_observation_confidence: f64,
         has_technical_observation: bool,
         technical_input_width: u32,
         technical_input_height: u32,
@@ -319,6 +329,8 @@ mod ffi {
         capture_month: String,
         camera_key: String,
         lens_key: String,
+        country_key: String,
+        locality_key: String,
         has_aperture_minimum: bool,
         aperture_minimum_milli: u32,
         has_aperture_maximum: bool,
@@ -353,6 +365,39 @@ mod ffi {
         CaptureMonth,
         Camera,
         Lens,
+        Country,
+        City,
+    }
+
+    /// One exact coordinate pair awaiting reverse geocoding. The count lets
+    /// the desktop prioritize a result that benefits several photos.
+    #[derive(Debug)]
+    struct FfiLibraryPlaceResolutionCandidate {
+        latitude_e7: i32,
+        longitude_e7: i32,
+        photo_count: u64,
+    }
+
+    /// Provider-neutral structured place result. The Catalog derives stable
+    /// country/city filter keys and verifies the coordinates are still used.
+    #[derive(Debug)]
+    struct FfiLibraryPlaceResolutionResult {
+        latitude_e7: i32,
+        longitude_e7: i32,
+        country_code: String,
+        country_name: String,
+        administrative_area: String,
+        locality: String,
+        display_name: String,
+        provider_id: String,
+        provider_version: String,
+        locale: String,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiRecordLibraryPlaceResolutionStatus {
+        Recorded,
+        CoordinatesNoLongerUsed,
     }
 
     /// Presentation order for the photo-first Library grid. It remains
@@ -930,10 +975,13 @@ mod ffi {
         hardness: f64,
     }
 
-    /// Photo-local final-canvas geometry. The field is intentionally separate
-    /// from the Grade Node list because crop/orientation is never shareable.
+    /// Optional photo-local final-canvas node. The field is intentionally
+    /// separate from the Grade Node list because crop/orientation is never
+    /// shareable. Bypass retains the authored geometry values.
     #[derive(Debug, Clone, Copy)]
     struct FfiPhotoGeometry {
+        present: bool,
+        enabled: bool,
         crop_left: f64,
         crop_top: f64,
         crop_right: f64,
@@ -969,8 +1017,12 @@ mod ffi {
         /// Bypasses optional Foundation interpretation while preserving it.
         enabled: bool,
         optics: FfiOpticsSettings,
-        /// Whether the singleton AI RAW denoise node is active.
+        /// Whether the user explicitly added the singleton AI RAW denoise node.
+        raw_ai_denoise_present: bool,
+        /// Whether an added node applies its already-materialized result.
         raw_ai_denoise_enabled: bool,
+        /// Whether the fixed node is hidden while preserving AI result intent.
+        raw_ai_denoise_bypassed: bool,
         /// 0 = RawNIND public Bayer release 5.6.0.
         raw_ai_denoise_model: u8,
         /// Fast camera-linear blend between original RAW and cached AI output.
@@ -1126,6 +1178,19 @@ mod ffi {
         Unavailable,
         Cancelled,
         Failed,
+    }
+
+    enum FfiRawFoundationNoiseLevel {
+        Low,
+        Moderate,
+        High,
+    }
+
+    struct FfiRawFoundationNoiseAssessment {
+        level: FfiRawFoundationNoiseLevel,
+        score_percent: u8,
+        confidence_percent: u8,
+        diagnostic: String,
     }
 
     /// Exact locally installed model/runtime admission status.
@@ -1560,6 +1625,14 @@ mod ffi {
             cursor: &FfiLibraryFacetCursor,
             limit: u32,
         ) -> Result<FfiLibraryFacetPage>;
+        fn library_place_resolution_candidates(
+            self: &DesktopSession,
+            limit: u32,
+        ) -> Result<Vec<FfiLibraryPlaceResolutionCandidate>>;
+        fn record_library_place_resolution(
+            self: &DesktopSession,
+            result: &FfiLibraryPlaceResolutionResult,
+        ) -> Result<FfiRecordLibraryPlaceResolutionStatus>;
         fn library_albums(self: &DesktopSession) -> Result<Vec<FfiLibraryAlbum>>;
         fn library_source_health(self: &DesktopSession) -> Result<Vec<FfiLibrarySourceHealth>>;
         fn remove_library_source(self: &DesktopSession, source_id: &str) -> Result<bool>;
@@ -1831,6 +1904,11 @@ mod ffi {
         /// Verifies the exact side-loaded RawNIND model/runtime without
         /// decoding a source or starting inference.
         fn probe_raw_foundation_runtime(self: &DesktopSession) -> FfiRawFoundationRuntimeStatus;
+        fn assess_raw_foundation_noise(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+        ) -> Result<FfiRawFoundationNoiseAssessment>;
         /// Registers one cancellable job before Qt submits its worker.
         fn begin_raw_foundation_job(
             self: &DesktopSession,

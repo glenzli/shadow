@@ -121,6 +121,51 @@ pub struct GpsMetadataSnapshot {
     pub altitude_meters: Option<f64>,
 }
 
+/// Provenance of a camera-authored autofocus observation. This describes
+/// what the source recorded, not whether the photographed subject is sharp.
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FocusObservationSource {
+    #[default]
+    Unknown,
+    CameraFocusArea,
+    CameraFocusLocation,
+}
+
+/// One bounded AF point or area in the display-oriented, uncropped source.
+/// Width and height are zero when the camera only supplies a point.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FocusObservationSnapshot {
+    pub schema_version: u32,
+    pub source: FocusObservationSource,
+    pub center_x: f64,
+    pub center_y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub focus_confirmed: bool,
+    pub confidence: f64,
+}
+
+impl FocusObservationSnapshot {
+    pub const SCHEMA_VERSION: u32 = 1;
+
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        self.schema_version == Self::SCHEMA_VERSION
+            && !matches!(self.source, FocusObservationSource::Unknown)
+            && self.center_x.is_finite()
+            && self.center_y.is_finite()
+            && self.width.is_finite()
+            && self.height.is_finite()
+            && self.confidence.is_finite()
+            && (0.0..=1.0).contains(&self.center_x)
+            && (0.0..=1.0).contains(&self.center_y)
+            && (0.0..=1.0).contains(&self.width)
+            && (0.0..=1.0).contains(&self.height)
+            && (0.0..=1.0).contains(&self.confidence)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RawMetadataSnapshot {
     pub make: String,
@@ -148,6 +193,8 @@ pub struct RawMetadataSnapshot {
     pub aperture_f_number: f64,
     #[serde(default)]
     pub focal_length_mm: f64,
+    #[serde(default)]
+    pub focus_observation: Option<FocusObservationSnapshot>,
     #[serde(default)]
     pub captured_at_unix_seconds: i64,
     #[serde(default)]

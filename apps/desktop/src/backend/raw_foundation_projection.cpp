@@ -26,6 +26,32 @@ project_raw_foundation_job_phase(const shadow::desktop::FfiRawFoundationJobPhase
     }
 }
 
+BackendRawFoundationNoiseLevel
+project_raw_foundation_noise_level(const shadow::desktop::FfiRawFoundationNoiseLevel source) {
+    switch (source) {
+    case shadow::desktop::FfiRawFoundationNoiseLevel::Low:
+        return BackendRawFoundationNoiseLevel::Low;
+    case shadow::desktop::FfiRawFoundationNoiseLevel::Moderate:
+        return BackendRawFoundationNoiseLevel::Moderate;
+    case shadow::desktop::FfiRawFoundationNoiseLevel::High:
+        return BackendRawFoundationNoiseLevel::High;
+    default:
+        throw std::runtime_error("RAW foundation returned an unknown noise level");
+    }
+}
+
+BackendRawFoundationNoiseAssessment project_raw_foundation_noise_assessment(
+    const shadow::desktop::FfiRawFoundationNoiseAssessment& source
+) {
+    using desktop_backend_projection::qstring;
+    return {
+        .level = project_raw_foundation_noise_level(source.level),
+        .score_percent = source.score_percent,
+        .confidence_percent = source.confidence_percent,
+        .diagnostic = qstring(source.diagnostic),
+    };
+}
+
 BackendRawFoundationRuntimeStatus project_raw_foundation_runtime_status(
     const shadow::desktop::FfiRawFoundationRuntimeStatus& source
 ) {

@@ -73,6 +73,24 @@ Item {
     readonly property alias selectedSensorBits: selectionState.selectedSensorBits
     readonly property alias selectedCfaPattern: selectionState.selectedCfaPattern
     readonly property alias selectedDngVersion: selectionState.selectedDngVersion
+    readonly property alias selectedHasFocusObservation:
+        selectionState.selectedHasFocusObservation
+    readonly property alias selectedFocusObservationSchemaVersion:
+        selectionState.selectedFocusObservationSchemaVersion
+    readonly property alias selectedFocusObservationSource:
+        selectionState.selectedFocusObservationSource
+    readonly property alias selectedFocusObservationCenterX:
+        selectionState.selectedFocusObservationCenterX
+    readonly property alias selectedFocusObservationCenterY:
+        selectionState.selectedFocusObservationCenterY
+    readonly property alias selectedFocusObservationWidth:
+        selectionState.selectedFocusObservationWidth
+    readonly property alias selectedFocusObservationHeight:
+        selectionState.selectedFocusObservationHeight
+    readonly property alias selectedFocusObservationConfirmed:
+        selectionState.selectedFocusObservationConfirmed
+    readonly property alias selectedFocusObservationConfidence:
+        selectionState.selectedFocusObservationConfidence
     readonly property alias selectedHasTechnicalObservation:
         selectionState.selectedHasTechnicalObservation
     readonly property alias selectedTechnicalInputWidth:

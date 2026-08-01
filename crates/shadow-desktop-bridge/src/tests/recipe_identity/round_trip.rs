@@ -1,7 +1,7 @@
 //! Recipe v1 allocation and round-trip identity contracts.
 
 use shadow_bridge::{OklabLightnessToneCurve, ToneCurvePoint};
-use shadow_domain::{EntityId, NodeId, PhotoFoundationNode, PhotoGeometry};
+use shadow_domain::{EntityId, NodeId, PhotoCanvasNode, PhotoFoundationNode};
 use uuid::Uuid;
 
 use crate::{
@@ -49,7 +49,9 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
                 lens_profile_maker: String::new(),
                 lens_profile_model: String::new(),
             },
+            raw_ai_denoise_present: false,
             raw_ai_denoise_enabled: false,
+            raw_ai_denoise_bypassed: false,
             raw_ai_denoise_model: 0,
             raw_ai_denoise_amount_percent: 100,
             raw_white_balance_mode: 0,
@@ -65,6 +67,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
+            present: false,
+            enabled: true,
             crop_left: 0.0,
             crop_top: 0.0,
             crop_right: 1.0,
@@ -112,7 +116,9 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
                 lens_profile_maker: "smc Pentax".to_owned(),
                 lens_profile_model: "DA 35mm".to_owned(),
             },
+            raw_ai_denoise_present: true,
             raw_ai_denoise_enabled: true,
+            raw_ai_denoise_bypassed: false,
             raw_ai_denoise_model: 0,
             raw_ai_denoise_amount_percent: 100,
             raw_white_balance_mode: 1,
@@ -128,6 +134,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
+            present: false,
+            enabled: true,
             crop_left: 0.0,
             crop_top: 0.0,
             crop_right: 1.0,
@@ -206,7 +214,7 @@ fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
             liquify: None,
-            geometry: PhotoGeometry::identity(),
+            canvas: PhotoCanvasNode::identity(),
         },
         None,
     )
@@ -332,7 +340,7 @@ fn current_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("current snapshot");
     let original_identity = single_grade_node_recipe_v1_identity(&snapshot)

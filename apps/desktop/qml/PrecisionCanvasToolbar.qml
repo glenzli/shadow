@@ -27,6 +27,8 @@ Rectangle {
     required property bool fitView
     required property real zoomFactor
     required property bool zoomToolActive
+    required property bool detailLoupeVisible
+    required property bool detailLoupeAvailable
 
     signal zebraToggleRequested()
     signal comparisonDisableRequested()
@@ -34,6 +36,7 @@ Rectangle {
     signal zoomRequested(real value)
     signal zoomToolToggleRequested()
     signal fitRequested()
+    signal detailLoupeToggleRequested()
 
     function comparisonModeName(mode) {
         if (mode === comparisonWhole)
@@ -198,6 +201,22 @@ Rectangle {
                     }
                 }
             }
+        }
+
+        ShadowIconButton {
+            id: detailLoupeButton
+            objectName: "detailLoupeToolbarButton"
+            source: "qrc:/icons/detail-loupe.svg"
+            variant: ShadowIconButton.Secondary
+            selected: toolbar.detailLoupeVisible
+            toolTipText: selected
+                ? qsTr("Hide detail loupe")
+                : qsTr("Show focus detail loupe")
+            accessibleName: toolTipText
+            Accessible.checked: selected
+            enabled: toolbar.detailLoupeAvailable
+                && !toolbar.editor.stateBusy
+            onClicked: toolbar.detailLoupeToggleRequested()
         }
 
         Label {

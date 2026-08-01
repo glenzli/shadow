@@ -22,23 +22,40 @@ fn unit(value: f64) -> UnitInterval {
 fn raw_ai_denoise_intent_round_trips_and_unknown_models_fail_closed() {
     let mut ffi =
         encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("default DTO");
+    assert!(!ffi.foundation.raw_ai_denoise_present);
     assert!(!ffi.foundation.raw_ai_denoise_enabled);
+    assert!(!ffi.foundation.raw_ai_denoise_bypassed);
     assert_eq!(ffi.foundation.raw_ai_denoise_model, 0);
     assert_eq!(ffi.foundation.raw_ai_denoise_amount_percent, 100);
 
+    ffi.foundation.raw_ai_denoise_present = true;
     ffi.foundation.raw_ai_denoise_enabled = true;
+    ffi.foundation.raw_ai_denoise_bypassed = true;
     ffi.foundation.raw_ai_denoise_amount_percent = 37;
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode RawNIND intent");
     assert_eq!(
         decoded.raw_ai_denoise,
         RawFoundationDenoise::enabled(RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0)
+            .with_bypassed(true)
             .with_amount_percent(37)
             .expect("valid amount")
     );
     let encoded = encode_grade_stack_draft_recipe_v1(decoded).expect("encode RawNIND intent");
+    assert!(encoded.foundation.raw_ai_denoise_present);
     assert!(encoded.foundation.raw_ai_denoise_enabled);
+    assert!(encoded.foundation.raw_ai_denoise_bypassed);
     assert_eq!(encoded.foundation.raw_ai_denoise_model, 0);
     assert_eq!(encoded.foundation.raw_ai_denoise_amount_percent, 37);
+
+    let mut bypassed = encoded.clone();
+    bypassed.foundation.raw_ai_denoise_enabled = false;
+    bypassed.foundation.raw_ai_denoise_bypassed = false;
+    let decoded_bypass =
+        decode_grade_stack_draft_recipe_v1(&bypassed).expect("decode bypassed RawNIND node");
+    assert!(decoded_bypass.raw_ai_denoise.is_present());
+    assert!(!decoded_bypass.raw_ai_denoise.is_enabled());
+    assert!(!decoded_bypass.raw_ai_denoise.is_bypassed());
+    assert_eq!(decoded_bypass.raw_ai_denoise.amount_percent(), 37);
 
     ffi.foundation.raw_ai_denoise_model = 1;
     let error = decode_grade_stack_draft_recipe_v1(&ffi).expect_err("reject unknown AI model");

@@ -77,6 +77,8 @@ pub(in crate::tests) fn ffi_parameters(
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
+            present: false,
+            enabled: true,
             crop_left: 0.0,
             crop_top: 0.0,
             crop_right: 1.0,

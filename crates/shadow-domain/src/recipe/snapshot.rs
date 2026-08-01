@@ -207,7 +207,11 @@ impl RecipeSnapshot {
             masks,
             retouch_spots,
             retouch_strokes,
-            PhotoStructuralNodes::with_canvas(PhotoCanvasNode::new(geometry)),
+            PhotoStructuralNodes::with_canvas(if geometry.is_identity() {
+                PhotoCanvasNode::identity()
+            } else {
+                PhotoCanvasNode::new(geometry)
+            }),
             layers,
         )
     }
@@ -333,17 +337,19 @@ impl RecipeSnapshot {
         &self.structural_nodes
     }
 
-    /// Returns the mandatory final-canvas node.
+    /// Returns the fixed final-canvas slot. `is_present()` distinguishes an
+    /// authored processing node from the internal no-op slot.
     pub const fn canvas_node(&self) -> &PhotoCanvasNode {
         self.structural_nodes.canvas()
     }
 
     /// Returns the photo-local final-canvas geometry.
     ///
-    /// This compatibility accessor projects the mandatory Canvas node for
-    /// existing Recipe v1 renderer and desktop callers.
+    /// This compatibility accessor projects only effective Canvas geometry
+    /// for existing renderers. Desktop authoring adapters that must preserve
+    /// bypassed parameters read [`Self::canvas_node`] directly.
     pub const fn geometry(&self) -> PhotoGeometry {
-        self.structural_nodes.canvas().geometry()
+        self.structural_nodes.canvas().effective_geometry()
     }
 
     /// Resolves one snapshot-local mask revision exactly. The coordinate

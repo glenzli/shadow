@@ -53,6 +53,8 @@ ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     filter.capture_month = source.capture_month.toStdString();
     filter.camera_key = source.camera_key.toStdString();
     filter.lens_key = source.lens_key.toStdString();
+    filter.country_key = source.country_key.toStdString();
+    filter.locality_key = source.locality_key.toStdString();
     filter.has_aperture_minimum = source.has_aperture_minimum;
     filter.aperture_minimum_milli = source.aperture_minimum_milli;
     filter.has_aperture_maximum = source.has_aperture_maximum;
@@ -96,6 +98,8 @@ library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
         .capture_month = qstring(source.capture_month),
         .camera_key = qstring(source.camera_key),
         .lens_key = qstring(source.lens_key),
+        .country_key = qstring(source.country_key),
+        .locality_key = qstring(source.locality_key),
         .has_aperture_minimum = source.has_aperture_minimum,
         .aperture_minimum_milli = source.aperture_minimum_milli,
         .has_aperture_maximum = source.has_aperture_maximum,
@@ -123,6 +127,10 @@ ffi_library_facet_kind(const BackendLibraryFacetKind kind) {
         return shadow::desktop::FfiLibraryFacetKind::Camera;
     case BackendLibraryFacetKind::Lens:
         return shadow::desktop::FfiLibraryFacetKind::Lens;
+    case BackendLibraryFacetKind::Country:
+        return shadow::desktop::FfiLibraryFacetKind::Country;
+    case BackendLibraryFacetKind::City:
+        return shadow::desktop::FfiLibraryFacetKind::City;
     }
     throw std::invalid_argument("unknown Library facet kind");
 }
@@ -479,6 +487,46 @@ BackendLibraryFacetPage DesktopBackend::libraryFacetPage(
         });
     }
     return page;
+}
+
+QVector<BackendLibraryPlaceResolutionCandidate>
+DesktopBackend::libraryPlaceResolutionCandidates(const std::uint32_t limit) const {
+    const auto source = impl_->session->library_place_resolution_candidates(limit);
+    QVector<BackendLibraryPlaceResolutionCandidate> candidates;
+    candidates.reserve(
+        checked_qt_vector_size(source.size(), "library_place_resolution_candidates")
+    );
+    for (const auto& candidate : source) {
+        candidates.push_back({
+            .latitude_e7 = candidate.latitude_e7,
+            .longitude_e7 = candidate.longitude_e7,
+            .photo_count = candidate.photo_count,
+        });
+    }
+    return candidates;
+}
+
+BackendRecordLibraryPlaceResolutionStatus DesktopBackend::recordLibraryPlaceResolution(
+    const BackendLibraryPlaceResolutionResult& result
+) const {
+    shadow::desktop::FfiLibraryPlaceResolutionResult ffi_result;
+    ffi_result.latitude_e7 = result.latitude_e7;
+    ffi_result.longitude_e7 = result.longitude_e7;
+    ffi_result.country_code = result.country_code.toStdString();
+    ffi_result.country_name = result.country_name.toStdString();
+    ffi_result.administrative_area = result.administrative_area.toStdString();
+    ffi_result.locality = result.locality.toStdString();
+    ffi_result.display_name = result.display_name.toStdString();
+    ffi_result.provider_id = result.provider_id.toStdString();
+    ffi_result.provider_version = result.provider_version.toStdString();
+    ffi_result.locale = result.locale.toStdString();
+    switch (impl_->session->record_library_place_resolution(ffi_result)) {
+    case shadow::desktop::FfiRecordLibraryPlaceResolutionStatus::Recorded:
+        return BackendRecordLibraryPlaceResolutionStatus::Recorded;
+    case shadow::desktop::FfiRecordLibraryPlaceResolutionStatus::CoordinatesNoLongerUsed:
+        return BackendRecordLibraryPlaceResolutionStatus::CoordinatesNoLongerUsed;
+    }
+    throw std::invalid_argument("unknown Library place resolution write status");
 }
 
 QVector<BackendLibraryAlbum> DesktopBackend::libraryAlbums() const {

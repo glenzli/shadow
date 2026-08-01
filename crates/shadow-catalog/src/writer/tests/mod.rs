@@ -11,6 +11,7 @@ mod library_collections;
 mod library_facts;
 mod library_keywords;
 mod library_lifecycle;
+mod library_place_resolution;
 mod review_projection;
 mod source_health;
 mod source_identity;

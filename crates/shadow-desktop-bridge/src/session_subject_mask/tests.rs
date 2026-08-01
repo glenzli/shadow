@@ -43,6 +43,8 @@ fn point_prompt_preserves_order_and_polarity() {
 fn identity_input_geometry_removes_every_final_canvas_transform() {
     let geometry = identity_ffi_geometry();
 
+    assert!(!geometry.present);
+    assert!(geometry.enabled);
     assert_eq!(geometry.crop_left, 0.0);
     assert_eq!(geometry.crop_top, 0.0);
     assert_eq!(geometry.crop_right, 1.0);

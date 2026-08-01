@@ -67,6 +67,14 @@ QVariantList ReviewLibraryFacetCoordinator::lenses() const {
     return variants(lenses_);
 }
 
+QVariantList ReviewLibraryFacetCoordinator::countries() const {
+    return variants(countries_);
+}
+
+QVariantList ReviewLibraryFacetCoordinator::cities() const {
+    return variants(cities_);
+}
+
 QVariantMap ReviewLibraryFacetCoordinator::systemCollectionCounts() const {
     return {
         {
@@ -150,6 +158,10 @@ ReviewLibraryFacetCoordinator::TaskResult ReviewLibraryFacetCoordinator::runTask
             operations.page(filter, BackendLibraryFacetKind::Camera, {}, LIBRARY_FACET_PAGE_SIZE);
         result.lenses =
             operations.page(filter, BackendLibraryFacetKind::Lens, {}, LIBRARY_FACET_PAGE_SIZE);
+        result.countries =
+            operations.page(filter, BackendLibraryFacetKind::Country, {}, LIBRARY_FACET_PAGE_SIZE);
+        result.cities =
+            operations.page(filter, BackendLibraryFacetKind::City, {}, LIBRARY_FACET_PAGE_SIZE);
         result.all_photo_count = operations.count({});
         result.liked_photo_count = operations.count(liked_filter());
         result.five_star_photo_count = operations.count(five_star_filter());
@@ -183,6 +195,8 @@ void ReviewLibraryFacetCoordinator::finishTask() {
         capture_months_ = std::move(result.capture_months);
         cameras_ = std::move(result.cameras);
         lenses_ = std::move(result.lenses);
+        countries_ = std::move(result.countries);
+        cities_ = std::move(result.cities);
         all_photo_count_ = result.all_photo_count;
         liked_photo_count_ = result.liked_photo_count;
         five_star_photo_count_ = result.five_star_photo_count;

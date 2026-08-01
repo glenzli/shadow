@@ -290,6 +290,16 @@ fn library_facet_sql(kind: LibraryFacetKind) -> LibraryFacetSql {
             label: "MIN(COALESCE(NULLIF(trim(f.lens_make || ' ' || f.lens_model), ''), f.lens_key))",
             present: "f.lens_key <> ''",
         },
+        LibraryFacetKind::Country => LibraryFacetSql {
+            key: "place.country_key",
+            label: "MIN(COALESCE(NULLIF(place.country_name, ''), place.country_code))",
+            present: "place.country_key <> ''",
+        },
+        LibraryFacetKind::City => LibraryFacetSql {
+            key: "place.locality_key",
+            label: "MIN(place.locality_label)",
+            present: "place.locality_key <> ''",
+        },
     }
 }
 
@@ -299,6 +309,8 @@ fn filter_without_facet(filter: &LibraryPhotoFilter, kind: LibraryFacetKind) -> 
         LibraryFacetKind::CaptureMonth => result.capture_month = None,
         LibraryFacetKind::Camera => result.camera_key = None,
         LibraryFacetKind::Lens => result.lens_key = None,
+        LibraryFacetKind::Country => result.country_key = None,
+        LibraryFacetKind::City => result.locality_key = None,
     }
     result
 }

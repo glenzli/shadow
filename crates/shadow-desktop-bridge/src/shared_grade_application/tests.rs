@@ -1,6 +1,6 @@
 use super::*;
 use crate::recipe_v1::GradeNodeDraft;
-use shadow_domain::{EntityId, LayerId, LayerRevisionId, PhotoFoundationNode, PhotoGeometry};
+use shadow_domain::{EntityId, LayerId, LayerRevisionId, PhotoCanvasNode, PhotoFoundationNode};
 
 fn shared_node(layer_id: LayerId, revision_id: LayerRevisionId) -> GradeNodeDraft {
     let mut node = GradeNodeDraft::neutral("Shared");
@@ -24,7 +24,7 @@ fn merge_replaces_an_older_revision_in_place_and_preserves_bypass() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
 
     assert_eq!(
@@ -46,7 +46,7 @@ fn merge_is_idempotent_for_the_same_materialized_revision() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         liquify: None,
-        geometry: PhotoGeometry::identity(),
+        canvas: PhotoCanvasNode::identity(),
     };
 
     assert_eq!(

@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 class EditController;
 
@@ -29,6 +30,14 @@ struct EditRawFoundationExecutionTaskResult final {
     std::uint64_t context_generation = 0;
 };
 
+struct EditRawFoundationNoiseTaskResult final {
+    BackendRawFoundationNoiseAssessment assessment;
+    QString error;
+    QString photo_id;
+    QString source_path;
+    std::uint64_t context_generation = 0;
+};
+
 // Owns the long-running model probe/materialization lifecycle. The public
 // EditController remains a thin QML projection; the only persistent mutation
 // produced here is one ordinary, undoable Foundation enable transition after
@@ -42,23 +51,34 @@ class EditRawFoundationController final {
     EditRawFoundationController& operator=(const EditRawFoundationController&) = delete;
 
     [[nodiscard]] bool enabled() const noexcept;
+    [[nodiscard]] bool requested() const noexcept;
     [[nodiscard]] bool available() const noexcept;
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] bool canStart() const noexcept;
+    [[nodiscard]] bool canApply() const noexcept;
     [[nodiscard]] bool canCancel() const noexcept;
     [[nodiscard]] QString phase() const;
     [[nodiscard]] double progress() const noexcept;
     [[nodiscard]] QString statusText() const;
+    [[nodiscard]] bool noiseAssessmentBusy() const noexcept;
+    [[nodiscard]] QString noiseLevel() const;
+    [[nodiscard]] int noiseScore() const noexcept;
+    [[nodiscard]] int noiseConfidence() const noexcept;
+    [[nodiscard]] QString noiseRecommendationText() const;
 
     void setEnabled(bool enabled);
     void start();
     void cancel();
+    void nodeAdded();
+    void nodeRemoved();
     void resetContext();
     void retranslateUi();
 
   private:
     void requestProbe(bool start_after_probe);
     void finishProbe();
+    void requestNoiseAssessment();
+    void finishNoiseAssessment();
     void startJob();
     void pollJob();
     void finishExecution();
@@ -77,15 +97,20 @@ class EditRawFoundationController final {
     std::shared_ptr<DesktopBackend> backend_;
     shadow::desktop::EditRawFoundationState state_;
     QFutureWatcher<EditRawFoundationProbeTaskResult> probe_watcher_;
+    QFutureWatcher<EditRawFoundationNoiseTaskResult> noise_watcher_;
     QFutureWatcher<EditRawFoundationExecutionTaskResult> execution_watcher_;
     QTimer progress_timer_;
     QMetaObject::Connection source_identity_connection_;
     QMetaObject::Connection foundation_connection_;
     QMetaObject::Connection state_busy_connection_;
     LocalizedUiMessage status_message_;
+    std::optional<BackendRawFoundationNoiseAssessment> noise_assessment_;
+    QString noise_assessment_error_;
     std::uint64_t request_sequence_ = 0;
     bool probe_requested_ = false;
+    bool noise_assessment_requested_ = false;
     bool start_after_probe_ = false;
     bool start_when_execution_idle_ = false;
     bool pending_recipe_enable_ = false;
+    bool node_present_ = false;
 };

@@ -112,8 +112,20 @@ class EditController final : public QObject {
             foundationWhiteBalanceCameraValueAvailable NOTIFY foundationChanged
     )
     Q_PROPERTY(
+        bool rawDenoiseNodeMaterialized READ rawDenoiseNodeMaterialized NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool rawDenoiseNodeVisible READ rawDenoiseNodeVisible WRITE setRawDenoiseNodeVisible NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
         bool foundationAiDenoiseEnabled READ foundationAiDenoiseEnabled WRITE
             setFoundationAiDenoiseEnabled NOTIFY foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool foundationAiDenoiseRequested READ foundationAiDenoiseRequested NOTIFY
+            foundationAiDenoiseChanged
     )
     Q_PROPERTY(
         int foundationAiDenoiseAmount READ foundationAiDenoiseAmount WRITE
@@ -131,6 +143,10 @@ class EditController final : public QObject {
             foundationAiDenoiseChanged
     )
     Q_PROPERTY(
+        bool foundationAiDenoiseCanApply READ foundationAiDenoiseCanApply NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
         bool foundationAiDenoiseCanCancel READ foundationAiDenoiseCanCancel NOTIFY
             foundationAiDenoiseChanged
     )
@@ -145,6 +161,26 @@ class EditController final : public QObject {
     Q_PROPERTY(
         QString foundationAiDenoiseStatusText READ foundationAiDenoiseStatusText NOTIFY
             foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool foundationAiDenoiseNoiseAssessmentBusy READ foundationAiDenoiseNoiseAssessmentBusy
+            NOTIFY foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        QString foundationAiDenoiseNoiseLevel READ foundationAiDenoiseNoiseLevel NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        int foundationAiDenoiseNoiseScore READ foundationAiDenoiseNoiseScore NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        int foundationAiDenoiseNoiseConfidence READ foundationAiDenoiseNoiseConfidence NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        QString foundationAiDenoiseNoiseRecommendation READ
+            foundationAiDenoiseNoiseRecommendation NOTIFY foundationAiDenoiseChanged
     )
     Q_PROPERTY(bool opticsEnabled READ opticsEnabled WRITE setOpticsEnabled NOTIFY opticsChanged)
     Q_PROPERTY(
@@ -239,6 +275,11 @@ class EditController final : public QObject {
     // Crop/orientation is photo-local too. It is intentionally not a Grade
     // Node control, because framing must never become a shared style.
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY parametersChanged)
+    Q_PROPERTY(bool canvasNodeMaterialized READ canvasNodeMaterialized NOTIFY parametersChanged)
+    Q_PROPERTY(
+        bool canvasNodeEnabled READ canvasNodeEnabled WRITE setCanvasNodeEnabled NOTIFY
+            parametersChanged
+    )
     // Crop is edited against the complete oriented source rather than the
     // already-cropped output. This is transient presentation state only; the
     // persisted v1 Recipe remains the single owner of the actual bounds.
@@ -366,15 +407,24 @@ class EditController final : public QObject {
     [[nodiscard]] int foundationWhiteBalanceTint() const noexcept;
     [[nodiscard]] bool foundationWhiteBalanceAtCameraValue() const noexcept;
     [[nodiscard]] bool foundationWhiteBalanceCameraValueAvailable() const noexcept;
+    [[nodiscard]] bool rawDenoiseNodeMaterialized() const noexcept;
+    [[nodiscard]] bool rawDenoiseNodeVisible() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseEnabled() const noexcept;
+    [[nodiscard]] bool foundationAiDenoiseRequested() const noexcept;
     [[nodiscard]] int foundationAiDenoiseAmount() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseAvailable() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseBusy() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseCanStart() const noexcept;
+    [[nodiscard]] bool foundationAiDenoiseCanApply() const noexcept;
     [[nodiscard]] bool foundationAiDenoiseCanCancel() const noexcept;
     [[nodiscard]] QString foundationAiDenoisePhase() const;
     [[nodiscard]] double foundationAiDenoiseProgress() const noexcept;
     [[nodiscard]] QString foundationAiDenoiseStatusText() const;
+    [[nodiscard]] bool foundationAiDenoiseNoiseAssessmentBusy() const noexcept;
+    [[nodiscard]] QString foundationAiDenoiseNoiseLevel() const;
+    [[nodiscard]] int foundationAiDenoiseNoiseScore() const noexcept;
+    [[nodiscard]] int foundationAiDenoiseNoiseConfidence() const noexcept;
+    [[nodiscard]] QString foundationAiDenoiseNoiseRecommendation() const;
     [[nodiscard]] bool opticsEnabled() const noexcept;
     [[nodiscard]] bool opticsDistortionEnabled() const noexcept;
     [[nodiscard]] bool opticsTcaEnabled() const noexcept;
@@ -410,6 +460,8 @@ class EditController final : public QObject {
     [[nodiscard]] int liquifyBrushMode() const noexcept;
     [[nodiscard]] bool liquifyCanReconstruct() const noexcept;
     [[nodiscard]] QVariantMap photoGeometry() const;
+    [[nodiscard]] bool canvasNodeMaterialized() const noexcept;
+    [[nodiscard]] bool canvasNodeEnabled() const noexcept;
     [[nodiscard]] bool cropToolActive() const noexcept;
     [[nodiscard]] QVariantList gradeNodes() const;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
@@ -460,7 +512,9 @@ class EditController final : public QObject {
     void setFoundationWhiteBalanceTemperature(int temperature_kelvin);
     void setFoundationWhiteBalanceTint(int tint);
     void setFoundationAiDenoiseEnabled(bool enabled);
+    void setRawDenoiseNodeVisible(bool visible);
     void setFoundationAiDenoiseAmount(int amount_percent);
+    void setCanvasNodeEnabled(bool enabled);
     void setOpticsEnabled(bool enabled);
     void setOpticsDistortionEnabled(bool enabled);
     void setOpticsTcaEnabled(bool enabled);
@@ -608,6 +662,10 @@ class EditController final : public QObject {
     Q_INVOKABLE void removeToneCurvePoint(int index);
     Q_INVOKABLE void resetToneCurve();
     Q_INVOKABLE void resetFoundationWhiteBalance();
+    Q_INVOKABLE void addRawDenoiseNode();
+    Q_INVOKABLE void removeRawDenoiseNode();
+    Q_INVOKABLE void addCanvasNode();
+    Q_INVOKABLE void removeCanvasNode();
     Q_INVOKABLE void selectFoundationNode();
     Q_INVOKABLE void selectRawDenoiseNode();
     Q_INVOKABLE void selectLiquifyNode();

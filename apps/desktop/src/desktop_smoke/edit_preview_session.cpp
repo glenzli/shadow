@@ -37,6 +37,8 @@ constexpr int CURRENT_PREVIEW_TIMEOUT_MS = 30'000;
 constexpr int FULL_DETAIL_TIMEOUT_MS = 120'000;
 constexpr int TERMINAL_SETTLE_MS = 50;
 constexpr int FRAME_POLL_MS = 20;
+constexpr int RAPID_UPDATE_INTERVAL_MS = 5;
+constexpr int RAPID_UPDATE_SAMPLES = 96;
 constexpr std::uint32_t DETAIL_VIEWPORT_WIDTH = 1'280;
 constexpr std::uint32_t DETAIL_VIEWPORT_HEIGHT = 960;
 constexpr std::uint32_t DETAIL_TILE_SIDE = 512;
@@ -183,6 +185,7 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     enum class Stage : std::uint8_t {
         AwaitReviewItem,
         AwaitCurrentPreview,
+        AwaitSettledAfterRapidUpdates,
         AwaitInteractivePreview,
         AwaitSettledAfterInteractive,
         AwaitSceneGraphInvalidation,
@@ -276,6 +279,14 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         QObject::connect(&frame_poll_, &QTimer::timeout, &application_, evaluate);
         frame_poll_.start();
 
+        rapid_update_timer_.setInterval(RAPID_UPDATE_INTERVAL_MS);
+        QObject::connect(
+            &rapid_update_timer_,
+            &QTimer::timeout,
+            &application_,
+            [self]() { self->issueRapidParameterUpdate(); }
+        );
+
         deadline_.setSingleShot(true);
         deadline_.setInterval(
             options_.request_full_detail ? FULL_DETAIL_TIMEOUT_MS : CURRENT_PREVIEW_TIMEOUT_MS
@@ -294,6 +305,9 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             break;
         case Stage::AwaitCurrentPreview:
             acceptCurrentPreviewIfReady();
+            break;
+        case Stage::AwaitSettledAfterRapidUpdates:
+            acceptSettledAfterRapidUpdatesIfReady();
             break;
         case Stage::AwaitInteractivePreview:
             acceptInteractivePreviewIfReady();
@@ -342,7 +356,23 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         if (model == nullptr || model->rowCount() == 0) {
             return;
         }
-        const QModelIndex first = model->index(0, 0);
+        QModelIndex first = model->index(0, 0);
+        const QString requested_source =
+            qEnvironmentVariable("SHADOW_DESKTOP_EDIT_SOURCE_PATH").trimmed();
+        if (!requested_source.isEmpty()) {
+            first = {};
+            for (int row = 0; row < model->rowCount(); ++row) {
+                const QModelIndex candidate = model->index(row, 0);
+                if (model->data(candidate, ReviewModel::SourcePathRole).toString()
+                    == requested_source) {
+                    first = candidate;
+                    break;
+                }
+            }
+            if (!first.isValid()) {
+                return;
+            }
+        }
         const QString photo_id = model->data(first, ReviewModel::PhotoIdRole).toString();
         const QString representation_id =
             model->data(first, ReviewModel::RepresentationIdRole).toString();
@@ -355,6 +385,7 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
 
         opened_photo_id_ = photo_id;
         opened_representation_id_ = representation_id;
+        opened_source_path_ = source_path;
         stage_ = Stage::AwaitCurrentPreview;
         editor_.openPhoto(photo_id, representation_id, source_path, title);
         engine_.rootObjects().front()->setProperty("workspaceIndex", 1);
@@ -369,6 +400,10 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             return;
         }
         current_source_ = source;
+        if (options_.rapid_parameter_updates) {
+            beginRapidParameterUpdates();
+            return;
+        }
         if (options_.transport_expectation != DesktopSmoke::EditPreviewTransportExpectation::None) {
             initial_settled_source_ = source;
             resetEditPreviewTextureTelemetry();
@@ -379,6 +414,59 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             evaluate();
             return;
         }
+        continueAfterCurrentAccepted();
+    }
+
+    void beginRapidParameterUpdates() {
+        initial_settled_source_ = editor_.previewSource();
+        initial_luma_histogram_ = editor_.histogram().value(QStringLiteral("luma")).toList();
+        rapid_initial_exposure_ = editor_.exposureStops();
+        rapid_target_exposure_ = rapid_initial_exposure_ <= 0.0 ? 4.0 : -4.0;
+        rapid_update_sample_ = 0;
+        interactive_gesture_open_ = true;
+        stage_ = Stage::AwaitSettledAfterRapidUpdates;
+        editor_.beginParameterEdit(QStringLiteral("exposure"));
+        rapid_update_timer_.start();
+    }
+
+    void issueRapidParameterUpdate() {
+        ++rapid_update_sample_;
+        const double progress = static_cast<double>(rapid_update_sample_)
+                                / static_cast<double>(RAPID_UPDATE_SAMPLES);
+        editor_.setExposureStops(
+            rapid_initial_exposure_
+            + (rapid_target_exposure_ - rapid_initial_exposure_) * progress
+        );
+        if (rapid_update_sample_ < RAPID_UPDATE_SAMPLES) {
+            return;
+        }
+        rapid_update_timer_.stop();
+        interactive_gesture_open_ = false;
+        editor_.endParameterEdit(QStringLiteral("exposure"));
+        evaluate();
+    }
+
+    void acceptSettledAfterRapidUpdatesIfReady() {
+        if (rapid_update_timer_.isActive()) {
+            return;
+        }
+        const QString source = editor_.previewSource();
+        if (source.isEmpty() || source == initial_settled_source_
+            || !validEditHistogram(editor_.histogram(), source)
+            || !qmlPreviewIsReady(engine_, source)) {
+            return;
+        }
+        if (std::abs(editor_.exposureStops() - rapid_target_exposure_) > 0.0001) {
+            fail(QStringLiteral("the rapid gesture lost its final exposure value"));
+            return;
+        }
+        const QVariantList final_luma =
+            editor_.histogram().value(QStringLiteral("luma")).toList();
+        if (initial_luma_histogram_.isEmpty() || final_luma == initial_luma_histogram_) {
+            fail(QStringLiteral("the rapid gesture advanced generation without changing pixels"));
+            return;
+        }
+        current_source_ = source;
         continueAfterCurrentAccepted();
     }
 
@@ -818,10 +906,12 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         }
         stage_ = Stage::Finished;
         frame_poll_.stop();
+        rapid_update_timer_.stop();
         deadline_.stop();
         qInfo().noquote() << "Edit preview smoke passed:"
                           << "photo" << opened_photo_id_ << "representation"
-                          << opened_representation_id_ << "current" << current_source_ << "before"
+                          << opened_representation_id_ << "source" << opened_source_path_
+                          << "current" << current_source_ << "before"
                           << (options_.request_before ? before_source_
                                                       : QStringLiteral("<not requested>"))
                           << "detail"
@@ -842,6 +932,7 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             editor_.endParameterEdit(QStringLiteral("exposure"));
         }
         frame_poll_.stop();
+        rapid_update_timer_.stop();
         deadline_.stop();
         const QString current_source = editor_.previewSource();
         const QString before_source = editor_.beforePreviewSource();
@@ -877,6 +968,8 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             return QStringLiteral("await-review-item");
         case Stage::AwaitCurrentPreview:
             return QStringLiteral("await-current-preview");
+        case Stage::AwaitSettledAfterRapidUpdates:
+            return QStringLiteral("await-settled-after-rapid-updates");
         case Stage::AwaitInteractivePreview:
             return QStringLiteral("await-interactive-preview");
         case Stage::AwaitSettledAfterInteractive:
@@ -957,12 +1050,15 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     EditPreviewProvider* edit_preview_provider_ = nullptr;
     DesktopSmoke::EditPreviewSessionOptions options_;
     QTimer frame_poll_;
+    QTimer rapid_update_timer_;
     QTimer deadline_;
     Stage stage_ = Stage::AwaitReviewItem;
     QString opened_photo_id_;
     QString opened_representation_id_;
+    QString opened_source_path_;
     QString current_source_;
     QString initial_settled_source_;
+    QVariantList initial_luma_histogram_;
     QString recreated_settled_source_;
     QString interactive_source_;
     QString before_source_;
@@ -974,6 +1070,9 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     std::optional<EditPreviewTextureTelemetrySnapshot> first_transport_evidence_;
     std::optional<EditPreviewTextureTelemetrySnapshot> recreated_transport_evidence_;
     std::uint64_t first_transport_epoch_ = 0U;
+    int rapid_update_sample_ = 0;
+    double rapid_initial_exposure_ = 0.0;
+    double rapid_target_exposure_ = 0.0;
     bool interactive_gesture_open_ = false;
 };
 

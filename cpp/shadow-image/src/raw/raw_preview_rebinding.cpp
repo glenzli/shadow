@@ -395,4 +395,45 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
     );
 }
 
+PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
+    const DecodeSession& metadata_session,
+    RawFrame staged_frame,
+    const RawDevelopmentPlan& requested_plan,
+    const RawFoundationCameraRgbView& foundation,
+    const std::uint32_t max_edge,
+    const RawPipelinePolicy& policy,
+    const CameraProfileCatalog& camera_profiles
+) {
+    if (max_edge == 0U || policy.schema_version != raw_pipeline_policy_schema_version
+        || requested_plan.schema_version != raw_development_plan_schema_version
+        || !foundation.valid() || !staged_frame.is_bayer_2x2()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "staged AI RAW preview rebinding received an invalid frame, plan, policy, edge, or foundation"
+        );
+    }
+    if (policy.mode == RawPipelineMode::require_provider_processed) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "staged AI RAW preview rebinding is disabled by the RAW pipeline policy"
+        );
+    }
+    RawDevelopmentPlan effective_plan = requested_plan;
+    effective_plan.noise_reduction = RawNoiseReductionIntent::disabled;
+    effective_plan.highlight_recovery = RawHighlightRecoveryIntent::disabled;
+    return prepare_raw_foundation_preview_rebinding(
+        prepare_raw_frame_source(
+            metadata_session,
+            std::move(staged_frame),
+            effective_plan,
+            max_edge,
+            camera_profiles
+        ),
+        foundation,
+        requested_plan
+    );
+}
+
 } // namespace shadow::image::raw_pipeline_detail

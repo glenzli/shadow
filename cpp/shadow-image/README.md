@@ -40,6 +40,10 @@ code should include the narrow semantic owner directly:
   Camera-channel ratios remain internal renderer values.
 - `decoder_metadata.hpp` / `src/decoder/decoder_metadata.cpp` own source facts,
   embedded-preview descriptors, provider-ID selection, and format names.
+  `focus_observation.hpp` / `src/decoder/focus_observation.cpp` normalize
+  bounded camera-authored AF locations into the display-oriented uncropped
+  source space. Nikon AFInfo2 V0400-family areas and Sony FocusLocation points
+  retain distinct provenance and never become a sharpness claim.
 - `raw_frame.hpp` owns untouched sensor samples; `reference_pixels.hpp` owns processed reference
   pixels and their output contracts.
 - `decoder_session.hpp` owns opened-source/provider lifetimes; `proxy_rendering.hpp` owns bounded
@@ -298,8 +302,12 @@ tile.
 
 `shadow-image-decode-helper raw-frame-staging` is a separate production input boundary for local
 AI sidecars. It opens the original through the same private-provider router, publishes one
-nonce-bound provider-neutral Bayer staging pair, and never asks the AI provider to re-decode a
-proprietary RAW container.
+nonce-bound provider-neutral Bayer staging pair with its complete active-frame colour/orientation
+descriptor, and never asks the AI provider to re-decode a proprietary RAW container. The same
+request-private pair is the canonical handoff into AI preview/detail preparation: native rendering
+strictly reconstructs the provider-neutral `RawFrame`, then releases the files after it owns the
+bounded preview basis or full detail source. Follow `raw_frame_staging.*` for this read/write
+contract and `raw_frame_source_preparation.*` for its development binding.
 
 Lensfun optics has responsibility-named production owners behind the stable `OpticsProvider` API.
 `src/optics/lensfun_profile_catalog.*` owns database selection and loading, normalized camera

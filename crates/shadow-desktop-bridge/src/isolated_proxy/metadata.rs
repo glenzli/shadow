@@ -6,7 +6,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use shadow_domain::{GpsMetadataSnapshot, ImageDimensions, ImageMargins, RawMetadataSnapshot};
+use shadow_domain::{
+    FocusObservationSnapshot, FocusObservationSource, GpsMetadataSnapshot, ImageDimensions,
+    ImageMargins, RawMetadataSnapshot,
+};
 use uuid::Uuid;
 
 use super::{
@@ -26,8 +29,8 @@ use super::{
 
 const MAX_METADATA_TEXT_BYTES: usize = 4 * 1024;
 const METADATA_SNAPSHOT_SCHEMA: u8 = 1;
-pub(super) const METADATA_SNAPSHOT_FIELD_COUNT: usize = 43;
-pub(super) const RAW_METADATA_SNAPSHOT_FIELD_COUNT: usize = 38;
+pub(super) const METADATA_SNAPSHOT_FIELD_COUNT: usize = 52;
+pub(super) const RAW_METADATA_SNAPSHOT_FIELD_COUNT: usize = 47;
 
 /// A child-established metadata snapshot. The router identity identifies the
 /// configured helper-side provider graph; it does not claim that the desktop
@@ -236,6 +239,17 @@ pub(super) fn parse_raw_metadata_snapshot_fields(
         has_gps_altitude,
         gps_altitude_meters,
     );
+    let focus_observation = valid_focus_observation(
+        parse_metadata_bool(fields[38], "focus observation")?,
+        parse_metadata_u32(fields[39], "focus observation schema")?,
+        parse_metadata_u64(fields[40], "focus observation source")?,
+        parse_metadata_f64(fields[41], "focus center x")?,
+        parse_metadata_f64(fields[42], "focus center y")?,
+        parse_metadata_f64(fields[43], "focus width")?,
+        parse_metadata_f64(fields[44], "focus height")?,
+        parse_metadata_bool(fields[45], "focus confirmation")?,
+        parse_metadata_f64(fields[46], "focus confidence")?,
+    );
     Ok(RawMetadataSnapshot {
         make: decode_text(0, "make")?,
         model: decode_text(1, "model")?,
@@ -274,12 +288,46 @@ pub(super) fn parse_raw_metadata_snapshot_fields(
         exposure_time_seconds: parse_metadata_f64(fields[26], "exposure time")?,
         aperture_f_number: parse_metadata_f64(fields[27], "aperture")?,
         focal_length_mm: parse_metadata_f64(fields[28], "focal length")?,
+        focus_observation,
         captured_at_unix_seconds: parse_metadata_i64(fields[29], "capture time")?,
         gps,
         lens_make: decode_text(35, "lens make")?,
         lens_model: decode_text(36, "lens model")?,
         focal_length_35mm: parse_metadata_f64(fields[37], "35 mm focal length")?,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn valid_focus_observation(
+    available: bool,
+    schema_version: u32,
+    source: u64,
+    center_x: f64,
+    center_y: f64,
+    width: f64,
+    height: f64,
+    focus_confirmed: bool,
+    confidence: f64,
+) -> Option<FocusObservationSnapshot> {
+    if !available {
+        return None;
+    }
+    let source = match source {
+        1 => FocusObservationSource::CameraFocusArea,
+        2 => FocusObservationSource::CameraFocusLocation,
+        _ => return None,
+    };
+    let observation = FocusObservationSnapshot {
+        schema_version,
+        source,
+        center_x,
+        center_y,
+        width,
+        height,
+        focus_confirmed,
+        confidence,
+    };
+    observation.is_valid().then_some(observation)
 }
 
 fn parse_metadata_bool(encoded: &str, label: &str) -> Result<bool> {

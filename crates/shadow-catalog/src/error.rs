@@ -64,6 +64,8 @@ pub enum CatalogError {
     InvalidContentIdentity(String),
     #[error("invalid Library metadata facts: {0}")]
     InvalidLibraryFacts(String),
+    #[error("invalid Library place resolution: {0}")]
+    InvalidLibraryPlaceResolution(String),
     #[error("invalid Library photo state: {0}")]
     InvalidLibraryState(String),
     #[error("invalid Library album: {0}")]

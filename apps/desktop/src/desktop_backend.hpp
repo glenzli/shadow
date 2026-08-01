@@ -50,6 +50,10 @@ class DesktopBackend final {
         const BackendLibraryFacetCursor& cursor,
         std::uint32_t limit
     ) const;
+    [[nodiscard]] QVector<BackendLibraryPlaceResolutionCandidate>
+    libraryPlaceResolutionCandidates(std::uint32_t limit) const;
+    [[nodiscard]] BackendRecordLibraryPlaceResolutionStatus
+    recordLibraryPlaceResolution(const BackendLibraryPlaceResolutionResult& result) const;
     [[nodiscard]] QVector<BackendLibraryAlbum> libraryAlbums() const;
     [[nodiscard]] QVector<BackendLibraryKeyword> libraryKeywords() const;
     [[nodiscard]] QVector<BackendLibraryPhotoKeyword>
@@ -205,6 +209,10 @@ class DesktopBackend final {
     ) const;
     void discardSubjectMaskProposal(std::uint64_t proposal_token) const;
     [[nodiscard]] BackendRawFoundationRuntimeStatus probeRawFoundationRuntime() const;
+    [[nodiscard]] BackendRawFoundationNoiseAssessment assessRawFoundationNoise(
+        const QString& photo_id,
+        const QString& source_path
+    ) const;
     [[nodiscard]] std::uint64_t
     beginRawFoundationJob(const QString& request_id, std::uint64_t generation) const;
     void cancelRawFoundationJob(std::uint64_t raw_foundation_job_token) const;

@@ -12,15 +12,18 @@ void run_facet_projection_contracts() {
     coordinator.refresh(filter, 41);
     wait_until(
         [&coordinator]() { return !coordinator.busy(); },
-        "three-facet projection completes"
+        "five-facet projection completes"
     );
     const auto months = coordinator.captureMonths();
     const auto cameras = coordinator.cameras();
     const auto lenses = coordinator.lenses();
+    const auto countries = coordinator.countries();
+    const auto cities = coordinator.cities();
     const auto system_counts = coordinator.systemCollectionCounts();
     require(
-        months.size() == 1 && cameras.size() == 1 && lenses.size() == 1,
-        "one immutable query publishes all three bounded projections"
+        months.size() == 1 && cameras.size() == 1 && lenses.size() == 1 && countries.size() == 1
+            && cities.size() == 1,
+        "one immutable query publishes all five bounded projections"
     );
     require(
         months.front().toMap().value(QStringLiteral("key")) == QStringLiteral("nikon-z9-month")
@@ -28,6 +31,10 @@ void run_facet_projection_contracts() {
                    == QStringLiteral("nikon-z9-camera")
             && lenses.front().toMap().value(QStringLiteral("key"))
                    == QStringLiteral("nikon-z9-lens")
+            && countries.front().toMap().value(QStringLiteral("key"))
+                   == QStringLiteral("nikon-z9-country")
+            && cities.front().toMap().value(QStringLiteral("key"))
+                   == QStringLiteral("nikon-z9-city")
             && cameras.front().toMap().value(QStringLiteral("photoCount")).toULongLong() == 7,
         "projection preserves dimension identity, labels, and counts"
     );
@@ -41,10 +48,12 @@ void run_facet_projection_contracts() {
     {
         std::lock_guard lock(state->mutex);
         require(
-            state->calls.size() == 3
+            state->calls.size() == 5
                 && state->calls.at(0).kind == BackendLibraryFacetKind::CaptureMonth
                 && state->calls.at(1).kind == BackendLibraryFacetKind::Camera
-                && state->calls.at(2).kind == BackendLibraryFacetKind::Lens,
+                && state->calls.at(2).kind == BackendLibraryFacetKind::Lens
+                && state->calls.at(3).kind == BackendLibraryFacetKind::Country
+                && state->calls.at(4).kind == BackendLibraryFacetKind::City,
             "the batch queries each facet dimension exactly once"
         );
         for (const auto& call : state->calls) {

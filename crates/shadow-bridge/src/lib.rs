@@ -354,6 +354,15 @@ mod ffi {
         exposure_time_seconds: f64,
         aperture_f_number: f64,
         focal_length_mm: f64,
+        has_focus_observation: bool,
+        focus_observation_schema_version: u32,
+        focus_observation_source: u8,
+        focus_observation_center_x: f64,
+        focus_observation_center_y: f64,
+        focus_observation_width: f64,
+        focus_observation_height: f64,
+        focus_observation_confirmed: bool,
+        focus_observation_confidence: f64,
         captured_at_unix_seconds: i64,
         has_gps_coordinates: bool,
         gps_latitude_degrees: f64,
@@ -703,6 +712,13 @@ mod ffi {
             plan: &FfiRawDevelopmentPlan,
             foundation: &FfiRawFoundation,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        fn prepare_edit_preview_with_staged_raw_foundation(
+            self: &DecodeHandle,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            foundation: &FfiRawFoundation,
+            staging_manifest_path: &str,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
         #[allow(dead_code)]
         fn prepare_edit_detail(self: &DecodeHandle) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn prepare_edit_detail_with_raw_development_plan(
@@ -714,6 +730,13 @@ mod ffi {
             self: &DecodeHandle,
             plan: &FfiRawDevelopmentPlan,
             foundation: &FfiRawFoundation,
+            requirements: &FfiDetailSessionRequirements,
+        ) -> Result<UniquePtr<FullEditDetailHandle>>;
+        fn prepare_edit_detail_with_staged_raw_foundation(
+            self: &DecodeHandle,
+            plan: &FfiRawDevelopmentPlan,
+            foundation: &FfiRawFoundation,
+            staging_manifest_path: &str,
             requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;

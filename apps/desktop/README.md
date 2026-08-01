@@ -39,7 +39,9 @@ Application startup is split from environment-driven automation:
   the read-only Library commit/ref timeline.
 - [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) composes the responsive bottom status surface
   and workspace status projection. [`qml/MainLibraryFilterBar.qml`](qml/MainLibraryFilterBar.qml)
-  owns Library filter mutations and the explicit capture-date/file-name order,
+  owns Library filter mutations and status-row alignment,
+  [`qml/MainLibrarySortMenu.qml`](qml/MainLibrarySortMenu.qml) owns the anchored Shadow-styled
+  capture-date/file-name order menu,
   [`qml/MainPrecisionProxyStatus.qml`](qml/MainPrecisionProxyStatus.qml) owns read-only proxy
   state presentation. Every child uses the stable `Main` translation context explicitly.
 - [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
@@ -63,6 +65,11 @@ Application startup is split from environment-driven automation:
   owns Web Mercator visible-tile projection; and
   [`src/map/google_map_tile_layer.*`](src/map/google_map_tile_layer.hpp) paints those decoded
   tiles without taking gesture or photo-marker ownership.
+- [`src/library_reverse_geocoder.*`](src/library_reverse_geocoder.hpp) owns the one-at-a-time
+  native reverse-geocoding provider boundary. macOS uses MapKit without an application API key;
+  unsupported platforms fail closed. [`src/review_library_place_resolution_coordinator.*`](src/review_library_place_resolution_coordinator.hpp)
+  starts only after the first Library page is visible, keeps Catalog work off the UI thread,
+  serializes provider calls, and records only coordinate-still-current results.
 - [`qml/AutosaveFailureRecovery.qml`](qml/AutosaveFailureRecovery.qml) owns native-close
   interception plus the complete failed-save choice: retry, keep editing, discard only the
   in-memory draft and continue a queued photo open, or explicitly quit without saving.
@@ -149,6 +156,11 @@ Its implementation follows the same navigation:
   crop bounds and aspect ratios, straighten, rotation, flips, and geometry reset.
 - [`src/edit_grade_node_controller.cpp`](src/edit_grade_node_controller.cpp) owns Grade Node list
   presentation, selection, enablement, collection actions, sharing, and node-level resets.
+- [`src/edit_processing_stack_controller.cpp`](src/edit_processing_stack_controller.cpp) owns
+  explicit add/remove and bypass transitions for optional fixed-order photo nodes. AI RAW Denoise
+  and Canvas are absent from a new stack until added; they remain single-use, photo-private, and
+  non-reorderable. Model execution stays in the RAW Foundation controller and authored framing
+  stays in the geometry controller.
 - [`src/edit_mask_assignment_controller.cpp`](src/edit_mask_assignment_controller.cpp) owns the
   atomic choice between attaching a new mask to the selected empty node and creating, masking,
   inserting, and selecting one new node. QML never chains those state mutations.
@@ -169,7 +181,10 @@ Its implementation follows the same navigation:
   white-balance controls.
 - [`src/edit_raw_foundation_controller.*`](src/edit_raw_foundation_controller.hpp) owns the
   non-blocking AI RAW Denoise model probe, job polling, cancellation, stale-photo rejection,
-  terminal retirement, and the fixed photo-local node's undoable bypass/strength transitions.
+  terminal retirement, source-noise advisory projection, and the fixed photo-local node's
+  undoable bypass/strength transitions. The pure staged-Bayer estimator lives in
+  `crates/shadow-desktop-bridge/src/raw_foundation_noise_assessment.rs`; it cancels planar scene
+  gradients, reports confidence, and never admits or executes the model.
   [`src/edit_raw_foundation_state.*`](src/edit_raw_foundation_state.hpp) is its Qt-free generation
   state machine. Materialized artifacts remain rebuildable Rust-owned cache state: bypassing the
   node never deletes or serializes an artifact path, and strength changes never rerun the model.
@@ -273,6 +288,11 @@ Precision presentation follows the same responsibility tree:
   setting formatting instead of making the Inspector composition root interpret camera fields.
 - [`qml/PrecisionCanvas.qml`](qml/PrecisionCanvas.qml) owns the preview viewport, zoom/detail
   transport, tool/comparison surface composition, and their stable workspace-facing state.
+- [`qml/PrecisionDetailLoupe.qml`](qml/PrecisionDetailLoupe.qml) presents one non-persistent
+  focus/manual picture-in-picture viewport from the existing full-detail tile transport; camera
+  AF metadata selects its initial center. [`qml/PrecisionDetailLoupeState.qml`](qml/PrecisionDetailLoupeState.qml)
+  owns crop/orientation mapping, pointer follow/pin state, bounded detail requests, and the
+  image-center fallback while the Canvas remains the composition boundary.
 - [`qml/PrecisionCanvasStatusOverlays.qml`](qml/PrecisionCanvasStatusOverlays.qml) owns only
   comparison/detail/loading/error HUD presentation above that viewport and deliberately retains
   the `PrecisionWorkspace` translation context.
@@ -348,9 +368,10 @@ Precision presentation follows the same responsibility tree:
   white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
   composition surface.
 - [`qml/PrecisionRawDenoiseAdjustments.qml`](qml/PrecisionRawDenoiseAdjustments.qml) presents the
-  fixed bottom AI RAW Denoise node: materialize/retry/cancel state and the cached-result strength
-  gesture. The node-row switch and panel-header reset are reversible bypasses; ordinary idle state
-  carries no explanatory status rows, and the component contains no Foundation or JPEG terminology.
+  optional fixed AI RAW Denoise node: one concise source-noise recommendation, explicit Generate,
+  materialize/retry/cancel state, and the cached-result strength gesture. The node-row switch and
+  panel-header reset are reversible bypasses; the recommendation never auto-generates or applies
+  the model, and the component contains no Foundation or JPEG terminology.
 - [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) presents
   photo-local RAW white balance separately from the selected Grade Node's relative RGB white
   balance, then owns Light, Presence, foundational Color and Color Balance, plus the perceptual
@@ -779,6 +800,11 @@ distinguishes that legal post-recreation import from an illegal hidden same-epoc
 Qt retains its CPU scene graph across `releaseResources()`, so the smoke re-shows the window and
 requires exactly one named materialize/upload fallback for the active surface in each phase, with
 no native import.
+
+Adding `SHADOW_DESKTOP_RAPID_PREVIEW_SMOKE=1` runs 96 rapid exposure samples through the same edit
+session and requires the final settled preview pixels and histogram to belong to the last requested
+generation. Set `SHADOW_DESKTOP_EDIT_SOURCE_PATH=/absolute/source/path` to select the exact scanned
+Review item used by an edit smoke instead of relying on Library order.
 
 Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested neutral-import baseline and its independent analysis sidecar. This exercises the same warm decoded session without treating the baseline as unprocessed sensor data.
 

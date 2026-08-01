@@ -71,6 +71,8 @@ ColumnLayout {
                     denoise.editor.foundationAiDenoisePhase === "checking"
                     || denoise.editor.foundationAiDenoisePhase === "queued"
                     || denoise.editor.foundationAiDenoisePhase === "planning"
+                    || (denoise.editor.foundationAiDenoisePhase === "running"
+                        && value <= 0.05)
                     || value <= 0
             }
 
@@ -104,62 +106,98 @@ ColumnLayout {
             elide: Text.ElideRight
         }
 
-        RowLayout {
+        Label {
+            objectName: "rawAiDenoiseNoiseRecommendation"
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            spacing: 6
+            text: denoise.editor.foundationAiDenoiseNoiseRecommendation
+            color: denoise.editor.foundationAiDenoiseNoiseLevel === "high"
+                ? Theme.warningText : denoise.textMuted
+            font.pixelSize: 10
+            elide: Text.ElideRight
 
-            CheckBox {
-                id: enabledCheckBox
-                objectName: "rawAiDenoiseEnabledCheckBox"
-                Layout.fillWidth: true
-                implicitHeight: 28
-                checked: denoise.editor.foundationAiDenoiseEnabled
-                enabled: !denoise.editor.foundationAiDenoiseBusy
-                    && (checked || denoise.editor.foundationAiDenoiseCanStart)
-                text: qsTr("Enable AI RAW Denoise")
-                Accessible.name: text
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-                ToolTip.text: checked
+            HoverHandler { id: noiseRecommendationHover }
+            ToolTip.visible: noiseRecommendationHover.hovered
+            ToolTip.delay: 500
+            ToolTip.text: qsTr("Source RAW noise estimate · %L1% confidence").arg(
+                denoise.editor.foundationAiDenoiseNoiseConfidence)
+        }
+
+        CheckBox {
+            id: enabledCheckBox
+            objectName: "rawAiDenoiseEnableCheckBox"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            implicitHeight: 28
+            checked: denoise.editor.foundationAiDenoiseRequested
+            enabled: denoise.editor.foundationAiDenoiseCanStart
+                || denoise.editor.foundationAiDenoiseCanApply
+                || denoise.editor.foundationAiDenoiseCanCancel
+                || denoise.editor.foundationAiDenoiseEnabled
+            text: qsTr("Enable AI RAW Denoise")
+            Accessible.name: text
+            ToolTip.visible: hovered
+            ToolTip.delay: 500
+            ToolTip.text: denoise.editor.foundationAiDenoiseCanCancel
+                ? qsTr("Cancel")
+                : (denoise.editor.foundationAiDenoiseEnabled
                     ? qsTr("Turn off AI RAW Denoise")
-                    : qsTr("Run once, then keep a reversible cached foundation")
-                onClicked:
-                    denoise.editor.foundationAiDenoiseEnabled =
-                        !denoise.editor.foundationAiDenoiseEnabled
-
-                indicator: Rectangle {
-                    implicitWidth: 16
-                    implicitHeight: 16
-                    x: 0
-                    y: Math.round((enabledCheckBox.height - height) / 2)
-                    radius: 4
-                    color: enabledCheckBox.checked
-                        ? Theme.switchOnSurface : Theme.switchOffSurface
-                    border.width: 1
-                    border.color: enabledCheckBox.checked
-                        ? Theme.switchOnBorder : Theme.borderStrong
-
-                    ShadowIcon {
-                        anchors.centerIn: parent
-                        visible: enabledCheckBox.checked
-                        source: "qrc:/icons/check.svg"
-                        color: denoise.accent
-                        size: 11
-                    }
-                }
-
-                contentItem: Label {
-                    leftPadding: 24
-                    text: enabledCheckBox.text
-                    color: enabledCheckBox.enabled
-                        ? denoise.textPrimary : denoise.textMuted
-                    font.pixelSize: 10
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
+                    : qsTr("Run once, then keep a reversible cached foundation"))
+            onClicked: {
+                if (!denoise.editor.foundationAiDenoiseRequested) {
+                    denoise.editor.startFoundationAiDenoise()
+                } else if (denoise.editor.foundationAiDenoiseCanCancel) {
+                    denoise.editor.cancelFoundationAiDenoise()
+                } else if (denoise.editor.foundationAiDenoiseEnabled) {
+                    denoise.editor.foundationAiDenoiseEnabled = false
                 }
             }
+
+            indicator: Rectangle {
+                implicitWidth: 16
+                implicitHeight: 16
+                x: 0
+                y: Math.round((enabledCheckBox.height - height) / 2)
+                radius: 4
+                color: enabledCheckBox.checked
+                    ? Theme.switchOnSurface : Theme.switchOffSurface
+                border.width: 1
+                border.color: enabledCheckBox.checked
+                    ? Theme.switchOnBorder : Theme.borderStrong
+
+                ShadowIcon {
+                    anchors.centerIn: parent
+                    visible: enabledCheckBox.checked
+                    source: "qrc:/icons/check.svg"
+                    color: denoise.accent
+                    size: 11
+                }
+            }
+
+            contentItem: Label {
+                leftPadding: 24
+                text: enabledCheckBox.text
+                color: enabledCheckBox.enabled
+                    ? denoise.textPrimary : denoise.textMuted
+                font.pixelSize: 10
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+        }
+
+        Label {
+            objectName: "rawAiDenoiseNodeHiddenWarning"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: denoise.editor.foundationAiDenoiseRequested
+                && !denoise.editor.rawDenoiseNodeVisible
+            text: qsTr("Node hidden · AI result is not applied")
+            color: Theme.warningText
+            font.pixelSize: 9
+            elide: Text.ElideRight
         }
     }
 }

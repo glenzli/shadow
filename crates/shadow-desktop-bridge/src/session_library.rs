@@ -75,6 +75,21 @@ impl DesktopSession {
         self.library.facet_page(filter, kind, cursor, limit)
     }
 
+    pub(crate) fn library_place_resolution_candidates(
+        &self,
+        limit: u32,
+    ) -> AnyResult<Vec<ffi::FfiLibraryPlaceResolutionCandidate>> {
+        self.library.place_resolution_candidates(limit)
+    }
+
+    pub(crate) fn record_library_place_resolution(
+        &self,
+        result: &ffi::FfiLibraryPlaceResolutionResult,
+    ) -> AnyResult<ffi::FfiRecordLibraryPlaceResolutionStatus> {
+        self.library
+            .record_place_resolution(result, current_time_ms()?)
+    }
+
     pub(crate) fn library_albums(&self) -> AnyResult<Vec<ffi::FfiLibraryAlbum>> {
         self.library.ffi_albums()
     }

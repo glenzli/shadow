@@ -5,7 +5,8 @@ use super::{
 use crate::{
     AlbumKind, Catalog, CommitRecipe, LibraryApertureRange, LibraryFacetKind, LibraryFacetValue,
     LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter, LibraryPhotoOrder,
-    RecipeRefKind, RecipeRefTarget, SetPhotoLibraryState, library_equipment_key,
+    RecipeRefKind, RecipeRefTarget, RecordLibraryPlaceResolution,
+    RecordLibraryPlaceResolutionStatus, SetPhotoLibraryState, library_equipment_key,
 };
 use shadow_domain::{
     EntityId, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, RecipeCommit, RecipeCommitId,
@@ -454,4 +455,109 @@ fn bounded_library_facets_compose_without_directory_ownership() {
             })
             .is_err()
     );
+}
+
+#[test]
+fn country_and_city_facets_compose_with_the_photo_query_contract() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let shanghai_one = register(&mut catalog, "/places/shanghai-one.nef");
+    let shanghai_two = register(&mut catalog, "/places/shanghai-two.nef");
+    let tokyo = register(&mut catalog, "/places/tokyo.nef");
+
+    for registered in [shanghai_one, shanghai_two] {
+        let mut facts = facts_for(registered, Some(1_700_000_000), "Nikon", "Z 8");
+        facts.latitude_e7 = Some(312_304_000);
+        facts.longitude_e7 = Some(1_212_473_000);
+        catalog
+            .upsert_photo_library_facts(&facts)
+            .expect("index Shanghai coordinates");
+    }
+    let mut tokyo_facts = facts_for(tokyo, Some(1_700_000_100), "Canon", "EOS R5");
+    tokyo_facts.latitude_e7 = Some(356_765_000);
+    tokyo_facts.longitude_e7 = Some(1_397_650_000);
+    catalog
+        .upsert_photo_library_facts(&tokyo_facts)
+        .expect("index Tokyo coordinates");
+
+    for record in [
+        RecordLibraryPlaceResolution {
+            latitude_e7: 312_304_000,
+            longitude_e7: 1_212_473_000,
+            country_code: "cn".into(),
+            country_name: "China".into(),
+            administrative_area: "Shanghai".into(),
+            locality: "Shanghai".into(),
+            display_name: "Shanghai, China".into(),
+            provider_id: "test".into(),
+            provider_version: "1".into(),
+            locale: "en".into(),
+            resolved_at_ms: 200,
+        },
+        RecordLibraryPlaceResolution {
+            latitude_e7: 356_765_000,
+            longitude_e7: 1_397_650_000,
+            country_code: "jp".into(),
+            country_name: "Japan".into(),
+            administrative_area: "Tokyo".into(),
+            locality: "Tokyo".into(),
+            display_name: "Tokyo, Japan".into(),
+            provider_id: "test".into(),
+            provider_version: "1".into(),
+            locale: "en".into(),
+            resolved_at_ms: 200,
+        },
+    ] {
+        assert_eq!(
+            catalog
+                .record_library_place_resolution(&record)
+                .expect("record place"),
+            RecordLibraryPlaceResolutionStatus::Recorded
+        );
+    }
+
+    let countries = catalog
+        .library_facet_page(
+            &LibraryPhotoFilter::default(),
+            LibraryFacetKind::Country,
+            None,
+            16,
+        )
+        .expect("country facets");
+    assert_eq!(
+        countries.items,
+        vec![
+            LibraryFacetValue {
+                key: "cn".into(),
+                label: "China".into(),
+                photo_count: 2,
+            },
+            LibraryFacetValue {
+                key: "jp".into(),
+                label: "Japan".into(),
+                photo_count: 1,
+            },
+        ]
+    );
+
+    let china = LibraryPhotoFilter {
+        country_key: Some("CN".into()),
+        ..LibraryPhotoFilter::default()
+    };
+    assert_eq!(catalog.library_photo_count(&china).expect("China count"), 2);
+    let cities = catalog
+        .library_facet_page(&china, LibraryFacetKind::City, None, 16)
+        .expect("China city facets");
+    assert_eq!(cities.items.len(), 1);
+    assert_eq!(cities.items[0].label, "Shanghai · China");
+    assert_eq!(cities.items[0].photo_count, 2);
+
+    let shanghai = LibraryPhotoFilter {
+        country_key: Some("cn".into()),
+        locality_key: Some(cities.items[0].key.clone()),
+        ..LibraryPhotoFilter::default()
+    };
+    let page = catalog
+        .library_photo_page(&shanghai, LibraryPhotoOrder::default(), None, 16)
+        .expect("Shanghai photo page");
+    assert_eq!(page.items.len(), 2);
 }

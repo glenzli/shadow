@@ -90,11 +90,25 @@ Item {
             }
 
             PopupAction {
-                text: qsTr("Crop & Geometry")
+                text: menus.editor.canvasNodeMaterialized
+                    ? qsTr("Open Crop & Geometry")
+                    : qsTr("Add Crop & Geometry")
                 onClicked: {
                     addGradeNodePopup.close()
+                    menus.editor.addCanvasNode()
                     menus.editor.selectCanvasNode()
                     menus.cropGeometryRequested()
+                }
+            }
+
+            PopupAction {
+                text: menus.editor.rawDenoiseNodeMaterialized
+                    ? qsTr("Open AI RAW Denoise")
+                    : qsTr("Add AI RAW Denoise")
+                onClicked: {
+                    addGradeNodePopup.close()
+                    menus.editor.addRawDenoiseNode()
+                    menus.editor.selectRawDenoiseNode()
                 }
             }
 

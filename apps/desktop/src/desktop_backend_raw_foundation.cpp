@@ -5,6 +5,16 @@ BackendRawFoundationRuntimeStatus DesktopBackend::probeRawFoundationRuntime() co
     return project_raw_foundation_runtime_status(impl_->session->probe_raw_foundation_runtime());
 }
 
+BackendRawFoundationNoiseAssessment DesktopBackend::assessRawFoundationNoise(
+    const QString& photo_id,
+    const QString& source_path
+) const {
+    return project_raw_foundation_noise_assessment(impl_->session->assess_raw_foundation_noise(
+        photo_id.toStdString(),
+        source_path.toStdString()
+    ));
+}
+
 std::uint64_t DesktopBackend::beginRawFoundationJob(
     const QString& request_id,
     const std::uint64_t generation

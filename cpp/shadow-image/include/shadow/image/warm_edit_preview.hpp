@@ -370,6 +370,15 @@ class WarmEditPreviewSession final {
         std::uint32_t max_edge,
         const RawDevelopmentPlan& raw_development_plan,
         const RawFoundationCameraRgbView& foundation,
+        RawFrame staged_frame,
+        std::shared_ptr<const OpticsProvider> optics_provider,
+        const OpticsSettings& optics_settings
+    );
+    friend WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+        const DecodeSession& session,
+        std::uint32_t max_edge,
+        const RawDevelopmentPlan& raw_development_plan,
+        const RawFoundationCameraRgbView& foundation,
         std::shared_ptr<const OpticsProvider> optics_provider,
         const OpticsSettings& optics_settings
     );
@@ -382,6 +391,16 @@ class WarmEditPreviewSession final {
     const DecodeSession& session,
     std::uint32_t max_edge,
     const RawDevelopmentPlan& raw_development_plan,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+[[nodiscard]] WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const DecodeSession& metadata_session,
+    std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const RawFoundationCameraRgbView& foundation,
+    RawFrame staged_frame,
     std::shared_ptr<const OpticsProvider> optics_provider,
     const OpticsSettings& optics_settings = default_optics_settings()
 );

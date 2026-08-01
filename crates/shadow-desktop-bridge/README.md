@@ -12,6 +12,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Library service composition | [`src/library_service.rs`](src/library_service.rs) |
 | Ordered Library photo paging, facets, and signed visual presentation | [`src/library_service/browse.rs`](src/library_service/browse.rs) |
 | Provider-independent Library viewport aggregation | [`src/library_service/map_browse.rs`](src/library_service/map_browse.rs) |
+| Coordinate-bound reverse-geocoding candidate/result bridge | [`src/library_service/place_resolution.rs`](src/library_service/place_resolution.rs) |
 | Library filter, order, facet, and typed cursor wire contract | [`src/library_service/query_contract.rs`](src/library_service/query_contract.rs) |
 | Hierarchical keyword taxonomy, assignment provenance, batch mutation, and CXX projection | [`src/library_service/keywords.rs`](src/library_service/keywords.rs) |
 | Non-destructive removal of logical photos from active Library projections | [`src/library_service/lifecycle.rs`](src/library_service/lifecycle.rs) |

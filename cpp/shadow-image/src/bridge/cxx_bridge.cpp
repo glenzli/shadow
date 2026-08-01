@@ -779,6 +779,25 @@ optics_profile_candidates_for(const image::DecodeSession& session) {
     metadata.exposure_time_seconds = source.exposure_time_seconds;
     metadata.aperture_f_number = source.aperture_f_number;
     metadata.focal_length_mm = source.focal_length_mm;
+    if (source.has_focus_observation) {
+        const auto focus_source = source.focus_observation_source == 1U
+            ? image::FocusObservationSource::camera_focus_area
+            : source.focus_observation_source == 2U
+            ? image::FocusObservationSource::camera_focus_location
+            : image::FocusObservationSource::unknown;
+        if (focus_source != image::FocusObservationSource::unknown) {
+            metadata.focus_observation = image::FocusObservation{
+                .schema_version = source.focus_observation_schema_version,
+                .source = focus_source,
+                .center_x = source.focus_observation_center_x,
+                .center_y = source.focus_observation_center_y,
+                .width = source.focus_observation_width,
+                .height = source.focus_observation_height,
+                .focus_confirmed = source.focus_observation_confirmed,
+                .confidence = source.focus_observation_confidence,
+            };
+        }
+    }
     metadata.captured_at_unix_seconds = source.captured_at_unix_seconds;
     metadata.has_gps_coordinates = source.has_gps_coordinates;
     metadata.gps_latitude_degrees = source.gps_latitude_degrees;

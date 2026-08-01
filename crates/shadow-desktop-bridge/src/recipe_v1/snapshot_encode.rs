@@ -42,8 +42,8 @@ use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
     FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskDefinition,
     MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
-    ParameterKey, ParameterValue, PhotoCanvasNode, PhotoStructuralNodes, PortType, ProcessingStage,
-    RecipeSnapshot, UnitInterval,
+    ParameterKey, ParameterValue, PhotoStructuralNodes, PortType, ProcessingStage, RecipeSnapshot,
+    UnitInterval,
 };
 
 use super::{
@@ -97,10 +97,8 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
             })
         })
         .collect::<AnyResult<Vec<_>>>()?;
-    let structural_nodes = PhotoStructuralNodes::new(
-        grade_stack.liquify.clone(),
-        PhotoCanvasNode::new(grade_stack.geometry),
-    )?;
+    let structural_nodes =
+        PhotoStructuralNodes::new(grade_stack.liquify.clone(), grade_stack.canvas)?;
     // Recipe v1 retains the historical nested wire field, while the draft and
     // UI own AI RAW Denoise as a sibling node before Foundation.
     let persisted_foundation = shadow_domain::PhotoFoundationNode::new(

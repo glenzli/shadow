@@ -22,6 +22,8 @@ class FoundationEditorStub final : public QObject {
         bool foundationAiDenoiseEnabled READ foundationAiDenoiseEnabled WRITE
             setFoundationAiDenoiseEnabled NOTIFY aiChanged
     )
+    Q_PROPERTY(bool foundationAiDenoiseRequested MEMBER ai_requested NOTIFY aiChanged)
+    Q_PROPERTY(bool rawDenoiseNodeVisible MEMBER raw_denoise_node_visible NOTIFY aiChanged)
     Q_PROPERTY(
         int foundationAiDenoiseAmount READ foundationAiDenoiseAmount WRITE
             setFoundationAiDenoiseAmount NOTIFY aiChanged
@@ -29,10 +31,20 @@ class FoundationEditorStub final : public QObject {
     Q_PROPERTY(bool foundationAiDenoiseAvailable MEMBER ai_available NOTIFY aiChanged)
     Q_PROPERTY(bool foundationAiDenoiseBusy MEMBER ai_busy NOTIFY aiChanged)
     Q_PROPERTY(bool foundationAiDenoiseCanStart MEMBER ai_can_start NOTIFY aiChanged)
+    Q_PROPERTY(bool foundationAiDenoiseCanApply MEMBER ai_can_apply NOTIFY aiChanged)
     Q_PROPERTY(bool foundationAiDenoiseCanCancel MEMBER ai_can_cancel NOTIFY aiChanged)
     Q_PROPERTY(QString foundationAiDenoisePhase MEMBER ai_phase NOTIFY aiChanged)
     Q_PROPERTY(double foundationAiDenoiseProgress MEMBER ai_progress NOTIFY aiChanged)
     Q_PROPERTY(QString foundationAiDenoiseStatusText MEMBER ai_status NOTIFY aiChanged)
+    Q_PROPERTY(
+        bool foundationAiDenoiseNoiseAssessmentBusy MEMBER noise_busy NOTIFY aiChanged
+    )
+    Q_PROPERTY(QString foundationAiDenoiseNoiseLevel MEMBER noise_level NOTIFY aiChanged)
+    Q_PROPERTY(int foundationAiDenoiseNoiseScore MEMBER noise_score NOTIFY aiChanged)
+    Q_PROPERTY(int foundationAiDenoiseNoiseConfidence MEMBER noise_confidence NOTIFY aiChanged)
+    Q_PROPERTY(
+        QString foundationAiDenoiseNoiseRecommendation MEMBER noise_recommendation NOTIFY aiChanged
+    )
     Q_PROPERTY(
         int foundationWhiteBalanceTemperature MEMBER foundation_temperature NOTIFY valuesChanged
     )
@@ -63,6 +75,7 @@ class FoundationEditorStub final : public QObject {
     void setFoundationAiDenoiseEnabled(const bool enabled) {
         ++toggle_count;
         ai_enabled = enabled;
+        ai_requested = enabled;
         emit aiChanged();
     }
 
@@ -77,10 +90,14 @@ class FoundationEditorStub final : public QObject {
 
     Q_INVOKABLE void startFoundationAiDenoise() {
         ++start_count;
+        ai_requested = true;
+        emit aiChanged();
     }
 
     Q_INVOKABLE void cancelFoundationAiDenoise() {
         ++cancel_count;
+        ai_requested = false;
+        emit aiChanged();
     }
 
     Q_INVOKABLE double parameterValue(const QString&) const {
@@ -101,14 +118,17 @@ class FoundationEditorStub final : public QObject {
         const bool enabled,
         const bool busy,
         const bool can_start,
+        const bool can_apply,
         const bool can_cancel,
         QString phase,
         const double progress,
         QString status
     ) {
         ai_enabled = enabled;
+        ai_requested = enabled || busy;
         ai_busy = busy;
         ai_can_start = can_start;
+        ai_can_apply = can_apply;
         ai_can_cancel = can_cancel;
         ai_phase = std::move(phase);
         ai_progress = progress;
@@ -119,14 +139,22 @@ class FoundationEditorStub final : public QObject {
     bool active = true;
     bool state_busy = false;
     bool ai_enabled = false;
+    bool ai_requested = false;
+    bool raw_denoise_node_visible = true;
     int ai_amount = 100;
     bool ai_available = true;
     bool ai_busy = false;
     bool ai_can_start = true;
+    bool ai_can_apply = false;
     bool ai_can_cancel = false;
     QString ai_phase = QStringLiteral("available");
     double ai_progress = 0.0;
     QString ai_status = QStringLiteral("available");
+    bool noise_busy = false;
+    QString noise_level = QStringLiteral("low");
+    int noise_score = 18;
+    int noise_confidence = 82;
+    QString noise_recommendation = QStringLiteral("Low noise · AI denoise likely unnecessary");
     int foundation_temperature = 6'200;
     int foundation_tint = -8;
     bool foundation_at_camera = true;
@@ -215,8 +243,14 @@ int main(int argc, char* argv[]) {
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseAmountSlider"));
     auto* const progress =
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseProgress"));
-    auto* const enabled_checkbox =
-        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseEnabledCheckBox"));
+    auto* const enable =
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseEnableCheckBox"));
+    auto* const noise_recommendation = denoise_root->findChild<QQuickItem*>(
+        QStringLiteral("rawAiDenoiseNoiseRecommendation")
+    );
+    auto* const hidden_warning = denoise_root->findChild<QQuickItem*>(
+        QStringLiteral("rawAiDenoiseNodeHiddenWarning")
+    );
     auto* const cancel =
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseCancelButton"));
     auto* const bypass =
@@ -231,7 +265,9 @@ int main(int argc, char* argv[]) {
     );
     if (!require(amount != nullptr, "cached-result amount control is packaged")
         || !require(progress != nullptr, "progress surface is packaged")
-        || !require(enabled_checkbox != nullptr, "enable checkbox is packaged")
+        || !require(enable != nullptr, "explicit enable checkbox is packaged")
+        || !require(noise_recommendation != nullptr, "source noise advice is packaged")
+        || !require(hidden_warning != nullptr, "hidden-node truth is packaged")
         || !require(cancel != nullptr, "cancel action is packaged")
         || !require(bypass != nullptr, "header bypass action is packaged")
         || !require(temperature != nullptr, "absolute Kelvin control is packaged")
@@ -256,26 +292,34 @@ int main(int argc, char* argv[]) {
         || !require(!amount->property("enabled").toBool(), "bypassed amount is read-only")
         || !require(!bypass->property("enabled").toBool(), "bypassed node disables reset")
         || !require(
-            enabled_checkbox->property("visible").toBool(),
-            "available state exposes the enable checkbox"
-        )
-        || !require(
-            enabled_checkbox->property("enabled").toBool()
-                && !enabled_checkbox->property("checked").toBool(),
-            "available state exposes an unchecked actionable checkbox"
+            enable->property("visible").toBool() && enable->property("enabled").toBool()
+                && !enable->property("checked").toBool(),
+            "available state exposes an unchecked enable choice"
         )
         || !require(!progress->property("visible").toBool(), "idle state hides progress")) {
         return EXIT_FAILURE;
     }
+    if (!require(
+            !hidden_warning->property("visible").toBool(),
+            "a visible node does not show a contradictory warning"
+        )) {
+        return EXIT_FAILURE;
+    }
+    if (!require(
+            noise_recommendation->property("text").toString()
+                == QStringLiteral("Low noise · AI denoise likely unnecessary"),
+            "panel presents the confidence-aware source recommendation"
+        )) {
+        return EXIT_FAILURE;
+    }
 
-    QMetaObject::invokeMethod(enabled_checkbox, "clicked");
+    QMetaObject::invokeMethod(enable, "clicked");
     drainBindings();
     if (!require(
-            editor.toggle_count == 1 && editor.foundationAiDenoiseEnabled()
-                && enabled_checkbox->property("checked").toBool(),
-            "checkbox delegates one enable transition through the Recipe property"
-        )
-        || !require(editor.start_count == 0, "checkbox does not bypass the property lifecycle")) {
+            editor.start_count == 1 && editor.toggle_count == 0
+                && !editor.foundationAiDenoiseEnabled(),
+            "checking the option starts model work without prematurely enabling the Recipe"
+        )) {
         return EXIT_FAILURE;
     }
 
@@ -283,16 +327,18 @@ int main(int argc, char* argv[]) {
         false,
         true,
         false,
+        false,
         true,
         QStringLiteral("running"),
-        0.42,
+        0.05,
         QStringLiteral("running")
     );
     drainBindings();
     if (!require(progress->property("visible").toBool(), "busy state exposes progress")
         || !require(
-            std::abs(progress->property("value").toDouble() - 0.42) < 0.0001,
-            "bounded progress reaches the control"
+            std::abs(progress->property("value").toDouble() - 0.05) < 0.0001
+                && progress->property("indeterminate").toBool(),
+            "the provider's long 5% execution phase is presented as indeterminate"
         )
         || !require(cancel->property("visible").toBool(), "busy state exposes cancel")
         || !require(
@@ -301,9 +347,8 @@ int main(int argc, char* argv[]) {
             "busy cancellation is a compact close action beside progress"
         )
         || !require(
-            enabled_checkbox->property("visible").toBool()
-                && !enabled_checkbox->property("enabled").toBool(),
-            "busy state keeps the checkbox visible but locked"
+            enable->property("checked").toBool() && enable->property("enabled").toBool(),
+            "busy state keeps the requested option checked and cancellable"
         )) {
         return EXIT_FAILURE;
     }
@@ -317,6 +362,7 @@ int main(int argc, char* argv[]) {
         false,
         false,
         false,
+        false,
         QStringLiteral("ready"),
         1.0,
         QStringLiteral("enabled")
@@ -324,39 +370,31 @@ int main(int argc, char* argv[]) {
     drainBindings();
     if (!require(amount->property("enabled").toBool(), "Ready Recipe enables fast amount changes")
         || !require(!progress->property("visible").toBool(), "Ready state hides progress")
-        || !require(
-            enabled_checkbox->property("checked").toBool()
-                && enabled_checkbox->property("enabled").toBool(),
-            "Ready state exposes a checked reversible checkbox"
-        )
+        || !require(enable->property("checked").toBool(), "Ready state keeps enable checked")
         || !require(bypass->property("enabled").toBool(), "enabled node exposes bypass")) {
         return EXIT_FAILURE;
     }
 
-    QMetaObject::invokeMethod(enabled_checkbox, "clicked");
+    editor.raw_denoise_node_visible = false;
+    emit editor.aiChanged();
     drainBindings();
     if (!require(
-            editor.toggle_count == 2 && !editor.foundationAiDenoiseEnabled()
-                && !enabled_checkbox->property("checked").toBool(),
-            "checkbox delegates one non-destructive bypass transition"
+            hidden_warning->property("visible").toBool()
+                && hidden_warning->property("text").toString()
+                    == QStringLiteral("Node hidden · AI result is not applied"),
+            "enabled AI intent states clearly when node visibility prevents application"
         )) {
         return EXIT_FAILURE;
     }
-
-    editor.setAiState(
-        true,
-        false,
-        false,
-        false,
-        QStringLiteral("ready"),
-        1.0,
-        QStringLiteral("enabled")
-    );
+    editor.raw_denoise_node_visible = true;
+    emit editor.aiChanged();
     drainBindings();
+
     QMetaObject::invokeMethod(bypass, "clicked");
     drainBindings();
     if (!require(
-            editor.toggle_count == 3 && !editor.foundationAiDenoiseEnabled(),
+            editor.toggle_count == 1 && !editor.foundationAiDenoiseEnabled()
+                && !enable->property("checked").toBool(),
             "header bypass delegates one non-destructive Recipe transition"
         )) {
         return EXIT_FAILURE;

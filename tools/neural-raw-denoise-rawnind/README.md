@@ -301,13 +301,13 @@ canonical JSON manifest
 fixed footer: manifest offset + length + SHA-256
 ```
 
-The v2 header binds the source RAW SHA-256 and size, the exact pinned RawPy
+The v1 header binds the source RAW SHA-256 and size, the exact pinned RawPy
 RAW-to-packed-Bayer pixel-contract SHA-256, the RAW normalization receipt,
 pinned model/package identity, tiling and global-gain algorithm revision,
 ONNX Runtime version, active execution providers, platform, and output pixel
-interpretation. These fields form a pre-inference cache key. The v2 reader
-deliberately rejects the pre-contract v1 magic and schemas instead of risking
-reuse after a decoder-semantic change.
+interpretation. These fields form a pre-inference cache key. This is the only
+admitted artifact contract; pre-stabilization files have no compatibility
+reader and are regenerated instead of migrated.
 The manifest adds every stripe offset, geometry and digest, the complete
 ordered-sequence digest, the actual global-gain receipt, and a final artifact
 identity.
@@ -364,7 +364,7 @@ staging argument and retain the pinned rawpy/LibRaw loader.
 
 Before allocating or running inference, the application uses `--plan` with
 the same source and fixed pixel contract. Planning verifies and loads the
-pinned model/runtime, decodes the RAW, and computes the complete v2 contract
+pinned model/runtime, decodes the RAW, and computes the complete v1 contract
 and cache key, but executes zero model tiles:
 
 ```bash
@@ -410,46 +410,22 @@ environment; that packaging boundary and its external build receipt are owned
 by
 [`apps/desktop/providers/rawnind-foundation/`](../../apps/desktop/providers/rawnind-foundation/README.md).
 
-The executable protocol has completed a real CPU acceptance run on the
-public darktable Canon `1D3_6400.CR2` sample:
-
-- output extent: 3908 x 2600 linear camera-RGB pixels
-- artifact format: `.shadowrawf` v2; 121,933,266 file bytes
-- cache key:
-  `3a93ad80243a50dacd9e9da418ae4be88adb28b99b897123913ed08c7e84dc5d`
-- artifact identity:
-  `b2eefdeeeda2e6628972efa841e4e128eb3e0cdd12aa3f11581ed6d4c25808df`
-- complete file SHA-256:
-  `ed6aa1de1771abc6a5f3857299e3e8ae36ae6943e7ee47598fabceca0d1c9b48`
-- ONNX Runtime: 1.24.4, CPU execution only
-
-The earlier full Canon 7D artifact passed the combined quality, stripe, and
-artifact gate before the source pixel contract was introduced. Its numbers
-remain useful tiling evidence, but it is a historical v1 payload and the v2
-reader intentionally rejects it:
-
-- file bytes: 216,115,795; pixel payload: 216,111,888
-- cache key:
-  `297f6d6fec3a721a9779d7d1c852b669748da4ace2b8c68c6a054437216770a4`
-- artifact identity:
-  `bf3fe1f5f33e1591218d02caab4780a907302297d81f1f078cf955af0427a463`
-- complete file SHA-256:
-  `2fb0c92fc6338fd60ebe6612e2048ae977060c8823f6ecaeaac8ff9697d2685a`
-- two-pass generation, sealing, and writer verification: 30.20 seconds
-- complete combined v3 audit: 36.70 seconds
-- independent full verification: 0.37 seconds
-- verified 36-row read crossing a stripe boundary: 0.49 ms
+The executable protocol has completed real CPU acceptance on public darktable
+Canon samples. Those pre-stabilization artifacts were correctness evidence,
+not user data, and were intentionally retired when the sole v1 identity was
+frozen. Current artifacts are regenerated on demand and validated by both the
+producer and Shadow's independent reader.
 
 Operational inspection stays external to the repository:
 
 ```bash
 /private/tmp/shadow-rawnind-venv/bin/python \
   tools/neural-raw-denoise-rawnind/artifact_cli.py verify \
-  /private/tmp/shadow-rawnind-provider-public-1d3-v2/.1d3-6400.shadowrawf
+  /private/tmp/shadow-rawnind-provider-public-1d3-v1/.1d3-6400.shadowrawf
 
 /private/tmp/shadow-rawnind-venv/bin/python \
   tools/neural-raw-denoise-rawnind/artifact_cli.py read-probe \
-  /private/tmp/shadow-rawnind-provider-public-1d3-v2/.1d3-6400.shadowrawf \
+  /private/tmp/shadow-rawnind-provider-public-1d3-v1/.1d3-6400.shadowrawf \
   --y-start 540 --rows 36
 
 /private/tmp/shadow-rawnind-venv/bin/python \
