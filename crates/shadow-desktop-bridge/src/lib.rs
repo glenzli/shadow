@@ -7,11 +7,13 @@
 
 // Library lifecycle and durable application services.
 mod digest_hex;
+mod history_service;
 mod library_service;
 mod photo_inspection_service;
 mod relink_service;
 mod review_service;
 mod scan_service;
+mod session_history;
 mod session_library;
 mod session_photo_inspection;
 mod session_review;
@@ -69,6 +71,7 @@ use crate::session_preview_store::SessionPreviewStore;
 use crate::{cache_maintenance_service::CacheMaintenanceService, library_service::LibraryService};
 use detail_tile_cache::EditDetailSessionCache;
 use edit_preview::{OwnedEditedPreview, WarmEditPreviewSessionCache};
+use history_service::HistoryService;
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
@@ -1212,6 +1215,93 @@ mod ffi {
         has_other_changes: bool,
     }
 
+    /// The durable role of a movable history name.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiHistoryRefKind {
+        Working,
+        Branch,
+        NamedVersion,
+        Tag,
+    }
+
+    /// A durable name decorating an immutable Recipe or Library commit.
+    #[derive(Debug)]
+    struct FfiHistoryRef {
+        name: String,
+        kind: FfiHistoryRefKind,
+        commit_id: String,
+        updated_at_ms: i64,
+    }
+
+    /// Exclusive newest-first keyset cursor. Empty/default requests the first page.
+    #[derive(Debug, Default)]
+    struct FfiHistoryCursor {
+        created_at_ms: i64,
+        commit_id: String,
+    }
+
+    /// One photo's immutable Recipe commit with a semantic first-parent diff.
+    #[derive(Debug)]
+    struct FfiPhotoHistoryEntry {
+        commit_id: String,
+        name: String,
+        created_at_ms: i64,
+        parent_commit_ids: Vec<String>,
+        refs: Vec<FfiHistoryRef>,
+        is_named: bool,
+        is_working: bool,
+        is_root: bool,
+        recipe_schema_changed: bool,
+        grade_nodes_added: u32,
+        grade_nodes_removed: u32,
+        grade_nodes_moved: u32,
+        grade_nodes_modified: u32,
+        render_ops_added: u32,
+        render_ops_removed: u32,
+        render_ops_modified: u32,
+        render_op_parameter_blocks_changed: u32,
+        changed_parameter_keys: Vec<String>,
+        has_other_changes: bool,
+    }
+
+    #[derive(Debug)]
+    struct FfiPhotoHistoryPage {
+        entries: Vec<FfiPhotoHistoryEntry>,
+        has_more: bool,
+        next_cursor: FfiHistoryCursor,
+    }
+
+    /// One Library-wide immutable edit commit with changed-entity counts.
+    #[derive(Debug)]
+    struct FfiLibraryHistoryEntry {
+        commit_id: String,
+        message: String,
+        created_at_ms: i64,
+        parent_commit_ids: Vec<String>,
+        refs: Vec<FfiHistoryRef>,
+        is_root: bool,
+        is_head: bool,
+        photo_changes: u32,
+        shared_grade_changes: u32,
+        mask_changes: u32,
+        style_changes: u32,
+        output_state_changes: u32,
+    }
+
+    #[derive(Debug)]
+    struct FfiLibraryHistoryPage {
+        entries: Vec<FfiLibraryHistoryEntry>,
+        has_more: bool,
+        next_cursor: FfiHistoryCursor,
+    }
+
+    #[derive(Debug)]
+    struct FfiLibraryHistoryRefPage {
+        refs: Vec<FfiHistoryRef>,
+        has_more: bool,
+        next_cursor: String,
+    }
+
     /// One photo's current desktop edit state. Loading an immutable historical
     /// version returns a non-persistent draft: `working_commit_id` is then the
     /// draft's content base while the durable `working` ref remains untouched.
@@ -1852,6 +1942,22 @@ mod ffi {
             source_path: &str,
             commit_id: &str,
         ) -> Result<FfiPhotoEditState>;
+        fn photo_edit_history_page(
+            self: &DesktopSession,
+            photo_id: &str,
+            after: &FfiHistoryCursor,
+            limit: u32,
+        ) -> Result<FfiPhotoHistoryPage>;
+        fn library_edit_history_page(
+            self: &DesktopSession,
+            after: &FfiHistoryCursor,
+            limit: u32,
+        ) -> Result<FfiLibraryHistoryPage>;
+        fn library_edit_history_ref_page(
+            self: &DesktopSession,
+            after_name: &str,
+            limit: u32,
+        ) -> Result<FfiLibraryHistoryRefPage>;
     }
 }
 
@@ -1876,6 +1982,7 @@ struct DesktopSession {
     photo_inspection: PhotoInspectionService,
     review: ReviewService,
     export_queue: export_queue_service::ExportQueueService,
+    history: HistoryService,
 }
 
 fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<DesktopSession>> {
@@ -1928,6 +2035,7 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         ),
         scanner: ScanService::new(catalog.clone(), cache_root.clone(), session_previews),
         export_queue: export_queue_service::ExportQueueService::new(catalog.clone()),
+        history: HistoryService::new(catalog.clone()),
         catalog,
         loader,
         cache_root,

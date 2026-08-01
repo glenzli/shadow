@@ -7,8 +7,9 @@ use shadow_domain::{EditCommitId, EditObjectId, PhotoId, RecipeCommitId};
 use crate::{
     CatalogError, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
     CommitRecipeAndEditRepositoryResult, EditObjectPackWrite, EditObjectRecord,
-    EditRepositoryCommitRecord, EditRepositoryRefRecord, RecipeCommitRecord, RecipeRefRecord,
-    SetRecipeRef, StoreEditObjectPackResult,
+    EditRepositoryCommitRecord, EditRepositoryHistoryCursor, EditRepositoryHistoryPage,
+    EditRepositoryRefPage, EditRepositoryRefRecord, RecipeCommitRecord, RecipeHistoryCursor,
+    RecipeHistoryPage, RecipeRefRecord, SetRecipeRef, StoreEditObjectPackResult,
 };
 
 pub(in crate::writer) enum EditHistoryMessage {
@@ -24,6 +25,12 @@ pub(in crate::writer) enum EditHistoryMessage {
         PhotoId,
         RecipeCommitId,
         SyncSender<Result<Option<RecipeCommitRecord>, CatalogError>>,
+    ),
+    RecipeHistoryPage(
+        PhotoId,
+        Option<RecipeHistoryCursor>,
+        usize,
+        SyncSender<Result<RecipeHistoryPage, CatalogError>>,
     ),
     RecipeRef(
         PhotoId,
@@ -52,8 +59,18 @@ pub(in crate::writer) enum EditHistoryMessage {
         EditCommitId,
         SyncSender<Result<Option<EditRepositoryCommitRecord>, CatalogError>>,
     ),
+    EditRepositoryHistoryPage(
+        Option<EditRepositoryHistoryCursor>,
+        usize,
+        SyncSender<Result<EditRepositoryHistoryPage, CatalogError>>,
+    ),
     EditRepositoryRef(
         String,
         SyncSender<Result<Option<EditRepositoryRefRecord>, CatalogError>>,
+    ),
+    EditRepositoryRefPage(
+        Option<String>,
+        usize,
+        SyncSender<Result<EditRepositoryRefPage, CatalogError>>,
     ),
 }

@@ -6,6 +6,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QString>
+#include <QUrl>
 #include <QVariant>
 
 #include <cmath>
@@ -175,8 +176,7 @@ int main(int argc, char* argv[]) {
     );
 
     FoundationEditorStub editor;
-    std::unique_ptr<QObject> foundation_object{
-        foundation_component.createWithInitialProperties({
+    std::unique_ptr<QObject> foundation_object{foundation_component.createWithInitialProperties({
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
         {QStringLiteral("gradeControlsEnabled"), true},
         {QStringLiteral("panelRaised"), QColor{QStringLiteral("#20252b")}},
@@ -224,11 +224,11 @@ int main(int argc, char* argv[]) {
     auto* const temperature = foundation_root->findChild<QQuickItem*>(
         QStringLiteral("foundationWhiteBalanceTemperatureSlider")
     );
-    auto* const tint = foundation_root->findChild<QQuickItem*>(
-        QStringLiteral("foundationWhiteBalanceTintSlider")
+    auto* const tint =
+        foundation_root->findChild<QQuickItem*>(QStringLiteral("foundationWhiteBalanceTintSlider"));
+    auto* const white_balance_reset = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("foundationWhiteBalanceResetButton")
     );
-    auto* const white_balance_reset =
-        foundation_root->findChild<QQuickItem*>(QStringLiteral("foundationWhiteBalanceResetButton"));
     if (!require(amount != nullptr, "cached-result amount control is packaged")
         || !require(progress != nullptr, "progress surface is packaged")
         || !require(enabled_checkbox != nullptr, "enable checkbox is packaged")
@@ -295,6 +295,11 @@ int main(int argc, char* argv[]) {
             "bounded progress reaches the control"
         )
         || !require(cancel->property("visible").toBool(), "busy state exposes cancel")
+        || !require(
+            cancel->property("source").toUrl() == QUrl{QStringLiteral("qrc:/icons/close.svg")}
+                && cancel->property("buttonSize").toInt() == 22,
+            "busy cancellation is a compact close action beside progress"
+        )
         || !require(
             enabled_checkbox->property("visible").toBool()
                 && !enabled_checkbox->property("enabled").toBool(),

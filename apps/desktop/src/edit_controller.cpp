@@ -41,10 +41,8 @@ EditController::EditController(
     QObject(parent), backend_(std::move(backend)), preview_store_(std::move(preview_store)),
     preview_presentation_context_(std::move(preview_presentation_context)), versions_(this),
     tone_curve_points_(this) {
-    ai_mask_controller_ =
-        std::make_unique<EditAiMaskController>(*this, backend_);
-    raw_foundation_controller_ =
-        std::make_unique<EditRawFoundationController>(*this, backend_);
+    ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
+    raw_foundation_controller_ = std::make_unique<EditRawFoundationController>(*this, backend_);
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
@@ -70,24 +68,15 @@ EditController::EditController(
         this,
         &EditController::handleMaskSourceIdentityChanged
     );
-    connect(
-        this,
-        &EditController::sourceIdentityChanged,
-        this,
-        [this] { ai_mask_controller_->resetContext(); }
-    );
-    connect(
-        this,
-        &EditController::selectedGradeNodeChanged,
-        this,
-        [this] { ai_mask_controller_->resetContext(); }
-    );
-    connect(
-        this,
-        &EditController::parametersChanged,
-        this,
-        [this] { ai_mask_controller_->resetContext(); }
-    );
+    connect(this, &EditController::sourceIdentityChanged, this, [this] {
+        ai_mask_controller_->resetContext();
+    });
+    connect(this, &EditController::selectedGradeNodeChanged, this, [this] {
+        ai_mask_controller_->resetContext();
+    });
+    connect(this, &EditController::parametersChanged, this, [this] {
+        ai_mask_controller_->resetContext();
+    });
     connect(
         &state_watcher_,
         &QFutureWatcher<EditStateTaskResult>::finished,
@@ -155,7 +144,7 @@ bool EditController::interactionLocked() const noexcept {
     // head when the transaction returns. Opening a photo, creating a named
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
-    return pending_version_save_name_.has_value()
+    return pending_version_save_name_.has_value() || pending_version_load_commit_id_.has_value()
            || (state_running_ && state_task_kind_ != EditStateTaskKind::Autosave)
            || (ai_mask_controller_ && ai_mask_controller_->locksInteraction());
 }
@@ -229,6 +218,10 @@ QString EditController::autosaveErrorText() const {
 
 bool EditController::versionDraft() const noexcept {
     return version_draft_;
+}
+
+QString EditController::editBaseCommitId() const {
+    return base_commit_id_;
 }
 
 bool EditController::canUndo() const noexcept {

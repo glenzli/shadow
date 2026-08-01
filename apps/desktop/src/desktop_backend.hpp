@@ -2,6 +2,7 @@
 
 #include "backend/cache_types.hpp"
 #include "backend/edit_types.hpp"
+#include "backend/history_types.hpp"
 #include "backend/library_types.hpp"
 #include "backend/review_types.hpp"
 #include "folder_scan_backend.hpp"
@@ -253,6 +254,15 @@ class DesktopBackend final {
         const QString& source_path,
         const QString& commit_id
     ) const;
+    [[nodiscard]] BackendPhotoHistoryPage photoHistoryPage(
+        const QString& photo_id,
+        const BackendHistoryCursor& after,
+        std::uint32_t limit
+    ) const;
+    [[nodiscard]] BackendLibraryHistoryPage
+    libraryHistoryPage(const BackendHistoryCursor& after, std::uint32_t limit) const;
+    [[nodiscard]] BackendLibraryHistoryRefPage
+    libraryHistoryRefPage(const QString& after_name, std::uint32_t limit) const;
 
   private:
     struct Impl;

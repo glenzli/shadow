@@ -50,7 +50,7 @@ fn actor_resolves_exact_recipe_commits_without_crossing_photo_owners() {
         handle
             .recipe_commit(owner.photo_id, commit.id())
             .expect("resolve exact commit through actor"),
-        Some(expected)
+        Some(expected.clone())
     );
     assert!(
         handle
@@ -64,6 +64,12 @@ fn actor_resolves_exact_recipe_commits_without_crossing_photo_owners() {
             .expect("query absent exact commit through actor")
             .is_none()
     );
+    let page = handle
+        .recipe_history_page(owner.photo_id, None, 8)
+        .expect("page Recipe history through actor");
+    assert_eq!(page.entries.len(), 1);
+    assert_eq!(page.entries[0].record, expected);
+    assert!(page.next_cursor.is_none());
 
     actor.shutdown().expect("shutdown actor");
 }
@@ -141,6 +147,19 @@ fn actor_serializes_library_object_pack_commit_and_ref() {
             .commit_id,
         commit.id()
     );
+    let history_page = handle
+        .edit_repository_history_page(None, 8)
+        .expect("page Library history through actor");
+    assert_eq!(history_page.entries.len(), 1);
+    assert_eq!(history_page.entries[0].record.commit, commit);
+    assert_eq!(history_page.entries[0].refs[0].name, "heads/main");
+    assert!(history_page.next_cursor.is_none());
+    let ref_page = handle
+        .edit_repository_ref_page(None, 8)
+        .expect("page Library refs through actor");
+    assert_eq!(ref_page.refs.len(), 1);
+    assert_eq!(ref_page.refs[0].name, "heads/main");
+    assert!(ref_page.next_cursor.is_none());
     assert_eq!(
         handle
             .edit_object(root_id)

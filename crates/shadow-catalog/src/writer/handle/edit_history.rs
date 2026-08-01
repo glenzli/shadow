@@ -5,8 +5,9 @@ use shadow_domain::{EditCommitId, EditObjectId, PhotoId, RecipeCommitId};
 use crate::{
     CatalogError, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
     CommitRecipeAndEditRepositoryResult, EditObjectPackWrite, EditObjectRecord,
-    EditRepositoryCommitRecord, EditRepositoryRefRecord, RecipeCommitRecord, RecipeRefRecord,
-    SetRecipeRef, StoreEditObjectPackResult,
+    EditRepositoryCommitRecord, EditRepositoryHistoryCursor, EditRepositoryHistoryPage,
+    EditRepositoryRefPage, EditRepositoryRefRecord, RecipeCommitRecord, RecipeHistoryCursor,
+    RecipeHistoryPage, RecipeRefRecord, SetRecipeRef, StoreEditObjectPackResult,
 };
 
 use super::super::{
@@ -61,6 +62,23 @@ impl CatalogHandle {
         self.request(|response| {
             Message::EditHistory(EditHistoryMessage::RecipeCommit(
                 photo_id, commit_id, response,
+            ))
+        })
+    }
+
+    /// Reads one bounded newest-first page of a photo's durable Recipe history.
+    pub fn recipe_history_page(
+        &self,
+        photo_id: PhotoId,
+        after: Option<&RecipeHistoryCursor>,
+        limit: usize,
+    ) -> Result<RecipeHistoryPage, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::RecipeHistoryPage(
+                photo_id,
+                after.copied(),
+                limit,
+                response,
             ))
         })
     }
@@ -192,6 +210,21 @@ impl CatalogHandle {
         })
     }
 
+    /// Reads one bounded newest-first page of Library-wide edit commits.
+    pub fn edit_repository_history_page(
+        &self,
+        after: Option<&EditRepositoryHistoryCursor>,
+        limit: usize,
+    ) -> Result<EditRepositoryHistoryPage, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::EditRepositoryHistoryPage(
+                after.copied(),
+                limit,
+                response,
+            ))
+        })
+    }
+
     /// Resolves one guarded Library-wide branch, named version, or tag.
     ///
     /// # Errors
@@ -205,6 +238,21 @@ impl CatalogHandle {
         self.request(|response| {
             Message::EditHistory(EditHistoryMessage::EditRepositoryRef(
                 name.to_owned(),
+                response,
+            ))
+        })
+    }
+
+    /// Reads one bounded alphabetical page of Library-wide refs.
+    pub fn edit_repository_ref_page(
+        &self,
+        after_name: Option<&str>,
+        limit: usize,
+    ) -> Result<EditRepositoryRefPage, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::EditRepositoryRefPage(
+                after_name.map(str::to_owned),
+                limit,
                 response,
             ))
         })

@@ -54,20 +54,37 @@ ColumnLayout {
                 denoise.editor.endParameterEdit("raw_ai_denoise/amount")
         }
 
-        ProgressBar {
-            objectName: "rawAiDenoiseProgress"
+        RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             visible: denoise.editor.foundationAiDenoiseBusy
-            from: 0
-            to: 1
-            value: denoise.editor.foundationAiDenoiseProgress
-            indeterminate:
-                denoise.editor.foundationAiDenoisePhase === "checking"
-                || denoise.editor.foundationAiDenoisePhase === "queued"
-                || denoise.editor.foundationAiDenoisePhase === "planning"
-                || value <= 0
+            spacing: 6
+
+            ProgressBar {
+                objectName: "rawAiDenoiseProgress"
+                Layout.fillWidth: true
+                from: 0
+                to: 1
+                value: denoise.editor.foundationAiDenoiseProgress
+                indeterminate:
+                    denoise.editor.foundationAiDenoisePhase === "checking"
+                    || denoise.editor.foundationAiDenoisePhase === "queued"
+                    || denoise.editor.foundationAiDenoisePhase === "planning"
+                    || value <= 0
+            }
+
+            ShadowIconButton {
+                objectName: "rawAiDenoiseCancelButton"
+                enabled: denoise.editor.foundationAiDenoiseCanCancel
+                source: "qrc:/icons/close.svg"
+                variant: ShadowIconButton.Ghost
+                foregroundColor: Theme.dangerText
+                buttonSize: 22
+                iconSize: 11
+                toolTipText: qsTr("Cancel")
+                onClicked: denoise.editor.cancelFoundationAiDenoise()
+            }
         }
 
         Label {
@@ -143,18 +160,6 @@ ColumnLayout {
                     elide: Text.ElideRight
                 }
             }
-
-            ShadowButton {
-                objectName: "rawAiDenoiseCancelButton"
-                Layout.fillWidth: true
-                visible: denoise.editor.foundationAiDenoiseBusy
-                enabled: denoise.editor.foundationAiDenoiseCanCancel
-                compact: true
-                variant: ShadowButton.Danger
-                text: qsTr("Cancel")
-                onClicked: denoise.editor.cancelFoundationAiDenoise()
-            }
         }
-
     }
 }

@@ -10,6 +10,13 @@ use crate::{
     Catalog, CatalogError, CommitRecipe, RecipeCommitRecord, recipe::commit_recipe_in_transaction,
 };
 
+mod browse;
+pub use browse::{
+    EditRepositoryHistoryCursor, EditRepositoryHistoryEntry, EditRepositoryHistoryPage,
+    EditRepositoryRefPage, MAX_EDIT_REPOSITORY_HISTORY_PAGE_SIZE,
+    MAX_EDIT_REPOSITORY_REF_PAGE_SIZE,
+};
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct EditObjectRecord {
     pub object: EditObject,

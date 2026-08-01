@@ -7,6 +7,11 @@ use shadow_domain::{
 
 use crate::{Catalog, CatalogError, cache_artifact::digest, row_codec::read_id};
 
+mod history_browse;
+pub use history_browse::{
+    MAX_RECIPE_HISTORY_PAGE_SIZE, RecipeHistoryCursor, RecipeHistoryEntry, RecipeHistoryPage,
+};
+
 /// The semantic role of a movable name that points at an immutable commit.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RecipeRefKind {

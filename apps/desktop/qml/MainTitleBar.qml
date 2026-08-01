@@ -15,9 +15,11 @@ ToolBar {
     required property int workspaceIndex
     required property string descriptiveTitle
     required property bool canOpenSelectedPhoto
+    required property bool historyOpen
 
     signal reviewRequested()
     signal precisionRequested()
+    signal historyRequested()
 
     objectName: "titleToolBar"
     Accessible.name: descriptiveTitle
@@ -33,100 +35,6 @@ ToolBar {
         SafeArea.margins.right,
         Qt.platform.os === "windows" ? 152 : 16
     )
-
-    Popup {
-        id: historyPopup
-        parent: Overlay.overlay
-        width: Math.min(368, parent.width - 32)
-        padding: 0
-        modal: false
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-        x: Math.max(12, Math.min(parent.width - width - 12,
-            historyButton.mapToItem(parent, 0, historyButton.height + 8).x))
-        y: historyButton.mapToItem(parent, 0, historyButton.height + 8).y
-
-        background: Rectangle {
-            radius: Theme.controlRadius + 2
-            color: Theme.panelRaised
-            border.width: 1
-            border.color: Theme.borderStrong
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.margins: 16
-                spacing: 8
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("HISTORY")
-                    color: Theme.textPrimary
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.05
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("CURRENT WORKING COPY")
-                    color: Theme.accent
-                    font.pixelSize: 9
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 0.8
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Edits are autosaved to each photo’s current working copy. They remain editable and are not catalog commits.")
-                    color: Theme.textSecondary
-                    font.pixelSize: 10
-                    wrapMode: Text.WordWrap
-                    lineHeight: 1.32
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                color: Theme.border
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.margins: 16
-                spacing: 7
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("CATALOG HISTORY")
-                    color: Theme.textPrimary
-                    font.pixelSize: 10
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 0.8
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Named commits, branches, and shared adjustment snapshots will live here at catalog scope, not inside a single photo’s inspector.")
-                    color: Theme.textMuted
-                    font.pixelSize: 10
-                    wrapMode: Text.WordWrap
-                    lineHeight: 1.32
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("No catalog commits yet")
-                    color: Theme.textDisabled
-                    font.pixelSize: 10
-                }
-            }
-        }
-    }
 
     background: Rectangle {
         color: Theme.chrome
@@ -275,9 +183,8 @@ ToolBar {
                 text: qsTr("History")
                 toolTipText: text
                 accessibleName: text
-                selected: historyPopup.opened
-                onClicked: historyPopup.opened
-                    ? historyPopup.close() : historyPopup.open()
+                selected: titleBar.historyOpen
+                onClicked: titleBar.historyRequested()
             }
 
             ShadowIconButton {

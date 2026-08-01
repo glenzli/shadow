@@ -33,8 +33,10 @@ Application startup is split from environment-driven automation:
 - [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace routing, theme
   projection, and the stable application-shell entry points used by child workspaces.
 - [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
-  workspace navigation, edit save/undo state, settings entry, and the catalog-history popup as one
-  application-shell interaction surface. It preserves the `Main` translation context.
+  workspace navigation, edit save/undo state, settings entry, and the History Drawer trigger. It
+  preserves the `Main` translation context; [`qml/HistoryDrawer.qml`](qml/HistoryDrawer.qml) owns
+  the per-photo durable Recipe timeline, named-version creation and non-destructive checkout, plus
+  the read-only Library commit/ref timeline.
 - [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) composes the responsive bottom status surface
   and workspace status projection. [`qml/MainLibraryFilterBar.qml`](qml/MainLibraryFilterBar.qml)
   owns Library filter mutations and the explicit capture-date/file-name order,
@@ -114,6 +116,12 @@ Its implementation follows the same navigation:
   Grade Nodes, preview/detail rendering, and durable edit transitions.
 - [`src/desktop_backend_cache.cpp`](src/desktop_backend_cache.cpp) owns export-service access and
   conservative cache inventory/maintenance.
+- [`src/desktop_backend_history.cpp`](src/desktop_backend_history.cpp) and
+  [`src/backend/history_projection.*`](src/backend/history_projection.hpp) own the bounded CXX/Qt
+  projection for per-photo Recipe history, Library-wide commits, refs, keyset cursors, and semantic
+  diff counts. [`src/history_coordinator.*`](src/history_coordinator.hpp) owns lazy asynchronous
+  loading, pagination, stale-photo rejection, and worker lifetime; [`src/history_model.*`](src/history_model.hpp)
+  owns only the two read-only QML list projections.
 
 `EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
 

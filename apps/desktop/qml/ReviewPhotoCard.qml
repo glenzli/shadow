@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
+import QtQuick.Layouts
 
 Item {
     id: card
@@ -165,16 +166,6 @@ Item {
             }
         }
 
-        ReviewPhotoAffinity {
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.topMargin: 14
-            anchors.rightMargin: card.decisionFlag === "unflagged" ? 15 : 47
-            liked: card.liked
-            showRating: false
-            iconSize: 13
-        }
-
         Rectangle {
             anchors.left: parent.left
             anchors.bottom: caption.top
@@ -269,23 +260,35 @@ Item {
                 }
             }
 
-            Column {
+            ColumnLayout {
                 id: cardMetadata
                 anchors.right: parent.right
                 anchors.rightMargin: 9
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
 
-                ShadowIcon {
-                    anchors.right: parent.right
-                    visible: card.hasDevelopmentEdits
-                    source: "qrc:/icons/edit.svg"
-                    color: Theme.accent
-                    size: 12
+                RowLayout {
+                    Layout.alignment: Qt.AlignRight
+                    spacing: 8
+
+                    ReviewPhotoAffinity {
+                        objectName: "cardCaptionLikeIndicator"
+                        liked: card.liked
+                        showRating: false
+                        iconSize: 12
+                    }
+
+                    ShadowIcon {
+                        objectName: "cardCaptionEditedIndicator"
+                        visible: card.hasDevelopmentEdits
+                        source: "qrc:/icons/edit.svg"
+                        color: Theme.accent
+                        size: 13
+                    }
                 }
 
                 ReviewPhotoAffinity {
-                    anchors.right: parent.right
+                    Layout.alignment: Qt.AlignRight
                     liked: false
                     rating: card.decisionRating
                     showLike: false

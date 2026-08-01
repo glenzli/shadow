@@ -15,6 +15,9 @@ pub(super) fn run_edit_history_message(catalog: &mut Catalog, message: EditHisto
         EditHistoryMessage::RecipeCommit(photo_id, commit_id, response) => {
             let _ = response.send(catalog.recipe_commit(photo_id, commit_id));
         }
+        EditHistoryMessage::RecipeHistoryPage(photo_id, after, limit, response) => {
+            let _ = response.send(catalog.recipe_history_page(photo_id, after.as_ref(), limit));
+        }
         EditHistoryMessage::RecipeRef(photo_id, name, response) => {
             let _ = response.send(catalog.recipe_ref(photo_id, &name));
         }
@@ -39,8 +42,14 @@ pub(super) fn run_edit_history_message(catalog: &mut Catalog, message: EditHisto
         EditHistoryMessage::EditRepositoryCommit(id, response) => {
             let _ = response.send(catalog.edit_repository_commit(id));
         }
+        EditHistoryMessage::EditRepositoryHistoryPage(after, limit, response) => {
+            let _ = response.send(catalog.edit_repository_history_page(after.as_ref(), limit));
+        }
         EditHistoryMessage::EditRepositoryRef(name, response) => {
             let _ = response.send(catalog.edit_repository_ref(&name));
+        }
+        EditHistoryMessage::EditRepositoryRefPage(after_name, limit, response) => {
+            let _ = response.send(catalog.edit_repository_ref_page(after_name.as_deref(), limit));
         }
     }
 }

@@ -47,8 +47,10 @@ pub use decode_snapshot::{
 };
 pub use edit_repository::{
     CommitEditRepository, CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult,
-    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryRefRecord,
-    EditRepositoryRefUpdate, StoreEditObjectPackResult,
+    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryHistoryCursor,
+    EditRepositoryHistoryEntry, EditRepositoryHistoryPage, EditRepositoryRefPage,
+    EditRepositoryRefRecord, EditRepositoryRefUpdate, MAX_EDIT_REPOSITORY_HISTORY_PAGE_SIZE,
+    MAX_EDIT_REPOSITORY_REF_PAGE_SIZE, StoreEditObjectPackResult,
 };
 pub use error::CatalogError;
 pub use export_queue::{
@@ -79,7 +81,8 @@ pub use library::{
     SetPhotoLibraryState, SmartAlbumQueryV1, library_equipment_key,
 };
 pub use recipe::{
-    CommitRecipe, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
+    CommitRecipe, MAX_RECIPE_HISTORY_PAGE_SIZE, RecipeCommitRecord, RecipeHistoryCursor,
+    RecipeHistoryEntry, RecipeHistoryPage, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
     RecipeRefTarget, SetRecipeRef,
 };
 pub use review::{PhotoInspectionRecord, ReviewCursor, ReviewItemRecord, ReviewPageRecord};

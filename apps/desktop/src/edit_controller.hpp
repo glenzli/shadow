@@ -65,6 +65,7 @@ class EditController final : public QObject {
     Q_PROPERTY(bool autosaveFailed READ autosaveFailed NOTIFY autosaveFailedChanged)
     Q_PROPERTY(QString autosaveErrorText READ autosaveErrorText NOTIFY autosaveErrorTextChanged)
     Q_PROPERTY(bool versionDraft READ versionDraft NOTIFY versionDraftChanged)
+    Q_PROPERTY(QString editBaseCommitId READ editBaseCommitId NOTIFY editBaseCommitIdChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(QString photoId READ photoId NOTIFY sourceIdentityChanged)
@@ -123,8 +124,7 @@ class EditController final : public QObject {
             foundationAiDenoiseChanged
     )
     Q_PROPERTY(
-        bool foundationAiDenoiseBusy READ foundationAiDenoiseBusy NOTIFY
-            foundationAiDenoiseChanged
+        bool foundationAiDenoiseBusy READ foundationAiDenoiseBusy NOTIFY foundationAiDenoiseChanged
     )
     Q_PROPERTY(
         bool foundationAiDenoiseCanStart READ foundationAiDenoiseCanStart NOTIFY
@@ -235,9 +235,7 @@ class EditController final : public QObject {
         int liquifyBrushMode READ liquifyBrushMode WRITE setLiquifyBrushMode NOTIFY
             liquifyBrushChanged
     )
-    Q_PROPERTY(
-        bool liquifyCanReconstruct READ liquifyCanReconstruct NOTIFY parametersChanged
-    )
+    Q_PROPERTY(bool liquifyCanReconstruct READ liquifyCanReconstruct NOTIFY parametersChanged)
     // Crop/orientation is photo-local too. It is intentionally not a Grade
     // Node control, because framing must never become a shared style.
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY parametersChanged)
@@ -259,9 +257,7 @@ class EditController final : public QObject {
     Q_PROPERTY(
         QString selectedRecipeNodeKind READ selectedRecipeNodeKind NOTIFY selectedGradeNodeChanged
     )
-    Q_PROPERTY(
-        bool liquifyNodeMaterialized READ liquifyNodeMaterialized NOTIFY parametersChanged
-    )
+    Q_PROPERTY(bool liquifyNodeMaterialized READ liquifyNodeMaterialized NOTIFY parametersChanged)
     Q_PROPERTY(bool canAddGradeNode READ canAddGradeNode NOTIFY gradeNodeActionsChanged)
     Q_PROPERTY(bool canDeleteGradeNode READ canDeleteGradeNode NOTIFY gradeNodeActionsChanged)
     Q_PROPERTY(bool canMoveGradeNodeUp READ canMoveGradeNodeUp NOTIFY gradeNodeActionsChanged)
@@ -349,6 +345,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool autosaveFailed() const noexcept;
     [[nodiscard]] QString autosaveErrorText() const;
     [[nodiscard]] bool versionDraft() const noexcept;
+    [[nodiscard]] QString editBaseCommitId() const;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
     [[nodiscard]] QString photoId() const;
@@ -660,6 +657,7 @@ class EditController final : public QObject {
     void autosaveFailedChanged();
     void autosaveErrorTextChanged();
     void versionDraftChanged();
+    void editBaseCommitIdChanged();
     void historyChanged();
     void closeReady();
     void closeSaveFailed();
@@ -763,6 +761,7 @@ class EditController final : public QObject {
     // follow-up autosave, but must never replace the newer in-memory stack.
     [[nodiscard]] bool applyAutosavedState(BackendPhotoEditState state);
     void setVersionDraft(bool draft);
+    void setEditBaseCommitId(QString commit_id);
     void setStateRunning(bool running);
     [[nodiscard]] bool interactionLocked() const noexcept;
     [[nodiscard]] bool openPendingPhoto();
@@ -852,6 +851,10 @@ class EditController final : public QObject {
     // transaction owns the state task slot. It keeps interaction locked until
     // that durable snapshot can be followed by the named save.
     std::optional<QString> pending_version_save_name_;
+    // Loading an immutable commit must first preserve any newer in-memory
+    // adjustments. This pending identity keeps that one user action locked
+    // across the required autosave transaction, then resumes the checkout.
+    std::optional<QString> pending_version_load_commit_id_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;
     QVariantMap optics_receipt_;

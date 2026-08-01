@@ -14,6 +14,7 @@ ApplicationWindow {
     required property var editPreviewPresentation
     required property var exportController
     required property var cacheMaintenanceController
+    required property var historyController
     required property var preferences
     required property var mapProviderPreferences
     required property var googleMapTilesService
@@ -130,6 +131,13 @@ ApplicationWindow {
         exportController: window.exportController
     }
 
+    HistoryDrawer {
+        id: historyDrawer
+        historyController: window.historyController
+        editor: window.editor
+        hostWindow: window
+    }
+
     function openLutManager() {
         lutManager.openManager()
     }
@@ -228,8 +236,20 @@ ApplicationWindow {
         workspaceIndex: window.workspaceIndex
         descriptiveTitle: window.descriptiveTitle
         canOpenSelectedPhoto: reviewWorkspace.canOpenSelectedPhoto
+        historyOpen: historyDrawer.opened
         onReviewRequested: window.showReview()
         onPrecisionRequested: window.showPrecision()
+        onHistoryRequested: {
+            if (historyDrawer.opened) {
+                historyDrawer.close()
+                return
+            }
+            const photoId = window.editor.active
+                ? window.editor.photoId : reviewWorkspace.selectedPhotoId
+            const title = window.editor.active
+                ? window.editor.title : reviewWorkspace.selectedTitle
+            historyDrawer.present(photoId, title)
+        }
     }
 
     StackLayout {

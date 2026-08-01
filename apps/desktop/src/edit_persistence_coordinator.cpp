@@ -15,11 +15,11 @@ constexpr int EDIT_AUTOSAVE_DEBOUNCE_MS = 700;
     return error.startsWith(QStringLiteral("incompatible development Recipe:"));
 }
 
-
-[[nodiscard]] LocalizedUiMessage
-edit_message(const char *const source,
-             const std::initializer_list<LocalizedUiArgument> arguments = {}) {
-  return {"EditController", source, arguments};
+[[nodiscard]] LocalizedUiMessage edit_message(
+    const char* const source,
+    const std::initializer_list<LocalizedUiArgument> arguments = {}
+) {
+    return {"EditController", source, arguments};
 }
 
 } // namespace
@@ -34,11 +34,13 @@ bool EditController::openPhoto(
     if (photo_id.isEmpty() || representation_id.isEmpty() || source_path.isEmpty()) {
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
             "EditController",
-            "The selected Review item has no editable original source")));
+            "The selected Review item has no editable original source"
+        )));
         return false;
     }
-    if (active_ && (photo_id != photo_id_ || representation_id != representation_id_
-                    || source_path != source_path_)) {
+    if (active_
+        && (photo_id != photo_id_ || representation_id != representation_id_
+            || source_path != source_path_)) {
         cancelActivePreview(true);
     }
     if (state_running_) {
@@ -55,20 +57,21 @@ bool EditController::openPhoto(
                 .title = title,
                 .provisional_preview_source = provisional_preview_source,
             };
-            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-                "EditController", "Preparing the selected photo…"
-            )));
+            setStatusMessage(
+                edit_message(QT_TRANSLATE_NOOP("EditController", "Preparing the selected photo…"))
+            );
             return true;
         }
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "Finish the current version operation first")));
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP("EditController", "Finish the current version operation first")
+        ));
         return false;
     }
-    if (active_ && photo_id == photo_id_
-        && representation_id == representation_id_
+    if (active_ && photo_id == photo_id_ && representation_id == representation_id_
         && source_path == source_path_) {
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController", "This photo is already open in Precision")));
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP("EditController", "This photo is already open in Precision")
+        ));
         return true;
     }
     if (dirty_ && active_) {
@@ -102,7 +105,8 @@ bool EditController::openPhoto(
             emit autosavePendingChanged();
         }
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "Saving current adjustments before opening the selected photo…"
+            "EditController",
+            "Saving current adjustments before opening the selected photo…"
         )));
         startAutosave();
         return true;
@@ -137,7 +141,7 @@ bool EditController::openPhoto(
         emit provisionalPreviewSourceChanged();
     }
     versions_.replace({});
-    base_commit_id_.clear();
+    setEditBaseCommitId({});
     durable_working_commit_id_.clear();
     setVersionDraft(false);
     committed_grade_stack_ = {};
@@ -152,7 +156,7 @@ bool EditController::openPhoto(
         emit beforePreviewSourceChanged();
     }
     if (!before_error_message_.isEmpty()) {
-    before_error_message_.clear();
+        before_error_message_.clear();
         emit beforeErrorTextChanged();
     }
     if (!recipe_recovery_message_.isEmpty()) {
@@ -170,15 +174,18 @@ bool EditController::openPhoto(
     emit sourceIdentityChanged();
     state_task_kind_ = EditStateTaskKind::Open;
     setStateRunning(true);
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController", "Loading non-destructive edit history…")));
-    state_watcher_.setFuture(QtConcurrent::run(
-        EditTaskRunner::loadState,
-        backend_,
-        photo_id_,
-        source_path_,
-        photo_generation_
-    ));
+    setStatusMessage(
+        edit_message(QT_TRANSLATE_NOOP("EditController", "Loading non-destructive edit history…"))
+    );
+    state_watcher_.setFuture(
+        QtConcurrent::run(
+            EditTaskRunner::loadState,
+            backend_,
+            photo_id_,
+            source_path_,
+            photo_generation_
+        )
+    );
     return true;
 }
 
@@ -189,6 +196,10 @@ void EditController::closePhoto() {
         // is in flight. A later photo selection can install a fresh pending
         // target; otherwise the completed task will close this session.
         pending_photo_open_.reset();
+        if (pending_version_load_commit_id_.has_value()) {
+            pending_version_load_commit_id_.reset();
+            emit stateBusyChanged();
+        }
         close_photo_after_autosave_ = true;
         return;
     }
@@ -211,7 +222,9 @@ void EditController::closePhoto() {
             autosave_debounce_.stop();
             startAutosave();
             setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-                "EditController", "Saving current adjustments before closing Precision…")));
+                "EditController",
+                "Saving current adjustments before closing Precision…"
+            )));
             return;
         }
     }
@@ -261,6 +274,8 @@ void EditController::closePhoto() {
         title_.clear();
         emit titleChanged();
     }
+    setEditBaseCommitId({});
+    setVersionDraft(false);
     active_ = false;
     emit activeChanged();
     emit gradeNodeActionsChanged();
@@ -274,18 +289,19 @@ void EditController::resetIncompatibleRecipe() {
     }
     state_task_kind_ = EditStateTaskKind::ResetIncompatibleRecipe;
     setStateRunning(true);
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController", "Resetting this photo’s development edits…"
-    )));
-    state_watcher_.setFuture(QtConcurrent::run(
-        EditTaskRunner::resetIncompatibleRecipeState,
-        backend_,
-        photo_id_,
-        source_path_,
-        photo_generation_
+    setStatusMessage(edit_message(
+        QT_TRANSLATE_NOOP("EditController", "Resetting this photo’s development edits…")
     ));
+    state_watcher_.setFuture(
+        QtConcurrent::run(
+            EditTaskRunner::resetIncompatibleRecipeState,
+            backend_,
+            photo_id_,
+            source_path_,
+            photo_generation_
+        )
+    );
 }
-
 
 void EditController::saveVersion(const QString& version_name) {
     const QString name = version_name.trimmed();
@@ -293,8 +309,12 @@ void EditController::saveVersion(const QString& version_name) {
         return;
     }
     if (name.isEmpty()) {
-    setStatusMessage(edit_message(
-        QT_TRANSLATE_NOOP("EditController", "Enter a name for this version")));
+        setStatusMessage(
+            edit_message(QT_TRANSLATE_NOOP("EditController", "Enter a name for this version"))
+        );
+        return;
+    }
+    if (pending_version_load_commit_id_.has_value()) {
         return;
     }
     if (state_running_) {
@@ -307,10 +327,7 @@ void EditController::saveVersion(const QString& version_name) {
             emit stateBusyChanged();
         }
         setStatusMessage(edit_message(
-            QT_TRANSLATE_NOOP(
-                "EditController",
-                "Creating Library version “%1”…"
-            ),
+            QT_TRANSLATE_NOOP("EditController", "Creating Library version “%1”…"),
             {name}
         ));
         return;
@@ -319,46 +336,73 @@ void EditController::saveVersion(const QString& version_name) {
     emit historyChanged();
     state_task_kind_ = EditStateTaskKind::Save;
     setStateRunning(true);
-  setStatusMessage(edit_message(
-      QT_TRANSLATE_NOOP("EditController", "Creating Library version “%1”…"),
-      {name}));
-    state_watcher_.setFuture(QtConcurrent::run(
-        EditTaskRunner::saveState,
-        backend_,
-        photo_id_,
-        source_path_,
-        base_commit_id_,
-        durable_working_commit_id_,
-        grade_stack_,
-        name,
-        photo_generation_
-    ));
+    setStatusMessage(
+        edit_message(QT_TRANSLATE_NOOP("EditController", "Creating Library version “%1”…"), {name})
+    );
+    state_watcher_.setFuture(
+        QtConcurrent::run(
+            EditTaskRunner::saveState,
+            backend_,
+            photo_id_,
+            source_path_,
+            base_commit_id_,
+            durable_working_commit_id_,
+            grade_stack_,
+            name,
+            photo_generation_
+        )
+    );
 }
 
 void EditController::loadVersionDraft(const QString& commit_id) {
-    if (!active_ || state_running_ || commit_id.isEmpty()) {
+    const QString normalized_commit_id = commit_id.trimmed();
+    if (!active_ || normalized_commit_id.isEmpty() || pending_version_save_name_.has_value()) {
+        return;
+    }
+    if (state_running_) {
+        if (state_task_kind_ != EditStateTaskKind::Autosave) {
+            return;
+        }
+        const bool was_locked = interactionLocked();
+        pending_version_load_commit_id_ = normalized_commit_id;
+        if (was_locked != interactionLocked()) {
+            emit stateBusyChanged();
+        }
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "Saving current adjustments before loading another version"
+        )));
         return;
     }
     if (dirty_) {
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Saving current adjustments before loading another version")));
+        const bool was_locked = interactionLocked();
+        pending_version_load_commit_id_ = normalized_commit_id;
+        if (was_locked != interactionLocked()) {
+            emit stateBusyChanged();
+        }
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "Saving current adjustments before loading another version"
+        )));
         autosave_debounce_.stop();
         startAutosave();
         return;
     }
     state_task_kind_ = EditStateTaskKind::LoadDraft;
     setStateRunning(true);
-  setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-      "EditController", "Loading saved version into working changes…")));
-    state_watcher_.setFuture(QtConcurrent::run(
-        EditTaskRunner::loadVersionDraftState,
-        backend_,
-        photo_id_,
-        source_path_,
-        commit_id,
-        photo_generation_
+    setStatusMessage(edit_message(
+        QT_TRANSLATE_NOOP("EditController", "Loading saved version into working changes…")
     ));
+    state_watcher_.setFuture(
+        QtConcurrent::run(
+            EditTaskRunner::loadVersionDraftState,
+            backend_,
+            photo_id_,
+            source_path_,
+            normalized_commit_id,
+            photo_generation_
+        )
+    );
 }
 
 void EditController::retryAutosave() {
@@ -401,6 +445,10 @@ bool EditController::prepareToClose() {
     // still gets its durable working snapshot, but no new Precision session is
     // started on the way out.
     pending_photo_open_.reset();
+    if (pending_version_load_commit_id_.has_value()) {
+        pending_version_load_commit_id_.reset();
+        emit stateBusyChanged();
+    }
     close_after_autosave_ = true;
     if (state_running_) {
         return false;
@@ -431,8 +479,9 @@ void EditController::finishStateTask() {
     EditStateTaskResult result = state_watcher_.result();
     setStateRunning(false);
     if (result.photo_generation != photo_generation_) {
-        if (pending_version_save_name_.has_value()) {
+        if (pending_version_save_name_.has_value() || pending_version_load_commit_id_.has_value()) {
             pending_version_save_name_.reset();
+            pending_version_load_commit_id_.reset();
             emit stateBusyChanged();
         }
         maybeFinishDeferredApplicationClose();
@@ -444,17 +493,18 @@ void EditController::finishStateTask() {
             emit activeChanged();
             emit gradeNodeActionsChanged();
         }
-        const bool newer_draft_exists = result.kind == EditStateTaskKind::Autosave
-            && active_ && dirty_ && autosave_requested_
-            && working_revision_ != autosave_snapshot_revision_;
+        const bool newer_draft_exists = result.kind == EditStateTaskKind::Autosave && active_
+                                        && dirty_ && autosave_requested_
+                                        && working_revision_ != autosave_snapshot_revision_;
         if (newer_draft_exists) {
             // This task was saving an older slider snapshot. It may legitimately lose a
             // compare-and-swap race while the user has already made a newer edit, so give that
             // newer snapshot one clean attempt before reporting a durable save failure.
-            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-                "EditController", "Saving newer adjustments locally…"
-            )));
-            if (pending_photo_open_.has_value() || close_photo_after_autosave_
+            setStatusMessage(edit_message(
+                QT_TRANSLATE_NOOP("EditController", "Saving newer adjustments locally…")
+            ));
+            if (pending_photo_open_.has_value() || pending_version_save_name_.has_value()
+                || pending_version_load_commit_id_.has_value() || close_photo_after_autosave_
                 || close_after_autosave_) {
                 startAutosave();
             } else {
@@ -463,8 +513,10 @@ void EditController::finishStateTask() {
             return;
         }
         if (result.kind == EditStateTaskKind::Autosave) {
-            if (pending_version_save_name_.has_value()) {
+            if (pending_version_save_name_.has_value()
+                || pending_version_load_commit_id_.has_value()) {
                 pending_version_save_name_.reset();
+                pending_version_load_commit_id_.reset();
                 emit stateBusyChanged();
             }
             const LocalizedUiMessage failure = edit_message(
@@ -477,15 +529,20 @@ void EditController::finishStateTask() {
                    && incompatible_development_recipe(result.error)) {
             recipe_recovery_message_ = edit_message(QT_TRANSLATE_NOOP(
                 "EditController",
-                "This photo uses an earlier development edit recipe that this build cannot read. Resetting removes only this photo’s edit history; the original file, Library metadata, ratings, flags, and albums are unchanged."
+                "This photo uses an earlier development edit recipe that this build cannot read. "
+                "Resetting removes only this photo’s edit history; the original file, Library "
+                "metadata, ratings, flags, and albums are unchanged."
             ));
             emit recipeRecoveryChanged();
             setStatusMessage(recipe_recovery_message_);
         } else if (result.kind == EditStateTaskKind::ResetIncompatibleRecipe) {
-            recipe_recovery_message_ = edit_message(QT_TRANSLATE_NOOP(
-                "EditController",
-                "Could not reset this photo’s old development edits · %1"
-            ), {result.error});
+            recipe_recovery_message_ = edit_message(
+                QT_TRANSLATE_NOOP(
+                    "EditController",
+                    "Could not reset this photo’s old development edits · %1"
+                ),
+                {result.error}
+            );
             emit recipeRecoveryChanged();
             setStatusMessage(recipe_recovery_message_);
         } else if (result.kind == EditStateTaskKind::Open) {
@@ -528,9 +585,11 @@ void EditController::finishStateTask() {
     if (result.kind == EditStateTaskKind::Autosave) {
         autosave_needs_follow_up = applyAutosavedState(std::move(result.state));
         if (autosave_needs_follow_up) {
-            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-                "EditController", "Saving newer adjustments locally…")));
-            if (pending_photo_open_.has_value() || close_photo_after_autosave_
+            setStatusMessage(edit_message(
+                QT_TRANSLATE_NOOP("EditController", "Saving newer adjustments locally…")
+            ));
+            if (pending_photo_open_.has_value() || pending_version_save_name_.has_value()
+                || pending_version_load_commit_id_.has_value() || close_photo_after_autosave_
                 || close_after_autosave_) {
                 startAutosave();
             } else {
@@ -552,11 +611,16 @@ void EditController::finishStateTask() {
             emit gradeNodeActionsChanged();
         }
     }
-    if (result.kind == EditStateTaskKind::Autosave
-        && pending_version_save_name_.has_value()) {
+    if (result.kind == EditStateTaskKind::Autosave && pending_version_save_name_.has_value()) {
         QString pending_name = std::move(*pending_version_save_name_);
         pending_version_save_name_.reset();
         saveVersion(pending_name);
+        return;
+    }
+    if (result.kind == EditStateTaskKind::Autosave && pending_version_load_commit_id_.has_value()) {
+        QString pending_commit_id = std::move(*pending_version_load_commit_id_);
+        pending_version_load_commit_id_.reset();
+        loadVersionDraft(pending_commit_id);
         return;
     }
     if (openPendingPhoto()) {
@@ -564,9 +628,9 @@ void EditController::finishStateTask() {
     }
     switch (result.kind) {
     case EditStateTaskKind::Open:
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController",
-            "Edit history ready · rendering preview")));
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP("EditController", "Edit history ready · rendering preview")
+        ));
         if (!close_after_autosave_) {
             schedulePreview(0);
         }
@@ -574,24 +638,28 @@ void EditController::finishStateTask() {
     case EditStateTaskKind::ResetIncompatibleRecipe:
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
             "EditController",
-            "Old development edits reset · rendering the current recipe")));
+            "Old development edits reset · rendering the current recipe"
+        )));
         if (!close_after_autosave_) {
             schedulePreview(0);
         }
         break;
     case EditStateTaskKind::Save:
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Library version created · the previous state remains available")));
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "Library version created · the previous state remains available"
+        )));
         break;
     case EditStateTaskKind::Autosave:
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController", "Current adjustments saved locally")));
+        setStatusMessage(
+            edit_message(QT_TRANSLATE_NOOP("EditController", "Current adjustments saved locally"))
+        );
         break;
     case EditStateTaskKind::LoadDraft:
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
             "EditController",
-            "Named version loaded as a draft · adjust it to create a new working state")));
+            "Named version loaded as a draft · adjust it to create a new working state"
+        )));
         if (!close_after_autosave_) {
             schedulePreview(0);
         }
@@ -628,8 +696,8 @@ bool EditController::openPendingPhoto() {
 }
 
 void EditController::maybeFinishDeferredApplicationClose() {
-    if (!close_after_autosave_ || state_running_ || current_rendering_
-        || before_rendering_ || detail_rendering_) {
+    if (!close_after_autosave_ || state_running_ || current_rendering_ || before_rendering_
+        || detail_rendering_) {
         return;
     }
     close_after_autosave_ = false;
@@ -638,9 +706,9 @@ void EditController::maybeFinishDeferredApplicationClose() {
 
 void EditController::applyState(BackendPhotoEditState state) {
     if (state.photo_id != photo_id_ || state.source_path != source_path_) {
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Catalog returned edit state for a different photo")));
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP("EditController", "Catalog returned edit state for a different photo")
+        ));
         return;
     }
     setVersionDraft(state.is_version_draft);
@@ -654,14 +722,13 @@ void EditController::applyState(BackendPhotoEditState state) {
         committed_grade_stack_ = state.grade_stack;
         durable_working_commit_id_ = state.base_commit_id;
     }
-    base_commit_id_ = std::move(state.base_commit_id);
+    setEditBaseCommitId(std::move(state.base_commit_id));
     setGradeStack(std::move(state.grade_stack));
     working_revision_ = 0;
     autosave_snapshot_revision_ = 0;
     clearSessionHistory();
     versions_.replace(std::move(state.versions));
 }
-
 
 void EditController::setDirty(const bool dirty) {
     if (dirty_ == dirty) {
@@ -719,24 +786,29 @@ void EditController::startAutosave() {
     state_task_kind_ = EditStateTaskKind::Autosave;
     setStateRunning(true);
     emit autosavePendingChanged();
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController", "Saving current adjustments locally…")));
-    state_watcher_.setFuture(QtConcurrent::run(
-        EditTaskRunner::autosaveState,
-        backend_,
-        photo_id_,
-        source_path_,
-        base_commit_id_,
-        durable_working_commit_id_,
-        grade_stack_,
-        photo_generation_
-    ));
+    setStatusMessage(
+        edit_message(QT_TRANSLATE_NOOP("EditController", "Saving current adjustments locally…"))
+    );
+    state_watcher_.setFuture(
+        QtConcurrent::run(
+            EditTaskRunner::autosaveState,
+            backend_,
+            photo_id_,
+            source_path_,
+            base_commit_id_,
+            durable_working_commit_id_,
+            grade_stack_,
+            photo_generation_
+        )
+    );
 }
 
 bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     if (state.photo_id != photo_id_ || state.source_path != source_path_) {
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "Catalog returned autosave state for a different photo")));
+            "EditController",
+            "Catalog returned autosave state for a different photo"
+        )));
         return false;
     }
     const bool changed_after_snapshot = working_revision_ != autosave_snapshot_revision_;
@@ -749,7 +821,7 @@ bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     }
     setVersionDraft(false);
     clearAutosaveFailure();
-    base_commit_id_ = state.base_commit_id;
+    setEditBaseCommitId(state.base_commit_id);
     durable_working_commit_id_ = state.base_commit_id;
     committed_grade_stack_ = saved_stack;
     versions_.replace(std::move(state.versions));
@@ -765,6 +837,14 @@ void EditController::setVersionDraft(const bool draft) {
     }
     version_draft_ = draft;
     emit versionDraftChanged();
+}
+
+void EditController::setEditBaseCommitId(QString commit_id) {
+    if (base_commit_id_ == commit_id) {
+        return;
+    }
+    base_commit_id_ = std::move(commit_id);
+    emit editBaseCommitIdChanged();
 }
 
 void EditController::setStateRunning(const bool running) {

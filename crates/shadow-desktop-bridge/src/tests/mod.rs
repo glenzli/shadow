@@ -8,6 +8,7 @@ mod adjustment_contract;
 mod edit_sessions;
 mod facade;
 mod fixtures;
+mod history_contract;
 mod library;
 mod oklab_color_warper_contract;
 mod perceptual_color_contract;

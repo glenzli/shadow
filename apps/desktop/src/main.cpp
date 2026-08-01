@@ -7,6 +7,7 @@
 #include "edit_preview_provider.hpp"
 #include "edit_preview_texture_item.hpp"
 #include "export_controller.hpp"
+#include "history_coordinator.hpp"
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
@@ -65,30 +66,30 @@ namespace {
 }
 
 [[nodiscard]] bool is_development_catalog_reset_error(const std::exception& error) {
-    return QString::fromUtf8(error.what()).contains(
-        QStringLiteral("development catalog reset required")
-    );
+    return QString::fromUtf8(error.what())
+        .contains(QStringLiteral("development catalog reset required"));
 }
 
-[[nodiscard]] QMessageBox::StandardButton offer_development_catalog_reset(
-    const std::exception& error
-) {
+[[nodiscard]] QMessageBox::StandardButton
+offer_development_catalog_reset(const std::exception& error) {
     const QString detail = QString::fromUtf8(error.what());
     const bool incompatible = is_development_catalog_reset_error(error);
-    const QString explanation = incompatible
-        ? QObject::tr(
-              "This local catalog belongs to an incompatible development build. "
-              "Shadow does not migrate development schemas.\n\n"
-              "Resetting removes the local photo index, edit history, and preview cache. "
-              "Your original photo files, LUT library, and UI preferences are not changed."
-          )
-        : QObject::tr(
-              "Shadow could not open its local development catalog. You can reset it "
-              "and start again with a fresh catalog v1.\n\n"
-              "Resetting removes the local photo index, edit history, and preview cache. "
-              "Your original photo files, LUT library, and UI preferences are not changed.\n\n"
-              "Technical detail: %1"
-          ).arg(detail);
+    const QString explanation =
+        incompatible
+            ? QObject::tr(
+                  "This local catalog belongs to an incompatible development build. "
+                  "Shadow does not migrate development schemas.\n\n"
+                  "Resetting removes the local photo index, edit history, and preview cache. "
+                  "Your original photo files, LUT library, and UI preferences are not changed."
+              )
+            : QObject::tr(
+                  "Shadow could not open its local development catalog. You can reset it "
+                  "and start again with a fresh catalog v1.\n\n"
+                  "Resetting removes the local photo index, edit history, and preview cache. "
+                  "Your original photo files, LUT library, and UI preferences are not changed.\n\n"
+                  "Technical detail: %1"
+              )
+                  .arg(detail);
     return QMessageBox::warning(
         nullptr,
         QObject::tr("Reset local development catalog?"),
@@ -103,9 +104,7 @@ namespace {
 #if defined(SHADOW_DESKTOP_DEV_SAMPLE_FOLDER)
     if (initial_folder.isEmpty()
         && qEnvironmentVariableIntValue("SHADOW_DESKTOP_AUTO_SCAN_SAMPLES") == 1) {
-        const QDir development_samples(
-            QString::fromUtf8(SHADOW_DESKTOP_DEV_SAMPLE_FOLDER)
-        );
+        const QDir development_samples(QString::fromUtf8(SHADOW_DESKTOP_DEV_SAMPLE_FOLDER));
         if (development_samples.exists()) {
             initial_folder = development_samples.absolutePath();
         }
@@ -126,42 +125,33 @@ int main(int argc, char* argv[]) {
     // Native RAW providers (including a locally installed vendor SDK) execute
     // behind a separate helper process. Keep the helper beside the desktop
     // executable so development and packaged builds share the same boundary.
-    const QString decode_helper_path = QDir(QCoreApplication::applicationDirPath()).filePath(
-        QStringLiteral("shadow-image-decode-helper")
-    );
+    const QString decode_helper_path = QDir(QCoreApplication::applicationDirPath())
+                                           .filePath(QStringLiteral("shadow-image-decode-helper"));
     // A missing helper must degrade to a reported unsupported decode rather
     // than loading a third-party decoder inside the desktop process.
     qputenv("SHADOW_DISABLE_PRIVATE_DECODER", QByteArrayLiteral("1"));
     if (QFileInfo(decode_helper_path).isExecutable()) {
         qputenv("SHADOW_DECODE_HELPER_PATH", decode_helper_path.toUtf8());
     } else {
-        qWarning().noquote()
-            << "Isolated RAW decode helper is unavailable:" << decode_helper_path;
+        qWarning().noquote() << "Isolated RAW decode helper is unavailable:" << decode_helper_path;
     }
 
     QString application_data = qEnvironmentVariable("SHADOW_DESKTOP_DATA_ROOT");
     if (application_data.isEmpty()) {
-        application_data =
-            QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+        application_data = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     }
     QDir().mkpath(application_data);
-    const QString catalog_path =
-        QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
-    const QString cache_root =
-        QDir(application_data).filePath(QStringLiteral("cache"));
-    const bool headless_startup_smoke = qEnvironmentVariableIsSet(
-        "SHADOW_DESKTOP_SMOKE_TEST"
-    );
+    const QString catalog_path = QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
+    const QString cache_root = QDir(application_data).filePath(QStringLiteral("cache"));
+    const bool headless_startup_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
     const QString isolated_settings_file =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT")
-        ? QDir(application_data).filePath(QStringLiteral("ui-preferences.ini"))
-        : QString{};
+            ? QDir(application_data).filePath(QStringLiteral("ui-preferences.ini"))
+            : QString{};
     UiPreferences preferences(application, isolated_settings_file);
     MapProviderPreferences map_provider_preferences(
         isolated_settings_file,
-        headless_startup_smoke
-            ? makeVolatileSecretStore()
-            : makeSystemSecretStore()
+        headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
     );
     shadow::desktop::maps::GoogleMapTilesService google_map_tiles_service(
         &map_provider_preferences
@@ -180,13 +170,12 @@ int main(int argc, char* argv[]) {
             backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
         } catch (const std::exception& error) {
             qCritical() << "Cannot start Shadow's local backend:" << error.what();
-            const bool reset_for_smoke = headless_startup_smoke
-                && is_development_catalog_reset_error(error);
+            const bool reset_for_smoke =
+                headless_startup_smoke && is_development_catalog_reset_error(error);
             if (!reset_for_smoke && headless_startup_smoke) {
                 return EXIT_FAILURE;
             }
-            if (!reset_for_smoke
-                && offer_development_catalog_reset(error) != QMessageBox::Reset) {
+            if (!reset_for_smoke && offer_development_catalog_reset(error) != QMessageBox::Reset) {
                 return EXIT_FAILURE;
             }
 
@@ -196,11 +185,7 @@ int main(int argc, char* argv[]) {
                     qCritical() << "Catalog reset failed:" << reset_error;
                     return EXIT_FAILURE;
                 }
-                QMessageBox::critical(
-                    nullptr,
-                    QObject::tr("Catalog reset failed"),
-                    reset_error
-                );
+                QMessageBox::critical(nullptr, QObject::tr("Catalog reset failed"), reset_error);
                 return EXIT_FAILURE;
             }
         }
@@ -218,13 +203,31 @@ int main(int argc, char* argv[]) {
         edit_preview_presentation_context
     );
     EditController editor(backend, edit_preview_store, edit_preview_presentation_context);
+    HistoryCoordinator history({
+        .photo_page = [backend](
+                          const QString& photo_id,
+                          const BackendHistoryCursor& after,
+                          const std::uint32_t limit
+                      ) { return backend->photoHistoryPage(photo_id, after, limit); },
+        .library_page =
+            [backend](const BackendHistoryCursor& after, const std::uint32_t limit) {
+                return backend->libraryHistoryPage(after, limit);
+            },
+        .library_ref_page =
+            [backend](const QString& after_name, const std::uint32_t limit) {
+                return backend->libraryHistoryRefPage(after_name, limit);
+            },
+    });
+    QObject::connect(
+        &preferences,
+        &UiPreferences::effectiveLanguageChanged,
+        &history,
+        &HistoryCoordinator::retranslateUi
+    );
     QQmlApplicationEngine engine;
     preferences.attachEngine(engine);
 
-    auto* const thumbnail_provider = new ThumbnailProvider(
-        backend,
-        controller.reviewModel()
-    );
+    auto* const thumbnail_provider = new ThumbnailProvider(backend, controller.reviewModel());
     engine.addImageProvider(QStringLiteral("shadow"), thumbnail_provider);
     auto* const edit_preview_provider =
         new EditPreviewProvider(edit_preview_store, edit_preview_presentation_context);
@@ -255,6 +258,7 @@ int main(int argc, char* argv[]) {
             QStringLiteral("cacheMaintenanceController"),
             QVariant::fromValue(&cache_maintenance_controller),
         },
+        {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
         {
             QStringLiteral("mapProviderPreferences"),
@@ -283,16 +287,10 @@ int main(int argc, char* argv[]) {
 
 #if defined(Q_OS_MACOS)
     QObject* const root_object = engine.rootObjects().constFirst();
-    QObject* const title_toolbar = root_object->findChild<QObject*>(
-        QStringLiteral("titleToolBar")
-    );
-    const int title_bar_height = title_toolbar == nullptr
-        ? 44
-        : qRound(title_toolbar->property("height").toReal());
-    installMacTitleBarAlignment(
-        qobject_cast<QWindow*>(root_object),
-        title_bar_height
-    );
+    QObject* const title_toolbar = root_object->findChild<QObject*>(QStringLiteral("titleToolBar"));
+    const int title_bar_height =
+        title_toolbar == nullptr ? 44 : qRound(title_toolbar->property("height").toReal());
+    installMacTitleBarAlignment(qobject_cast<QWindow*>(root_object), title_bar_height);
 #endif
 
     installDesktopSmokeHarness(
