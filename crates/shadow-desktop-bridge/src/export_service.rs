@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_ai::CancellationToken;
 use shadow_bridge::{
     AdjustmentRenderPlan, DetailSessionRequirements, DetailTileRect, DetailTileRequest,
     OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
@@ -25,8 +26,7 @@ use crate::{
         raw_foundation_ready_for_render,
     },
     recipe_v1::{
-        bridge_foundation_optics_settings, ensure_foundation_allows_rgb_fallback,
-        ensure_foundation_development_receipt, export_foundation_development_plan,
+        ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt,
         resolve_recipe_render,
     },
     session_photo_source::catalog_native_path,
@@ -56,22 +56,26 @@ impl DesktopSession {
             &request.settings,
             request.use_working_recipe,
         )?;
-        let optics = bridge_foundation_optics_settings(&request.settings.foundation);
-        let raw_development_plan = export_foundation_development_plan(recipe.raw_white_balance);
+        let raw_development_plan = recipe.foundation.export_plan();
         let requirements = DetailSessionRequirements::for_render_plan(&recipe.plan);
+        // Export has no cancellation surface today. Supplying an explicit
+        // token keeps source resolution on the same contract as preview and
+        // detail without pretending that the queue can currently signal it.
+        let foundation_cancellation = CancellationToken::default();
         let raw_foundation = raw_foundation_ready_for_render(
             &self.raw_foundations,
             &self.raw_foundation_runtime,
             &native_path,
             source.source,
-            recipe.raw_ai_denoise,
+            recipe.foundation.raw_ai_denoise(),
+            &foundation_cancellation,
         )?;
         ensure_known_quarantined_raw_does_not_open_for_export(&self.cache_root, &native_path)?;
         let session = open_export_session(
             &self.cache_root,
             &native_path,
             raw_development_plan,
-            &optics,
+            recipe.foundation.optics(),
             raw_foundation.as_ref(),
             source.source,
             requirements,

@@ -10,8 +10,10 @@
 //! expansion, feather, and invert controls; their exact immutable bytes are
 //! restored from the explicit base Recipe and resolved through verified
 //! application storage immediately before render-plan compilation.
-//! `foundation_development` binds the same absolute RAW white balance to each
-//! render intent and rejects lossy RGB compatibility routes for manual values.
+//! `foundation_development` compiles white balance, independent AI-source
+//! selection, Foundation bypass, and optics from the same immutable snapshot
+//! as the Grade plan; every render intent consumes that one source contract,
+//! and lossy RGB compatibility routes reject manual RAW white balance.
 //! `ffi_adapter::liquify` owns strict decoding of the bounded flat Liquify DTO.
 
 use shadow_bridge::{

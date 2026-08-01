@@ -8,7 +8,7 @@ use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     AdjustmentGeometry, AdjustmentQuarterTurn, BasicEditParameters, COLOR_MIXER_BAND_COUNT,
     ColorRangeParameters, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT, OklabColorWarperControlPoint,
-    OklabColorWarperParameters, OklabLightnessToneCurve, OpticsSettings, PerceptualColorParameters,
+    OklabColorWarperParameters, OklabLightnessToneCurve, PerceptualColorParameters,
     SELECTIVE_COLOR_VALUE_COUNT, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
@@ -524,33 +524,6 @@ pub(crate) fn ffi_photo_foundation_settings(
         as_shot_temperature_kelvin: RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN,
         as_shot_tint: 0,
     }
-}
-
-pub(crate) fn bridge_optics_settings(settings: &ffi::FfiOpticsSettings) -> OpticsSettings {
-    OpticsSettings {
-        enabled: settings.enabled,
-        correct_distortion: settings.correct_distortion,
-        correct_tca: settings.correct_tca,
-        correct_vignetting: settings.correct_vignetting,
-        automatic_scale: settings.automatic_scale,
-        manual_distortion: settings.manual_distortion,
-        manual_tca_red_cyan: settings.manual_tca_red_cyan,
-        manual_tca_blue_yellow: settings.manual_tca_blue_yellow,
-        manual_vignetting_amount: settings.manual_vignetting_amount,
-        manual_vignetting_midpoint: settings.manual_vignetting_midpoint,
-        camera_profile_maker: settings.camera_profile_maker.clone(),
-        camera_profile_model: settings.camera_profile_model.clone(),
-        lens_profile_maker: settings.lens_profile_maker.clone(),
-        lens_profile_model: settings.lens_profile_model.clone(),
-    }
-}
-
-pub(crate) fn bridge_foundation_optics_settings(
-    foundation: &ffi::FfiPhotoFoundationSettings,
-) -> OpticsSettings {
-    let mut settings = bridge_optics_settings(&foundation.optics);
-    settings.enabled &= foundation.enabled;
-    settings
 }
 
 pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> {

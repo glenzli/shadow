@@ -1,9 +1,10 @@
 //! Linearizable lifecycle and native stop signal for edit-preview requests.
 //!
 //! Cancellation and publication race exactly once at this desktop boundary.
-//! When cancellation wins, the same registry entry also signals the native
-//! renderer so cooperative CPU/Metal checkpoints can stop work early. When
-//! completion wins, a later host cancellation cannot reach the native handle.
+//! When cancellation wins, the same registry entry signals both AI foundation
+//! resolution and the native renderer so source preparation and cooperative
+//! CPU/Metal checkpoints can stop early. When completion wins, a later host
+//! cancellation cannot reach either handle.
 
 use std::{
     collections::VecDeque,
@@ -14,6 +15,7 @@ use std::{
     },
 };
 
+use shadow_ai::CancellationToken;
 use shadow_bridge::EditPreviewCancellation;
 
 const ACTIVE: u8 = 0;
@@ -44,6 +46,7 @@ struct PreviewRenderEntry {
     token: u64,
     state: Arc<AtomicU8>,
     native_cancellation: EditPreviewCancellation,
+    foundation_cancellation: CancellationToken,
 }
 
 impl fmt::Debug for PreviewRenderEntry {
@@ -53,6 +56,7 @@ impl fmt::Debug for PreviewRenderEntry {
             .field("token", &self.token)
             .field("state", &self.state.load(Ordering::Acquire))
             .field("native_cancellation", &"<opaque native stop handle>")
+            .field("foundation_cancellation", &"<AI source stop handle>")
             .finish()
     }
 }
@@ -92,6 +96,7 @@ impl PreviewRenderRegistry {
             token,
             state: Arc::new(AtomicU8::new(ACTIVE)),
             native_cancellation,
+            foundation_cancellation: CancellationToken::default(),
         });
         Ok(token)
     }
@@ -114,7 +119,8 @@ impl PreviewRenderRegistry {
     /// native stop signal is sent only after this host CAS succeeds, so a late
     /// cancellation can never stop a render whose completion already won.
     pub(crate) fn cancel(&self, token: u64) -> bool {
-        let Ok((state, native_cancellation)) = self.entry_handles(token) else {
+        let Ok((state, native_cancellation, foundation_cancellation)) = self.entry_handles(token)
+        else {
             return false;
         };
         if state
@@ -124,6 +130,7 @@ impl PreviewRenderRegistry {
             return false;
         }
         let native_stop_won = native_cancellation.cancel();
+        foundation_cancellation.cancel();
         debug_assert!(
             native_stop_won,
             "only the registry may signal a preview's native cancellation handle"
@@ -141,7 +148,19 @@ impl PreviewRenderRegistry {
         token: u64,
     ) -> Result<EditPreviewCancellation, PreviewRenderRegistryError> {
         self.entry_handles(token)
-            .map(|(_, native_cancellation)| native_cancellation)
+            .map(|(_, native_cancellation, _)| native_cancellation)
+    }
+
+    /// Returns the AI/source-preparation stop handle paired with `token`.
+    ///
+    /// The registry remains its only signalling owner. Workers may clone this
+    /// handle only to pass it into cancellable foundation resolution.
+    pub(crate) fn foundation_cancellation(
+        &self,
+        token: u64,
+    ) -> Result<CancellationToken, PreviewRenderRegistryError> {
+        self.entry_handles(token)
+            .map(|(_, _, foundation_cancellation)| foundation_cancellation)
     }
 
     /// Claims the terminal outcome after native work returns. A preceding
@@ -179,13 +198,16 @@ impl PreviewRenderRegistry {
     }
 
     fn state(&self, token: u64) -> Result<Arc<AtomicU8>, PreviewRenderRegistryError> {
-        self.entry_handles(token).map(|(state, _)| state)
+        self.entry_handles(token).map(|(state, _, _)| state)
     }
 
     fn entry_handles(
         &self,
         token: u64,
-    ) -> Result<(Arc<AtomicU8>, EditPreviewCancellation), PreviewRenderRegistryError> {
+    ) -> Result<
+        (Arc<AtomicU8>, EditPreviewCancellation, CancellationToken),
+        PreviewRenderRegistryError,
+    > {
         if token == 0 {
             return Err(PreviewRenderRegistryError::UnknownToken);
         }
@@ -196,7 +218,13 @@ impl PreviewRenderRegistry {
         entries
             .iter()
             .find(|entry| entry.token == token)
-            .map(|entry| (Arc::clone(&entry.state), entry.native_cancellation.clone()))
+            .map(|entry| {
+                (
+                    Arc::clone(&entry.state),
+                    entry.native_cancellation.clone(),
+                    entry.foundation_cancellation.clone(),
+                )
+            })
             .ok_or(PreviewRenderRegistryError::UnknownToken)
     }
 }

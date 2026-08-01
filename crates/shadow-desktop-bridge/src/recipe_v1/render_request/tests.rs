@@ -12,7 +12,7 @@ use super::*;
 use crate::recipe_v1::{
     GradeStackDraft, encode_grade_stack_draft_recipe_v1, grade_stack_recipe_v1_snapshot,
 };
-use shadow_bridge::{AdjustmentLocalMask, AdjustmentRenderOperation};
+use shadow_bridge::{AdjustmentLocalMask, AdjustmentRenderOperation, OpticsSettings};
 
 #[test]
 #[allow(clippy::too_many_lines)] // One queued-base race contract is intentionally end to end.
@@ -42,13 +42,15 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
     let manual_white_balance = RawWhiteBalance::temperature_tint(
         RawTemperatureTint::new(4_800, 17).expect("manual temperature/tint"),
     );
+    let authored_optics = RecipeOpticsSettings::new(true, false, true, false, false)
+        .with_manual_corrections(12, -7, 9, -18, 61)
+        .with_manual_profile("Camera Maker", "Camera Model", "Lens Maker", "Lens Model");
     let base_draft = GradeStackDraft {
         raw_ai_denoise: RawFoundationDenoise::enabled(
             RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
         ),
         foundation: PhotoFoundationNode::new(
-            RecipeInputSettings::new(RecipeOpticsSettings::default())
-                .with_raw_white_balance(manual_white_balance),
+            RecipeInputSettings::new(authored_optics).with_raw_white_balance(manual_white_balance),
         ),
         ..GradeStackDraft::default()
     };
@@ -118,8 +120,46 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
     .expect("resolve queued Recipe");
 
     assert_eq!(resolved.snapshot_digest, expected_digest);
-    assert_eq!(resolved.raw_white_balance, manual_white_balance);
-    assert!(resolved.raw_ai_denoise.is_enabled());
+    assert_eq!(
+        resolved.foundation.preview_plan().white_balance,
+        manual_white_balance
+    );
+    assert!(resolved.foundation.raw_ai_denoise().is_enabled());
+    assert_eq!(
+        resolved.foundation.optics(),
+        &OpticsSettings {
+            enabled: true,
+            correct_distortion: false,
+            correct_tca: true,
+            correct_vignetting: false,
+            automatic_scale: false,
+            manual_distortion: 12,
+            manual_tca_red_cyan: -7,
+            manual_tca_blue_yellow: 9,
+            manual_vignetting_amount: -18,
+            manual_vignetting_midpoint: 61,
+            camera_profile_maker: "Camera Maker".to_owned(),
+            camera_profile_model: "Camera Model".to_owned(),
+            lens_profile_maker: "Lens Maker".to_owned(),
+            lens_profile_model: "Lens Model".to_owned(),
+        }
+    );
+
+    let neutral = resolve_recipe_render(
+        &catalog,
+        &root.join("cache"),
+        registered.photo_id,
+        "",
+        &settings,
+        false,
+    )
+    .expect("resolve neutral import source contract");
+    assert_eq!(
+        neutral.foundation.preview_plan().white_balance,
+        RawWhiteBalance::AsShot
+    );
+    assert!(!neutral.foundation.raw_ai_denoise().is_present());
+    assert_eq!(neutral.foundation.optics(), &OpticsSettings::default());
 
     let mut bypassed_settings = settings.clone();
     bypassed_settings.foundation.enabled = false;
@@ -132,8 +172,12 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
         true,
     )
     .expect("resolve bypassed Foundation");
-    assert_eq!(bypassed.raw_white_balance, RawWhiteBalance::AsShot);
-    assert!(bypassed.raw_ai_denoise.is_enabled());
+    assert_eq!(
+        bypassed.foundation.preview_plan().white_balance,
+        RawWhiteBalance::AsShot
+    );
+    assert!(bypassed.foundation.raw_ai_denoise().is_enabled());
+    assert!(!bypassed.foundation.optics().enabled);
 
     let mut hidden_denoise_settings = settings.clone();
     hidden_denoise_settings.foundation.raw_ai_denoise_bypassed = true;
@@ -146,9 +190,9 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
         true,
     )
     .expect("resolve hidden AI RAW Denoise node");
-    assert!(hidden_denoise.raw_ai_denoise.is_enabled());
-    assert!(hidden_denoise.raw_ai_denoise.is_bypassed());
-    assert!(!hidden_denoise.raw_ai_denoise.is_effective());
+    assert!(hidden_denoise.foundation.raw_ai_denoise().is_enabled());
+    assert!(hidden_denoise.foundation.raw_ai_denoise().is_bypassed());
+    assert!(!hidden_denoise.foundation.raw_ai_denoise().is_effective());
 
     let mut denoise_bypassed_settings = settings;
     denoise_bypassed_settings.foundation.raw_ai_denoise_enabled = false;
@@ -161,7 +205,7 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
         true,
     )
     .expect("resolve bypassed AI RAW Denoise");
-    assert!(!denoise_bypassed.raw_ai_denoise.is_enabled());
+    assert!(!denoise_bypassed.foundation.raw_ai_denoise().is_enabled());
     assert_eq!(
         catalog
             .recipe_ref(registered.photo_id, "working")

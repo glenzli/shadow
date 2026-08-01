@@ -9,13 +9,13 @@ use std::path::Path;
 use anyhow::{Context, Result as AnyResult, anyhow};
 use shadow_bridge::AdjustmentRenderPlan;
 use shadow_catalog::CatalogHandle;
-use shadow_domain::{PhotoId, RawFoundationDenoise, RawWhiteBalance, RecipeCommitId};
+use shadow_domain::{PhotoId, RecipeCommitId};
 
 use crate::ffi;
 
 use super::{
-    compile_recipe_render_plan_with_managed_rasters, grade_stack_recipe_v1_snapshot,
-    managed_raster_resolution::FilesystemManagedRasterMaskResolver,
+    ResolvedFoundationDevelopment, compile_recipe_render_plan_with_managed_rasters,
+    grade_stack_recipe_v1_snapshot, managed_raster_resolution::FilesystemManagedRasterMaskResolver,
     preview_grade_stack_draft_recipe_v1,
 };
 
@@ -23,11 +23,9 @@ use super::{
 pub(crate) struct ResolvedRecipeRender {
     pub(crate) plan: AdjustmentRenderPlan,
     pub(crate) snapshot_digest: [u8; 32],
-    /// Absolute source interpretation captured from the same immutable
+    /// Complete source interpretation captured from the same immutable
     /// snapshot as the downstream Grade render plan.
-    pub(crate) raw_white_balance: RawWhiteBalance,
-    /// Path-free single-use AI source intent from that same snapshot.
-    pub(crate) raw_ai_denoise: RawFoundationDenoise,
+    pub(crate) foundation: ResolvedFoundationDevelopment,
 }
 
 pub(crate) fn resolve_recipe_render(
@@ -59,15 +57,13 @@ pub(crate) fn resolve_recipe_render(
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, template)?;
     let snapshot_digest = shadow_domain::canonical_recipe_snapshot_digest(&snapshot)
         .context("serialize exact Recipe render identity")?;
-    let raw_white_balance = snapshot.foundation_node().effective_raw_white_balance();
-    let raw_ai_denoise = snapshot.raw_ai_denoise_node();
+    let foundation = ResolvedFoundationDevelopment::from_snapshot(&snapshot);
     let managed_rasters =
         FilesystemManagedRasterMaskResolver::open_for_runtime_cache(runtime_cache_root)?;
     Ok(ResolvedRecipeRender {
         plan: compile_recipe_render_plan_with_managed_rasters(&snapshot, &managed_rasters)?,
         snapshot_digest,
-        raw_white_balance,
-        raw_ai_denoise,
+        foundation,
     })
 }
 

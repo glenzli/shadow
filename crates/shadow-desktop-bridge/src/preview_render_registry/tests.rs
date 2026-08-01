@@ -7,8 +7,15 @@ fn cancellation_claimed_first_forbids_completion() {
     let registry = PreviewRenderRegistry::default();
     let token = registry.begin().expect("begin request");
     let native = registry.cancellation(token).expect("native cancellation");
+    let foundation = registry
+        .foundation_cancellation(token)
+        .expect("foundation cancellation");
 
     assert!(registry.cancel(token));
+    assert!(
+        foundation.is_cancelled(),
+        "winning host cancellation must reach AI source preparation"
+    );
     assert!(
         !native.cancel(),
         "winning host cancellation must signal the native stop handle exactly once"
@@ -31,6 +38,9 @@ fn completion_claimed_first_rejects_late_cancellation() {
     let registry = PreviewRenderRegistry::default();
     let token = registry.begin().expect("begin request");
     let native = registry.cancellation(token).expect("native cancellation");
+    let foundation = registry
+        .foundation_cancellation(token)
+        .expect("foundation cancellation");
 
     assert_eq!(
         registry.admission(token).expect("active admission"),
@@ -41,6 +51,10 @@ fn completion_claimed_first_rejects_late_cancellation() {
         PreviewTerminalClaim::Completed
     );
     assert!(!registry.cancel(token));
+    assert!(
+        !foundation.is_cancelled(),
+        "late host cancellation must not stop completed AI source preparation"
+    );
     assert!(
         native.cancel(),
         "late host cancellation must not have signalled native work after completion won"
@@ -102,6 +116,9 @@ fn cancellation_and_completion_have_exactly_one_winner_under_race() {
     for _ in 0..128 {
         let token = registry.begin().expect("begin raced request");
         let native = registry.cancellation(token).expect("native cancellation");
+        let foundation = registry
+            .foundation_cancellation(token)
+            .expect("foundation cancellation");
         let barrier = Arc::new(Barrier::new(3));
         let cancel_registry = Arc::clone(&registry);
         let cancel_barrier = Arc::clone(&barrier);
@@ -128,6 +145,11 @@ fn cancellation_and_completion_have_exactly_one_winner_under_race() {
             native.cancel(),
             !cancellation_won,
             "native stop must be signalled iff host cancellation won"
+        );
+        assert_eq!(
+            foundation.is_cancelled(),
+            cancellation_won,
+            "AI source stop must have the same terminal winner as native rendering"
         );
         assert!(
             !registry.cancel(token),

@@ -1,5 +1,8 @@
 use shadow_bridge::{RawPipelinePath, RawPipelineReceipt};
-use shadow_domain::{RawTemperatureTint, RawWhiteBalance};
+use shadow_domain::{
+    PhotoFoundationNode, RawFoundationDenoise, RawFoundationDenoiseModel, RawTemperatureTint,
+    RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
+};
 
 use super::*;
 
@@ -40,6 +43,42 @@ fn every_render_intent_binds_the_same_foundation_white_balance() {
     assert_eq!(
         export_foundation_development_plan(white_balance).white_balance,
         white_balance
+    );
+}
+
+#[test]
+fn resolved_contract_keeps_foundation_bypass_and_ai_visibility_independent() {
+    let optics = RecipeOpticsSettings::new(true, false, true, false, false)
+        .with_manual_corrections(8, -3, 5, -11, 63)
+        .with_manual_profile("camera", "model", "lens", "profile");
+    let ai =
+        RawFoundationDenoise::enabled(RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0);
+    let foundation = PhotoFoundationNode::new(
+        RecipeInputSettings::new(optics)
+            .with_enabled(false)
+            .with_raw_white_balance(manual_white_balance())
+            .with_raw_ai_denoise(ai),
+    );
+    let snapshot = RecipeSnapshot::new_with_foundation(1, foundation, Vec::new())
+        .expect("build Foundation source contract");
+
+    let resolved = ResolvedFoundationDevelopment::from_snapshot(&snapshot);
+    assert_eq!(
+        resolved.preview_plan().white_balance,
+        RawWhiteBalance::AsShot
+    );
+    assert!(!resolved.optics().enabled);
+    assert!(!resolved.optics().correct_distortion);
+    assert_eq!(resolved.optics().manual_vignetting_midpoint, 63);
+    assert_eq!(resolved.optics().lens_profile_model, "profile");
+    assert!(resolved.raw_ai_denoise().is_effective());
+    assert_eq!(
+        resolved.preview_plan().white_balance,
+        resolved.detail_plan().white_balance
+    );
+    assert_eq!(
+        resolved.detail_plan().white_balance,
+        resolved.export_plan().white_balance
     );
 }
 

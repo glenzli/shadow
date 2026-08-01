@@ -3,6 +3,7 @@
 use std::sync::{Arc, atomic::Ordering};
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_ai::CancellationToken;
 use shadow_bridge::{
     DetailSessionRequirements, OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
     photo_provider_version, raw_development_plan_identity,
@@ -25,7 +26,6 @@ use super::{
         raw_foundation_ready_for_render,
     },
     recipe_v1::{
-        bridge_foundation_optics_settings, detail_foundation_development_plan,
         ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt,
         resolve_recipe_render,
     },
@@ -62,21 +62,27 @@ impl DesktopSession {
             request.use_working_recipe,
         )?;
         self.ensure_current_edit_detail_render(request.render_token)?;
-        let raw_development_plan = detail_foundation_development_plan(recipe.raw_white_balance);
+        let raw_development_plan = recipe.foundation.detail_plan();
         let requirements = DetailSessionRequirements::for_render_plan(&recipe.plan);
         let native_path = catalog_native_path(&source)?;
+        // Full-detail cancellation currently uses the viewport generation
+        // gate. Keep the foundation token explicit so this route cannot
+        // accidentally inherit preview cancellation or hide its present
+        // non-cancellable source-preparation boundary.
+        let foundation_cancellation = CancellationToken::default();
         let raw_foundation = raw_foundation_ready_for_render(
             &self.raw_foundations,
             &self.raw_foundation_runtime,
             &native_path,
             source.source,
-            recipe.raw_ai_denoise,
+            recipe.foundation.raw_ai_denoise(),
+            &foundation_cancellation,
         )?;
         let session = self.edit_detail_session(
             &source,
             request.render_token,
             raw_development_plan,
-            bridge_foundation_optics_settings(&request.settings.foundation),
+            recipe.foundation.optics().clone(),
             raw_foundation.as_ref(),
             requirements,
         )?;

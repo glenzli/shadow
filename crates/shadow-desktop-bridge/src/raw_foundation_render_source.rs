@@ -89,16 +89,12 @@ pub(crate) fn raw_foundation_ready_for_render(
     source_path: &Path,
     source: RepresentationFingerprint,
     denoise: RawFoundationDenoise,
+    cancellation: &CancellationToken,
 ) -> AnyResult<Option<RawFoundationRenderSelection>> {
     if !denoise.is_effective() {
         return Ok(None);
     }
-    let ready = service.resolve_ready_for_source(
-        runtime,
-        source_path,
-        source,
-        &CancellationToken::default(),
-    )?;
+    let ready = service.resolve_ready_for_source(runtime, source_path, source, cancellation)?;
     select_ready_raw_foundation(ready, denoise)
 }
 

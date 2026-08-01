@@ -19,10 +19,7 @@ use crate::{
     preview_cache_identity::current_source_environment_cache_identity,
     preview_render_registry::{PreviewAdmission, PreviewRenderRegistryError, PreviewTerminalClaim},
     raw_foundation_render_source::raw_foundation_ready_for_render,
-    recipe_v1::{
-        bridge_foundation_optics_settings, preview_foundation_development_plan,
-        resolve_recipe_render,
-    },
+    recipe_v1::resolve_recipe_render,
     session_photo_source::catalog_native_path,
 };
 
@@ -151,6 +148,10 @@ impl DesktopSession {
                 .edit_preview_render_tokens
                 .cancellation(request.render_token)
                 .map_err(|error| preview_registry_error(&error, request.render_token))?;
+            let foundation_cancellation = self
+                .edit_preview_render_tokens
+                .foundation_cancellation(request.render_token)
+                .map_err(|error| preview_registry_error(&error, request.render_token))?;
 
             let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
             let policy = EditPreviewPolicy::from_ffi(request.policy)?;
@@ -180,17 +181,16 @@ impl DesktopSession {
                 &request.settings,
                 request.use_working_recipe,
             )?;
-            let raw_development_plan =
-                preview_foundation_development_plan(recipe.raw_white_balance);
+            let raw_development_plan = recipe.foundation.preview_plan();
             let native_path = catalog_native_path(&source)?;
             let raw_foundation = raw_foundation_ready_for_render(
                 &self.raw_foundations,
                 &self.raw_foundation_runtime,
                 &native_path,
                 source.source,
-                recipe.raw_ai_denoise,
+                recipe.foundation.raw_ai_denoise(),
+                &foundation_cancellation,
             )?;
-            let optics = bridge_foundation_optics_settings(&request.settings.foundation);
             let session =
                 self.warm_edit_preview_sessions
                     .get_or_prepare(&WarmEditPreviewSourceRequest {
@@ -198,7 +198,7 @@ impl DesktopSession {
                         source: &source,
                         max_edge: request.max_edge,
                         raw_development_plan,
-                        optics: &optics,
+                        optics: recipe.foundation.optics(),
                         source_environment_cache_identity: &source_environment_cache_identity,
                         raw_foundation: raw_foundation.as_ref(),
                     })?;
