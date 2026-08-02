@@ -190,14 +190,18 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                                      : foundation.dimensions;
     const Dimensions output_dimensions =
         oriented_dimensions(camera_rgb_dimensions, source_descriptor.orientation);
+    const bool retain_amount_basis = preview_max_edge.has_value() && source_frame != nullptr;
+    const std::size_t sample_count = checked_sample_count(output_dimensions);
     PreparedRawFoundationCameraRgb output{
         .dimensions = output_dimensions,
         .row_stride_bytes = static_cast<std::size_t>(output_dimensions.width) * 3U * sizeof(float),
-        .samples = std::vector<float>(checked_sample_count(output_dimensions)),
+        .samples = std::vector<float>(sample_count),
+        .original_samples =
+            retain_amount_basis ? std::vector<float>(sample_count) : std::vector<float>{},
         .source_camera_rgb_dimensions = camera_rgb_dimensions,
         .bounded_preview = camera_rgb_dimensions != foundation.dimensions,
-        .cache_identity = foundation.provenance.cache_identity()
-                          + ";amount-percent=" + std::to_string(foundation.amount_percent),
+        .amount_percent = foundation.amount_percent,
+        .foundation_cache_identity = foundation.provenance.cache_identity(),
     };
     const float ai_amount = static_cast<float>(foundation.amount_percent) / 100.0F;
     detail::parallel_for_rows(
@@ -212,26 +216,36 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                         camera_rgb_dimensions,
                         source_descriptor.orientation
                     );
-                    auto camera =
+                    const auto foundation_camera =
                         sample_bilinear(foundation, camera_rgb_dimensions, camera_x, camera_y);
-                    if (source_frame != nullptr && foundation.amount_percent < 100U) {
-                        const auto original = sample_original_bilinear(
+                    std::array<float, 3U> original_camera{};
+                    if (source_frame != nullptr) {
+                        original_camera = sample_original_bilinear(
                             *source_frame,
                             foundation,
                             camera_rgb_dimensions,
                             camera_x,
                             camera_y
                         );
-                        for (std::size_t channel = 0U; channel < camera.size(); ++channel) {
-                            camera[channel] =
-                                std::lerp(original[channel], camera[channel], ai_amount);
-                        }
                     }
                     const std::size_t output_index =
                         (static_cast<std::size_t>(output_y) * output_dimensions.width + output_x)
                         * 3U;
                     for (std::size_t channel = 0U; channel < 3U; ++channel) {
-                        output.samples[output_index + channel] = camera[channel];
+                        if (retain_amount_basis) {
+                            output.samples[output_index + channel] = foundation_camera[channel];
+                            output.original_samples[output_index + channel] =
+                                original_camera[channel];
+                        } else {
+                            output.samples[output_index + channel] =
+                                source_frame != nullptr && foundation.amount_percent < 100U
+                                    ? std::lerp(
+                                          original_camera[channel],
+                                          foundation_camera[channel],
+                                          ai_amount
+                                      )
+                                    : foundation_camera[channel];
+                        }
                     }
                 }
             }
@@ -318,12 +332,18 @@ bool PreparedRawFoundationCameraRgb::valid() const noexcept {
         || source_camera_rgb_dimensions.width == 0U || source_camera_rgb_dimensions.height == 0U
         || row_stride_bytes != static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float)
         || pixel_count > maximum_samples
-        || samples.size() != static_cast<std::size_t>(pixel_count * 3U) || cache_identity.empty()) {
+        || samples.size() != static_cast<std::size_t>(pixel_count * 3U)
+        || (!original_samples.empty() && original_samples.size() != samples.size())
+        || amount_percent > 100U || foundation_cache_identity.empty()) {
         return false;
     }
-    return std::all_of(samples.begin(), samples.end(), [](const float value) {
-        return std::isfinite(value);
-    });
+    const auto finite = [](const float value) { return std::isfinite(value); };
+    return std::all_of(samples.begin(), samples.end(), finite)
+           && std::all_of(original_samples.begin(), original_samples.end(), finite);
+}
+
+bool PreparedRawFoundationCameraRgb::supports_amount_rebinding() const noexcept {
+    return valid() && !original_samples.empty();
 }
 
 PreparedRawFoundationCameraRgb prepare_raw_foundation_camera_rgb(
@@ -356,6 +376,14 @@ DevelopedRawFoundation develop_prepared_raw_foundation(
     const PreparedRawFoundationCameraRgb& prepared,
     const RawFrameLinearTransform& transform
 ) {
+    return develop_prepared_raw_foundation(prepared, transform, prepared.amount_percent);
+}
+
+DevelopedRawFoundation develop_prepared_raw_foundation(
+    const PreparedRawFoundationCameraRgb& prepared,
+    const RawFrameLinearTransform& transform,
+    const std::uint8_t amount_percent
+) {
     if (!prepared.valid() || !transform.valid()) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
@@ -363,6 +391,15 @@ DevelopedRawFoundation develop_prepared_raw_foundation(
             "AI RAW foundation colour binding requires a valid camera basis and transform"
         );
     }
+    if (amount_percent > 100U
+        || (amount_percent != prepared.amount_percent && !prepared.supports_amount_rebinding())) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "AI RAW foundation amount rebinding requires a retained bounded original basis"
+        );
+    }
+    const float ai_amount = static_cast<float>(amount_percent) / 100.0F;
     SceneLinearRgbFrame output{
         .dimensions = prepared.dimensions,
         .row_stride_bytes = prepared.row_stride_bytes,
@@ -379,10 +416,18 @@ DevelopedRawFoundation develop_prepared_raw_foundation(
                     for (std::size_t output_channel = 0U; output_channel < 3U; ++output_channel) {
                         double value = 0.0;
                         for (std::size_t input_channel = 0U; input_channel < 3U; ++input_channel) {
+                            const float camera =
+                                prepared.original_samples.empty()
+                                    ? prepared.samples[index + input_channel]
+                                    : std::lerp(
+                                          prepared.original_samples[index + input_channel],
+                                          prepared.samples[index + input_channel],
+                                          ai_amount
+                                      );
                             value +=
                                 transform
                                     .camera_to_linear_srgb_d65[output_channel * 3U + input_channel]
-                                * static_cast<double>(prepared.samples[index + input_channel]);
+                                * static_cast<double>(camera);
                         }
                         output.samples[index + output_channel] = static_cast<float>(value);
                     }
@@ -394,7 +439,8 @@ DevelopedRawFoundation develop_prepared_raw_foundation(
         .scene_linear = std::move(output),
         .camera_rgb_dimensions = prepared.source_camera_rgb_dimensions,
         .bounded_preview = prepared.bounded_preview,
-        .cache_identity = prepared.cache_identity,
+        .cache_identity = prepared.foundation_cache_identity
+                          + ";amount-percent=" + std::to_string(amount_percent),
     };
     if (!developed.valid()) {
         throw DecodeError(

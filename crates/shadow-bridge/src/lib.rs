@@ -750,6 +750,12 @@ mod ffi {
             self: &EditPreviewHandle,
             plan: &FfiRawDevelopmentPlan,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        fn supports_raw_foundation_amount_rebinding(self: &EditPreviewHandle) -> bool;
+        fn rebind_raw_foundation_amount(
+            self: &EditPreviewHandle,
+            plan: &FfiRawDevelopmentPlan,
+            amount_percent: u8,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,

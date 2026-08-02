@@ -127,6 +127,25 @@ const AssetMetadata& RawPreviewRebindingSource::metadata() const noexcept {
 
 DevelopedSourceReference
 RawPreviewRebindingSource::bind(const RawDevelopmentPlan& requested_plan) const {
+    return bind_impl(requested_plan, std::nullopt);
+}
+
+DevelopedSourceReference RawPreviewRebindingSource::bind_foundation_amount(
+    const RawDevelopmentPlan& requested_plan,
+    const std::uint8_t amount_percent
+) const {
+    return bind_impl(requested_plan, amount_percent);
+}
+
+bool RawPreviewRebindingSource::supports_foundation_amount_rebinding() const noexcept {
+    const auto* foundation = std::get_if<FoundationRawPreviewBasis>(&impl_->basis);
+    return foundation != nullptr && foundation->camera_rgb.supports_amount_rebinding();
+}
+
+DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
+    const RawDevelopmentPlan& requested_plan,
+    const std::optional<std::uint8_t> foundation_amount_percent
+) const {
     if (!same_plan_except_white_balance(requested_plan, impl_->requested_plan_template)
         || !valid_raw_white_balance(requested_plan.white_balance)) {
         throw DecodeError(
@@ -151,6 +170,13 @@ RawPreviewRebindingSource::bind(const RawDevelopmentPlan& requested_plan) const 
     );
 
     if (const auto* ordinary = std::get_if<OrdinaryRawPreviewBasis>(&impl_->basis)) {
+        if (foundation_amount_percent.has_value()) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "ordinary RAW preview cannot bind an AI foundation amount"
+            );
+        }
         FusedRawFrameDevelopment developed = develop_bayer_linear_srgb_f32_fused_with_backend(
             ordinary->denoised_frame,
             rebound_development.linear_transform(),
@@ -201,10 +227,16 @@ RawPreviewRebindingSource::bind(const RawDevelopmentPlan& requested_plan) const 
     }
 
     const auto& foundation = std::get<FoundationRawPreviewBasis>(impl_->basis);
-    DevelopedRawFoundation developed = develop_prepared_raw_foundation(
-        foundation.camera_rgb,
-        rebound_development.linear_transform()
-    );
+    DevelopedRawFoundation developed = foundation_amount_percent.has_value()
+                                           ? develop_prepared_raw_foundation(
+                                                 foundation.camera_rgb,
+                                                 rebound_development.linear_transform(),
+                                                 *foundation_amount_percent
+                                             )
+                                           : develop_prepared_raw_foundation(
+                                                 foundation.camera_rgb,
+                                                 rebound_development.linear_transform()
+                                             );
     DcpColorExecutionBackend dcp_backend = DcpColorExecutionBackend::cpu;
     const DcpColorTransform* dcp = rebound_development.camera_profile();
     if (dcp != nullptr && dcp->has_post_matrix_stages()) {
@@ -410,7 +442,8 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
-            "staged AI RAW preview rebinding received an invalid frame, plan, policy, edge, or foundation"
+            "staged AI RAW preview rebinding received an invalid frame, plan, policy, edge, or "
+            "foundation"
         );
     }
     if (policy.mode == RawPipelineMode::require_provider_processed) {

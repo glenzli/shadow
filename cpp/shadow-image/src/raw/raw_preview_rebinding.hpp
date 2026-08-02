@@ -25,11 +25,20 @@ class RawPreviewRebindingSource final {
     ~RawPreviewRebindingSource();
 
     [[nodiscard]] DevelopedSourceReference bind(const RawDevelopmentPlan& requested_plan) const;
+    [[nodiscard]] DevelopedSourceReference bind_foundation_amount(
+        const RawDevelopmentPlan& requested_plan,
+        std::uint8_t amount_percent
+    ) const;
+    [[nodiscard]] bool supports_foundation_amount_rebinding() const noexcept;
     [[nodiscard]] const AssetMetadata& metadata() const noexcept;
 
   private:
     struct Impl;
     explicit RawPreviewRebindingSource(std::unique_ptr<Impl> impl);
+    [[nodiscard]] DevelopedSourceReference bind_impl(
+        const RawDevelopmentPlan& requested_plan,
+        std::optional<std::uint8_t> foundation_amount_percent
+    ) const;
 
     std::unique_ptr<Impl> impl_;
 

@@ -40,6 +40,7 @@ pub(super) struct CachedEditDetailSession {
     pub(super) requested_raw_development_plan_identity: String,
     pub(super) optics: OpticsSettings,
     pub(super) raw_foundation: Option<RawFoundationRenderIdentity>,
+    pub(super) raw_foundation_amount_percent: Option<u8>,
     pub(super) session: Arc<CachedDetailSource>,
 }
 
@@ -148,6 +149,8 @@ impl DesktopSession {
             raw_development_plan_identity(raw_development_plan)
                 .context("build requested detail RAW-development cache identity")?;
         let raw_foundation_identity = raw_foundation.map(|selection| selection.identity.clone());
+        let raw_foundation_amount_percent =
+            raw_foundation.map(RawFoundationRenderSelection::amount_percent);
         let current_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
         if current_source != source.source {
             bail!(SOURCE_CHANGED);
@@ -170,6 +173,7 @@ impl DesktopSession {
             requested_raw_development_plan_identity: &requested_raw_development_plan_identity,
             optics: &optics,
             raw_foundation: raw_foundation_identity.as_ref(),
+            raw_foundation_amount_percent,
             requirements,
         }) {
             return Ok(session);
@@ -264,6 +268,7 @@ impl DesktopSession {
             requested_raw_development_plan_identity,
             optics,
             raw_foundation: raw_foundation_identity,
+            raw_foundation_amount_percent,
             session: Arc::clone(&prepared),
         });
         Ok(prepared)

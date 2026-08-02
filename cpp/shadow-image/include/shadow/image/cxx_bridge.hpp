@@ -125,6 +125,11 @@ class EditPreviewHandle final {
     [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle>
     rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const;
+    [[nodiscard]] bool supports_raw_foundation_amount_rebinding() const noexcept;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle> rebind_raw_foundation_amount(
+        const FfiRawDevelopmentPlan& plan,
+        std::uint8_t amount_percent
+    ) const;
     [[nodiscard]] FfiEncodedProxy
     render_adjustment_plan(const FfiAdjustmentRenderRequest& request) const;
     [[nodiscard]] FfiAnalyzedEditPreview

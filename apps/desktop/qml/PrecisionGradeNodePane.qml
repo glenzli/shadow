@@ -101,44 +101,25 @@ Rectangle {
                 }
             }
 
-            Switch {
-                id: structuralEnabledSwitch
+            ShadowIconButton {
+                id: structuralVisibilityButton
                 visible: structuralRow.bypassAvailable
-                Layout.preferredWidth: visible ? 36 : 0
-                Layout.preferredHeight: 22
-                checked: structuralRow.nodeEnabled
+                Layout.preferredWidth: visible ? 28 : 0
+                buttonSize: 28
+                iconSize: 16
+                variant: ShadowIconButton.Ghost
+                source: structuralRow.nodeEnabled
+                    ? "qrc:/icons/overlay-show.svg"
+                    : "qrc:/icons/overlay-hide.svg"
+                foregroundColor: structuralRow.nodeEnabled
+                    ? pane.textSecondary : pane.textMuted
                 enabled: pane.editor.active && !pane.editor.stateBusy
-                Accessible.name: checked
-                    ? qsTr("Bypass %1").arg(structuralRow.nodeLabel)
-                    : qsTr("Enable %1").arg(structuralRow.nodeLabel)
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-                ToolTip.text: checked
-                    ? qsTr("Bypass node; preserve all settings")
-                    : qsTr("Enable node")
-                onClicked: structuralRow.enabledToggled(checked)
-                indicator: Rectangle {
-                    implicitWidth: 34
-                    implicitHeight: 18
-                    x: (structuralEnabledSwitch.width - width) / 2
-                    y: (structuralEnabledSwitch.height - height) / 2
-                    radius: height / 2
-                    color: structuralEnabledSwitch.checked
-                        ? Theme.switchOnSurface : Theme.switchOffSurface
-                    border.color: structuralEnabledSwitch.checked
-                        ? Theme.switchOnBorder : Theme.switchOffBorder
-                    Rectangle {
-                        width: 12
-                        height: 12
-                        y: 3
-                        x: structuralEnabledSwitch.checked
-                            ? parent.width - width - 3 : 3
-                        radius: width / 2
-                        color: structuralEnabledSwitch.checked
-                            ? pane.accent : pane.textMuted
-                    }
-                }
-                contentItem: Item {}
+                toolTipText: structuralRow.nodeEnabled
+                    ? qsTr("Hide %1").arg(structuralRow.nodeLabel)
+                    : qsTr("Show %1").arg(structuralRow.nodeLabel)
+                accessibleName: toolTipText
+                Accessible.checked: structuralRow.nodeEnabled
+                onClicked: structuralRow.enabledToggled(!structuralRow.nodeEnabled)
             }
         }
 
@@ -326,38 +307,28 @@ Rectangle {
                         }
                     }
 
-                    Switch {
-                        id: rowEnabledSwitch
-                        Layout.preferredWidth: 36
-                        Layout.preferredHeight: 22
-                        checked: gradeNodeRow.modelData.enabled
+                    ShadowIconButton {
+                        id: gradeNodeVisibilityButton
+                        objectName: "gradeNodeVisibilityButton"
+                        buttonSize: 28
+                        iconSize: 16
+                        variant: ShadowIconButton.Ghost
+                        source: gradeNodeRow.modelData.enabled
+                            ? "qrc:/icons/overlay-show.svg"
+                            : "qrc:/icons/overlay-hide.svg"
+                        foregroundColor: gradeNodeRow.modelData.enabled
+                            ? pane.textSecondary : pane.textMuted
                         enabled: pane.editor.active && !pane.editor.stateBusy
-                        Accessible.name: checked ? qsTr("Bypass %1").arg(gradeNodeRow.modelData.label) : qsTr("Enable %1").arg(gradeNodeRow.modelData.label)
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: checked ? qsTr("Bypass Grade Node; preserve all adjustments") : qsTr("Enable Grade Node")
+                        toolTipText: gradeNodeRow.modelData.enabled
+                            ? qsTr("Hide %1").arg(gradeNodeRow.modelData.label)
+                            : qsTr("Show %1").arg(gradeNodeRow.modelData.label)
+                        accessibleName: toolTipText
+                        Accessible.checked: gradeNodeRow.modelData.enabled
                         onClicked: {
                             pane.editor.selectGradeNode(gradeNodeRow.index);
-                            pane.editor.gradeNodeEnabled = checked;
+                            pane.editor.gradeNodeEnabled =
+                                !gradeNodeRow.modelData.enabled;
                         }
-                        indicator: Rectangle {
-                            implicitWidth: 34
-                            implicitHeight: 18
-                            x: (rowEnabledSwitch.width - width) / 2
-                            y: (rowEnabledSwitch.height - height) / 2
-                            radius: height / 2
-                            color: rowEnabledSwitch.checked ? Theme.switchOnSurface : Theme.switchOffSurface
-                            border.color: rowEnabledSwitch.checked ? Theme.switchOnBorder : Theme.switchOffBorder
-                            Rectangle {
-                                width: 12
-                                height: 12
-                                y: 3
-                                x: rowEnabledSwitch.checked ? parent.width - width - 3 : 3
-                                radius: width / 2
-                                color: rowEnabledSwitch.checked ? pane.accent : pane.textMuted
-                            }
-                        }
-                        contentItem: Item {}
                     }
                 }
 
@@ -446,50 +417,28 @@ Rectangle {
                     }
                 }
 
-                Switch {
-                    id: foundationEnabledSwitch
-                    objectName: "foundationEnabledSwitch"
-                    Layout.preferredWidth: 36
-                    Layout.preferredHeight: 22
-                    checked: pane.editor.foundationEnabled
+                ShadowIconButton {
+                    id: foundationVisibilityButton
+                    objectName: "foundationVisibilityButton"
+                    buttonSize: 28
+                    iconSize: 16
+                    variant: ShadowIconButton.Ghost
+                    source: pane.editor.foundationEnabled
+                        ? "qrc:/icons/overlay-show.svg"
+                        : "qrc:/icons/overlay-hide.svg"
+                    foregroundColor: pane.editor.foundationEnabled
+                        ? pane.textSecondary : pane.textMuted
                     enabled: pane.editor.active && !pane.editor.stateBusy
-                    Accessible.name: checked
-                        ? qsTr("Bypass Basic Adjustments")
-                        : qsTr("Enable Basic Adjustments")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: checked
-                        ? qsTr("Bypass optional source adjustments; preserve their values")
-                        : qsTr("Enable Basic Adjustments")
+                    toolTipText: pane.editor.foundationEnabled
+                        ? qsTr("Hide Basic Adjustments")
+                        : qsTr("Show Basic Adjustments")
+                    accessibleName: toolTipText
+                    Accessible.checked: pane.editor.foundationEnabled
                     onClicked: {
                         pane.editor.selectFoundationNode()
-                        pane.editor.foundationEnabled = checked
+                        pane.editor.foundationEnabled =
+                            !pane.editor.foundationEnabled
                     }
-
-                    indicator: Rectangle {
-                        implicitWidth: 34
-                        implicitHeight: 18
-                        x: (foundationEnabledSwitch.width - width) / 2
-                        y: (foundationEnabledSwitch.height - height) / 2
-                        radius: height / 2
-                        color: foundationEnabledSwitch.checked
-                            ? Theme.switchOnSurface : Theme.switchOffSurface
-                        border.color: foundationEnabledSwitch.checked
-                            ? Theme.switchOnBorder : Theme.switchOffBorder
-
-                        Rectangle {
-                            width: 12
-                            height: 12
-                            y: 3
-                            x: foundationEnabledSwitch.checked
-                                ? parent.width - width - 3 : 3
-                            radius: width / 2
-                            color: foundationEnabledSwitch.checked
-                                ? pane.accent : pane.textMuted
-                        }
-                    }
-
-                    contentItem: Item {}
                 }
             }
 

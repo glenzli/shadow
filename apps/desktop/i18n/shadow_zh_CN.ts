@@ -4074,6 +4074,28 @@ R %2 · G %3 · B %4</translation>
         <translation>显示 AI RAW 降噪节点</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="112"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="425"/>
+        <source>Hide %1</source>
+        <translation>隐藏%1</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="113"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="426"/>
+        <source>Show %1</source>
+        <translation>显示%1</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="507"/>
+        <source>Hide Basic Adjustments</source>
+        <translation>隐藏基础调整</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="508"/>
+        <source>Show Basic Adjustments</source>
+        <translation>显示基础调整</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="25"/>
         <source>A fixed photo-local node before Basic Adjustments.</source>
         <translation>位于基础调整之前的固定照片本地节点。</translation>
@@ -4188,28 +4210,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="316"/>
         <source>Add a mask to this node</source>
         <translation>为此节点添加蒙版</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="112"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="335"/>
-        <source>Bypass %1</source>
-        <translation>旁路 %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="113"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="335"/>
-        <source>Enable %1</source>
-        <translation>启用 %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="117"/>
-        <source>Bypass node; preserve all settings</source>
-        <translation>旁路节点；保留全部设置</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="118"/>
-        <source>Enable node</source>
-        <translation>启用节点</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="201"/>
@@ -4485,16 +4485,6 @@ R %2 · G %3 · B %4</translation>
         <translation>上下并排</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="338"/>
-        <source>Bypass Grade Node; preserve all adjustments</source>
-        <translation>旁路调色节点；保留所有调整</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="338"/>
-        <source>Enable Grade Node</source>
-        <translation>启用调色节点</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="425"/>
         <source>Basic Adjustments</source>
         <translation>基础调整</translation>
@@ -4523,22 +4513,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="566"/>
         <source>SOURCE · AI OFF</source>
         <translation>源图 · AI 已关闭</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="457"/>
-        <source>Bypass Basic Adjustments</source>
-        <translation>旁路基础调整</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="458"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="463"/>
-        <source>Enable Basic Adjustments</source>
-        <translation>启用基础调整</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="462"/>
-        <source>Bypass optional source adjustments; preserve their values</source>
-        <translation>旁路可选的源图调整，并保留其数值</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="626"/>

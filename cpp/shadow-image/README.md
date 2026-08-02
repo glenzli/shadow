@@ -102,10 +102,10 @@ Current contract rules:
   source-route integration owner: it reuses the original RawFrame for calibration, DCP rendering,
   luminance, sensor clipping, and the original camera-RGB reconstruction. Strength below 100%
   linearly blends that reconstruction with the cached full-strength AI camera RGB before DCP and
-  working-space conversion; changing strength therefore changes render identity without
-  rematerializing or re-identifying the AI artifact. Its receipt and canonical cache identity
-  include the exact model, implementation, source, artifact, cache-key, and requested-strength
-  identities. Geometry, provenance, or provider-policy mismatch fails without a provider-RGB or
+  working-space conversion; changing strength therefore changes developed-render identity without
+  rematerializing or re-identifying the AI artifact. Its receipt includes requested strength,
+  while the reusable foundation identity includes only the exact model, implementation, source,
+  artifact, and cache-key identities. Geometry, provenance, or provider-policy mismatch fails without a provider-RGB or
   original-RAW fallback. The requested RAW plan remains auditable, while its effective AI
   execution disables overlapping conventional RAW denoise and highlight reconstruction. The
   explicit overloads in `warm_edit_preview.*` and
@@ -114,10 +114,13 @@ Current contract rules:
   the complete scene-linear foundation and cannot enter the resident-CFA route.
   `src/raw/raw_preview_rebinding.*` owns the interactive exception to otherwise fixed source
   development: ordinary RAW keeps one already-neural/conventionally-denoised sensor frame, while
-  an AI foundation keeps only its bounded oriented Camera RGB. A temperature/tint-only request
+  a bounded AI preview keeps its original and full-strength AI oriented Camera RGB blend bases.
+  A strength-only request rebinds those bases, and a temperature/tint-only request
   recompiles the generic camera transform or exact DCP and publishes a new immutable warm
-  session, receipt, optics result, and GPU edit source without reopening the decoder or repeating
-  denoise. Any quality, opcode, denoise, highlight, source, foundation, or optics change fails
+  session, receipt, optics result, and GPU edit source without reopening the decoder, rereading the
+  foundation artifact, or repeating denoise. Full-detail and export deliberately retain one mixed
+  full-resolution raster instead of doubling their hundreds-of-MiB source memory. Any quality,
+  opcode, denoise, highlight, source, foundation, or optics change fails
   this narrow reuse contract and returns to normal source preparation.
   `src/raw/raw_frame_source_preparation.*` owns the one-time session decode, plan negotiation,
   exact-DCP admission, final RawFrame pipeline receipt, and unforgeable source identity shared by

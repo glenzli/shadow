@@ -51,8 +51,10 @@ impl CachedDetailSource {
 /// Memory-budgeted LRU of recently developed full-resolution edit sources.
 ///
 /// Entries are keyed by source identity, requested development plan, and
-/// optics. Recipe changes reuse the same sensor-domain source while their
-/// processed RGB tiles remain independently recipe-aware.
+/// optics. An AI-foundation amount remains part of the full-resolution source
+/// key because this memory-bounded route retains one mixed raster rather than
+/// both blend bases. Recipe changes reuse the same sensor-domain source while
+/// their processed RGB tiles remain independently recipe-aware.
 #[derive(Debug)]
 pub(super) struct EditDetailSessionCache {
     entries: VecDeque<CachedEditDetailSession>,
@@ -71,6 +73,7 @@ pub(super) struct EditDetailSessionLookup<'lookup> {
     pub(super) requested_raw_development_plan_identity: &'lookup str,
     pub(super) optics: &'lookup OpticsSettings,
     pub(super) raw_foundation: Option<&'lookup RawFoundationRenderIdentity>,
+    pub(super) raw_foundation_amount_percent: Option<u8>,
     pub(super) requirements: DetailSessionRequirements,
 }
 
@@ -100,6 +103,7 @@ impl EditDetailSessionCache {
                 )
                 && &entry.optics == lookup.optics
                 && entry.raw_foundation.as_ref() == lookup.raw_foundation
+                && entry.raw_foundation_amount_percent == lookup.raw_foundation_amount_percent
                 && entry
                     .session
                     .session
@@ -122,6 +126,7 @@ impl EditDetailSessionCache {
                     != entry.requested_raw_development_plan_identity
                 || candidate.optics != entry.optics
                 || candidate.raw_foundation != entry.raw_foundation
+                || candidate.raw_foundation_amount_percent != entry.raw_foundation_amount_percent
         });
         self.entries.push_back(entry);
         self.trim();

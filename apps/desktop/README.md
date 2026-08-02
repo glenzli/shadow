@@ -155,7 +155,9 @@ Its implementation follows the same navigation:
 - [`src/edit_geometry_controller.cpp`](src/edit_geometry_controller.cpp) owns crop-tool state,
   crop bounds and aspect ratios, straighten, rotation, flips, and geometry reset.
 - [`src/edit_grade_node_controller.cpp`](src/edit_grade_node_controller.cpp) owns Grade Node list
-  presentation, selection, enablement, collection actions, sharing, and node-level resets.
+  presentation, selection, visibility/bypass state, collection actions, sharing, and node-level
+  resets. Foundation, Grade, and fixed photo-node rows use the same eye affordance for this
+  non-destructive visibility meaning; the AI panel's result-generation checkbox remains separate.
 - [`src/edit_processing_stack_controller.cpp`](src/edit_processing_stack_controller.cpp) owns
   explicit add/remove and bypass transitions for optional fixed-order photo nodes. AI RAW Denoise
   and Canvas are absent from a new stack until added; they remain single-use, photo-private, and
@@ -369,7 +371,7 @@ Precision presentation follows the same responsibility tree:
   composition surface.
 - [`qml/PrecisionRawDenoiseAdjustments.qml`](qml/PrecisionRawDenoiseAdjustments.qml) presents the
   optional fixed AI RAW Denoise node: one concise source-noise recommendation, explicit Generate,
-  materialize/retry/cancel state, and the cached-result strength gesture. The node-row switch and
+  materialize/retry/cancel state, and the cached-result strength gesture. The node-row eye and
   panel-header reset are reversible bypasses; the recommendation never auto-generates or applies
   the model, and the component contains no Foundation or JPEG terminology.
 - [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) presents
@@ -869,7 +871,7 @@ Precision also keeps a bounded, in-memory undo/redo history for the current edit
 
 Each durable version row summarizes its parent-relative Recipe diff. Renderer-backed controls use readable labels such as `Exposure · Tone Curve · Saturation`; curve edits, additions, and resets share the stable `Tone Curve` change label, while topology and future adjustment types use semantic fallbacks without exposing internal parameter keys or commit identifiers. The current-version badge and exact parent count remain visible beside that summary.
 
-RAW preparation is cached for up to two recent `(representation, source fingerprint, edge)` sessions. A slider, point-curve, structure, reorder, or Grade-Node-enabled update reruns the render plan and JPEG encoder; it does not reopen or decode the RAW. Undo and redo restore the complete working stack through the same generation-checked preview path. Continuous gestures use a leading-edge 16 ms throttle: they cannot postpone the first frame indefinitely. A render in flight does not disable controls; a newer revision is queued while the prior render finishes, and a completed same-photo intermediate frame may be presented without declaring the generation settled. Only the exact latest generation publishes histogram state or the current-status message. A deliberately bypassed selected Grade Node is different—the controls remain visible but read-only and dimmed so its preserved values stay inspectable. Preview buffers are bounded, rebuildable, and never become Catalog facts.
+RAW preparation is cached for up to two recent `(representation, source fingerprint, edge)` sessions. A slider, point-curve, structure, reorder, or Grade-Node-visible update reruns the render plan and JPEG encoder; it does not reopen or decode the RAW. For a bounded AI RAW preview, strength also rebinds the retained original/full-strength-AI Camera RGB bases in memory; it does not reread `.shadowrawf`, reopen the source, or rerun the model. Undo and redo restore the complete working stack through the same generation-checked preview path. Continuous gestures use a leading-edge 16 ms throttle: they cannot postpone the first frame indefinitely. A render in flight does not disable controls; a newer revision is queued while the prior render finishes, and a completed same-photo intermediate frame may be presented without declaring the generation settled. Only the exact latest generation publishes histogram state or the current-status message. A deliberately hidden selected Grade Node is different—the controls remain visible but read-only and dimmed so its preserved values stay inspectable. Preview buffers are bounded, rebuildable, and never become Catalog facts.
 
 Every accepted warm-preview render now carries a transient analysis sidecar from the exact same Recipe execution and generation. The right inspector overlays 256-bin display-encoded sRGB R/G/B histograms and a fixed-point encoded Rec.709 luma outline computed from the uncompressed RGB8 proxy immediately before JPEG encoding. Shadow/highlight badges count pixels for which any edited processed-linear working-RGB channel is strictly below zero or above one before output clamping; exact zero and one are legal. Current and neutral Before have independent slots, and the panel remains dimmed as Updating or Stale until its generation matches the `Image.Ready` frame. This is complete-warm-proxy output analysis, not sensor-domain exposure, a full-resolution/viewport scope, or durable Catalog/Recipe/AI evidence. Nonlinear Tone Curve statistics remain an interactive proxy approximation for the same reason as the FIT image.
 
@@ -898,12 +900,18 @@ Full detail has an independent `{photo, Recipe revision, viewport revision}`
 acceptance contract at both controller and image-store boundaries. Changing a
 photo or edit invalidates it immediately. Starting a pan hides the current
 presentation; only the final viewport is queued after movement ends. The source
-session is Recipe-independent and reusable across slider revisions, while the
+session is Recipe-independent and reusable across ordinary slider revisions, while the
 RGB viewport is rebuildable memory state and never enters Catalog or durable
 version history. A newer viewport or Recipe token stops the old worker between
 tiles; generation checks still reject a result if cancellation races its final
 tile. The first cold request still performs a complete LibRaw
-demosaic because v1 deliberately does not depend on LibRaw crop semantics.
+demosaic because v1 deliberately does not depend on LibRaw crop semantics. AI
+foundation detail shares the same verified artifact, Recipe compiler, optics,
+tile renderer, and display path as FIT, but prepares its own full-resolution
+source because the bounded FIT basis cannot supply 1:1 pixels. Its cache key
+therefore includes strength and retains one mixed raster rather than doubling
+hundreds of MiB; idle warmup and the foreground request converge through the
+same full-detail cache gate.
 
 This is a full-resolution parity gate for the current pixel-local Basic nodes,
 including nonlinear Tone Curve, but still uses LibRaw's camera-WB, processed

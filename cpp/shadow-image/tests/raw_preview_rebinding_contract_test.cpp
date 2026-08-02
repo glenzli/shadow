@@ -103,10 +103,16 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
         foundation(pixels)
     );
     const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
+    const auto amount_rebound =
+        initial.rebind_raw_foundation_amount(image::preview_raw_development_plan(), 25U);
     expect(
         initial.supports_raw_development_rebinding() && decoder.raw_frame_count() == 1U
             && decoder.processed_count() == 0U,
         "AI RAW foundation rebind shares its bounded camera RGB and source calibration"
+    );
+    expect(
+        initial.supports_raw_foundation_amount_rebinding() && decoder.raw_frame_count() == 1U,
+        "AI amount rebind retains paired bounded bases without a second RAW decode"
     );
     expect(
         rebound.raw_pipeline_receipt().pipeline_identity.find(artifact_digest) != std::string::npos
@@ -121,6 +127,12 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     expect(
         initial.render_rgb8(neutral).bytes != rebound.render_rgb8(neutral).bytes,
         "AI camera-RGB foundation receives the new camera-domain colour binding"
+    );
+    expect(
+        initial.render_rgb8(neutral).bytes != amount_rebound.render_rgb8(neutral).bytes
+            && amount_rebound.raw_pipeline_receipt().pipeline_identity.find("amount-percent=25")
+                   != std::string::npos,
+        "AI amount rebind changes pixels and publishes the exact developed amount identity"
     );
 }
 

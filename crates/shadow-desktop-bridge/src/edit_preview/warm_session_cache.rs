@@ -44,6 +44,7 @@ struct WarmEditPreviewSessionKey {
     raw_development_plan: RawDevelopmentPlan,
     optics: OpticsSettings,
     raw_foundation: Option<RawFoundationRenderIdentity>,
+    raw_foundation_amount_percent: Option<u8>,
 }
 
 impl WarmEditPreviewSessionKey {
@@ -59,6 +60,7 @@ impl WarmEditPreviewSessionKey {
             && self.raw_development_plan == requested.raw_development_plan
             && self.optics == requested.optics
             && self.raw_foundation == requested.raw_foundation
+            && self.raw_foundation_amount_percent == requested.raw_foundation_amount_percent
     }
 
     fn shares_rebindable_raw_source(&self, requested: &Self) -> bool {
@@ -130,6 +132,8 @@ impl WarmEditPreviewSessionCache {
             raw_development_plan,
             optics: optics.clone(),
             raw_foundation: raw_foundation.map(|selection| selection.identity.clone()),
+            raw_foundation_amount_percent: raw_foundation
+                .map(RawFoundationRenderSelection::amount_percent),
         };
 
         self.get_or_prepare_with(key, || {
@@ -199,16 +203,22 @@ impl WarmEditPreviewSessionCache {
                 .iter()
                 .find(|entry| {
                     entry.key.shares_rebindable_raw_source(&key)
-                        && entry.session.supports_raw_development_rebinding()
+                        && match key.raw_foundation_amount_percent {
+                            Some(_) => entry.session.supports_raw_foundation_amount_rebinding(),
+                            None => entry.session.supports_raw_development_rebinding(),
+                        }
                 })
                 .map(|entry| Arc::clone(&entry.session))
             {
                 drop(entries);
-                let rebound = Arc::new(
-                    source
+                let rebound = Arc::new(match key.raw_foundation_amount_percent {
+                    Some(amount_percent) => source
+                        .rebind_raw_foundation_amount(key.raw_development_plan, amount_percent)
+                        .context("rebind warm preview AI foundation amount")?,
+                    None => source
                         .rebind_raw_development_plan(key.raw_development_plan)
                         .context("rebind warm preview RAW white balance")?,
-                );
+                });
                 let mut entries = self
                     .entries
                     .lock()

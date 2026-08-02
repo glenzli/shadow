@@ -544,6 +544,42 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
     );
 }
 
+bool WarmEditPreviewSession::supports_raw_foundation_amount_rebinding() const noexcept {
+    return raw_rebinding_source_ != nullptr
+           && raw_rebinding_source_->supports_foundation_amount_rebinding();
+}
+
+WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_foundation_amount(
+    const RawDevelopmentPlan& raw_development_plan,
+    const std::uint8_t amount_percent
+) const {
+    if (!supports_raw_foundation_amount_rebinding()) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "this edit preview does not retain a rebindable AI foundation amount basis"
+        );
+    }
+    auto prepared = finish_warm_edit_proxy(
+        raw_rebinding_source_->metadata(),
+        max_edge_,
+        raw_rebinding_source_->bind_foundation_amount(raw_development_plan, amount_percent),
+        retained_optics_provider_.get(),
+        retained_optics_settings_
+    );
+    return WarmEditPreviewSession(
+        std::move(prepared.working_proxy),
+        max_edge_,
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
+        std::move(prepared.optics_receipt),
+        std::move(prepared.sensor_clipping_mask),
+        raw_rebinding_source_,
+        retained_optics_provider_,
+        retained_optics_settings_
+    );
+}
+
 EncodedProxy WarmEditPreviewSession::render_rgb8(
     const std::span<const AdjustmentNode> nodes,
     const PhotoGeometry& geometry,

@@ -31,7 +31,6 @@ pub(crate) struct RawFoundationRenderIdentity {
     model_package_sha256: String,
     model_graph_sha256: String,
     implementation_revision: String,
-    amount_percent: u8,
 }
 
 /// Recipe-selected, session-ready locator with a prevalidated cache identity.
@@ -47,12 +46,7 @@ impl RawFoundationRenderIdentity {
     pub(crate) fn from_ready(
         ready: &RawFoundationReady,
         model: RawFoundationDenoiseModel,
-        amount_percent: u8,
     ) -> AnyResult<Self> {
-        ensure!(
-            amount_percent <= 100,
-            "RAW foundation amount must be between 0 and 100 percent"
-        );
         ready
             .descriptor
             .validate()
@@ -74,8 +68,13 @@ impl RawFoundationRenderIdentity {
             model_package_sha256: provenance.model_package_sha256().to_owned(),
             model_graph_sha256: provenance.model_graph_sha256().to_owned(),
             implementation_revision: provenance.implementation_revision().to_owned(),
-            amount_percent,
         })
+    }
+}
+
+impl RawFoundationRenderSelection {
+    pub(crate) const fn amount_percent(&self) -> u8 {
+        self.amount_percent
     }
 }
 
@@ -112,7 +111,7 @@ fn select_ready_raw_foundation(
     })?;
     let model = denoise.model();
     let amount_percent = denoise.amount_percent();
-    let identity = RawFoundationRenderIdentity::from_ready(&ready, model, amount_percent)?;
+    let identity = RawFoundationRenderIdentity::from_ready(&ready, model)?;
     Ok(Some(RawFoundationRenderSelection {
         ready,
         model,
@@ -147,8 +146,7 @@ pub(crate) fn load_raw_foundation_for_render(
         ready.source == expected_source,
         "ready RAW foundation belongs to a different source revision"
     );
-    let identity =
-        RawFoundationRenderIdentity::from_ready(ready, selection.model, selection.amount_percent)?;
+    let identity = RawFoundationRenderIdentity::from_ready(ready, selection.model)?;
     ensure!(
         identity == selection.identity,
         "ready RAW foundation identity changed after render selection"

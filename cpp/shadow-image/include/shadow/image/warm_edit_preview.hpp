@@ -210,6 +210,13 @@ class WarmEditPreviewSession final {
     [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
     [[nodiscard]] WarmEditPreviewSession
     rebind_raw_development_plan(const RawDevelopmentPlan& raw_development_plan) const;
+    // AI-only bounded-source fast path. The new session shares the retained original/AI
+    // camera-space basis and performs no source decode, artifact read, or model execution.
+    [[nodiscard]] bool supports_raw_foundation_amount_rebinding() const noexcept;
+    [[nodiscard]] WarmEditPreviewSession rebind_raw_foundation_amount(
+        const RawDevelopmentPlan& raw_development_plan,
+        std::uint8_t amount_percent
+    ) const;
     // Interactive presentation path. The returned Bitmap payload is tightly
     // packed display-sRGB RGB8 (`width * 3` bytes per row) and deliberately
     // skips JPEG encoding. It remains transient and is never a durable cache

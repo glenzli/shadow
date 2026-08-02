@@ -61,19 +61,24 @@ struct DevelopedRawFoundation final {
     [[nodiscard]] bool valid() const noexcept;
 };
 
-// Owned, bounded camera-space basis for an AI RAW preview. It is oriented exactly like the
-// eventual scene-linear output but deliberately contains no white balance, camera matrix, DCP,
-// optics, or Recipe state. Retaining this small basis lets temperature/tint changes reuse the
-// irreversible AI reconstruction without retaining the full artifact or decoding the RAW again.
+// Owned camera-space basis for an AI RAW render. It is oriented exactly like the eventual
+// scene-linear output but deliberately contains no white balance, camera matrix, DCP, optics, or
+// Recipe state. Bounded preview preparation retains the paired original reconstruction as well,
+// allowing both white balance and authored AI amount to rebind without retaining the full
+// artifact or decoding the RAW again. Full-resolution detail/export keeps only the already mixed
+// samples so its transient preparation does not double hundreds of MiB of resident memory.
 struct PreparedRawFoundationCameraRgb final {
     Dimensions dimensions;
     std::size_t row_stride_bytes = 0U;
     std::vector<float> samples;
+    std::vector<float> original_samples;
     Dimensions source_camera_rgb_dimensions;
     bool bounded_preview = false;
-    std::string cache_identity;
+    std::uint8_t amount_percent = 100U;
+    std::string foundation_cache_identity;
 
     [[nodiscard]] bool valid() const noexcept;
+    [[nodiscard]] bool supports_amount_rebinding() const noexcept;
 };
 
 [[nodiscard]] PreparedRawFoundationCameraRgb prepare_raw_foundation_camera_rgb(
@@ -91,6 +96,15 @@ struct PreparedRawFoundationCameraRgb final {
 [[nodiscard]] DevelopedRawFoundation develop_prepared_raw_foundation(
     const PreparedRawFoundationCameraRgb& prepared,
     const RawFrameLinearTransform& transform
+);
+
+// Rebinds only the authored AI/original mix over a retained bounded basis. Full-resolution
+// preparations reject a different amount because they intentionally do not retain a second
+// complete camera-RGB raster.
+[[nodiscard]] DevelopedRawFoundation develop_prepared_raw_foundation(
+    const PreparedRawFoundationCameraRgb& prepared,
+    const RawFrameLinearTransform& transform,
+    std::uint8_t amount_percent
 );
 
 /// Applies the source-bound camera-to-working transform to a verified AI

@@ -64,6 +64,7 @@ fn key() -> WarmEditPreviewSessionKey {
         raw_development_plan: RawDevelopmentPlan::preview(),
         optics: OpticsSettings::default(),
         raw_foundation: None,
+        raw_foundation_amount_percent: None,
     }
 }
 
@@ -104,7 +105,6 @@ fn raw_foundation_identity() -> RawFoundationRenderIdentity {
     RawFoundationRenderIdentity::from_ready(
         &ready,
         RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
-        100,
     )
     .expect("render identity")
 }
@@ -158,6 +158,21 @@ fn only_white_balance_can_share_a_rebinding_source() {
 }
 
 #[test]
+fn foundation_amount_is_an_exact_output_key_but_not_a_cold_source_key() {
+    let mut full = key();
+    full.raw_foundation = Some(raw_foundation_identity());
+    full.raw_foundation_amount_percent = Some(100);
+    let mut partial = full.clone();
+    partial.raw_foundation_amount_percent = Some(37);
+
+    assert!(!full.matches(&partial));
+    assert!(
+        full.shares_rebindable_raw_source(&partial),
+        "amount changes must share the verified artifact and paired bounded camera basis"
+    );
+}
+
+#[test]
 fn every_prepared_source_key_component_participates_in_reuse() {
     let root = fixture_root("key-components");
     let source = root.join("source.jpg");
@@ -194,6 +209,7 @@ fn every_prepared_source_key_component_participates_in_reuse() {
     variants.push(changed);
     let mut changed = base.clone();
     changed.raw_foundation = Some(raw_foundation_identity());
+    changed.raw_foundation_amount_percent = Some(100);
     variants.push(changed);
 
     cache

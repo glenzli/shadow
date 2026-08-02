@@ -105,7 +105,6 @@ fn cache_identity_covers_source_artifact_model_and_implementation() {
     let identity = RawFoundationRenderIdentity::from_ready(
         &ready,
         RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
-        100,
     )
     .expect("render identity");
 
@@ -125,16 +124,14 @@ fn cache_identity_covers_source_artifact_model_and_implementation() {
         identity.implementation_revision,
         RAW_FOUNDATION_IMPLEMENTATION_REVISION
     );
-    assert_eq!(identity.amount_percent, 100);
-    let half = RawFoundationRenderIdentity::from_ready(
+    let repeated = RawFoundationRenderIdentity::from_ready(
         &ready,
         RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
-        50,
     )
-    .expect("half-strength render identity");
-    assert_ne!(
-        half, identity,
-        "amount changes render identity without changing artifact provenance"
+    .expect("repeated render identity");
+    assert_eq!(
+        repeated, identity,
+        "artifact/source identity is independent from the authored live mix amount"
     );
 }
 

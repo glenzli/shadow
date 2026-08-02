@@ -390,6 +390,48 @@ impl LibRawEditPreviewSession {
         Self::from_prepared_handle(rebound)
     }
 
+    /// Returns whether this AI preview retained paired bounded original/foundation camera-RGB
+    /// bases for amount-only rebinding.
+    #[must_use]
+    pub fn supports_raw_foundation_amount_rebinding(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(ffi::EditPreviewHandle::supports_raw_foundation_amount_rebinding)
+    }
+
+    /// Creates a new immutable preview session over the same bounded original/AI bases.
+    ///
+    /// This performs no source decode, foundation-artifact read, or model execution. White balance
+    /// may change in the same transaction so one slider generation cannot bind two source states.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid plan/amount, a non-AI source, or a session that did not
+    /// retain the paired amount basis.
+    pub fn rebind_raw_foundation_amount(
+        &self,
+        raw_development_plan: RawDevelopmentPlan,
+        amount_percent: u8,
+    ) -> Result<Self, BridgeError> {
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "AI foundation amount rebinding requires preview RAW-development intent",
+            ));
+        }
+        if amount_percent > 100 {
+            return Err(BridgeError::InvalidRawFoundation(
+                "amount must be between 0 and 100 percent",
+            ));
+        }
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let rebound = handle.rebind_raw_foundation_amount(
+            &ffi_raw_development_plan(raw_development_plan),
+            amount_percent,
+        )?;
+        Self::from_prepared_handle(rebound)
+    }
+
     /// Returns the fixed pixel dimensions of every preview from this session.
     #[must_use]
     pub const fn dimensions(&self) -> ImageDimensions {

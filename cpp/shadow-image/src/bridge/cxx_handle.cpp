@@ -420,8 +420,7 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_f
     return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
-std::unique_ptr<EditPreviewHandle>
-DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
+std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
     const std::uint32_t max_edge,
     const FfiRawDevelopmentPlan& plan,
     const FfiRawFoundation& foundation,
@@ -484,6 +483,19 @@ std::unique_ptr<EditPreviewHandle>
 EditPreviewHandle::rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const {
     return std::make_unique<EditPreviewHandle>(
         session_.rebind_raw_development_plan(raw_development_plan(plan))
+    );
+}
+
+bool EditPreviewHandle::supports_raw_foundation_amount_rebinding() const noexcept {
+    return session_.supports_raw_foundation_amount_rebinding();
+}
+
+std::unique_ptr<EditPreviewHandle> EditPreviewHandle::rebind_raw_foundation_amount(
+    const FfiRawDevelopmentPlan& plan,
+    const std::uint8_t amount_percent
+) const {
+    return std::make_unique<EditPreviewHandle>(
+        session_.rebind_raw_foundation_amount(raw_development_plan(plan), amount_percent)
     );
 }
 
@@ -762,8 +774,7 @@ std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_raw
     return std::make_unique<FullEditDetailHandle>(std::move(prepared));
 }
 
-std::unique_ptr<FullEditDetailHandle>
-DecodeHandle::prepare_edit_detail_with_staged_raw_foundation(
+std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_staged_raw_foundation(
     const FfiRawDevelopmentPlan& plan,
     const FfiRawFoundation& foundation,
     const rust::Str staging_manifest_path,
