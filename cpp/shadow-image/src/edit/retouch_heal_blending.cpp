@@ -124,7 +124,8 @@ void apply_texture_heal(
     const std::uint32_t coverage_width,
     const std::uint32_t coverage_height,
     const double source_offset_x_pixels,
-    const double source_offset_y_pixels
+    const double source_offset_y_pixels,
+    const double strength
 ) {
     const std::uint64_t coverage_pixels =
         static_cast<std::uint64_t>(coverage_width) * coverage_height;
@@ -136,7 +137,8 @@ void apply_texture_heal(
                > destination.dimensions.width
         || static_cast<std::uint64_t>(coverage_origin_y) + coverage_height
                > destination.dimensions.height
-        || !std::isfinite(source_offset_x_pixels) || !std::isfinite(source_offset_y_pixels)) {
+        || !std::isfinite(source_offset_x_pixels) || !std::isfinite(source_offset_y_pixels)
+        || !std::isfinite(strength) || strength < 0.0 || strength > 1.0) {
         invalid_heal("received an invalid source or coverage layout");
     }
 
@@ -144,12 +146,12 @@ void apply_texture_heal(
     std::vector<float> donor(pixel_count * rgb_channels, 0.0F);
     std::vector<float> solution(pixel_count * rgb_channels, 0.0F);
     std::array<std::vector<float>, rgb_channels> target_boundary_samples;
-    std::array<std::vector<float>, rgb_channels> donor_region_samples;
+    std::array<std::vector<float>, rgb_channels> donor_boundary_samples;
     for (auto& samples : target_boundary_samples) {
         samples.reserve(static_cast<std::size_t>(coverage_width + coverage_height) * 2U);
     }
-    for (auto& samples : donor_region_samples) {
-        samples.reserve(pixel_count);
+    for (auto& samples : donor_boundary_samples) {
+        samples.reserve(static_cast<std::size_t>(coverage_width + coverage_height) * 2U);
     }
 
     for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
@@ -169,9 +171,6 @@ void apply_texture_heal(
             }
 
             if (covered(coverage, coverage_width, local_x, local_y)) {
-                for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-                    donor_region_samples[channel].push_back(donor_sample[channel]);
-                }
                 continue;
             }
             const bool boundary =
@@ -186,17 +185,18 @@ void apply_texture_heal(
             }
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 target_boundary_samples[channel].push_back(source.samples[raster_sample + channel]);
+                donor_boundary_samples[channel].push_back(donor_sample[channel]);
             }
         }
     }
 
-    if (target_boundary_samples[0].empty() || donor_region_samples[0].empty()) {
+    if (target_boundary_samples[0].empty() || donor_boundary_samples[0].empty()) {
         return;
     }
     std::array<float, rgb_channels> boundary_shift{};
     for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
         boundary_shift[channel] = robust_location(target_boundary_samples[channel])
-                                  - robust_location(donor_region_samples[channel]);
+                                  - robust_location(donor_boundary_samples[channel]);
     }
     for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
         for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
@@ -280,7 +280,11 @@ void apply_texture_heal(
     for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
         for (std::uint32_t local_x = 0U; local_x < coverage_width; ++local_x) {
             const std::size_t pixel = local_index(local_x, local_y, coverage_width);
-            const double alpha = std::clamp(static_cast<double>(coverage[pixel]), 0.0, 1.0);
+            const double alpha = std::clamp(
+                static_cast<double>(coverage[pixel]) * strength,
+                0.0,
+                1.0
+            );
             if (alpha <= 0.0) {
                 continue;
             }

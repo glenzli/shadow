@@ -296,6 +296,7 @@ struct SpotHealTarget final {
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
     double feather = 0.28;
+    double strength = 1.0;
 };
 
 // A single authored point on a continuous Repair/Clone brush stroke. Coordinates
@@ -318,6 +319,7 @@ struct RetouchStroke final {
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
     double feather = 0.28;
+    double strength = 1.0;
 };
 
 struct SpotHealAdjustment final {

@@ -75,6 +75,7 @@ void continuous_clone_geometry_has_complete_bounded_candidates() {
             .source_offset_x_radii = 1.5,
             .source_offset_y_radii = -0.5,
             .feather = 0.25,
+            .strength = 0.37,
         }},
     };
     const auto prepared = image::detail::prepare_warm_retouch_stage(
@@ -95,8 +96,8 @@ void continuous_clone_geometry_has_complete_bounded_candidates() {
     const auto& parameters = region.parameters;
     expect(
         parameters.capsule_count == 2U && parameters.donor_offset_x == 12.0F
-            && parameters.donor_offset_y == -4.0F,
-        "continuous clone geometry retains adjacent capsules and its fixed donor offset"
+            && parameters.donor_offset_y == -4.0F && parameters.strength == 0.37F,
+        "continuous clone geometry retains capsules, donor offset, and authored strength"
     );
     const auto capsules = records<image::detail::WarmRetouchCapsule>(
         *prepared,

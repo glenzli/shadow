@@ -202,7 +202,8 @@ struct RasterBounds final {
     const SpotRepairMode mode,
     const double source_offset_x_radii,
     const double source_offset_y_radii,
-    const double feather
+    const double feather,
+    const double strength
 ) {
     return radius_level_zero_pixels >= minimum_spot_radius_level_zero
         && radius_level_zero_pixels <= maximum_spot_radius_level_zero
@@ -211,7 +212,8 @@ struct RasterBounds final {
         && std::isfinite(source_offset_y_radii)
         && source_offset_x_radii >= -8.0 && source_offset_x_radii <= 8.0
         && source_offset_y_radii >= -8.0 && source_offset_y_radii <= 8.0
-        && std::isfinite(feather) && feather >= 0.0 && feather <= 1.0;
+        && std::isfinite(feather) && feather >= 0.0 && feather <= 1.0
+        && std::isfinite(strength) && strength >= 0.0 && strength <= 1.0;
 }
 
 struct SourceOffsetPixels final {
@@ -252,6 +254,9 @@ void apply_target(
 ) {
     if (image.dimensions.width == 0U || image.dimensions.height == 0U) {
         invalid_retouch("requires a non-empty raster");
+    }
+    if (target.strength <= 0.0) {
+        return;
     }
     const double radius_x = static_cast<double>(target.radius_level_zero_pixels)
         * image.level_zero_to_raster_scale_x;
@@ -314,13 +319,14 @@ void apply_target(
             coverage_width,
             coverage_height,
             donor_offset.x,
-            donor_offset.y
+            donor_offset.y,
+            target.strength
         );
         return;
     }
     for (std::int64_t y = lower_y; y <= upper_y; ++y) {
         for (std::int64_t x = lower_x; x <= upper_x; ++x) {
-            const double alpha =
+            const double alpha = target.strength *
                 coverage[static_cast<std::size_t>(y - lower_y) * coverage_width +
                          static_cast<std::size_t>(x - lower_x)];
             if (alpha <= 0.0) {
@@ -361,6 +367,9 @@ void apply_stroke(
 ) {
     if (image.dimensions.width == 0U || image.dimensions.height == 0U) {
         invalid_retouch("requires a non-empty raster");
+    }
+    if (stroke.strength <= 0.0) {
+        return;
     }
     const double radius_x = static_cast<double>(stroke.radius_level_zero_pixels)
         * image.level_zero_to_raster_scale_x;
@@ -493,13 +502,14 @@ void apply_stroke(
             coverage_width,
             coverage_height,
             donor_offset.x,
-            donor_offset.y
+            donor_offset.y,
+            stroke.strength
         );
         return;
     }
     for (std::int64_t y = stroke_lower_y; y <= stroke_upper_y; ++y) {
         for (std::int64_t x = stroke_lower_x; x <= stroke_upper_x; ++x) {
-            const double alpha =
+            const double alpha = stroke.strength *
                 coverage[static_cast<std::size_t>(y - stroke_lower_y) * coverage_width +
                          static_cast<std::size_t>(x - stroke_lower_x)];
             if (alpha <= 0.0) {
@@ -551,7 +561,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
                 target.mode,
                 target.source_offset_x_radii,
                 target.source_offset_y_radii,
-                target.feather
+                target.feather,
+                target.strength
             )) {
             invalid_retouch("target coordinates or radius are outside the supported range");
         }
@@ -563,7 +574,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
                 stroke.mode,
                 stroke.source_offset_x_radii,
                 stroke.source_offset_y_radii,
-                stroke.feather
+                stroke.feather,
+                stroke.strength
             )) {
             invalid_retouch("continuous stroke properties are outside the supported range");
         }

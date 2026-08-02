@@ -73,6 +73,8 @@ class FakeRetouchEditor final : public QObject {
     Q_INVOKABLE void setRetouchSpotRadius(int, int) {}
     Q_INVOKABLE void setRetouchStrokeFeather(int, double) {}
     Q_INVOKABLE void setRetouchSpotFeather(int, double) {}
+    Q_INVOKABLE void setRetouchStrokeStrength(int, double) {}
+    Q_INVOKABLE void setRetouchSpotStrength(int, double) {}
     Q_INVOKABLE void removeRetouchStroke(int) {}
     Q_INVOKABLE void removeRetouchSpot(int) {}
     Q_INVOKABLE void setRetouchStrokeSourceOffset(int, double, double) {}
@@ -137,6 +139,7 @@ namespace {
         {QStringLiteral("mode"), mode},
         {QStringLiteral("radius"), radius},
         {QStringLiteral("feather"), 0.28},
+        {QStringLiteral("strength"), 0.62},
     };
 }
 
@@ -261,6 +264,8 @@ int main(int argc, char* argv[]) {
 
     const auto inspectors =
         tools->findChildren<QObject*>(QStringLiteral("retouchSelectedRegionInspector"));
+    QObject* const strength_slider =
+        tools->findChild<QObject*>(QStringLiteral("retouchStrengthSlider"));
     if (!require(
             tools->property("regionCount").toInt() == 3,
             "the compact picker exposes every authored region"
@@ -272,6 +277,12 @@ int main(int argc, char* argv[]) {
         || !require(
             tools->property("selectedRegionDisplayIndex").toInt() == 1,
             "the selected continuous region keeps its display position"
+        )
+        || !require(
+            strength_slider != nullptr
+                && strength_slider->property("neutralValue").toDouble() == 1.0
+                && strength_slider->property("value").toDouble() == 0.62,
+            "the selected repair exposes a persisted strength slider that resets to 100 percent"
         )
         || !require(
             QMetaObject::invokeMethod(

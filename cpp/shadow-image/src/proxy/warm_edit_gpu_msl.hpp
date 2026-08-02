@@ -77,7 +77,7 @@ struct WarmRetouchRegionParameters {
     float donor_offset_y;
     float feather;
     float screening_weight;
-    float reserved_2;
+    float strength;
     float reserved_3;
 };
 
@@ -596,8 +596,10 @@ kernel void warm_retouch_clone_v1(
     device const WarmRetouchCapsule* capsules [[buffer(4)]],
     device const WarmRetouchCellRange* cells [[buffer(5)]],
     device const uint* references [[buffer(6)]],
-    uint2 position [[thread_position_in_grid]]
+    uint2 local_position [[thread_position_in_grid]]
 ) {
+    const uint2 position = local_position
+        + uint2(parameters.bounds_origin_x, parameters.bounds_origin_y);
     if (position.x >= parameters.width || position.y >= parameters.height) {
         return;
     }
@@ -629,7 +631,7 @@ kernel void warm_retouch_clone_v1(
                 + float2(parameters.donor_offset_x, parameters.donor_offset_y),
             parameters
         );
-        result = fma(float3(coverage), donor - original, original);
+        result = fma(float3(coverage * parameters.strength), donor - original, original);
     }
     if (!all(isfinite(result))) {
         report_adjustment_failure(status, status_non_finite, 0u);
@@ -685,20 +687,7 @@ kernel void warm_retouch_heal_statistics_v1(
                     + float2(parameters.donor_offset_x, parameters.donor_offset_y),
                 parameters
             );
-            if (coverage > minimum_coverage) {
-                float3 retained = donor_sample;
-                if (parameters.robust_pass != 0u && summary.donor_sum_count.w > 0.0f) {
-                    retained = clamp(
-                        retained,
-                        summary.donor_sum_count.xyz
-                            - 2.5f * summary.donor_square_sum.xyz,
-                        summary.donor_sum_count.xyz
-                            + 2.5f * summary.donor_square_sum.xyz
-                    );
-                }
-                donor = float4(retained, 1.0f);
-                donor_square = float4(retained * retained, 0.0f);
-            } else {
+            if (coverage <= minimum_coverage) {
                 const int2 signed_position = int2(position);
                 const float left = warm_retouch_coverage(
                     signed_position + int2(-1, 0),
@@ -733,23 +722,39 @@ kernel void warm_retouch_heal_statistics_v1(
                 } else if (max(max(left, right), max(up, down)) > minimum_coverage) {
                     const uint sample =
                         position.y * parameters.input_row_floats + position.x * 3u;
-                    float3 retained = float3(
+                    float3 retained_donor = donor_sample;
+                    float3 retained_boundary = float3(
                         source[sample],
                         source[sample + 1u],
                         source[sample + 2u]
                     );
-                    if (parameters.robust_pass != 0u
-                        && summary.boundary_sum_count.w > 0.0f) {
-                        retained = clamp(
-                            retained,
-                            summary.boundary_sum_count.xyz
-                                - 2.5f * summary.boundary_square_sum.xyz,
-                            summary.boundary_sum_count.xyz
-                                + 2.5f * summary.boundary_square_sum.xyz
-                        );
+                    if (parameters.robust_pass != 0u) {
+                        if (summary.donor_sum_count.w > 0.0f) {
+                            retained_donor = clamp(
+                                retained_donor,
+                                summary.donor_sum_count.xyz
+                                    - 2.5f * summary.donor_square_sum.xyz,
+                                summary.donor_sum_count.xyz
+                                    + 2.5f * summary.donor_square_sum.xyz
+                            );
+                        }
+                        if (summary.boundary_sum_count.w > 0.0f) {
+                            retained_boundary = clamp(
+                                retained_boundary,
+                                summary.boundary_sum_count.xyz
+                                    - 2.5f * summary.boundary_square_sum.xyz,
+                                summary.boundary_sum_count.xyz
+                                    + 2.5f * summary.boundary_square_sum.xyz
+                            );
+                        }
                     }
-                    boundary = float4(retained, 1.0f);
-                    boundary_square = float4(retained * retained, 0.0f);
+                    donor = float4(retained_donor, 1.0f);
+                    donor_square = float4(retained_donor * retained_donor, 0.0f);
+                    boundary = float4(retained_boundary, 1.0f);
+                    boundary_square = float4(
+                        retained_boundary * retained_boundary,
+                        0.0f
+                    );
                 }
             }
         }
@@ -838,8 +843,10 @@ kernel void warm_retouch_heal_initialize_v1(
     device const WarmRetouchCellRange* cells [[buffer(5)]],
     device const uint* references [[buffer(6)]],
     device const WarmRetouchStatistics& summary [[buffer(7)]],
-    uint2 position [[thread_position_in_grid]]
+    uint2 local_position [[thread_position_in_grid]]
 ) {
+    const uint2 position = local_position
+        + uint2(parameters.bounds_origin_x, parameters.bounds_origin_y);
     if (position.x >= parameters.width || position.y >= parameters.height) {
         return;
     }
@@ -891,8 +898,10 @@ kernel void warm_retouch_heal_jacobi_v1(
     device const WarmRetouchCellRange* cells [[buffer(6)]],
     device const uint* references [[buffer(7)]],
     device const WarmRetouchStatistics& summary [[buffer(8)]],
-    uint2 position [[thread_position_in_grid]]
+    uint2 local_position [[thread_position_in_grid]]
 ) {
+    const uint2 position = local_position
+        + uint2(parameters.bounds_origin_x, parameters.bounds_origin_y);
     if (position.x >= parameters.width || position.y >= parameters.height) {
         return;
     }
@@ -1006,8 +1015,10 @@ kernel void warm_retouch_heal_blend_v1(
     device const WarmRetouchCellRange* cells [[buffer(6)]],
     device const uint* references [[buffer(7)]],
     device const WarmRetouchStatistics& summary [[buffer(8)]],
-    uint2 position [[thread_position_in_grid]]
+    uint2 local_position [[thread_position_in_grid]]
 ) {
+    const uint2 position = local_position
+        + uint2(parameters.bounds_origin_x, parameters.bounds_origin_y);
     if (position.x >= parameters.width || position.y >= parameters.height) {
         return;
     }
@@ -1032,7 +1043,7 @@ kernel void warm_retouch_heal_blend_v1(
     }
     const float alpha = summary.donor_sum_count.w > 0.0f
             && summary.boundary_sum_count.w > 0.0f
-        ? clamp(coverage, 0.0f, 1.0f)
+        ? clamp(coverage * parameters.strength, 0.0f, 1.0f)
         : 0.0f;
     const float3 healed = float3(
         solution[packed_index],

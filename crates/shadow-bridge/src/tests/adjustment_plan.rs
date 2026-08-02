@@ -346,6 +346,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
                 source_offset_x_radii: 1.25,
                 source_offset_y_radii: -0.75,
                 feather: 0.4,
+                strength: 0.65,
             }],
         },
     };
@@ -359,7 +360,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
     assert_eq!(flattened.parameter_group_lengths, [0, 1, 2]);
     assert_eq!(
         flattened.parameters,
-        [24.0, 1.0, 1.25, -0.75, 0.4, 0.2, 0.3, 0.7, 0.6]
+        [24.0, 1.0, 1.25, -0.75, 0.4, 0.65, 0.2, 0.3, 0.7, 0.6]
     );
 
     let invalid = AdjustmentRenderOperation::SpotHeal {
@@ -371,7 +372,22 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
             source_offset_x_radii: 0.0,
             source_offset_y_radii: 0.0,
             feather: 0.28,
+            strength: 1.0,
         }],
     };
     assert!(validate_render_operation(&invalid).is_err());
+
+    let invalid_strength = AdjustmentRenderOperation::SpotHeal {
+        targets: Vec::new(),
+        strokes: vec![AdjustmentRetouchStroke {
+            points: vec![AdjustmentRetouchStrokePoint { x: 0.5, y: 0.5 }],
+            radius_level_zero_pixels: 24,
+            mode: 0,
+            source_offset_x_radii: 0.0,
+            source_offset_y_radii: 0.0,
+            feather: 0.28,
+            strength: 1.01,
+        }],
+    };
+    assert!(validate_render_operation(&invalid_strength).is_err());
 }

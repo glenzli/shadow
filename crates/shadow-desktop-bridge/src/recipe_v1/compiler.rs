@@ -311,6 +311,7 @@ fn append_photo_retouch_nodes(
                     source_offset_x_radii: spot.source_offset_x_radii(),
                     source_offset_y_radii: spot.source_offset_y_radii(),
                     feather: spot.feather().get(),
+                    strength: spot.strength().get(),
                 })
                 .collect(),
             strokes: snapshot
@@ -333,6 +334,7 @@ fn append_photo_retouch_nodes(
                     source_offset_x_radii: stroke.source_offset_x_radii(),
                     source_offset_y_radii: stroke.source_offset_y_radii(),
                     feather: stroke.feather().get(),
+                    strength: stroke.strength().get(),
                 })
                 .collect(),
         },

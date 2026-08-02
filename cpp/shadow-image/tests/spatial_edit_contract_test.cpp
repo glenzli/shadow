@@ -383,6 +383,20 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
         0.2F,
         "spot-heal restores a blue defect component from its ring"
     );
+    auto half_heal_nodes = nodes;
+    std::get<image::SpotHealAdjustment>(half_heal_nodes.front().parameters)
+        .spots.front().strength = 0.5;
+    const auto half_healed = image::execute_adjustment_nodes(input, half_heal_nodes);
+    expect_close(
+        half_healed.samples[center],
+        0.6F,
+        "Heal strength blends its completed repair over the original defect"
+    );
+    expect_close(
+        half_healed.samples[center + 1U],
+        0.1F,
+        "Heal strength applies the same final blend to every channel"
+    );
 
     image::SpotHealAdjustment invalid;
     invalid.spots.push_back(
@@ -397,6 +411,14 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
         image::EditErrorCode::invalid_parameter,
         std::nullopt,
         "spot-heal rejects an out-of-contract radius before touching pixels"
+    );
+    invalid.spots.front().radius_level_zero_pixels = 18U;
+    invalid.spots.front().strength = 1.01;
+    expect_edit_error(
+        [&] { image::validate_spot_heal(invalid); },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "spot-heal rejects strength outside the normalized range"
     );
 
     std::vector<float> clone_samples(9U * 9U * 3U, 0.0F);
@@ -435,6 +457,32 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
         cloned.samples[center + 1U],
         0.3F,
         "clone repair preserves the two-dimensional source offset"
+    );
+
+    auto half_strength_nodes = clone_nodes;
+    std::get<image::SpotHealAdjustment>(half_strength_nodes.front().parameters)
+        .spots.front().strength = 0.5;
+    const auto half_strength = image::execute_adjustment_nodes(
+        rgb_raster(9U, 9U, clone_samples),
+        half_strength_nodes
+    );
+    expect_close(
+        half_strength.samples[center],
+        0.5F,
+        "repair strength blends the completed clone over the original"
+    );
+
+    auto zero_strength_nodes = clone_nodes;
+    std::get<image::SpotHealAdjustment>(zero_strength_nodes.front().parameters)
+        .spots.front().strength = 0.0;
+    const auto zero_strength = image::execute_adjustment_nodes(
+        rgb_raster(9U, 9U, clone_samples),
+        zero_strength_nodes
+    );
+    expect_close(
+        zero_strength.samples[center],
+        clone_samples[center],
+        "zero repair strength preserves the original pixel"
     );
 }
 
@@ -494,6 +542,70 @@ void heal_preserves_donor_texture_while_matching_the_target_boundary() {
         healed.samples[donor_center],
         samples[donor_center],
         "Heal never mutates the donor region"
+    );
+}
+
+void heal_matches_the_corresponding_donor_boundary_instead_of_its_interior_mean() {
+    constexpr std::uint32_t width = 23U;
+    constexpr std::uint32_t height = 11U;
+    std::vector<float> samples(static_cast<std::size_t>(width) * height * 3U, 0.2F);
+    const auto set_gray = [&](const std::uint32_t x, const std::uint32_t y, const float value) {
+        const std::size_t sample = (static_cast<std::size_t>(y) * width + x) * 3U;
+        samples[sample] = value;
+        samples[sample + 1U] = value;
+        samples[sample + 2U] = value;
+    };
+
+    // The donor has a 0.5 boundary around a brighter 0.8 interior. Matching
+    // the target boundary against the donor interior would erase most of that
+    // legitimate texture contrast. A corresponding boundary match removes
+    // only the donor's 0.3 low-frequency offset.
+    constexpr std::int32_t donor_center_x = 15;
+    constexpr std::int32_t donor_center_y = 5;
+    for (std::int32_t y = donor_center_y - 3; y <= donor_center_y + 3; ++y) {
+        for (std::int32_t x = donor_center_x - 3; x <= donor_center_x + 3; ++x) {
+            const std::int32_t dx = x - donor_center_x;
+            const std::int32_t dy = y - donor_center_y;
+            const std::int32_t distance_squared = dx * dx + dy * dy;
+            if (distance_squared <= 4) {
+                set_gray(static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y), 0.8F);
+            } else if (distance_squared <= 10) {
+                set_gray(static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y), 0.5F);
+            }
+        }
+    }
+    for (std::uint32_t y = 3U; y <= 7U; ++y) {
+        for (std::uint32_t x = 3U; x <= 7U; ++x) {
+            const std::int32_t dx = static_cast<std::int32_t>(x) - 5;
+            const std::int32_t dy = static_cast<std::int32_t>(y) - 5;
+            if (dx * dx + dy * dy <= 4) {
+                set_gray(x, y, 1.0F);
+            }
+        }
+    }
+
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "corresponding-boundary-heal",
+            .parameters = image::SpotHealAdjustment{
+                .spots = {{
+                    .center_x = 5.5 / static_cast<double>(width),
+                    .center_y = 5.5 / static_cast<double>(height),
+                    .radius_level_zero_pixels = 2U,
+                    .mode = image::SpotRepairMode::heal,
+                    .source_offset_x_radii = 5.0,
+                    .source_offset_y_radii = 0.0,
+                    .feather = 0.0,
+                }},
+            },
+        },
+    };
+    const auto healed = image::execute_adjustment_nodes(rgb_raster(width, height, samples), nodes);
+    const std::size_t center = (5U * width + 5U) * 3U;
+    expect(
+        healed.samples[center] > 0.42F && healed.samples[center] < 0.62F,
+        "Heal derives its low-frequency shift from the corresponding donor boundary without "
+        "flattening the donor interior texture"
     );
 }
 
@@ -746,6 +858,7 @@ int main() {
     condition_masks_select_the_input_of_each_grade_node();
     spot_heal_repairs_small_defects_in_global_coordinates();
     heal_preserves_donor_texture_while_matching_the_target_boundary();
+    heal_matches_the_corresponding_donor_boundary_instead_of_its_interior_mean();
     continuous_retouch_strokes_sweep_one_connected_repair_region();
     photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

@@ -16,6 +16,6 @@ void apply_texture_heal(FloatRgbImage& destination, const FloatRgbImage& source,
                         std::span<const float> coverage, std::int64_t coverage_origin_x,
                         std::int64_t coverage_origin_y, std::uint32_t coverage_width,
                         std::uint32_t coverage_height, double source_offset_x_pixels,
-                        double source_offset_y_pixels);
+                        double source_offset_y_pixels, double strength);
 
 } // namespace shadow::image::detail

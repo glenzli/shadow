@@ -577,12 +577,14 @@ class EditController final : public QObject {
     Q_INVOKABLE void setRetouchSpotRadius(int index, int radius_level_zero_pixels);
     Q_INVOKABLE void setRetouchSpotMode(int index, int mode);
     Q_INVOKABLE void setRetouchSpotFeather(int index, double feather);
+    Q_INVOKABLE void setRetouchSpotStrength(int index, double strength);
     Q_INVOKABLE void
     setRetouchSpotSourceOffset(int index, double offset_x_radii, double offset_y_radii);
     Q_INVOKABLE void removeRetouchSpot(int index);
     Q_INVOKABLE void setRetouchStrokeRadius(int index, int radius_level_zero_pixels);
     Q_INVOKABLE void setRetouchStrokeMode(int index, int mode);
     Q_INVOKABLE void setRetouchStrokeFeather(int index, double feather);
+    Q_INVOKABLE void setRetouchStrokeStrength(int index, double strength);
     Q_INVOKABLE void
     setRetouchStrokeSourceOffset(int index, double offset_x_radii, double offset_y_radii);
     Q_INVOKABLE void removeRetouchStroke(int index);

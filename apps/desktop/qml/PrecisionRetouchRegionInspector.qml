@@ -58,6 +58,14 @@ ColumnLayout {
         }
     }
 
+    function setStrength(value) {
+        if (continuous) {
+            editor.setRetouchStrokeStrength(region.index, value)
+        } else {
+            editor.setRetouchSpotStrength(region.index, value)
+        }
+    }
+
     function historyKey(parameter) {
         return continuous
             ? "retouch/stroke/" + region.index + "/" + parameter
@@ -130,6 +138,28 @@ ColumnLayout {
         onGestureFinished:
             regionInspector.editor.endParameterEdit(
                 regionInspector.historyKey("radius"))
+    }
+
+    ShadowSlider {
+        objectName: "retouchStrengthSlider"
+        Layout.fillWidth: true
+        label: qsTr("Strength")
+        from: 0
+        to: 1
+        neutralValue: 1
+        stepSize: 0.01
+        decimals: 0
+        displayMultiplier: 100
+        suffix: "%"
+        value: Number(regionInspector.region.strength)
+        toolTipText: qsTr("Blend the repair with the original")
+        onGestureStarted:
+            regionInspector.editor.beginParameterEdit(
+                regionInspector.historyKey("strength"))
+        onEdited: value => regionInspector.setStrength(value)
+        onGestureFinished:
+            regionInspector.editor.endParameterEdit(
+                regionInspector.historyKey("strength"))
     }
 
     ShadowSlider {

@@ -5975,6 +5975,11 @@ R %2 · G %3 · B %4</translation>
         <translation>柔化修复边缘</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="145"/>
+        <source>Blend the repair with the original</source>
+        <translation>控制修复结果与原图的混合强度</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionRetouchTools.qml" line="90"/>
         <source>Painted</source>
         <translation>已绘制</translation>

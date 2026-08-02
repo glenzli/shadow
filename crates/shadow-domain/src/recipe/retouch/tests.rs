@@ -49,3 +49,27 @@ fn retouch_strokes_reject_invalid_point_and_radius_bounds() {
         Err(RecipeValidationError::InvalidRetouchStrokeRadius(0))
     );
 }
+
+#[test]
+#[allow(clippy::float_cmp)] // Recipe serialization must preserve authored strength exactly.
+fn retouch_strength_defaults_to_full_and_survives_round_trip() {
+    let spot = RetouchSpot::new(
+        UnitInterval::new(0.4).expect("normalized x"),
+        UnitInterval::new(0.6).expect("normalized y"),
+        18,
+    )
+    .expect("valid repair spot")
+    .with_strength(UnitInterval::new(0.55).expect("strength"));
+    let encoded = serde_json::to_value(spot).expect("serialize repair spot");
+    let decoded: RetouchSpot = serde_json::from_value(encoded).expect("deserialize repair spot");
+    assert_eq!(decoded.strength().get(), 0.55);
+
+    let mut legacy = serde_json::to_value(spot).expect("serialize legacy-shaped repair spot");
+    legacy
+        .as_object_mut()
+        .expect("repair spot object")
+        .remove("strength");
+    let legacy_decoded: RetouchSpot =
+        serde_json::from_value(legacy).expect("deserialize repair without strength");
+    assert_eq!(legacy_decoded.strength().get(), 1.0);
+}

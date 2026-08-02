@@ -41,6 +41,7 @@ struct RegionGeometry final {
     double radius_y = 0.0;
     SourceOffset donor_offset;
     double feather = 0.0;
+    double strength = 1.0;
     WarmRetouchMode mode = WarmRetouchMode::clone;
 };
 
@@ -119,6 +120,7 @@ struct IntegerBounds final {
             target.center_y
         ),
         .feather = target.feather,
+        .strength = target.strength,
         .mode =
             target.mode == SpotRepairMode::heal ? WarmRetouchMode::heal : WarmRetouchMode::clone,
     };
@@ -135,6 +137,7 @@ struct IntegerBounds final {
         .radius_x = static_cast<double>(stroke.radius_level_zero_pixels) * scale_x,
         .radius_y = static_cast<double>(stroke.radius_level_zero_pixels) * scale_y,
         .feather = stroke.feather,
+        .strength = stroke.strength,
         .mode =
             stroke.mode == SpotRepairMode::heal ? WarmRetouchMode::heal : WarmRetouchMode::clone,
     };
@@ -341,6 +344,7 @@ append_records(std::vector<WarmRetouchWord>& words, const std::span<const Record
             .donor_offset_y = static_cast<float>(geometry.donor_offset.y),
             .feather = static_cast<float>(geometry.feather),
             .screening_weight = 4.0F,
+            .strength = static_cast<float>(geometry.strength),
         },
     };
     region.capsule_offset_bytes =
@@ -385,6 +389,8 @@ bool WarmRetouchStage::valid() const noexcept {
                && std::isfinite(parameters.radius_y) && parameters.radius_y > 0.0F
                && std::isfinite(parameters.donor_offset_x)
                && std::isfinite(parameters.donor_offset_y) && std::isfinite(parameters.feather)
+               && std::isfinite(parameters.strength) && parameters.strength >= 0.0F
+               && parameters.strength <= 1.0F
                && region.capsule_offset_bytes <= bytes
                && capsule_bytes <= bytes - region.capsule_offset_bytes
                && region.cell_offset_bytes <= bytes

@@ -20,6 +20,10 @@ const fn default_retouch_feather() -> UnitInterval {
     UnitInterval(FiniteF64(0.28))
 }
 
+const fn default_retouch_strength() -> UnitInterval {
+    UnitInterval(FiniteF64(1.0))
+}
+
 /// One small, non-generative repair target in original-image coordinates.
 ///
 /// Radius is expressed in level-zero pixels. Clone offsets are measured in
@@ -37,6 +41,8 @@ pub struct RetouchSpot {
     source_offset_y_radii: FiniteF64,
     #[serde(default = "default_retouch_feather")]
     feather: UnitInterval,
+    #[serde(default = "default_retouch_strength")]
+    strength: UnitInterval,
 }
 
 impl RetouchSpot {
@@ -69,6 +75,7 @@ impl RetouchSpot {
             source_offset_x_radii: default_finite_zero(),
             source_offset_y_radii: default_finite_zero(),
             feather: default_retouch_feather(),
+            strength: default_retouch_strength(),
         })
     }
 
@@ -99,6 +106,13 @@ impl RetouchSpot {
         Ok(self)
     }
 
+    /// Sets how strongly the completed repair is blended over the original.
+    #[must_use]
+    pub const fn with_strength(mut self, strength: UnitInterval) -> Self {
+        self.strength = strength;
+        self
+    }
+
     pub const fn center_x(self) -> UnitInterval {
         self.center_x
     }
@@ -127,6 +141,10 @@ impl RetouchSpot {
         self.feather
     }
 
+    pub const fn strength(self) -> UnitInterval {
+        self.strength
+    }
+
     pub(super) fn validate(self) -> Result<(), RecipeValidationError> {
         Self::new(self.center_x, self.center_y, self.radius_level_zero_pixels)?
             .with_behavior(
@@ -135,6 +153,7 @@ impl RetouchSpot {
                 self.source_offset_y_radii.get(),
                 self.feather,
             )
+            .map(|value| value.with_strength(self.strength))
             .map(|_| ())
     }
 }
@@ -184,6 +203,8 @@ pub struct RetouchStroke {
     source_offset_y_radii: FiniteF64,
     #[serde(default = "default_retouch_feather")]
     feather: UnitInterval,
+    #[serde(default = "default_retouch_strength")]
+    strength: UnitInterval,
 }
 
 impl RetouchStroke {
@@ -223,6 +244,7 @@ impl RetouchStroke {
             source_offset_x_radii: default_finite_zero(),
             source_offset_y_radii: default_finite_zero(),
             feather: default_retouch_feather(),
+            strength: default_retouch_strength(),
         })
     }
 
@@ -254,6 +276,13 @@ impl RetouchStroke {
         Ok(self)
     }
 
+    /// Sets how strongly the completed repair is blended over the original.
+    #[must_use]
+    pub const fn with_strength(mut self, strength: UnitInterval) -> Self {
+        self.strength = strength;
+        self
+    }
+
     pub fn points(&self) -> &[RetouchPoint] {
         &self.points
     }
@@ -278,6 +307,10 @@ impl RetouchStroke {
         self.feather
     }
 
+    pub const fn strength(&self) -> UnitInterval {
+        self.strength
+    }
+
     pub(super) fn validate(&self) -> Result<(), RecipeValidationError> {
         Self::new(self.points.clone(), self.radius_level_zero_pixels)?
             .with_behavior(
@@ -286,6 +319,7 @@ impl RetouchStroke {
                 self.source_offset_y_radii.get(),
                 self.feather,
             )
+            .map(|value| value.with_strength(self.strength))
             .map(|_| ())
     }
 }

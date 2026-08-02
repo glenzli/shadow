@@ -927,6 +927,7 @@ mod ffi {
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
         feather: f64,
+        strength: f64,
     }
 
     /// One normalized centerline point for a photo-local continuous repair
@@ -950,6 +951,7 @@ mod ffi {
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
         feather: f64,
+        strength: f64,
     }
 
     /// One pressure-bearing point in a photo-private Liquify push gesture.

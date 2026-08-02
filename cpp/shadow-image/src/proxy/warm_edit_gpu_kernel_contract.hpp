@@ -194,7 +194,7 @@ struct WarmRetouchRegionParameters final {
     float donor_offset_y = 0.0F;
     float feather = 0.0F;
     float screening_weight = 4.0F;
-    float reserved_2 = 0.0F;
+    float strength = 1.0F;
     float reserved_3 = 0.0F;
 };
 

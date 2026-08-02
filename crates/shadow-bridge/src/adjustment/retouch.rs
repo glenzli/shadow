@@ -15,6 +15,7 @@ pub struct AdjustmentSpotHealTarget {
     pub source_offset_x_radii: f64,
     pub source_offset_y_radii: f64,
     pub feather: f64,
+    pub strength: f64,
 }
 
 /// One normalized sampled point in a continuous repair/clone stroke.
@@ -37,6 +38,7 @@ pub struct AdjustmentRetouchStroke {
     pub source_offset_x_radii: f64,
     pub source_offset_y_radii: f64,
     pub feather: f64,
+    pub strength: f64,
 }
 
 pub(super) fn validate_spot_heal(
@@ -55,13 +57,19 @@ pub(super) fn validate_spot_heal(
             target.source_offset_x_radii,
             target.source_offset_y_radii,
             target.feather,
+            target.strength,
         ] {
             validate_finite_render_parameter(value)?;
         }
-        for value in [target.center_x, target.center_y, target.feather] {
+        for value in [
+            target.center_x,
+            target.center_y,
+            target.feather,
+            target.strength,
+        ] {
             if !(0.0..=1.0).contains(&value) {
                 return Err(BridgeError::InvalidEditRequest(
-                    "spot-heal coordinates and feather must be normalized to 0..=1",
+                    "spot-heal coordinates, feather, and strength must be normalized to 0..=1",
                 ));
             }
         }
@@ -90,6 +98,7 @@ pub(super) fn validate_spot_heal(
             stroke.source_offset_x_radii,
             stroke.source_offset_y_radii,
             stroke.feather,
+            stroke.strength,
         ] {
             validate_finite_render_parameter(value)?;
         }
@@ -97,6 +106,7 @@ pub(super) fn validate_spot_heal(
             || !(-8.0..=8.0).contains(&stroke.source_offset_x_radii)
             || !(-8.0..=8.0).contains(&stroke.source_offset_y_radii)
             || !(0.0..=1.0).contains(&stroke.feather)
+            || !(0.0..=1.0).contains(&stroke.strength)
             || !(1..=128).contains(&stroke.radius_level_zero_pixels)
         {
             return Err(BridgeError::InvalidEditRequest(

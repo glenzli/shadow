@@ -587,6 +587,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                         UnitInterval::new(spot.feather)?,
                     )
                 })
+                .and_then(|value| Ok(value.with_strength(UnitInterval::new(spot.strength)?)))
                 .with_context(|| format!("retouch spot {index} is invalid"))
             })
             .collect::<AnyResult<Vec<_>>>()?,
@@ -628,6 +629,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                             UnitInterval::new(stroke.feather)?,
                         )
                     })
+                    .and_then(|value| Ok(value.with_strength(UnitInterval::new(stroke.strength)?)))
                     .with_context(|| format!("retouch stroke {index} is invalid"))
             })
             .collect::<AnyResult<Vec<_>>>()?,
@@ -1074,6 +1076,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 source_offset_x_radii: spot.source_offset_x_radii(),
                 source_offset_y_radii: spot.source_offset_y_radii(),
                 feather: spot.feather().get(),
+                strength: spot.strength().get(),
             })
             .collect(),
         retouch_strokes: grade_stack
@@ -1096,6 +1099,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 source_offset_x_radii: stroke.source_offset_x_radii(),
                 source_offset_y_radii: stroke.source_offset_y_radii(),
                 feather: stroke.feather().get(),
+                strength: stroke.strength().get(),
             })
             .collect(),
         liquify_enabled,

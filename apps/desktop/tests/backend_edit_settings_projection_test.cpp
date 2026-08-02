@@ -185,6 +185,7 @@ void require(const bool condition, const std::string& message) {
         .source_offset_x_radii = -1.1,
         .source_offset_y_radii = 1.2,
         .feather = 0.34,
+        .strength = 0.67,
     }};
     stack.retouch_strokes = {{
         .points = {{.x = 0.41, .y = 0.42}, {.x = 0.51, .y = 0.52}},
@@ -193,6 +194,7 @@ void require(const bool condition, const std::string& message) {
         .source_offset_x_radii = -2.1,
         .source_offset_y_radii = 2.2,
         .feather = 0.45,
+        .strength = 0.58,
     }};
     stack.liquify_enabled = false;
     stack.liquify_strokes = {

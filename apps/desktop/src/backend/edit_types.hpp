@@ -199,6 +199,7 @@ struct BackendRetouchSpot final {
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
     double feather = 0.28;
+    double strength = 1.0;
 
     bool operator==(const BackendRetouchSpot&) const = default;
 };
@@ -220,6 +221,7 @@ struct BackendRetouchStroke final {
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
     double feather = 0.28;
+    double strength = 1.0;
 
     bool operator==(const BackendRetouchStroke&) const = default;
 };

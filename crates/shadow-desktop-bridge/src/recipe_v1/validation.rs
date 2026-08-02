@@ -32,7 +32,7 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
         );
     }
     for spot in &grade_stack.retouch_spots {
-        RetouchSpot::new(
+        let _validated = RetouchSpot::new(
             spot.center_x(),
             spot.center_y(),
             spot.radius_level_zero_pixels(),
@@ -42,7 +42,8 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
             spot.source_offset_x_radii(),
             spot.source_offset_y_radii(),
             spot.feather(),
-        )?;
+        )?
+        .with_strength(spot.strength());
     }
     if grade_stack.retouch_strokes.len() > MAX_RETOUCH_STROKES_PER_RECIPE {
         bail!(
@@ -52,13 +53,15 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
         );
     }
     for stroke in &grade_stack.retouch_strokes {
-        RetouchStroke::new(stroke.points().to_vec(), stroke.radius_level_zero_pixels())?
-            .with_behavior(
-                stroke.mode(),
-                stroke.source_offset_x_radii(),
-                stroke.source_offset_y_radii(),
-                stroke.feather(),
-            )?;
+        let _validated =
+            RetouchStroke::new(stroke.points().to_vec(), stroke.radius_level_zero_pixels())?
+                .with_behavior(
+                    stroke.mode(),
+                    stroke.source_offset_x_radii(),
+                    stroke.source_offset_y_radii(),
+                    stroke.feather(),
+                )?
+                .with_strength(stroke.strength());
     }
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
     let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 11);

@@ -73,6 +73,7 @@ QVariantList EditController::retouchSpots() const {
             {QStringLiteral("sourceOffsetX"), source_offset_x},
             {QStringLiteral("sourceOffsetY"), source_offset_y},
             {QStringLiteral("feather"), spot.feather},
+            {QStringLiteral("strength"), spot.strength},
         });
     }
     return result;
@@ -101,6 +102,7 @@ QVariantList EditController::retouchStrokes() const {
             {QStringLiteral("sourceOffsetX"), source_offset_x},
             {QStringLiteral("sourceOffsetY"), source_offset_y},
             {QStringLiteral("feather"), stroke.feather},
+            {QStringLiteral("strength"), stroke.strength},
         });
     }
     return result;
@@ -171,6 +173,7 @@ void EditController::addRetouchSpotFromPreview(
         .source_offset_x_radii = source_offset_x,
         .source_offset_y_radii = source_offset_y,
         .feather = 0.28,
+        .strength = 1.0,
     });
     parameterEdited(QStringLiteral("retouch/add"), before);
     setStatusMessage(retouch_message(QT_TRANSLATE_NOOP(
@@ -214,6 +217,7 @@ void EditController::addRetouchStrokeFromPreview(const QVariantList& points) {
         .source_offset_x_radii = source_offset_x,
         .source_offset_y_radii = source_offset_y,
         .feather = 0.28,
+        .strength = 1.0,
     });
     parameterEdited(QStringLiteral("retouch/stroke/add"), before);
 }
@@ -301,6 +305,21 @@ void EditController::setRetouchSpotFeather(const int index, const double feather
     const BackendGradeStack before = grade_stack_;
     spot.feather = feather;
     parameterEdited(QStringLiteral("retouch/%1/feather").arg(index), before);
+}
+
+void EditController::setRetouchSpotStrength(const int index, const double strength) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_spots.size()
+        || !std::isfinite(strength) || strength < 0.0 || strength > 1.0) {
+        return;
+    }
+    auto& spot = grade_stack_.retouch_spots[index];
+    if (spot.strength == strength) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    spot.strength = strength;
+    parameterEdited(QStringLiteral("retouch/%1/strength").arg(index), before);
 }
 
 void EditController::setRetouchSpotSourceOffset(
@@ -407,6 +426,21 @@ void EditController::setRetouchStrokeFeather(const int index, const double feath
     const BackendGradeStack before = grade_stack_;
     stroke.feather = feather;
     parameterEdited(QStringLiteral("retouch/stroke/%1/feather").arg(index), before);
+}
+
+void EditController::setRetouchStrokeStrength(const int index, const double strength) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || !std::isfinite(strength) || strength < 0.0 || strength > 1.0) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    if (stroke.strength == strength) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.strength = strength;
+    parameterEdited(QStringLiteral("retouch/stroke/%1/strength").arg(index), before);
 }
 
 void EditController::setRetouchStrokeSourceOffset(

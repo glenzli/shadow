@@ -30,6 +30,7 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
         source_offset_x_radii: 0.0,
         source_offset_y_radii: 0.0,
         feather: 0.28,
+        strength: 0.75,
     }];
     incoming.retouch_strokes = vec![ffi::FfiRetouchStroke {
         points: vec![
@@ -41,12 +42,14 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
         source_offset_x_radii: 1.25,
         source_offset_y_radii: -0.75,
         feather: 0.4,
+        strength: 0.65,
     }];
 
     let draft = decode_grade_stack_draft_recipe_v1(&incoming)
         .expect("decode continuous retouch FFI payload");
     assert_eq!(draft.retouch_spots.len(), 1);
     assert_eq!(draft.retouch_strokes.len(), 1);
+    assert_eq!(draft.retouch_spots[0].strength().get(), 0.75);
     let stroke = &draft.retouch_strokes[0];
     assert_eq!(stroke.points().len(), 2);
     assert_eq!(stroke.points()[0].x().get(), 0.3);
@@ -56,6 +59,7 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
     assert_eq!(stroke.source_offset_x_radii(), 1.25);
     assert_eq!(stroke.source_offset_y_radii(), -0.75);
     assert_eq!(stroke.feather().get(), 0.4);
+    assert_eq!(stroke.strength().get(), 0.65);
 
     let snapshot =
         grade_stack_recipe_v1_snapshot(&draft, None).expect("persist continuous retouch stroke");
@@ -82,6 +86,7 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
     assert_eq!(strokes[0].points[1].y, 0.65);
     assert_eq!(strokes[0].mode, 1);
     assert_eq!(strokes[0].source_offset_x_radii, 1.25);
+    assert_eq!(strokes[0].strength, 0.65);
 
     let outgoing = encode_grade_stack_draft_recipe_v1(draft).expect("encode Grade Stack");
     assert_eq!(outgoing.retouch_spots.len(), 1);
@@ -89,6 +94,7 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
     assert_eq!(outgoing.retouch_strokes[0].points.len(), 2);
     assert_eq!(outgoing.retouch_strokes[0].mode, 1);
     assert_eq!(outgoing.retouch_strokes[0].source_offset_x_radii, 1.25);
+    assert_eq!(outgoing.retouch_strokes[0].strength, 0.65);
 
     incoming.retouch_strokes[0].points.clear();
     let error = decode_grade_stack_draft_recipe_v1(&incoming)

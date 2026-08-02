@@ -44,6 +44,7 @@ void expect(const bool condition, const std::string_view message) {
         .source_offset_x_radii = 1.65,
         .source_offset_y_radii = -0.75,
         .feather = 0.31,
+        .strength = 0.41,
     };
     stroke.points.reserve(point_count);
     for (std::size_t index = 0U; index < point_count; ++index) {
@@ -72,6 +73,7 @@ void expect(const bool condition, const std::string_view message) {
                         .source_offset_x_radii = -2.0,
                         .source_offset_y_radii = 1.0,
                         .feather = 0.18,
+                        .strength = 0.63,
                     }},
                     .strokes = {std::move(stroke)},
                 },
@@ -101,11 +103,22 @@ void resident_gpu_retouch_matches_the_cpu_or_declines() {
     const auto after_first = preparation.session->stats();
     const auto second = preparation.session->render(nodes, plan, true);
     const auto after_second = preparation.session->stats();
+    auto strength_changed = nodes;
+    std::get<image::SpotHealAdjustment>(strength_changed[1U].parameters)
+        .strokes.front().strength = 0.72;
+    const auto adjusted_strength = preparation.session->render(
+        strength_changed,
+        image::compile_edit_execution_plan(strength_changed),
+        true
+    );
+    const auto after_strength = preparation.session->stats();
     expect(
         first.status == image::detail::WarmEditGpuSession::RenderStatus::completed
             && first.output.has_value() && first.output->analyzed_linear.has_value()
             && second.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && second.output.has_value() && second.output->analyzed_linear.has_value(),
+            && second.output.has_value() && second.output->analyzed_linear.has_value()
+            && adjusted_strength.status
+                   == image::detail::WarmEditGpuSession::RenderStatus::completed,
         "continuous Clone remains inside one resident Metal transaction"
     );
     expect(
@@ -113,8 +126,10 @@ void resident_gpu_retouch_matches_the_cpu_or_declines() {
                 == before.retouch_geometry_resource_upload_count + 1U
             && after_second.retouch_geometry_resource_upload_count
                    == after_first.retouch_geometry_resource_upload_count
+            && after_strength.retouch_geometry_resource_upload_count
+                   == after_second.retouch_geometry_resource_upload_count
             && after_second.resource_cache_hit_count > after_first.resource_cache_hit_count,
-        "unchanged retouch geometry uploads once and is reused by subsequent renders"
+        "retouch geometry uploads once and is reused while strength changes"
     );
     if (first.output && first.output->analyzed_linear) {
         const auto cpu = image::execute_adjustment_nodes_with_backend(
