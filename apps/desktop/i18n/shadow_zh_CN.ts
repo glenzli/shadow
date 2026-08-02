@@ -3565,11 +3565,6 @@ R %2 · G %3 · B %4</translation>
         <translation>请先保存 API 密钥，再允许使用 Google 服务。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsDialog.qml" line="45"/>
-        <source>Save an API key and allow Google 2D map tiles before selecting Google Maps.</source>
-        <translation>保存 API 密钥并允许使用 Google 2D 地图瓦片后，才能选择 Google Maps。</translation>
-    </message>
-    <message>
         <location filename="../qml/MapProviderSettingsDialog.qml" line="47"/>
         <source>Secure credential storage is unavailable on this system.</source>
         <translation>此系统上的安全凭据存储不可用。</translation>
@@ -3586,8 +3581,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsDialog.qml" line="91"/>
-        <source>OpenStreetMap remains the default. Google services are optional and use your own Google Maps Platform project.</source>
-        <translation>OpenStreetMap 仍为默认服务。Google 服务可选，并使用你自己的 Google Maps Platform 项目。</translation>
+        <source>Google Maps is the current basemap service. Add your own Google Maps Platform key, then allow only the services you want Shadow to use.</source>
+        <translation>Google Maps 是当前的底图服务。请添加你自己的 Google Maps Platform 密钥，然后只允许 Shadow 使用你需要的服务。</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsDialog.qml" line="103"/>
@@ -3659,21 +3654,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/MapProviderSettingsDialog.qml" line="220"/>
         <source>Reverse geocoding for coordinates</source>
         <translation>为坐标进行反向地理编码</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsDialog.qml" line="233"/>
-        <source>Library map source</source>
-        <translation>图库地图来源</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsDialog.qml" line="248"/>
-        <source>OpenStreetMap</source>
-        <translation>OpenStreetMap</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsDialog.qml" line="259"/>
-        <source>Save an API key and allow Google 2D map tiles first.</source>
-        <translation>请先保存 API 密钥并允许使用 Google 2D 地图瓦片。</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsDialog.qml" line="274"/>
@@ -8124,19 +8104,29 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>%L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="40"/>
-        <source>OpenStreetMap</source>
-        <translation>OpenStreetMap</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="50"/>
-        <source>Save an API key and allow Google 2D map tiles first.</source>
-        <translation>请先保存 API 密钥并允许使用 Google 2D 地图瓦片。</translation>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="38"/>
+        <source>Basemap unavailable</source>
+        <translation>底图不可用</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapProviderOverlay.qml" line="57"/>
         <source>%L1 photos in view</source>
         <translation>视野内 %L1 张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="86"/>
+        <source>Configure a map service</source>
+        <translation>配置地图服务</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="95"/>
+        <source>To display the basemap, add a Google Maps Platform API key and allow Google 2D map tiles.</source>
+        <translation>要显示地图底图，请添加 Google Maps Platform API 密钥并允许使用 Google 2D 地图瓦片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="109"/>
+        <source>Open map settings</source>
+        <translation>打开地图设置</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapView.qml" line="314"/>

@@ -10,6 +10,7 @@ Popup {
     required property var preferences
     required property real hostWidth
     required property real hostHeight
+    readonly property bool googleBasemapReady: preferences.googleApiKeyStored && preferences.googleMapTilesAllowed
 
     parent: Overlay.overlay
     modal: true
@@ -41,8 +42,6 @@ Popup {
             return qsTr("The stored API key is invalid. Replace or remove it.");
         case "api-key-required":
             return qsTr("Save an API key before allowing Google services.");
-        case "google-map-tiles-not-ready":
-            return qsTr("Save an API key and allow Google 2D map tiles before selecting Google Maps.");
         case "secure-storage-unavailable":
             return qsTr("Secure credential storage is unavailable on this system.");
         case "secret-store-failed":
@@ -88,7 +87,7 @@ Popup {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("OpenStreetMap remains the default. Google services are optional and use your own Google Maps Platform project.")
+                        text: qsTr("Google Maps is the current basemap service. Add your own Google Maps Platform key, then allow only the services you want Shadow to use.")
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontMeta
                         wrapMode: Text.WordWrap
@@ -229,45 +228,10 @@ Popup {
                 color: Theme.border
             }
 
-            Label {
-                text: qsTr("Library map source")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontBody
-                font.weight: Font.DemiBold
-            }
-
             RowLayout {
+                objectName: "googleMapStyleControls"
                 Layout.fillWidth: true
-                spacing: 4
-
-                ShadowButton {
-                    objectName: "openStreetMapProviderButton"
-                    compact: true
-                    variant: ShadowButton.Ghost
-                    selected: root.preferences.libraryMapProvider === "osm"
-                    text: qsTr("OpenStreetMap")
-                    onClicked: root.preferences.libraryMapProvider = "osm"
-                }
-
-                ShadowButton {
-                    objectName: "googleMapsProviderButton"
-                    compact: true
-                    variant: ShadowButton.Ghost
-                    selected: root.preferences.libraryMapProvider === "google"
-                    text: "Google Maps"
-                    enabled: root.preferences.googleApiKeyStored && root.preferences.googleMapTilesAllowed
-                    toolTipText: enabled ? "" : qsTr("Save an API key and allow Google 2D map tiles first.")
-                    onClicked: root.preferences.libraryMapProvider = "google"
-                }
-
-                Item {
-                    Layout.fillWidth: true
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                visible: root.preferences.libraryMapProvider === "google"
+                visible: root.googleBasemapReady
                 spacing: 4
 
                 Label {

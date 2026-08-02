@@ -180,6 +180,7 @@ Item {
                                   string sourcePath, string photoTitle,
                                   string previewSource)
     signal openLibraryManagementRequested()
+    signal openMapProviderSettingsRequested()
     signal exportRequested(var targets)
 
     ReviewMetadataPresentation {

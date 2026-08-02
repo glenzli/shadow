@@ -106,6 +106,12 @@ int main() {
     auto state = std::make_shared<FakeSecretState>();
 
     {
+        QSettings obsolete_settings(settings_path, QSettings::IniFormat);
+        obsolete_settings.setValue(QStringLiteral("maps/library/provider"), QStringLiteral("osm"));
+        obsolete_settings.sync();
+    }
+
+    {
         MapProviderPreferences preferences(settings_path, fakeStore(state));
         if (!require(preferences.secureStorageAvailable(), "fake storage is available")
             || !require(
@@ -130,14 +136,13 @@ int main() {
         preferences.setGoogleMapTilesAllowed(true);
         preferences.setGooglePlacesAllowed(true);
         preferences.setGoogleReverseGeocodingAllowed(true);
-        preferences.setLibraryMapProvider(QStringLiteral("google"));
         preferences.setGoogleMapType(QStringLiteral("terrain"));
         if (!require(
                 preferences.googleMapTilesAllowed() && preferences.googlePlacesAllowed()
                     && preferences.googleReverseGeocodingAllowed()
                     && preferences.libraryMapProvider() == QStringLiteral("google")
                     && preferences.googleMapType() == QStringLiteral("terrain"),
-                "permissions and an explicit provider selection admit Google tiles"
+                "a stored key plus explicit tile permission admits the Google basemap"
             )) {
             return EXIT_FAILURE;
         }
@@ -164,9 +169,9 @@ int main() {
                 && settings_bytes.contains("map_tiles_allowed=true")
                 && settings_bytes.contains("places_allowed=true")
                 && settings_bytes.contains("reverse_geocoding_allowed=true")
-                && settings_bytes.contains("provider=google")
+                && !settings_bytes.contains("provider=")
                 && settings_bytes.contains("map_type=terrain"),
-            "only non-secret permissions are written to ordinary settings"
+            "only non-secret active permissions and style are written to ordinary settings"
         )) {
         return EXIT_FAILURE;
     }
@@ -184,9 +189,9 @@ int main() {
                 reopened.removeGoogleApiKey() && !reopened.googleApiKeyStored()
                     && !reopened.googleMapTilesAllowed() && !reopened.googlePlacesAllowed()
                     && !reopened.googleReverseGeocodingAllowed()
-                    && reopened.libraryMapProvider() == QStringLiteral("osm")
+                    && reopened.libraryMapProvider() == QStringLiteral("none")
                     && state->remove_count == 1,
-                "removing a key revokes permissions and returns the Library map to OSM"
+                "removing a key revokes permissions and leaves no active basemap"
             )) {
             return EXIT_FAILURE;
         }
@@ -195,12 +200,12 @@ int main() {
     {
         MapProviderPreferences reopened(settings_path, fakeStore(state));
         reopened.setGooglePlacesAllowed(true);
-        reopened.setLibraryMapProvider(QStringLiteral("google"));
+        reopened.setGoogleMapTilesAllowed(true);
         if (!require(
-                !reopened.googlePlacesAllowed()
-                    && reopened.libraryMapProvider() == QStringLiteral("osm")
-                    && reopened.statusCode() == QStringLiteral("google-map-tiles-not-ready"),
-                "Google tiles cannot be selected without a key and permission"
+                !reopened.googlePlacesAllowed() && !reopened.googleMapTilesAllowed()
+                    && reopened.libraryMapProvider() == QStringLiteral("none")
+                    && reopened.statusCode() == QStringLiteral("api-key-required"),
+                "Google services cannot be enabled without a stored key"
             )) {
             return EXIT_FAILURE;
         }

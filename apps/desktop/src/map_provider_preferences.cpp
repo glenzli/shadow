@@ -11,12 +11,7 @@ constexpr auto google_secret_account = "google-maps-platform-api-key";
 constexpr auto google_map_tiles_key = "maps/google/map_tiles_allowed";
 constexpr auto google_places_key = "maps/google/places_allowed";
 constexpr auto google_reverse_geocoding_key = "maps/google/reverse_geocoding_allowed";
-constexpr auto library_map_provider_key = "maps/library/provider";
 constexpr auto google_map_type_key = "maps/google/map_type";
-
-[[nodiscard]] QString normalizedLibraryMapProvider(const QString& provider) {
-    return provider == QStringLiteral("google") ? QStringLiteral("google") : QStringLiteral("osm");
-}
 
 [[nodiscard]] QString normalizedGoogleMapType(const QString& map_type) {
     if (map_type == QStringLiteral("satellite") || map_type == QStringLiteral("terrain")) {
@@ -50,16 +45,17 @@ MapProviderPreferences::MapProviderPreferences(
     google_reverse_geocoding_allowed_(
         settings_->value(QString::fromLatin1(google_reverse_geocoding_key), false).toBool()
     ),
-    library_map_provider_(normalizedLibraryMapProvider(
-        settings_->value(QString::fromLatin1(library_map_provider_key), QStringLiteral("osm"))
-            .toString()
-    )),
     google_map_type_(normalizedGoogleMapType(
         settings_->value(QString::fromLatin1(google_map_type_key), QStringLiteral("roadmap"))
             .toString()
     )) {
+    // Pre-release v1 keeps no dormant provider-selection state. OSM is no
+    // longer a supported basemap, so discard the old preference outright.
+    if (settings_->contains(QStringLiteral("maps/library/provider"))) {
+        settings_->remove(QStringLiteral("maps/library/provider"));
+        settings_->sync();
+    }
     loadKeyState();
-    selectOpenStreetMapIfGoogleUnavailable(true);
 }
 
 MapProviderPreferences::~MapProviderPreferences() = default;
@@ -85,7 +81,8 @@ bool MapProviderPreferences::googleReverseGeocodingAllowed() const noexcept {
 }
 
 QString MapProviderPreferences::libraryMapProvider() const {
-    return library_map_provider_;
+    return google_api_key_stored_ && google_map_tiles_allowed_ ? QStringLiteral("google")
+                                                               : QStringLiteral("none");
 }
 
 QString MapProviderPreferences::googleMapType() const {
@@ -101,6 +98,7 @@ QString MapProviderPreferences::diagnosticText() const {
 }
 
 void MapProviderPreferences::setGoogleMapTilesAllowed(const bool allowed) {
+    const QString previous_provider = libraryMapProvider();
     const bool normalized = allowed && google_api_key_stored_;
     if (google_map_tiles_allowed_ == normalized) {
         if (allowed && !google_api_key_stored_) {
@@ -111,28 +109,12 @@ void MapProviderPreferences::setGoogleMapTilesAllowed(const bool allowed) {
     google_map_tiles_allowed_ = normalized;
     persistPermission(google_map_tiles_key, normalized);
     emit googleMapTilesAllowedChanged();
-    if (!normalized) {
-        selectOpenStreetMapIfGoogleUnavailable(true);
+    if (libraryMapProvider() != previous_provider) {
+        emit libraryMapProviderChanged();
     }
     if (allowed && !normalized) {
         setStatus(QStringLiteral("api-key-required"));
     }
-}
-
-void MapProviderPreferences::setLibraryMapProvider(const QString& provider) {
-    QString normalized = normalizedLibraryMapProvider(provider);
-    if (normalized == QStringLiteral("google")
-        && (!google_api_key_stored_ || !google_map_tiles_allowed_)) {
-        normalized = QStringLiteral("osm");
-        setStatus(QStringLiteral("google-map-tiles-not-ready"));
-    }
-    if (library_map_provider_ == normalized) {
-        return;
-    }
-    library_map_provider_ = normalized;
-    settings_->setValue(QString::fromLatin1(library_map_provider_key), library_map_provider_);
-    settings_->sync();
-    emit libraryMapProviderChanged();
 }
 
 void MapProviderPreferences::setGoogleMapType(const QString& map_type) {
@@ -298,6 +280,7 @@ void MapProviderPreferences::loadKeyState() {
 }
 
 void MapProviderPreferences::disableAllPermissions(const bool persist) {
+    const QString previous_provider = libraryMapProvider();
     if (google_map_tiles_allowed_) {
         google_map_tiles_allowed_ = false;
         if (persist) {
@@ -319,20 +302,9 @@ void MapProviderPreferences::disableAllPermissions(const bool persist) {
         }
         emit googleReverseGeocodingAllowedChanged();
     }
-    selectOpenStreetMapIfGoogleUnavailable(persist);
-}
-
-void MapProviderPreferences::selectOpenStreetMapIfGoogleUnavailable(const bool persist) {
-    if (library_map_provider_ != QStringLiteral("google")
-        || (google_api_key_stored_ && google_map_tiles_allowed_)) {
-        return;
+    if (libraryMapProvider() != previous_provider) {
+        emit libraryMapProviderChanged();
     }
-    library_map_provider_ = QStringLiteral("osm");
-    if (persist) {
-        settings_->setValue(QString::fromLatin1(library_map_provider_key), library_map_provider_);
-        settings_->sync();
-    }
-    emit libraryMapProviderChanged();
 }
 
 void MapProviderPreferences::persistPermission(const char* const key, const bool allowed) {

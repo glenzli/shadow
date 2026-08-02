@@ -30,10 +30,7 @@ class MapProviderPreferences final : public QObject {
         bool googleReverseGeocodingAllowed READ googleReverseGeocodingAllowed WRITE
             setGoogleReverseGeocodingAllowed NOTIFY googleReverseGeocodingAllowedChanged
     )
-    Q_PROPERTY(
-        QString libraryMapProvider READ libraryMapProvider WRITE setLibraryMapProvider NOTIFY
-            libraryMapProviderChanged
-    )
+    Q_PROPERTY(QString libraryMapProvider READ libraryMapProvider NOTIFY libraryMapProviderChanged)
     Q_PROPERTY(
         QString googleMapType READ googleMapType WRITE setGoogleMapType NOTIFY googleMapTypeChanged
     )
@@ -66,7 +63,6 @@ class MapProviderPreferences final : public QObject {
     void setGoogleMapTilesAllowed(bool allowed);
     void setGooglePlacesAllowed(bool allowed);
     void setGoogleReverseGeocodingAllowed(bool allowed);
-    void setLibraryMapProvider(const QString& provider);
     void setGoogleMapType(const QString& map_type);
 
     Q_INVOKABLE bool storeGoogleApiKey(const QString& api_key);
@@ -90,7 +86,6 @@ class MapProviderPreferences final : public QObject {
     [[nodiscard]] static bool validGoogleApiKey(const QString& api_key);
     void loadKeyState();
     void disableAllPermissions(bool persist);
-    void selectOpenStreetMapIfGoogleUnavailable(bool persist);
     void persistPermission(const char* key, bool allowed);
     void setStatus(const QString& code, const QString& diagnostic = {});
 
@@ -100,7 +95,6 @@ class MapProviderPreferences final : public QObject {
     bool google_map_tiles_allowed_ = false;
     bool google_places_allowed_ = false;
     bool google_reverse_geocoding_allowed_ = false;
-    QString library_map_provider_;
     QString google_map_type_;
     QString status_code_;
     QString diagnostic_text_;

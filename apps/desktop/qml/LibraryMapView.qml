@@ -102,46 +102,6 @@ Rectangle {
     }
 
     Plugin {
-        id: publicOsmPlugin
-        name: "osm"
-
-        PluginParameter {
-            name: "osm.useragent"
-            value: root.workspace.controller.libraryMapUserAgent
-        }
-        PluginParameter {
-            name: "osm.mapping.prefetching_style"
-            value: "NoPrefetching"
-        }
-    }
-
-    Plugin {
-        id: customRasterPlugin
-        name: "osm"
-
-        PluginParameter {
-            name: "osm.useragent"
-            value: root.workspace.controller.libraryMapUserAgent
-        }
-        PluginParameter {
-            name: "osm.mapping.custom.host"
-            value: root.workspace.controller.libraryMapTileHost
-        }
-        PluginParameter {
-            name: "osm.mapping.custom.mapcopyright"
-            value: root.workspace.controller.libraryMapAttribution
-        }
-        PluginParameter {
-            name: "osm.mapping.custom.datacopyright"
-            value: root.workspace.controller.libraryMapAttribution
-        }
-        PluginParameter {
-            name: "osm.mapping.prefetching_style"
-            value: "NoPrefetching"
-        }
-    }
-
-    Plugin {
         id: itemOverlayPlugin
         name: "itemsoverlay"
     }
@@ -151,23 +111,6 @@ Rectangle {
         interval: 180
         repeat: false
         onTriggered: root.requestViewport()
-    }
-
-    Map {
-        id: osmBaseMap
-        anchors.fill: parent
-        z: 0
-        visible: !root.googleProviderSelected
-        enabled: false
-        plugin: root.workspace.controller.libraryMapTileHost.length > 0 ? customRasterPlugin : publicOsmPlugin
-        center: map.center
-        zoomLevel: map.zoomLevel
-        copyrightsVisible: true
-
-        onSupportedMapTypesChanged: {
-            if (root.workspace.controller.libraryMapTileHost.length > 0 && supportedMapTypes.length > 0)
-                activeMapType = supportedMapTypes[supportedMapTypes.length - 1];
-        }
     }
 
     GoogleMapTileLayer {
@@ -291,6 +234,7 @@ Rectangle {
         googleProviderSelected: root.googleProviderSelected
         googleProviderAvailable: root.googleProviderAvailable
         googleStatusMessage: root.googleStatusMessage()
+        onConfigureRequested: root.workspace.openMapProviderSettingsRequested()
     }
 
     Rectangle {

@@ -11,8 +11,8 @@
 #include "review_library_keyword_coordinator.hpp"
 #include "review_library_map_coordinator.hpp"
 #include "review_library_metadata_coordinator.hpp"
-#include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
+#include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
@@ -129,9 +129,6 @@ class ReviewController final : public QObject {
     Q_PROPERTY(qulonglong libraryMapPhotoCount READ libraryMapPhotoCount NOTIFY libraryMapChanged)
     Q_PROPERTY(bool libraryMapBusy READ libraryMapBusy NOTIFY libraryMapChanged)
     Q_PROPERTY(bool libraryMapFailed READ libraryMapFailed NOTIFY libraryMapChanged)
-    Q_PROPERTY(QString libraryMapTileHost READ libraryMapTileHost CONSTANT)
-    Q_PROPERTY(QString libraryMapAttribution READ libraryMapAttribution CONSTANT)
-    Q_PROPERTY(QString libraryMapUserAgent READ libraryMapUserAgent CONSTANT)
     Q_PROPERTY(
         QVariantMap librarySystemCollectionCounts READ librarySystemCollectionCounts NOTIFY
             libraryFacetsChanged
@@ -254,9 +251,6 @@ class ReviewController final : public QObject {
     [[nodiscard]] qulonglong libraryMapPhotoCount() const noexcept;
     [[nodiscard]] bool libraryMapBusy() const noexcept;
     [[nodiscard]] bool libraryMapFailed() const noexcept;
-    [[nodiscard]] QString libraryMapTileHost() const;
-    [[nodiscard]] QString libraryMapAttribution() const;
-    [[nodiscard]] QString libraryMapUserAgent() const;
     [[nodiscard]] QString libraryAlbumId() const;
     [[nodiscard]] QVariantList libraryAlbums() const;
     [[nodiscard]] bool libraryAlbumsBusy() const noexcept;

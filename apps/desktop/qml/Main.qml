@@ -272,6 +272,7 @@ ApplicationWindow {
                                      previewSource)
             }
             onOpenLibraryManagementRequested: window.showLibrary()
+            onOpenMapProviderSettingsRequested: mapProviderSettingsDialog.present()
         }
 
         PrecisionWorkspace {

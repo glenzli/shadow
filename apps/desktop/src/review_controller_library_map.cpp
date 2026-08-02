@@ -1,7 +1,5 @@
 #include "review_controller.hpp"
 
-#include <QtGlobal>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -30,23 +28,6 @@ bool ReviewController::libraryMapBusy() const noexcept {
 
 bool ReviewController::libraryMapFailed() const noexcept {
     return map_coordinator_.failed();
-}
-
-QString ReviewController::libraryMapTileHost() const {
-    const QString host = qEnvironmentVariable("SHADOW_MAP_TILE_HOST").trimmed();
-    const QString attribution = qEnvironmentVariable("SHADOW_MAP_TILE_ATTRIBUTION").trimmed();
-    // A custom provider without attribution is not a safe configuration.
-    return !host.isEmpty() && !attribution.isEmpty() ? host : QString{};
-}
-
-QString ReviewController::libraryMapAttribution() const {
-    return qEnvironmentVariable("SHADOW_MAP_TILE_ATTRIBUTION").trimmed();
-}
-
-QString ReviewController::libraryMapUserAgent() const {
-    const QString configured = qEnvironmentVariable("SHADOW_MAP_USER_AGENT").trimmed();
-    return configured.isEmpty() ? QStringLiteral("Shadow/0.1 (https://gitlab.com/glenzli/shadow)")
-                                : configured;
 }
 
 void ReviewController::requestLibraryMapViewport(

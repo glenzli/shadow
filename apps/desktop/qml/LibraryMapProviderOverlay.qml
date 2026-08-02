@@ -13,6 +13,8 @@ Item {
     required property bool googleProviderAvailable
     required property string googleStatusMessage
 
+    signal configureRequested()
+
     Rectangle {
         id: providerPanel
         anchors.top: parent.top
@@ -30,26 +32,12 @@ Item {
             anchors.centerIn: parent
             spacing: 4
 
-            RowLayout {
-                spacing: 2
-
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Ghost
-                    selected: !root.googleProviderSelected
-                    text: qsTr("OpenStreetMap")
-                    onClicked: root.workspace.mapProviderPreferences.libraryMapProvider = "osm"
-                }
-
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Ghost
-                    selected: root.googleProviderSelected
-                    text: "Google Maps"
-                    enabled: root.googleProviderAvailable
-                    toolTipText: enabled ? "" : qsTr("Save an API key and allow Google 2D map tiles first.")
-                    onClicked: root.workspace.mapProviderPreferences.libraryMapProvider = "google"
-                }
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: root.googleProviderSelected ? "Google Maps" : qsTr("Basemap unavailable")
+                color: root.googleProviderSelected ? Theme.textPrimary : Theme.textMuted
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
             }
 
             Label {
@@ -69,6 +57,55 @@ Item {
         height: 30
         visible: root.workspace.controller.libraryMapBusy || (root.googleProviderSelected && root.workspace.googleMapTilesService.busy)
         running: visible
+    }
+
+    Rectangle {
+        id: setupPanel
+        objectName: "libraryMapSetupPanel"
+        anchors.centerIn: parent
+        visible: !root.googleProviderAvailable
+        width: Math.min(420, root.width - 48)
+        height: setupContent.implicitHeight + 32
+        radius: 10
+        color: Theme.panelRaised
+        border.width: 1
+        border.color: Theme.borderStrong
+
+        ColumnLayout {
+            id: setupContent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.margins: 16
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Configure a map service")
+                color: Theme.textPrimary
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("To display the basemap, add a Google Maps Platform API key and allow Google 2D map tiles.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMeta
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                lineHeight: 1.2
+            }
+
+            ShadowButton {
+                objectName: "libraryMapConfigureButton"
+                Layout.alignment: Qt.AlignHCenter
+                variant: ShadowButton.Primary
+                text: qsTr("Open map settings")
+                onClicked: root.configureRequested()
+            }
+        }
     }
 
     Rectangle {
@@ -123,4 +160,5 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
     }
+
 }

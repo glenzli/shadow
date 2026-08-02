@@ -1575,6 +1575,49 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-library-map-provider-overlay-test
+        tests/library_map_provider_overlay_test.cpp
+    )
+    target_compile_features(
+        shadow-library-map-provider-overlay-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-library-map-provider-overlay-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-library-map-provider-overlay-test
+        URI Shadow.LibraryMapProviderOverlayContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/LibraryMapProviderOverlay.qml
+            qml/ShadowButton.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-map-provider-overlay-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-map-provider-overlay-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-map-provider-overlay
+        COMMAND shadow-library-map-provider-overlay-test
+    )
+    set_tests_properties(
+        shadow-desktop-library-map-provider-overlay
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-preview-diagnostics-test
         tests/preview_diagnostics_test.cpp
         src/preview_diagnostics.cpp

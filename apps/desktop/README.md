@@ -49,8 +49,9 @@ Application startup is split from environment-driven automation:
   remains the compact settings entry and routes responsibility-specific panels instead of
   accumulating their state.
 - [`src/map_provider_preferences.*`](src/map_provider_preferences.hpp) owns optional external
-  map-service permissions, the selected Library map provider/style, and the native-only Google
-  credential lifecycle.
+  map-service permissions, the derived Library basemap readiness/style, and the native-only Google
+  credential lifecycle. With no permitted service it publishes an explicit `none` provider instead
+  of silently selecting an unavailable basemap.
   [`src/secure_secret_store.*`](src/secure_secret_store.hpp) is the narrow platform credential
   boundary: macOS stores the key as a device-local generic password in Keychain, isolated smoke
   sessions use volatile memory, and unsupported platforms fail closed without a plaintext
@@ -59,7 +60,7 @@ Application startup is split from environment-driven automation:
 - [`src/map/google_map_tiles_service.*`](src/map/google_map_tiles_service.hpp) owns the opt-in
   Google Map Tiles session, visible-only request queue, bounded policy-aware memory cache,
   `ETag` revalidation, backoff, cancellation, and viewport copyright lifecycle. It never installs
-  a disk cache or starts while OSM is selected.
+  a disk cache or starts before both a stored key and explicit tile permission are present.
   [`src/map/google_map_tiles_protocol.*`](src/map/google_map_tiles_protocol.hpp) owns the wire,
   error, and HTTP cache contracts; [`src/map/google_map_tile_geometry.*`](src/map/google_map_tile_geometry.hpp)
   owns Web Mercator visible-tile projection; and
@@ -583,23 +584,20 @@ Review presentation keeps the workspace as the composition and compatibility sur
   retrieval cannot drift into separate keyword semantics.
 - [`qml/LibraryMapView.qml`](qml/LibraryMapView.qml) owns the on-demand map composition, gestures,
   coordinates, location placement, and photo-cluster interaction. One transparent Qt Location
-  item-overlay map remains the only interaction/coordinate owner; it synchronizes either the OSM
-  map or Shadow's Google raster layer beneath the same markers.
+  item-overlay map remains the only interaction/coordinate owner; Shadow's Google raster layer is
+  the optional basemap beneath the same markers.
   [`qml/LibraryMapProviderOverlay.qml`](qml/LibraryMapProviderOverlay.qml) separately owns provider
-  switching, visible-photo/busy projection, Google attribution, and localized provider errors.
-  The local Catalog, not either tile service,
+  readiness guidance, visible-photo/busy projection, Google attribution, and localized provider
+  errors. The local Catalog, not the tile service,
   applies the current Library filter and aggregates effective GPS coordinates through
   [`src/review_library_map_coordinator.cpp`](src/review_library_map_coordinator.cpp); viewport
-  requests are bounded, coalesced, stale-safe, and never perform geocoding. By default the
-  development build uses Qt's OSM raster plugin with cache enabled and prefetch disabled. Set both
-  `SHADOW_MAP_TILE_HOST` (an XYZ template accepted by Qt's OSM custom-host parameter) and
-  `SHADOW_MAP_TILE_ATTRIBUTION` to use a self-hosted or commercial raster provider; optionally set
-  `SHADOW_MAP_USER_AGENT`. Shadow intentionally embeds no provider API key. An explicitly
-  permitted user key can instead activate the session-based Google 2D tile layer while the
+  requests are bounded, coalesced, stale-safe, and never perform geocoding. Shadow intentionally
+  embeds no provider API key. A user-supplied key plus explicit Google 2D tile permission activates
+  the session-based basemap while the
   Library map is visible. Google tiles remain memory-only and obey response cache directives;
   dynamic viewport copyright is shown beside a distinct `Google Maps` attribution. Reverse
   geocoding, place search, and permanent place-name enrichment remain separate opt-in contracts:
-  they are not hidden inside map loading and their provider results are not projected onto OSM.
+  they are not hidden inside map loading and their provider results do not alter the basemap.
   [`qml/LibraryMapLocationPlacementState.qml`](qml/LibraryMapLocationPlacementState.qml) separately
   owns one selected photo's placement identity, pending coordinate, explicit confirmation, and
   retryable failure lifecycle. It delegates persistence to the existing metadata coordinator, so

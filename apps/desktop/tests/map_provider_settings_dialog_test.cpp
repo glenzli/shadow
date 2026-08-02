@@ -28,10 +28,7 @@ class FakeMapProviderPreferences final : public QObject {
         bool googleReverseGeocodingAllowed READ googleReverseGeocodingAllowed WRITE
             setGoogleReverseGeocodingAllowed NOTIFY googleReverseGeocodingAllowedChanged
     )
-    Q_PROPERTY(
-        QString libraryMapProvider READ libraryMapProvider WRITE setLibraryMapProvider NOTIFY
-            libraryMapProviderChanged
-    )
+    Q_PROPERTY(QString libraryMapProvider READ libraryMapProvider NOTIFY libraryMapProviderChanged)
     Q_PROPERTY(
         QString googleMapType READ googleMapType WRITE setGoogleMapType NOTIFY googleMapTypeChanged
     )
@@ -58,7 +55,8 @@ class FakeMapProviderPreferences final : public QObject {
         return status_code_;
     }
     [[nodiscard]] QString libraryMapProvider() const {
-        return library_map_provider_;
+        return key_stored_ && map_tiles_allowed_ ? QStringLiteral("google")
+                                                 : QStringLiteral("none");
     }
     [[nodiscard]] QString googleMapType() const {
         return google_map_type_;
@@ -68,11 +66,12 @@ class FakeMapProviderPreferences final : public QObject {
     }
 
     void setGoogleMapTilesAllowed(const bool allowed) {
+        const QString previous_provider = libraryMapProvider();
         map_tiles_allowed_ = allowed;
-        if (!allowed) {
-            setLibraryMapProvider(QStringLiteral("osm"));
-        }
         emit googleMapTilesAllowedChanged();
+        if (libraryMapProvider() != previous_provider) {
+            emit libraryMapProviderChanged();
+        }
     }
     void setGooglePlacesAllowed(const bool allowed) {
         places_allowed_ = allowed;
@@ -81,17 +80,6 @@ class FakeMapProviderPreferences final : public QObject {
     void setGoogleReverseGeocodingAllowed(const bool allowed) {
         reverse_geocoding_allowed_ = allowed;
         emit googleReverseGeocodingAllowedChanged();
-    }
-    void setLibraryMapProvider(const QString& provider) {
-        const QString normalized =
-            provider == QStringLiteral("google") && key_stored_ && map_tiles_allowed_
-                ? QStringLiteral("google")
-                : QStringLiteral("osm");
-        if (library_map_provider_ == normalized) {
-            return;
-        }
-        library_map_provider_ = normalized;
-        emit libraryMapProviderChanged();
     }
     void setGoogleMapType(const QString& map_type) {
         if (google_map_type_ == map_type) {
@@ -113,17 +101,19 @@ class FakeMapProviderPreferences final : public QObject {
 
     Q_INVOKABLE bool removeGoogleApiKey() {
         ++remove_count;
+        const QString previous_provider = libraryMapProvider();
         key_stored_ = false;
         map_tiles_allowed_ = false;
         places_allowed_ = false;
         reverse_geocoding_allowed_ = false;
-        library_map_provider_ = QStringLiteral("osm");
         status_code_ = QStringLiteral("api-key-removed");
         emit googleApiKeyStoredChanged();
         emit googleMapTilesAllowedChanged();
         emit googlePlacesAllowedChanged();
         emit googleReverseGeocodingAllowedChanged();
-        emit libraryMapProviderChanged();
+        if (libraryMapProvider() != previous_provider) {
+            emit libraryMapProviderChanged();
+        }
         emit statusChanged();
         return true;
     }
@@ -151,7 +141,6 @@ class FakeMapProviderPreferences final : public QObject {
     bool map_tiles_allowed_ = false;
     bool places_allowed_ = false;
     bool reverse_geocoding_allowed_ = false;
-    QString library_map_provider_ = QStringLiteral("osm");
     QString google_map_type_ = QStringLiteral("roadmap");
     QString status_code_;
 };
@@ -209,17 +198,17 @@ int main(int argc, char* argv[]) {
         dialog->findChild<QObject*>(QStringLiteral("googlePlacesPermissionSwitch"));
     QObject* const reverse =
         dialog->findChild<QObject*>(QStringLiteral("googleReverseGeocodingPermissionSwitch"));
-    QObject* const osm_provider =
+    QObject* const obsolete_osm_provider =
         dialog->findChild<QObject*>(QStringLiteral("openStreetMapProviderButton"));
-    QObject* const google_provider =
-        dialog->findChild<QObject*>(QStringLiteral("googleMapsProviderButton"));
+    QObject* const map_style_controls =
+        dialog->findChild<QObject*>(QStringLiteral("googleMapStyleControls"));
     QObject* const satellite_style =
         dialog->findChild<QObject*>(QStringLiteral("googleSatelliteStyleButton"));
     if (!require(
             field != nullptr && save != nullptr && remove != nullptr && tiles != nullptr
-                && places != nullptr && reverse != nullptr && osm_provider != nullptr
-                && google_provider != nullptr && satellite_style != nullptr,
-            "the packaged dialog exposes its credential and permission controls"
+                && places != nullptr && reverse != nullptr && map_style_controls != nullptr
+                && satellite_style != nullptr && obsolete_osm_provider == nullptr,
+            "the packaged dialog exposes Google controls without an obsolete OSM selector"
         )
         || !require(
             !tiles->property("enabled").toBool() && !places->property("enabled").toBool()
@@ -240,6 +229,14 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    if (!require(
+            QMetaObject::invokeMethod(dialog.get(), "present"),
+            "the settings panel can be reopened for interactive visibility checks"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+
     field->setProperty("text", api_key);
     drainBindings();
     if (!require(
@@ -251,15 +248,14 @@ int main(int argc, char* argv[]) {
         || !require(
             tiles->property("enabled").toBool() && places->property("enabled").toBool()
                 && reverse->property("enabled").toBool()
-                && !google_provider->property("enabled").toBool(),
+                && !dialog->property("googleBasemapReady").toBool(),
             "stored-key projection unlocks each explicit service permission"
         )
         || !require(
             (preferences.setGoogleMapTilesAllowed(true), drainBindings(), true)
-                && google_provider->property("enabled").toBool() && click(google_provider)
                 && preferences.libraryMapProvider() == QStringLiteral("google")
-                && osm_provider->property("selected").toBool() == false,
-            "an allowed Google tile service can become the Library map source"
+                && dialog->property("googleBasemapReady").toBool(),
+            "allowing Google tiles directly activates the Library basemap and style controls"
         )
         || !require(
             click(satellite_style) && preferences.googleMapType() == QStringLiteral("satellite"),
