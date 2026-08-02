@@ -1,4 +1,7 @@
-use shadow_catalog::{CatalogActor, RegisterAsset};
+use shadow_catalog::{
+    CatalogActor, LibraryPhotoFacts, RecordLibraryPlaceResolution, RegisterAsset,
+    RepresentationFingerprint,
+};
 use shadow_domain::{
     AssetLocation, EntityId, PhotoId, Platform, RepresentationId, RepresentationKind,
 };
@@ -79,6 +82,79 @@ fn service_rejects_malformed_identity_before_querying_catalog() {
     );
     actor.shutdown().expect("shutdown catalog actor");
     std::fs::remove_dir_all(root).expect("remove invalid inspection fixture");
+}
+
+#[test]
+fn service_projects_the_coordinate_bound_resolved_place_without_overwriting_metadata() {
+    let root = fixture_root("resolved-place");
+    let actor = CatalogActor::spawn(&root.join("catalog.sqlite")).expect("spawn catalog actor");
+    let handle = actor.handle();
+    let registered = handle
+        .register_asset(&RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: AssetLocation::new(
+                Platform::MacOs,
+                b"/photos/yellowstone.nef".to_vec(),
+                "/photos/yellowstone.nef",
+            ),
+            byte_len: 4_096,
+            modified_at_ms: Some(100),
+            now_ms: 200,
+        })
+        .expect("register geotagged photo");
+    handle
+        .upsert_photo_library_facts(&LibraryPhotoFacts {
+            photo_id: registered.photo_id,
+            captured_at_unix_seconds: None,
+            capture_day: String::new(),
+            camera_make: String::new(),
+            camera_model: String::new(),
+            lens_make: String::new(),
+            lens_model: String::new(),
+            aperture_milli: None,
+            focal_length_tenth_mm: None,
+            iso_speed: None,
+            latitude_e7: Some(446_198_000),
+            longitude_e7: Some(-1_104_255_267),
+            place_name: String::new(),
+            indexed_representation_id: Some(registered.representation_id),
+            indexed_source: Some(RepresentationFingerprint {
+                byte_len: 4_096,
+                modified_at_ms: Some(100),
+            }),
+            indexed_at_ms: 210,
+        })
+        .expect("index geotagged facts");
+    handle
+        .record_library_place_resolution(&RecordLibraryPlaceResolution {
+            latitude_e7: 446_198_000,
+            longitude_e7: -1_104_255_267,
+            country_code: "US".into(),
+            country_name: "United States".into(),
+            administrative_area: "Wyoming".into(),
+            locality: "Yellowstone National Park".into(),
+            display_name: "Yellowstone National Park, Wyoming, United States".into(),
+            provider_id: "google-geocoding".into(),
+            provider_version: "v1".into(),
+            locale: "en-US".into(),
+            resolved_at_ms: 220,
+        })
+        .expect("record resolved place");
+
+    let inspection = PhotoInspectionService::new(handle)
+        .inspect(
+            &registered.photo_id.to_string(),
+            &registered.representation_id.to_string(),
+        )
+        .expect("inspect resolved place");
+    assert!(inspection.has_coordinates);
+    assert!(inspection.place_name.is_empty());
+    assert_eq!(
+        inspection.resolved_place_name,
+        "Yellowstone National Park · Wyoming · United States"
+    );
+    actor.shutdown().expect("shutdown catalog actor");
+    std::fs::remove_dir_all(root).expect("remove resolved-place inspection fixture");
 }
 
 fn fixture_root(label: &str) -> std::path::PathBuf {

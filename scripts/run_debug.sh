@@ -9,6 +9,9 @@ local_build_root=${SHADOW_LOCAL_BUILD_ROOT:-"$repository_parent/.shadow-local-bu
 canonical_app="$local_build_root/current-debug/Shadow.app"
 shadow_executable="$canonical_app/Contents/MacOS/Shadow"
 decode_helper="$canonical_app/Contents/MacOS/shadow-image-decode-helper"
+geonames_root="$canonical_app/Contents/Resources/GeoNames"
+geonames_index="$geonames_root/shadow-geonames-cities-v1.tsv"
+geonames_notice="$geonames_root/NOTICE.txt"
 rawnind_provider_root="$canonical_app/Contents/Helpers/RawNIND"
 rawnind_provider=${SHADOW_RAWNIND_PROVIDER_PATH:-"$rawnind_provider_root/shadow-rawnind-foundation-provider"}
 rawnind_manifest=${SHADOW_RAWNIND_MANIFEST_PATH:-"$rawnind_provider_root/shadow-rawnind-foundation-model-manifest.json"}
@@ -58,6 +61,13 @@ if [ ! -x "$decode_helper" ]; then
     echo "Expected: $decode_helper" >&2
     exit 69
 fi
+if [ ! -r "$geonames_index" ] || [ ! -r "$geonames_notice" ]; then
+    echo "Shadow canonical debug build has no complete offline city data." >&2
+    echo "Expected: $geonames_index" >&2
+    echo "Rebuild with -DSHADOW_GEONAMES_CITY_INDEX_PATH=/absolute/index.tsv" >&2
+    echo "and promote that complete Shadow.app again." >&2
+    exit 69
+fi
 if [ ! -x "$rawnind_provider" ]; then
     echo "Shadow canonical debug build has no AI RAW Denoise provider." >&2
     echo "Expected: $rawnind_provider" >&2
@@ -103,6 +113,7 @@ fi
 
 if [ "${1:-}" = "--check" ]; then
     echo "canonical debug app: $canonical_app"
+    echo "offline city index: $geonames_index"
     echo "AI RAW Denoise provider: $rawnind_provider"
     echo "AI RAW Denoise model package: $rawnind_package"
     echo "AI RAW Denoise model graph: $rawnind_graph"

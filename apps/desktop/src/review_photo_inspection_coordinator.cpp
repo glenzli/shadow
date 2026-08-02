@@ -15,10 +15,7 @@ namespace {
     ReviewPhotoInspectionTaskResult result;
     result.request = std::move(request);
     try {
-        result.inspection = loader(
-            result.request.photo_id,
-            result.request.representation_id
-        );
+        result.inspection = loader(result.request.photo_id, result.request.representation_id);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -30,23 +27,16 @@ namespace {
 ReviewPhotoInspectionCoordinator::ReviewPhotoInspectionCoordinator(
     std::shared_ptr<DesktopBackend> backend,
     QObject* parent
-)
-    : ReviewPhotoInspectionCoordinator(
-          [backend = std::move(backend)](
-              const QString& photo_id,
-              const QString& representation_id
-          ) {
-              return backend->photoInspection(photo_id, representation_id);
-          },
-          parent
-      ) {}
+) :
+    ReviewPhotoInspectionCoordinator(
+        [backend = std::move(backend)](const QString& photo_id, const QString& representation_id) {
+            return backend->photoInspection(photo_id, representation_id);
+        },
+        parent
+    ) {}
 
-ReviewPhotoInspectionCoordinator::ReviewPhotoInspectionCoordinator(
-    Loader loader,
-    QObject* parent
-)
-    : QObject(parent),
-      loader_(std::move(loader)) {
+ReviewPhotoInspectionCoordinator::ReviewPhotoInspectionCoordinator(Loader loader, QObject* parent) :
+    QObject(parent), loader_(std::move(loader)) {
     if (!loader_) {
         throw std::invalid_argument("photo inspection loader is required");
     }
@@ -104,6 +94,7 @@ QVariantMap ReviewPhotoInspectionCoordinator::presentation() const {
             static_cast<double>(source.longitude_e7) / 10'000'000.0,
         },
         {QStringLiteral("placeName"), source.place_name},
+        {QStringLiteral("resolvedPlaceName"), source.resolved_place_name},
         {QStringLiteral("hasIsoSpeed"), source.has_iso_speed},
         {QStringLiteral("isoSpeed"), source.iso_speed},
         {QStringLiteral("hasExposureTime"), source.has_exposure_time},
@@ -226,10 +217,7 @@ void ReviewPhotoInspectionCoordinator::retry() {
     if (!current.valid()) {
         return;
     }
-    static_cast<void>(session_.request(
-        current.photo_id,
-        current.representation_id
-    ));
+    static_cast<void>(session_.request(current.photo_id, current.representation_id));
     error_.clear();
     if (running_) {
         pending_ = true;
@@ -258,11 +246,7 @@ void ReviewPhotoInspectionCoordinator::start() {
         return;
     }
     running_ = true;
-    watcher_.setFuture(QtConcurrent::run(
-        run_photo_inspection,
-        loader_,
-        request
-    ));
+    watcher_.setFuture(QtConcurrent::run(run_photo_inspection, loader_, request));
 }
 
 void ReviewPhotoInspectionCoordinator::finish() {
@@ -270,22 +254,15 @@ void ReviewPhotoInspectionCoordinator::finish() {
     running_ = false;
     if (session_.accepts(result.request)) {
         if (!result.error.isEmpty()) {
-            qWarning().noquote()
-                << "Selected photo inspection failed for"
-                << result.request.photo_id
-                << result.request.representation_id
-                << result.error;
+            qWarning().noquote() << "Selected photo inspection failed for"
+                                 << result.request.photo_id << result.request.representation_id
+                                 << result.error;
             error_ = std::move(result.error);
         } else if (result.inspection.photo_id != result.request.photo_id
-                   || result.inspection.representation_id
-                       != result.request.representation_id) {
-            qWarning().noquote()
-                << "Selected photo inspection returned a different identity for"
-                << result.request.photo_id
-                << result.request.representation_id;
-            error_ = QStringLiteral(
-                "photo inspection returned a different identity"
-            );
+                   || result.inspection.representation_id != result.request.representation_id) {
+            qWarning().noquote() << "Selected photo inspection returned a different identity for"
+                                 << result.request.photo_id << result.request.representation_id;
+            error_ = QStringLiteral("photo inspection returned a different identity");
         } else {
             inspection_ = std::move(result.inspection);
             error_.clear();

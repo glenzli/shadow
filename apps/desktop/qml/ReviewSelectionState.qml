@@ -63,6 +63,8 @@ QtObject {
         Number(selectedInspection.longitude || 0)
     readonly property string selectedPlaceName:
         String(selectedInspection.placeName || "")
+    readonly property string selectedResolvedPlaceName:
+        String(selectedInspection.resolvedPlaceName || "")
     readonly property real selectedIsoSpeed:
         Number(selectedInspection.isoSpeed || 0)
     readonly property real selectedExposureTimeSeconds:

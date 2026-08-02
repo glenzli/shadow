@@ -23,6 +23,7 @@ copyright notice beside the imported material.
 | Component | Upstream project and immutable revision | Original path | License | Shadow path | Modification note |
 | --- | --- | --- | --- | --- | --- |
 | Generic Canon/Nikon/Sony base-curve samples | darktable `b0bd5b40816b0e5904fa264542e738760eb0074d` | `src/iop/basecurve.c` | GPL-3.0-or-later | `cpp/shadow-image/src/color/source_profile_catalog.cpp` | Copied only the three generic six-point curve data sets; Shadow evaluates them using its own luminance-preserving monotone interpolator. |
+| Offline country/administrative-area/city index | GeoNames daily dump; the exact snapshot identity is stored in each generated index header | `cities500.zip`, `countryInfo.txt`, `admin1CodesASCII.txt` | CC BY 4.0 | Packaged as `GeoNames/shadow-geonames-cities-v1.tsv`; attribution is installed from `apps/desktop/assets/geonames/NOTICE.txt` | Keeps populated-place coordinates, population, country, first-level administrative area, and city name; converts coordinates to fixed-point integers, joins labels, and sorts by latitude for bounded nearest-city lookup. No source code is imported. |
 
 The expected first candidates are carefully selected, file-level-audited data
 or algorithms from darktable and RawTherapee. A prior study of either project,

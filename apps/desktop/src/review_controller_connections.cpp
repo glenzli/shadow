@@ -1,5 +1,7 @@
 #include "review_controller.hpp"
 
+#include "map_provider_preferences.hpp"
+
 #include <QCoreApplication>
 #include <QTimer>
 
@@ -110,15 +112,38 @@ void ReviewController::initializeCoordinatorWiring() {
     );
     connect(
         &place_resolution_coordinator_,
+        &ReviewLibraryPlaceResolutionCoordinator::stateChanged,
+        this,
+        &ReviewController::libraryPlaceResolutionChanged
+    );
+    connect(
+        &place_resolution_coordinator_,
         &ReviewLibraryPlaceResolutionCoordinator::placesChanged,
         this,
         [this]() {
+            photo_inspection_coordinator_.retry();
             refreshLibraryFacets();
             if (!filtered_model_.countryKey().isEmpty()
                 || !filtered_model_.localityKey().isEmpty()) {
                 scheduleFilterQuery();
             }
         }
+    );
+    const auto synchronize_place_provider = [this]() {
+        place_resolution_coordinator_.synchronizeProviderAvailability();
+        emit libraryPlaceResolutionChanged();
+    };
+    connect(
+        map_provider_preferences_,
+        &MapProviderPreferences::googleApiKeyStoredChanged,
+        this,
+        synchronize_place_provider
+    );
+    connect(
+        map_provider_preferences_,
+        &MapProviderPreferences::googleReverseGeocodingAllowedChanged,
+        this,
+        synchronize_place_provider
     );
     connect(
         &keyword_coordinator_,
@@ -290,7 +315,7 @@ void ReviewController::initializeCoordinatorWiring() {
              false](const BackendLibraryPhotoFilter& filter, const quint64 generation) mutable {
             facet_coordinator_.refresh(filter, generation);
             if (!import_coordinator_.scanning()) {
-                place_resolution_coordinator_.start();
+                place_resolution_coordinator_.synchronizeProviderAvailability();
             }
             if (startup_dependencies_loaded) {
                 return;

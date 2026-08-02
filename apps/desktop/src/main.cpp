@@ -1,4 +1,6 @@
+#include "ai_preferences.hpp"
 #include "cache_maintenance_controller.hpp"
+#include "cache_preferences.hpp"
 #include "desktop_backend.hpp"
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
@@ -149,6 +151,8 @@ int main(int argc, char* argv[]) {
             ? QDir(application_data).filePath(QStringLiteral("ui-preferences.ini"))
             : QString{};
     UiPreferences preferences(application, isolated_settings_file);
+    AiPreferences ai_preferences(application_data, isolated_settings_file);
+    CachePreferences cache_preferences(cache_root, isolated_settings_file);
     MapProviderPreferences map_provider_preferences(
         isolated_settings_file,
         headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
@@ -191,9 +195,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    ReviewController controller(backend, isolated_settings_file);
+    ReviewController controller(backend, &map_provider_preferences, isolated_settings_file);
     ExportController export_controller(backend, isolated_settings_file);
-    CacheMaintenanceController cache_maintenance_controller(backend);
+    CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
     JustifiedReviewLayoutModel justified_review_layout;
     justified_review_layout.setSourceModel(controller.model());
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
@@ -202,7 +206,8 @@ int main(int argc, char* argv[]) {
         edit_preview_store,
         edit_preview_presentation_context
     );
-    EditController editor(backend, edit_preview_store, edit_preview_presentation_context);
+    EditController
+        editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
     HistoryCoordinator history({
         .photo_page = [backend](
                           const QString& photo_id,
@@ -260,6 +265,8 @@ int main(int argc, char* argv[]) {
         },
         {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
+        {QStringLiteral("aiPreferences"), QVariant::fromValue(&ai_preferences)},
+        {QStringLiteral("cachePreferences"), QVariant::fromValue(&cache_preferences)},
         {
             QStringLiteral("mapProviderPreferences"),
             QVariant::fromValue(&map_provider_preferences),

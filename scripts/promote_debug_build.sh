@@ -27,6 +27,9 @@ promotion_lock="$local_build_root/.promote-debug-build.lock"
 
 shadow_executable="$candidate_app/Contents/MacOS/Shadow"
 decode_helper="$candidate_app/Contents/MacOS/shadow-image-decode-helper"
+geonames_root="$candidate_app/Contents/Resources/GeoNames"
+geonames_index="$geonames_root/shadow-geonames-cities-v1.tsv"
+geonames_notice="$geonames_root/NOTICE.txt"
 rawnind_provider_root="$candidate_app/Contents/Helpers/RawNIND"
 rawnind_provider="$rawnind_provider_root/shadow-rawnind-foundation-provider"
 rawnind_runtime="$rawnind_provider_root/_rawnind_runtime"
@@ -71,6 +74,11 @@ if [ ! -d "$candidate_app" ] || [ ! -x "$shadow_executable" ]; then
 fi
 if [ ! -x "$decode_helper" ]; then
     echo "promote debug build: candidate does not contain the isolated RAW decode helper" >&2
+    exit 65
+fi
+if [ ! -r "$geonames_index" ] || [ ! -r "$geonames_notice" ]; then
+    echo "promote debug build: candidate does not contain complete offline city data" >&2
+    echo "Expected: $geonames_index" >&2
     exit 65
 fi
 if [ ! -x "$rawnind_provider" ]; then
@@ -152,6 +160,8 @@ ditto "$candidate_app" "$incoming_release/Shadow.app"
 
 shadow_digest=$(shasum -a 256 "$shadow_executable" | awk '{print $1}')
 helper_digest=$(shasum -a 256 "$decode_helper" | awk '{print $1}')
+geonames_index_digest=$(shasum -a 256 "$geonames_index" | awk '{print $1}')
+geonames_notice_digest=$(shasum -a 256 "$geonames_notice" | awk '{print $1}')
 rawnind_provider_digest=$(shasum -a 256 "$rawnind_provider" | awk '{print $1}')
 rawnind_manifest_digest=$(shasum -a 256 "$rawnind_manifest" | awk '{print $1}')
 copied_shadow_digest=$(
@@ -162,12 +172,18 @@ copied_helper_digest=$(
         "$incoming_release/Shadow.app/Contents/MacOS/shadow-image-decode-helper" |
         awk '{print $1}'
 )
+copied_geonames_index="$incoming_release/Shadow.app/Contents/Resources/GeoNames/shadow-geonames-cities-v1.tsv"
+copied_geonames_notice="$incoming_release/Shadow.app/Contents/Resources/GeoNames/NOTICE.txt"
+copied_geonames_index_digest=$(shasum -a 256 "$copied_geonames_index" | awk '{print $1}')
+copied_geonames_notice_digest=$(shasum -a 256 "$copied_geonames_notice" | awk '{print $1}')
 copied_rawnind_provider="$incoming_release/Shadow.app/Contents/Helpers/RawNIND/shadow-rawnind-foundation-provider"
 copied_rawnind_manifest="$incoming_release/Shadow.app/Contents/Helpers/RawNIND/shadow-rawnind-foundation-model-manifest.json"
 copied_rawnind_provider_digest=$(shasum -a 256 "$copied_rawnind_provider" | awk '{print $1}')
 copied_rawnind_manifest_digest=$(shasum -a 256 "$copied_rawnind_manifest" | awk '{print $1}')
 if [ "$shadow_digest" != "$copied_shadow_digest" ] ||
     [ "$helper_digest" != "$copied_helper_digest" ] ||
+    [ "$geonames_index_digest" != "$copied_geonames_index_digest" ] ||
+    [ "$geonames_notice_digest" != "$copied_geonames_notice_digest" ] ||
     [ "$rawnind_provider_digest" != "$copied_rawnind_provider_digest" ] ||
     [ "$rawnind_manifest_digest" != "$copied_rawnind_manifest_digest" ]; then
     echo "promote debug build: copied application digest verification failed" >&2
@@ -199,6 +215,8 @@ worktree_digest=$(
     echo "worktree_status_sha256=$worktree_digest"
     echo "shadow_executable_sha256=$shadow_digest"
     echo "decode_helper_sha256=$helper_digest"
+    echo "geonames_city_index_sha256=$geonames_index_digest"
+    echo "geonames_notice_sha256=$geonames_notice_digest"
     echo "rawnind_provider_sha256=$rawnind_provider_digest"
     echo "rawnind_manifest_sha256=$rawnind_manifest_digest"
     echo "rawnind_model_verified=true"
@@ -215,6 +233,8 @@ next_link=
 canonical_app="$current_link/Shadow.app"
 if [ ! -x "$canonical_app/Contents/MacOS/Shadow" ] ||
     [ ! -x "$canonical_app/Contents/MacOS/shadow-image-decode-helper" ] ||
+    [ ! -r "$canonical_app/Contents/Resources/GeoNames/shadow-geonames-cities-v1.tsv" ] ||
+    [ ! -r "$canonical_app/Contents/Resources/GeoNames/NOTICE.txt" ] ||
     [ ! -x "$canonical_app/Contents/Helpers/RawNIND/shadow-rawnind-foundation-provider" ] ||
     [ ! -d "$canonical_app/Contents/Helpers/RawNIND/_rawnind_runtime" ]; then
     echo "promote debug build: canonical link verification failed" >&2

@@ -1,5 +1,7 @@
 #include "review_controller.hpp"
 
+#include "default_library_reverse_geocoder.hpp"
+#include "map_provider_preferences.hpp"
 #include "review_controller_backend_operations.hpp"
 
 #include <QCoreApplication>
@@ -14,16 +16,18 @@ namespace BackendOperations = ReviewControllerBackendOperations;
 // responsibility-named review_controller_*.cpp implementation modules.
 ReviewController::ReviewController(
     std::shared_ptr<DesktopBackend> backend,
+    MapProviderPreferences* const map_provider_preferences,
     const QString& isolated_settings_file,
     QObject* parent
 ) :
-    QObject(parent), backend_(std::move(backend)), photo_inspection_coordinator_(backend_),
+    QObject(parent), backend_(std::move(backend)),
+    map_provider_preferences_(map_provider_preferences), photo_inspection_coordinator_(backend_),
     source_health_coordinator_(BackendOperations::source_health_operations(backend_)),
     album_coordinator_(BackendOperations::album_operations(backend_)),
     facet_coordinator_(BackendOperations::facet_operations(backend_)),
     place_resolution_coordinator_(
         BackendOperations::place_resolution_operations(backend_),
-        makeSystemLibraryReverseGeocoder()
+        makeDefaultLibraryReverseGeocoder(map_provider_preferences_)
     ),
     keyword_coordinator_(BackendOperations::keyword_operations(backend_)),
     map_coordinator_(BackendOperations::map_operations(backend_)),
@@ -52,6 +56,7 @@ ReviewController::ReviewController(
     // Library state is Catalog-backed now, so the former desktop-local
     // settings file is deliberately not consulted.
     (void)isolated_settings_file;
+    Q_ASSERT(map_provider_preferences_ != nullptr);
     initializeCoordinatorWiring();
 }
 
@@ -219,6 +224,34 @@ QVariantList ReviewController::libraryCityFacets() const {
 
 bool ReviewController::libraryFacetsBusy() const noexcept {
     return facet_coordinator_.busy();
+}
+
+bool ReviewController::libraryPlaceResolutionRunning() const noexcept {
+    return place_resolution_coordinator_.running();
+}
+
+QString ReviewController::libraryPlaceResolutionStatusCode() const {
+    return place_resolution_coordinator_.statusCode();
+}
+
+QString ReviewController::libraryPlaceResolutionErrorText() const {
+    return place_resolution_coordinator_.errorText();
+}
+
+qulonglong ReviewController::libraryPlaceResolutionProcessedCount() const noexcept {
+    return static_cast<qulonglong>(place_resolution_coordinator_.processedCount());
+}
+
+qulonglong ReviewController::libraryPlaceResolutionRecordedCount() const noexcept {
+    return static_cast<qulonglong>(place_resolution_coordinator_.recordedCount());
+}
+
+qulonglong ReviewController::libraryPlaceResolutionFailedCount() const noexcept {
+    return static_cast<qulonglong>(place_resolution_coordinator_.failedCount());
+}
+
+void ReviewController::retryLibraryPlaceResolution() {
+    place_resolution_coordinator_.start();
 }
 
 QVariantList ReviewController::libraryKeywords() const {

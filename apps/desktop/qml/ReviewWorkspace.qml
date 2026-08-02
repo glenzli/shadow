@@ -60,6 +60,8 @@ Item {
     readonly property alias selectedLatitude: selectionState.selectedLatitude
     readonly property alias selectedLongitude: selectionState.selectedLongitude
     readonly property alias selectedPlaceName: selectionState.selectedPlaceName
+    readonly property alias selectedResolvedPlaceName:
+        selectionState.selectedResolvedPlaceName
     readonly property alias selectedIsoSpeed: selectionState.selectedIsoSpeed
     readonly property alias selectedExposureTimeSeconds:
         selectionState.selectedExposureTimeSeconds

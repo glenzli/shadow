@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "ai_preferences.hpp"
 #include "edit_ai_mask_controller.hpp"
 #include "edit_raw_foundation_controller.hpp"
 
@@ -36,11 +37,12 @@ EditController::EditController(
     std::shared_ptr<DesktopBackend> backend,
     std::shared_ptr<EditPreviewStore> preview_store,
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context,
+    AiPreferences* const ai_preferences,
     QObject* parent
 ) :
     QObject(parent), backend_(std::move(backend)), preview_store_(std::move(preview_store)),
-    preview_presentation_context_(std::move(preview_presentation_context)), versions_(this),
-    tone_curve_points_(this) {
+    preview_presentation_context_(std::move(preview_presentation_context)),
+    ai_preferences_(ai_preferences), versions_(this), tone_curve_points_(this) {
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
     raw_foundation_controller_ = std::make_unique<EditRawFoundationController>(*this, backend_);
     histogram_ = empty_histogram();
@@ -77,6 +79,20 @@ EditController::EditController(
     connect(this, &EditController::parametersChanged, this, [this] {
         ai_mask_controller_->resetContext();
     });
+    if (ai_preferences_ != nullptr) {
+        connect(
+            ai_preferences_,
+            &AiPreferences::rawDenoiseExecutionAllowedChanged,
+            this,
+            &EditController::foundationAiDenoiseChanged
+        );
+        connect(
+            ai_preferences_,
+            &AiPreferences::subjectMaskExecutionAllowedChanged,
+            this,
+            &EditController::aiMaskPromptChanged
+        );
+    }
     connect(
         &state_watcher_,
         &QFutureWatcher<EditStateTaskResult>::finished,

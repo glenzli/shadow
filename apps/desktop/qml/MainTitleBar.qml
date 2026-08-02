@@ -11,7 +11,7 @@ ToolBar {
 
     required property var hostWindow
     required property var editor
-    required property var preferencesMenu
+    required property var settingsDialog
     required property int workspaceIndex
     required property string descriptiveTitle
     required property bool canOpenSelectedPhoto
@@ -206,11 +206,7 @@ ToolBar {
                 text: qsTr("Settings")
                 toolTipText: text
                 accessibleName: text
-                onClicked: titleBar.preferencesMenu.popup(
-                    settingsButton,
-                    settingsButton.width - titleBar.preferencesMenu.width,
-                    settingsButton.height + titleBar.bottomPadding + 4
-                )
+                onClicked: titleBar.settingsDialog.present("general")
             }
         }
     }

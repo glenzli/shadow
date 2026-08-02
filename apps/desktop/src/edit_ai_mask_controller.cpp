@@ -1,5 +1,6 @@
 #include "edit_ai_mask_controller.hpp"
 
+#include "ai_preferences.hpp"
 #include "edit_controller.hpp"
 
 #include <QBuffer>
@@ -135,6 +136,14 @@ bool EditController::aiMaskCanGenerate() const noexcept {
     return ai_mask_controller_ && ai_mask_controller_->canGenerate();
 }
 
+bool EditController::rawDenoiseExecutionAllowed() const noexcept {
+    return ai_preferences_ == nullptr || ai_preferences_->rawDenoiseExecutionAllowed();
+}
+
+bool EditController::subjectMaskExecutionAllowed() const noexcept {
+    return ai_preferences_ == nullptr || ai_preferences_->subjectMaskExecutionAllowed();
+}
+
 bool EditController::aiMaskHasCandidate() const noexcept {
     return ai_mask_controller_ && ai_mask_controller_->hasCandidate();
 }
@@ -266,7 +275,7 @@ bool EditAiMaskController::foregroundMode() const noexcept {
 }
 
 bool EditAiMaskController::canGenerate() const noexcept {
-    return active_ && !busy() && contextIsCurrent()
+    return owner_.subjectMaskExecutionAllowed() && active_ && !busy() && contextIsCurrent()
            && std::ranges::any_of(
                prompt_state_.points(),
                [](const shadow::desktop::AiMaskPromptPoint& point) {
@@ -305,6 +314,12 @@ QVariantList EditAiMaskController::promptPoints() const {
 bool EditAiMaskController::beginPrompt() {
     if (active_) {
         return true;
+    }
+    if (!owner_.subjectMaskExecutionAllowed()) {
+        owner_.setStatusMessage(ai_mask_message(
+            QT_TRANSLATE_NOOP("EditController", "AI subject selection is disabled in Settings")
+        ));
+        return false;
     }
     const auto* const target = owner_.selectedGradeNode();
     if (!owner_.active_ || owner_.interactionLocked() || target == nullptr || !target->enabled
@@ -389,6 +404,13 @@ void EditAiMaskController::clearPoints() {
 
 void EditAiMaskController::generate() {
     if (!active_ || busy() || !contextIsCurrent()) {
+        return;
+    }
+    if (!owner_.subjectMaskExecutionAllowed()) {
+        owner_.setStatusMessage(ai_mask_message(
+            QT_TRANSLATE_NOOP("EditController", "AI subject selection is disabled in Settings")
+        ));
+        emit owner_.aiMaskPromptChanged();
         return;
     }
     if (owner_.dirty_ || owner_.state_running_) {

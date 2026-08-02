@@ -167,6 +167,10 @@ Popup {
             wrapMode: Text.WordWrap
         }
 
+        LibraryPlaceResolutionStatus {
+            controller: root.controller
+        }
+
         ScrollView {
             id: facetScroll
             Layout.fillWidth: true

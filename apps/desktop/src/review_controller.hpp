@@ -29,6 +29,8 @@
 #include <cstdint>
 #include <memory>
 
+class MapProviderPreferences;
+
 class ReviewController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
@@ -120,6 +122,30 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(QVariantList libraryCityFacets READ libraryCityFacets NOTIFY libraryFacetsChanged)
     Q_PROPERTY(bool libraryFacetsBusy READ libraryFacetsBusy NOTIFY libraryFacetsChanged)
+    Q_PROPERTY(
+        bool libraryPlaceResolutionRunning READ libraryPlaceResolutionRunning NOTIFY
+            libraryPlaceResolutionChanged
+    )
+    Q_PROPERTY(
+        QString libraryPlaceResolutionStatusCode READ libraryPlaceResolutionStatusCode NOTIFY
+            libraryPlaceResolutionChanged
+    )
+    Q_PROPERTY(
+        QString libraryPlaceResolutionErrorText READ libraryPlaceResolutionErrorText NOTIFY
+            libraryPlaceResolutionChanged
+    )
+    Q_PROPERTY(
+        qulonglong libraryPlaceResolutionProcessedCount READ libraryPlaceResolutionProcessedCount
+            NOTIFY libraryPlaceResolutionChanged
+    )
+    Q_PROPERTY(
+        qulonglong libraryPlaceResolutionRecordedCount READ libraryPlaceResolutionRecordedCount
+            NOTIFY libraryPlaceResolutionChanged
+    )
+    Q_PROPERTY(
+        qulonglong libraryPlaceResolutionFailedCount READ libraryPlaceResolutionFailedCount NOTIFY
+            libraryPlaceResolutionChanged
+    )
     Q_PROPERTY(QVariantList libraryKeywords READ libraryKeywords NOTIFY libraryKeywordsChanged)
     Q_PROPERTY(
         QVariantList libraryPhotoKeywords READ libraryPhotoKeywords NOTIFY libraryKeywordsChanged
@@ -197,6 +223,7 @@ class ReviewController final : public QObject {
   public:
     explicit ReviewController(
         std::shared_ptr<DesktopBackend> backend,
+        MapProviderPreferences* map_provider_preferences,
         const QString& isolated_settings_file = {},
         QObject* parent = nullptr
     );
@@ -243,6 +270,12 @@ class ReviewController final : public QObject {
     [[nodiscard]] QVariantList libraryCountryFacets() const;
     [[nodiscard]] QVariantList libraryCityFacets() const;
     [[nodiscard]] bool libraryFacetsBusy() const noexcept;
+    [[nodiscard]] bool libraryPlaceResolutionRunning() const noexcept;
+    [[nodiscard]] QString libraryPlaceResolutionStatusCode() const;
+    [[nodiscard]] QString libraryPlaceResolutionErrorText() const;
+    [[nodiscard]] qulonglong libraryPlaceResolutionProcessedCount() const noexcept;
+    [[nodiscard]] qulonglong libraryPlaceResolutionRecordedCount() const noexcept;
+    [[nodiscard]] qulonglong libraryPlaceResolutionFailedCount() const noexcept;
     [[nodiscard]] QVariantList libraryKeywords() const;
     [[nodiscard]] QVariantList libraryPhotoKeywords() const;
     [[nodiscard]] bool libraryKeywordsBusy() const noexcept;
@@ -326,6 +359,7 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshLibraryFacets();
+    Q_INVOKABLE void retryLibraryPlaceResolution();
     Q_INVOKABLE void refreshLibraryKeywords();
     Q_INVOKABLE void requestLibraryKeywordsForPhoto(const QString& photo_id);
     Q_INVOKABLE void createLibraryKeyword(const QString& parent_id, const QString& name);
@@ -427,6 +461,7 @@ class ReviewController final : public QObject {
     void libraryAlbumChanged();
     void libraryAlbumsChanged();
     void libraryFacetsChanged();
+    void libraryPlaceResolutionChanged();
     void libraryKeywordsChanged();
     void libraryMapChanged();
     void librarySourceHealthChanged();
@@ -448,6 +483,7 @@ class ReviewController final : public QObject {
     void projectDecisionState(const BackendReviewDecisionState& state);
 
     std::shared_ptr<DesktopBackend> backend_;
+    MapProviderPreferences* map_provider_preferences_ = nullptr;
     ReviewPhotoInspectionCoordinator photo_inspection_coordinator_;
     ReviewSourceHealthCoordinator source_health_coordinator_;
     ReviewLibraryAlbumCoordinator album_coordinator_;

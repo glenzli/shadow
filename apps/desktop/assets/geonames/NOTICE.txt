@@ -1,0 +1,20 @@
+Shadow Offline City Data
+========================
+
+This product includes transformed data from GeoNames:
+https://www.geonames.org/
+
+Source exports:
+- cities500.zip
+- countryInfo.txt
+- admin1CodesASCII.txt
+
+GeoNames data is licensed under the Creative Commons Attribution 4.0
+International License:
+https://creativecommons.org/licenses/by/4.0/
+
+Shadow removes fields that are not needed for country, first-level
+administrative area, and nearest-city lookup; converts coordinates to fixed
+point integers; joins country and administrative-area names; and sorts the
+result by latitude. GeoNames provides the source data as-is without warranty
+of accuracy, timeliness, or completeness.

@@ -87,6 +87,7 @@ struct BackendPhotoInspection final {
     std::int32_t latitude_e7 = 0;
     std::int32_t longitude_e7 = 0;
     QString place_name;
+    QString resolved_place_name;
     bool has_iso_speed = false;
     double iso_speed = 0.0;
     bool has_exposure_time = false;

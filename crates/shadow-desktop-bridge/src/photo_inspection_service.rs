@@ -41,7 +41,22 @@ impl PhotoInspectionService {
             return Ok(unavailable(photo_id, representation_id));
         };
         let effective_facts = self.catalog.effective_photo_library_facts(photo_id)?;
-        Ok(inspection(record, effective_facts.as_ref()))
+        let resolved_place_name = effective_facts
+            .as_ref()
+            .and_then(|facts| Some((facts.latitude_e7?, facts.longitude_e7?)))
+            .map(|(latitude_e7, longitude_e7)| {
+                self.catalog
+                    .library_place_resolution(latitude_e7, longitude_e7)
+            })
+            .transpose()?
+            .flatten()
+            .map(place_presentation_name)
+            .unwrap_or_default();
+        Ok(inspection(
+            record,
+            effective_facts.as_ref(),
+            resolved_place_name,
+        ))
     }
 }
 
@@ -65,6 +80,7 @@ fn unavailable(photo_id: PhotoId, representation_id: RepresentationId) -> ffi::F
         latitude_e7: 0,
         longitude_e7: 0,
         place_name: String::new(),
+        resolved_place_name: String::new(),
         has_iso_speed: false,
         iso_speed: 0.0,
         has_exposure_time: false,
@@ -111,6 +127,7 @@ fn unavailable(photo_id: PhotoId, representation_id: RepresentationId) -> ffi::F
 fn inspection(
     record: PhotoInspectionRecord,
     effective_facts: Option<&shadow_catalog::LibraryPhotoFacts>,
+    resolved_place_name: String,
 ) -> ffi::FfiPhotoInspection {
     let has_source_modified_at = record.source.modified_at_ms.is_some();
     let source_modified_at_ms = record.source.modified_at_ms.unwrap_or_default();
@@ -267,6 +284,7 @@ fn inspection(
             .as_ref()
             .map_or(0, |coordinates| coordinates.1),
         place_name: effective_coordinates.map_or_else(String::new, |coordinates| coordinates.2),
+        resolved_place_name,
         has_iso_speed: has_metadata && iso_speed > 0.0,
         iso_speed,
         has_exposure_time: has_metadata && exposure_time_seconds > 0.0,
@@ -321,6 +339,19 @@ fn inspection(
         laplacian_variance,
         edge_energy,
     }
+}
+
+fn place_presentation_name(place: shadow_catalog::LibraryPlaceResolution) -> String {
+    if !place.locality_label.is_empty() {
+        return place.locality_label;
+    }
+    if !place.display_name.is_empty() {
+        return place.display_name;
+    }
+    if !place.country_name.is_empty() {
+        return place.country_name;
+    }
+    place.country_code
 }
 
 #[cfg(test)]

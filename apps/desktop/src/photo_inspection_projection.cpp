@@ -17,9 +17,7 @@ namespace {
 
 } // namespace
 
-BackendPhotoInspection project_photo_inspection(
-    const shadow::desktop::FfiPhotoInspection& source
-) {
+BackendPhotoInspection project_photo_inspection(const shadow::desktop::FfiPhotoInspection& source) {
     return {
         .available = source.available,
         .photo_id = qstring(source.photo_id),
@@ -39,6 +37,7 @@ BackendPhotoInspection project_photo_inspection(
         .latitude_e7 = source.latitude_e7,
         .longitude_e7 = source.longitude_e7,
         .place_name = qstring(source.place_name),
+        .resolved_place_name = qstring(source.resolved_place_name),
         .has_iso_speed = source.has_iso_speed,
         .iso_speed = source.iso_speed,
         .has_exposure_time = source.has_exposure_time,
@@ -68,12 +67,8 @@ BackendPhotoInspection project_photo_inspection(
         .has_technical_observation = source.has_technical_observation,
         .technical_input_width = source.technical_input_width,
         .technical_input_height = source.technical_input_height,
-        .technical_preprocessing_version = qstring(
-            source.technical_preprocessing_version
-        ),
-        .technical_implementation_version = qstring(
-            source.technical_implementation_version
-        ),
+        .technical_preprocessing_version = qstring(source.technical_preprocessing_version),
+        .technical_implementation_version = qstring(source.technical_implementation_version),
         .mean_luma = source.mean_luma,
         .p01_luma = source.p01_luma,
         .p50_luma = source.p50_luma,

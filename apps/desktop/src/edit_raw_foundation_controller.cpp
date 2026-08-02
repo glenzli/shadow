@@ -293,8 +293,7 @@ bool EditRawFoundationController::enabled() const noexcept {
 
 bool EditRawFoundationController::requested() const noexcept {
     return state_.recipe_enabled() || pending_recipe_enable_ || start_after_probe_
-           || start_when_execution_idle_
-           || (state_.job_busy() && !state_.cancellation_requested());
+           || start_when_execution_idle_ || (state_.job_busy() && !state_.cancellation_requested());
 }
 
 bool EditRawFoundationController::available() const noexcept {
@@ -307,7 +306,7 @@ bool EditRawFoundationController::busy() const noexcept {
 
 bool EditRawFoundationController::canStart() const noexcept {
     return state_.active() && owner_.grade_stack_.raw_ai_denoise.present && !state_.recipe_enabled()
-           && !busy() && !owner_.interactionLocked();
+           && owner_.rawDenoiseExecutionAllowed() && !busy() && !owner_.interactionLocked();
 }
 
 bool EditRawFoundationController::canApply() const noexcept {
@@ -367,31 +366,34 @@ QString EditRawFoundationController::noiseRecommendationText() const {
             .translated();
     }
     if (!noise_assessment_error_.isEmpty() || !noise_assessment_) {
-        return raw_foundation_message(QT_TRANSLATE_NOOP(
-                   "EditController",
-                   "Noise advice unavailable · inspect at 100% before generating"
-        ))
+        return raw_foundation_message(
+                   QT_TRANSLATE_NOOP(
+                       "EditController",
+                       "Noise advice unavailable · inspect at 100% before generating"
+                   )
+        )
             .translated();
     }
     if (noise_assessment_->confidence_percent < 50U) {
-        return raw_foundation_message(QT_TRANSLATE_NOOP(
-                   "EditController",
-                   "Noise estimate uncertain · inspect at 100% before generating"
-        ))
+        return raw_foundation_message(
+                   QT_TRANSLATE_NOOP(
+                       "EditController",
+                       "Noise estimate uncertain · inspect at 100% before generating"
+                   )
+        )
             .translated();
     }
     switch (noise_assessment_->level) {
     case BackendRawFoundationNoiseLevel::Low:
-        return raw_foundation_message(QT_TRANSLATE_NOOP(
-                   "EditController",
-                   "Low noise · AI denoise likely unnecessary"
-        ))
+        return raw_foundation_message(
+                   QT_TRANSLATE_NOOP("EditController", "Low noise · AI denoise likely unnecessary")
+        )
             .translated();
     case BackendRawFoundationNoiseLevel::Moderate:
         return raw_foundation_message(QT_TRANSLATE_NOOP(
-                   "EditController",
-                   "Some noise · use AI denoise only when needed"
-        ))
+                                          "EditController",
+                                          "Some noise · use AI denoise only when needed"
+                                      ))
             .translated();
     case BackendRawFoundationNoiseLevel::High:
         return raw_foundation_message(
@@ -442,6 +444,13 @@ void EditRawFoundationController::start() {
     if (state_.materialized_ready()) {
         pending_recipe_enable_ = true;
         maybeApplyReady();
+        return;
+    }
+    if (!owner_.rawDenoiseExecutionAllowed()) {
+        setStatus(raw_foundation_message(
+            QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise execution is disabled in Settings")
+        ));
+        publishChange();
         return;
     }
     if (probe_watcher_.isRunning()) {
@@ -643,24 +652,23 @@ void EditRawFoundationController::requestNoiseAssessment() {
     const auto context_generation = state_.context_generation();
     const QString photo_id = owner_.photo_id_;
     const QString source_path = owner_.source_path_;
-    noise_watcher_.setFuture(QtConcurrent::run(
-        assess_raw_foundation_noise,
-        backend_,
-        photo_id,
-        source_path,
-        context_generation
-    ));
+    noise_watcher_.setFuture(
+        QtConcurrent::run(
+            assess_raw_foundation_noise,
+            backend_,
+            photo_id,
+            source_path,
+            context_generation
+        )
+    );
     publishChange();
 }
 
 void EditRawFoundationController::finishNoiseAssessment() {
     const EditRawFoundationNoiseTaskResult task = noise_watcher_.result();
-    const bool current = owner_.grade_stack_.raw_ai_denoise.present
-                         && contextIsCurrent(
-                             task.context_generation,
-                             task.photo_id,
-                             task.source_path
-                         );
+    const bool current =
+        owner_.grade_stack_.raw_ai_denoise.present
+        && contextIsCurrent(task.context_generation, task.photo_id, task.source_path);
     if (current) {
         if (task.error.isEmpty()) {
             noise_assessment_ = task.assessment;

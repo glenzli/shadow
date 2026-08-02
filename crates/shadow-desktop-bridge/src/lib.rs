@@ -214,6 +214,7 @@ mod ffi {
         latitude_e7: i32,
         longitude_e7: i32,
         place_name: String,
+        resolved_place_name: String,
         has_iso_speed: bool,
         iso_speed: f64,
         has_exposure_time: bool,

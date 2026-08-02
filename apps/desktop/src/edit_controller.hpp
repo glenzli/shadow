@@ -37,6 +37,7 @@ struct PendingPhotoOpen final {
 class EditPreviewPresentationContext;
 class EditAiMaskController;
 class EditRawFoundationController;
+class AiPreferences;
 
 class EditController final : public QObject {
     Q_OBJECT
@@ -179,8 +180,8 @@ class EditController final : public QObject {
             foundationAiDenoiseChanged
     )
     Q_PROPERTY(
-        QString foundationAiDenoiseNoiseRecommendation READ
-            foundationAiDenoiseNoiseRecommendation NOTIFY foundationAiDenoiseChanged
+        QString foundationAiDenoiseNoiseRecommendation READ foundationAiDenoiseNoiseRecommendation
+            NOTIFY foundationAiDenoiseChanged
     )
     Q_PROPERTY(bool opticsEnabled READ opticsEnabled WRITE setOpticsEnabled NOTIFY opticsChanged)
     Q_PROPERTY(
@@ -240,6 +241,13 @@ class EditController final : public QObject {
     Q_PROPERTY(bool aiMaskCanGenerate READ aiMaskCanGenerate NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskHasCandidate READ aiMaskHasCandidate NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(QString aiMaskCandidateSource READ aiMaskCandidateSource NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(
+        bool rawDenoiseExecutionAllowed READ rawDenoiseExecutionAllowed NOTIFY
+            foundationAiDenoiseChanged
+    )
+    Q_PROPERTY(
+        bool subjectMaskExecutionAllowed READ subjectMaskExecutionAllowed NOTIFY aiMaskPromptChanged
+    )
     // This is an in-session geometry clipboard, not a Recipe asset. A paste
     // creates the selected node's own one-mask attachment on the current photo.
     Q_PROPERTY(bool hasCopiedNodeMask READ hasCopiedNodeMask NOTIFY nodeMaskClipboardChanged)
@@ -362,6 +370,7 @@ class EditController final : public QObject {
         std::shared_ptr<DesktopBackend> backend,
         std::shared_ptr<EditPreviewStore> preview_store,
         std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context,
+        AiPreferences* ai_preferences = nullptr,
         QObject* parent = nullptr
     );
     ~EditController() override;
@@ -449,6 +458,8 @@ class EditController final : public QObject {
     [[nodiscard]] bool aiMaskCanGenerate() const noexcept;
     [[nodiscard]] bool aiMaskHasCandidate() const noexcept;
     [[nodiscard]] QString aiMaskCandidateSource() const;
+    [[nodiscard]] bool rawDenoiseExecutionAllowed() const noexcept;
+    [[nodiscard]] bool subjectMaskExecutionAllowed() const noexcept;
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
@@ -875,6 +886,7 @@ class EditController final : public QObject {
     std::shared_ptr<DesktopBackend> backend_;
     std::shared_ptr<EditPreviewStore> preview_store_;
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
+    AiPreferences* ai_preferences_ = nullptr;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
     EditVersionModel versions_;

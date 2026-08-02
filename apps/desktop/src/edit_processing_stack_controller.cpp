@@ -1,5 +1,7 @@
 #include "edit_controller.hpp"
 
+#include "ai_preferences.hpp"
+
 #include <algorithm>
 #include <initializer_list>
 
@@ -44,7 +46,9 @@ void EditController::addRawDenoiseNode() {
         .enabled = false,
         .bypassed = false,
         .model = 0,
-        .amount_percent = 100,
+        .amount_percent = static_cast<std::uint8_t>(
+            ai_preferences_ == nullptr ? 100 : ai_preferences_->rawDenoiseDefaultAmount()
+        ),
     };
     rawDenoiseEdited(QStringLiteral("add"), before);
     selectRawDenoiseNode();
@@ -63,9 +67,8 @@ void EditController::setRawDenoiseNodeVisible(const bool visible) {
     grade_stack_.raw_ai_denoise.bypassed = !visible;
     rawDenoiseEdited(QStringLiteral("visibility"), before);
     setStatusMessage(processing_stack_message(
-        visible
-            ? QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise node is visible")
-            : QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise node is hidden")
+        visible ? QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise node is visible")
+                : QT_TRANSLATE_NOOP("EditController", "AI RAW Denoise node is hidden")
     ));
 }
 

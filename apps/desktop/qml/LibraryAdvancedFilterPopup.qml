@@ -270,6 +270,10 @@ Popup {
             wrapMode: Text.WordWrap
         }
 
+        LibraryPlaceResolutionStatus {
+            controller: root.controller
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: reviewGrid.implicitHeight + 16

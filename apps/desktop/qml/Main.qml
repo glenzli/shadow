@@ -14,6 +14,8 @@ ApplicationWindow {
     required property var editPreviewPresentation
     required property var exportController
     required property var cacheMaintenanceController
+    required property var aiPreferences
+    required property var cachePreferences
     required property var historyController
     required property var preferences
     required property var mapProviderPreferences
@@ -94,30 +96,29 @@ ApplicationWindow {
         }
     }
 
-    PreferencesMenu {
-        id: preferencesMenu
+    ApplicationSettingsDialog {
+        id: applicationSettingsDialog
         preferences: window.preferences
-        onOpenLutLibraryRequested: window.openLutManager()
-        onOpenCacheMaintenanceRequested: window.openCacheMaintenance()
-        onOpenMapProviderSettingsRequested:
-            mapProviderSettingsDialog.present()
-    }
-
-    MapProviderSettingsDialog {
-        id: mapProviderSettingsDialog
-        preferences: window.mapProviderPreferences
+        aiPreferences: window.aiPreferences
+        cachePreferences: window.cachePreferences
+        cacheMaintenanceController: window.cacheMaintenanceController
+        mapProviderPreferences: window.mapProviderPreferences
+        editor: window.editor
         hostWidth: window.width
         hostHeight: window.height
+        onOpenLutLibraryRequested: {
+            close()
+            window.openLutManager()
+        }
+        onOpenOpticsProfileLibraryRequested: {
+            close()
+            window.openOpticsProfileManager()
+        }
     }
 
     LutManagerWindow {
         id: lutManager
         lutLibrary: window.lutLibrary
-    }
-
-    CacheMaintenanceWindow {
-        id: cacheMaintenanceWindow
-        cacheMaintenanceController: window.cacheMaintenanceController
     }
 
     OpticsProfileManagerWindow {
@@ -140,10 +141,6 @@ ApplicationWindow {
 
     function openLutManager() {
         lutManager.openManager()
-    }
-
-    function openCacheMaintenance() {
-        cacheMaintenanceWindow.present()
     }
 
     function openOpticsProfileManager() {
@@ -232,7 +229,7 @@ ApplicationWindow {
     header: MainTitleBar {
         hostWindow: window
         editor: window.editor
-        preferencesMenu: preferencesMenu
+        settingsDialog: applicationSettingsDialog
         workspaceIndex: window.workspaceIndex
         descriptiveTitle: window.descriptiveTitle
         canOpenSelectedPhoto: reviewWorkspace.canOpenSelectedPhoto
@@ -272,7 +269,8 @@ ApplicationWindow {
                                      previewSource)
             }
             onOpenLibraryManagementRequested: window.showLibrary()
-            onOpenMapProviderSettingsRequested: mapProviderSettingsDialog.present()
+            onOpenMapProviderSettingsRequested:
+                applicationSettingsDialog.present("maps")
         }
 
         PrecisionWorkspace {

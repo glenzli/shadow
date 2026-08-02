@@ -108,6 +108,19 @@ ColumnLayout {
         }
 
         Label {
+            objectName: "rawAiDenoiseSettingsDisabled"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: !denoise.editor.rawDenoiseExecutionAllowed
+                && !denoise.editor.foundationAiDenoiseEnabled
+            text: qsTr("AI model execution is disabled in Settings")
+            color: Theme.warningText
+            font.pixelSize: 9
+            elide: Text.ElideRight
+        }
+
+        Label {
             objectName: "rawAiDenoiseNoiseRecommendation"
             Layout.fillWidth: true
             Layout.leftMargin: 14
@@ -125,13 +138,13 @@ ColumnLayout {
                 denoise.editor.foundationAiDenoiseNoiseConfidence)
         }
 
-        CheckBox {
+        ShadowCheckBox {
             id: enabledCheckBox
             objectName: "rawAiDenoiseEnableCheckBox"
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            implicitHeight: 28
+            compact: true
             checked: denoise.editor.foundationAiDenoiseRequested
             enabled: denoise.editor.foundationAiDenoiseCanStart
                 || denoise.editor.foundationAiDenoiseCanApply
@@ -156,36 +169,6 @@ ColumnLayout {
                 }
             }
 
-            indicator: Rectangle {
-                implicitWidth: 16
-                implicitHeight: 16
-                x: 0
-                y: Math.round((enabledCheckBox.height - height) / 2)
-                radius: 4
-                color: enabledCheckBox.checked
-                    ? Theme.switchOnSurface : Theme.switchOffSurface
-                border.width: 1
-                border.color: enabledCheckBox.checked
-                    ? Theme.switchOnBorder : Theme.borderStrong
-
-                ShadowIcon {
-                    anchors.centerIn: parent
-                    visible: enabledCheckBox.checked
-                    source: "qrc:/icons/check.svg"
-                    color: denoise.accent
-                    size: 11
-                }
-            }
-
-            contentItem: Label {
-                leftPadding: 24
-                text: enabledCheckBox.text
-                color: enabledCheckBox.enabled
-                    ? denoise.textPrimary : denoise.textMuted
-                font.pixelSize: 10
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-            }
         }
 
         Label {

@@ -24,6 +24,29 @@ qt_standard_project_setup(
 )
 
 set(
+    SHADOW_GEONAMES_CITY_INDEX_PATH
+    ""
+    CACHE FILEPATH
+    "Prepared GeoNames city index copied into the Shadow application bundle"
+)
+if(SHADOW_GEONAMES_CITY_INDEX_PATH AND NOT EXISTS "${SHADOW_GEONAMES_CITY_INDEX_PATH}")
+    message(FATAL_ERROR
+        "SHADOW_GEONAMES_CITY_INDEX_PATH does not exist: ${SHADOW_GEONAMES_CITY_INDEX_PATH}"
+    )
+endif()
+if(APPLE)
+    set(
+        SHADOW_GEONAMES_BUNDLE_DIRECTORY
+        "$<TARGET_BUNDLE_DIR:shadow-desktop>/Contents/Resources/GeoNames"
+    )
+else()
+    set(
+        SHADOW_GEONAMES_BUNDLE_DIRECTORY
+        "$<TARGET_FILE_DIR:shadow-desktop>/GeoNames"
+    )
+endif()
+
+set(
     SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR
     ""
     CACHE PATH
@@ -115,21 +138,6 @@ else()
     set(SHADOW_CARGO_NATIVE_VARIANT cpu)
 endif()
 
-if(APPLE)
-    set(
-        SHADOW_LIBRARY_REVERSE_GEOCODER_SOURCE
-        src/library_reverse_geocoder_mac.mm
-    )
-    set_source_files_properties(
-        src/library_reverse_geocoder_mac.mm
-        PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
-    )
-else()
-    set(
-        SHADOW_LIBRARY_REVERSE_GEOCODER_SOURCE
-        src/library_reverse_geocoder_stub.cpp
-    )
-endif()
 set(
     SHADOW_CARGO_TARGET_DIRECTORY
     "${CMAKE_CURRENT_BINARY_DIR}/cargo-target-${SHADOW_CARGO_NATIVE_VARIANT}"
@@ -403,15 +411,28 @@ qt_add_executable(
     src/export_preset_store.hpp
     src/export_task_runner.cpp
     src/export_task_runner.hpp
+    src/default_library_reverse_geocoder.cpp
+    src/default_library_reverse_geocoder.hpp
+    src/geonames_city_index.cpp
+    src/geonames_city_index.hpp
+    src/geonames_library_reverse_geocoder.cpp
+    src/geonames_library_reverse_geocoder.hpp
     src/justified_review_layout_model.cpp
     src/justified_review_layout_model.hpp
+    src/google_library_reverse_geocoder.cpp
+    src/google_library_reverse_geocoder.hpp
     src/library_reverse_geocoder.hpp
-    ${SHADOW_LIBRARY_REVERSE_GEOCODER_SOURCE}
+    src/library_reverse_geocoder_router.cpp
+    src/library_reverse_geocoder_router.hpp
     src/history_coordinator.cpp
     src/history_coordinator.hpp
     src/history_model.cpp
     src/history_model.hpp
     src/main.cpp
+    src/ai_preferences.cpp
+    src/ai_preferences.hpp
+    src/cache_preferences.cpp
+    src/cache_preferences.hpp
     src/lut_library.cpp
     src/lut_library.hpp
     src/optics_profile_library.cpp
@@ -514,6 +535,18 @@ set_property(
     APPEND
     PROPERTY LINK_DEPENDS ${SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS}
 )
+set(
+    SHADOW_GEONAMES_BUNDLE_INPUTS
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/geonames/NOTICE.txt"
+)
+if(SHADOW_GEONAMES_CITY_INDEX_PATH)
+    list(APPEND SHADOW_GEONAMES_BUNDLE_INPUTS "${SHADOW_GEONAMES_CITY_INDEX_PATH}")
+endif()
+set_property(
+    TARGET shadow-desktop
+    APPEND
+    PROPERTY LINK_DEPENDS ${SHADOW_GEONAMES_BUNDLE_INPUTS}
+)
 
 qt_add_resources(
     shadow-desktop shadow-desktop-icons
@@ -613,8 +646,6 @@ if(APPLE)
         PRIVATE
             "-framework AppKit"
             "-framework CoreFoundation"
-            "-framework CoreLocation"
-            "-framework MapKit"
             "-framework Metal"
             "-framework Security"
     )
@@ -651,6 +682,7 @@ qt_add_qml_module(
         qml/LibraryAlbumMembershipDialog.qml
         qml/LibraryAdvancedFilterPopup.qml
         qml/LibraryFacetPopup.qml
+        qml/LibraryPlaceResolutionStatus.qml
         qml/LibraryImportPane.qml
         qml/LibraryKeywordDialogs.qml
         qml/LibraryKeywordPanel.qml
@@ -664,6 +696,11 @@ qt_add_qml_module(
         qml/LibrarySourceHealthPane.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
+        qml/ApplicationSettingsDialog.qml
+        qml/SettingsGeneralPane.qml
+        qml/SettingsLibraryPane.qml
+        qml/SettingsAiPane.qml
+        qml/SettingsStoragePane.qml
         qml/Main.qml
         qml/MainTitleBar.qml
         qml/MainLibraryFilterBar.qml
@@ -671,10 +708,10 @@ qt_add_qml_module(
         qml/MainPrecisionProxyStatus.qml
         qml/MainStatusBar.qml
         qml/MapProviderSettingsDialog.qml
+        qml/MapProviderSettingsPane.qml
         qml/AutosaveFailureRecovery.qml
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
-        qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionDetailLoupe.qml
         qml/PrecisionDetailLoupeState.qml
@@ -698,7 +735,6 @@ qt_add_qml_module(
         qml/PrecisionColorMixer.qml
         qml/PrecisionSelectiveColor.qml
         qml/ColorWarperEditor.qml
-        qml/CacheMaintenanceWindow.qml
         qml/HueCurveEditor.qml
         qml/PrecisionGeometryTools.qml
         qml/PrecisionGradeNodeMenus.qml
@@ -746,6 +782,7 @@ qt_add_qml_module(
         qml/ReviewPhotoSummary.qml
         qml/ReviewSinglePreview.qml
         qml/ShadowButton.qml
+        qml/ShadowCheckBox.qml
         qml/ShadowColorLabelButton.qml
         qml/ShadowColorWheel.qml
         qml/ShadowAdjustmentSection.qml
@@ -755,6 +792,7 @@ qt_add_qml_module(
         qml/ShadowInlineSlider.qml
         qml/ShadowRoundedImage.qml
         qml/ShadowSlider.qml
+        qml/ShadowSwitch.qml
         qml/ShadowSubsectionLabel.qml
         qml/ShadowTabButton.qml
         qml/Theme.qml
@@ -823,6 +861,41 @@ add_custom_command(
         $<TARGET_FILE_DIR:shadow-desktop>/$<TARGET_FILE_NAME:shadow-image-decode-helper>
     COMMENT "Installing the isolated RAW decode helper beside Shadow"
 )
+add_custom_command(
+    TARGET shadow-desktop
+    POST_BUILD
+    COMMAND
+        ${CMAKE_COMMAND} -E make_directory
+        "${SHADOW_GEONAMES_BUNDLE_DIRECTORY}"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/geonames/NOTICE.txt"
+        "${SHADOW_GEONAMES_BUNDLE_DIRECTORY}/NOTICE.txt"
+    COMMENT "Installing the GeoNames offline-location attribution"
+    VERBATIM
+)
+if(SHADOW_GEONAMES_CITY_INDEX_PATH)
+    add_custom_command(
+        TARGET shadow-desktop
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_if_different
+            "${SHADOW_GEONAMES_CITY_INDEX_PATH}"
+            "${SHADOW_GEONAMES_BUNDLE_DIRECTORY}/shadow-geonames-cities-v1.tsv"
+        COMMENT "Installing the GeoNames offline city index"
+        VERBATIM
+    )
+else()
+    add_custom_command(
+        TARGET shadow-desktop
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E rm -f
+            "${SHADOW_GEONAMES_BUNDLE_DIRECTORY}/shadow-geonames-cities-v1.tsv"
+        COMMENT "Ensuring no stale GeoNames city index remains in this build"
+        VERBATIM
+    )
+endif()
 add_custom_command(
     TARGET shadow-desktop
     POST_BUILD
@@ -1331,6 +1404,50 @@ if(BUILD_TESTING)
     add_test(NAME shadow-desktop-ui-preferences COMMAND shadow-ui-preferences-test)
 
     add_executable(
+        shadow-ai-preferences-test
+        tests/ai_preferences_test.cpp
+        src/ai_preferences.cpp
+        src/ai_preferences.hpp
+    )
+    target_compile_features(shadow-ai-preferences-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-ai-preferences-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-ai-preferences-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-ai-preferences-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-ai-preferences-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-ai-preferences COMMAND shadow-ai-preferences-test)
+
+    add_executable(
+        shadow-cache-preferences-test
+        tests/cache_preferences_test.cpp
+        src/cache_preferences.cpp
+        src/cache_preferences.hpp
+    )
+    target_compile_features(shadow-cache-preferences-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-cache-preferences-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-cache-preferences-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-cache-preferences-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-cache-preferences-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-cache-preferences COMMAND shadow-cache-preferences-test)
+
+    add_executable(
         shadow-map-provider-preferences-test
         tests/map_provider_preferences_test.cpp
         src/map_provider_preferences.cpp
@@ -1483,6 +1600,135 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-google-library-reverse-geocoder-test
+        tests/google_library_reverse_geocoder_test.cpp
+        src/google_library_reverse_geocoder.cpp
+        src/google_library_reverse_geocoder.hpp
+        src/library_reverse_geocoder.hpp
+        src/map_provider_preferences.cpp
+        src/map_provider_preferences.hpp
+        src/secure_secret_store.hpp
+    )
+    target_compile_features(
+        shadow-google-library-reverse-geocoder-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-google-library-reverse-geocoder-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-google-library-reverse-geocoder-test
+        PRIVATE Qt6::Core Qt6::Network
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-google-library-reverse-geocoder-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-google-library-reverse-geocoder-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-google-library-reverse-geocoder
+        COMMAND shadow-google-library-reverse-geocoder-test
+    )
+
+    add_executable(
+        shadow-geonames-city-index-test
+        tests/geonames_city_index_test.cpp
+        src/geonames_city_index.cpp
+        src/geonames_city_index.hpp
+    )
+    target_compile_features(shadow-geonames-city-index-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-geonames-city-index-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-geonames-city-index-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-geonames-city-index-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-geonames-city-index-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-geonames-city-index
+        COMMAND shadow-geonames-city-index-test
+    )
+
+    add_executable(
+        shadow-geonames-library-reverse-geocoder-test
+        tests/geonames_library_reverse_geocoder_test.cpp
+        src/geonames_city_index.cpp
+        src/geonames_city_index.hpp
+        src/geonames_library_reverse_geocoder.cpp
+        src/geonames_library_reverse_geocoder.hpp
+        src/library_reverse_geocoder.hpp
+    )
+    target_compile_features(
+        shadow-geonames-library-reverse-geocoder-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-geonames-library-reverse-geocoder-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-geonames-library-reverse-geocoder-test
+        PRIVATE Qt6::Core Qt6::Concurrent
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-geonames-library-reverse-geocoder-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-geonames-library-reverse-geocoder-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-geonames-library-reverse-geocoder
+        COMMAND shadow-geonames-library-reverse-geocoder-test
+    )
+
+    add_executable(
+        shadow-library-reverse-geocoder-router-test
+        tests/library_reverse_geocoder_router_test.cpp
+        src/library_reverse_geocoder_router.cpp
+        src/library_reverse_geocoder_router.hpp
+        src/library_reverse_geocoder.hpp
+    )
+    target_compile_features(shadow-library-reverse-geocoder-router-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-library-reverse-geocoder-router-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-library-reverse-geocoder-router-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-library-reverse-geocoder-router-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-reverse-geocoder-router-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-reverse-geocoder-router
+        COMMAND shadow-library-reverse-geocoder-router-test
+    )
+
+    add_executable(
         shadow-secure-secret-store-test
         tests/secure_secret_store_test.cpp
         src/secure_secret_store.cpp
@@ -1551,7 +1797,9 @@ if(BUILD_TESTING)
         NO_PLUGIN
         QML_FILES
             qml/MapProviderSettingsDialog.qml
+            qml/MapProviderSettingsPane.qml
             qml/ShadowButton.qml
+            qml/ShadowSwitch.qml
             qml/Theme.qml
     )
     if(MSVC)
@@ -1571,6 +1819,72 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-map-provider-settings-dialog
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-application-settings-dialog-test
+        tests/application_settings_dialog_test.cpp
+    )
+    target_compile_features(
+        shadow-application-settings-dialog-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-application-settings-dialog-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-application-settings-dialog-test
+        URI Shadow.ApplicationSettingsContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ApplicationSettingsDialog.qml
+            qml/SettingsGeneralPane.qml
+            qml/SettingsLibraryPane.qml
+            qml/SettingsAiPane.qml
+            qml/SettingsStoragePane.qml
+            qml/MapProviderSettingsPane.qml
+            qml/ShadowButton.qml
+            qml/ShadowCheckBox.qml
+            qml/ShadowIcon.qml
+            qml/ShadowInlineSlider.qml
+            qml/ShadowSlider.qml
+            qml/ShadowSwitch.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-application-settings-dialog-test
+        shadow-application-settings-dialog-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES
+            icons/add-folder.svg
+            icons/check.svg
+            icons/map.svg
+            icons/mask.svg
+            icons/review-grid.svg
+            icons/settings.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-application-settings-dialog-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-application-settings-dialog-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-application-settings-dialog
+        COMMAND shadow-application-settings-dialog-test
+    )
+    set_tests_properties(
+        shadow-desktop-application-settings-dialog
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
@@ -2636,6 +2950,7 @@ if(BUILD_TESTING)
             qml/PrecisionRawDenoiseAdjustments.qml
             qml/ShadowAdjustmentSection.qml
             qml/ShadowButton.qml
+            qml/ShadowCheckBox.qml
             qml/ShadowIcon.qml
             qml/ShadowIconButton.qml
             qml/ShadowInlineSlider.qml

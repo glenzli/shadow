@@ -8,10 +8,19 @@
 
 #include <memory>
 
+class CachePreferences;
+
 enum class CacheMaintenanceTaskKind {
     Inventory,
     Plan,
     Sweep,
+};
+
+enum class ConfiguredLimitEnforcementStage {
+    Idle,
+    AwaitingInventory,
+    AwaitingPlan,
+    AwaitingSweep,
 };
 
 struct CacheMaintenanceTaskResult final {
@@ -35,10 +44,15 @@ class CacheMaintenanceController final : public QObject {
     Q_PROPERTY(QVariantMap plannedSweep READ plannedSweep NOTIFY plannedSweepChanged)
     Q_PROPERTY(QVariantMap completedSweep READ completedSweep NOTIFY completedSweepChanged)
     Q_PROPERTY(bool hasPlan READ hasPlan NOTIFY plannedSweepChanged)
+    Q_PROPERTY(bool overConfiguredLimit READ overConfiguredLimit NOTIFY configuredLimitStateChanged)
+    Q_PROPERTY(
+        qulonglong configuredLimitBytes READ configuredLimitBytes NOTIFY configuredLimitStateChanged
+    )
 
-public:
+  public:
     explicit CacheMaintenanceController(
         std::shared_ptr<DesktopBackend> backend,
+        CachePreferences* preferences,
         QObject* parent = nullptr
     );
     ~CacheMaintenanceController() override;
@@ -50,30 +64,40 @@ public:
     [[nodiscard]] QVariantMap plannedSweep() const;
     [[nodiscard]] QVariantMap completedSweep() const;
     [[nodiscard]] bool hasPlan() const noexcept;
+    [[nodiscard]] bool overConfiguredLimit() const noexcept;
+    [[nodiscard]] qulonglong configuredLimitBytes() const noexcept;
 
     Q_INVOKABLE void refreshInventory();
     Q_INVOKABLE void planSafeCleanup();
     Q_INVOKABLE void runPlannedCleanup();
+    Q_INVOKABLE void enforceConfiguredLimit();
 
-signals:
+  signals:
     void busyChanged();
     void statusTextChanged();
     void errorTextChanged();
     void inventoryChanged();
     void plannedSweepChanged();
     void completedSweepChanged();
+    void configuredLimitStateChanged();
 
-private:
+  private:
     void startTask(CacheMaintenanceTaskKind kind);
     void finishTask();
     void setStatusText(const QString& value);
     void setErrorText(const QString& value);
+    void maybeContinueConfiguredLimitEnforcement(CacheMaintenanceTaskKind completed_kind);
+    [[nodiscard]] bool configuredLimitEnforcementAllowed() const noexcept;
+    void cancelConfiguredLimitEnforcement() noexcept;
 
     std::shared_ptr<DesktopBackend> backend_;
+    CachePreferences* preferences_ = nullptr;
     QFutureWatcher<CacheMaintenanceTaskResult> watcher_;
     QVariantMap inventory_;
     QVariantMap planned_sweep_;
     QVariantMap completed_sweep_;
     QString status_text_;
     QString error_text_;
+    ConfiguredLimitEnforcementStage configured_limit_stage_ = ConfiguredLimitEnforcementStage::Idle;
+    bool enforcement_queued_ = false;
 };

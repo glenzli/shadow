@@ -14,10 +14,8 @@
 /// error accompanies success; failures never invent a partial place result.
 class LibraryReverseGeocoder {
   public:
-    using Completion = std::function<void(
-        std::optional<BackendLibraryPlaceResolutionResult> result,
-        QString error
-    )>;
+    using Completion = std::function<
+        void(std::optional<BackendLibraryPlaceResolutionResult> result, QString error)>;
 
     virtual ~LibraryReverseGeocoder() = default;
 
@@ -28,7 +26,3 @@ class LibraryReverseGeocoder {
     ) = 0;
     virtual void cancel() noexcept = 0;
 };
-
-/// Creates the native no-key provider when the platform offers one. Other
-/// platforms receive a fail-closed unavailable implementation.
-[[nodiscard]] std::unique_ptr<LibraryReverseGeocoder> makeSystemLibraryReverseGeocoder();

@@ -1,5 +1,7 @@
 #include "review_library_place_resolution_coordinator.hpp"
 
+#include <QCoreApplication>
+#include <QDebug>
 #include <QPointer>
 #include <QtConcurrentRun>
 
@@ -64,8 +66,28 @@ std::uint64_t ReviewLibraryPlaceResolutionCoordinator::recordedCount() const noe
     return recorded_count_;
 }
 
+std::uint64_t ReviewLibraryPlaceResolutionCoordinator::processedCount() const noexcept {
+    return processed_count_;
+}
+
+std::uint64_t ReviewLibraryPlaceResolutionCoordinator::failedCount() const noexcept {
+    return failed_count_;
+}
+
+QString ReviewLibraryPlaceResolutionCoordinator::statusCode() const {
+    return status_code_;
+}
+
+QString ReviewLibraryPlaceResolutionCoordinator::errorText() const {
+    return error_text_;
+}
+
 void ReviewLibraryPlaceResolutionCoordinator::start() {
-    if (!provider_->available() || stopping_) {
+    if (stopping_) {
+        return;
+    }
+    if (!provider_->available()) {
+        setStatus(QStringLiteral("permission-required"));
         return;
     }
     if (running_) {
@@ -73,9 +95,35 @@ void ReviewLibraryPlaceResolutionCoordinator::start() {
         return;
     }
     failed_coordinates_.clear();
+    recorded_count_ = 0;
+    processed_count_ = 0;
+    failed_count_ = 0;
+    error_text_.clear();
     running_ = true;
+    status_code_ = QStringLiteral("resolving");
     emit stateChanged();
     requestCandidates();
+}
+
+void ReviewLibraryPlaceResolutionCoordinator::synchronizeProviderAvailability() {
+    if (stopping_) {
+        return;
+    }
+    if (provider_->available()) {
+        start();
+        return;
+    }
+    restart_requested_ = false;
+    next_timer_.stop();
+    provider_->cancel();
+    const bool was_running = std::exchange(running_, false);
+    const bool status_changed =
+        status_code_ != QStringLiteral("permission-required") || !error_text_.isEmpty();
+    status_code_ = QStringLiteral("permission-required");
+    error_text_.clear();
+    if (was_running || status_changed) {
+        emit stateChanged();
+    }
 }
 
 ReviewLibraryPlaceResolutionCoordinator::CandidateTaskResult
@@ -127,6 +175,14 @@ void ReviewLibraryPlaceResolutionCoordinator::finishCandidates() {
     }
     CandidateTaskResult task = candidate_watcher_.result();
     if (!task.error.isEmpty()) {
+        qWarning().noquote() << "Library place candidate query failed:" << task.error;
+        setStatus(
+            QStringLiteral("failed"),
+            QCoreApplication::translate(
+                "ReviewLibraryPlaceResolutionCoordinator",
+                "Could not read photo locations from the Library."
+            )
+        );
         stopPass();
         return;
     }
@@ -138,6 +194,14 @@ void ReviewLibraryPlaceResolutionCoordinator::finishCandidates() {
         }
     );
     if (iterator == task.candidates.cend()) {
+        if (failed_count_ > 0) {
+            setStatus(
+                recorded_count_ > 0 ? QStringLiteral("partial") : QStringLiteral("failed"),
+                error_text_
+            );
+        } else {
+            setStatus(QStringLiteral("complete"));
+        }
         stopPass();
         return;
     }
@@ -145,10 +209,8 @@ void ReviewLibraryPlaceResolutionCoordinator::finishCandidates() {
     const QPointer<ReviewLibraryPlaceResolutionCoordinator> guard(this);
     provider_->reverseGeocode(
         candidate,
-        [guard, candidate](
-            std::optional<BackendLibraryPlaceResolutionResult> result,
-            QString error
-        ) {
+        [guard,
+         candidate](std::optional<BackendLibraryPlaceResolutionResult> result, QString error) {
             if (guard) {
                 guard->finishGeocode(candidate, std::move(result), error);
             }
@@ -165,7 +227,17 @@ void ReviewLibraryPlaceResolutionCoordinator::finishGeocode(
         return;
     }
     if (!error.isEmpty() || !result) {
+        ++processed_count_;
+        ++failed_count_;
         failed_coordinates_.insert(coordinateKey(candidate));
+        setStatus(
+            QStringLiteral("resolving"),
+            error.isEmpty() ? QCoreApplication::translate(
+                                  "ReviewLibraryPlaceResolutionCoordinator",
+                                  "The location service returned no place result."
+                              )
+                            : error
+        );
         scheduleNext();
         return;
     }
@@ -181,13 +253,25 @@ void ReviewLibraryPlaceResolutionCoordinator::finishRecord() {
     }
     const RecordTaskResult task = record_watcher_.result();
     if (!task.error.isEmpty()) {
+        qWarning().noquote() << "Library place persistence failed:" << task.error;
+        ++processed_count_;
+        ++failed_count_;
+        setStatus(
+            QStringLiteral("failed"),
+            QCoreApplication::translate(
+                "ReviewLibraryPlaceResolutionCoordinator",
+                "Could not save resolved photo locations."
+            )
+        );
         stopPass();
         return;
     }
+    ++processed_count_;
     if (task.status == BackendRecordLibraryPlaceResolutionStatus::Recorded) {
         ++recorded_count_;
         emit placesChanged();
     }
+    emit stateChanged();
     scheduleNext();
 }
 
@@ -208,4 +292,16 @@ void ReviewLibraryPlaceResolutionCoordinator::stopPass() {
         restart_requested_ = false;
         start();
     }
+}
+
+void ReviewLibraryPlaceResolutionCoordinator::setStatus(
+    const QString& status_code,
+    const QString& error_text
+) {
+    if (status_code_ == status_code && error_text_ == error_text) {
+        return;
+    }
+    status_code_ = status_code;
+    error_text_ = error_text;
+    emit stateChanged();
 }

@@ -68,8 +68,11 @@ QtObject {
                     Qt.locale(), "f", 6)).arg(
                 presentation.workspace.selectedLongitude.toLocaleString(
                     Qt.locale(), "f", 6))
-            return presentation.workspace.selectedPlaceName.length > 0
-                ? presentation.workspace.selectedPlaceName + " · " + coordinates
+            const placeName = presentation.workspace.selectedPlaceName.length > 0
+                ? presentation.workspace.selectedPlaceName
+                : presentation.workspace.selectedResolvedPlaceName
+            return placeName.length > 0
+                ? placeName + " · " + coordinates
                 : coordinates
         case "camera": return joinedIdentity(presentation.workspace.selectedCameraMake, presentation.workspace.selectedCameraModel)
         case "lens": return joinedIdentity(presentation.workspace.selectedLensMake, presentation.workspace.selectedLensModel)

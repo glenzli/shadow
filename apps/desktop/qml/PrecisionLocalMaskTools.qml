@@ -395,35 +395,17 @@ ColumnLayout {
                 font.pixelSize: 10
             }
 
-            Switch {
+            ShadowSwitch {
                 id: invertSwitch
 
                 Layout.preferredWidth: 36
                 Layout.preferredHeight: 22
+                compact: true
+                accentColor: localMask.inspector.accent
                 checked: Boolean(localMask.mask.inverted)
                 enabled: localMask.nodeEditable
                 Accessible.name: qsTr("Invert node mask")
                 onClicked: localMask.inspector.editor.setSelectedLocalMaskInverted(checked)
-
-                indicator: Rectangle {
-                    implicitWidth: 34
-                    implicitHeight: 18
-                    x: (invertSwitch.width - width) / 2
-                    y: (invertSwitch.height - height) / 2
-                    radius: height / 2
-                    color: invertSwitch.checked ? Theme.switchOnSurface : Theme.switchOffSurface
-                    border.color: invertSwitch.checked ? Theme.switchOnBorder : Theme.switchOffBorder
-
-                    Rectangle {
-                        width: 12
-                        height: 12
-                        y: 3
-                        x: invertSwitch.checked ? parent.width - width - 3 : 3
-                        radius: width / 2
-                        color: invertSwitch.checked ? localMask.inspector.accent : Theme.textMuted
-                    }
-                }
-                contentItem: Item {}
             }
         }
     }

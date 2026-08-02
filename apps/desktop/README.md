@@ -44,10 +44,21 @@ Application startup is split from environment-driven automation:
   capture-date/file-name order menu,
   [`qml/MainPrecisionProxyStatus.qml`](qml/MainPrecisionProxyStatus.qml) owns read-only proxy
   state presentation. Every child uses the stable `Main` translation context explicitly.
+- [`qml/ApplicationSettingsDialog.qml`](qml/ApplicationSettingsDialog.qml) is the single modal
+  settings shell and section router. Its General, Library, AI, Storage, and Map panes remain
+  separate QML owners so the shell does not accumulate domain behavior. The former compact menu
+  and standalone cache-maintenance window no longer form alternate settings paths.
+  [`qml/ShadowCheckBox.qml`](qml/ShadowCheckBox.qml) and
+  [`qml/ShadowSwitch.qml`](qml/ShadowSwitch.qml) own the compact checkbox and toggle presentation
+  used throughout the packaged desktop module; feature panes retain only their domain semantics.
 - [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
-  and EXIF-field presentation preferences. [`qml/PreferencesMenu.qml`](qml/PreferencesMenu.qml)
-  remains the compact settings entry and routes responsibility-specific panels instead of
-  accumulating their state.
+  and EXIF-field presentation preferences. [`src/ai_preferences.*`](src/ai_preferences.hpp) owns
+  admission policy for new local AI work plus the default strength of newly authored RAW-denoise
+  nodes; model discovery and verification remain with the model runtimes.
+  [`src/cache_preferences.*`](src/cache_preferences.hpp) owns the persistent soft disk-cache target
+  and permission for automatic safe reclamation. [`src/cache_maintenance_controller.*`](src/cache_maintenance_controller.hpp)
+  may enforce that target only through the Catalog-proven unused-preview sweep: live, unknown,
+  recently protected, and AI RAW foundation data may keep actual use above the requested target.
 - [`src/map_provider_preferences.*`](src/map_provider_preferences.hpp) owns optional external
   map-service permissions, the derived Library basemap readiness/style, and the native-only Google
   credential lifecycle. With no permitted service it publishes an explicit `none` provider instead
@@ -55,8 +66,10 @@ Application startup is split from environment-driven automation:
   [`src/secure_secret_store.*`](src/secure_secret_store.hpp) is the narrow platform credential
   boundary: macOS stores the key as a device-local generic password in Keychain, isolated smoke
   sessions use volatile memory, and unsupported platforms fail closed without a plaintext
-  fallback. [`qml/MapProviderSettingsDialog.qml`](qml/MapProviderSettingsDialog.qml) may save or
-  remove a key and edit non-secret permissions, but it has no key-read property.
+  fallback. [`qml/MapProviderSettingsPane.qml`](qml/MapProviderSettingsPane.qml) may save or remove
+  a key and edit non-secret permissions inside the application settings shell, but it has no
+  key-read property. [`qml/MapProviderSettingsDialog.qml`](qml/MapProviderSettingsDialog.qml) is a
+  thin compatibility wrapper for focused component loading rather than a second policy owner.
 - [`src/map/google_map_tiles_service.*`](src/map/google_map_tiles_service.hpp) owns the opt-in
   Google Map Tiles session, visible-only request queue, bounded policy-aware memory cache,
   `ETag` revalidation, backoff, cancellation, and viewport copyright lifecycle. It never installs
@@ -66,11 +79,25 @@ Application startup is split from environment-driven automation:
   owns Web Mercator visible-tile projection; and
   [`src/map/google_map_tile_layer.*`](src/map/google_map_tile_layer.hpp) paints those decoded
   tiles without taking gesture or photo-marker ownership.
-- [`src/library_reverse_geocoder.*`](src/library_reverse_geocoder.hpp) owns the one-at-a-time
-  native reverse-geocoding provider boundary. macOS uses MapKit without an application API key;
-  unsupported platforms fail closed. [`src/review_library_place_resolution_coordinator.*`](src/review_library_place_resolution_coordinator.hpp)
+- [`src/geonames_city_index.*`](src/geonames_city_index.hpp) owns the bounded, latitude-sorted
+  offline country/administrative-area/city data contract and nearest-city query. The compact index
+  is reproducibly derived by [`scripts/prepare_geonames_city_index.py`](../../scripts/prepare_geonames_city_index.py)
+  from GeoNames `cities500`, country, and first-level administrative exports; it is loaded on first
+  use off the UI thread and retained for later coordinates. [`src/geonames_library_reverse_geocoder.*`](src/geonames_library_reverse_geocoder.hpp)
+  projects those matches into the provider-neutral place result, while
+  [`src/library_reverse_geocoder_router.*`](src/library_reverse_geocoder_router.hpp) keeps offline
+  city lookup as the default and chooses Google only after explicit user authorization. An online
+  failure falls back to the local city index; [`src/default_library_reverse_geocoder.*`](src/default_library_reverse_geocoder.hpp)
+  is the narrow production composition boundary. [`src/google_library_reverse_geocoder.*`](src/google_library_reverse_geocoder.hpp)
+  separately owns the authorized Google Geocoding API request, bounded response parsing,
+  cancellation, and safe diagnostics. It reuses the Keychain-backed Maps Platform key and never
+  starts merely because a key exists. No Google user sign-in is involved; the key's Cloud project
+  must enable billing and the Geocoding API.
+  [`src/review_library_place_resolution_coordinator.*`](src/review_library_place_resolution_coordinator.hpp)
   starts only after the first Library page is visible, keeps Catalog work off the UI thread,
-  serializes provider calls, and records only coordinate-still-current results.
+  serializes provider calls, publishes retryable progress/failure state, and records only
+  coordinate-still-current results. Structured places feed country/city facets and the selected
+  photo's Location presentation without overwriting camera or user-authored metadata.
 - [`qml/AutosaveFailureRecovery.qml`](qml/AutosaveFailureRecovery.qml) owns native-close
   interception plus the complete failed-save choice: retry, keep editing, discard only the
   in-memory draft and continue a queued photo open, or explicitly quit without saving.
@@ -595,9 +622,10 @@ Review presentation keeps the workspace as the composition and compatibility sur
   embeds no provider API key. A user-supplied key plus explicit Google 2D tile permission activates
   the session-based basemap while the
   Library map is visible. Google tiles remain memory-only and obey response cache directives;
-  dynamic viewport copyright is shown beside a distinct `Google Maps` attribution. Reverse
-  geocoding, place search, and permanent place-name enrichment remain separate opt-in contracts:
-  they are not hidden inside map loading and their provider results do not alter the basemap.
+  dynamic viewport copyright is shown beside a distinct `Google Maps` attribution. Country,
+  administrative-area, and nearest-city enrichment is local by default and never depends on map
+  loading. Google precision lookup and place search remain separate opt-in contracts; provider
+  results do not alter the basemap.
   [`qml/LibraryMapLocationPlacementState.qml`](qml/LibraryMapLocationPlacementState.qml) separately
   owns one selected photo's placement identity, pending coordinate, explicit confirmation, and
   retryable failure lifecycle. It delegates persistence to the existing metadata coordinator, so
@@ -753,6 +781,26 @@ contract. It re-extracts production messages from `qml/` and `src/`, requires th
 Chinese catalog to have exactly one finished, non-empty entry for every message and no stale
 entries, verifies placeholder multiplicity, and compiles the result with `lrelease`. Run
 `cargo xtask desktop-i18n-check` directly when changing UI text or translations.
+
+Offline country/administrative-area/city lookup uses a prepared GeoNames index. Download
+`cities500.zip`, `countryInfo.txt`, and `admin1CodesASCII.txt` from the official
+[`export/dump`](https://download.geonames.org/export/dump/) directory into one external source
+folder, then prepare and bundle the deterministic index:
+
+```sh
+python3 scripts/prepare_geonames_city_index.py \
+  --source-dir /absolute/geonames-source \
+  --output /absolute/shadow-geonames-cities-v1.tsv \
+  --dataset-version geonames-YYYY-MM-DD
+cmake --preset desktop-dev \
+  -DSHADOW_GEONAMES_CITY_INDEX_PATH=/absolute/shadow-geonames-cities-v1.tsv
+```
+
+The index header includes a SHA-256 identity over all three exact source files. Preparation never
+contacts the network, and the application never uploads coordinates unless the user separately
+allows Google precision lookup. Canonical `run_debug.sh` promotion requires both the index and its
+GeoNames attribution notice, so the normal developer entry cannot silently regress to an empty
+location provider.
 
 The development preset keeps assertions and debug-friendly native code. Use the
 optimized preset for interactive photo editing and performance measurements:
