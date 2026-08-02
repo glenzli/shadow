@@ -13,6 +13,7 @@ Item {
     property alias to: slider.to
     property alias stepSize: slider.stepSize
     property real neutralValue: from
+    property bool fillFromMinimum: false
     property int decimals: 2
     property real displayMultiplier: 1.0
     property string suffix: ""
@@ -132,6 +133,7 @@ Item {
             Layout.fillWidth: true
             Layout.minimumWidth: 64
             neutralValue: field.neutralValue
+            fillFromMinimum: field.fillFromMinimum
             accent: field.accent
             semanticTrack: field.semanticTrack
             trackStartColor: field.trackStartColor
@@ -157,12 +159,7 @@ Item {
                     field.finishGesture()
                 }
             }
-
-            TapHandler {
-                acceptedButtons: Qt.LeftButton
-                gesturePolicy: TapHandler.ReleaseWithinBounds
-                onDoubleTapped: field.resetToNeutral()
-            }
+            onResetRequested: field.resetToNeutral()
         }
 
         Label {

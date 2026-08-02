@@ -26,6 +26,11 @@ class AdjustmentSignalRecorder final : public QObject {
         edited_value = value;
     }
 
+    void recordInlineReset(const double value) {
+        ++inline_reset_count;
+        inline_reset_value = value;
+    }
+
     void recordGestureStarted() {
         ++gesture_started_count;
     }
@@ -37,9 +42,11 @@ class AdjustmentSignalRecorder final : public QObject {
   public:
     int reset_count = 0;
     int edited_count = 0;
+    int inline_reset_count = 0;
     int gesture_started_count = 0;
     int gesture_finished_count = 0;
     double edited_value = 0.0;
+    double inline_reset_value = 0.0;
 };
 
 namespace {
@@ -147,6 +154,50 @@ int main(int argc, char* argv[]) {
         || !require(
             recorder.gesture_started_count == 1 && recorder.gesture_finished_count == 1,
             "neutral reset brackets the edit as one undoable gesture"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    auto inline_slider = createSourceComponent(
+        engine,
+        QStringLiteral("ShadowInlineSlider.qml"),
+        {
+            {QStringLiteral("from"), 0.0},
+            {QStringLiteral("to"), 100.0},
+            {QStringLiteral("neutralValue"), 100.0},
+            {QStringLiteral("fillFromMinimum"), true},
+            {QStringLiteral("value"), 40.0},
+            {QStringLiteral("width"), 240.0},
+        }
+    );
+    if (!inline_slider) {
+        return EXIT_FAILURE;
+    }
+    QObject::connect(
+        inline_slider.get(),
+        SIGNAL(resetRequested(double)),
+        &recorder,
+        SLOT(recordInlineReset(double))
+    );
+    if (!require(
+            std::abs(inline_slider->property("fillStartPosition").toDouble()) < 0.000'001,
+            "amount slider fill begins at its logical minimum"
+        )
+        || !require(
+            std::abs(inline_slider->property("fillEndPosition").toDouble() - 0.4) < 0.000'001,
+            "amount slider fill ends at its current value"
+        )
+        || !require(
+            QMetaObject::invokeMethod(inline_slider.get(), "requestNeutralReset"),
+            "inline slider exposes the shared double-click reset action"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(
+            recorder.inline_reset_count == 1
+                && std::abs(recorder.inline_reset_value - 100.0) < 0.000'001,
+            "inline reset delegates its declared default exactly once"
         )) {
         return EXIT_FAILURE;
     }

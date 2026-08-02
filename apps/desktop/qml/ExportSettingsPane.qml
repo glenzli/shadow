@@ -245,9 +245,13 @@ Item {
                         Layout.fillWidth: true
                         from: 1
                         to: 100
+                        neutralValue: 90
+                        fillFromMinimum: true
                         stepSize: 1
                         value: settings.quality
                         onMoved: settings.quality = Math.round(value)
+                        onResetRequested: value =>
+                            settings.quality = Math.round(value)
                     }
                     Label {
                         Layout.preferredWidth: 30
@@ -359,9 +363,13 @@ Item {
                         Layout.fillWidth: true
                         from: 0
                         to: 1
+                        neutralValue: 0.72
+                        fillFromMinimum: true
                         stepSize: 0.01
                         value: settings.watermarkOpacity
                         onMoved: settings.watermarkOpacity = value
+                        onResetRequested: value =>
+                            settings.watermarkOpacity = value
                     }
                     Label {
                         Layout.preferredWidth: 36
@@ -383,9 +391,13 @@ Item {
                         Layout.fillWidth: true
                         from: 0.03
                         to: 0.5
+                        neutralValue: 0.18
+                        fillFromMinimum: true
                         stepSize: 0.01
                         value: settings.watermarkScale
                         onMoved: settings.watermarkScale = value
+                        onResetRequested: value =>
+                            settings.watermarkScale = value
                     }
                     Label {
                         Layout.preferredWidth: 36

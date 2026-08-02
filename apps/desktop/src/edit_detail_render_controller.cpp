@@ -16,9 +16,10 @@ namespace {
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
 constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 80;
 
-[[nodiscard]] LocalizedUiMessage
-edit_message(const char *const source,
-             const std::initializer_list<LocalizedUiArgument> arguments = {}) {
+[[nodiscard]] LocalizedUiMessage edit_message(
+    const char* const source,
+    const std::initializer_list<LocalizedUiArgument> arguments = {}
+) {
     return {"EditController", source, arguments};
 }
 
@@ -30,8 +31,7 @@ void EditController::requestDetailViewport(
     const int viewport_width_pixels,
     const int viewport_height_pixels
 ) {
-    if (!active_ || crop_tool_active_
-        || !std::isfinite(center_x) || !std::isfinite(center_y)
+    if (!active_ || crop_tool_active_ || !std::isfinite(center_x) || !std::isfinite(center_y)
         || center_x < 0.0 || center_x > 1.0 || center_y < 0.0 || center_y > 1.0
         || viewport_width_pixels <= 0 || viewport_height_pixels <= 0
         || viewport_width_pixels > 8'192 || viewport_height_pixels > 8'192) {
@@ -109,12 +109,13 @@ void EditController::finishDetailTask() {
         maybeFinishDeferredApplicationClose();
         return;
     }
-    const bool accepted = detail_mode_ && active_ && accepts_edit_detail(
-        result.generation,
-        photo_generation_,
-        render_revision_,
-        detail_viewport_revision_
-    );
+    const bool accepted = detail_mode_ && active_
+                          && accepts_edit_detail(
+                              result.generation,
+                              photo_generation_,
+                              render_revision_,
+                              detail_viewport_revision_
+                          );
     if (accepted) {
         if (!result.error.isEmpty()) {
             detail_error_message_ = edit_message(
@@ -126,27 +127,22 @@ void EditController::finishDetailTask() {
                 setFullResolutionState(false, false, 0);
             }
         } else {
-            const auto* tile = result.viewport.tiles.size() == 1
-                ? &result.viewport.tiles.front()
-                : nullptr;
-            const std::uint64_t expected_stride = tile == nullptr
-                ? 0U
-                : static_cast<std::uint64_t>(tile->width) * 3U;
-            const std::uint64_t expected_bytes = tile == nullptr
-                ? 0U
-                : expected_stride * tile->height;
-            const bool valid = result.viewport.full_width > 0
-                && result.viewport.full_height > 0 && tile != nullptr
-                && tile->width > 0 && tile->height > 0
-                && tile->row_stride_bytes == expected_stride
-                && expected_bytes == static_cast<std::uint64_t>(tile->bytes.size());
+            const auto* tile =
+                result.viewport.tiles.size() == 1 ? &result.viewport.tiles.front() : nullptr;
+            const std::uint64_t expected_stride =
+                tile == nullptr ? 0U : static_cast<std::uint64_t>(tile->width) * 3U;
+            const std::uint64_t expected_bytes =
+                tile == nullptr ? 0U : expected_stride * tile->height;
+            const bool valid = result.viewport.full_width > 0 && result.viewport.full_height > 0
+                               && tile != nullptr && tile->width > 0 && tile->height > 0
+                               && tile->row_stride_bytes == expected_stride
+                               && expected_bytes == static_cast<std::uint64_t>(tile->bytes.size());
             QVector<EditPreviewStore::DetailPublication> publications;
             QVariantList presentation;
             if (valid) {
                 auto& mutable_tile = result.viewport.tiles.front();
-                const QString ticket = QStringLiteral("viewport-%1-%2")
-                                           .arg(mutable_tile.x)
-                                           .arg(mutable_tile.y);
+                const QString ticket =
+                    QStringLiteral("viewport-%1-%2").arg(mutable_tile.x).arg(mutable_tile.y);
                 publications.push_back({
                     .ticket = ticket,
                     .bytes = std::move(mutable_tile.bytes),
@@ -154,9 +150,7 @@ void EditController::finishDetailTask() {
                         static_cast<int>(mutable_tile.width),
                         static_cast<int>(mutable_tile.height)
                     ),
-                    .row_stride_bytes = static_cast<qsizetype>(
-                        mutable_tile.row_stride_bytes
-                    ),
+                    .row_stride_bytes = static_cast<qsizetype>(mutable_tile.row_stride_bytes),
                 });
                 QVariantMap item;
                 item.insert(QStringLiteral("x"), mutable_tile.x);
@@ -165,9 +159,7 @@ void EditController::finishDetailTask() {
                 item.insert(QStringLiteral("height"), mutable_tile.height);
                 item.insert(
                     QStringLiteral("source"),
-                    QStringLiteral(
-                        "image://shadow-edit/detail/%1?photo=%2&recipe=%3&viewport=%4"
-                    )
+                    QStringLiteral("image://shadow-edit/detail/%1?photo=%2&recipe=%3&viewport=%4")
                         .arg(ticket)
                         .arg(result.generation.photo)
                         .arg(result.generation.recipe_revision)
@@ -185,29 +177,22 @@ void EditController::finishDetailTask() {
                     setFullResolutionState(false, false, 0);
                 }
             } else {
-                const bool geometry_changed = detail_full_width_
-                        != result.viewport.full_width
+                const bool geometry_changed =
+                    detail_full_width_ != result.viewport.full_width
                     || detail_full_height_ != result.viewport.full_height
                     || detail_retained_bytes_ != result.viewport.retained_bytes;
                 detail_full_width_ = result.viewport.full_width;
                 detail_full_height_ = result.viewport.full_height;
                 detail_retained_bytes_ = result.viewport.retained_bytes;
-                preview_store_->publishDetails(
-                    std::move(publications),
-                    result.generation
-                );
+                preview_store_->publishDetails(std::move(publications), result.generation);
                 detail_tiles_ = std::move(presentation);
                 if (geometry_changed) {
                     emit detailGeometryChanged();
                 }
-                setFullResolutionState(
-                    false,
-                    true,
-                    result.viewport.retained_bytes
-                );
+                setFullResolutionState(false, true, result.viewport.retained_bytes);
                 emit detailTilesChanged();
-                const double retained_mib = static_cast<double>(detail_retained_bytes_)
-                    / (1'024.0 * 1'024.0);
+                const double retained_mib =
+                    static_cast<double>(detail_retained_bytes_) / (1'024.0 * 1'024.0);
                 setStatusMessage(edit_message(
                     QT_TRANSLATE_NOOP(
                         "EditController",
@@ -242,44 +227,56 @@ void EditController::startDetailRender() {
     if (!full_resolution_ready_) {
         setFullResolutionState(true, false, 0);
     }
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Preparing exact full-resolution detail…"
-    )));
-    detail_watcher_.setFuture(QtConcurrent::run(
-        EditTaskRunner::renderDetail,
-        backend_,
-        photo_id_,
-        source_path_,
-        base_commit_id_,
-        grade_stack_,
-        detail_render_token_,
-        detail_center_x_,
-        detail_center_y_,
-        detail_viewport_width_,
-        detail_viewport_height_,
-        EditDetailGeneration{
-            .photo = photo_generation_,
-            .recipe_revision = render_revision_,
-            .viewport_revision = detail_viewport_revision_,
-        }
-    ));
+    setStatusMessage(
+        edit_message(QT_TRANSLATE_NOOP("EditController", "Preparing exact full-resolution detail…"))
+    );
+    detail_watcher_.setFuture(
+        QtConcurrent::run(
+            EditTaskRunner::renderDetail,
+            backend_,
+            photo_id_,
+            source_path_,
+            base_commit_id_,
+            grade_stack_,
+            detail_render_token_,
+            detail_center_x_,
+            detail_center_y_,
+            detail_viewport_width_,
+            detail_viewport_height_,
+            EditDetailGeneration{
+                .photo = photo_generation_,
+                .recipe_revision = render_revision_,
+                .viewport_revision = detail_viewport_revision_,
+            }
+        )
+    );
 }
 
 void EditController::scheduleDetailWarmup() {
+    const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
     if (!active_ || crop_tool_active_ || detail_mode_ || state_running_ || current_rendering_
         || detail_rendering_ || settled_render_revision_ != render_revision_
-        || detail_warmup_watcher_.isRunning()) {
+        || detail_warmup_watcher_.isRunning()
+        || !edit_detail_admits_idle_warmup(
+            raw_ai_denoise.present,
+            raw_ai_denoise.enabled,
+            raw_ai_denoise.bypassed
+        )) {
         return;
     }
     detail_warmup_debounce_.start(EDIT_DETAIL_WARMUP_IDLE_MS);
 }
 
 void EditController::startDetailWarmup() {
+    const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
     if (!active_ || crop_tool_active_ || detail_mode_ || state_running_ || current_rendering_
-        || before_rendering_ || detail_rendering_
-        || settled_render_revision_ != render_revision_
-        || detail_warmup_watcher_.isRunning()) {
+        || before_rendering_ || detail_rendering_ || settled_render_revision_ != render_revision_
+        || detail_warmup_watcher_.isRunning()
+        || !edit_detail_admits_idle_warmup(
+            raw_ai_denoise.present,
+            raw_ai_denoise.enabled,
+            raw_ai_denoise.bypassed
+        )) {
         return;
     }
     // This uses the same global cancellation source as foreground detail.
@@ -289,32 +286,32 @@ void EditController::startDetailWarmup() {
     if (!full_resolution_ready_) {
         setFullResolutionState(true, false, 0);
     }
-    detail_warmup_watcher_.setFuture(QtConcurrent::run(
-        EditTaskRunner::warmDetailSource,
-        backend_,
-        photo_id_,
-        source_path_,
-        base_commit_id_,
-        grade_stack_,
-        detail_warmup_token_,
-        photo_generation_,
-        render_revision_
-    ));
+    detail_warmup_watcher_.setFuture(
+        QtConcurrent::run(
+            EditTaskRunner::warmDetailSource,
+            backend_,
+            photo_id_,
+            source_path_,
+            base_commit_id_,
+            grade_stack_,
+            detail_warmup_token_,
+            photo_generation_,
+            render_revision_
+        )
+    );
 }
 
 void EditController::finishDetailWarmupTask() {
     const EditDetailWarmupTaskResult result = detail_warmup_watcher_.result();
-    const bool stale = result.photo_generation != photo_generation_
-        || result.render_revision != render_revision_;
-    const bool superseded = result.error.startsWith(
-        QStringLiteral("full detail render was superseded")
-    );
+    const bool stale =
+        result.photo_generation != photo_generation_ || result.render_revision != render_revision_;
+    const bool superseded =
+        result.error.startsWith(QStringLiteral("full detail render was superseded"));
     if (stale || superseded) {
         if (full_resolution_preparing_) {
             setFullResolutionState(false, false, 0);
         }
-        if (active_ && !detail_mode_
-            && settled_render_revision_ == render_revision_) {
+        if (active_ && !detail_mode_ && settled_render_revision_ == render_revision_) {
             scheduleDetailWarmup();
         }
         return;
@@ -330,8 +327,7 @@ void EditController::finishDetailWarmupTask() {
 }
 
 void EditController::maybeStartDetailRender() {
-    if (!detail_queued_ || !detail_mode_ || detail_rendering_
-        || detail_debounce_.isActive()) {
+    if (!detail_queued_ || !detail_mode_ || detail_rendering_ || detail_debounce_.isActive()) {
         return;
     }
     if (state_running_ || current_rendering_ || before_rendering_
@@ -344,11 +340,13 @@ void EditController::maybeStartDetailRender() {
 void EditController::invalidateDetailPresentation(const bool discard_tiles) {
     detail_render_token_ = backend_->beginEditDetailRequest();
     if (discard_tiles) {
-        preview_store_->clearDetails(EditDetailGeneration{
-            .photo = photo_generation_,
-            .recipe_revision = render_revision_,
-            .viewport_revision = detail_viewport_revision_,
-        });
+        preview_store_->clearDetails(
+            EditDetailGeneration{
+                .photo = photo_generation_,
+                .recipe_revision = render_revision_,
+                .viewport_revision = detail_viewport_revision_,
+            }
+        );
         if (!detail_tiles_.isEmpty()) {
             detail_tiles_.clear();
             emit detailTilesChanged();
@@ -370,8 +368,8 @@ void EditController::resetDetailState() {
         detail_error_message_.clear();
         emit detailErrorTextChanged();
     }
-    const bool had_geometry = detail_full_width_ != 0 || detail_full_height_ != 0
-        || detail_retained_bytes_ != 0;
+    const bool had_geometry =
+        detail_full_width_ != 0 || detail_full_height_ != 0 || detail_retained_bytes_ != 0;
     detail_full_width_ = 0;
     detail_full_height_ = 0;
     detail_retained_bytes_ = 0;
@@ -386,8 +384,7 @@ void EditController::setFullResolutionState(
     const bool ready,
     const quint64 retained_bytes
 ) {
-    if (full_resolution_preparing_ == preparing
-        && full_resolution_ready_ == ready
+    if (full_resolution_preparing_ == preparing && full_resolution_ready_ == ready
         && full_resolution_retained_bytes_ == retained_bytes) {
         return;
     }

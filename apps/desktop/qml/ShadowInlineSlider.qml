@@ -8,6 +8,10 @@ Slider {
 
     property real neutralValue: from
     property bool showNeutralMarker: neutralValue > from && neutralValue < to
+    // Most adjustments visualize distance from their neutral value. Amount
+    // controls instead fill from the logical minimum while keeping an
+    // independent reset value (for example AI strength resets to 100%).
+    property bool fillFromMinimum: false
     property color accent: Theme.accent
     property bool semanticTrack: false
     property color trackStartColor: Theme.track
@@ -15,10 +19,31 @@ Slider {
     property color trackEndColor: Theme.track
     property string toolTipText: ""
 
+    readonly property real logicalNeutralPosition: to === from
+        ? 0 : Math.max(0, Math.min(1, (neutralValue - from) / (to - from)))
+    readonly property real neutralPosition: mirrored
+        ? 1 - logicalNeutralPosition : logicalNeutralPosition
+    readonly property real minimumVisualPosition: mirrored ? 1 : 0
+    readonly property real fillStartPosition: fillFromMinimum
+        ? Math.min(visualPosition, minimumVisualPosition)
+        : Math.min(visualPosition, neutralPosition)
+    readonly property real fillEndPosition: fillFromMinimum
+        ? Math.max(visualPosition, minimumVisualPosition)
+        : Math.max(visualPosition, neutralPosition)
+
+    signal resetRequested(real value)
+
     implicitWidth: 112
     implicitHeight: 22
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
+
+    function requestNeutralReset() {
+        const boundedNeutral = Math.max(from, Math.min(to, neutralValue))
+        if (!enabled || Math.abs(value - boundedNeutral) < 0.0000001)
+            return
+        resetRequested(boundedNeutral)
+    }
 
     background: Rectangle {
         x: control.leftPadding
@@ -46,16 +71,11 @@ Slider {
             }
         }
 
-        readonly property real logicalNeutralPosition: control.to === control.from
-            ? 0 : Math.max(0, Math.min(1,
-                (control.neutralValue - control.from) / (control.to - control.from)))
-        readonly property real neutralPosition: control.mirrored
-            ? 1 - logicalNeutralPosition : logicalNeutralPosition
-
         Rectangle {
             visible: !control.semanticTrack
-            x: Math.min(control.visualPosition, parent.neutralPosition) * parent.width
-            width: Math.abs(control.visualPosition - parent.neutralPosition) * parent.width
+            x: control.fillStartPosition * parent.width
+            width: (control.fillEndPosition - control.fillStartPosition)
+                * parent.width
             height: parent.height
             radius: parent.radius
             color: control.enabled ? control.accent : Theme.textDisabled
@@ -63,12 +83,18 @@ Slider {
 
         Rectangle {
             visible: control.showNeutralMarker
-            x: Math.round(parent.neutralPosition * parent.width) - width / 2
+            x: Math.round(control.neutralPosition * parent.width) - width / 2
             y: -2
             width: 1
             height: parent.height + 4
             color: control.enabled ? Theme.textMuted : Theme.textDisabled
         }
+    }
+
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+        onDoubleTapped: control.requestNeutralReset()
     }
 
     handle: Rectangle {

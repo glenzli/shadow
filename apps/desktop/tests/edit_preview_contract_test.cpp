@@ -241,26 +241,26 @@ void provider_routes_only_named_slots() {
     EditPreviewProvider provider(store);
 
     QSize decoded_size;
-    const QImage current = provider.requestImage(
-        QStringLiteral("current?generation=10"),
-        &decoded_size,
-        {}
+    const QImage current =
+        provider.requestImage(QStringLiteral("current?generation=10"), &decoded_size, {});
+    require(
+        !current.isNull() && current.pixelColor(0, 0) == QColor(Qt::red),
+        "the current URL must decode the current slot"
     );
-    require(!current.isNull() && current.pixelColor(0, 0) == QColor(Qt::red),
-            "the current URL must decode the current slot");
-    const QImage before = provider.requestImage(
-        QStringLiteral("before?generation=20"),
-        &decoded_size,
-        {}
+    const QImage before =
+        provider.requestImage(QStringLiteral("before?generation=20"), &decoded_size, {});
+    require(
+        !before.isNull() && before.pixelColor(0, 0) == QColor(Qt::blue),
+        "the before URL must decode the before slot"
     );
-    require(!before.isNull() && before.pixelColor(0, 0) == QColor(Qt::blue),
-            "the before URL must decode the before slot");
     require(
         provider.requestImage(QStringLiteral("before?generation=10"), nullptr, {}).isNull(),
         "a generation from the other slot must be rejected"
     );
-    require(provider.requestImage(QStringLiteral("raw?generation=20"), nullptr, {}).isNull(),
-            "an unknown semantic slot must be rejected");
+    require(
+        provider.requestImage(QStringLiteral("raw?generation=20"), nullptr, {}).isNull(),
+        "an unknown semantic slot must be rejected"
+    );
 }
 
 void interactive_rgb8_overview_skips_image_decode_and_retains_store_pixels() {
@@ -274,14 +274,19 @@ void interactive_rgb8_overview_skips_image_decode_and_retains_store_pixels() {
     QSize size;
     const QImage current =
         provider.requestImage(QStringLiteral("current?generation=11"), &size, QSize(1, 1));
-    require(!current.isNull() && size == QSize(2, 2) &&
-                current.pixelColor(0, 0) == QColor(Qt::green),
-            "interactive RGB8 overview must bypass encoded-image decoding");
-    require(current.colorSpace() == QColorSpace(QColorSpace::SRgb),
-            "interactive RGB8 overview must carry display-sRGB color identity");
-    require(current.constBits() == stored_address,
-            "interactive RGB8 overview must retain the immutable store bytes "
-            "without a copy");
+    require(
+        !current.isNull() && size == QSize(2, 2) && current.pixelColor(0, 0) == QColor(Qt::green),
+        "interactive RGB8 overview must bypass encoded-image decoding"
+    );
+    require(
+        current.colorSpace() == QColorSpace(QColorSpace::SRgb),
+        "interactive RGB8 overview must carry display-sRGB color identity"
+    );
+    require(
+        current.constBits() == stored_address,
+        "interactive RGB8 overview must retain the immutable store bytes "
+        "without a copy"
+    );
 }
 
 void owned_frame_survives_store_and_texture_factory_lifetimes() {
@@ -484,9 +489,8 @@ void detail_tiles_are_atomic_and_generation_guarded() {
     });
     store->publishDetails(std::move(publications), first);
     const auto stored_pixels = store->detailSnapshot(QStringLiteral("0-0"), first);
-    const auto* const stored_address = reinterpret_cast<const uchar*>(
-        stored_pixels.bytes.constData()
-    );
+    const auto* const stored_address =
+        reinterpret_cast<const uchar*>(stored_pixels.bytes.constData());
     EditPreviewProvider provider(store);
 
     const QImage current = provider.requestImage(
@@ -502,38 +506,35 @@ void detail_tiles_are_atomic_and_generation_guarded() {
         current.colorSpace() == QColorSpace(QColorSpace::SRgb),
         "raw detail pixels must carry an explicit display-sRGB contract"
     );
-    require(current.constBits() == stored_address,
-            "detail provider must retain the immutable store bytes without a "
-            "viewport copy");
+    require(
+        current.constBits() == stored_address,
+        "detail provider must retain the immutable store bytes without a "
+        "viewport copy"
+    );
     require(
         provider
-            .requestImage(
-                QStringLiteral("detail/0-0?photo=4&recipe=10&viewport=2"),
-                nullptr,
-                {}
-            )
+            .requestImage(QStringLiteral("detail/0-0?photo=4&recipe=10&viewport=2"), nullptr, {})
             .isNull(),
         "a stale Recipe generation must not address detail pixels"
     );
 
-    store->clearDetails(EditDetailGeneration{
-        .photo = 4,
-        .recipe_revision = 9,
-        .viewport_revision = 3,
-    });
+    store->clearDetails(
+        EditDetailGeneration{
+            .photo = 4,
+            .recipe_revision = 9,
+            .viewport_revision = 3,
+        }
+    );
     require(
-        provider
-            .requestImage(
-                QStringLiteral("detail/0-0?photo=4&recipe=9&viewport=2"),
-                nullptr,
-                {}
-            )
+        provider.requestImage(QStringLiteral("detail/0-0?photo=4&recipe=9&viewport=2"), nullptr, {})
             .isNull(),
         "advancing the viewport invalidates every prior tile atomically"
     );
-    require(current.pixelColor(0, 0) == QColor(Qt::green),
-            "an image already handed to Qt must retain its pixels after store "
-            "invalidation");
+    require(
+        current.pixelColor(0, 0) == QColor(Qt::green),
+        "an image already handed to Qt must retain its pixels after store "
+        "invalidation"
+    );
 
     constexpr EditDetailGeneration malformed{
         .photo = 4,
@@ -581,30 +582,25 @@ void stale_result_rules_are_kind_specific() {
     static_assert(!can_present_edit_preview(current, 5, 10));
     static_assert(!can_present_edit_preview(before, 4, 10));
 
-    static_assert(edit_preview_kind(EditPreviewPolicy::Interactive)
-                  == EditPreviewKind::Current);
-    static_assert(edit_preview_kind(EditPreviewPolicy::Settled)
-                  == EditPreviewKind::Current);
-    static_assert(edit_preview_kind(EditPreviewPolicy::NeutralBefore)
-                  == EditPreviewKind::NeutralBefore);
+    static_assert(edit_preview_kind(EditPreviewPolicy::Interactive) == EditPreviewKind::Current);
+    static_assert(edit_preview_kind(EditPreviewPolicy::Settled) == EditPreviewKind::Current);
+    static_assert(
+        edit_preview_kind(EditPreviewPolicy::NeutralBefore) == EditPreviewKind::NeutralBefore
+    );
     static_assert(!edit_preview_requires_analysis(EditPreviewPolicy::Interactive));
     static_assert(edit_preview_requires_analysis(EditPreviewPolicy::Settled));
     static_assert(edit_preview_requires_analysis(EditPreviewPolicy::NeutralBefore));
     static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::Interactive));
     static_assert(edit_preview_admits_durable_cache(EditPreviewPolicy::Settled));
     static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::NeutralBefore));
-    static_assert(
-        !edit_preview_requires_display_diagnostics(EditPreviewPolicy::Interactive)
-    );
-    static_assert(edit_preview_terminal_admits_publication(
-        EditPreviewTerminal::Completed
-    ));
-    static_assert(!edit_preview_terminal_admits_publication(
-        EditPreviewTerminal::Cancelled
-    ));
-    static_assert(!edit_preview_terminal_admits_publication(
-        EditPreviewTerminal::Failed
-    ));
+    static_assert(!edit_preview_requires_display_diagnostics(EditPreviewPolicy::Interactive));
+    static_assert(edit_preview_terminal_admits_publication(EditPreviewTerminal::Completed));
+    static_assert(!edit_preview_terminal_admits_publication(EditPreviewTerminal::Cancelled));
+    static_assert(!edit_preview_terminal_admits_publication(EditPreviewTerminal::Failed));
+    static_assert(edit_detail_admits_idle_warmup(false, false, false));
+    static_assert(edit_detail_admits_idle_warmup(true, false, false));
+    static_assert(edit_detail_admits_idle_warmup(true, true, true));
+    static_assert(!edit_detail_admits_idle_warmup(true, true, false));
 
     constexpr EditDetailGeneration detail{
         .photo = 4,
@@ -662,15 +658,14 @@ void first_interactive_frame_is_the_only_sample_protected_from_replacement() {
     );
     auto gesture_end = first;
     gesture_end.force = true;
-    require(should_cancel_edit_preview(gesture_end),
-            "gesture end must replace even a protected first frame with settled "
-            "output");
+    require(
+        should_cancel_edit_preview(gesture_end),
+        "gesture end must replace even a protected first frame with settled "
+        "output"
+    );
     auto settled = first;
     settled.in_flight_policy = EditPreviewPolicy::Settled;
-    require(
-        should_cancel_edit_preview(settled),
-        "a stale settled frame must be replaceable"
-    );
+    require(should_cancel_edit_preview(settled), "a stale settled frame must be replaceable");
     auto before = first;
     before.current_rendering = false;
     before.in_flight_policy = EditPreviewPolicy::NeutralBefore;
@@ -715,8 +710,13 @@ void benchmark_transport_when_requested() {
             rgb[offset + 2] = static_cast<char>((x + y * 5) % 256);
         }
     }
-    const QImage rgb_view(reinterpret_cast<const uchar*>(rgb.constData()), width, height, stride,
-                          QImage::Format_RGB888);
+    const QImage rgb_view(
+        reinterpret_cast<const uchar*>(rgb.constData()),
+        width,
+        height,
+        stride,
+        QImage::Format_RGB888
+    );
     QByteArray jpeg;
     QBuffer buffer(&jpeg);
     require(buffer.open(QIODevice::WriteOnly), "benchmark JPEG buffer must open");

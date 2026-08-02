@@ -46,35 +46,42 @@ struct EditPreviewPresentationBinding final {
     auto operator<=>(const EditPreviewPresentationBinding&) const = default;
 };
 
-[[nodiscard]] constexpr bool edit_preview_terminal_admits_publication(
-    const EditPreviewTerminal terminal
-) noexcept {
+[[nodiscard]] constexpr bool
+edit_preview_terminal_admits_publication(const EditPreviewTerminal terminal) noexcept {
     return terminal == EditPreviewTerminal::Completed;
 }
 
-[[nodiscard]] constexpr EditPreviewKind edit_preview_kind(
-    const EditPreviewPolicy policy
-) noexcept {
-    return policy == EditPreviewPolicy::NeutralBefore
-        ? EditPreviewKind::NeutralBefore : EditPreviewKind::Current;
+[[nodiscard]] constexpr EditPreviewKind edit_preview_kind(const EditPreviewPolicy policy) noexcept {
+    return policy == EditPreviewPolicy::NeutralBefore ? EditPreviewKind::NeutralBefore
+                                                      : EditPreviewKind::Current;
 }
 
-[[nodiscard]] constexpr bool edit_preview_requires_analysis(
-    const EditPreviewPolicy policy
-) noexcept {
+[[nodiscard]] constexpr bool
+edit_preview_requires_analysis(const EditPreviewPolicy policy) noexcept {
     return policy != EditPreviewPolicy::Interactive;
 }
 
-[[nodiscard]] constexpr bool edit_preview_admits_durable_cache(
-    const EditPreviewPolicy policy
-) noexcept {
+[[nodiscard]] constexpr bool
+edit_preview_admits_durable_cache(const EditPreviewPolicy policy) noexcept {
     return policy == EditPreviewPolicy::Settled;
 }
 
-[[nodiscard]] constexpr bool edit_preview_requires_display_diagnostics(
-    const EditPreviewPolicy policy
-) noexcept {
+[[nodiscard]] constexpr bool
+edit_preview_requires_display_diagnostics(const EditPreviewPolicy policy) noexcept {
     return policy != EditPreviewPolicy::Interactive;
+}
+
+// Background 1:1 preparation is a speculative optimization. AI RAW denoise
+// already has a bounded overview basis, while its exact source can retain
+// hundreds of MiB. Keep that source lazy until a detail viewport is actually
+// requested instead of letting an ordinary settled preview compete with the
+// next edit.
+[[nodiscard]] constexpr bool edit_detail_admits_idle_warmup(
+    const bool raw_ai_denoise_present,
+    const bool raw_ai_denoise_enabled,
+    const bool raw_ai_denoise_bypassed
+) noexcept {
+    return !raw_ai_denoise_present || !raw_ai_denoise_enabled || raw_ai_denoise_bypassed;
 }
 
 struct EditPreviewGeneration final {
@@ -128,17 +135,14 @@ struct EditPreviewCancellationState final {
 /// Repeated samples protect the first interactive frame in a gesture. Every
 /// other stale overview is cancellable, including a forced gesture end,
 /// photo/window transition, settled frame, or Neutral Before frame.
-[[nodiscard]] constexpr bool should_cancel_edit_preview(
-    const EditPreviewCancellationState state
-) noexcept {
+[[nodiscard]] constexpr bool
+should_cancel_edit_preview(const EditPreviewCancellationState state) noexcept {
     if (state.force) {
         return true;
     }
     const bool protected_first_interactive =
-        state.current_rendering
-        && state.in_flight_policy == EditPreviewPolicy::Interactive
-        && state.gesture_active
-        && !state.first_interactive_frame_presented;
+        state.current_rendering && state.in_flight_policy == EditPreviewPolicy::Interactive
+        && state.gesture_active && !state.first_interactive_frame_presented;
     return !protected_first_interactive;
 }
 
@@ -151,7 +155,7 @@ struct EditPreviewCancellationState final {
         return false;
     }
     return result.kind() == EditPreviewKind::NeutralBefore
-        || result.current_revision == current_revision;
+           || result.current_revision == current_revision;
 }
 
 // A completed current-preview frame can still improve visual feedback while a
@@ -163,9 +167,8 @@ struct EditPreviewCancellationState final {
     const std::uint64_t current_photo,
     const std::uint64_t current_revision
 ) noexcept {
-    return result.kind() == EditPreviewKind::Current
-        && result.photo == current_photo
-        && result.current_revision <= current_revision;
+    return result.kind() == EditPreviewKind::Current && result.photo == current_photo
+           && result.current_revision <= current_revision;
 }
 
 [[nodiscard]] constexpr bool accepts_edit_detail(
@@ -174,16 +177,13 @@ struct EditPreviewCancellationState final {
     const std::uint64_t current_recipe_revision,
     const std::uint64_t current_viewport_revision
 ) noexcept {
-    return result.photo == current_photo
-        && result.recipe_revision == current_recipe_revision
-        && result.viewport_revision == current_viewport_revision;
+    return result.photo == current_photo && result.recipe_revision == current_recipe_revision
+           && result.viewport_revision == current_viewport_revision;
 }
 
-[[nodiscard]] constexpr bool can_start_neutral_before(
-    const NeutralBeforeStartState state
-) noexcept {
-    return state.requested && state.active && !state.state_task_running
-        && !state.current_rendering && !state.before_rendering
-        && !state.current_scheduled
-        && state.settled_current_revision == state.current_revision;
+[[nodiscard]] constexpr bool
+can_start_neutral_before(const NeutralBeforeStartState state) noexcept {
+    return state.requested && state.active && !state.state_task_running && !state.current_rendering
+           && !state.before_rendering && !state.current_scheduled
+           && state.settled_current_revision == state.current_revision;
 }

@@ -24,6 +24,12 @@ Rectangle {
     visible: !toolbar.workspace.comparison.compareMode
     color: Theme.chrome
 
+    function setGalleryScale(value) {
+        const next = Math.round(value)
+        toolbar.workspace.justifiedReviewLayout.targetRowHeight = next
+        toolbar.workspace.preferences.libraryThumbnailScale = next
+    }
+
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
@@ -129,15 +135,14 @@ Rectangle {
             Layout.preferredWidth: 138
             from: 96
             to: 360
+            neutralValue: 188
+            fillFromMinimum: true
             stepSize: 4
             value: toolbar.workspace.justifiedReviewLayout.targetRowHeight
             toolTipText: qsTr("Thumbnail scale")
             Accessible.name: toolTipText
-            onMoved: {
-                const next = Math.round(value)
-                toolbar.workspace.justifiedReviewLayout.targetRowHeight = next
-                toolbar.workspace.preferences.libraryThumbnailScale = next
-            }
+            onMoved: toolbar.setGalleryScale(value)
+            onResetRequested: value => toolbar.setGalleryScale(value)
         }
 
         ShadowIconButton {
@@ -146,10 +151,7 @@ Rectangle {
             source: "qrc:/icons/fit-view.svg"
             toolTipText: qsTr("Restore default thumbnail scale")
             accessibleName: toolTipText
-            onClicked: {
-                toolbar.workspace.justifiedReviewLayout.targetRowHeight = 188
-                toolbar.workspace.preferences.libraryThumbnailScale = 188
-            }
+            onClicked: toolbar.setGalleryScale(188)
         }
 
         Rectangle {

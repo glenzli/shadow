@@ -40,6 +40,7 @@ ColumnLayout {
             from: 0
             to: 100
             neutralValue: 100
+            fillFromMinimum: true
             stepSize: 1
             decimals: 0
             suffix: "%"

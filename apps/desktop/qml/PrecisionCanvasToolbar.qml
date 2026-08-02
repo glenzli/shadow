@@ -248,10 +248,13 @@ Rectangle {
             Layout.minimumWidth: 72
             from: 0.25
             to: 4.0
+            neutralValue: 1.0
+            fillFromMinimum: true
             stepSize: 0.05
             value: toolbar.zoomFactor
             enabled: toolbar.editor.active && !toolbar.editor.stateBusy
             onMoved: toolbar.zoomRequested(value)
+            onResetRequested: value => toolbar.zoomRequested(value)
         }
 
         ShadowButton {

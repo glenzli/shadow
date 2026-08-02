@@ -36,9 +36,7 @@ class FoundationEditorStub final : public QObject {
     Q_PROPERTY(QString foundationAiDenoisePhase MEMBER ai_phase NOTIFY aiChanged)
     Q_PROPERTY(double foundationAiDenoiseProgress MEMBER ai_progress NOTIFY aiChanged)
     Q_PROPERTY(QString foundationAiDenoiseStatusText MEMBER ai_status NOTIFY aiChanged)
-    Q_PROPERTY(
-        bool foundationAiDenoiseNoiseAssessmentBusy MEMBER noise_busy NOTIFY aiChanged
-    )
+    Q_PROPERTY(bool foundationAiDenoiseNoiseAssessmentBusy MEMBER noise_busy NOTIFY aiChanged)
     Q_PROPERTY(QString foundationAiDenoiseNoiseLevel MEMBER noise_level NOTIFY aiChanged)
     Q_PROPERTY(int foundationAiDenoiseNoiseScore MEMBER noise_score NOTIFY aiChanged)
     Q_PROPERTY(int foundationAiDenoiseNoiseConfidence MEMBER noise_confidence NOTIFY aiChanged)
@@ -245,12 +243,10 @@ int main(int argc, char* argv[]) {
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseProgress"));
     auto* const enable =
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseEnableCheckBox"));
-    auto* const noise_recommendation = denoise_root->findChild<QQuickItem*>(
-        QStringLiteral("rawAiDenoiseNoiseRecommendation")
-    );
-    auto* const hidden_warning = denoise_root->findChild<QQuickItem*>(
-        QStringLiteral("rawAiDenoiseNodeHiddenWarning")
-    );
+    auto* const noise_recommendation =
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseNoiseRecommendation"));
+    auto* const hidden_warning =
+        denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseNodeHiddenWarning"));
     auto* const cancel =
         denoise_root->findChild<QQuickItem*>(QStringLiteral("rawAiDenoiseCancelButton"));
     auto* const bypass =
@@ -288,6 +284,10 @@ int main(int argc, char* argv[]) {
         || !require(
             std::abs(amount->property("value").toDouble() - 100.0) < 0.0001,
             "AI denoise starts at full cached-result amount"
+        )
+        || !require(
+            amount->property("fillFromMinimum").toBool(),
+            "AI denoise amount fills from zero to its current value"
         )
         || !require(!amount->property("enabled").toBool(), "bypassed amount is read-only")
         || !require(!bypass->property("enabled").toBool(), "bypassed node disables reset")
@@ -381,7 +381,7 @@ int main(int argc, char* argv[]) {
     if (!require(
             hidden_warning->property("visible").toBool()
                 && hidden_warning->property("text").toString()
-                    == QStringLiteral("Node hidden · AI result is not applied"),
+                       == QStringLiteral("Node hidden · AI result is not applied"),
             "enabled AI intent states clearly when node visibility prevents application"
         )) {
         return EXIT_FAILURE;

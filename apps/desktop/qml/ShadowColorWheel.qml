@@ -202,6 +202,14 @@ Item {
                     }
                 }
                 onMoved: root.luminanceEdited(value)
+                onResetRequested: value => {
+                    const ownsGesture = !root.luminanceGestureActive
+                    if (ownsGesture)
+                        root.luminanceGestureStarted()
+                    root.luminanceEdited(value)
+                    if (ownsGesture)
+                        root.luminanceGestureFinished()
+                }
             }
 
             Label {
