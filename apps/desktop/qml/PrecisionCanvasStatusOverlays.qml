@@ -26,6 +26,46 @@ Item {
     required property int comparisonWipeHorizontal
     required property int comparisonSideBySide
 
+    property bool previewWaitMessageVisible: false
+    property bool detailWaitMessageVisible: false
+
+    readonly property bool previewWaitActive:
+        editor.active && !comparisonActive && !showingFullDetail
+        && previewFrameReady && editor.rendering
+    readonly property bool detailSurfaceRelevant:
+        !comparisonActive && !fitView && zoomFactor >= 1.0
+    readonly property bool detailWaitActive:
+        detailSurfaceRelevant && !detailImageReady
+        && editor.detailErrorText.length === 0
+        && !detailImageLoadFailed
+        && (editor.detailMode || editor.detailRendering)
+
+    onPreviewWaitActiveChanged: {
+        if (!previewWaitActive)
+            previewWaitMessageVisible = false
+    }
+
+    onDetailWaitActiveChanged: {
+        if (!detailWaitActive)
+            detailWaitMessageVisible = false
+    }
+
+    Timer {
+        interval: 250
+        running: overlays.previewWaitActive
+            && !overlays.previewWaitMessageVisible
+        onTriggered: overlays.previewWaitMessageVisible =
+            overlays.previewWaitActive
+    }
+
+    Timer {
+        interval: 250
+        running: overlays.detailWaitActive
+            && !overlays.detailWaitMessageVisible
+        onTriggered: overlays.detailWaitMessageVisible =
+            overlays.detailWaitActive
+    }
+
     Rectangle {
         id: comparisonBadge
         anchors.top: parent.top
@@ -69,6 +109,7 @@ Item {
 
     Rectangle {
         id: detailHint
+        objectName: "precisionDetailWaitingHint"
 
         readonly property bool failed:
             overlays.editor.detailErrorText.length > 0
@@ -77,18 +118,24 @@ Item {
         anchors.top: comparisonBadge.bottom
         anchors.right: comparisonBadge.right
         anchors.topMargin: 7
-        width: failed ? Math.min(350, detailHintRow.implicitWidth + 20) : 30
+        width: failed || overlays.detailWaitMessageVisible
+            ? Math.min(350, detailHintRow.implicitWidth + 20) : 30
         height: 30
         radius: 4
-        visible: !overlays.comparisonActive && !overlays.fitView
-            && overlays.zoomFactor >= 1.0
-            && ((overlays.editor.detailRendering && !overlays.detailImageReady)
-                || overlays.editor.detailErrorText.length > 0
-                || overlays.detailImageLoadFailed)
-        color: failed ? Theme.previewHudStrongOverlay : Theme.transparent
-        border.width: failed ? 1 : 0
-        border.color: Theme.errorBorder
+        visible: overlays.detailSurfaceRelevant
+            && (overlays.detailWaitActive || failed)
+        color: failed || overlays.detailWaitMessageVisible
+            ? Theme.previewHudStrongOverlay : Theme.transparent
+        border.width: failed || overlays.detailWaitMessageVisible ? 1 : 0
+        border.color: failed ? Theme.errorBorder : Theme.border
         clip: true
+
+        Behavior on width {
+            NumberAnimation {
+                duration: 120
+                easing.type: Easing.OutCubic
+            }
+        }
 
         Row {
             id: detailHintRow
@@ -98,22 +145,73 @@ Item {
             BusyIndicator {
                 width: 14
                 height: 14
-                visible: overlays.editor.detailRendering
-                    && !overlays.detailImageReady
+                visible: overlays.detailWaitActive
                 running: visible
             }
 
             Label {
+                objectName: "precisionDetailWaitingText"
                 width: Math.min(290, implicitWidth)
                 visible: detailHint.failed
-                text: overlays.editor.detailErrorText.length > 0
-                    ? overlays.editor.detailErrorText
-                    : qsTranslate(
-                        "PrecisionWorkspace",
-                        "Full-detail viewport unavailable · showing proxy")
-                color: Theme.errorText
+                    || overlays.detailWaitMessageVisible
+                text: detailHint.failed
+                    ? (overlays.editor.detailErrorText.length > 0
+                        ? overlays.editor.detailErrorText
+                        : qsTranslate(
+                            "PrecisionWorkspace",
+                            "Full-detail viewport unavailable · showing proxy"))
+                    : overlays.editor.fullResolutionPreparing
+                        ? qsTranslate(
+                            "PrecisionWorkspace",
+                            "Preparing 100% detail…")
+                        : overlays.editor.detailRendering
+                            ? qsTranslate(
+                                "PrecisionWorkspace",
+                                "Rendering 100% detail…")
+                            : qsTranslate(
+                                "PrecisionWorkspace",
+                                "Waiting for 100% detail…")
+                color: detailHint.failed ? Theme.errorText : Theme.textMuted
                 font.pixelSize: 9
                 elide: Text.ElideRight
+            }
+        }
+    }
+
+    Rectangle {
+        id: previewUpdatingHint
+        objectName: "precisionPreviewUpdatingHint"
+
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 14
+        anchors.bottomMargin: 14
+        width: previewUpdatingRow.implicitWidth + 20
+        height: 30
+        radius: 4
+        visible: overlays.previewWaitActive
+            && overlays.previewWaitMessageVisible
+        color: Theme.previewHudStrongOverlay
+        border.width: 1
+        border.color: Theme.border
+
+        Row {
+            id: previewUpdatingRow
+            anchors.centerIn: parent
+            spacing: 7
+
+            BusyIndicator {
+                width: 14
+                height: 14
+                running: previewUpdatingHint.visible
+            }
+
+            Label {
+                objectName: "precisionPreviewUpdatingText"
+                text: qsTranslate(
+                    "PrecisionWorkspace", "Updating preview…")
+                color: Theme.textMuted
+                font.pixelSize: 9
             }
         }
     }

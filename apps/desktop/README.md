@@ -296,8 +296,10 @@ Precision presentation follows the same responsibility tree:
   owns crop/orientation mapping, pointer follow/pin state, bounded detail requests, and the
   image-center fallback while the Canvas remains the composition boundary.
 - [`qml/PrecisionCanvasStatusOverlays.qml`](qml/PrecisionCanvasStatusOverlays.qml) owns only
-  comparison/detail/loading/error HUD presentation above that viewport and deliberately retains
-  the `PrecisionWorkspace` translation context.
+  comparison/detail/loading/error HUD presentation above that viewport. It preserves the last
+  usable frame during work, reveals explanatory preview/detail status only after a short delay,
+  and deliberately retains the `PrecisionWorkspace` translation context. The detail loupe uses
+  the same delayed-status rule without creating another render or task-state owner.
 - [`qml/PrecisionRetouchOverlay.qml`](qml/PrecisionRetouchOverlay.qml) is the retouch-overlay
   composition index. Continuous swept-disc painting lives in
   [`qml/PrecisionRetouchStrokeCoverage.qml`](qml/PrecisionRetouchStrokeCoverage.qml), its

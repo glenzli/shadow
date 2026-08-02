@@ -4039,6 +4039,24 @@ R %2 · G %3 · B %4</translation>
         <translation>已固定 · 点击照片可重新定位</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionDetailLoupe.qml" line="327"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="158"/>
+        <source>Preparing 100% detail…</source>
+        <translation>正在准备 100% 细节…</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionDetailLoupe.qml" line="330"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="162"/>
+        <source>Rendering 100% detail…</source>
+        <translation>正在渲染 100% 细节…</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionDetailLoupe.qml" line="332"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="165"/>
+        <source>Waiting for 100% detail…</source>
+        <translation>正在等待 100% 细节…</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionCanvasToolbar.qml" line="214"/>
         <source>Show focus detail loupe</source>
         <translation>显示焦点细节放大窗</translation>
@@ -4652,6 +4670,11 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="203"/>
         <source>NO PHOTO OPEN</source>
         <translation>未打开照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="204"/>
+        <source>Updating preview…</source>
+        <translation>正在更新预览…</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionCaptureMetadata.qml" line="97"/>

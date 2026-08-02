@@ -23,6 +23,7 @@ Rectangle {
 
     property real dragMargin: 8
     property bool positionInitialized: false
+    property bool waitMessageVisible: false
 
     readonly property real detailViewportWidth: detailViewport.width
     readonly property real detailViewportHeight: detailViewport.height
@@ -58,6 +59,9 @@ Rectangle {
         minimumWindowY,
         (parent ? parent.height : height) - height - dragMargin)
     readonly property bool detailReady: detailImage.status === Image.Ready
+    readonly property bool detailWaitActive:
+        visible && !detailReady
+        && String(editor.detailErrorText || "").length === 0
     readonly property string targetLabel: {
         if (targetKind === "camera")
             return focusConfirmed ? qsTr("Confirmed camera focus")
@@ -65,6 +69,17 @@ Rectangle {
         if (targetKind === "manual")
             return qsTr("Manual position")
         return qsTr("Image center")
+    }
+
+    onDetailWaitActiveChanged: {
+        if (!detailWaitActive)
+            waitMessageVisible = false
+    }
+
+    Timer {
+        interval: 250
+        running: loupe.detailWaitActive && !loupe.waitMessageVisible
+        onTriggered: loupe.waitMessageVisible = loupe.detailWaitActive
     }
 
     signal closeRequested()
@@ -251,6 +266,11 @@ Rectangle {
                 retainWhileLoading: true
                 smooth: false
                 mipmap: false
+                opacity: loupe.detailWaitActive ? 0.78 : 1.0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 120 }
+                }
             }
 
             Rectangle {
@@ -273,14 +293,46 @@ Rectangle {
                 visible: loupe.detailReady
             }
 
-            BusyIndicator {
-                objectName: "detailLoupeBusyIndicator"
+            Rectangle {
                 anchors.centerIn: parent
-                width: 30
-                height: 30
-                running: loupe.visible && !loupe.detailReady
-                    && String(loupe.editor.detailErrorText || "").length === 0
-                visible: running
+                width: Math.min(244, parent.width - 20)
+                height: 58
+                radius: 4
+                visible: loupe.detailWaitActive
+                    && loupe.waitMessageVisible
+                color: Theme.previewHudStrongOverlay
+                border.width: 1
+                border.color: Theme.border
+            }
+
+            Column {
+                anchors.centerIn: parent
+                width: Math.min(230, parent.width - 28)
+                spacing: 6
+                visible: loupe.detailWaitActive
+
+                BusyIndicator {
+                    objectName: "detailLoupeBusyIndicator"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 30
+                    height: 30
+                    running: loupe.detailWaitActive
+                }
+
+                Label {
+                    objectName: "detailLoupeWaitText"
+                    width: parent.width
+                    visible: loupe.waitMessageVisible
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    text: loupe.editor.fullResolutionPreparing
+                        ? qsTr("Preparing 100% detail…")
+                        : loupe.editor.detailRendering
+                            ? qsTr("Rendering 100% detail…")
+                            : qsTr("Waiting for 100% detail…")
+                    color: Theme.textPrimary
+                    font.pixelSize: 9
+                }
             }
 
             Label {
