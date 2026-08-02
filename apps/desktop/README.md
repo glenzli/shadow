@@ -51,6 +51,13 @@ Application startup is split from environment-driven automation:
   [`qml/ShadowCheckBox.qml`](qml/ShadowCheckBox.qml) and
   [`qml/ShadowSwitch.qml`](qml/ShadowSwitch.qml) own the compact checkbox and toggle presentation
   used throughout the packaged desktop module; feature panes retain only their domain semantics.
+  Together with `Theme.qml` and the remaining `Shadow*` primitives they form the desktop's internal
+  control library inside the packaged `Shadow.App` QML module. Keep feature-specific state and
+  workflows outside these controls. A separate `Shadow.Controls` module is deferred until its
+  packaging benefit outweighs the import and focused-test migration across existing consumers.
+  [`qml/MetadataFieldSelectorRow.qml`](qml/MetadataFieldSelectorRow.qml) owns one metadata field's
+  row interaction and consumes `ShadowCheckBox`; [`qml/MetadataWindow.qml`](qml/MetadataWindow.qml)
+  keeps only field grouping and preference orchestration.
 - [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
   and EXIF-field presentation preferences. [`src/ai_preferences.*`](src/ai_preferences.hpp) owns
   admission policy for new local AI work plus the default strength of newly authored RAW-denoise

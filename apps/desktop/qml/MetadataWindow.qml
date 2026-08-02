@@ -154,75 +154,15 @@ Window {
                                 font.weight: Font.DemiBold
                             }
 
-                            Rectangle {
+                            MetadataFieldSelectorRow {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 46
-                                radius: 8
-                                color: fieldMouse.containsMouse
-                                    ? Theme.buttonGhostHover : Theme.panelRaised
-                                border.width: 1
-                                border.color: Theme.border
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 12
-                                    anchors.rightMargin: 10
-                                    spacing: 12
-
-                                    Label {
-                                        Layout.preferredWidth: 150
-                                        text: fieldDelegate.modelData.label
-                                        color: Theme.textMuted
-                                        font.pixelSize: 10
-                                    }
-
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: fieldDelegate.modelData.value
-                                        color: Theme.textPrimary
-                                        font.pixelSize: 11
-                                        elide: Text.ElideMiddle
-                                    }
-
-                                    Rectangle {
-                                        id: sidebarToggle
-                                        readonly property bool checked:
-                                            root.preferences.exifFields.indexOf(
-                                                fieldDelegate.modelData.id) >= 0
-                                        Layout.preferredWidth: 24
-                                        Layout.preferredHeight: 24
-                                        radius: 6
-                                        color: checked
-                                            ? Theme.accentSelectionSurface
-                                            : Theme.control
-                                        border.width: 1
-                                        border.color: checked
-                                            ? Theme.accentBorder : Theme.borderStrong
-
-                                        Accessible.role: Accessible.CheckBox
-                                        Accessible.name: qsTr("Show %1 in sidebar").arg(
-                                            fieldDelegate.modelData.label)
-                                        Accessible.checked: checked
-
-                                        ShadowIcon {
-                                            anchors.centerIn: parent
-                                            visible: sidebarToggle.checked
-                                            source: "qrc:/icons/check.svg"
-                                            color: Theme.accent
-                                            size: 15
-                                        }
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: fieldMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.preferences.setExifFieldVisible(
-                                        fieldDelegate.modelData.id,
-                                        !sidebarToggle.checked)
-                                }
+                                fieldLabel: fieldDelegate.modelData.label
+                                fieldValue: fieldDelegate.modelData.value
+                                checked: root.preferences.exifFields.indexOf(
+                                    fieldDelegate.modelData.id) >= 0
+                                onToggleRequested: checked =>
+                                    root.preferences.setExifFieldVisible(
+                                        fieldDelegate.modelData.id, checked)
                             }
                         }
                     }

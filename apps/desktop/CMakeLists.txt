@@ -710,6 +710,7 @@ qt_add_qml_module(
         qml/MapProviderSettingsDialog.qml
         qml/MapProviderSettingsPane.qml
         qml/AutosaveFailureRecovery.qml
+        qml/MetadataFieldSelectorRow.qml
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
         qml/PrecisionCanvas.qml
@@ -1885,6 +1886,57 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-application-settings-dialog
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-metadata-field-selector-row-test
+        tests/metadata_field_selector_row_test.cpp
+    )
+    target_compile_features(
+        shadow-metadata-field-selector-row-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-metadata-field-selector-row-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-metadata-field-selector-row-test
+        URI Shadow.MetadataFieldSelectorContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/MetadataFieldSelectorRow.qml
+            qml/ShadowCheckBox.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-metadata-field-selector-row-test
+        shadow-metadata-field-selector-row-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/check.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-metadata-field-selector-row-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-metadata-field-selector-row-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-metadata-field-selector-row
+        COMMAND shadow-metadata-field-selector-row-test
+    )
+    set_tests_properties(
+        shadow-desktop-metadata-field-selector-row
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
