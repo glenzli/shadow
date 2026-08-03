@@ -1,6 +1,7 @@
 #include "edit_controller.hpp"
 #include "ai_preferences.hpp"
 #include "edit_ai_mask_controller.hpp"
+#include "edit_persistence_task_coordinator.hpp"
 #include "edit_raw_foundation_controller.hpp"
 
 #include <QCoreApplication>
@@ -44,6 +45,10 @@ EditController::EditController(
     preview_presentation_context_(std::move(preview_presentation_context)),
     ai_preferences_(ai_preferences), versions_(this), tone_curve_points_(this) {
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
+    persistence_task_coordinator_ = std::make_unique<EditPersistenceTaskCoordinator>(
+        *this,
+        [this] { finishStateTask(); }
+    );
     raw_foundation_controller_ = std::make_unique<EditRawFoundationController>(*this, backend_);
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
@@ -94,12 +99,6 @@ EditController::EditController(
         );
     }
     connect(
-        &state_watcher_,
-        &QFutureWatcher<EditStateTaskResult>::finished,
-        this,
-        &EditController::finishStateTask
-    );
-    connect(
         &preview_watcher_,
         &QFutureWatcher<EditPreviewTaskResult>::finished,
         this,
@@ -135,7 +134,7 @@ EditController::~EditController() {
     autosave_debounce_.stop();
     detail_render_token_ = backend_->beginEditDetailRequest();
     detail_warmup_token_ = detail_render_token_;
-    state_watcher_.waitForFinished();
+    persistence_task_coordinator_->waitForFinished();
     preview_watcher_.waitForFinished();
     detail_watcher_.waitForFinished();
     detail_warmup_watcher_.waitForFinished();
@@ -146,7 +145,7 @@ bool EditController::active() const noexcept {
 }
 
 bool EditController::busy() const noexcept {
-    return state_running_ || current_rendering_ || before_rendering_ || detail_rendering_
+    return stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
            || (ai_mask_controller_ && ai_mask_controller_->busy());
 }
 
@@ -161,7 +160,7 @@ bool EditController::interactionLocked() const noexcept {
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
     return pending_version_save_name_.has_value() || pending_version_load_commit_id_.has_value()
-           || (state_running_ && state_task_kind_ != EditStateTaskKind::Autosave)
+           || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
            || (ai_mask_controller_ && ai_mask_controller_->locksInteraction());
 }
 
@@ -220,8 +219,8 @@ bool EditController::dirty() const noexcept {
 bool EditController::autosavePending() const noexcept {
     return !autosaveFailed()
            && (autosave_requested_ || autosave_debounce_.isActive()
-               || (state_running_ && state_task_kind_ == EditStateTaskKind::Autosave
-                   && state_watcher_.isRunning()));
+               || (stateTaskRunning() && stateTaskKind() == EditStateTaskKind::Autosave
+                   && stateTaskFutureRunning()));
 }
 
 bool EditController::autosaveFailed() const noexcept {

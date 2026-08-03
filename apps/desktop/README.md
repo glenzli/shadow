@@ -273,6 +273,10 @@ Its implementation follows the same navigation:
   open/close, autosave, version operations, and durable state transitions. A named Version
   requested during a non-blocking autosave is queued behind that exact snapshot and keeps explicit
   state interaction locked; it must never be accepted by the UI and then silently discarded.
+  [`src/edit_persistence_task_coordinator.*`](src/edit_persistence_task_coordinator.hpp) owns the
+  single asynchronous Catalog task slot beneath that lifecycle: admission, task identity, future
+  completion, result consumption, and shutdown waiting. `EditController` projects its busy state
+  but no longer stores or operates the watcher directly.
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns current and neutral
   preview scheduling, cancellation, diagnostics, and presentation. During interaction it
   publishes the bridge's shared immutable frame owner; settled and neutral frames retain their

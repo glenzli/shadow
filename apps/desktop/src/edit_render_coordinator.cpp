@@ -260,7 +260,7 @@ void EditController::finishPreviewTask() {
 }
 
 void EditController::startPreviewRender() {
-    if (!active_ || state_running_) {
+    if (!active_ || stateTaskRunning()) {
         preview_queued_ = active_;
         return;
     }
@@ -325,7 +325,7 @@ void EditController::maybeStartBeforePreview() {
     if (!can_start_neutral_before(NeutralBeforeStartState{
             .requested = before_requested_,
             .active = active_,
-            .state_task_running = state_running_,
+            .state_task_running = stateTaskRunning(),
             .current_rendering = current_rendering_,
             .before_rendering = before_rendering_,
             .current_scheduled = preview_debounce_.isActive() || preview_queued_,

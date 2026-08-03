@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_persistence_task_coordinator.hpp"
 
 #include <QtConcurrent>
 
@@ -43,7 +44,7 @@ bool EditController::openPhoto(
             || source_path != source_path_)) {
         cancelActivePreview(true);
     }
-    if (state_running_) {
+    if (stateTaskRunning()) {
         if (active_) {
             // Do not make a fast Library selection race a background state
             // operation. The newest target wins and is opened as soon as the
@@ -172,12 +173,11 @@ bool EditController::openPhoto(
     emit titleChanged();
     emit sourcePathChanged();
     emit sourceIdentityChanged();
-    state_task_kind_ = EditStateTaskKind::Open;
-    setStateRunning(true);
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Loading non-destructive edit history…"))
     );
-    state_watcher_.setFuture(
+    startStateTask(
+        EditStateTaskKind::Open,
         QtConcurrent::run(
             EditTaskRunner::loadState,
             backend_,
@@ -191,7 +191,7 @@ bool EditController::openPhoto(
 
 void EditController::closePhoto() {
     cancelActivePreview(true);
-    if (state_running_) {
+    if (stateTaskRunning()) {
         // A return to Library is allowed while an initial open or an autosave
         // is in flight. A later photo selection can install a fresh pending
         // target; otherwise the completed task will close this session.
@@ -283,16 +283,15 @@ void EditController::closePhoto() {
 }
 
 void EditController::resetIncompatibleRecipe() {
-    if (!recipeRecoveryRequired() || state_running_ || photo_id_.isEmpty()
+    if (!recipeRecoveryRequired() || stateTaskRunning() || photo_id_.isEmpty()
         || source_path_.isEmpty()) {
         return;
     }
-    state_task_kind_ = EditStateTaskKind::ResetIncompatibleRecipe;
-    setStateRunning(true);
     setStatusMessage(edit_message(
         QT_TRANSLATE_NOOP("EditController", "Resetting this photo’s development edits…")
     ));
-    state_watcher_.setFuture(
+    startStateTask(
+        EditStateTaskKind::ResetIncompatibleRecipe,
         QtConcurrent::run(
             EditTaskRunner::resetIncompatibleRecipeState,
             backend_,
@@ -317,8 +316,8 @@ void EditController::saveVersion(const QString& version_name) {
     if (pending_version_load_commit_id_.has_value()) {
         return;
     }
-    if (state_running_) {
-        if (state_task_kind_ != EditStateTaskKind::Autosave) {
+    if (stateTaskRunning()) {
+        if (stateTaskKind() != EditStateTaskKind::Autosave) {
             return;
         }
         const bool was_locked = interactionLocked();
@@ -334,12 +333,11 @@ void EditController::saveVersion(const QString& version_name) {
     }
     history_.finishGesture(grade_stack_);
     emit historyChanged();
-    state_task_kind_ = EditStateTaskKind::Save;
-    setStateRunning(true);
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Creating Library version “%1”…"), {name})
     );
-    state_watcher_.setFuture(
+    startStateTask(
+        EditStateTaskKind::Save,
         QtConcurrent::run(
             EditTaskRunner::saveState,
             backend_,
@@ -359,8 +357,8 @@ void EditController::loadVersionDraft(const QString& commit_id) {
     if (!active_ || normalized_commit_id.isEmpty() || pending_version_save_name_.has_value()) {
         return;
     }
-    if (state_running_) {
-        if (state_task_kind_ != EditStateTaskKind::Autosave) {
+    if (stateTaskRunning()) {
+        if (stateTaskKind() != EditStateTaskKind::Autosave) {
             return;
         }
         const bool was_locked = interactionLocked();
@@ -388,12 +386,11 @@ void EditController::loadVersionDraft(const QString& commit_id) {
         startAutosave();
         return;
     }
-    state_task_kind_ = EditStateTaskKind::LoadDraft;
-    setStateRunning(true);
     setStatusMessage(edit_message(
         QT_TRANSLATE_NOOP("EditController", "Loading saved version into working changes…")
     ));
-    state_watcher_.setFuture(
+    startStateTask(
+        EditStateTaskKind::LoadDraft,
         QtConcurrent::run(
             EditTaskRunner::loadVersionDraftState,
             backend_,
@@ -406,7 +403,7 @@ void EditController::loadVersionDraft(const QString& commit_id) {
 }
 
 void EditController::retryAutosave() {
-    if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
+    if (!active_ || !dirty_ || !autosave_requested_ || stateTaskRunning()) {
         return;
     }
     startAutosave();
@@ -417,7 +414,7 @@ void EditController::cancelPendingPhotoOpen() {
 }
 
 bool EditController::discardFailedAutosaveAndOpenPendingPhoto() {
-    if (!autosaveFailed() || state_running_ || !pending_photo_open_.has_value()) {
+    if (!autosaveFailed() || stateTaskRunning() || !pending_photo_open_.has_value()) {
         return false;
     }
     // This is reached only from the explicit destructive recovery action in
@@ -450,7 +447,7 @@ bool EditController::prepareToClose() {
         emit stateBusyChanged();
     }
     close_after_autosave_ = true;
-    if (state_running_) {
+    if (stateTaskRunning()) {
         return false;
     }
     if (active_ && dirty_ && autosave_requested_) {
@@ -476,8 +473,7 @@ bool EditController::prepareToClose() {
 }
 
 void EditController::finishStateTask() {
-    EditStateTaskResult result = state_watcher_.result();
-    setStateRunning(false);
+    EditStateTaskResult result = completeStateTask();
     if (result.photo_generation != photo_generation_) {
         if (pending_version_save_name_.has_value() || pending_version_load_commit_id_.has_value()) {
             pending_version_save_name_.reset();
@@ -696,7 +692,7 @@ bool EditController::openPendingPhoto() {
 }
 
 void EditController::maybeFinishDeferredApplicationClose() {
-    if (!close_after_autosave_ || state_running_ || current_rendering_ || before_rendering_
+    if (!close_after_autosave_ || stateTaskRunning() || current_rendering_ || before_rendering_
         || detail_rendering_) {
         return;
     }
@@ -732,14 +728,14 @@ void EditController::applyState(BackendPhotoEditState state) {
 
 void EditController::setDirty(const bool dirty) {
     if (dirty_ == dirty) {
-        if (dirty && autosave_requested_ && !state_running_) {
+        if (dirty && autosave_requested_ && !stateTaskRunning()) {
             scheduleAutosave();
         }
         return;
     }
     dirty_ = dirty;
     emit dirtyChanged();
-    if (dirty_ && autosave_requested_ && !state_running_) {
+    if (dirty_ && autosave_requested_ && !stateTaskRunning()) {
         scheduleAutosave();
     } else if (!dirty_) {
         autosave_debounce_.stop();
@@ -767,7 +763,7 @@ void EditController::clearAutosaveFailure() {
 }
 
 void EditController::scheduleAutosave() {
-    if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
+    if (!active_ || !dirty_ || !autosave_requested_ || stateTaskRunning()) {
         return;
     }
     autosave_debounce_.start(EDIT_AUTOSAVE_DEBOUNCE_MS);
@@ -776,20 +772,19 @@ void EditController::scheduleAutosave() {
 
 void EditController::startAutosave() {
     autosave_debounce_.stop();
-    if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
+    if (!active_ || !dirty_ || !autosave_requested_ || stateTaskRunning()) {
         return;
     }
     clearAutosaveFailure();
     history_.finishGesture(grade_stack_);
     emit historyChanged();
     autosave_snapshot_revision_ = working_revision_;
-    state_task_kind_ = EditStateTaskKind::Autosave;
-    setStateRunning(true);
     emit autosavePendingChanged();
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Saving current adjustments locally…"))
     );
-    state_watcher_.setFuture(
+    startStateTask(
+        EditStateTaskKind::Autosave,
         QtConcurrent::run(
             EditTaskRunner::autosaveState,
             backend_,
@@ -847,20 +842,42 @@ void EditController::setEditBaseCommitId(QString commit_id) {
     emit editBaseCommitIdChanged();
 }
 
-void EditController::setStateRunning(const bool running) {
-    if (state_running_ == running) {
-        return;
-    }
+void EditController::startStateTask(
+    const EditStateTaskKind kind,
+    QFuture<EditStateTaskResult> future
+) {
     const bool previous_busy = busy();
     const bool previously_locked = interactionLocked();
-    state_running_ = running;
-    if (!running) {
-        state_task_kind_ = EditStateTaskKind::Open;
-    }
+    persistence_task_coordinator_->start(kind, std::move(future));
     if (previously_locked != interactionLocked()) {
         emit stateBusyChanged();
     }
     emit autosavePendingChanged();
     emit gradeNodeActionsChanged();
     emitBusyChange(previous_busy);
+}
+
+EditStateTaskResult EditController::completeStateTask() {
+    const bool previous_busy = busy();
+    const bool previously_locked = interactionLocked();
+    EditStateTaskResult result = persistence_task_coordinator_->complete();
+    if (previously_locked != interactionLocked()) {
+        emit stateBusyChanged();
+    }
+    emit autosavePendingChanged();
+    emit gradeNodeActionsChanged();
+    emitBusyChange(previous_busy);
+    return result;
+}
+
+bool EditController::stateTaskRunning() const noexcept {
+    return persistence_task_coordinator_->running();
+}
+
+bool EditController::stateTaskFutureRunning() const noexcept {
+    return persistence_task_coordinator_->futureRunning();
+}
+
+EditStateTaskKind EditController::stateTaskKind() const noexcept {
+    return persistence_task_coordinator_->kind();
 }

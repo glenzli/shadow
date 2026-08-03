@@ -11,6 +11,7 @@
 #include "tone_curve_point_model.hpp"
 
 #include <QAbstractItemModel>
+#include <QFuture>
 #include <QFutureWatcher>
 #include <QObject>
 #include <QSet>
@@ -36,6 +37,7 @@ struct PendingPhotoOpen final {
 
 class EditPreviewPresentationContext;
 class EditAiMaskController;
+class EditPersistenceTaskCoordinator;
 class EditRawFoundationController;
 class AiPreferences;
 
@@ -833,7 +835,11 @@ class EditController final : public QObject {
     [[nodiscard]] bool applyAutosavedState(BackendPhotoEditState state);
     void setVersionDraft(bool draft);
     void setEditBaseCommitId(QString commit_id);
-    void setStateRunning(bool running);
+    void startStateTask(EditStateTaskKind kind, QFuture<EditStateTaskResult> future);
+    [[nodiscard]] EditStateTaskResult completeStateTask();
+    [[nodiscard]] bool stateTaskRunning() const noexcept;
+    [[nodiscard]] bool stateTaskFutureRunning() const noexcept;
+    [[nodiscard]] EditStateTaskKind stateTaskKind() const noexcept;
     [[nodiscard]] bool interactionLocked() const noexcept;
     [[nodiscard]] bool openPendingPhoto();
     void maybeFinishDeferredApplicationClose();
@@ -888,10 +894,10 @@ class EditController final : public QObject {
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
     AiPreferences* ai_preferences_ = nullptr;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
+    std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
     EditVersionModel versions_;
     ToneCurvePointModel tone_curve_points_;
-    QFutureWatcher<EditStateTaskResult> state_watcher_;
     QFutureWatcher<EditPreviewTaskResult> preview_watcher_;
     QFutureWatcher<EditDetailTaskResult> detail_watcher_;
     QFutureWatcher<EditDetailWarmupTaskResult> detail_warmup_watcher_;
@@ -966,8 +972,6 @@ class EditController final : public QObject {
     bool close_after_autosave_ = false;
     bool close_photo_after_autosave_ = false;
     bool version_draft_ = false;
-    bool state_running_ = false;
-    EditStateTaskKind state_task_kind_ = EditStateTaskKind::Open;
     bool current_rendering_ = false;
     bool before_rendering_ = false;
     bool detail_mode_ = false;

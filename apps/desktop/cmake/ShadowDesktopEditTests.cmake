@@ -606,6 +606,40 @@
     )
 
     add_executable(
+        shadow-edit-persistence-task-coordinator-test
+        tests/edit_persistence_task_coordinator_test.cpp
+        src/edit_persistence_task_coordinator.cpp
+        src/edit_persistence_task_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-edit-persistence-task-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-persistence-task-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-persistence-task-coordinator-test
+        PRIVATE Qt6::Core Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-persistence-task-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-persistence-task-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-persistence-task-coordinator
+        COMMAND shadow-edit-persistence-task-coordinator-test
+    )
+
+    add_executable(
         shadow-precision-lut-section-contract-test
         tests/precision_lut_section_contract_test.cpp
     )

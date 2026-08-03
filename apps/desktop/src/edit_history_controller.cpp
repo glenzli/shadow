@@ -166,7 +166,7 @@ void EditController::resetAllAdjustments() {
 }
 
 void EditController::revertEdits() {
-    if (!active_ || state_running_) {
+    if (!active_ || stateTaskRunning()) {
         return;
     }
     if (version_draft_) {
@@ -365,7 +365,7 @@ void EditController::recordWorkingTransition(const QString& key, const BackendGr
     ++working_revision_;
     autosave_requested_ = true;
     clearAutosaveFailure();
-    if (dirty_ && !state_running_) {
+    if (dirty_ && !stateTaskRunning()) {
         scheduleAutosave();
     }
 }

@@ -217,7 +217,7 @@ void EditController::startDetailRender() {
         detail_queued_ = false;
         return;
     }
-    if (state_running_ || current_rendering_ || before_rendering_
+    if (stateTaskRunning() || current_rendering_ || before_rendering_
         || settled_render_revision_ != render_revision_ || detail_rendering_) {
         detail_queued_ = true;
         return;
@@ -254,7 +254,7 @@ void EditController::startDetailRender() {
 
 void EditController::scheduleDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (!active_ || crop_tool_active_ || detail_mode_ || state_running_ || current_rendering_
+    if (!active_ || crop_tool_active_ || detail_mode_ || stateTaskRunning() || current_rendering_
         || detail_rendering_ || settled_render_revision_ != render_revision_
         || detail_warmup_watcher_.isRunning()
         || !edit_detail_admits_idle_warmup(
@@ -269,7 +269,7 @@ void EditController::scheduleDetailWarmup() {
 
 void EditController::startDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (!active_ || crop_tool_active_ || detail_mode_ || state_running_ || current_rendering_
+    if (!active_ || crop_tool_active_ || detail_mode_ || stateTaskRunning() || current_rendering_
         || before_rendering_ || detail_rendering_ || settled_render_revision_ != render_revision_
         || detail_warmup_watcher_.isRunning()
         || !edit_detail_admits_idle_warmup(
@@ -330,7 +330,7 @@ void EditController::maybeStartDetailRender() {
     if (!detail_queued_ || !detail_mode_ || detail_rendering_ || detail_debounce_.isActive()) {
         return;
     }
-    if (state_running_ || current_rendering_ || before_rendering_
+    if (stateTaskRunning() || current_rendering_ || before_rendering_
         || settled_render_revision_ != render_revision_) {
         return;
     }

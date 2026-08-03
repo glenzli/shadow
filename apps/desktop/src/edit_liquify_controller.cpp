@@ -306,7 +306,7 @@ void EditController::finishLiquifyLiveStroke() {
     autosave_requested_ = true;
     clearAutosaveFailure();
     setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
-    if (dirty_ && !state_running_) {
+    if (dirty_ && !stateTaskRunning()) {
         scheduleAutosave();
     }
     setStatusMessage(liquify_message(

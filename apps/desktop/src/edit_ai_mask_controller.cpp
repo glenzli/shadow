@@ -413,8 +413,8 @@ void EditAiMaskController::generate() {
         emit owner_.aiMaskPromptChanged();
         return;
     }
-    if (owner_.dirty_ || owner_.state_running_) {
-        if (owner_.dirty_ && !owner_.state_running_) {
+    if (owner_.dirty_ || owner_.stateTaskRunning()) {
+        if (owner_.dirty_ && !owner_.stateTaskRunning()) {
             owner_.autosave_requested_ = true;
             owner_.startAutosave();
         }
