@@ -378,6 +378,8 @@ qt_add_executable(
     src/edit_mask_assignment_controller.cpp
     src/edit_optics_controller.cpp
     src/edit_persistence_coordinator.cpp
+    src/edit_persistence_state.cpp
+    src/edit_persistence_state.hpp
     src/edit_persistence_task_coordinator.cpp
     src/edit_persistence_task_coordinator.hpp
     src/edit_render_coordinator.cpp

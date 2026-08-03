@@ -237,7 +237,7 @@ bool EditController::beginLiquifyLiveStroke() {
     liquify_live_kind_ = kind;
     // A live stroke is preview-only until release. Preserve any earlier
     // pending autosave, but do not let it capture an in-flight path.
-    autosave_debounce_.stop();
+    persistence_state_.stopAutosaveDebounce();
     return true;
 }
 
@@ -297,13 +297,13 @@ void EditController::finishLiquifyLiveStroke() {
     liquify_live_kind_ = -1;
     endParameterEdit(QStringLiteral("liquify/stroke/live"));
     if (!changed) {
-        if (autosave_requested_) {
+        if (persistence_state_.autosaveRequested()) {
             scheduleAutosave();
         }
         return;
     }
     ++working_revision_;
-    autosave_requested_ = true;
+    persistence_state_.requestAutosave();
     clearAutosaveFailure();
     setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
     if (dirty_ && !stateTaskRunning()) {
@@ -326,7 +326,7 @@ void EditController::cancelLiquifyLiveStroke() {
     liquify_live_kind_ = -1;
     setGradeStack(std::move(before));
     endParameterEdit(QStringLiteral("liquify/stroke/live"));
-    if (autosave_requested_) {
+    if (persistence_state_.autosaveRequested()) {
         scheduleAutosave();
     }
 }

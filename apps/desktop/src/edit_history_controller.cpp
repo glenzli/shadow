@@ -101,7 +101,7 @@ void EditController::undo() {
         *restored,
         selected_grade_node_index_
     );
-    autosave_requested_ = true;
+    persistence_state_.requestAutosave();
     clearAutosaveFailure();
     ++working_revision_;
     setGradeStack(*restored, preferred_id);
@@ -121,7 +121,7 @@ void EditController::redo() {
     if (!restored) {
         return;
     }
-    autosave_requested_ = true;
+    persistence_state_.requestAutosave();
     clearAutosaveFailure();
     ++working_revision_;
     setGradeStack(
@@ -188,10 +188,9 @@ void EditController::revertEdits() {
         recordWorkingTransition(QStringLiteral("revert"), before);
         schedulePreview(0);
     }
-    autosave_debounce_.stop();
+    persistence_state_.stopAutosaveDebounce();
     clearAutosaveFailure();
-    if (autosave_requested_) {
-        autosave_requested_ = false;
+    if (persistence_state_.clearAutosaveRequest()) {
         emit autosavePendingChanged();
     }
     setStatusMessage(
@@ -363,7 +362,7 @@ void EditController::recordWorkingTransition(const QString& key, const BackendGr
         emit historyChanged();
     }
     ++working_revision_;
-    autosave_requested_ = true;
+    persistence_state_.requestAutosave();
     clearAutosaveFailure();
     if (dirty_ && !stateTaskRunning()) {
         scheduleAutosave();

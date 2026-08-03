@@ -2,6 +2,7 @@
 
 #include "desktop_backend.hpp"
 #include "edit_history.hpp"
+#include "edit_persistence_state.hpp"
 #include "edit_preview_contract.hpp"
 #include "edit_preview_provider.hpp"
 #include "edit_task_runner.hpp"
@@ -23,17 +24,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-
-// A photo switch may arrive while the current working ref is being autosaved. Keep only the
-// latest requested target: the old photo remains visible until its durable working ref is
-// confirmed, then the controller opens this target without ever asking the user to "save".
-struct PendingPhotoOpen final {
-    QString photo_id;
-    QString representation_id;
-    QString source_path;
-    QString title;
-    QString provisional_preview_source;
-};
 
 class EditPreviewPresentationContext;
 class EditAiMaskController;
@@ -893,6 +883,7 @@ class EditController final : public QObject {
     std::shared_ptr<EditPreviewStore> preview_store_;
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
     AiPreferences* ai_preferences_ = nullptr;
+    EditPersistenceState persistence_state_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
     std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
@@ -904,7 +895,6 @@ class EditController final : public QObject {
     QTimer preview_debounce_;
     QTimer detail_debounce_;
     QTimer detail_warmup_debounce_;
-    QTimer autosave_debounce_;
     SessionEditHistory<BackendGradeStack> history_;
     // Slider/curve gestures render a deliberately smaller proxy so the first
     // useful frame wins over pixel-perfect fidelity. Once every gesture ends,
@@ -924,21 +914,11 @@ class EditController final : public QObject {
     QString provisional_preview_source_;
     QString before_preview_source_;
     QString mask_coverage_source_;
-    std::optional<PendingPhotoOpen> pending_photo_open_;
-    // An explicit named Version requested while the non-blocking autosave
-    // transaction owns the state task slot. It keeps interaction locked until
-    // that durable snapshot can be followed by the named save.
-    std::optional<QString> pending_version_save_name_;
-    // Loading an immutable commit must first preserve any newer in-memory
-    // adjustments. This pending identity keeps that one user action locked
-    // across the required autosave transaction, then resumes the checkout.
-    std::optional<QString> pending_version_load_commit_id_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;
     QVariantMap optics_receipt_;
     LocalizedUiMessage before_error_message_;
     LocalizedUiMessage detail_error_message_;
-    LocalizedUiMessage autosave_error_message_;
     LocalizedUiMessage recipe_recovery_message_;
     LocalizedUiMessage status_message_{
         "EditController",
@@ -950,7 +930,6 @@ class EditController final : public QObject {
     // autosave acknowledge the exact snapshot it wrote without overwriting
     // adjustments made while its Catalog transaction was in flight.
     quint64 working_revision_ = 0;
-    quint64 autosave_snapshot_revision_ = 0;
     quint64 settled_render_revision_ = 0;
     quint64 detail_viewport_revision_ = 0;
     quint64 detail_render_token_ = 0;
@@ -968,9 +947,6 @@ class EditController final : public QObject {
     std::uint32_t detail_viewport_height_ = 1;
     bool active_ = false;
     bool dirty_ = false;
-    bool autosave_requested_ = false;
-    bool close_after_autosave_ = false;
-    bool close_photo_after_autosave_ = false;
     bool version_draft_ = false;
     bool current_rendering_ = false;
     bool before_rendering_ = false;

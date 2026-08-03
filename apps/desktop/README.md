@@ -277,6 +277,10 @@ Its implementation follows the same navigation:
   single asynchronous Catalog task slot beneath that lifecycle: admission, task identity, future
   completion, result consumption, and shutdown waiting. `EditController` projects its busy state
   but no longer stores or operates the watcher directly.
+  [`src/edit_persistence_state.*`](src/edit_persistence_state.hpp) owns autosave debounce,
+  requested/snapshot/failure state, newest-photo selection, deferred named-version and checkout
+  intent, and photo/application close waits. The facade emits the stable QML notifications while
+  this owner keeps every queued intent alive until its explicit consume or recovery boundary.
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns current and neutral
   preview scheduling, cancellation, diagnostics, and presentation. During interaction it
   publishes the bridge's shared immutable frame owner; settled and neutral frames retain their

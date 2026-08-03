@@ -51,13 +51,13 @@ bool EditController::openPhoto(
             // current operation reaches a safe controller boundary. Autosave
             // may need to chain once more if the user changed controls while
             // its snapshot was in flight.
-            pending_photo_open_ = PendingPhotoOpen{
+            persistence_state_.queuePhotoOpen(PendingPhotoOpen{
                 .photo_id = photo_id,
                 .representation_id = representation_id,
                 .source_path = source_path,
                 .title = title,
                 .provisional_preview_source = provisional_preview_source,
-            };
+            });
             setStatusMessage(
                 edit_message(QT_TRANSLATE_NOOP("EditController", "Preparing the selected photo…"))
             );
@@ -79,14 +79,14 @@ bool EditController::openPhoto(
         // Shadow's working ref is an autosave, not a manually committed version. Queue the
         // selected photo, force the pending working snapshot now, and resume this exact open
         // request once persistence succeeds. This is intentionally non-blocking for browsing.
-        pending_photo_open_ = PendingPhotoOpen{
+        persistence_state_.queuePhotoOpen(PendingPhotoOpen{
             .photo_id = photo_id,
             .representation_id = representation_id,
             .source_path = source_path,
             .title = title,
             .provisional_preview_source = provisional_preview_source,
-        };
-        autosave_debounce_.stop();
+        });
+        persistence_state_.stopAutosaveDebounce();
         if (autosaveFailed()) {
             // Do not silently retry a known permanent error on every library
             // selection. The shell can now offer retry, stay here, or an
@@ -101,8 +101,7 @@ bool EditController::openPhoto(
             // Main.qml from also reporting a generic "could not open" error.
             return true;
         }
-        if (!autosave_requested_) {
-            autosave_requested_ = true;
+        if (persistence_state_.requestAutosave()) {
             emit autosavePendingChanged();
         }
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -117,12 +116,11 @@ bool EditController::openPhoto(
     ++render_revision_;
     active_parameter_gestures_.clear();
     working_revision_ = 0;
-    autosave_snapshot_revision_ = 0;
+    persistence_state_.resetAutosaveSnapshot();
     settled_render_revision_ = 0;
     preview_debounce_.stop();
-    autosave_debounce_.stop();
-    if (autosave_requested_) {
-        autosave_requested_ = false;
+    persistence_state_.stopAutosaveDebounce();
+    if (persistence_state_.clearAutosaveRequest()) {
         emit autosavePendingChanged();
     }
     resetDetailState();
@@ -195,12 +193,11 @@ void EditController::closePhoto() {
         // A return to Library is allowed while an initial open or an autosave
         // is in flight. A later photo selection can install a fresh pending
         // target; otherwise the completed task will close this session.
-        pending_photo_open_.reset();
-        if (pending_version_load_commit_id_.has_value()) {
-            pending_version_load_commit_id_.reset();
+        persistence_state_.clearPendingPhotoOpen();
+        if (persistence_state_.clearPendingVersionLoad()) {
             emit stateBusyChanged();
         }
-        close_photo_after_autosave_ = true;
+        persistence_state_.requestPhotoClose();
         return;
     }
     // Recovery belongs to the Precision session, not to the photo in the
@@ -213,13 +210,13 @@ void EditController::closePhoto() {
         emit recipeRecoveryChanged();
     }
     if (dirty_) {
-        if (!autosave_requested_) {
+        if (!persistence_state_.autosaveRequested()) {
             // Merely previewing an older named Version is a transient draft,
             // not an edit. Closing it must not silently replace `working`.
             revertEdits();
         } else {
-            close_photo_after_autosave_ = true;
-            autosave_debounce_.stop();
+            persistence_state_.requestPhotoClose();
+            persistence_state_.stopAutosaveDebounce();
             startAutosave();
             setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
                 "EditController",
@@ -231,7 +228,7 @@ void EditController::closePhoto() {
     if (!active_) {
         return;
     }
-    pending_photo_open_.reset();
+    persistence_state_.clearPendingPhotoOpen();
     setPointColorPickerActive(false);
     setRetouchPickerActive(false);
     setWhiteBalancePickerActive(false);
@@ -313,7 +310,7 @@ void EditController::saveVersion(const QString& version_name) {
         );
         return;
     }
-    if (pending_version_load_commit_id_.has_value()) {
+    if (persistence_state_.hasPendingVersionLoad()) {
         return;
     }
     if (stateTaskRunning()) {
@@ -321,7 +318,7 @@ void EditController::saveVersion(const QString& version_name) {
             return;
         }
         const bool was_locked = interactionLocked();
-        pending_version_save_name_ = name;
+        persistence_state_.queueVersionSave(name);
         if (was_locked != interactionLocked()) {
             emit stateBusyChanged();
         }
@@ -354,7 +351,8 @@ void EditController::saveVersion(const QString& version_name) {
 
 void EditController::loadVersionDraft(const QString& commit_id) {
     const QString normalized_commit_id = commit_id.trimmed();
-    if (!active_ || normalized_commit_id.isEmpty() || pending_version_save_name_.has_value()) {
+    if (!active_ || normalized_commit_id.isEmpty()
+        || persistence_state_.hasPendingVersionSave()) {
         return;
     }
     if (stateTaskRunning()) {
@@ -362,7 +360,7 @@ void EditController::loadVersionDraft(const QString& commit_id) {
             return;
         }
         const bool was_locked = interactionLocked();
-        pending_version_load_commit_id_ = normalized_commit_id;
+        persistence_state_.queueVersionLoad(normalized_commit_id);
         if (was_locked != interactionLocked()) {
             emit stateBusyChanged();
         }
@@ -374,7 +372,7 @@ void EditController::loadVersionDraft(const QString& commit_id) {
     }
     if (dirty_) {
         const bool was_locked = interactionLocked();
-        pending_version_load_commit_id_ = normalized_commit_id;
+        persistence_state_.queueVersionLoad(normalized_commit_id);
         if (was_locked != interactionLocked()) {
             emit stateBusyChanged();
         }
@@ -382,7 +380,7 @@ void EditController::loadVersionDraft(const QString& commit_id) {
             "EditController",
             "Saving current adjustments before loading another version"
         )));
-        autosave_debounce_.stop();
+        persistence_state_.stopAutosaveDebounce();
         startAutosave();
         return;
     }
@@ -403,27 +401,27 @@ void EditController::loadVersionDraft(const QString& commit_id) {
 }
 
 void EditController::retryAutosave() {
-    if (!active_ || !dirty_ || !autosave_requested_ || stateTaskRunning()) {
+    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()) {
         return;
     }
     startAutosave();
 }
 
 void EditController::cancelPendingPhotoOpen() {
-    pending_photo_open_.reset();
+    persistence_state_.clearPendingPhotoOpen();
 }
 
 bool EditController::discardFailedAutosaveAndOpenPendingPhoto() {
-    if (!autosaveFailed() || stateTaskRunning() || !pending_photo_open_.has_value()) {
+    if (!autosaveFailed() || stateTaskRunning()
+        || !persistence_state_.hasPendingPhotoOpen()) {
         return false;
     }
     // This is reached only from the explicit destructive recovery action in
     // Main.qml. The durable `working` snapshot remains untouched; only the
     // unpersisted in-memory draft is discarded.
-    autosave_debounce_.stop();
+    persistence_state_.stopAutosaveDebounce();
     clearAutosaveFailure();
-    if (autosave_requested_) {
-        autosave_requested_ = false;
+    if (persistence_state_.clearAutosaveRequest()) {
         emit autosavePendingChanged();
     }
     setDirty(false);
@@ -431,7 +429,7 @@ bool EditController::discardFailedAutosaveAndOpenPendingPhoto() {
 }
 
 bool EditController::prepareToClose() {
-    autosave_debounce_.stop();
+    persistence_state_.stopAutosaveDebounce();
     preview_debounce_.stop();
     detail_debounce_.stop();
     preview_queued_ = false;
@@ -441,16 +439,15 @@ bool EditController::prepareToClose() {
     // A close must not race a queued photo selection. The existing session
     // still gets its durable working snapshot, but no new Precision session is
     // started on the way out.
-    pending_photo_open_.reset();
-    if (pending_version_load_commit_id_.has_value()) {
-        pending_version_load_commit_id_.reset();
+    persistence_state_.clearPendingPhotoOpen();
+    if (persistence_state_.clearPendingVersionLoad()) {
         emit stateBusyChanged();
     }
-    close_after_autosave_ = true;
+    persistence_state_.requestApplicationClose();
     if (stateTaskRunning()) {
         return false;
     }
-    if (active_ && dirty_ && autosave_requested_) {
+    if (active_ && dirty_ && persistence_state_.autosaveRequested()) {
         // An autosave failure is sticky until the user explicitly retries it.
         // Retrying it implicitly from every native close event used to trap the
         // window in an endless "save failed -> try to quit -> save failed"
@@ -458,7 +455,7 @@ bool EditController::prepareToClose() {
         // deliberate choices: retry, keep editing, or quit without the last
         // unsaved working snapshot.
         if (autosaveFailed()) {
-            close_after_autosave_ = false;
+            persistence_state_.cancelApplicationClose();
             emit closeSaveFailed();
             return false;
         }
@@ -468,16 +465,14 @@ bool EditController::prepareToClose() {
     if (current_rendering_ || before_rendering_ || detail_rendering_) {
         return false;
     }
-    close_after_autosave_ = false;
+    persistence_state_.cancelApplicationClose();
     return true;
 }
 
 void EditController::finishStateTask() {
     EditStateTaskResult result = completeStateTask();
     if (result.photo_generation != photo_generation_) {
-        if (pending_version_save_name_.has_value() || pending_version_load_commit_id_.has_value()) {
-            pending_version_save_name_.reset();
-            pending_version_load_commit_id_.reset();
+        if (persistence_state_.clearPendingVersionActions()) {
             emit stateBusyChanged();
         }
         maybeFinishDeferredApplicationClose();
@@ -490,8 +485,9 @@ void EditController::finishStateTask() {
             emit gradeNodeActionsChanged();
         }
         const bool newer_draft_exists = result.kind == EditStateTaskKind::Autosave && active_
-                                        && dirty_ && autosave_requested_
-                                        && working_revision_ != autosave_snapshot_revision_;
+                                        && dirty_ && persistence_state_.autosaveRequested()
+                                        && working_revision_
+                                               != persistence_state_.autosaveSnapshotRevision();
         if (newer_draft_exists) {
             // This task was saving an older slider snapshot. It may legitimately lose a
             // compare-and-swap race while the user has already made a newer edit, so give that
@@ -499,9 +495,7 @@ void EditController::finishStateTask() {
             setStatusMessage(edit_message(
                 QT_TRANSLATE_NOOP("EditController", "Saving newer adjustments locally…")
             ));
-            if (pending_photo_open_.has_value() || pending_version_save_name_.has_value()
-                || pending_version_load_commit_id_.has_value() || close_photo_after_autosave_
-                || close_after_autosave_) {
+            if (persistence_state_.hasDeferredCompletionAction()) {
                 startAutosave();
             } else {
                 scheduleAutosave();
@@ -509,10 +503,7 @@ void EditController::finishStateTask() {
             return;
         }
         if (result.kind == EditStateTaskKind::Autosave) {
-            if (pending_version_save_name_.has_value()
-                || pending_version_load_commit_id_.has_value()) {
-                pending_version_save_name_.reset();
-                pending_version_load_commit_id_.reset();
+            if (persistence_state_.clearPendingVersionActions()) {
                 emit stateBusyChanged();
             }
             const LocalizedUiMessage failure = edit_message(
@@ -552,19 +543,20 @@ void EditController::finishStateTask() {
                 {result.error}
             ));
         }
-        if (close_after_autosave_) {
-            close_after_autosave_ = false;
+        if (persistence_state_.closeAfterAutosave()) {
+            persistence_state_.cancelApplicationClose();
             emit closeSaveFailed();
         }
-        if (result.kind == EditStateTaskKind::Autosave && pending_photo_open_.has_value()) {
+        if (result.kind == EditStateTaskKind::Autosave
+            && persistence_state_.hasPendingPhotoOpen()) {
             emit photoSwitchSaveFailed();
         }
-        close_photo_after_autosave_ = false;
+        persistence_state_.clearPhotoClose();
         if (result.kind == EditStateTaskKind::Autosave) {
             // A persistent Catalog or decoder error must not look like an endless save.
             // Keep the draft intact and retry only after the user explicitly asks, or edits
             // again and therefore supplies a newer working snapshot.
-            autosave_debounce_.stop();
+            persistence_state_.stopAutosaveDebounce();
             emit autosavePendingChanged();
         }
         if (result.kind == EditStateTaskKind::Open && openPendingPhoto()) {
@@ -584,9 +576,7 @@ void EditController::finishStateTask() {
             setStatusMessage(edit_message(
                 QT_TRANSLATE_NOOP("EditController", "Saving newer adjustments locally…")
             ));
-            if (pending_photo_open_.has_value() || pending_version_save_name_.has_value()
-                || pending_version_load_commit_id_.has_value() || close_photo_after_autosave_
-                || close_after_autosave_) {
+            if (persistence_state_.hasDeferredCompletionAction()) {
                 startAutosave();
             } else {
                 scheduleAutosave();
@@ -607,17 +597,16 @@ void EditController::finishStateTask() {
             emit gradeNodeActionsChanged();
         }
     }
-    if (result.kind == EditStateTaskKind::Autosave && pending_version_save_name_.has_value()) {
-        QString pending_name = std::move(*pending_version_save_name_);
-        pending_version_save_name_.reset();
-        saveVersion(pending_name);
-        return;
-    }
-    if (result.kind == EditStateTaskKind::Autosave && pending_version_load_commit_id_.has_value()) {
-        QString pending_commit_id = std::move(*pending_version_load_commit_id_);
-        pending_version_load_commit_id_.reset();
-        loadVersionDraft(pending_commit_id);
-        return;
+    if (result.kind == EditStateTaskKind::Autosave) {
+        if (std::optional<QString> pending_name = persistence_state_.takePendingVersionSave()) {
+            saveVersion(*pending_name);
+            return;
+        }
+        if (std::optional<QString> pending_commit_id =
+                persistence_state_.takePendingVersionLoad()) {
+            loadVersionDraft(*pending_commit_id);
+            return;
+        }
     }
     if (openPendingPhoto()) {
         return;
@@ -627,7 +616,7 @@ void EditController::finishStateTask() {
         setStatusMessage(edit_message(
             QT_TRANSLATE_NOOP("EditController", "Edit history ready · rendering preview")
         ));
-        if (!close_after_autosave_) {
+        if (!persistence_state_.closeAfterAutosave()) {
             schedulePreview(0);
         }
         break;
@@ -636,7 +625,7 @@ void EditController::finishStateTask() {
             "EditController",
             "Old development edits reset · rendering the current recipe"
         )));
-        if (!close_after_autosave_) {
+        if (!persistence_state_.closeAfterAutosave()) {
             schedulePreview(0);
         }
         break;
@@ -656,47 +645,49 @@ void EditController::finishStateTask() {
             "EditController",
             "Named version loaded as a draft · adjust it to create a new working state"
         )));
-        if (!close_after_autosave_) {
+        if (!persistence_state_.closeAfterAutosave()) {
             schedulePreview(0);
         }
         break;
     }
-    if (!close_after_autosave_ && preview_queued_ && !preview_debounce_.isActive()) {
+    if (!persistence_state_.closeAfterAutosave() && preview_queued_
+        && !preview_debounce_.isActive()) {
         preview_debounce_.start(0);
     }
-    if (!close_after_autosave_) {
+    if (!persistence_state_.closeAfterAutosave()) {
         maybeStartBeforePreview();
         maybeStartDetailRender();
     }
-    if (close_photo_after_autosave_) {
-        close_photo_after_autosave_ = false;
+    if (persistence_state_.closePhotoAfterAutosave()) {
+        persistence_state_.clearPhotoClose();
         closePhoto();
     }
     maybeFinishDeferredApplicationClose();
 }
 
 bool EditController::openPendingPhoto() {
-    if (close_after_autosave_ || !pending_photo_open_.has_value()) {
+    if (persistence_state_.closeAfterAutosave()
+        || !persistence_state_.hasPendingPhotoOpen()) {
         return false;
     }
-    const PendingPhotoOpen pending = std::move(*pending_photo_open_);
-    pending_photo_open_.reset();
-    close_photo_after_autosave_ = false;
+    std::optional<PendingPhotoOpen> pending = persistence_state_.takePendingPhotoOpen();
+    persistence_state_.clearPhotoClose();
     return openPhoto(
-        pending.photo_id,
-        pending.representation_id,
-        pending.source_path,
-        pending.title,
-        pending.provisional_preview_source
+        pending->photo_id,
+        pending->representation_id,
+        pending->source_path,
+        pending->title,
+        pending->provisional_preview_source
     );
 }
 
 void EditController::maybeFinishDeferredApplicationClose() {
-    if (!close_after_autosave_ || stateTaskRunning() || current_rendering_ || before_rendering_
+    if (!persistence_state_.closeAfterAutosave() || stateTaskRunning() || current_rendering_
+        || before_rendering_
         || detail_rendering_) {
         return;
     }
-    close_after_autosave_ = false;
+    persistence_state_.cancelApplicationClose();
     emit closeReady();
 }
 
@@ -708,10 +699,9 @@ void EditController::applyState(BackendPhotoEditState state) {
         return;
     }
     setVersionDraft(state.is_version_draft);
-    autosave_debounce_.stop();
+    persistence_state_.stopAutosaveDebounce();
     clearAutosaveFailure();
-    if (autosave_requested_) {
-        autosave_requested_ = false;
+    if (persistence_state_.clearAutosaveRequest()) {
         emit autosavePendingChanged();
     }
     if (!version_draft_) {
@@ -721,64 +711,62 @@ void EditController::applyState(BackendPhotoEditState state) {
     setEditBaseCommitId(std::move(state.base_commit_id));
     setGradeStack(std::move(state.grade_stack));
     working_revision_ = 0;
-    autosave_snapshot_revision_ = 0;
+    persistence_state_.resetAutosaveSnapshot();
     clearSessionHistory();
     versions_.replace(std::move(state.versions));
 }
 
 void EditController::setDirty(const bool dirty) {
     if (dirty_ == dirty) {
-        if (dirty && autosave_requested_ && !stateTaskRunning()) {
+        if (dirty && persistence_state_.autosaveRequested() && !stateTaskRunning()) {
             scheduleAutosave();
         }
         return;
     }
     dirty_ = dirty;
     emit dirtyChanged();
-    if (dirty_ && autosave_requested_ && !stateTaskRunning()) {
+    if (dirty_ && persistence_state_.autosaveRequested() && !stateTaskRunning()) {
         scheduleAutosave();
     } else if (!dirty_) {
-        autosave_debounce_.stop();
+        persistence_state_.stopAutosaveDebounce();
     }
 }
 
 void EditController::setAutosaveFailure(LocalizedUiMessage error) {
-    if (autosave_error_message_ == error) {
+    if (!persistence_state_.setAutosaveFailure(std::move(error))) {
         return;
     }
-    autosave_error_message_ = std::move(error);
     emit autosaveFailedChanged();
     emit autosaveErrorTextChanged();
     emit autosavePendingChanged();
 }
 
 void EditController::clearAutosaveFailure() {
-    if (autosave_error_message_.isEmpty()) {
+    if (!persistence_state_.clearAutosaveFailure()) {
         return;
     }
-    autosave_error_message_.clear();
     emit autosaveFailedChanged();
     emit autosaveErrorTextChanged();
     emit autosavePendingChanged();
 }
 
 void EditController::scheduleAutosave() {
-    if (!active_ || !dirty_ || !autosave_requested_ || stateTaskRunning()) {
+    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()) {
         return;
     }
-    autosave_debounce_.start(EDIT_AUTOSAVE_DEBOUNCE_MS);
+    persistence_state_.scheduleAutosave(EDIT_AUTOSAVE_DEBOUNCE_MS);
     emit autosavePendingChanged();
 }
 
 void EditController::startAutosave() {
-    autosave_debounce_.stop();
-    if (!active_ || !dirty_ || !autosave_requested_ || stateTaskRunning()) {
+    persistence_state_.stopAutosaveDebounce();
+    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()) {
         return;
     }
     clearAutosaveFailure();
     history_.finishGesture(grade_stack_);
     emit historyChanged();
-    autosave_snapshot_revision_ = working_revision_;
+    persistence_state_.captureAutosaveSnapshot(working_revision_);
     emit autosavePendingChanged();
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Saving current adjustments locally…"))
@@ -806,7 +794,8 @@ bool EditController::applyAutosavedState(BackendPhotoEditState state) {
         )));
         return false;
     }
-    const bool changed_after_snapshot = working_revision_ != autosave_snapshot_revision_;
+    const bool changed_after_snapshot =
+        working_revision_ != persistence_state_.autosaveSnapshotRevision();
     const BackendGradeStack saved_stack = std::move(state.grade_stack);
     if (!changed_after_snapshot && grade_stack_ != saved_stack) {
         // The visible stack is the one that was persisted. A mismatch means
@@ -820,7 +809,11 @@ bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     durable_working_commit_id_ = state.base_commit_id;
     committed_grade_stack_ = saved_stack;
     versions_.replace(std::move(state.versions));
-    autosave_requested_ = changed_after_snapshot;
+    if (changed_after_snapshot) {
+        persistence_state_.requestAutosave();
+    } else {
+        (void)persistence_state_.clearAutosaveRequest();
+    }
     setDirty(changed_after_snapshot);
     emit autosavePendingChanged();
     return changed_after_snapshot;

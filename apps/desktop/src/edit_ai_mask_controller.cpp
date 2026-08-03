@@ -213,10 +213,9 @@ void EditController::applySubjectMaskState(
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
     setVersionDraft(false);
-    autosave_debounce_.stop();
+    persistence_state_.stopAutosaveDebounce();
     clearAutosaveFailure();
-    if (autosave_requested_) {
-        autosave_requested_ = false;
+    if (persistence_state_.clearAutosaveRequest()) {
         emit autosavePendingChanged();
     }
     base_commit_id_ = state.base_commit_id;
@@ -232,7 +231,7 @@ void EditController::applySubjectMaskState(
         emit historyChanged();
     }
     working_revision_ = 0;
-    autosave_snapshot_revision_ = 0;
+    persistence_state_.resetAutosaveSnapshot();
     versions_.replace(std::move(state.versions));
     setDirty(false);
     schedulePreview(0);
@@ -415,7 +414,7 @@ void EditAiMaskController::generate() {
     }
     if (owner_.dirty_ || owner_.stateTaskRunning()) {
         if (owner_.dirty_ && !owner_.stateTaskRunning()) {
-            owner_.autosave_requested_ = true;
+            owner_.persistence_state_.requestAutosave();
             owner_.startAutosave();
         }
         owner_.setStatusMessage(ai_mask_message(QT_TRANSLATE_NOOP(

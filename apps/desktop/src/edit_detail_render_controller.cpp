@@ -103,7 +103,7 @@ void EditController::scheduleDetailRefreshForRecipeEdit(const int delay_ms) {
 void EditController::finishDetailTask() {
     EditDetailTaskResult result = detail_watcher_.result();
     setDetailRunning(false);
-    if (close_after_autosave_) {
+    if (persistence_state_.closeAfterAutosave()) {
         detail_queued_ = false;
         before_requested_ = false;
         maybeFinishDeferredApplicationClose();

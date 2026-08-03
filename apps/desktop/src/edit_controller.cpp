@@ -43,7 +43,8 @@ EditController::EditController(
 ) :
     QObject(parent), backend_(std::move(backend)), preview_store_(std::move(preview_store)),
     preview_presentation_context_(std::move(preview_presentation_context)),
-    ai_preferences_(ai_preferences), versions_(this), tone_curve_points_(this) {
+    ai_preferences_(ai_preferences), persistence_state_(*this, [this] { startAutosave(); }),
+    versions_(this), tone_curve_points_(this) {
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
     persistence_task_coordinator_ = std::make_unique<EditPersistenceTaskCoordinator>(
         *this,
@@ -55,7 +56,6 @@ EditController::EditController(
     preview_debounce_.setSingleShot(true);
     detail_debounce_.setSingleShot(true);
     detail_warmup_debounce_.setSingleShot(true);
-    autosave_debounce_.setSingleShot(true);
     connect(&preview_debounce_, &QTimer::timeout, this, &EditController::startPreviewRender);
     connect(
         this,
@@ -105,7 +105,6 @@ EditController::EditController(
         &EditController::finishPreviewTask
     );
     connect(&detail_debounce_, &QTimer::timeout, this, &EditController::startDetailRender);
-    connect(&autosave_debounce_, &QTimer::timeout, this, &EditController::startAutosave);
     connect(
         &detail_watcher_,
         &QFutureWatcher<EditDetailTaskResult>::finished,
@@ -131,7 +130,7 @@ EditController::~EditController() {
     preview_debounce_.stop();
     detail_debounce_.stop();
     detail_warmup_debounce_.stop();
-    autosave_debounce_.stop();
+    persistence_state_.stopAutosaveDebounce();
     detail_render_token_ = backend_->beginEditDetailRequest();
     detail_warmup_token_ = detail_render_token_;
     persistence_task_coordinator_->waitForFinished();
@@ -159,7 +158,8 @@ bool EditController::interactionLocked() const noexcept {
     // head when the transaction returns. Opening a photo, creating a named
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
-    return pending_version_save_name_.has_value() || pending_version_load_commit_id_.has_value()
+    return persistence_state_.hasPendingVersionSave()
+           || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
            || (ai_mask_controller_ && ai_mask_controller_->locksInteraction());
 }
@@ -218,17 +218,18 @@ bool EditController::dirty() const noexcept {
 
 bool EditController::autosavePending() const noexcept {
     return !autosaveFailed()
-           && (autosave_requested_ || autosave_debounce_.isActive()
+           && (persistence_state_.autosaveRequested()
+               || persistence_state_.autosaveDebounceActive()
                || (stateTaskRunning() && stateTaskKind() == EditStateTaskKind::Autosave
                    && stateTaskFutureRunning()));
 }
 
 bool EditController::autosaveFailed() const noexcept {
-    return !autosave_error_message_.isEmpty();
+    return persistence_state_.autosaveFailed();
 }
 
 QString EditController::autosaveErrorText() const {
-    return autosave_error_message_.translated();
+    return persistence_state_.autosaveFailure().translated();
 }
 
 bool EditController::versionDraft() const noexcept {
@@ -315,7 +316,7 @@ void EditController::retranslateUi() {
     if (raw_foundation_controller_) {
         raw_foundation_controller_->retranslateUi();
     }
-    if (!autosave_error_message_.isEmpty()) {
+    if (persistence_state_.autosaveFailed()) {
         emit autosaveErrorTextChanged();
     }
     emit gradeNodesChanged();

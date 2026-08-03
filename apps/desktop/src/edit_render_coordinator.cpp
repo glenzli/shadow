@@ -79,7 +79,7 @@ void EditController::finishPreviewTask() {
         preview_render_token_ = 0;
     }
     setPreviewRunning(kind, false);
-    if (close_after_autosave_) {
+    if (persistence_state_.closeAfterAutosave()) {
         preview_queued_ = false;
         before_requested_ = false;
         detail_queued_ = false;

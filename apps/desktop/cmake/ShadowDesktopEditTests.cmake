@@ -640,6 +640,34 @@
     )
 
     add_executable(
+        shadow-edit-persistence-state-test
+        tests/edit_persistence_state_test.cpp
+        src/edit_persistence_state.cpp
+        src/edit_persistence_state.hpp
+    )
+    target_compile_features(shadow-edit-persistence-state-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-persistence-state-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-persistence-state-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-persistence-state-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-persistence-state-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-persistence-state
+        COMMAND shadow-edit-persistence-state-test
+    )
+
+    add_executable(
         shadow-precision-lut-section-contract-test
         tests/precision_lut_section_contract_test.cpp
     )
