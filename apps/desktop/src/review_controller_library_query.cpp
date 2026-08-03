@@ -165,6 +165,23 @@ void ReviewController::setFilterLocalityKey(const QString& locality_key) {
     filtered_model_.setLocalityKey(locality_key);
 }
 
+void ReviewController::setFilterExcludedLocalityKey(const QString& locality_key) {
+    filtered_model_.setExcludedLocalityKey(locality_key);
+}
+
+void ReviewController::setTravelHomeLocalityKey(const QString& locality_key) {
+    const QString normalized = locality_key.trimmed().toLower();
+    if (travel_home_locality_key_ == normalized) {
+        return;
+    }
+    const QString previous = travel_home_locality_key_;
+    travel_home_locality_key_ = normalized;
+    if (!previous.isEmpty() && filtered_model_.excludedLocalityKey() == previous) {
+        filtered_model_.setExcludedLocalityKey(normalized);
+    }
+    refreshTravelCollections();
+}
+
 void ReviewController::setFilterKeywordIdsAll(const QStringList& keyword_ids) {
     filtered_model_.setKeywordIdsAll(keyword_ids);
 }
@@ -238,6 +255,7 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     filter.lens_key = filtered_model_.lensKey();
     filter.country_key = filtered_model_.countryKey();
     filter.locality_key = filtered_model_.localityKey();
+    filter.excluded_locality_key = filtered_model_.excludedLocalityKey();
     filter.album_id = album_coordinator_.albumId();
     filter.keyword_ids_all = filtered_model_.keywordIdsAll();
     filter.excluded_keyword_ids_any = filtered_model_.excludedKeywordIdsAny();

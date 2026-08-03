@@ -9,12 +9,13 @@
 #include "review_library_keyword_coordinator.hpp"
 #include "review_library_map_coordinator.hpp"
 #include "review_library_metadata_coordinator.hpp"
-#include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
+#include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_shared_grade_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
+#include "review_travel_collection_coordinator.hpp"
 
 #include <memory>
 
@@ -32,6 +33,8 @@ source_health_operations(const std::shared_ptr<DesktopBackend>& backend);
 album_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] ReviewLibraryFacetCoordinator::Operations
 facet_operations(const std::shared_ptr<DesktopBackend>& backend);
+[[nodiscard]] ReviewTravelCollectionCoordinator::Operations
+travel_collection_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] ReviewLibraryKeywordCoordinator::Operations
 keyword_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] ReviewLibraryMetadataCoordinator::Operations

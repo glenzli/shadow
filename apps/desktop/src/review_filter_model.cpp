@@ -85,6 +85,10 @@ QString ReviewFilterModel::localityKey() const {
     return locality_key_;
 }
 
+QString ReviewFilterModel::excludedLocalityKey() const {
+    return excluded_locality_key_;
+}
+
 QStringList ReviewFilterModel::keywordIdsAll() const {
     return keyword_ids_all_;
 }
@@ -98,8 +102,8 @@ bool ReviewFilterModel::hasActiveServerFilter() const {
            || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
            || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
            || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
-           || !locality_key_.isEmpty() || !keyword_ids_all_.isEmpty()
-           || !excluded_keyword_ids_any_.isEmpty();
+           || !locality_key_.isEmpty() || !excluded_locality_key_.isEmpty()
+           || !keyword_ids_all_.isEmpty() || !excluded_keyword_ids_any_.isEmpty();
 }
 
 void ReviewFilterModel::setFlagFilter(const QString& filter) {
@@ -217,6 +221,15 @@ void ReviewFilterModel::setLocalityKey(const QString& locality_key) {
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setExcludedLocalityKey(const QString& locality_key) {
+    const QString normalized = normalizeFacetKey(locality_key);
+    if (excluded_locality_key_ == normalized) {
+        return;
+    }
+    excluded_locality_key_ = normalized;
+    emit filtersChanged();
+}
+
 void ReviewFilterModel::setKeywordIdsAll(const QStringList& keyword_ids) {
     const QStringList normalized = normalizeKeywordIds(keyword_ids);
     if (keyword_ids_all_ == normalized) {
@@ -242,8 +255,8 @@ void ReviewFilterModel::clearFilters() {
         || liked_filter_ != QStringLiteral("all") || excluded_flag_filter_ != QStringLiteral("all")
         || excluded_color_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
         || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
-        || !locality_key_.isEmpty() || !keyword_ids_all_.isEmpty()
-        || !excluded_keyword_ids_any_.isEmpty();
+        || !locality_key_.isEmpty() || !excluded_locality_key_.isEmpty()
+        || !keyword_ids_all_.isEmpty() || !excluded_keyword_ids_any_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
@@ -256,6 +269,7 @@ void ReviewFilterModel::clearFilters() {
     lens_key_.clear();
     country_key_.clear();
     locality_key_.clear();
+    excluded_locality_key_.clear();
     keyword_ids_all_.clear();
     excluded_keyword_ids_any_.clear();
     if (!changed) {

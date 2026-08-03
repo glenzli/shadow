@@ -12,6 +12,8 @@ ToolBar {
     required property var hostWindow
     required property var editor
     required property var settingsDialog
+    required property var personalProfile
+    required property var personalProfileDialog
     required property int workspaceIndex
     required property string descriptiveTitle
     required property bool canOpenSelectedPhoto
@@ -207,6 +209,13 @@ ToolBar {
                 toolTipText: text
                 accessibleName: text
                 onClicked: titleBar.settingsDialog.present("general")
+            }
+
+            ShadowAvatarButton {
+                objectName: "personalProfileButton"
+                anchors.verticalCenter: parent.verticalCenter
+                profile: titleBar.personalProfile
+                onClicked: titleBar.personalProfileDialog.present()
             }
         }
     }

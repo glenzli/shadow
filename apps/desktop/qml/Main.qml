@@ -18,6 +18,7 @@ ApplicationWindow {
     required property var cachePreferences
     required property var historyController
     required property var preferences
+    required property var personalProfile
     required property var mapProviderPreferences
     required property var googleMapTilesService
     required property var lutLibrary
@@ -114,6 +115,14 @@ ApplicationWindow {
             close()
             window.openOpticsProfileManager()
         }
+    }
+
+    PersonalProfileDialog {
+        id: personalProfileDialog
+        profile: window.personalProfile
+        controller: window.controller
+        hostWidth: window.width
+        hostHeight: window.height
     }
 
     LutManagerWindow {
@@ -230,6 +239,8 @@ ApplicationWindow {
         hostWindow: window
         editor: window.editor
         settingsDialog: applicationSettingsDialog
+        personalProfile: window.personalProfile
+        personalProfileDialog: personalProfileDialog
         workspaceIndex: window.workspaceIndex
         descriptiveTitle: window.descriptiveTitle
         canOpenSelectedPhoto: reviewWorkspace.canOpenSelectedPhoto
@@ -262,6 +273,7 @@ ApplicationWindow {
             preferences: window.preferences
             mapProviderPreferences: window.mapProviderPreferences
             googleMapTilesService: window.googleMapTilesService
+            personalProfile: window.personalProfile
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {

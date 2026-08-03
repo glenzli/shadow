@@ -8,6 +8,15 @@ void ReviewController::refreshLibraryFacets() {
     }
 }
 
+void ReviewController::refreshTravelCollections() {
+    if (!scanning()) {
+        travel_collection_coordinator_.refresh(
+            travel_home_locality_key_,
+            query_coordinator_.generation()
+        );
+    }
+}
+
 void ReviewController::setLibraryFacet(const QString& kind, const QString& key) {
     const QString normalized_kind = kind.trimmed().toLower();
     if (normalized_kind == QStringLiteral("month")) {

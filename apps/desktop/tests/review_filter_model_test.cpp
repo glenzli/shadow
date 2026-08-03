@@ -108,6 +108,7 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     filtered.setLensKey(QStringLiteral("RF24-105MM F4 L IS USM"));
     filtered.setCountryKey(QStringLiteral(" CN "));
     filtered.setLocalityKey(QStringLiteral("CN\u001fShanghai\u001fShanghai"));
+    filtered.setExcludedLocalityKey(QStringLiteral(" JP\u001fTokyo\u001fTokyo "));
     require(
         filtered.captureMonth() == QStringLiteral("2026-07"),
         "capture months must retain the canonical YYYY-MM key"
@@ -128,6 +129,10 @@ void catalog_metadata_facets_remain_typed_server_filters() {
         filtered.localityKey() == QStringLiteral("cn\u001fshanghai\u001fshanghai"),
         "city facet keys must remain structured Catalog identities"
     );
+    require(
+        filtered.excludedLocalityKey() == QStringLiteral("jp\u001ftokyo\u001ftokyo"),
+        "outside-home filtering must preserve a normalized structured locality identity"
+    );
     require(filtered.hasActiveServerFilter(), "metadata facets must request a fresh page");
 
     filtered.setCaptureMonth(QStringLiteral("2026-13"));
@@ -136,7 +141,10 @@ void catalog_metadata_facets_remain_typed_server_filters() {
         "invalid capture months must fail closed instead of widening a query"
     );
     filtered.clearFilters();
-    require(!filtered.hasActiveServerFilter(), "clearing must include metadata facets");
+    require(
+        !filtered.hasActiveServerFilter() && filtered.excludedLocalityKey().isEmpty(),
+        "clearing must include metadata and outside-home facets"
+    );
 }
 
 void hierarchical_keyword_filters_are_normalized_server_predicates() {

@@ -25,6 +25,7 @@ ReviewController::ReviewController(
     source_health_coordinator_(BackendOperations::source_health_operations(backend_)),
     album_coordinator_(BackendOperations::album_operations(backend_)),
     facet_coordinator_(BackendOperations::facet_operations(backend_)),
+    travel_collection_coordinator_(BackendOperations::travel_collection_operations(backend_)),
     place_resolution_coordinator_(
         BackendOperations::place_resolution_operations(backend_),
         makeDefaultLibraryReverseGeocoder(map_provider_preferences_)
@@ -194,6 +195,10 @@ QString ReviewController::filterLocalityKey() const {
     return filtered_model_.localityKey();
 }
 
+QString ReviewController::filterExcludedLocalityKey() const {
+    return filtered_model_.excludedLocalityKey();
+}
+
 QStringList ReviewController::filterKeywordIdsAll() const {
     return filtered_model_.keywordIdsAll();
 }
@@ -224,6 +229,26 @@ QVariantList ReviewController::libraryCityFacets() const {
 
 bool ReviewController::libraryFacetsBusy() const noexcept {
     return facet_coordinator_.busy();
+}
+
+QVariantList ReviewController::travelHomeCandidates() const {
+    return travel_collection_coordinator_.homeCandidates();
+}
+
+QVariantList ReviewController::travelGroups() const {
+    return travel_collection_coordinator_.groups();
+}
+
+qulonglong ReviewController::travelPhotoCount() const noexcept {
+    return travel_collection_coordinator_.photoCount();
+}
+
+bool ReviewController::travelCollectionsBusy() const noexcept {
+    return travel_collection_coordinator_.busy();
+}
+
+QString ReviewController::travelCollectionsErrorText() const {
+    return travel_collection_coordinator_.errorText();
 }
 
 bool ReviewController::libraryPlaceResolutionRunning() const noexcept {

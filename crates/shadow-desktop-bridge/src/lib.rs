@@ -332,6 +332,7 @@ mod ffi {
         lens_key: String,
         country_key: String,
         locality_key: String,
+        excluded_locality_key: String,
         has_aperture_minimum: bool,
         aperture_minimum_milli: u32,
         has_aperture_maximum: bool,

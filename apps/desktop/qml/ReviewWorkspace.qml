@@ -15,6 +15,7 @@ Item {
     required property var preferences
     required property var mapProviderPreferences
     required property var googleMapTilesService
+    required property var personalProfile
 
     ReviewSelectionState {
         id: selectionState
@@ -156,6 +157,9 @@ Item {
         controller.filterCaptureMonth.length > 0
         || controller.filterCameraKey.length > 0
         || controller.filterLensKey.length > 0
+        || controller.filterCountryKey.length > 0
+        || controller.filterLocalityKey.length > 0
+        || controller.filterExcludedLocalityKey.length > 0
     readonly property bool hasLibraryKeywordFilter:
         controller.filterKeywordIdsAll.length > 0
         || controller.filterExcludedKeywordIdsAny.length > 0
@@ -354,6 +358,37 @@ Item {
                 && controller.filterEditState === "all"
                 && !hasLibraryFacetFilter
         return false
+    }
+
+    function applyTravelCollection(countryKey, localityKey) {
+        if (!personalProfile.homeConfigured)
+            return
+        controller.clearFilters()
+        controller.filterExcludedLocalityKey = personalProfile.homeLocalityKey
+        if (String(countryKey).length > 0)
+            controller.filterCountryKey = String(countryKey)
+        if (String(localityKey).length > 0)
+            controller.filterLocalityKey = String(localityKey)
+    }
+
+    function isTravelCollectionActive(countryKey, localityKey) {
+        if (!personalProfile.homeConfigured || controller.libraryAlbumId.length > 0)
+            return false
+        return controller.filterExcludedLocalityKey === personalProfile.homeLocalityKey
+            && controller.filterCountryKey === String(countryKey)
+            && controller.filterLocalityKey === String(localityKey)
+            && controller.filterCaptureMonth.length === 0
+            && controller.filterCameraKey.length === 0
+            && controller.filterLensKey.length === 0
+            && controller.filterFlag === "all"
+            && controller.filterMinimumRating === 0
+            && controller.filterColorLabel === "all"
+            && controller.filterEditState === "all"
+            && controller.filterLiked === "all"
+            && controller.filterExcludedFlag === "all"
+            && controller.filterExcludedColorLabel === "all"
+            && controller.filterKeywordIdsAll.length === 0
+            && controller.filterExcludedKeywordIdsAny.length === 0
     }
 
     function clearSelection() {

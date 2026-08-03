@@ -18,6 +18,7 @@
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_shared_grade_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
+#include "review_travel_collection_coordinator.hpp"
 
 #include <QObject>
 #include <QString>
@@ -102,6 +103,10 @@ class ReviewController final : public QObject {
             filtersChanged
     )
     Q_PROPERTY(
+        QString filterExcludedLocalityKey READ filterExcludedLocalityKey WRITE
+            setFilterExcludedLocalityKey NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
         QStringList filterKeywordIdsAll READ filterKeywordIdsAll WRITE setFilterKeywordIdsAll NOTIFY
             filtersChanged
     )
@@ -122,6 +127,18 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(QVariantList libraryCityFacets READ libraryCityFacets NOTIFY libraryFacetsChanged)
     Q_PROPERTY(bool libraryFacetsBusy READ libraryFacetsBusy NOTIFY libraryFacetsChanged)
+    Q_PROPERTY(
+        QVariantList travelHomeCandidates READ travelHomeCandidates NOTIFY travelCollectionsChanged
+    )
+    Q_PROPERTY(QVariantList travelGroups READ travelGroups NOTIFY travelCollectionsChanged)
+    Q_PROPERTY(qulonglong travelPhotoCount READ travelPhotoCount NOTIFY travelCollectionsChanged)
+    Q_PROPERTY(
+        bool travelCollectionsBusy READ travelCollectionsBusy NOTIFY travelCollectionsChanged
+    )
+    Q_PROPERTY(
+        QString travelCollectionsErrorText READ travelCollectionsErrorText NOTIFY
+            travelCollectionsChanged
+    )
     Q_PROPERTY(
         bool libraryPlaceResolutionRunning READ libraryPlaceResolutionRunning NOTIFY
             libraryPlaceResolutionChanged
@@ -262,6 +279,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterLensKey() const;
     [[nodiscard]] QString filterCountryKey() const;
     [[nodiscard]] QString filterLocalityKey() const;
+    [[nodiscard]] QString filterExcludedLocalityKey() const;
     [[nodiscard]] QStringList filterKeywordIdsAll() const;
     [[nodiscard]] QStringList filterExcludedKeywordIdsAny() const;
     [[nodiscard]] QVariantList libraryCaptureMonthFacets() const;
@@ -270,6 +288,11 @@ class ReviewController final : public QObject {
     [[nodiscard]] QVariantList libraryCountryFacets() const;
     [[nodiscard]] QVariantList libraryCityFacets() const;
     [[nodiscard]] bool libraryFacetsBusy() const noexcept;
+    [[nodiscard]] QVariantList travelHomeCandidates() const;
+    [[nodiscard]] QVariantList travelGroups() const;
+    [[nodiscard]] qulonglong travelPhotoCount() const noexcept;
+    [[nodiscard]] bool travelCollectionsBusy() const noexcept;
+    [[nodiscard]] QString travelCollectionsErrorText() const;
     [[nodiscard]] bool libraryPlaceResolutionRunning() const noexcept;
     [[nodiscard]] QString libraryPlaceResolutionStatusCode() const;
     [[nodiscard]] QString libraryPlaceResolutionErrorText() const;
@@ -322,6 +345,8 @@ class ReviewController final : public QObject {
     void setFilterLensKey(const QString& lens_key);
     void setFilterCountryKey(const QString& country_key);
     void setFilterLocalityKey(const QString& locality_key);
+    void setFilterExcludedLocalityKey(const QString& locality_key);
+    void setTravelHomeLocalityKey(const QString& locality_key);
     void setFilterKeywordIdsAll(const QStringList& keyword_ids);
     void setFilterExcludedKeywordIdsAny(const QStringList& keyword_ids);
     void setLibraryAlbumId(const QString& album_id);
@@ -359,6 +384,7 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshLibraryFacets();
+    Q_INVOKABLE void refreshTravelCollections();
     Q_INVOKABLE void retryLibraryPlaceResolution();
     Q_INVOKABLE void refreshLibraryKeywords();
     Q_INVOKABLE void requestLibraryKeywordsForPhoto(const QString& photo_id);
@@ -461,6 +487,7 @@ class ReviewController final : public QObject {
     void libraryAlbumChanged();
     void libraryAlbumsChanged();
     void libraryFacetsChanged();
+    void travelCollectionsChanged();
     void libraryPlaceResolutionChanged();
     void libraryKeywordsChanged();
     void libraryMapChanged();
@@ -488,6 +515,8 @@ class ReviewController final : public QObject {
     ReviewSourceHealthCoordinator source_health_coordinator_;
     ReviewLibraryAlbumCoordinator album_coordinator_;
     ReviewLibraryFacetCoordinator facet_coordinator_;
+    ReviewTravelCollectionCoordinator travel_collection_coordinator_;
+    QString travel_home_locality_key_;
     ReviewLibraryPlaceResolutionCoordinator place_resolution_coordinator_;
     ReviewLibraryKeywordCoordinator keyword_coordinator_;
     ReviewLibraryMapCoordinator map_coordinator_;

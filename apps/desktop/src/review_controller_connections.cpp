@@ -59,6 +59,7 @@ void ReviewController::initializeCoordinatorWiring() {
             }
             requestLibraryReset();
             refreshLibraryFacets();
+            refreshTravelCollections();
         }
     );
     connect(
@@ -105,6 +106,12 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewController::libraryFacetsChanged
     );
     connect(
+        &travel_collection_coordinator_,
+        &ReviewTravelCollectionCoordinator::projectionChanged,
+        this,
+        &ReviewController::travelCollectionsChanged
+    );
+    connect(
         &facet_coordinator_,
         &ReviewLibraryFacetCoordinator::globalStatusMessageChanged,
         this,
@@ -123,6 +130,7 @@ void ReviewController::initializeCoordinatorWiring() {
         [this]() {
             photo_inspection_coordinator_.retry();
             refreshLibraryFacets();
+            refreshTravelCollections();
             if (!filtered_model_.countryKey().isEmpty()
                 || !filtered_model_.localityKey().isEmpty()) {
                 scheduleFilterQuery();
@@ -321,6 +329,7 @@ void ReviewController::initializeCoordinatorWiring() {
                 return;
             }
             startup_dependencies_loaded = true;
+            travel_collection_coordinator_.refresh(travel_home_locality_key_, generation);
             refreshSharedGradeNodes();
             refreshLibraryAlbums();
             refreshLibraryKeywords();

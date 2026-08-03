@@ -433,6 +433,8 @@ qt_add_executable(
     src/ai_preferences.hpp
     src/cache_preferences.cpp
     src/cache_preferences.hpp
+    src/personal_profile.cpp
+    src/personal_profile.hpp
     src/lut_library.cpp
     src/lut_library.hpp
     src/optics_profile_library.cpp
@@ -482,6 +484,8 @@ qt_add_executable(
     src/review_library_album_coordinator.hpp
     src/review_library_facet_coordinator.cpp
     src/review_library_facet_coordinator.hpp
+    src/review_travel_collection_coordinator.cpp
+    src/review_travel_collection_coordinator.hpp
     src/review_library_keyword_coordinator.cpp
     src/review_library_keyword_coordinator.hpp
     src/review_library_map_coordinator.cpp
@@ -713,6 +717,7 @@ qt_add_qml_module(
         qml/MetadataFieldSelectorRow.qml
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
+        qml/PersonalProfileDialog.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionDetailLoupe.qml
         qml/PrecisionDetailLoupeState.qml
@@ -773,6 +778,7 @@ qt_add_qml_module(
         qml/ReviewMetadataPresentation.qml
         qml/ReviewPhotoAffinity.qml
         qml/ReviewSystemCollections.qml
+        qml/ReviewTravelCollections.qml
         qml/ReviewSharedGradePicker.qml
         qml/ReviewPhotoCard.qml
         qml/LibraryMissingPhotoDialogs.qml
@@ -787,6 +793,7 @@ qt_add_qml_module(
         qml/ShadowColorLabelButton.qml
         qml/ShadowColorWheel.qml
         qml/ShadowAdjustmentSection.qml
+        qml/ShadowAvatarButton.qml
         qml/ShadowHueRange.qml
         qml/ShadowIcon.qml
         qml/ShadowIconButton.qml
@@ -1425,6 +1432,28 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME shadow-desktop-ai-preferences COMMAND shadow-ai-preferences-test)
+
+    add_executable(
+        shadow-personal-profile-test
+        tests/personal_profile_test.cpp
+        src/personal_profile.cpp
+        src/personal_profile.hpp
+    )
+    target_compile_features(shadow-personal-profile-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-personal-profile-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-personal-profile-test PRIVATE Qt6::Gui)
+    if(MSVC)
+        target_compile_options(shadow-personal-profile-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-personal-profile-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-personal-profile COMMAND shadow-personal-profile-test)
 
     add_executable(
         shadow-cache-preferences-test
@@ -3512,6 +3541,40 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-review-travel-collection-coordinator-test
+        tests/review_travel_collection_coordinator_test.cpp
+        src/review_travel_collection_coordinator.cpp
+        src/review_travel_collection_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-travel-collection-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-travel-collection-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-travel-collection-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-travel-collection-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-travel-collection-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-travel-collection-coordinator
+        COMMAND shadow-review-travel-collection-coordinator-test
+    )
+
+    add_executable(
         shadow-review-library-place-resolution-coordinator-test
         tests/review_library_place_resolution_coordinator_test.cpp
         src/review_library_place_resolution_coordinator.cpp
@@ -3796,5 +3859,97 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-decision-session
         COMMAND shadow-review-decision-session-test
+    )
+
+    add_executable(
+        shadow-personal-profile-dialog-test
+        tests/personal_profile_dialog_test.cpp
+        src/personal_profile.cpp
+        src/personal_profile.hpp
+    )
+    target_compile_features(shadow-personal-profile-dialog-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-personal-profile-dialog-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-personal-profile-dialog-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-personal-profile-dialog-test
+        URI Shadow.PersonalProfileContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PersonalProfileDialog.qml
+            qml/ShadowButton.qml
+            qml/ShadowRoundedImage.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-personal-profile-dialog-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-personal-profile-dialog-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-personal-profile-dialog
+        COMMAND shadow-personal-profile-dialog-test
+    )
+    set_tests_properties(
+        shadow-desktop-personal-profile-dialog
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-review-travel-collections-test
+        tests/review_travel_collections_test.cpp
+    )
+    target_compile_features(shadow-review-travel-collections-test PRIVATE cxx_std_20)
+    target_link_libraries(
+        shadow-review-travel-collections-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-review-travel-collections-test
+        URI Shadow.TravelCollectionsContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ReviewTravelCollections.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-review-travel-collections-test
+        shadow-review-travel-collections-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/map.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-travel-collections-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-travel-collections-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-travel-collections
+        COMMAND shadow-review-travel-collections-test
+    )
+    set_tests_properties(
+        shadow-desktop-review-travel-collections
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

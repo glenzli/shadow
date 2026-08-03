@@ -195,6 +195,24 @@ facet_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewTravelCollectionCoordinator::Operations
+travel_collection_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Travel collection backend is required");
+    }
+    return {
+        .page = [backend](
+                    const BackendLibraryPhotoFilter& filter,
+                    const BackendLibraryFacetKind kind,
+                    const BackendLibraryFacetCursor& cursor,
+                    const std::uint32_t limit
+                ) { return backend->libraryFacetPage(filter, kind, cursor, limit); },
+        .count = [backend](
+                     const BackendLibraryPhotoFilter& filter
+                 ) { return backend->libraryPhotoCount(filter); },
+    };
+}
+
 [[nodiscard]] ReviewLibraryMetadataCoordinator::Operations
 metadata_operations(const std::shared_ptr<DesktopBackend>& backend) {
     if (!backend) {
@@ -273,12 +291,12 @@ place_resolution_operations(const std::shared_ptr<DesktopBackend>& backend) {
         throw std::invalid_argument("Review Library place-resolution backend is required");
     }
     return {
-        .candidates = [backend](const std::uint32_t limit) {
-            return backend->libraryPlaceResolutionCandidates(limit);
-        },
-        .record = [backend](const BackendLibraryPlaceResolutionResult& result) {
-            return backend->recordLibraryPlaceResolution(result);
-        },
+        .candidates = [backend](
+                          const std::uint32_t limit
+                      ) { return backend->libraryPlaceResolutionCandidates(limit); },
+        .record = [backend](
+                      const BackendLibraryPlaceResolutionResult& result
+                  ) { return backend->recordLibraryPlaceResolution(result); },
     };
 }
 

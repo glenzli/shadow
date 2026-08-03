@@ -29,6 +29,7 @@ struct BackendLibraryPhotoFilter final {
     QString lens_key;
     QString country_key;
     QString locality_key;
+    QString excluded_locality_key;
     bool has_aperture_minimum = false;
     std::uint32_t aperture_minimum_milli = 0;
     bool has_aperture_maximum = false;

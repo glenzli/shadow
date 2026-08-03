@@ -108,6 +108,7 @@ fn structured_place_filter_keys_round_trip_without_using_display_labels() {
     let filter = ffi::FfiLibraryPhotoFilter {
         country_key: " CN ".into(),
         locality_key: "cn\u{1f}shanghai\u{1f}shanghai".into(),
+        excluded_locality_key: "cn\u{1f}beijing\u{1f}beijing".into(),
         ..neutral_ffi_filter()
     };
     let typed = library_filter_from_ffi(&filter).expect("parse structured place keys");
@@ -116,9 +117,17 @@ fn structured_place_filter_keys_round_trip_without_using_display_labels() {
         typed.locality_key.as_deref(),
         Some("cn\u{1f}shanghai\u{1f}shanghai")
     );
+    assert_eq!(
+        typed.excluded_locality_key.as_deref(),
+        Some("cn\u{1f}beijing\u{1f}beijing")
+    );
     let projected = ffi_library_filter(typed);
     assert_eq!(projected.country_key, "CN");
     assert_eq!(projected.locality_key, "cn\u{1f}shanghai\u{1f}shanghai");
+    assert_eq!(
+        projected.excluded_locality_key,
+        "cn\u{1f}beijing\u{1f}beijing"
+    );
 }
 
 fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
@@ -132,6 +141,7 @@ fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
         lens_key: String::new(),
         country_key: String::new(),
         locality_key: String::new(),
+        excluded_locality_key: String::new(),
         has_aperture_minimum: false,
         aperture_minimum_milli: 0,
         has_aperture_maximum: false,

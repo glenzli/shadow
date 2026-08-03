@@ -45,6 +45,11 @@ Rectangle {
             workspace: sidebar.workspace
         }
 
+        ReviewTravelCollections {
+            Layout.fillWidth: true
+            workspace: sidebar.workspace
+        }
+
         ReviewAlbumList {
             Layout.fillWidth: true
             workspace: sidebar.workspace

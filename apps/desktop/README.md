@@ -62,6 +62,10 @@ Application startup is split from environment-driven automation:
   and EXIF-field presentation preferences. [`src/ai_preferences.*`](src/ai_preferences.hpp) owns
   admission policy for new local AI work plus the default strength of newly authored RAW-denoise
   nodes; model discovery and verification remain with the model runtimes.
+  [`src/personal_profile.*`](src/personal_profile.hpp) is deliberately separate from application
+  settings: it owns the device-local nickname, normalized avatar, and one provider-independent
+  home-locality identity. [`qml/PersonalProfileDialog.qml`](qml/PersonalProfileDialog.qml) edits
+  that context from the title-bar avatar without adding an account or upload path.
   [`src/cache_preferences.*`](src/cache_preferences.hpp) owns the persistent soft disk-cache target
   and permission for automatic safe reclamation. [`src/cache_maintenance_controller.*`](src/cache_maintenance_controller.hpp)
   may enforce that target only through the Catalog-proven unused-preview sweep: live, unknown,
@@ -607,6 +611,12 @@ Review presentation keeps the workspace as the composition and compatibility sur
   onto the latest input, publishes localized failures, and waits for its worker at destruction.
   Its [`tests/review_library_facet_coordinator/`](tests/review_library_facet_coordinator/)
   contracts cover the shared filter/bound, projection, stale replacement, failure, and lifetime.
+- [`src/review_travel_collection_coordinator.*`](src/review_travel_collection_coordinator.hpp)
+  independently derives the private Travel navigation projection from the configured home
+  locality: photos with a different resolved locality are counted and grouped by country then
+  destination, while unresolved locations are never guessed. It does not mutate the active
+  Library query. [`qml/ReviewTravelCollections.qml`](qml/ReviewTravelCollections.qml) applies an
+  exact outside-home filter when the user selects that generated hierarchy.
 - [`src/review_library_keyword_coordinator.*`](src/review_library_keyword_coordinator.hpp) owns
   hierarchical taxonomy refresh, selected-photo assignment projection, serialized batch
   mutations, stale-selection rejection, localized outcomes, and destruction wait.

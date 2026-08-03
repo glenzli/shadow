@@ -560,4 +560,21 @@ fn country_and_city_facets_compose_with_the_photo_query_contract() {
         .library_photo_page(&shanghai, LibraryPhotoOrder::default(), None, 16)
         .expect("Shanghai photo page");
     assert_eq!(page.items.len(), 2);
+
+    let outside_home = LibraryPhotoFilter {
+        excluded_locality_key: Some(cities.items[0].key.clone()),
+        ..LibraryPhotoFilter::default()
+    };
+    assert_eq!(
+        catalog
+            .library_photo_count(&outside_home)
+            .expect("outside-home count"),
+        1
+    );
+    let travel_countries = catalog
+        .library_facet_page(&outside_home, LibraryFacetKind::Country, None, 16)
+        .expect("travel country facets");
+    assert_eq!(travel_countries.items.len(), 1);
+    assert_eq!(travel_countries.items[0].key, "jp");
+    assert_eq!(travel_countries.items[0].photo_count, 1);
 }

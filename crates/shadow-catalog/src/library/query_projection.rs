@@ -127,6 +127,10 @@ pub(super) fn library_photo_query_parts(
         clauses.push("place.locality_key = ?".to_owned());
         values.push(Value::Text(normalize_query_key(locality_key)));
     }
+    if let Some(locality_key) = filter.excluded_locality_key.as_deref() {
+        clauses.push("place.locality_key <> ?".to_owned());
+        values.push(Value::Text(normalize_query_key(locality_key)));
+    }
     if let Some(range) = filter.aperture {
         if let Some(minimum) = range.minimum_milli {
             clauses.push("f.aperture_milli >= ?".to_owned());

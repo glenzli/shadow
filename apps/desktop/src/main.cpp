@@ -16,6 +16,7 @@
 #include "map/google_map_tiles_service.hpp"
 #include "map_provider_preferences.hpp"
 #include "optics_profile_library.hpp"
+#include "personal_profile.hpp"
 #include "review_controller.hpp"
 #include "thumbnail_provider.hpp"
 #include "ui_preferences.hpp"
@@ -157,6 +158,7 @@ int main(int argc, char* argv[]) {
         isolated_settings_file,
         headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
     );
+    PersonalProfile personal_profile(application_data, isolated_settings_file);
     shadow::desktop::maps::GoogleMapTilesService google_map_tiles_service(
         &map_provider_preferences
     );
@@ -196,6 +198,15 @@ int main(int argc, char* argv[]) {
     }
 
     ReviewController controller(backend, &map_provider_preferences, isolated_settings_file);
+    controller.setTravelHomeLocalityKey(personal_profile.homeLocalityKey());
+    QObject::connect(
+        &personal_profile,
+        &PersonalProfile::profileChanged,
+        &controller,
+        [&controller, &personal_profile]() {
+            controller.setTravelHomeLocalityKey(personal_profile.homeLocalityKey());
+        }
+    );
     ExportController export_controller(backend, isolated_settings_file);
     CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
     JustifiedReviewLayoutModel justified_review_layout;
@@ -265,6 +276,7 @@ int main(int argc, char* argv[]) {
         },
         {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
+        {QStringLiteral("personalProfile"), QVariant::fromValue(&personal_profile)},
         {QStringLiteral("aiPreferences"), QVariant::fromValue(&ai_preferences)},
         {QStringLiteral("cachePreferences"), QVariant::fromValue(&cache_preferences)},
         {

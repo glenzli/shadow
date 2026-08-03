@@ -55,6 +55,7 @@ ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     filter.lens_key = source.lens_key.toStdString();
     filter.country_key = source.country_key.toStdString();
     filter.locality_key = source.locality_key.toStdString();
+    filter.excluded_locality_key = source.excluded_locality_key.toStdString();
     filter.has_aperture_minimum = source.has_aperture_minimum;
     filter.aperture_minimum_milli = source.aperture_minimum_milli;
     filter.has_aperture_maximum = source.has_aperture_maximum;
@@ -100,6 +101,7 @@ library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
         .lens_key = qstring(source.lens_key),
         .country_key = qstring(source.country_key),
         .locality_key = qstring(source.locality_key),
+        .excluded_locality_key = qstring(source.excluded_locality_key),
         .has_aperture_minimum = source.has_aperture_minimum,
         .aperture_minimum_milli = source.aperture_minimum_milli,
         .has_aperture_maximum = source.has_aperture_maximum,
