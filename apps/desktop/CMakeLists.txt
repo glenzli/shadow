@@ -435,6 +435,8 @@ qt_add_executable(
     src/cache_preferences.hpp
     src/personal_profile.cpp
     src/personal_profile.hpp
+    src/personal_location_search.cpp
+    src/personal_location_search.hpp
     src/lut_library.cpp
     src/lut_library.hpp
     src/optics_profile_library.cpp
@@ -718,6 +720,8 @@ qt_add_qml_module(
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
         qml/PersonalProfileDialog.qml
+        qml/PersonalLocationSearchField.qml
+        qml/PersonalLivingPlacesEditor.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionDetailLoupe.qml
         qml/PrecisionDetailLoupeState.qml
@@ -1690,6 +1694,36 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-geonames-city-index
         COMMAND shadow-geonames-city-index-test
+    )
+
+    add_executable(
+        shadow-personal-location-search-test
+        tests/personal_location_search_test.cpp
+        src/personal_location_search.cpp
+        src/personal_location_search.hpp
+        src/geonames_city_index.cpp
+        src/geonames_city_index.hpp
+    )
+    target_compile_features(shadow-personal-location-search-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-personal-location-search-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-personal-location-search-test
+        PRIVATE Qt6::Core Qt6::Concurrent
+    )
+    if(MSVC)
+        target_compile_options(shadow-personal-location-search-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-personal-location-search-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-personal-location-search
+        COMMAND shadow-personal-location-search-test
     )
 
     add_executable(
@@ -3884,9 +3918,21 @@ if(BUILD_TESTING)
         NO_PLUGIN
         QML_FILES
             qml/PersonalProfileDialog.qml
+            qml/PersonalLocationSearchField.qml
+            qml/PersonalLivingPlacesEditor.qml
             qml/ShadowButton.qml
+            qml/ShadowIcon.qml
             qml/ShadowRoundedImage.qml
             qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-personal-profile-dialog-test
+        shadow-personal-profile-dialog-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES
+            icons/edit.svg
+            icons/location-pin.svg
     )
     if(MSVC)
         target_compile_options(

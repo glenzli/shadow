@@ -19,6 +19,7 @@ ApplicationWindow {
     required property var historyController
     required property var preferences
     required property var personalProfile
+    required property var personalLocationSearch
     required property var mapProviderPreferences
     required property var googleMapTilesService
     required property var lutLibrary
@@ -121,6 +122,7 @@ ApplicationWindow {
         id: personalProfileDialog
         profile: window.personalProfile
         controller: window.controller
+        locationSearch: window.personalLocationSearch
         hostWidth: window.width
         hostHeight: window.height
     }

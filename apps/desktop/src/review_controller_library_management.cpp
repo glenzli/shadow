@@ -11,7 +11,7 @@ void ReviewController::refreshLibraryFacets() {
 void ReviewController::refreshTravelCollections() {
     if (!scanning()) {
         travel_collection_coordinator_.refresh(
-            travel_home_locality_key_,
+            travel_living_place_rules_,
             query_coordinator_.generation()
         );
     }

@@ -28,10 +28,10 @@ BackendLibraryFacetPage page(std::initializer_list<BackendLibraryFacet> items) {
 
 int main(int argc, char* argv[]) {
     QCoreApplication application(argc, argv);
-    bool saw_exclusion = false;
+    bool saw_rules = false;
     ReviewTravelCollectionCoordinator coordinator({
         .page =
-            [&saw_exclusion](
+            [&saw_rules](
                 const BackendLibraryPhotoFilter& filter,
                 const BackendLibraryFacetKind kind,
                 const BackendLibraryFacetCursor&,
@@ -47,8 +47,12 @@ int main(int argc, char* argv[]) {
                          3},
                     });
                 }
-                saw_exclusion = filter.excluded_locality_key
-                                == QStringLiteral("cn\u001fshanghai\u001fshanghai");
+                saw_rules = filter.living_place_rules.size() == 2
+                            && filter.living_place_rules[0].locality_key
+                                   == QStringLiteral("cn\u001fshanghai\u001fshanghai")
+                            && filter.living_place_rules[0].start_month == QStringLiteral("2020-01")
+                            && filter.living_place_rules[1].locality_key
+                                   == QStringLiteral("cn\u001fchengdu\u001fchengdu");
                 if (kind == BackendLibraryFacetKind::Country) {
                     return page({{QStringLiteral("jp"), QStringLiteral("Japan"), 3}});
                 }
@@ -63,9 +67,8 @@ int main(int argc, char* argv[]) {
                 return BackendLibraryFacetPage{};
             },
         .count =
-            [&saw_exclusion](const BackendLibraryPhotoFilter& filter) {
-                saw_exclusion = filter.excluded_locality_key
-                                == QStringLiteral("cn\u001fshanghai\u001fshanghai");
+            [&saw_rules](const BackendLibraryPhotoFilter& filter) {
+                saw_rules = filter.living_place_rules.size() == 2;
                 return std::uint64_t{3};
             },
     });
@@ -82,15 +85,27 @@ int main(int argc, char* argv[]) {
         }
     );
     QTimer::singleShot(3000, &loop, &QEventLoop::quit);
-    coordinator.refresh(QStringLiteral("cn\u001fshanghai\u001fshanghai"), 7);
+    coordinator.refresh(
+        {
+            {
+                .locality_key = QStringLiteral("cn\u001fshanghai\u001fshanghai"),
+                .start_month = QStringLiteral("2020-01"),
+            },
+            {.locality_key = QStringLiteral("cn\u001fchengdu\u001fchengdu")},
+        },
+        7
+    );
     loop.exec();
 
     const QVariantList groups = coordinator.groups();
     if (!require(!coordinator.busy(), "the projection reaches a terminal state")
         || !require(coordinator.errorText().isEmpty(), "the projection succeeds")
-        || !require(saw_exclusion, "every Travel query excludes the exact home locality")
-        || !require(coordinator.photoCount() == 3, "outside-home count is projected")
-        || !require(coordinator.homeCandidates().size() == 2, "home candidates stay unfiltered")
+        || !require(saw_rules, "every Travel query carries all living-place periods")
+        || !require(coordinator.photoCount() == 3, "Travel count is projected")
+        || !require(
+            coordinator.placeCandidates().size() == 2,
+            "living-place candidates stay unfiltered"
+        )
         || !require(groups.size() == 1, "one travel country is grouped")) {
         return EXIT_FAILURE;
     }

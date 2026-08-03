@@ -10,7 +10,7 @@ ColumnLayout {
 
     required property var workspace
     property string expandedCountryKey: ""
-    visible: workspace.personalProfile.homeConfigured
+    visible: workspace.personalProfile.hasLivingPlaces
     spacing: 3
 
     function activateAllTravel() {

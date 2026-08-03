@@ -60,6 +60,25 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto city_search = index->search(QStringLiteral("shanghai china"), 8);
+    const auto country_search = index->search(QStringLiteral("CN"), 2);
+    if (!require(city_search.size() == 1, "city search did not match every query token")
+        || !require(
+            city_search.front().locality == QStringLiteral("Shanghai"),
+            "city search returned the wrong locality"
+        )
+        || !require(country_search.size() == 2, "bounded country search returned the wrong count")
+        || !require(
+            country_search.front().locality == QStringLiteral("Shanghai"),
+            "country search did not rank the more populous city first"
+        )
+        || !require(
+            index->search(QStringLiteral("missing"), 8).empty(),
+            "search invented a city"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     const QByteArray unsorted_index = QByteArrayLiteral(
         "# shadow-geonames-city-index-v1\ttest\tCC-BY-4.0\n"
         "10000000\t0\t1\tCN\tChina\tA\tNorth\n"
@@ -81,12 +100,23 @@ int main() {
         const auto production = GeoNamesCityIndex::load(production_path, &diagnostic);
         const auto production_shanghai =
             production ? production->nearest(31.2304, 121.4737, 125.0) : std::nullopt;
+        const auto production_search = production
+                                           ? production->search(QStringLiteral("Shanghai China"), 8)
+                                           : std::vector<GeoNamesCityIndex::CitySearchMatch>{};
         if (!require(production != nullptr, "prepared production index did not load")
             || !require(diagnostic.isEmpty(), "prepared production index produced a diagnostic")
-            || !require(production->cityCount() > 200'000, "prepared production index is incomplete")
+            || !require(
+                production->cityCount() > 200'000,
+                "prepared production index is incomplete"
+            )
             || !require(
                 production_shanghai && production_shanghai->country_code == QStringLiteral("CN"),
                 "prepared production index did not resolve Shanghai"
+            )
+            || !require(
+                !production_search.empty()
+                    && production_search.front().locality == QStringLiteral("Shanghai"),
+                "prepared production index did not search Shanghai"
             )) {
             return EXIT_FAILURE;
         }

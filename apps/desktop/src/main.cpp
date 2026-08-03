@@ -9,6 +9,7 @@
 #include "edit_preview_provider.hpp"
 #include "edit_preview_texture_item.hpp"
 #include "export_controller.hpp"
+#include "geonames_library_reverse_geocoder.hpp"
 #include "history_coordinator.hpp"
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
@@ -16,6 +17,7 @@
 #include "map/google_map_tiles_service.hpp"
 #include "map_provider_preferences.hpp"
 #include "optics_profile_library.hpp"
+#include "personal_location_search.hpp"
 #include "personal_profile.hpp"
 #include "review_controller.hpp"
 #include "thumbnail_provider.hpp"
@@ -159,6 +161,7 @@ int main(int argc, char* argv[]) {
         headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
     );
     PersonalProfile personal_profile(application_data, isolated_settings_file);
+    PersonalLocationSearch personal_location_search(defaultGeoNamesCityIndexPath());
     shadow::desktop::maps::GoogleMapTilesService google_map_tiles_service(
         &map_provider_preferences
     );
@@ -198,13 +201,13 @@ int main(int argc, char* argv[]) {
     }
 
     ReviewController controller(backend, &map_provider_preferences, isolated_settings_file);
-    controller.setTravelHomeLocalityKey(personal_profile.homeLocalityKey());
+    controller.setTravelLivingPlaces(personal_profile.livingPlaces());
     QObject::connect(
         &personal_profile,
         &PersonalProfile::profileChanged,
         &controller,
         [&controller, &personal_profile]() {
-            controller.setTravelHomeLocalityKey(personal_profile.homeLocalityKey());
+            controller.setTravelLivingPlaces(personal_profile.livingPlaces());
         }
     );
     ExportController export_controller(backend, isolated_settings_file);
@@ -277,6 +280,10 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
         {QStringLiteral("personalProfile"), QVariant::fromValue(&personal_profile)},
+        {
+            QStringLiteral("personalLocationSearch"),
+            QVariant::fromValue(&personal_location_search),
+        },
         {QStringLiteral("aiPreferences"), QVariant::fromValue(&ai_preferences)},
         {QStringLiteral("cachePreferences"), QVariant::fromValue(&cache_preferences)},
         {

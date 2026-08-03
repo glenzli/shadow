@@ -50,15 +50,11 @@ class FakeTravelController final : public QObject {
 
 class FakeProfile final : public QObject {
     Q_OBJECT
-    Q_PROPERTY(bool homeConfigured READ homeConfigured CONSTANT)
-    Q_PROPERTY(QString homeLocalityKey READ homeLocalityKey CONSTANT)
+    Q_PROPERTY(bool hasLivingPlaces READ hasLivingPlaces CONSTANT)
 
   public:
-    [[nodiscard]] bool homeConfigured() const noexcept {
+    [[nodiscard]] bool hasLivingPlaces() const noexcept {
         return true;
-    }
-    [[nodiscard]] QString homeLocalityKey() const {
-        return QStringLiteral("cn\u001fshanghai\u001fshanghai");
     }
 };
 
@@ -131,7 +127,7 @@ int main(int argc, char* argv[]) {
         collections->findChild<QObject*>(QStringLiteral("allTravelCollectionMouse"));
     if (!require(
             collections->property("visible").toBool() && all_travel != nullptr,
-            "a configured home must reveal the packaged Travel collection entry"
+            "configured living places must reveal the packaged Travel collection entry"
         )
         || !require(
             QMetaObject::invokeMethod(collections.get(), "activateAllTravel"),
@@ -142,7 +138,7 @@ int main(int argc, char* argv[]) {
     QCoreApplication::processEvents();
     return require(
                workspace.applied_country.isEmpty() && workspace.applied_locality.isEmpty(),
-               "the root Travel entry must request the complete outside-home collection"
+               "the root Travel entry must request the complete generated collection"
            )
                ? EXIT_SUCCESS
                : EXIT_FAILURE;

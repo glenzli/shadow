@@ -329,7 +329,7 @@ void ReviewController::initializeCoordinatorWiring() {
                 return;
             }
             startup_dependencies_loaded = true;
-            travel_collection_coordinator_.refresh(travel_home_locality_key_, generation);
+            travel_collection_coordinator_.refresh(travel_living_place_rules_, generation);
             refreshSharedGradeNodes();
             refreshLibraryAlbums();
             refreshLibraryKeywords();

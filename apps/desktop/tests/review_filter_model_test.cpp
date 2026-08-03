@@ -108,7 +108,7 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     filtered.setLensKey(QStringLiteral("RF24-105MM F4 L IS USM"));
     filtered.setCountryKey(QStringLiteral(" CN "));
     filtered.setLocalityKey(QStringLiteral("CN\u001fShanghai\u001fShanghai"));
-    filtered.setExcludedLocalityKey(QStringLiteral(" JP\u001fTokyo\u001fTokyo "));
+    filtered.setTravelFilterEnabled(true);
     require(
         filtered.captureMonth() == QStringLiteral("2026-07"),
         "capture months must retain the canonical YYYY-MM key"
@@ -129,10 +129,7 @@ void catalog_metadata_facets_remain_typed_server_filters() {
         filtered.localityKey() == QStringLiteral("cn\u001fshanghai\u001fshanghai"),
         "city facet keys must remain structured Catalog identities"
     );
-    require(
-        filtered.excludedLocalityKey() == QStringLiteral("jp\u001ftokyo\u001ftokyo"),
-        "outside-home filtering must preserve a normalized structured locality identity"
-    );
+    require(filtered.travelFilterEnabled(), "Travel is an explicit generated server filter");
     require(filtered.hasActiveServerFilter(), "metadata facets must request a fresh page");
 
     filtered.setCaptureMonth(QStringLiteral("2026-13"));
@@ -142,8 +139,8 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     );
     filtered.clearFilters();
     require(
-        !filtered.hasActiveServerFilter() && filtered.excludedLocalityKey().isEmpty(),
-        "clearing must include metadata and outside-home facets"
+        !filtered.hasActiveServerFilter() && !filtered.travelFilterEnabled(),
+        "clearing must include metadata and Travel facets"
     );
 }
 

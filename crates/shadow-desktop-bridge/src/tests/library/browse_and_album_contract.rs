@@ -285,7 +285,7 @@ fn ffi_library_neutral_filter() -> ffi::FfiLibraryPhotoFilter {
         lens_key: String::new(),
         country_key: String::new(),
         locality_key: String::new(),
-        excluded_locality_key: String::new(),
+        living_place_rules: Vec::new(),
         has_aperture_minimum: false,
         aperture_minimum_milli: 0,
         has_aperture_maximum: false,

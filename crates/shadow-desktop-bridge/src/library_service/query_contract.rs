@@ -6,8 +6,8 @@
 use anyhow::{Context, Result as AnyResult, bail};
 use shadow_catalog::{
     LibraryApertureRange, LibraryDateRange, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage,
-    LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter, LibraryPhotoOrder,
-    SmartAlbumQueryV1,
+    LibraryLivingPlaceRule, LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter,
+    LibraryPhotoOrder, SmartAlbumQueryV1,
 };
 use shadow_domain::{CollectionId, KeywordId, PhotoFlag, PhotoId};
 
@@ -54,7 +54,15 @@ pub(super) fn library_filter_from_ffi(
         lens_key: optional_filter_text(&filter.lens_key),
         country_key: optional_filter_text(&filter.country_key),
         locality_key: optional_filter_text(&filter.locality_key),
-        excluded_locality_key: optional_filter_text(&filter.excluded_locality_key),
+        living_place_rules: filter
+            .living_place_rules
+            .iter()
+            .map(|rule| LibraryLivingPlaceRule {
+                locality_key: rule.locality_key.trim().to_owned(),
+                start_month: optional_filter_text(&rule.start_month),
+                end_month: optional_filter_text(&rule.end_month),
+            })
+            .collect(),
         aperture,
         liked: filter.has_liked.then_some(filter.liked),
         color_label: optional_filter_text(&filter.color_label),
@@ -148,7 +156,15 @@ pub(super) fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryP
         lens_key: filter.lens_key.unwrap_or_default(),
         country_key: filter.country_key.unwrap_or_default(),
         locality_key: filter.locality_key.unwrap_or_default(),
-        excluded_locality_key: filter.excluded_locality_key.unwrap_or_default(),
+        living_place_rules: filter
+            .living_place_rules
+            .into_iter()
+            .map(|rule| ffi::FfiLibraryLivingPlaceRule {
+                locality_key: rule.locality_key,
+                start_month: rule.start_month.unwrap_or_default(),
+                end_month: rule.end_month.unwrap_or_default(),
+            })
+            .collect(),
         has_aperture_minimum,
         aperture_minimum_milli,
         has_aperture_maximum,

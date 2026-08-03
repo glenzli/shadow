@@ -195,8 +195,8 @@ QString ReviewController::filterLocalityKey() const {
     return filtered_model_.localityKey();
 }
 
-QString ReviewController::filterExcludedLocalityKey() const {
-    return filtered_model_.excludedLocalityKey();
+bool ReviewController::travelFilterEnabled() const noexcept {
+    return filtered_model_.travelFilterEnabled();
 }
 
 QStringList ReviewController::filterKeywordIdsAll() const {
@@ -231,8 +231,8 @@ bool ReviewController::libraryFacetsBusy() const noexcept {
     return facet_coordinator_.busy();
 }
 
-QVariantList ReviewController::travelHomeCandidates() const {
-    return travel_collection_coordinator_.homeCandidates();
+QVariantList ReviewController::livingPlaceCandidates() const {
+    return travel_collection_coordinator_.placeCandidates();
 }
 
 QVariantList ReviewController::travelGroups() const {

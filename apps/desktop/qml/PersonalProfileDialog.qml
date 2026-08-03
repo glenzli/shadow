@@ -11,11 +11,10 @@ Popup {
 
     required property var profile
     required property var controller
+    required property var locationSearch
     required property real hostWidth
     required property real hostHeight
     property string nicknameDraft: ""
-    property string homeKeyDraft: ""
-    property string homeLabelDraft: ""
 
     parent: Overlay.overlay
     modal: true
@@ -29,41 +28,30 @@ Popup {
 
     function synchronizeDrafts() {
         nicknameDraft = String(profile.nickname)
-        homeKeyDraft = String(profile.homeLocalityKey)
-        homeLabelDraft = String(profile.homeLocalityLabel)
-        synchronizeHomeIndex()
-    }
-
-    function synchronizeHomeIndex() {
-        homeCombo.currentIndex = -1
-        for (let index = 0; index < controller.travelHomeCandidates.length; ++index) {
-            if (String(controller.travelHomeCandidates[index].key) === homeKeyDraft) {
-                homeCombo.currentIndex = index
-                return
-            }
-        }
+        const copied = []
+        for (let index = 0; index < profile.livingPlaces.length; ++index)
+            copied.push(livingPlacesEditor.copyPlace(profile.livingPlaces[index]))
+        livingPlacesEditor.places = copied
     }
 
     function present() {
         synchronizeDrafts()
+        livingPlacesEditor.resetSearch()
         controller.refreshTravelCollections()
         open()
     }
 
     function saveAndClose() {
         profile.nickname = nicknameDraft
-        if (homeKeyDraft.length > 0)
-            profile.setHomeLocality(homeKeyDraft, homeLabelDraft)
-        else
-            profile.clearHomeLocality()
-        if (String(profile.errorText).length === 0)
+        if (profile.replaceLivingPlaces(livingPlacesEditor.places)
+                && String(profile.errorText).length === 0)
             close()
     }
 
     Connections {
         target: root.controller
         function onTravelCollectionsChanged() {
-            root.synchronizeHomeIndex()
+            livingPlacesEditor.synchronizeLibraryIndex()
         }
     }
 
@@ -249,58 +237,35 @@ Popup {
                     spacing: 7
 
                     Label {
-                        text: qsTr("Home location")
+                        text: qsTr("Living places")
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Shadow uses the city-level places already resolved in your Library. Photos outside this place become private Travel collections.")
+                        text: qsTr("Add the cities that belong to ordinary life—home, hometown, or a former home. Optional month ranges decide whether the same city counts as Travel before or after you lived there.")
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontMeta
                         wrapMode: Text.Wrap
                     }
-                    ComboBox {
-                        id: homeCombo
-                        objectName: "personalProfileHomeCombo"
+                    PersonalLivingPlacesEditor {
+                        id: livingPlacesEditor
+                        objectName: "personalProfileLivingPlacesEditor"
                         Layout.fillWidth: true
-                        model: root.controller.travelHomeCandidates
-                        textRole: "label"
-                        valueRole: "key"
-                        displayText: currentIndex >= 0
-                            ? currentText
-                            : root.homeLabelDraft.length > 0
-                                ? root.homeLabelDraft : qsTr("Choose from Library places")
-                        font.pixelSize: Theme.fontBody
-                        onActivated: index => {
-                            const candidate = root.controller.travelHomeCandidates[index]
-                            root.homeKeyDraft = String(candidate.key)
-                            root.homeLabelDraft = String(candidate.label)
-                        }
+                        locationSearch: root.locationSearch
+                        libraryCandidates: root.controller.livingPlaceCandidates
                     }
-                    RowLayout {
+                    Label {
                         Layout.fillWidth: true
-                        Label {
-                            Layout.fillWidth: true
-                            text: root.controller.travelCollectionsBusy
-                                ? qsTr("Refreshing Library places…")
-                                : root.controller.travelHomeCandidates.length === 0
-                                    ? qsTr("No resolved city is available yet") : ""
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontMeta
-                        }
-                        ShadowButton {
-                            compact: true
-                            variant: ShadowButton.Ghost
-                            text: qsTr("Clear")
-                            enabled: root.homeKeyDraft.length > 0
-                            onClicked: {
-                                root.homeKeyDraft = ""
-                                root.homeLabelDraft = ""
-                                homeCombo.currentIndex = -1
-                            }
-                        }
+                        visible: root.controller.travelCollectionsBusy
+                            || root.controller.livingPlaceCandidates.length === 0
+                        text: root.controller.travelCollectionsBusy
+                            ? qsTr("Refreshing Library places…")
+                            : qsTr("No resolved Library city is available yet; offline search still works")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontMeta
+                        wrapMode: Text.Wrap
                     }
                 }
 

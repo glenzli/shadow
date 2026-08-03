@@ -11,8 +11,8 @@
 
 /// Owns the profile-driven Travel smart-collection projection.
 ///
-/// One worker reads an unfiltered home-place candidate list and, when a home
-/// locality exists, derives an outside-home count plus country/city hierarchy.
+/// One worker reads an unfiltered living-place candidate list and, when life
+/// periods exist, derives a time-aware Travel count plus country/city hierarchy.
 /// Requests are generation-bound and coalesced; no profile state is persisted
 /// here and no current Library grid filter is mutated by projection work.
 class ReviewTravelCollectionCoordinator final : public QObject {
@@ -33,13 +33,14 @@ class ReviewTravelCollectionCoordinator final : public QObject {
     explicit ReviewTravelCollectionCoordinator(Operations operations, QObject* parent = nullptr);
     ~ReviewTravelCollectionCoordinator() override;
 
-    [[nodiscard]] QVariantList homeCandidates() const;
+    [[nodiscard]] QVariantList placeCandidates() const;
     [[nodiscard]] QVariantList groups() const;
     [[nodiscard]] qulonglong photoCount() const noexcept;
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] QString errorText() const;
 
-    void refresh(QString home_locality_key, quint64 library_generation);
+    void
+    refresh(QVector<BackendLibraryLivingPlaceRule> living_place_rules, quint64 library_generation);
 
   signals:
     void projectionChanged();
@@ -51,18 +52,18 @@ class ReviewTravelCollectionCoordinator final : public QObject {
     };
 
     struct TaskResult final {
-        BackendLibraryFacetPage home_candidates;
+        BackendLibraryFacetPage place_candidates;
         QVector<CountryGroup> groups;
         std::uint64_t photo_count = 0;
         QString error;
-        QString home_locality_key;
+        QVector<BackendLibraryLivingPlaceRule> living_place_rules;
         quint64 library_generation = 0;
         quint64 request_id = 0;
     };
 
     [[nodiscard]] static TaskResult runTask(
         Operations operations,
-        QString home_locality_key,
+        QVector<BackendLibraryLivingPlaceRule> living_place_rules,
         quint64 library_generation,
         quint64 request_id
     );
@@ -71,13 +72,13 @@ class ReviewTravelCollectionCoordinator final : public QObject {
     void finishTask();
 
     Operations operations_;
-    QString requested_home_locality_key_;
+    QVector<BackendLibraryLivingPlaceRule> requested_living_place_rules_;
     quint64 requested_library_generation_ = 0;
     quint64 request_id_ = 0;
     quint64 active_request_id_ = 0;
     bool task_running_ = false;
     bool refresh_pending_ = false;
-    BackendLibraryFacetPage home_candidates_;
+    BackendLibraryFacetPage place_candidates_;
     QVector<CountryGroup> groups_;
     std::uint64_t photo_count_ = 0;
     QString error_text_;

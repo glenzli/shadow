@@ -5,7 +5,13 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QRegularExpression>
+#include <QSet>
 #include <QSettings>
+#include <QUuid>
 
 #include <algorithm>
 #include <utility>
@@ -13,9 +19,20 @@
 namespace {
 
 constexpr auto nickname_key = "profile/nickname";
+constexpr auto living_places_key = "profile/living_places_v1";
 constexpr auto home_locality_key = "profile/home_locality_key";
 constexpr auto home_locality_label_key = "profile/home_locality_label";
 constexpr int avatar_edge = 512;
+constexpr int maximum_living_places = 32;
+
+[[nodiscard]] QVariantList decode_living_places(const QVariant& stored) {
+    QJsonParseError error;
+    const QJsonDocument document = QJsonDocument::fromJson(stored.toByteArray(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isArray()) {
+        return {};
+    }
+    return document.array().toVariantList();
+}
 
 } // namespace
 
@@ -31,16 +48,20 @@ PersonalProfile::PersonalProfile(
             : std::make_unique<QSettings>(isolated_settings_file, QSettings::IniFormat)
     ),
     avatar_path_(QDir(application_data_root).filePath(QStringLiteral("profile/avatar.png"))),
-    nickname_(normalizeNickname(settings_->value(QString::fromLatin1(nickname_key)).toString())),
-    home_locality_key_(
-        normalizeHomeKey(settings_->value(QString::fromLatin1(home_locality_key)).toString())
-    ),
-    home_locality_label_(normalizeHomeLabel(
-        settings_->value(QString::fromLatin1(home_locality_label_key)).toString()
-    )) {
-    if (home_locality_key_.isEmpty()) {
-        home_locality_label_.clear();
+    nickname_(normalizeNickname(settings_->value(QString::fromLatin1(nickname_key)).toString())) {
+    bool valid = false;
+    living_places_ = normalizeLivingPlaces(
+        decode_living_places(settings_->value(QString::fromLatin1(living_places_key))),
+        &valid
+    );
+    if (!valid) {
+        living_places_.clear();
     }
+    // The pre-release single-home keys are intentionally not migrated. The
+    // living-place timeline is the only persisted v1 contract.
+    settings_->remove(QString::fromLatin1(home_locality_key));
+    settings_->remove(QString::fromLatin1(home_locality_label_key));
+    settings_->sync();
 }
 
 PersonalProfile::~PersonalProfile() = default;
@@ -49,16 +70,12 @@ QString PersonalProfile::nickname() const {
     return nickname_;
 }
 
-QString PersonalProfile::homeLocalityKey() const {
-    return home_locality_key_;
+QVariantList PersonalProfile::livingPlaces() const {
+    return living_places_;
 }
 
-QString PersonalProfile::homeLocalityLabel() const {
-    return home_locality_label_;
-}
-
-bool PersonalProfile::homeConfigured() const noexcept {
-    return !home_locality_key_.isEmpty();
+bool PersonalProfile::hasLivingPlaces() const noexcept {
+    return !living_places_.isEmpty();
 }
 
 QUrl PersonalProfile::avatarUrl() const {
@@ -90,32 +107,21 @@ void PersonalProfile::setNickname(const QString& nickname) {
     emit profileChanged();
 }
 
-void PersonalProfile::setHomeLocality(const QString& key, const QString& label) {
-    const QString normalized_key = normalizeHomeKey(key);
-    const QString normalized_label = normalizeHomeLabel(label);
-    if (normalized_key.isEmpty() || normalized_label.isEmpty()) {
-        setErrorText(tr("Choose a valid home location from your Library places."));
-        return;
+bool PersonalProfile::replaceLivingPlaces(const QVariantList& living_places) {
+    bool valid = false;
+    const QVariantList normalized = normalizeLivingPlaces(living_places, &valid);
+    if (!valid) {
+        setErrorText(tr("Check that every living place has a city and valid YYYY-MM dates."));
+        return false;
     }
     setErrorText({});
-    if (home_locality_key_ == normalized_key && home_locality_label_ == normalized_label) {
-        return;
+    if (living_places_ == normalized) {
+        return true;
     }
-    home_locality_key_ = normalized_key;
-    home_locality_label_ = normalized_label;
+    living_places_ = normalized;
     persist();
     emit profileChanged();
-}
-
-void PersonalProfile::clearHomeLocality() {
-    setErrorText({});
-    if (home_locality_key_.isEmpty() && home_locality_label_.isEmpty()) {
-        return;
-    }
-    home_locality_key_.clear();
-    home_locality_label_.clear();
-    persist();
-    emit profileChanged();
+    return true;
 }
 
 bool PersonalProfile::importAvatar(const QUrl& source_url) {
@@ -163,12 +169,49 @@ QString PersonalProfile::normalizeNickname(const QString& nickname) {
     return nickname.trimmed().left(80);
 }
 
-QString PersonalProfile::normalizeHomeKey(const QString& key) {
-    return key.trimmed().toLower().left(512);
-}
-
-QString PersonalProfile::normalizeHomeLabel(const QString& label) {
-    return label.trimmed().left(256);
+QVariantList
+PersonalProfile::normalizeLivingPlaces(const QVariantList& living_places, bool* const valid) {
+    *valid = false;
+    if (living_places.size() > maximum_living_places) {
+        return {};
+    }
+    static const QRegularExpression month_pattern(QStringLiteral("^[0-9]{4}-(0[1-9]|1[0-2])$"));
+    QVariantList normalized;
+    normalized.reserve(living_places.size());
+    QSet<QString> identities;
+    for (const QVariant& value : living_places) {
+        const QVariantMap source = value.toMap();
+        const QString key = source.value(QStringLiteral("key")).toString().trimmed().toLower();
+        const QString label = source.value(QStringLiteral("label")).toString().trimmed();
+        const QString start = source.value(QStringLiteral("startMonth")).toString().trimmed();
+        const QString end = source.value(QStringLiteral("endMonth")).toString().trimmed();
+        if (key.isEmpty() || key.size() > 512 || label.isEmpty() || label.size() > 256
+            || (!start.isEmpty() && !month_pattern.match(start).hasMatch())
+            || (!end.isEmpty() && !month_pattern.match(end).hasMatch())
+            || (!start.isEmpty() && !end.isEmpty() && start > end)) {
+            return {};
+        }
+        const QString identity = key + QChar::Null + start + QChar::Null + end;
+        if (identities.contains(identity)) {
+            continue;
+        }
+        identities.insert(identity);
+        QString id = source.value(QStringLiteral("id")).toString().trimmed().left(80);
+        if (id.isEmpty()) {
+            id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        }
+        normalized.push_back(
+            QVariantMap{
+                {QStringLiteral("id"), id},
+                {QStringLiteral("key"), key},
+                {QStringLiteral("label"), label},
+                {QStringLiteral("startMonth"), start},
+                {QStringLiteral("endMonth"), end},
+            }
+        );
+    }
+    *valid = true;
+    return normalized;
 }
 
 void PersonalProfile::setErrorText(QString error) {
@@ -181,7 +224,11 @@ void PersonalProfile::setErrorText(QString error) {
 
 void PersonalProfile::persist() {
     settings_->setValue(QString::fromLatin1(nickname_key), nickname_);
-    settings_->setValue(QString::fromLatin1(home_locality_key), home_locality_key_);
-    settings_->setValue(QString::fromLatin1(home_locality_label_key), home_locality_label_);
+    settings_->setValue(
+        QString::fromLatin1(living_places_key),
+        QJsonDocument::fromVariant(living_places_).toJson(QJsonDocument::Compact)
+    );
+    settings_->remove(QString::fromLatin1(home_locality_key));
+    settings_->remove(QString::fromLatin1(home_locality_label_key));
     settings_->sync();
 }

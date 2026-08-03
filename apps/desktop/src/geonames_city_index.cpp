@@ -2,6 +2,8 @@
 
 #include <QByteArray>
 #include <QFile>
+#include <QSet>
+#include <QStringList>
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +19,62 @@ constexpr std::size_t MAXIMUM_CITY_COUNT = 300'000;
 constexpr double EARTH_RADIUS_KM = 6371.0088;
 constexpr double LATITUDE_KM_PER_DEGREE = 110.574;
 constexpr auto INDEX_MAGIC = "# shadow-geonames-city-index-v1";
+
+[[nodiscard]] QStringList searchTokens(const QString& query) {
+    QString normalized;
+    normalized.reserve(query.size());
+    for (const QChar character : query.simplified().toCaseFolded()) {
+        normalized.push_back(character.isLetterOrNumber() ? character : QLatin1Char(' '));
+    }
+    return normalized.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+}
+
+[[nodiscard]] bool
+containsToken(const GeoNamesCityIndex::CitySearchMatch& city, const QString& token) {
+    return city.locality.contains(token, Qt::CaseInsensitive)
+           || city.administrative_area.contains(token, Qt::CaseInsensitive)
+           || city.country_name.contains(token, Qt::CaseInsensitive)
+           || city.country_code.contains(token, Qt::CaseInsensitive);
+}
+
+[[nodiscard]] QString normalizedKeyComponent(const QString& value) {
+    return value.simplified().toLower();
+}
+
+[[nodiscard]] QString cityIdentity(const GeoNamesCityIndex::CitySearchMatch& city) {
+    QStringList parts{city.country_code.toLower()};
+    const QString administrative_area = normalizedKeyComponent(city.administrative_area);
+    if (!administrative_area.isEmpty()) {
+        parts.push_back(administrative_area);
+    }
+    parts.push_back(normalizedKeyComponent(city.locality));
+    return parts.join(QChar(0x001f));
+}
+
+[[nodiscard]] int
+searchTier(const GeoNamesCityIndex::CitySearchMatch& city, const QString& normalized_query) {
+    const QString locality = city.locality.simplified().toCaseFolded();
+    const QString administrative_area = city.administrative_area.simplified().toCaseFolded();
+    const QString country_name = city.country_name.simplified().toCaseFolded();
+    if (locality == normalized_query) {
+        return 0;
+    }
+    if (locality.startsWith(normalized_query)) {
+        return 1;
+    }
+    if (locality.contains(normalized_query)) {
+        return 2;
+    }
+    if (administrative_area == normalized_query
+        || administrative_area.startsWith(normalized_query)) {
+        return 3;
+    }
+    if (country_name == normalized_query || country_name.startsWith(normalized_query)
+        || city.country_code.compare(normalized_query, Qt::CaseInsensitive) == 0) {
+        return 4;
+    }
+    return 5;
+}
 
 [[nodiscard]] bool validIdentity(const QByteArray& value) {
     if (value.isEmpty() || value.size() > 128) {
@@ -35,8 +93,8 @@ constexpr auto INDEX_MAGIC = "# shadow-geonames-city-index-v1";
 }
 
 [[nodiscard]] bool validCountryCode(const QByteArray& value) {
-    return value.size() == 2 && value.at(0) >= 'A' && value.at(0) <= 'Z'
-           && value.at(1) >= 'A' && value.at(1) <= 'Z';
+    return value.size() == 2 && value.at(0) >= 'A' && value.at(0) <= 'Z' && value.at(1) >= 'A'
+           && value.at(1) <= 'Z';
 }
 
 [[nodiscard]] std::optional<QString> checkedUtf8(const QByteArray& value, const bool required) {
@@ -68,8 +126,7 @@ constexpr auto INDEX_MAGIC = "# shadow-geonames-city-index-v1";
     const double haversine = sine_latitude * sine_latitude
                              + std::cos(radians(latitude_a)) * std::cos(radians(latitude_b))
                                    * sine_longitude * sine_longitude;
-    return 2.0 * EARTH_RADIUS_KM
-           * std::asin(std::sqrt(std::clamp(haversine, 0.0, 1.0)));
+    return 2.0 * EARTH_RADIUS_KM * std::asin(std::sqrt(std::clamp(haversine, 0.0, 1.0)));
 }
 
 void setDiagnostic(QString* const diagnostic, const QString& value) {
@@ -113,7 +170,10 @@ GeoNamesCityIndex::load(const QString& path, QString* const diagnostic) {
     while (!file.atEnd()) {
         QByteArray line = file.readLine(MAXIMUM_LINE_BYTES + 1);
         if (line.size() > MAXIMUM_LINE_BYTES || (!line.endsWith('\n') && !file.atEnd())) {
-            setDiagnostic(diagnostic, QStringLiteral("offline city index contains an oversized row"));
+            setDiagnostic(
+                diagnostic,
+                QStringLiteral("offline city index contains an oversized row")
+            );
             return {};
         }
         line = line.trimmed();
@@ -136,9 +196,8 @@ GeoNamesCityIndex::load(const QString& path, QString* const diagnostic) {
         const auto administrative_area = checkedUtf8(fields.at(5), false);
         const auto locality = checkedUtf8(fields.at(6), true);
         if (!latitude_ok || latitude_value < -900'000'000 || latitude_value > 900'000'000
-            || !longitude_ok || longitude_value < -1'800'000'000
-            || longitude_value > 1'800'000'000 || !population_ok
-            || population_value > std::numeric_limits<std::uint32_t>::max()
+            || !longitude_ok || longitude_value < -1'800'000'000 || longitude_value > 1'800'000'000
+            || !population_ok || population_value > std::numeric_limits<std::uint32_t>::max()
             || !validCountryCode(fields.at(3)) || !country_name || !administrative_area
             || !locality) {
             setDiagnostic(diagnostic, QStringLiteral("offline city index row value is invalid"));
@@ -178,9 +237,9 @@ std::optional<GeoNamesCityIndex::CityMatch> GeoNamesCityIndex::nearest(
     const double longitude,
     const double maximum_distance_km
 ) const {
-    if (!std::isfinite(latitude) || !std::isfinite(longitude) || latitude < -90.0
-        || latitude > 90.0 || longitude < -180.0 || longitude > 180.0
-        || !std::isfinite(maximum_distance_km) || maximum_distance_km <= 0.0) {
+    if (!std::isfinite(latitude) || !std::isfinite(longitude) || latitude < -90.0 || latitude > 90.0
+        || longitude < -180.0 || longitude > 180.0 || !std::isfinite(maximum_distance_km)
+        || maximum_distance_km <= 0.0) {
         return std::nullopt;
     }
     const double latitude_window_e7 =
@@ -224,6 +283,76 @@ std::optional<GeoNamesCityIndex::CityMatch> GeoNamesCityIndex::nearest(
         .locality = best->locality,
         .distance_km = best_distance,
     };
+}
+
+std::vector<GeoNamesCityIndex::CitySearchMatch>
+GeoNamesCityIndex::search(const QString& query, const std::size_t limit) const {
+    constexpr std::size_t MAXIMUM_SEARCH_RESULTS = 32;
+    const QString normalized_query = query.simplified().toCaseFolded();
+    const QStringList tokens = searchTokens(normalized_query);
+    if (tokens.empty() || limit == 0) {
+        return {};
+    }
+
+    struct RankedCity final {
+        CitySearchMatch city;
+        int tier = 0;
+    };
+    std::vector<RankedCity> matches;
+    matches.reserve(256);
+    for (const CityRecord& record : cities_) {
+        CitySearchMatch candidate{
+            .country_code = record.country_code,
+            .country_name = record.country_name,
+            .administrative_area = record.administrative_area,
+            .locality = record.locality,
+            .population = record.population,
+        };
+        if (!std::all_of(tokens.cbegin(), tokens.cend(), [&candidate](const QString& token) {
+                return containsToken(candidate, token);
+            })) {
+            continue;
+        }
+        const int tier = searchTier(candidate, normalized_query);
+        matches.push_back({std::move(candidate), tier});
+    }
+
+    std::sort(matches.begin(), matches.end(), [](const RankedCity& left, const RankedCity& right) {
+        if (left.tier != right.tier) {
+            return left.tier < right.tier;
+        }
+        if (left.city.population != right.city.population) {
+            return left.city.population > right.city.population;
+        }
+        const int locality_order =
+            QString::compare(left.city.locality, right.city.locality, Qt::CaseInsensitive);
+        if (locality_order != 0) {
+            return locality_order < 0;
+        }
+        return QString::compare(
+                   left.city.administrative_area,
+                   right.city.administrative_area,
+                   Qt::CaseInsensitive
+               )
+               < 0;
+    });
+
+    const std::size_t bounded_limit = std::min(limit, MAXIMUM_SEARCH_RESULTS);
+    std::vector<CitySearchMatch> results;
+    results.reserve(bounded_limit);
+    QSet<QString> identities;
+    for (RankedCity& match : matches) {
+        const QString identity = cityIdentity(match.city);
+        if (identities.contains(identity)) {
+            continue;
+        }
+        identities.insert(identity);
+        results.push_back(std::move(match.city));
+        if (results.size() == bounded_limit) {
+            break;
+        }
+    }
+    return results;
 }
 
 QString GeoNamesCityIndex::datasetVersion() const {

@@ -159,7 +159,7 @@ Item {
         || controller.filterLensKey.length > 0
         || controller.filterCountryKey.length > 0
         || controller.filterLocalityKey.length > 0
-        || controller.filterExcludedLocalityKey.length > 0
+        || controller.travelFilterEnabled
     readonly property bool hasLibraryKeywordFilter:
         controller.filterKeywordIdsAll.length > 0
         || controller.filterExcludedKeywordIdsAny.length > 0
@@ -361,10 +361,10 @@ Item {
     }
 
     function applyTravelCollection(countryKey, localityKey) {
-        if (!personalProfile.homeConfigured)
+        if (!personalProfile.hasLivingPlaces)
             return
         controller.clearFilters()
-        controller.filterExcludedLocalityKey = personalProfile.homeLocalityKey
+        controller.travelFilterEnabled = true
         if (String(countryKey).length > 0)
             controller.filterCountryKey = String(countryKey)
         if (String(localityKey).length > 0)
@@ -372,9 +372,9 @@ Item {
     }
 
     function isTravelCollectionActive(countryKey, localityKey) {
-        if (!personalProfile.homeConfigured || controller.libraryAlbumId.length > 0)
+        if (!personalProfile.hasLivingPlaces || controller.libraryAlbumId.length > 0)
             return false
-        return controller.filterExcludedLocalityKey === personalProfile.homeLocalityKey
+        return controller.travelFilterEnabled
             && controller.filterCountryKey === String(countryKey)
             && controller.filterLocalityKey === String(localityKey)
             && controller.filterCaptureMonth.length === 0

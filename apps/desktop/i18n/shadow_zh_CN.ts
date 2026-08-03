@@ -3439,22 +3439,22 @@ R %2 · G %3 · B %4</translation>
         <translation>打开高级图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="57"/>
+        <location filename="../qml/Main.qml" line="58"/>
         <source>Shadow · Review</source>
         <translation>Shadow · 选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="59"/>
+        <location filename="../qml/Main.qml" line="60"/>
         <source>Shadow · Precision</source>
         <translation>Shadow · 精修</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="59"/>
+        <location filename="../qml/Main.qml" line="60"/>
         <source>Shadow · Library</source>
         <translation>Shadow · 图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="161"/>
+        <location filename="../qml/Main.qml" line="163"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
@@ -3514,8 +3514,8 @@ R %2 · G %3 · B %4</translation>
         <translation>选片</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="115"/>
         <location filename="../qml/MainStatusBar.qml" line="101"/>
+        <location filename="../qml/MainTitleBar.qml" line="115"/>
         <source>PRECISION</source>
         <translation>精修</translation>
     </message>
@@ -4091,14 +4091,128 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
-    <name>PersonalProfile</name>
+    <name>PersonalLivingPlacesEditor</name>
     <message>
-        <location filename="../src/personal_profile.cpp" line="101"/>
-        <source>Choose a valid home location from your Library places.</source>
-        <translation>请从图库地点中选择有效的常住地点。</translation>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="151"/>
+        <source>Edit %1</source>
+        <translation>编辑 %1</translation>
     </message>
     <message>
-        <location filename="../src/personal_profile.cpp" line="132"/>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="202"/>
+        <source>+ Add place</source>
+        <translation>+ 添加地点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="230"/>
+        <source>Add a living place</source>
+        <translation>添加生活地点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="238"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="290"/>
+        <source>When was this place part of ordinary life?</source>
+        <translation>这个地点何时属于日常生活？</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="300"/>
+        <source>Done</source>
+        <translation>完成</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="310"/>
+        <source>Always part of my life</source>
+        <translation>始终属于日常生活</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="311"/>
+        <source>From a month onward</source>
+        <translation>从某个月起</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="312"/>
+        <source>Until a month</source>
+        <translation>截至某个月</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="313"/>
+        <source>During a month range</source>
+        <translation>在一段月份范围内</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="343"/>
+        <source>Start · YYYY-MM</source>
+        <translation>开始 · YYYY-MM</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="354"/>
+        <source>End · YYYY-MM</source>
+        <translation>结束 · YYYY-MM</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="369"/>
+        <source>Remove place</source>
+        <translation>移除地点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLivingPlacesEditor.qml" line="386"/>
+        <source>No living places yet. Add home, hometown, or a former home.</source>
+        <translation>尚未添加生活地点。可以添加常住地、老家或曾经居住的城市。</translation>
+    </message>
+</context>
+<context>
+    <name>PersonalLocationSearch</name>
+    <message>
+        <location filename="../src/personal_location_search.cpp" line="170"/>
+        <source>Offline city data could not be loaded.</source>
+        <translation>无法加载离线城市数据。</translation>
+    </message>
+</context>
+<context>
+    <name>PersonalLocationSearchField</name>
+    <message>
+        <location filename="../qml/PersonalLocationSearchField.qml" line="54"/>
+        <source>Search cities or regions</source>
+        <translation>搜索城市或地区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLocationSearchField.qml" line="58"/>
+        <source>Search living place</source>
+        <translation>搜索生活地点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLocationSearchField.qml" line="118"/>
+        <source>Searching offline city data…</source>
+        <translation>正在搜索离线城市数据…</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLocationSearchField.qml" line="120"/>
+        <source>No matching city or region</source>
+        <translation>未找到匹配的城市或地区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLocationSearchField.qml" line="130"/>
+        <source>Or choose a place already found in your Library</source>
+        <translation>或选择图库中已识别的地点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PersonalLocationSearchField.qml" line="143"/>
+        <source>Choose from Library places</source>
+        <translation>从图库地点中选择</translation>
+    </message>
+</context>
+<context>
+    <name>PersonalProfile</name>
+    <message>
+        <location filename="../src/personal_profile.cpp" line="114"/>
+        <source>Check that every living place has a city and valid YYYY-MM dates.</source>
+        <translation>请确认每个生活地点都包含城市，并使用有效的 YYYY-MM 日期。</translation>
+    </message>
+    <message>
+        <location filename="../src/personal_profile.cpp" line="133"/>
         <source>The selected avatar could not be read as an image.</source>
         <translation>无法将所选文件读取为头像图片。</translation>
     </message>
@@ -4116,89 +4230,79 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PersonalProfileDialog</name>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="71"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="60"/>
         <source>Choose an avatar</source>
         <translation>选择头像</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="73"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="62"/>
         <source>Images (*.png *.jpg *.jpeg *.heic *.webp)</source>
         <translation>图片 (*.png *.jpg *.jpeg *.heic *.webp)</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="111"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="100"/>
         <source>Personal profile</source>
         <translation>个人资料</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="118"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="107"/>
         <source>Private context stored only on this device</source>
         <translation>私人信息仅储存在这台设备上</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="131"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="121"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="189"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="179"/>
         <source>Avatar</source>
         <translation>头像</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="196"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="186"/>
         <source>Shown in Shadow&apos;s title bar. The image never leaves this device.</source>
         <translation>显示在 Shadow 的标题栏中，图片不会离开这台设备。</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="204"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="194"/>
         <source>Choose image</source>
         <translation>选择图片</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="210"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="200"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="229"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="219"/>
         <source>Nickname</source>
         <translation>昵称</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="237"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="228"/>
         <source>How Shadow should address you</source>
         <translation>希望 Shadow 如何称呼你</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="249"/>
-        <source>Home location</source>
-        <translation>常住地点</translation>
+        <location filename="../qml/PersonalProfileDialog.qml" line="240"/>
+        <source>Living places</source>
+        <translation>生活地点</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="256"/>
-        <source>Shadow uses the city-level places already resolved in your Library. Photos outside this place become private Travel collections.</source>
-        <translation>Shadow 使用图库中已解析的城市级地点；常住地点之外的照片会组成私人旅行分类。</translation>
+        <location filename="../qml/PersonalProfileDialog.qml" line="247"/>
+        <source>Add the cities that belong to ordinary life—home, hometown, or a former home. Optional month ranges decide whether the same city counts as Travel before or after you lived there.</source>
+        <translation>添加属于日常生活的城市，例如现居地、家乡或曾经居住的地方。可选的月份范围会决定同一城市在居住前后是否算作旅行。</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="270"/>
-        <source>Choose from Library places</source>
-        <translation>从图库地点中选择</translation>
-    </message>
-    <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="283"/>
+        <location filename="../qml/PersonalProfileDialog.qml" line="264"/>
         <source>Refreshing Library places…</source>
         <translation>正在刷新图库地点…</translation>
     </message>
     <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="285"/>
-        <source>No resolved city is available yet</source>
-        <translation>目前没有已解析的城市</translation>
-    </message>
-    <message>
-        <location filename="../qml/PersonalProfileDialog.qml" line="292"/>
-        <source>Clear</source>
-        <translation>清除</translation>
+        <location filename="../qml/PersonalProfileDialog.qml" line="265"/>
+        <source>No resolved Library city is available yet; offline search still works</source>
+        <translation>图库中尚无已解析的城市；仍可使用离线搜索</translation>
     </message>
 </context>
 <context>
@@ -4264,20 +4368,20 @@ R %2 · G %3 · B %4</translation>
         <translation>已固定 · 点击照片可重新定位</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailLoupe.qml" line="329"/>
         <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="164"/>
+        <location filename="../qml/PrecisionDetailLoupe.qml" line="329"/>
         <source>Preparing 100% detail…</source>
         <translation>正在准备 100% 细节…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailLoupe.qml" line="331"/>
         <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="168"/>
+        <location filename="../qml/PrecisionDetailLoupe.qml" line="331"/>
         <source>Rendering 100% detail…</source>
         <translation>正在渲染 100% 细节…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailLoupe.qml" line="332"/>
         <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="171"/>
+        <location filename="../qml/PrecisionDetailLoupe.qml" line="332"/>
         <source>Waiting for 100% detail…</source>
         <translation>正在等待 100% 细节…</translation>
     </message>
@@ -4592,11 +4696,11 @@ R %2 · G %3 · B %4</translation>
         <translation>节点名称</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionResetAllDialog.qml" line="60"/>
-        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="88"/>
-        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="158"/>
         <location filename="../qml/PrecisionGradeNodeMenus.qml" line="312"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="118"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="88"/>
+        <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="158"/>
+        <location filename="../qml/PrecisionResetAllDialog.qml" line="60"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
@@ -4606,8 +4710,8 @@ R %2 · G %3 · B %4</translation>
         <translation>共享</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="392"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="22"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="392"/>
         <source>Red</source>
         <translation>红色</translation>
     </message>
@@ -4617,15 +4721,15 @@ R %2 · G %3 · B %4</translation>
         <translation>橙色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="417"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="24"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="417"/>
         <location filename="../qml/PrecisionSelectiveColor.qml" line="30"/>
         <source>Yellow</source>
         <translation>黄色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="391"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="25"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="391"/>
         <source>Green</source>
         <translation>绿色</translation>
     </message>
@@ -4635,8 +4739,8 @@ R %2 · G %3 · B %4</translation>
         <translation>青色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="416"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="27"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="416"/>
         <source>Blue</source>
         <translation>蓝色</translation>
     </message>
@@ -4819,8 +4923,8 @@ R %2 · G %3 · B %4</translation>
         <translation>%L1%</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionDetailLoupe.qml" line="376"/>
         <location filename="../qml/PrecisionCanvasToolbar.qml" line="268"/>
+        <location filename="../qml/PrecisionDetailLoupe.qml" line="376"/>
         <source>100%</source>
         <translation>100%</translation>
     </message>
@@ -4927,8 +5031,8 @@ R %2 · G %3 · B %4</translation>
         <translation>明暗</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="334"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="86"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="334"/>
         <source>COLOR</source>
         <translation>色彩</translation>
     </message>
@@ -5361,10 +5465,10 @@ R %2 · G %3 · B %4</translation>
         <translation>颗粒</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="29"/>
         <location filename="../qml/PrecisionLiquifyTools.qml" line="78"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="295"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="125"/>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="29"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
@@ -5446,11 +5550,11 @@ R %2 · G %3 · B %4</translation>
         <translation>中心 Y</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionEffectsSection.qml" line="69"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="290"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="301"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="357"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="167"/>
-        <location filename="../qml/PrecisionEffectsSection.qml" line="69"/>
         <source>Feather</source>
         <translation>羽化</translation>
     </message>
@@ -5582,15 +5686,15 @@ R %2 · G %3 · B %4</translation>
         <translation>对比度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="449"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="218"/>
         <location filename="../qml/PrecisionEffectsSection.qml" line="70"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="218"/>
+        <location filename="../qml/PrecisionInspector.qml" line="449"/>
         <source>Highlights</source>
         <translation>高光</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="435"/>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="219"/>
+        <location filename="../qml/PrecisionInspector.qml" line="435"/>
         <source>Shadows</source>
         <translation>阴影</translation>
     </message>
@@ -5709,15 +5813,15 @@ R %2 · G %3 · B %4</translation>
         <translation>取样有代表性的肤色中间调，冻结诊断像素，并在矢量示波器中检查阴影、中间调与高光的对齐情况。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="279"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="335"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="279"/>
         <source>Range</source>
         <translation>范围</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="280"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="319"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="344"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="280"/>
         <source>Softness</source>
         <translation>柔化</translation>
     </message>
@@ -5727,8 +5831,8 @@ R %2 · G %3 · B %4</translation>
         <translation>色相偏移</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="283"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="192"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="283"/>
         <source>Lightness</source>
         <translation>明度</translation>
     </message>
@@ -5748,9 +5852,9 @@ R %2 · G %3 · B %4</translation>
         <translation>颜色分级、LUT 与成片效果</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSection.qml" line="282"/>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="344"/>
         <location filename="../qml/PrecisionColorMixer.qml" line="191"/>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="344"/>
+        <location filename="../qml/PrecisionPointColorSection.qml" line="282"/>
         <source>Chroma</source>
         <translation>色度</translation>
     </message>
@@ -6166,26 +6270,26 @@ R %2 · G %3 · B %4</translation>
         <translation>使用带羽化的修复或附近仿制源移除小瑕疵。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="111"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="95"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="111"/>
         <source>Heal</source>
         <translation>修复</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="110"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="93"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="110"/>
         <source>Blend a defect from its surrounding pixels</source>
         <translation>用周围像素融合瑕疵</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="125"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="106"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="125"/>
         <source>Clone</source>
         <translation>仿制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="124"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="105"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="124"/>
         <source>Copy a same-shaped nearby source</source>
         <translation>从附近复制同形来源区域</translation>
     </message>
@@ -6455,8 +6559,8 @@ R %2 · G %3 · B %4</translation>
         <translation>液化</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="172"/>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="198"/>
+        <location filename="../qml/PrecisionInspector.qml" line="172"/>
         <source>Liquify</source>
         <translation>液化</translation>
     </message>
@@ -6486,17 +6590,17 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/main.cpp" line="58"/>
+        <location filename="../src/main.cpp" line="60"/>
         <source>Could not remove %1.</source>
         <translation>无法移除 %1。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="65"/>
+        <location filename="../src/main.cpp" line="67"/>
         <source>Could not remove the local preview cache.</source>
         <translation>无法移除本地预览缓存。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="82"/>
+        <location filename="../src/main.cpp" line="84"/>
         <source>This local catalog belongs to an incompatible development build. Shadow does not migrate development schemas.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.</source>
@@ -6505,7 +6609,7 @@ Resetting removes the local photo index, edit history, and preview cache. Your o
 重置将移除本地照片索引、编辑历史与预览缓存；不会修改原始照片、LUT 资料库或界面偏好。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="88"/>
+        <location filename="../src/main.cpp" line="90"/>
         <source>Shadow could not open its local development catalog. You can reset it and start again with a fresh catalog v1.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.
@@ -6518,12 +6622,12 @@ Technical detail: %1</source>
 技术详情：%1</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="98"/>
+        <location filename="../src/main.cpp" line="100"/>
         <source>Reset local development catalog?</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="194"/>
+        <location filename="../src/main.cpp" line="197"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -6948,7 +7052,7 @@ Technical detail: %1</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="525"/>
+        <location filename="../src/review_controller.hpp" line="528"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -6958,7 +7062,7 @@ Technical detail: %1</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="529"/>
+        <location filename="../src/review_controller.hpp" line="532"/>
         <location filename="../src/review_decision_coordinator.hpp" line="121"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
@@ -7182,19 +7286,19 @@ Technical detail: %1</source>
 <context>
     <name>ReviewTravelCollections</name>
     <message>
-        <location filename="../qml/ReviewTravelCollections.qml" line="19"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="24"/>
         <source>TRAVEL</source>
         <translation>旅行</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewTravelCollections.qml" line="59"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="64"/>
         <source>Travel</source>
         <translation>旅行</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewTravelCollections.qml" line="71"/>
-        <location filename="../qml/ReviewTravelCollections.qml" line="133"/>
-        <location filename="../qml/ReviewTravelCollections.qml" line="183"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="76"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="139"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="189"/>
         <source>%L1</source>
         <translation>%L1</translation>
     </message>
@@ -7527,8 +7631,8 @@ Technical detail: %1</source>
         <translation>%L1 次解码失败 · %L2 次预览失败 · 已取消 %L3 个</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="32"/>
         <location filename="../qml/ReviewComparisonEvidence.qml" line="40"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="32"/>
         <source>COMPARE EVIDENCE</source>
         <translation>比较证据</translation>
     </message>

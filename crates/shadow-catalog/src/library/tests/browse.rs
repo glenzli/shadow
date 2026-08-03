@@ -4,8 +4,8 @@ use super::{
 };
 use crate::{
     AlbumKind, Catalog, CommitRecipe, LibraryApertureRange, LibraryFacetKind, LibraryFacetValue,
-    LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter, LibraryPhotoOrder,
-    RecipeRefKind, RecipeRefTarget, RecordLibraryPlaceResolution,
+    LibraryLivingPlaceRule, LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter,
+    LibraryPhotoOrder, RecipeRefKind, RecipeRefTarget, RecordLibraryPlaceResolution,
     RecordLibraryPlaceResolutionStatus, SetPhotoLibraryState, library_equipment_key,
 };
 use shadow_domain::{
@@ -457,21 +457,33 @@ fn bounded_library_facets_compose_without_directory_ownership() {
     );
 }
 
-#[test]
-fn country_and_city_facets_compose_with_the_photo_query_contract() {
+fn resolved_place_catalog() -> Catalog {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let shanghai_one = register(&mut catalog, "/places/shanghai-one.nef");
     let shanghai_two = register(&mut catalog, "/places/shanghai-two.nef");
+    let shanghai_unknown = register(&mut catalog, "/places/shanghai-unknown.nef");
     let tokyo = register(&mut catalog, "/places/tokyo.nef");
 
-    for registered in [shanghai_one, shanghai_two] {
+    for (index, registered) in [shanghai_one, shanghai_two].into_iter().enumerate() {
         let mut facts = facts_for(registered, Some(1_700_000_000), "Nikon", "Z 8");
+        facts.capture_day = if index == 0 {
+            "2019-04-12"
+        } else {
+            "2023-11-14"
+        }
+        .into();
         facts.latitude_e7 = Some(312_304_000);
         facts.longitude_e7 = Some(1_212_473_000);
         catalog
             .upsert_photo_library_facts(&facts)
             .expect("index Shanghai coordinates");
     }
+    let mut unknown_facts = facts_for(shanghai_unknown, None, "Nikon", "Z 8");
+    unknown_facts.latitude_e7 = Some(312_304_000);
+    unknown_facts.longitude_e7 = Some(1_212_473_000);
+    catalog
+        .upsert_photo_library_facts(&unknown_facts)
+        .expect("index undated Shanghai coordinates");
     let mut tokyo_facts = facts_for(tokyo, Some(1_700_000_100), "Canon", "EOS R5");
     tokyo_facts.latitude_e7 = Some(356_765_000);
     tokyo_facts.longitude_e7 = Some(1_397_650_000);
@@ -514,6 +526,12 @@ fn country_and_city_facets_compose_with_the_photo_query_contract() {
             RecordLibraryPlaceResolutionStatus::Recorded
         );
     }
+    catalog
+}
+
+#[test]
+fn country_and_city_facets_compose_with_the_photo_query_contract() {
+    let catalog = resolved_place_catalog();
 
     let countries = catalog
         .library_facet_page(
@@ -529,7 +547,7 @@ fn country_and_city_facets_compose_with_the_photo_query_contract() {
             LibraryFacetValue {
                 key: "cn".into(),
                 label: "China".into(),
-                photo_count: 2,
+                photo_count: 3,
             },
             LibraryFacetValue {
                 key: "jp".into(),
@@ -543,13 +561,13 @@ fn country_and_city_facets_compose_with_the_photo_query_contract() {
         country_key: Some("CN".into()),
         ..LibraryPhotoFilter::default()
     };
-    assert_eq!(catalog.library_photo_count(&china).expect("China count"), 2);
+    assert_eq!(catalog.library_photo_count(&china).expect("China count"), 3);
     let cities = catalog
         .library_facet_page(&china, LibraryFacetKind::City, None, 16)
         .expect("China city facets");
     assert_eq!(cities.items.len(), 1);
     assert_eq!(cities.items[0].label, "Shanghai · China");
-    assert_eq!(cities.items[0].photo_count, 2);
+    assert_eq!(cities.items[0].photo_count, 3);
 
     let shanghai = LibraryPhotoFilter {
         country_key: Some("cn".into()),
@@ -559,22 +577,38 @@ fn country_and_city_facets_compose_with_the_photo_query_contract() {
     let page = catalog
         .library_photo_page(&shanghai, LibraryPhotoOrder::default(), None, 16)
         .expect("Shanghai photo page");
-    assert_eq!(page.items.len(), 2);
+    assert_eq!(page.items.len(), 3);
+}
 
-    let outside_home = LibraryPhotoFilter {
-        excluded_locality_key: Some(cities.items[0].key.clone()),
+#[test]
+fn living_place_periods_exclude_only_ordinary_life_from_travel() {
+    let catalog = resolved_place_catalog();
+    let shanghai_key = "cn\u{1f}shanghai\u{1f}shanghai";
+    let travel = LibraryPhotoFilter {
+        living_place_rules: vec![
+            LibraryLivingPlaceRule {
+                locality_key: shanghai_key.into(),
+                start_month: Some("2020-01".into()),
+                end_month: None,
+            },
+            LibraryLivingPlaceRule {
+                locality_key: "jp\u{1f}tokyo\u{1f}tokyo".into(),
+                start_month: None,
+                end_month: None,
+            },
+        ],
         ..LibraryPhotoFilter::default()
     };
     assert_eq!(
         catalog
-            .library_photo_count(&outside_home)
-            .expect("outside-home count"),
+            .library_photo_count(&travel)
+            .expect("time-aware Travel count"),
         1
     );
     let travel_countries = catalog
-        .library_facet_page(&outside_home, LibraryFacetKind::Country, None, 16)
+        .library_facet_page(&travel, LibraryFacetKind::Country, None, 16)
         .expect("travel country facets");
     assert_eq!(travel_countries.items.len(), 1);
-    assert_eq!(travel_countries.items[0].key, "jp");
+    assert_eq!(travel_countries.items[0].key, "cn");
     assert_eq!(travel_countries.items[0].photo_count, 1);
 }

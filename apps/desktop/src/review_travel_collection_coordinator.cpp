@@ -32,8 +32,8 @@ ReviewTravelCollectionCoordinator::~ReviewTravelCollectionCoordinator() {
     watcher_.waitForFinished();
 }
 
-QVariantList ReviewTravelCollectionCoordinator::homeCandidates() const {
-    return facetVariants(home_candidates_);
+QVariantList ReviewTravelCollectionCoordinator::placeCandidates() const {
+    return facetVariants(place_candidates_);
 }
 
 QVariantList ReviewTravelCollectionCoordinator::groups() const {
@@ -68,10 +68,10 @@ QString ReviewTravelCollectionCoordinator::errorText() const {
 }
 
 void ReviewTravelCollectionCoordinator::refresh(
-    QString home_locality_key,
+    QVector<BackendLibraryLivingPlaceRule> living_place_rules,
     const quint64 library_generation
 ) {
-    requested_home_locality_key_ = home_locality_key.trimmed().toLower();
+    requested_living_place_rules_ = std::move(living_place_rules);
     requested_library_generation_ = library_generation;
     if (task_running_) {
         refresh_pending_ = true;
@@ -82,23 +82,23 @@ void ReviewTravelCollectionCoordinator::refresh(
 
 ReviewTravelCollectionCoordinator::TaskResult ReviewTravelCollectionCoordinator::runTask(
     Operations operations,
-    QString home_locality_key,
+    QVector<BackendLibraryLivingPlaceRule> living_place_rules,
     const quint64 library_generation,
     const quint64 request_id
 ) {
     TaskResult result;
-    result.home_locality_key = std::move(home_locality_key);
+    result.living_place_rules = std::move(living_place_rules);
     result.library_generation = library_generation;
     result.request_id = request_id;
     try {
-        result.home_candidates =
+        result.place_candidates =
             operations.page({}, BackendLibraryFacetKind::City, {}, HOME_CANDIDATE_LIMIT);
-        if (result.home_locality_key.isEmpty()) {
+        if (result.living_place_rules.isEmpty()) {
             return result;
         }
 
         BackendLibraryPhotoFilter travel_filter;
-        travel_filter.excluded_locality_key = result.home_locality_key;
+        travel_filter.living_place_rules = result.living_place_rules;
         result.photo_count = operations.count(travel_filter);
         const BackendLibraryFacetPage countries =
             operations
@@ -151,7 +151,7 @@ void ReviewTravelCollectionCoordinator::startTask() {
         QtConcurrent::run(
             runTask,
             operations_,
-            requested_home_locality_key_,
+            requested_living_place_rules_,
             requested_library_generation_,
             active_request_id_
         )
@@ -163,9 +163,9 @@ void ReviewTravelCollectionCoordinator::finishTask() {
     task_running_ = false;
     const bool accepted = result.request_id == active_request_id_
                           && result.library_generation == requested_library_generation_
-                          && result.home_locality_key == requested_home_locality_key_;
+                          && result.living_place_rules == requested_living_place_rules_;
     if (accepted) {
-        home_candidates_ = std::move(result.home_candidates);
+        place_candidates_ = std::move(result.place_candidates);
         groups_ = std::move(result.groups);
         photo_count_ = result.photo_count;
         error_text_ = std::move(result.error);

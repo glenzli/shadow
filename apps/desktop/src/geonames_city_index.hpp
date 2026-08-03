@@ -22,11 +22,25 @@ class GeoNamesCityIndex final {
         double distance_km = 0.0;
     };
 
+    struct CitySearchMatch final {
+        QString country_code;
+        QString country_name;
+        QString administrative_area;
+        QString locality;
+        std::uint32_t population = 0;
+    };
+
     [[nodiscard]] static std::shared_ptr<const GeoNamesCityIndex>
     load(const QString& path, QString* diagnostic);
 
     [[nodiscard]] std::optional<CityMatch>
     nearest(double latitude, double longitude, double maximum_distance_km) const;
+    /// Returns distinct city identities ranked by name fit and population.
+    /// Every non-empty query token must match the locality, administrative
+    /// area, country name, or country code. The caller keeps this bounded and
+    /// off the UI thread.
+    [[nodiscard]] std::vector<CitySearchMatch>
+    search(const QString& query, std::size_t limit) const;
     [[nodiscard]] QString datasetVersion() const;
     [[nodiscard]] std::size_t cityCount() const noexcept;
 

@@ -63,9 +63,17 @@ Application startup is split from environment-driven automation:
   admission policy for new local AI work plus the default strength of newly authored RAW-denoise
   nodes; model discovery and verification remain with the model runtimes.
   [`src/personal_profile.*`](src/personal_profile.hpp) is deliberately separate from application
-  settings: it owns the device-local nickname, normalized avatar, and one provider-independent
-  home-locality identity. [`qml/PersonalProfileDialog.qml`](qml/PersonalProfileDialog.qml) edits
-  that context from the title-bar avatar without adding an account or upload path.
+  settings: it owns the device-local nickname, normalized avatar, and a bounded set of
+  provider-independent living-place rules with optional inclusive month ranges.
+  [`qml/PersonalProfileDialog.qml`](qml/PersonalProfileDialog.qml) edits that context from the
+  title-bar avatar without adding an account or upload path;
+  [`qml/PersonalLivingPlacesEditor.qml`](qml/PersonalLivingPlacesEditor.qml) owns the multi-place
+  period interaction rather than growing the dialog into another state-machine hub.
+  [`src/personal_location_search.*`](src/personal_location_search.hpp) independently owns bounded,
+  asynchronous search over the packaged offline city index, including rapid-query coalescing and
+  stale-result rejection. [`qml/PersonalLocationSearchField.qml`](qml/PersonalLocationSearchField.qml)
+  combines that manual search with optional Library-derived shortcuts; only an explicitly selected
+  canonical locality identity reaches the profile owner.
   [`src/cache_preferences.*`](src/cache_preferences.hpp) owns the persistent soft disk-cache target
   and permission for automatic safe reclamation. [`src/cache_maintenance_controller.*`](src/cache_maintenance_controller.hpp)
   may enforce that target only through the Catalog-proven unused-preview sweep: live, unknown,
@@ -91,7 +99,8 @@ Application startup is split from environment-driven automation:
   [`src/map/google_map_tile_layer.*`](src/map/google_map_tile_layer.hpp) paints those decoded
   tiles without taking gesture or photo-marker ownership.
 - [`src/geonames_city_index.*`](src/geonames_city_index.hpp) owns the bounded, latitude-sorted
-  offline country/administrative-area/city data contract and nearest-city query. The compact index
+  offline country/administrative-area/city data contract, nearest-city query, and bounded
+  token-based name search ranked by fit and population. The compact index
   is reproducibly derived by [`scripts/prepare_geonames_city_index.py`](../../scripts/prepare_geonames_city_index.py)
   from GeoNames `cities500`, country, and first-level administrative exports; it is loaded on first
   use off the UI thread and retained for later coordinates. [`src/geonames_library_reverse_geocoder.*`](src/geonames_library_reverse_geocoder.hpp)
@@ -612,11 +621,12 @@ Review presentation keeps the workspace as the composition and compatibility sur
   Its [`tests/review_library_facet_coordinator/`](tests/review_library_facet_coordinator/)
   contracts cover the shared filter/bound, projection, stale replacement, failure, and lifetime.
 - [`src/review_travel_collection_coordinator.*`](src/review_travel_collection_coordinator.hpp)
-  independently derives the private Travel navigation projection from the configured home
-  locality: photos with a different resolved locality are counted and grouped by country then
-  destination, while unresolved locations are never guessed. It does not mutate the active
-  Library query. [`qml/ReviewTravelCollections.qml`](qml/ReviewTravelCollections.qml) applies an
-  exact outside-home filter when the user selects that generated hierarchy.
+  independently derives the private Travel navigation projection from all configured living-place
+  periods. A photo in one of those cities is ordinary life only when its capture month falls in
+  that rule; other resolved places are grouped by country then destination, while unresolved
+  locations and unknown dates in a time-bounded home are never guessed. It does not mutate photo
+  metadata. [`qml/ReviewTravelCollections.qml`](qml/ReviewTravelCollections.qml) applies the exact
+  generated Travel predicate when the user selects that hierarchy.
 - [`src/review_library_keyword_coordinator.*`](src/review_library_keyword_coordinator.hpp) owns
   hierarchical taxonomy refresh, selected-photo assignment projection, serialized batch
   mutations, stale-selection rejection, localized outcomes, and destruction wait.

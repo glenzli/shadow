@@ -28,6 +28,34 @@ using desktop_backend_projection::qstring;
     return result;
 }
 
+[[nodiscard]] rust::Vec<shadow::desktop::FfiLibraryLivingPlaceRule>
+ffi_living_place_rules(const QVector<BackendLibraryLivingPlaceRule>& source) {
+    rust::Vec<shadow::desktop::FfiLibraryLivingPlaceRule> result;
+    result.reserve(static_cast<std::size_t>(source.size()));
+    for (const BackendLibraryLivingPlaceRule& rule : source) {
+        shadow::desktop::FfiLibraryLivingPlaceRule projected;
+        projected.locality_key = rule.locality_key.toStdString();
+        projected.start_month = rule.start_month.toStdString();
+        projected.end_month = rule.end_month.toStdString();
+        result.push_back(std::move(projected));
+    }
+    return result;
+}
+
+[[nodiscard]] QVector<BackendLibraryLivingPlaceRule>
+living_place_rules(const rust::Vec<shadow::desktop::FfiLibraryLivingPlaceRule>& source) {
+    QVector<BackendLibraryLivingPlaceRule> result;
+    result.reserve(checked_qt_vector_size(source.size(), "library_living_place_rules"));
+    for (const auto& rule : source) {
+        result.push_back({
+            .locality_key = qstring(rule.locality_key),
+            .start_month = qstring(rule.start_month),
+            .end_month = qstring(rule.end_month),
+        });
+    }
+    return result;
+}
+
 [[nodiscard]] shadow::desktop::FfiLibraryFlagFilter
 ffi_library_flag(const BackendLibraryFlagFilter flag) {
     switch (flag) {
@@ -55,7 +83,7 @@ ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     filter.lens_key = source.lens_key.toStdString();
     filter.country_key = source.country_key.toStdString();
     filter.locality_key = source.locality_key.toStdString();
-    filter.excluded_locality_key = source.excluded_locality_key.toStdString();
+    filter.living_place_rules = ffi_living_place_rules(source.living_place_rules);
     filter.has_aperture_minimum = source.has_aperture_minimum;
     filter.aperture_minimum_milli = source.aperture_minimum_milli;
     filter.has_aperture_maximum = source.has_aperture_maximum;
@@ -101,7 +129,7 @@ library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
         .lens_key = qstring(source.lens_key),
         .country_key = qstring(source.country_key),
         .locality_key = qstring(source.locality_key),
-        .excluded_locality_key = qstring(source.excluded_locality_key),
+        .living_place_rules = living_place_rules(source.living_place_rules),
         .has_aperture_minimum = source.has_aperture_minimum,
         .aperture_minimum_milli = source.aperture_minimum_milli,
         .has_aperture_maximum = source.has_aperture_maximum,

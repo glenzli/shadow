@@ -19,6 +19,16 @@ enum class BackendLibraryFlagFilter : std::uint8_t {
     Rejected,
 };
 
+struct BackendLibraryLivingPlaceRule final {
+    QString locality_key;
+    QString start_month;
+    QString end_month;
+
+    friend bool
+    operator==(const BackendLibraryLivingPlaceRule&, const BackendLibraryLivingPlaceRule&) =
+        default;
+};
+
 struct BackendLibraryPhotoFilter final {
     bool has_capture_start = false;
     std::int64_t capture_start_unix_seconds = 0;
@@ -29,7 +39,7 @@ struct BackendLibraryPhotoFilter final {
     QString lens_key;
     QString country_key;
     QString locality_key;
-    QString excluded_locality_key;
+    QVector<BackendLibraryLivingPlaceRule> living_place_rules;
     bool has_aperture_minimum = false;
     std::uint32_t aperture_minimum_milli = 0;
     bool has_aperture_maximum = false;

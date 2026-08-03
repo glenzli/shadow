@@ -4,6 +4,7 @@
 #include <QImage>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <QVariantList>
 
 #include <cstdlib>
 #include <iostream>
@@ -36,16 +37,30 @@ int main(int argc, char* argv[]) {
     {
         PersonalProfile profile(root.path(), settings);
         profile.setNickname(QStringLiteral("  Glendon  "));
-        profile.setHomeLocality(
-            QStringLiteral("CN\u001fShanghai\u001fShanghai"),
-            QStringLiteral("Shanghai · China")
-        );
+        const QVariantList living_places{
+            QVariantMap{
+                {QStringLiteral("key"), QStringLiteral("CN\u001fShanghai\u001fShanghai")},
+                {QStringLiteral("label"), QStringLiteral("Shanghai · China")},
+                {QStringLiteral("startMonth"), QStringLiteral("2020-01")},
+                {QStringLiteral("endMonth"), QString()},
+            },
+            QVariantMap{
+                {QStringLiteral("key"), QStringLiteral("CN\u001fChengdu\u001fChengdu")},
+                {QStringLiteral("label"), QStringLiteral("Chengdu · China")},
+                {QStringLiteral("startMonth"), QString()},
+                {QStringLiteral("endMonth"), QString()},
+            },
+        };
+        if (!require(profile.replaceLivingPlaces(living_places), "living places are accepted")) {
+            return EXIT_FAILURE;
+        }
         if (!require(profile.nickname() == QStringLiteral("Glendon"), "nickname is normalized")
             || !require(
-                profile.homeLocalityKey() == QStringLiteral("cn\u001fshanghai\u001fshanghai"),
-                "home identity is provider-independent and normalized"
+                profile.livingPlaces().front().toMap().value(QStringLiteral("key")).toString()
+                    == QStringLiteral("cn\u001fshanghai\u001fshanghai"),
+                "living-place identity is provider-independent and normalized"
             )
-            || !require(profile.homeConfigured(), "home configuration becomes active")
+            || !require(profile.hasLivingPlaces(), "living-place configuration becomes active")
             || !require(
                 profile.importAvatar(QUrl::fromLocalFile(source)),
                 "avatar is normalized into local profile storage"
@@ -57,13 +72,15 @@ int main(int argc, char* argv[]) {
 
     PersonalProfile reopened(root.path(), settings);
     if (!require(reopened.nickname() == QStringLiteral("Glendon"), "nickname persists")
-        || !require(reopened.homeConfigured(), "home locality persists")
+        || !require(reopened.livingPlaces().size() == 2, "living-place periods persist")
         || !require(!reopened.avatarUrl().isEmpty(), "normalized avatar persists")) {
         return EXIT_FAILURE;
     }
-    reopened.clearHomeLocality();
+    if (!require(reopened.replaceLivingPlaces({}), "living places can be cleared")) {
+        return EXIT_FAILURE;
+    }
     reopened.clearAvatar();
-    return require(!reopened.homeConfigured(), "home locality can be cleared")
+    return require(!reopened.hasLivingPlaces(), "living places can be cleared")
                    && require(reopened.avatarUrl().isEmpty(), "avatar can be cleared")
                ? EXIT_SUCCESS
                : EXIT_FAILURE;

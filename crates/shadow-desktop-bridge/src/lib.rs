@@ -322,6 +322,13 @@ mod ffi {
     /// is not constrained; explicit booleans keep a real zero / false value
     /// distinguishable from an absent filter.
     #[derive(Debug, Clone)]
+    struct FfiLibraryLivingPlaceRule {
+        locality_key: String,
+        start_month: String,
+        end_month: String,
+    }
+
+    #[derive(Debug, Clone)]
     struct FfiLibraryPhotoFilter {
         has_capture_start: bool,
         capture_start_unix_seconds: i64,
@@ -332,7 +339,7 @@ mod ffi {
         lens_key: String,
         country_key: String,
         locality_key: String,
-        excluded_locality_key: String,
+        living_place_rules: Vec<FfiLibraryLivingPlaceRule>,
         has_aperture_minimum: bool,
         aperture_minimum_milli: u32,
         has_aperture_maximum: bool,

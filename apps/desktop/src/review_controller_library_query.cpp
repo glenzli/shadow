@@ -1,5 +1,7 @@
 #include "review_controller.hpp"
 
+#include <QRegularExpression>
+
 #include <algorithm>
 
 // Library import, paging, range projection, and filter-query routing.
@@ -165,19 +167,40 @@ void ReviewController::setFilterLocalityKey(const QString& locality_key) {
     filtered_model_.setLocalityKey(locality_key);
 }
 
-void ReviewController::setFilterExcludedLocalityKey(const QString& locality_key) {
-    filtered_model_.setExcludedLocalityKey(locality_key);
+void ReviewController::setTravelFilterEnabled(const bool enabled) {
+    filtered_model_.setTravelFilterEnabled(enabled && !travel_living_place_rules_.isEmpty());
 }
 
-void ReviewController::setTravelHomeLocalityKey(const QString& locality_key) {
-    const QString normalized = locality_key.trimmed().toLower();
-    if (travel_home_locality_key_ == normalized) {
+void ReviewController::setTravelLivingPlaces(const QVariantList& living_places) {
+    static const QRegularExpression month_pattern(QStringLiteral("^[0-9]{4}-(0[1-9]|1[0-2])$"));
+    QVector<BackendLibraryLivingPlaceRule> normalized;
+    normalized.reserve(std::min<qsizetype>(living_places.size(), 32));
+    for (const QVariant& value : living_places.mid(0, 32)) {
+        const QVariantMap place = value.toMap();
+        BackendLibraryLivingPlaceRule rule{
+            .locality_key = place.value(QStringLiteral("key")).toString().trimmed().toLower(),
+            .start_month = place.value(QStringLiteral("startMonth")).toString().trimmed(),
+            .end_month = place.value(QStringLiteral("endMonth")).toString().trimmed(),
+        };
+        if (rule.locality_key.isEmpty()
+            || (!rule.start_month.isEmpty() && !month_pattern.match(rule.start_month).hasMatch())
+            || (!rule.end_month.isEmpty() && !month_pattern.match(rule.end_month).hasMatch())
+            || (!rule.start_month.isEmpty() && !rule.end_month.isEmpty()
+                && rule.start_month > rule.end_month)) {
+            continue;
+        }
+        if (!normalized.contains(rule)) {
+            normalized.push_back(std::move(rule));
+        }
+    }
+    if (travel_living_place_rules_ == normalized) {
         return;
     }
-    const QString previous = travel_home_locality_key_;
-    travel_home_locality_key_ = normalized;
-    if (!previous.isEmpty() && filtered_model_.excludedLocalityKey() == previous) {
-        filtered_model_.setExcludedLocalityKey(normalized);
+    travel_living_place_rules_ = std::move(normalized);
+    if (travel_living_place_rules_.isEmpty()) {
+        filtered_model_.setTravelFilterEnabled(false);
+    } else if (filtered_model_.travelFilterEnabled()) {
+        requestLibraryReset();
     }
     refreshTravelCollections();
 }
@@ -255,7 +278,9 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     filter.lens_key = filtered_model_.lensKey();
     filter.country_key = filtered_model_.countryKey();
     filter.locality_key = filtered_model_.localityKey();
-    filter.excluded_locality_key = filtered_model_.excludedLocalityKey();
+    if (filtered_model_.travelFilterEnabled()) {
+        filter.living_place_rules = travel_living_place_rules_;
+    }
     filter.album_id = album_coordinator_.albumId();
     filter.keyword_ids_all = filtered_model_.keywordIdsAll();
     filter.excluded_keyword_ids_any = filtered_model_.excludedKeywordIdsAny();
