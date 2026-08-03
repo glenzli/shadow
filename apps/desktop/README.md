@@ -28,6 +28,14 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
 
 Application startup is split from environment-driven automation:
 
+- [`CMakeLists.txt`](CMakeLists.txt) owns desktop application assembly, packaged resources,
+  provider installation, and the final executable contract.
+  [`cmake/ShadowDesktopTests.cmake`](cmake/ShadowDesktopTests.cmake) is the `BUILD_TESTING` index;
+  it routes application/backend, settings/location, Precision, and Review registrations to their
+  responsibility-named sibling modules. Adding or moving a focused native/QML test therefore
+  changes its semantic test owner without deepening application composition. Every runnable
+  source still maps to one target and one CTest registration; test properties stay beside that
+  registration.
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
 - [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace routing, theme
