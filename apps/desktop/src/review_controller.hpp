@@ -89,6 +89,18 @@ class ReviewController final : public QObject {
             filtersChanged
     )
     Q_PROPERTY(
+        int filterChineseLunarMonth READ filterChineseLunarMonth WRITE setFilterChineseLunarMonth
+            NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        int filterChineseLunarDay READ filterChineseLunarDay WRITE setFilterChineseLunarDay NOTIFY
+            filtersChanged
+    )
+    Q_PROPERTY(
+        QString filterChineseLunarMonthType READ filterChineseLunarMonthType WRITE
+            setFilterChineseLunarMonthType NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
         QString filterCameraKey READ filterCameraKey WRITE setFilterCameraKey NOTIFY filtersChanged
     )
     Q_PROPERTY(
@@ -276,6 +288,9 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterExcludedFlag() const;
     [[nodiscard]] QString filterExcludedColorLabel() const;
     [[nodiscard]] QString filterCaptureMonth() const;
+    [[nodiscard]] int filterChineseLunarMonth() const noexcept;
+    [[nodiscard]] int filterChineseLunarDay() const noexcept;
+    [[nodiscard]] QString filterChineseLunarMonthType() const;
     [[nodiscard]] QString filterCameraKey() const;
     [[nodiscard]] QString filterLensKey() const;
     [[nodiscard]] QString filterCountryKey() const;
@@ -342,6 +357,9 @@ class ReviewController final : public QObject {
     void setFilterExcludedFlag(const QString& flag);
     void setFilterExcludedColorLabel(const QString& color_label);
     void setFilterCaptureMonth(const QString& capture_month);
+    void setFilterChineseLunarMonth(int month);
+    void setFilterChineseLunarDay(int day);
+    void setFilterChineseLunarMonthType(const QString& month_type);
     void setFilterCameraKey(const QString& camera_key);
     void setFilterLensKey(const QString& lens_key);
     void setFilterCountryKey(const QString& country_key);

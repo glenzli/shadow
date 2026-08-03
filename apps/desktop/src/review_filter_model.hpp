@@ -34,6 +34,9 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] QString excludedFlagFilter() const;
     [[nodiscard]] QString excludedColorFilter() const;
     [[nodiscard]] QString captureMonth() const;
+    [[nodiscard]] int chineseLunarMonth() const noexcept;
+    [[nodiscard]] int chineseLunarDay() const noexcept;
+    [[nodiscard]] QString chineseLunarMonthType() const;
     [[nodiscard]] QString cameraKey() const;
     [[nodiscard]] QString lensKey() const;
     [[nodiscard]] QString countryKey() const;
@@ -54,6 +57,9 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     /// attempt a lossy make/model comparison over the currently retained grid
     /// page; the next photo-first page is the authoritative result.
     void setCaptureMonth(const QString& capture_month);
+    void setChineseLunarMonth(int month);
+    void setChineseLunarDay(int day);
+    void setChineseLunarMonthType(const QString& month_type);
     void setCameraKey(const QString& camera_key);
     void setLensKey(const QString& lens_key);
     void setCountryKey(const QString& country_key);
@@ -76,6 +82,7 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] static QString normalizeEditFilter(const QString& filter);
     [[nodiscard]] static QString normalizeLikedFilter(const QString& filter);
     [[nodiscard]] static QString normalizeCaptureMonth(const QString& value);
+    [[nodiscard]] static QString normalizeChineseLunarMonthType(const QString& value);
     [[nodiscard]] static QString normalizeFacetKey(const QString& value);
     [[nodiscard]] static QStringList normalizeKeywordIds(const QStringList& values);
     void refreshRowsFilter();
@@ -88,6 +95,9 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     QString excluded_flag_filter_ = QStringLiteral("all");
     QString excluded_color_filter_ = QStringLiteral("all");
     QString capture_month_;
+    int chinese_lunar_month_ = 0;
+    int chinese_lunar_day_ = 0;
+    QString chinese_lunar_month_type_ = QStringLiteral("all");
     QString camera_key_;
     QString lens_key_;
     QString country_key_;

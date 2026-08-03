@@ -147,6 +147,18 @@ void ReviewController::setFilterCaptureMonth(const QString& capture_month) {
     filtered_model_.setCaptureMonth(capture_month);
 }
 
+void ReviewController::setFilterChineseLunarMonth(const int month) {
+    filtered_model_.setChineseLunarMonth(month);
+}
+
+void ReviewController::setFilterChineseLunarDay(const int day) {
+    filtered_model_.setChineseLunarDay(day);
+}
+
+void ReviewController::setFilterChineseLunarMonthType(const QString& month_type) {
+    filtered_model_.setChineseLunarMonthType(month_type);
+}
+
 void ReviewController::setFilterCameraKey(const QString& camera_key) {
     filtered_model_.setCameraKey(camera_key);
 }
@@ -274,6 +286,24 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
         filter.liked = false;
     }
     filter.capture_month = filtered_model_.captureMonth();
+    const int chinese_lunar_month = filtered_model_.chineseLunarMonth();
+    if (chinese_lunar_month > 0) {
+        filter.has_chinese_lunar_month = true;
+        filter.chinese_lunar_month = static_cast<std::uint8_t>(chinese_lunar_month);
+    }
+    const int chinese_lunar_day = filtered_model_.chineseLunarDay();
+    if (chinese_lunar_day > 0) {
+        filter.has_chinese_lunar_day = true;
+        filter.chinese_lunar_day = static_cast<std::uint8_t>(chinese_lunar_day);
+    }
+    const QString chinese_lunar_month_type = filtered_model_.chineseLunarMonthType();
+    if (chinese_lunar_month_type == QStringLiteral("regular")) {
+        filter.has_chinese_lunar_is_leap_month = true;
+        filter.chinese_lunar_is_leap_month = false;
+    } else if (chinese_lunar_month_type == QStringLiteral("leap")) {
+        filter.has_chinese_lunar_is_leap_month = true;
+        filter.chinese_lunar_is_leap_month = true;
+    }
     filter.camera_key = filtered_model_.cameraKey();
     filter.lens_key = filtered_model_.lensKey();
     filter.country_key = filtered_model_.countryKey();

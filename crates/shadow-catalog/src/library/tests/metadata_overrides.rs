@@ -38,7 +38,8 @@ fn corrections_survive_rescan_and_drive_effective_library_queries() {
         .upsert_photo_library_facts(&observed)
         .expect("record observed facts");
 
-    let corrected_time = 1_704_067_200;
+    // 2024-02-10 UTC, Chinese New Year.
+    let corrected_time = 1_707_523_200;
     let corrected_coordinates = LibraryCoordinates {
         latitude_e7: 312_304_000,
         longitude_e7: 1_214_735_000,
@@ -110,6 +111,18 @@ fn corrections_survive_rescan_and_drive_effective_library_queries() {
         })
         .expect("query corrected time");
     assert_eq!(matching, 1);
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                chinese_lunar_month: Some(1),
+                chinese_lunar_day: Some(1),
+                chinese_lunar_is_leap_month: Some(false),
+                ..LibraryPhotoFilter::default()
+            })
+            .expect("query corrected Chinese lunar date"),
+        1,
+        "effective lunar indexes must follow the corrected capture day"
+    );
 }
 
 #[test]

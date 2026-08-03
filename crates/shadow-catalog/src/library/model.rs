@@ -404,6 +404,15 @@ pub struct LibraryPhotoFilter {
     /// saved Smart Album can keep both a broad programmatic range and a human
     /// calendar bucket without inventing a second date representation.
     pub capture_month: Option<String>,
+    /// Recurring Chinese lunar-calendar month (1 through 12). This composes
+    /// with the lunar day and leap-month identity without replacing the
+    /// canonical Gregorian capture timestamp.
+    pub chinese_lunar_month: Option<u8>,
+    /// Recurring Chinese lunar-calendar day (1 through 30).
+    pub chinese_lunar_day: Option<u8>,
+    /// When present, distinguishes a regular lunar month from its leap-month
+    /// counterpart. `None` accepts both month identities.
+    pub chinese_lunar_is_leap_month: Option<bool>,
     pub camera_key: Option<String>,
     pub lens_key: Option<String>,
     /// Stable provider-independent country identity, normally an ISO code.
@@ -778,6 +787,7 @@ pub(super) fn validate_library_photo_filter(
             "capture month must use the canonical YYYY-MM form".into(),
         ));
     }
+    validate_chinese_lunar_filter(filter)?;
     for (name, value, maximum) in [
         ("camera key", filter.camera_key.as_deref(), 512),
         ("lens key", filter.lens_key.as_deref(), 512),
@@ -845,6 +855,26 @@ pub(super) fn validate_library_photo_filter(
     {
         return Err(CatalogError::InvalidLibraryQuery(
             "one keyword cannot be both required and excluded".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_chinese_lunar_filter(filter: &LibraryPhotoFilter) -> Result<(), CatalogError> {
+    if filter
+        .chinese_lunar_month
+        .is_some_and(|month| !(1..=12).contains(&month))
+    {
+        return Err(CatalogError::InvalidLibraryQuery(
+            "Chinese lunar month must be in the inclusive 1 through 12 range".into(),
+        ));
+    }
+    if filter
+        .chinese_lunar_day
+        .is_some_and(|day| !(1..=30).contains(&day))
+    {
+        return Err(CatalogError::InvalidLibraryQuery(
+            "Chinese lunar day must be in the inclusive 1 through 30 range".into(),
         ));
     }
     Ok(())

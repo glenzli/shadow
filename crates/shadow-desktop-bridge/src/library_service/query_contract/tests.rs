@@ -141,6 +141,36 @@ fn structured_place_filter_keys_round_trip_without_using_display_labels() {
     assert!(projected.living_place_rules[0].end_month.is_empty());
 }
 
+#[test]
+fn chinese_lunar_filter_round_trips_absence_and_regular_or_leap_month_identity() {
+    let filter = ffi::FfiLibraryPhotoFilter {
+        has_chinese_lunar_month: true,
+        chinese_lunar_month: 2,
+        has_chinese_lunar_day: true,
+        chinese_lunar_day: 1,
+        has_chinese_lunar_is_leap_month: true,
+        chinese_lunar_is_leap_month: true,
+        ..neutral_ffi_filter()
+    };
+    let typed = library_filter_from_ffi(&filter).expect("parse lunar filter");
+    assert_eq!(typed.chinese_lunar_month, Some(2));
+    assert_eq!(typed.chinese_lunar_day, Some(1));
+    assert_eq!(typed.chinese_lunar_is_leap_month, Some(true));
+
+    let projected = ffi_library_filter(typed);
+    assert!(projected.has_chinese_lunar_month);
+    assert_eq!(projected.chinese_lunar_month, 2);
+    assert!(projected.has_chinese_lunar_day);
+    assert_eq!(projected.chinese_lunar_day, 1);
+    assert!(projected.has_chinese_lunar_is_leap_month);
+    assert!(projected.chinese_lunar_is_leap_month);
+
+    let neutral = library_filter_from_ffi(&neutral_ffi_filter()).expect("parse neutral filter");
+    assert_eq!(neutral.chinese_lunar_month, None);
+    assert_eq!(neutral.chinese_lunar_day, None);
+    assert_eq!(neutral.chinese_lunar_is_leap_month, None);
+}
+
 fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
     ffi::FfiLibraryPhotoFilter {
         has_capture_start: false,
@@ -148,6 +178,12 @@ fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
         has_capture_end: false,
         capture_end_unix_seconds: 0,
         capture_month: String::new(),
+        has_chinese_lunar_month: false,
+        chinese_lunar_month: 0,
+        has_chinese_lunar_day: false,
+        chinese_lunar_day: 0,
+        has_chinese_lunar_is_leap_month: false,
+        chinese_lunar_is_leap_month: false,
         camera_key: String::new(),
         lens_key: String::new(),
         country_key: String::new(),

@@ -77,6 +77,59 @@ Popup {
         { "text": qsTr("Edited"), "value": "edited" },
         { "text": qsTr("Not edited"), "value": "unedited" }
     ]
+    readonly property var chineseLunarMonthOptions: [
+        { "text": qsTr("Any lunar month"), "value": 0 },
+        { "text": qsTr("1st lunar month"), "value": 1 },
+        { "text": qsTr("2nd lunar month"), "value": 2 },
+        { "text": qsTr("3rd lunar month"), "value": 3 },
+        { "text": qsTr("4th lunar month"), "value": 4 },
+        { "text": qsTr("5th lunar month"), "value": 5 },
+        { "text": qsTr("6th lunar month"), "value": 6 },
+        { "text": qsTr("7th lunar month"), "value": 7 },
+        { "text": qsTr("8th lunar month"), "value": 8 },
+        { "text": qsTr("9th lunar month"), "value": 9 },
+        { "text": qsTr("10th lunar month"), "value": 10 },
+        { "text": qsTr("11th lunar month"), "value": 11 },
+        { "text": qsTr("12th lunar month"), "value": 12 }
+    ]
+    readonly property var chineseLunarDayOptions: [
+        { "text": qsTr("Any lunar day"), "value": 0 },
+        { "text": qsTr("Lunar day 1"), "value": 1 },
+        { "text": qsTr("Lunar day 2"), "value": 2 },
+        { "text": qsTr("Lunar day 3"), "value": 3 },
+        { "text": qsTr("Lunar day 4"), "value": 4 },
+        { "text": qsTr("Lunar day 5"), "value": 5 },
+        { "text": qsTr("Lunar day 6"), "value": 6 },
+        { "text": qsTr("Lunar day 7"), "value": 7 },
+        { "text": qsTr("Lunar day 8"), "value": 8 },
+        { "text": qsTr("Lunar day 9"), "value": 9 },
+        { "text": qsTr("Lunar day 10"), "value": 10 },
+        { "text": qsTr("Lunar day 11"), "value": 11 },
+        { "text": qsTr("Lunar day 12"), "value": 12 },
+        { "text": qsTr("Lunar day 13"), "value": 13 },
+        { "text": qsTr("Lunar day 14"), "value": 14 },
+        { "text": qsTr("Lunar day 15"), "value": 15 },
+        { "text": qsTr("Lunar day 16"), "value": 16 },
+        { "text": qsTr("Lunar day 17"), "value": 17 },
+        { "text": qsTr("Lunar day 18"), "value": 18 },
+        { "text": qsTr("Lunar day 19"), "value": 19 },
+        { "text": qsTr("Lunar day 20"), "value": 20 },
+        { "text": qsTr("Lunar day 21"), "value": 21 },
+        { "text": qsTr("Lunar day 22"), "value": 22 },
+        { "text": qsTr("Lunar day 23"), "value": 23 },
+        { "text": qsTr("Lunar day 24"), "value": 24 },
+        { "text": qsTr("Lunar day 25"), "value": 25 },
+        { "text": qsTr("Lunar day 26"), "value": 26 },
+        { "text": qsTr("Lunar day 27"), "value": 27 },
+        { "text": qsTr("Lunar day 28"), "value": 28 },
+        { "text": qsTr("Lunar day 29"), "value": 29 },
+        { "text": qsTr("Lunar day 30"), "value": 30 }
+    ]
+    readonly property var chineseLunarMonthTypeOptions: [
+        { "text": qsTr("Any month type"), "value": "all" },
+        { "text": qsTr("Regular months"), "value": "regular" },
+        { "text": qsTr("Leap months"), "value": "leap" }
+    ]
 
     function syncControls() {
         includeFlag.currentIndex = optionIndex(
@@ -98,6 +151,13 @@ Popup {
         captureMonth.model = months
         captureMonth.currentIndex = optionIndex(
             months, controller.filterCaptureMonth)
+        chineseLunarMonth.currentIndex = optionIndex(
+            chineseLunarMonthOptions, controller.filterChineseLunarMonth)
+        chineseLunarDay.currentIndex = optionIndex(
+            chineseLunarDayOptions, controller.filterChineseLunarDay)
+        chineseLunarMonthType.currentIndex = optionIndex(
+            chineseLunarMonthTypeOptions,
+            controller.filterChineseLunarMonthType)
         const cameras = facetOptions(controller.libraryCameraFacets)
         camera.model = cameras
         camera.currentIndex = optionIndex(
@@ -424,7 +484,7 @@ Popup {
                     text: qsTr("METADATA")
                 }
 
-                SectionLabel { text: qsTr("DATE") }
+                SectionLabel { text: qsTr("GREGORIAN DATE") }
 
                 FilterCombo {
                     id: captureMonth
@@ -434,6 +494,48 @@ Popup {
                     Accessible.name: qsTr("Capture month")
                     onActivated:
                         root.controller.filterCaptureMonth = currentValue
+                }
+
+                SectionLabel { text: qsTr("CHINESE LUNAR DATE") }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    FilterCombo {
+                        id: chineseLunarMonth
+                        Layout.fillWidth: true
+                        model: root.chineseLunarMonthOptions
+                        textRole: "text"
+                        valueRole: "value"
+                        Accessible.name: qsTr("Chinese lunar month")
+                        onActivated:
+                            root.controller.filterChineseLunarMonth = currentValue
+                    }
+
+                    FilterCombo {
+                        id: chineseLunarDay
+                        Layout.fillWidth: true
+                        model: root.chineseLunarDayOptions
+                        textRole: "text"
+                        valueRole: "value"
+                        Accessible.name: qsTr("Chinese lunar day")
+                        onActivated:
+                            root.controller.filterChineseLunarDay = currentValue
+                    }
+                }
+
+                SectionLabel { text: qsTr("LUNAR MONTH TYPE") }
+
+                FilterCombo {
+                    id: chineseLunarMonthType
+                    Layout.fillWidth: true
+                    model: root.chineseLunarMonthTypeOptions
+                    textRole: "text"
+                    valueRole: "value"
+                    Accessible.name: qsTr("Chinese lunar month type")
+                    onActivated:
+                        root.controller.filterChineseLunarMonthType = currentValue
                 }
 
                 SectionLabel { text: qsTr("CAMERA") }

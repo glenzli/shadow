@@ -39,7 +39,11 @@ Application startup is split from environment-driven automation:
   the read-only Library commit/ref timeline.
 - [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) composes the responsive bottom status surface
   and workspace status projection. [`qml/MainLibraryFilterBar.qml`](qml/MainLibraryFilterBar.qml)
-  owns Library filter mutations and status-row alignment,
+  owns Library filter mutations and status-row alignment, while
+  [`qml/LibraryAdvancedFilterPopup.qml`](qml/LibraryAdvancedFilterPopup.qml) owns the complete
+  predicate editor. Gregorian capture-month and recurring Chinese lunar month/day/leap-month
+  conditions remain explicit, composable calendar contracts; the desktop does not expose a
+  generic regional-calendar abstraction.
   [`qml/MainLibrarySortMenu.qml`](qml/MainLibrarySortMenu.qml) owns the anchored Shadow-styled
   capture-date/file-name order menu,
   [`qml/MainPrecisionProxyStatus.qml`](qml/MainPrecisionProxyStatus.qml) owns read-only proxy
@@ -588,7 +592,10 @@ Review presentation keeps the workspace as the composition and compatibility sur
   keeps metadata reads, manual corrections, batch capture-time preview/apply, GPX parsing/preview,
   and confirmed batch application off the GUI thread. Decoder EXIF remains the immutable
   observation; the Catalog materializes an indexed effective projection, so rescans preserve user
-  corrections and Library sort/facets use the corrected time and location.
+  corrections and Library sort/facets use the corrected time and location. The Catalog also
+  derives the Chinese lunar month, day, and leap-month identity only when that effective capture
+  day changes; Library interaction compares those compact indexes instead of converting the photo
+  set on demand.
 - [`src/review_source_health_coordinator.cpp`](src/review_source_health_coordinator.cpp) owns the
   complete Library source-health review lifecycle: serialized health refreshes, scan-scoped
   missing-location paging, stale-page rejection, asynchronous source removal, exact user-selected

@@ -35,6 +35,12 @@ struct BackendLibraryPhotoFilter final {
     bool has_capture_end = false;
     std::int64_t capture_end_unix_seconds = 0;
     QString capture_month;
+    bool has_chinese_lunar_month = false;
+    std::uint8_t chinese_lunar_month = 0;
+    bool has_chinese_lunar_day = false;
+    std::uint8_t chinese_lunar_day = 0;
+    bool has_chinese_lunar_is_leap_month = false;
+    bool chinese_lunar_is_leap_month = false;
     QString camera_key;
     QString lens_key;
     QString country_key;

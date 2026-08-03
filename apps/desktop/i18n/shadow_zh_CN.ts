@@ -7505,10 +7505,218 @@ Technical detail: %1</source>
         <translation>未编辑</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="427"/>
-        <source>DATE</source>
-        <translation>日期</translation>
+        <source>GREGORIAN DATE</source>
+        <translation>公历日期</translation>
     </message>
+    <message>
+        <source>CHINESE LUNAR DATE</source>
+        <translation>中国农历</translation>
+    </message>
+    <message>
+        <source>LUNAR MONTH TYPE</source>
+        <translation>农历月份类型</translation>
+    </message>
+    <message>
+        <source>Any lunar month</source>
+        <translation>任意农历月份</translation>
+    </message>
+    <message>
+        <source>1st lunar month</source>
+        <translation>正月</translation>
+    </message>
+    <message>
+        <source>2nd lunar month</source>
+        <translation>二月</translation>
+    </message>
+    <message>
+        <source>3rd lunar month</source>
+        <translation>三月</translation>
+    </message>
+    <message>
+        <source>4th lunar month</source>
+        <translation>四月</translation>
+    </message>
+    <message>
+        <source>5th lunar month</source>
+        <translation>五月</translation>
+    </message>
+    <message>
+        <source>6th lunar month</source>
+        <translation>六月</translation>
+    </message>
+    <message>
+        <source>7th lunar month</source>
+        <translation>七月</translation>
+    </message>
+    <message>
+        <source>8th lunar month</source>
+        <translation>八月</translation>
+    </message>
+    <message>
+        <source>9th lunar month</source>
+        <translation>九月</translation>
+    </message>
+    <message>
+        <source>10th lunar month</source>
+        <translation>十月</translation>
+    </message>
+    <message>
+        <source>11th lunar month</source>
+        <translation>冬月</translation>
+    </message>
+    <message>
+        <source>12th lunar month</source>
+        <translation>腊月</translation>
+    </message>
+    <message>
+        <source>Any lunar day</source>
+        <translation>任意农历日期</translation>
+    </message>
+    <message>
+        <source>Lunar day 1</source>
+        <translation>初一</translation>
+    </message>
+    <message>
+        <source>Lunar day 2</source>
+        <translation>初二</translation>
+    </message>
+    <message>
+        <source>Lunar day 3</source>
+        <translation>初三</translation>
+    </message>
+    <message>
+        <source>Lunar day 4</source>
+        <translation>初四</translation>
+    </message>
+    <message>
+        <source>Lunar day 5</source>
+        <translation>初五</translation>
+    </message>
+    <message>
+        <source>Lunar day 6</source>
+        <translation>初六</translation>
+    </message>
+    <message>
+        <source>Lunar day 7</source>
+        <translation>初七</translation>
+    </message>
+    <message>
+        <source>Lunar day 8</source>
+        <translation>初八</translation>
+    </message>
+    <message>
+        <source>Lunar day 9</source>
+        <translation>初九</translation>
+    </message>
+    <message>
+        <source>Lunar day 10</source>
+        <translation>初十</translation>
+    </message>
+    <message>
+        <source>Lunar day 11</source>
+        <translation>十一</translation>
+    </message>
+    <message>
+        <source>Lunar day 12</source>
+        <translation>十二</translation>
+    </message>
+    <message>
+        <source>Lunar day 13</source>
+        <translation>十三</translation>
+    </message>
+    <message>
+        <source>Lunar day 14</source>
+        <translation>十四</translation>
+    </message>
+    <message>
+        <source>Lunar day 15</source>
+        <translation>十五</translation>
+    </message>
+    <message>
+        <source>Lunar day 16</source>
+        <translation>十六</translation>
+    </message>
+    <message>
+        <source>Lunar day 17</source>
+        <translation>十七</translation>
+    </message>
+    <message>
+        <source>Lunar day 18</source>
+        <translation>十八</translation>
+    </message>
+    <message>
+        <source>Lunar day 19</source>
+        <translation>十九</translation>
+    </message>
+    <message>
+        <source>Lunar day 20</source>
+        <translation>二十</translation>
+    </message>
+    <message>
+        <source>Lunar day 21</source>
+        <translation>廿一</translation>
+    </message>
+    <message>
+        <source>Lunar day 22</source>
+        <translation>廿二</translation>
+    </message>
+    <message>
+        <source>Lunar day 23</source>
+        <translation>廿三</translation>
+    </message>
+    <message>
+        <source>Lunar day 24</source>
+        <translation>廿四</translation>
+    </message>
+    <message>
+        <source>Lunar day 25</source>
+        <translation>廿五</translation>
+    </message>
+    <message>
+        <source>Lunar day 26</source>
+        <translation>廿六</translation>
+    </message>
+    <message>
+        <source>Lunar day 27</source>
+        <translation>廿七</translation>
+    </message>
+    <message>
+        <source>Lunar day 28</source>
+        <translation>廿八</translation>
+    </message>
+    <message>
+        <source>Lunar day 29</source>
+        <translation>廿九</translation>
+    </message>
+    <message>
+        <source>Lunar day 30</source>
+        <translation>三十</translation>
+    </message>
+    <message>
+        <source>Any month type</source>
+        <translation>任意月份类型</translation>
+    </message>
+    <message>
+        <source>Regular months</source>
+        <translation>平月</translation>
+    </message>
+    <message>
+        <source>Leap months</source>
+        <translation>闰月</translation>
+    </message>
+    <message>
+        <source>Chinese lunar month</source>
+        <translation>农历月份</translation>
+    </message>
+    <message>
+        <source>Chinese lunar day</source>
+        <translation>农历日期</translation>
+    </message>
+    <message>
+        <source>Chinese lunar month type</source>
+        <translation>农历月份类型</translation>
+    </message>
+
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="259"/>
         <source>Close advanced filters</source>

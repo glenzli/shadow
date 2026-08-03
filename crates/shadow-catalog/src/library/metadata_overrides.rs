@@ -10,7 +10,10 @@ use std::collections::HashSet;
 use rusqlite::{OptionalExtension, Row, Transaction, params};
 use shadow_domain::{EntityId, PhotoId};
 
-use crate::{Catalog, CatalogError, library_metadata::capture_day};
+use crate::{
+    Catalog, CatalogError,
+    library_metadata::{capture_day, chinese_lunar_date},
+};
 
 use super::{
     LibraryCoordinates, LibraryMetadataOverride, LibraryMetadataOverrideAction,
@@ -184,6 +187,9 @@ fn update_capture_time(
                  SET capture_time_mode = NULL,
                      captured_at_unix_seconds = NULL,
                      capture_day = '',
+                     chinese_lunar_month = NULL,
+                     chinese_lunar_day = NULL,
+                     chinese_lunar_is_leap_month = NULL,
                      capture_time_origin = '',
                      capture_time_source_label = '',
                      capture_time_updated_at_ms = NULL
@@ -197,6 +203,9 @@ fn update_capture_time(
                  SET capture_time_mode = 'clear',
                      captured_at_unix_seconds = NULL,
                      capture_day = '',
+                     chinese_lunar_month = NULL,
+                     chinese_lunar_day = NULL,
+                     chinese_lunar_is_leap_month = NULL,
                      capture_time_origin = ?2,
                      capture_time_source_label = ?3,
                      capture_time_updated_at_ms = ?4
@@ -210,19 +219,27 @@ fn update_capture_time(
             )?;
         }
         LibraryMetadataOverrideAction::Set(captured_at) => {
+            let day = capture_day(captured_at);
+            let lunar = chinese_lunar_date(&day);
             transaction.execute(
                 "UPDATE photo_library_metadata_overrides
                  SET capture_time_mode = 'set',
                      captured_at_unix_seconds = ?2,
                      capture_day = ?3,
-                     capture_time_origin = ?4,
-                     capture_time_source_label = ?5,
-                     capture_time_updated_at_ms = ?6
+                     chinese_lunar_month = ?4,
+                     chinese_lunar_day = ?5,
+                     chinese_lunar_is_leap_month = ?6,
+                     capture_time_origin = ?7,
+                     capture_time_source_label = ?8,
+                     capture_time_updated_at_ms = ?9
                  WHERE photo_id = ?1",
                 params![
                     command.photo_id.as_bytes().as_slice(),
                     captured_at,
-                    capture_day(captured_at),
+                    day,
+                    lunar.map(|date| i64::from(date.month)),
+                    lunar.map(|date| i64::from(date.day)),
+                    lunar.map(|date| i64::from(date.is_leap_month)),
                     origin,
                     command.source_label.trim(),
                     command.updated_at_ms,
@@ -315,8 +332,15 @@ pub(crate) fn refresh_effective_photo_library_facts(
         [photo_id.as_bytes().as_slice()],
     )?;
     transaction.execute(
-        "INSERT INTO photo_library_effective_facts(
+        REFRESH_EFFECTIVE_PHOTO_LIBRARY_FACTS_SQL,
+        [photo_id.as_bytes().as_slice()],
+    )?;
+    Ok(())
+}
+
+const REFRESH_EFFECTIVE_PHOTO_LIBRARY_FACTS_SQL: &str = "INSERT INTO photo_library_effective_facts(
              photo_id, captured_at_unix_seconds, capture_day,
+             chinese_lunar_month, chinese_lunar_day, chinese_lunar_is_leap_month,
              camera_make, camera_model, camera_key,
              lens_make, lens_model, lens_key,
              aperture_milli, focal_length_tenth_mm, iso_speed,
@@ -334,6 +358,21 @@ pub(crate) fn refresh_effective_photo_library_facts(
                     WHEN 'set' THEN o.capture_day
                     WHEN 'clear' THEN ''
                     ELSE COALESCE(f.capture_day, '')
+                END,
+                CASE o.capture_time_mode
+                    WHEN 'set' THEN o.chinese_lunar_month
+                    WHEN 'clear' THEN NULL
+                    ELSE f.chinese_lunar_month
+                END,
+                CASE o.capture_time_mode
+                    WHEN 'set' THEN o.chinese_lunar_day
+                    WHEN 'clear' THEN NULL
+                    ELSE f.chinese_lunar_day
+                END,
+                CASE o.capture_time_mode
+                    WHEN 'set' THEN o.chinese_lunar_is_leap_month
+                    WHEN 'clear' THEN NULL
+                    ELSE f.chinese_lunar_is_leap_month
                 END,
                 COALESCE(f.camera_make, ''),
                 COALESCE(f.camera_model, ''),
@@ -374,6 +413,9 @@ pub(crate) fn refresh_effective_photo_library_facts(
          ON CONFLICT(photo_id) DO UPDATE SET
              captured_at_unix_seconds = excluded.captured_at_unix_seconds,
              capture_day = excluded.capture_day,
+             chinese_lunar_month = excluded.chinese_lunar_month,
+             chinese_lunar_day = excluded.chinese_lunar_day,
+             chinese_lunar_is_leap_month = excluded.chinese_lunar_is_leap_month,
              camera_make = excluded.camera_make,
              camera_model = excluded.camera_model,
              camera_key = excluded.camera_key,
@@ -389,11 +431,7 @@ pub(crate) fn refresh_effective_photo_library_facts(
              indexed_representation_id = excluded.indexed_representation_id,
              indexed_source_byte_len = excluded.indexed_source_byte_len,
              indexed_source_modified_at_ms = excluded.indexed_source_modified_at_ms,
-             indexed_at_ms = excluded.indexed_at_ms",
-        [photo_id.as_bytes().as_slice()],
-    )?;
-    Ok(())
-}
+             indexed_at_ms = excluded.indexed_at_ms";
 
 fn read_metadata_overrides(row: &Row<'_>) -> rusqlite::Result<PhotoLibraryMetadataOverrides> {
     Ok(PhotoLibraryMetadataOverrides {

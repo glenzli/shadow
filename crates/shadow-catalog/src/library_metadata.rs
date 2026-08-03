@@ -4,11 +4,15 @@
 //! deliberately copies only the small set of fields that are useful for
 //! high-cardinality Library filtering, grouping, and keyset pagination.
 
+mod chinese_lunisolar;
+
 use rusqlite::{OptionalExtension, Transaction};
 use shadow_domain::{EntityId, PhotoId, RawMetadataSnapshot, RepresentationId};
 
 use crate::library::upsert_photo_library_facts_in_transaction;
 use crate::{CatalogError, LibraryPhotoFacts, RepresentationFingerprint, row_codec::read_id};
+
+pub(crate) use chinese_lunisolar::chinese_lunar_date;
 
 pub(crate) fn project_decoder_metadata_into_library_facts(
     transaction: &Transaction<'_>,

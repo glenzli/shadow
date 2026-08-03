@@ -50,6 +50,15 @@ pub(super) fn library_filter_from_ffi(
     Ok(LibraryPhotoFilter {
         capture_time,
         capture_month: optional_filter_text(&filter.capture_month),
+        chinese_lunar_month: filter
+            .has_chinese_lunar_month
+            .then_some(filter.chinese_lunar_month),
+        chinese_lunar_day: filter
+            .has_chinese_lunar_day
+            .then_some(filter.chinese_lunar_day),
+        chinese_lunar_is_leap_month: filter
+            .has_chinese_lunar_is_leap_month
+            .then_some(filter.chinese_lunar_is_leap_month),
         camera_key: optional_filter_text(&filter.camera_key),
         lens_key: optional_filter_text(&filter.lens_key),
         country_key: optional_filter_text(&filter.country_key),
@@ -152,6 +161,12 @@ pub(super) fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryP
         has_capture_end,
         capture_end_unix_seconds,
         capture_month: filter.capture_month.unwrap_or_default(),
+        has_chinese_lunar_month: filter.chinese_lunar_month.is_some(),
+        chinese_lunar_month: filter.chinese_lunar_month.unwrap_or_default(),
+        has_chinese_lunar_day: filter.chinese_lunar_day.is_some(),
+        chinese_lunar_day: filter.chinese_lunar_day.unwrap_or_default(),
+        has_chinese_lunar_is_leap_month: filter.chinese_lunar_is_leap_month.is_some(),
+        chinese_lunar_is_leap_month: filter.chinese_lunar_is_leap_month.unwrap_or_default(),
         camera_key: filter.camera_key.unwrap_or_default(),
         lens_key: filter.lens_key.unwrap_or_default(),
         country_key: filter.country_key.unwrap_or_default(),

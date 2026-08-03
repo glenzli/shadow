@@ -79,6 +79,12 @@ ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     filter.has_capture_end = source.has_capture_end;
     filter.capture_end_unix_seconds = source.capture_end_unix_seconds;
     filter.capture_month = source.capture_month.toStdString();
+    filter.has_chinese_lunar_month = source.has_chinese_lunar_month;
+    filter.chinese_lunar_month = source.chinese_lunar_month;
+    filter.has_chinese_lunar_day = source.has_chinese_lunar_day;
+    filter.chinese_lunar_day = source.chinese_lunar_day;
+    filter.has_chinese_lunar_is_leap_month = source.has_chinese_lunar_is_leap_month;
+    filter.chinese_lunar_is_leap_month = source.chinese_lunar_is_leap_month;
     filter.camera_key = source.camera_key.toStdString();
     filter.lens_key = source.lens_key.toStdString();
     filter.country_key = source.country_key.toStdString();
@@ -125,6 +131,12 @@ library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
         .has_capture_end = source.has_capture_end,
         .capture_end_unix_seconds = source.capture_end_unix_seconds,
         .capture_month = qstring(source.capture_month),
+        .has_chinese_lunar_month = source.has_chinese_lunar_month,
+        .chinese_lunar_month = source.chinese_lunar_month,
+        .has_chinese_lunar_day = source.has_chinese_lunar_day,
+        .chinese_lunar_day = source.chinese_lunar_day,
+        .has_chinese_lunar_is_leap_month = source.has_chinese_lunar_is_leap_month,
+        .chinese_lunar_is_leap_month = source.chinese_lunar_is_leap_month,
         .camera_key = qstring(source.camera_key),
         .lens_key = qstring(source.lens_key),
         .country_key = qstring(source.country_key),

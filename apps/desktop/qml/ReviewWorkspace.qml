@@ -155,6 +155,9 @@ Item {
             && String(currentLibraryAlbum.kind) === "manual"
     readonly property bool hasLibraryFacetFilter:
         controller.filterCaptureMonth.length > 0
+        || controller.filterChineseLunarMonth > 0
+        || controller.filterChineseLunarDay > 0
+        || controller.filterChineseLunarMonthType !== "all"
         || controller.filterCameraKey.length > 0
         || controller.filterLensKey.length > 0
         || controller.filterCountryKey.length > 0
@@ -378,6 +381,9 @@ Item {
             && controller.filterCountryKey === String(countryKey)
             && controller.filterLocalityKey === String(localityKey)
             && controller.filterCaptureMonth.length === 0
+            && controller.filterChineseLunarMonth === 0
+            && controller.filterChineseLunarDay === 0
+            && controller.filterChineseLunarMonthType === "all"
             && controller.filterCameraKey.length === 0
             && controller.filterLensKey.length === 0
             && controller.filterFlag === "all"

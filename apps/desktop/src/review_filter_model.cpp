@@ -31,6 +31,11 @@ namespace {
            || filter == QStringLiteral("unliked");
 }
 
+[[nodiscard]] bool is_chinese_lunar_month_type(const QString& value) {
+    return value == QStringLiteral("all") || value == QStringLiteral("regular")
+           || value == QStringLiteral("leap");
+}
+
 } // namespace
 
 ReviewFilterModel::ReviewFilterModel(QObject* const parent) : QSortFilterProxyModel(parent) {
@@ -69,6 +74,18 @@ QString ReviewFilterModel::captureMonth() const {
     return capture_month_;
 }
 
+int ReviewFilterModel::chineseLunarMonth() const noexcept {
+    return chinese_lunar_month_;
+}
+
+int ReviewFilterModel::chineseLunarDay() const noexcept {
+    return chinese_lunar_day_;
+}
+
+QString ReviewFilterModel::chineseLunarMonthType() const {
+    return chinese_lunar_month_type_;
+}
+
 QString ReviewFilterModel::cameraKey() const {
     return camera_key_;
 }
@@ -101,6 +118,8 @@ bool ReviewFilterModel::hasActiveServerFilter() const {
     return flag_filter_ != QStringLiteral("all") || minimum_rating_ > 0
            || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
            || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+           || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
+           || chinese_lunar_month_type_ != QStringLiteral("all")
            || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
            || !locality_key_.isEmpty() || travel_filter_enabled_ || !keyword_ids_all_.isEmpty()
            || !excluded_keyword_ids_any_.isEmpty();
@@ -185,6 +204,33 @@ void ReviewFilterModel::setCaptureMonth(const QString& capture_month) {
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setChineseLunarMonth(const int month) {
+    const int normalized = (month >= 1 && month <= 12) ? month : 0;
+    if (chinese_lunar_month_ == normalized) {
+        return;
+    }
+    chinese_lunar_month_ = normalized;
+    emit filtersChanged();
+}
+
+void ReviewFilterModel::setChineseLunarDay(const int day) {
+    const int normalized = (day >= 1 && day <= 30) ? day : 0;
+    if (chinese_lunar_day_ == normalized) {
+        return;
+    }
+    chinese_lunar_day_ = normalized;
+    emit filtersChanged();
+}
+
+void ReviewFilterModel::setChineseLunarMonthType(const QString& month_type) {
+    const QString normalized = normalizeChineseLunarMonthType(month_type);
+    if (chinese_lunar_month_type_ == normalized) {
+        return;
+    }
+    chinese_lunar_month_type_ = normalized;
+    emit filtersChanged();
+}
+
 void ReviewFilterModel::setCameraKey(const QString& camera_key) {
     const QString normalized = normalizeFacetKey(camera_key);
     if (camera_key_ == normalized) {
@@ -253,6 +299,8 @@ void ReviewFilterModel::clearFilters() {
         || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
         || liked_filter_ != QStringLiteral("all") || excluded_flag_filter_ != QStringLiteral("all")
         || excluded_color_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
+        || chinese_lunar_month_type_ != QStringLiteral("all")
         || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
         || !locality_key_.isEmpty() || travel_filter_enabled_ || !keyword_ids_all_.isEmpty()
         || !excluded_keyword_ids_any_.isEmpty();
@@ -264,6 +312,9 @@ void ReviewFilterModel::clearFilters() {
     excluded_flag_filter_ = QStringLiteral("all");
     excluded_color_filter_ = QStringLiteral("all");
     capture_month_.clear();
+    chinese_lunar_month_ = 0;
+    chinese_lunar_day_ = 0;
+    chinese_lunar_month_type_ = QStringLiteral("all");
     camera_key_.clear();
     lens_key_.clear();
     country_key_.clear();
@@ -347,6 +398,11 @@ QString ReviewFilterModel::normalizeCaptureMonth(const QString& value) {
         && normalized.left(4).contains(QRegularExpression(QStringLiteral("^[0-9]{4}$")))
         && normalized.mid(5, 2).contains(QRegularExpression(QStringLiteral("^[0-9]{2}$")));
     return valid ? normalized : QString{};
+}
+
+QString ReviewFilterModel::normalizeChineseLunarMonthType(const QString& value) {
+    const QString normalized = value.trimmed().toLower();
+    return is_chinese_lunar_month_type(normalized) ? normalized : QStringLiteral("all");
 }
 
 QString ReviewFilterModel::normalizeFacetKey(const QString& value) {

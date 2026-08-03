@@ -11,7 +11,7 @@ use crate::{CatalogError, export_queue};
 /// The only on-disk Catalog shape supported by this development build.
 pub(crate) const SCHEMA_VERSION: i64 = 1;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r30-library-place-resolution";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r31-chinese-lunar-filter";
 
 const SCHEMA_V1_CORE: &str = r"
 CREATE TABLE photos (
@@ -535,6 +535,9 @@ CREATE TABLE photo_library_facts (
     photo_id                    BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
     captured_at_unix_seconds    INTEGER,
     capture_day                 TEXT NOT NULL DEFAULT '',
+    chinese_lunar_month         INTEGER CHECK (chinese_lunar_month BETWEEN 1 AND 12),
+    chinese_lunar_day           INTEGER CHECK (chinese_lunar_day BETWEEN 1 AND 30),
+    chinese_lunar_is_leap_month INTEGER CHECK (chinese_lunar_is_leap_month IN (0, 1)),
     camera_make                 TEXT NOT NULL DEFAULT '',
     camera_model                TEXT NOT NULL DEFAULT '',
     camera_key                  TEXT NOT NULL DEFAULT '',
@@ -552,13 +555,30 @@ CREATE TABLE photo_library_facts (
     indexed_source_modified_at_ms INTEGER,
     indexed_at_ms               INTEGER NOT NULL,
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
-    FOREIGN KEY (indexed_representation_id) REFERENCES representations(id) ON DELETE SET NULL
+    FOREIGN KEY (indexed_representation_id) REFERENCES representations(id) ON DELETE SET NULL,
+    CHECK (
+        (chinese_lunar_month IS NULL
+         AND chinese_lunar_day IS NULL
+         AND chinese_lunar_is_leap_month IS NULL)
+        OR
+        (chinese_lunar_month IS NOT NULL
+         AND chinese_lunar_day IS NOT NULL
+         AND chinese_lunar_is_leap_month IS NOT NULL)
+    )
 ) STRICT;
 
 CREATE INDEX photo_library_facts_capture_idx
     ON photo_library_facts(captured_at_unix_seconds DESC, photo_id);
 CREATE INDEX photo_library_facts_day_idx
     ON photo_library_facts(capture_day, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_facts_chinese_lunar_idx
+    ON photo_library_facts(
+        chinese_lunar_month,
+        chinese_lunar_day,
+        chinese_lunar_is_leap_month,
+        captured_at_unix_seconds DESC,
+        photo_id
+    );
 CREATE INDEX photo_library_facts_camera_idx
     ON photo_library_facts(camera_key, captured_at_unix_seconds DESC, photo_id);
 CREATE INDEX photo_library_facts_lens_idx
@@ -571,6 +591,9 @@ CREATE TABLE photo_library_metadata_overrides (
     capture_time_mode           TEXT CHECK (capture_time_mode IN ('set', 'clear')),
     captured_at_unix_seconds    INTEGER,
     capture_day                 TEXT NOT NULL DEFAULT '',
+    chinese_lunar_month         INTEGER CHECK (chinese_lunar_month BETWEEN 1 AND 12),
+    chinese_lunar_day           INTEGER CHECK (chinese_lunar_day BETWEEN 1 AND 30),
+    chinese_lunar_is_leap_month INTEGER CHECK (chinese_lunar_is_leap_month IN (0, 1)),
     capture_time_origin         TEXT NOT NULL DEFAULT '',
     capture_time_source_label   TEXT NOT NULL DEFAULT '',
     capture_time_updated_at_ms  INTEGER,
@@ -586,6 +609,9 @@ CREATE TABLE photo_library_metadata_overrides (
         (capture_time_mode IS NULL
          AND captured_at_unix_seconds IS NULL
          AND capture_day = ''
+         AND chinese_lunar_month IS NULL
+         AND chinese_lunar_day IS NULL
+         AND chinese_lunar_is_leap_month IS NULL
          AND capture_time_origin = ''
          AND capture_time_source_label = ''
          AND capture_time_updated_at_ms IS NULL)
@@ -593,6 +619,9 @@ CREATE TABLE photo_library_metadata_overrides (
         (capture_time_mode = 'clear'
          AND captured_at_unix_seconds IS NULL
          AND capture_day = ''
+         AND chinese_lunar_month IS NULL
+         AND chinese_lunar_day IS NULL
+         AND chinese_lunar_is_leap_month IS NULL
          AND capture_time_origin IN ('manual', 'gpx')
          AND capture_time_updated_at_ms >= 0)
         OR
@@ -626,13 +655,25 @@ CREATE TABLE photo_library_metadata_overrides (
     ),
     CHECK (length(capture_time_source_label) <= 1024),
     CHECK (length(coordinates_source_label) <= 1024),
-    CHECK (length(place_name) <= 1024)
+    CHECK (length(place_name) <= 1024),
+    CHECK (
+        (chinese_lunar_month IS NULL
+         AND chinese_lunar_day IS NULL
+         AND chinese_lunar_is_leap_month IS NULL)
+        OR
+        (chinese_lunar_month IS NOT NULL
+         AND chinese_lunar_day IS NOT NULL
+         AND chinese_lunar_is_leap_month IS NOT NULL)
+    )
 ) STRICT;
 
 CREATE TABLE photo_library_effective_facts (
     photo_id                    BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
     captured_at_unix_seconds    INTEGER,
     capture_day                 TEXT NOT NULL DEFAULT '',
+    chinese_lunar_month         INTEGER CHECK (chinese_lunar_month BETWEEN 1 AND 12),
+    chinese_lunar_day           INTEGER CHECK (chinese_lunar_day BETWEEN 1 AND 30),
+    chinese_lunar_is_leap_month INTEGER CHECK (chinese_lunar_is_leap_month IN (0, 1)),
     camera_make                 TEXT NOT NULL DEFAULT '',
     camera_model                TEXT NOT NULL DEFAULT '',
     camera_key                  TEXT NOT NULL DEFAULT '',
@@ -650,13 +691,30 @@ CREATE TABLE photo_library_effective_facts (
     indexed_source_modified_at_ms INTEGER,
     indexed_at_ms               INTEGER NOT NULL,
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
-    FOREIGN KEY (indexed_representation_id) REFERENCES representations(id) ON DELETE SET NULL
+    FOREIGN KEY (indexed_representation_id) REFERENCES representations(id) ON DELETE SET NULL,
+    CHECK (
+        (chinese_lunar_month IS NULL
+         AND chinese_lunar_day IS NULL
+         AND chinese_lunar_is_leap_month IS NULL)
+        OR
+        (chinese_lunar_month IS NOT NULL
+         AND chinese_lunar_day IS NOT NULL
+         AND chinese_lunar_is_leap_month IS NOT NULL)
+    )
 ) STRICT;
 
 CREATE INDEX photo_library_effective_capture_idx
     ON photo_library_effective_facts(captured_at_unix_seconds DESC, photo_id);
 CREATE INDEX photo_library_effective_day_idx
     ON photo_library_effective_facts(capture_day, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_effective_chinese_lunar_idx
+    ON photo_library_effective_facts(
+        chinese_lunar_month,
+        chinese_lunar_day,
+        chinese_lunar_is_leap_month,
+        captured_at_unix_seconds DESC,
+        photo_id
+    );
 CREATE INDEX photo_library_effective_camera_idx
     ON photo_library_effective_facts(camera_key, captured_at_unix_seconds DESC, photo_id);
 CREATE INDEX photo_library_effective_lens_idx
@@ -789,7 +847,7 @@ CREATE INDEX locations_representation_status_current_idx
 const SCHEMA_V1_STATE: &str = r"
 CREATE TABLE catalog_schema (
     version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r30-library-place-resolution'),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r31-chinese-lunar-filter'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";

@@ -179,6 +179,18 @@ QString ReviewController::filterCaptureMonth() const {
     return filtered_model_.captureMonth();
 }
 
+int ReviewController::filterChineseLunarMonth() const noexcept {
+    return filtered_model_.chineseLunarMonth();
+}
+
+int ReviewController::filterChineseLunarDay() const noexcept {
+    return filtered_model_.chineseLunarDay();
+}
+
+QString ReviewController::filterChineseLunarMonthType() const {
+    return filtered_model_.chineseLunarMonthType();
+}
+
 QString ReviewController::filterCameraKey() const {
     return filtered_model_.cameraKey();
 }

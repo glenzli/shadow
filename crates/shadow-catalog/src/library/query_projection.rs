@@ -111,6 +111,18 @@ pub(super) fn library_photo_query_parts(
         values.push(Value::Text(first_day));
         values.push(Value::Text(next_first_day));
     }
+    if let Some(month) = filter.chinese_lunar_month {
+        clauses.push("f.chinese_lunar_month = ?".to_owned());
+        values.push(Value::Integer(i64::from(month)));
+    }
+    if let Some(day) = filter.chinese_lunar_day {
+        clauses.push("f.chinese_lunar_day = ?".to_owned());
+        values.push(Value::Integer(i64::from(day)));
+    }
+    if let Some(is_leap_month) = filter.chinese_lunar_is_leap_month {
+        clauses.push("f.chinese_lunar_is_leap_month = ?".to_owned());
+        values.push(Value::Integer(i64::from(is_leap_month)));
+    }
     if let Some(camera_key) = filter.camera_key.as_deref() {
         clauses.push("f.camera_key = ?".to_owned());
         values.push(Value::Text(normalize_query_key(camera_key)));

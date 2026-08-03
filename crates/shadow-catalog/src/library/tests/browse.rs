@@ -457,6 +457,91 @@ fn bounded_library_facets_compose_without_directory_ownership() {
     );
 }
 
+#[test]
+fn chinese_lunar_filter_is_recurring_indexed_and_composes_with_gregorian_month() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let dates = [
+        ("/lunar/new-year-2023.nef", "2023-01-22"),
+        ("/lunar/regular-second-month.nef", "2023-02-20"),
+        ("/lunar/leap-second-month.nef", "2023-03-22"),
+        ("/lunar/new-year-2024.nef", "2024-02-10"),
+    ];
+    for (index, (path, day)) in dates.into_iter().enumerate() {
+        let registered = register(&mut catalog, path);
+        let mut facts = facts_for(
+            registered,
+            Some(1_700_000_000 + i64::try_from(index).expect("fixture index")),
+            "Nikon",
+            "Z 9",
+        );
+        facts.capture_day = day.into();
+        catalog
+            .upsert_photo_library_facts(&facts)
+            .expect("persist lunar fixture");
+    }
+
+    let lunar_new_year = LibraryPhotoFilter {
+        chinese_lunar_month: Some(1),
+        chinese_lunar_day: Some(1),
+        chinese_lunar_is_leap_month: Some(false),
+        ..LibraryPhotoFilter::default()
+    };
+    assert_eq!(
+        catalog
+            .library_photo_count(&lunar_new_year)
+            .expect("count recurring lunar new year"),
+        2
+    );
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                capture_month: Some("2024-02".into()),
+                ..lunar_new_year.clone()
+            })
+            .expect("compose lunar date with Gregorian month"),
+        1
+    );
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                chinese_lunar_month: Some(2),
+                chinese_lunar_day: Some(1),
+                chinese_lunar_is_leap_month: Some(true),
+                ..LibraryPhotoFilter::default()
+            })
+            .expect("count leap second-month day"),
+        1
+    );
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                chinese_lunar_month: Some(2),
+                chinese_lunar_day: Some(1),
+                chinese_lunar_is_leap_month: Some(false),
+                ..LibraryPhotoFilter::default()
+            })
+            .expect("count regular second-month day"),
+        1
+    );
+}
+
+#[test]
+fn chinese_lunar_filter_rejects_out_of_range_months_and_days() {
+    let catalog = Catalog::open_in_memory().expect("open catalog");
+    for filter in [
+        LibraryPhotoFilter {
+            chinese_lunar_month: Some(13),
+            ..LibraryPhotoFilter::default()
+        },
+        LibraryPhotoFilter {
+            chinese_lunar_day: Some(31),
+            ..LibraryPhotoFilter::default()
+        },
+    ] {
+        assert!(catalog.library_photo_count(&filter).is_err());
+    }
+}
+
 fn resolved_place_catalog() -> Catalog {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let shanghai_one = register(&mut catalog, "/places/shanghai-one.nef");

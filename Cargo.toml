@@ -32,6 +32,7 @@ authors = ["Shadow contributors"]
 [workspace.dependencies]
 anyhow = "1.0.102"
 blake3 = "1.8.5"
+chinese-lunisolar-calendar = { version = "0.2.5", default-features = false }
 cxx = "=1.0.198"
 quick-xml = "0.39.4"
 rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }

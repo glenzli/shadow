@@ -104,6 +104,9 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     require(!filtered.hasActiveServerFilter(), "empty metadata facets must be absent");
 
     filtered.setCaptureMonth(QStringLiteral("2026-07"));
+    filtered.setChineseLunarMonth(8);
+    filtered.setChineseLunarDay(15);
+    filtered.setChineseLunarMonthType(QStringLiteral("leap"));
     filtered.setCameraKey(QStringLiteral("Canon EOS R"));
     filtered.setLensKey(QStringLiteral("RF24-105MM F4 L IS USM"));
     filtered.setCountryKey(QStringLiteral(" CN "));
@@ -112,6 +115,14 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     require(
         filtered.captureMonth() == QStringLiteral("2026-07"),
         "capture months must retain the canonical YYYY-MM key"
+    );
+    require(
+        filtered.chineseLunarMonth() == 8 && filtered.chineseLunarDay() == 15,
+        "Chinese lunar month and day must remain typed recurring predicates"
+    );
+    require(
+        filtered.chineseLunarMonthType() == QStringLiteral("leap"),
+        "Chinese lunar leap-month identity must remain explicit"
     );
     require(
         filtered.cameraKey() == QStringLiteral("canon eos r"),
@@ -133,13 +144,23 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     require(filtered.hasActiveServerFilter(), "metadata facets must request a fresh page");
 
     filtered.setCaptureMonth(QStringLiteral("2026-13"));
+    filtered.setChineseLunarMonth(99);
+    filtered.setChineseLunarDay(-1);
+    filtered.setChineseLunarMonthType(QStringLiteral("regional-calendar"));
     require(
         filtered.captureMonth().isEmpty(),
         "invalid capture months must fail closed instead of widening a query"
     );
+    require(
+        filtered.chineseLunarMonth() == 0 && filtered.chineseLunarDay() == 0
+            && filtered.chineseLunarMonthType() == QStringLiteral("all"),
+        "lunar predicates must reject numeric bounds and unknown month types"
+    );
     filtered.clearFilters();
     require(
-        !filtered.hasActiveServerFilter() && !filtered.travelFilterEnabled(),
+        !filtered.hasActiveServerFilter() && !filtered.travelFilterEnabled()
+            && filtered.chineseLunarMonth() == 0 && filtered.chineseLunarDay() == 0
+            && filtered.chineseLunarMonthType() == QStringLiteral("all"),
         "clearing must include metadata and Travel facets"
     );
 }

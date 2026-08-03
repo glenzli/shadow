@@ -3,7 +3,7 @@
 use rusqlite::{OptionalExtension, Transaction, params};
 use shadow_domain::{EntityId, PhotoId};
 
-use crate::{Catalog, CatalogError};
+use crate::{Catalog, CatalogError, library_metadata::chinese_lunar_date};
 
 use super::{
     LibraryPhotoFacts,
@@ -64,9 +64,11 @@ pub(crate) fn upsert_photo_library_facts_in_transaction(
     let indexed_representation_bytes = facts
         .indexed_representation_id
         .map(|value| value.as_bytes().to_vec());
+    let lunar = chinese_lunar_date(facts.capture_day.trim());
     transaction.execute(
         "INSERT INTO photo_library_facts(
              photo_id, captured_at_unix_seconds, capture_day,
+             chinese_lunar_month, chinese_lunar_day, chinese_lunar_is_leap_month,
              camera_make, camera_model, camera_key,
              lens_make, lens_model, lens_key,
              aperture_milli, focal_length_tenth_mm, iso_speed,
@@ -74,11 +76,14 @@ pub(crate) fn upsert_photo_library_facts_in_transaction(
              indexed_representation_id, indexed_source_byte_len,
              indexed_source_modified_at_ms, indexed_at_ms
          ) VALUES (
-             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-             ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+             ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22
          ) ON CONFLICT(photo_id) DO UPDATE SET
              captured_at_unix_seconds = excluded.captured_at_unix_seconds,
              capture_day = excluded.capture_day,
+             chinese_lunar_month = excluded.chinese_lunar_month,
+             chinese_lunar_day = excluded.chinese_lunar_day,
+             chinese_lunar_is_leap_month = excluded.chinese_lunar_is_leap_month,
              camera_make = excluded.camera_make,
              camera_model = excluded.camera_model,
              camera_key = excluded.camera_key,
@@ -99,6 +104,9 @@ pub(crate) fn upsert_photo_library_facts_in_transaction(
             facts.photo_id.as_bytes().as_slice(),
             facts.captured_at_unix_seconds,
             facts.capture_day.trim(),
+            lunar.map(|date| i64::from(date.month)),
+            lunar.map(|date| i64::from(date.day)),
+            lunar.map(|date| i64::from(date.is_leap_month)),
             facts.camera_make.trim(),
             facts.camera_model.trim(),
             normalized_equipment_key(&facts.camera_make, &facts.camera_model),

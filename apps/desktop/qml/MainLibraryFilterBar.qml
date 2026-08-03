@@ -19,6 +19,9 @@ Rectangle {
         || filterBar.controller.filterExcludedFlag !== "all"
         || filterBar.controller.filterExcludedColorLabel !== "all"
         || filterBar.controller.filterCaptureMonth.length > 0
+        || filterBar.controller.filterChineseLunarMonth > 0
+        || filterBar.controller.filterChineseLunarDay > 0
+        || filterBar.controller.filterChineseLunarMonthType !== "all"
         || filterBar.controller.filterCameraKey.length > 0
         || filterBar.controller.filterLensKey.length > 0
         || filterBar.controller.filterKeywordIdsAll.length > 0
@@ -102,6 +105,9 @@ Rectangle {
             variant: ShadowIconButton.Ghost
             selected: filterBar.controller.filterExcludedFlag !== "all"
                 || filterBar.controller.filterExcludedColorLabel !== "all"
+                || filterBar.controller.filterChineseLunarMonth > 0
+                || filterBar.controller.filterChineseLunarDay > 0
+                || filterBar.controller.filterChineseLunarMonthType !== "all"
                 || filterBar.controller.filterKeywordIdsAll.length > 0
                 || filterBar.controller.filterExcludedKeywordIdsAny.length > 0
             toolTipText: qsTranslate("Main", "Open advanced Library filters")
