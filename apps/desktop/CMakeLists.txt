@@ -299,6 +299,69 @@ else()
     )
 endif()
 
+add_library(
+    shadow-library-server-control
+    STATIC
+    src/backend/library_server_projection.cpp
+    src/backend/library_server_projection.hpp
+    src/backend/library_server_types.hpp
+    src/library_server_controller.cpp
+    src/library_server_controller.hpp
+    src/library_server_host.cpp
+    src/library_server_host.hpp
+    src/secure_secret_store.cpp
+    src/secure_secret_store.hpp
+)
+target_compile_features(shadow-library-server-control PUBLIC cxx_std_20)
+target_include_directories(
+    shadow-library-server-control
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    PRIVATE "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+)
+target_link_libraries(
+    shadow-library-server-control
+    PUBLIC
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+    PRIVATE
+        shadow-desktop-rust
+        Shadow::Image
+        PkgConfig::LibRaw
+        PkgConfig::LittleCms
+        ${CMAKE_DL_LIBS}
+        JPEG::JPEG
+        Iconv::Iconv
+)
+add_dependencies(shadow-library-server-control shadow-desktop-rust-build)
+if(APPLE)
+    target_sources(
+        shadow-library-server-control
+        PRIVATE src/secure_secret_store_mac.mm
+    )
+    target_link_libraries(
+        shadow-library-server-control
+        PRIVATE "-framework CoreFoundation" "-framework Security"
+    )
+else()
+    target_sources(
+        shadow-library-server-control
+        PRIVATE src/secure_secret_store_stub.cpp
+    )
+endif()
+if(MSVC)
+    target_compile_options(
+        shadow-library-server-control
+        PRIVATE /W4 /permissive-
+    )
+else()
+    target_compile_options(
+        shadow-library-server-control
+        PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+    )
+endif()
+
 qt_add_executable(
     shadow-desktop
     MACOSX_BUNDLE
@@ -427,9 +490,7 @@ qt_add_executable(
     src/geonames_library_reverse_geocoder.hpp
     src/justified_review_layout_model.cpp
     src/justified_review_layout_model.hpp
-    src/library_server_controller.cpp
     src/library_server_controller_backend.cpp
-    src/library_server_controller.hpp
     src/google_library_reverse_geocoder.cpp
     src/google_library_reverse_geocoder.hpp
     src/library_reverse_geocoder.hpp
@@ -468,8 +529,6 @@ qt_add_executable(
     src/map/google_map_tiles_protocol.hpp
     src/map/google_map_tiles_service.cpp
     src/map/google_map_tiles_service.hpp
-    src/secure_secret_store.cpp
-    src/secure_secret_store.hpp
     src/review_comparison_coordinator.cpp
     src/review_comparison_coordinator.hpp
     src/review_controller.cpp
@@ -514,6 +573,8 @@ qt_add_executable(
     src/review_library_query_coordinator.hpp
     src/review_model.cpp
     src/review_model.hpp
+    src/remote_library_connection_store.cpp
+    src/remote_library_connection_store.hpp
     src/review_remote_library_coordinator.cpp
     src/review_remote_library_coordinator.hpp
     src/review_photo_inspection_coordinator.cpp
@@ -659,7 +720,6 @@ if(APPLE)
         PRIVATE
             src/mac_titlebar.hpp
             src/mac_titlebar.mm
-            src/secure_secret_store_mac.mm
     )
     target_link_libraries(
         shadow-desktop
@@ -667,18 +727,69 @@ if(APPLE)
             "-framework AppKit"
             "-framework CoreFoundation"
             "-framework Metal"
-            "-framework Security"
-    )
-else()
-    target_sources(
-        shadow-desktop
-        PRIVATE src/secure_secret_store_stub.cpp
     )
 endif()
 
 set_source_files_properties(
     qml/Theme.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
+)
+
+qt_add_executable(
+    shadow-server-manager
+    MACOSX_BUNDLE
+    src/server_manager/main.cpp
+)
+qt_add_qml_module(
+    shadow-server-manager
+    URI Shadow.ServerManager
+    VERSION 1.0
+    QML_FILES
+        qml/ServerManagerMain.qml
+        qml/SettingsLibraryServerPane.qml
+        qml/ShadowButton.qml
+        qml/ShadowSwitch.qml
+        qml/Theme.qml
+)
+target_compile_features(shadow-server-manager PRIVATE cxx_std_20)
+target_include_directories(
+    shadow-server-manager
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+target_link_libraries(
+    shadow-server-manager
+    PRIVATE
+        shadow-library-server-control
+        Qt6::Quick
+        Qt6::QuickControls2
+        Qt6::Widgets
+)
+add_dependencies(shadow-server-manager shadow-image-decode-helper)
+add_custom_command(
+    TARGET shadow-server-manager
+    POST_BUILD
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:shadow-image-decode-helper>
+        $<TARGET_FILE_DIR:shadow-server-manager>/$<TARGET_FILE_NAME:shadow-image-decode-helper>
+    COMMENT "Installing the isolated RAW decode helper beside Shadow Server"
+)
+if(MSVC)
+    target_compile_options(shadow-server-manager PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(
+        shadow-server-manager
+        PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+    )
+endif()
+set_target_properties(
+    shadow-server-manager
+    PROPERTIES
+        MACOSX_BUNDLE_BUNDLE_NAME "Shadow Server"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "dev.shadow.photo.server"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1"
+        OUTPUT_NAME "Shadow Server"
 )
 
 qt_add_qml_module(
@@ -713,13 +824,13 @@ qt_add_qml_module(
         qml/LibraryMapLocationPlacementState.qml
         qml/LibraryMapProviderOverlay.qml
         qml/LibraryMapView.qml
+        qml/LibraryRemoteConnectionsPane.qml
         qml/LibrarySourceHealthPane.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
         qml/ApplicationSettingsDialog.qml
         qml/SettingsGeneralPane.qml
         qml/SettingsLibraryPane.qml
-        qml/SettingsLibraryServerPane.qml
         qml/SettingsAiPane.qml
         qml/SettingsStoragePane.qml
         qml/Main.qml
@@ -827,8 +938,8 @@ qt_add_qml_module(
 )
 
 qt_add_translations(
-    TARGETS shadow-desktop
-    SOURCE_TARGETS shadow-desktop
+    TARGETS shadow-desktop shadow-server-manager
+    SOURCE_TARGETS shadow-desktop shadow-server-manager shadow-library-server-control
     TS_FILE_BASE shadow
     TS_FILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/i18n"
     RESOURCE_PREFIX "/i18n"
@@ -861,6 +972,7 @@ target_include_directories(
 target_link_libraries(
     shadow-desktop
     PRIVATE
+        shadow-library-server-control
         shadow-desktop-export-backend
         shadow-desktop-rust
         Shadow::Image
@@ -879,6 +991,7 @@ target_link_libraries(
         Qt6::Widgets
 )
 add_dependencies(shadow-desktop shadow-image-decode-helper)
+add_dependencies(shadow-desktop shadow-server-manager)
 add_custom_command(
     TARGET shadow-desktop
     POST_BUILD
@@ -888,6 +1001,21 @@ add_custom_command(
         $<TARGET_FILE_DIR:shadow-desktop>/$<TARGET_FILE_NAME:shadow-image-decode-helper>
     COMMENT "Installing the isolated RAW decode helper beside Shadow"
 )
+if(APPLE)
+    add_custom_command(
+        TARGET shadow-desktop
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E remove_directory
+            "$<TARGET_BUNDLE_DIR:shadow-desktop>/Contents/Applications/Shadow Server.app"
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_directory
+            "$<TARGET_BUNDLE_DIR:shadow-server-manager>"
+            "$<TARGET_BUNDLE_DIR:shadow-desktop>/Contents/Applications/Shadow Server.app"
+        COMMENT "Installing the standalone Shadow Server controller inside Shadow"
+        VERBATIM
+    )
+endif()
 add_custom_command(
     TARGET shadow-desktop
     POST_BUILD

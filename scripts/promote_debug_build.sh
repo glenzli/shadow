@@ -27,6 +27,9 @@ promotion_lock="$local_build_root/.promote-debug-build.lock"
 
 shadow_executable="$candidate_app/Contents/MacOS/Shadow"
 decode_helper="$candidate_app/Contents/MacOS/shadow-image-decode-helper"
+server_app="$candidate_app/Contents/Applications/Shadow Server.app"
+server_executable="$server_app/Contents/MacOS/Shadow Server"
+server_decode_helper="$server_app/Contents/MacOS/shadow-image-decode-helper"
 geonames_root="$candidate_app/Contents/Resources/GeoNames"
 geonames_index="$geonames_root/shadow-geonames-cities-v1.tsv"
 geonames_notice="$geonames_root/NOTICE.txt"
@@ -76,6 +79,11 @@ if [ ! -x "$decode_helper" ]; then
     echo "promote debug build: candidate does not contain the isolated RAW decode helper" >&2
     exit 65
 fi
+if [ ! -x "$server_executable" ] || [ ! -x "$server_decode_helper" ]; then
+    echo "promote debug build: candidate does not contain the complete Shadow Server companion" >&2
+    echo "Expected: $server_app" >&2
+    exit 65
+fi
 if [ ! -r "$geonames_index" ] || [ ! -r "$geonames_notice" ]; then
     echo "promote debug build: candidate does not contain complete offline city data" >&2
     echo "Expected: $geonames_index" >&2
@@ -116,6 +124,7 @@ if ! "$rawnind_provider" \
 fi
 if [ -f "$candidate_app/Contents/Info.plist" ] && command -v plutil >/dev/null 2>&1; then
     plutil -lint "$candidate_app/Contents/Info.plist" >/dev/null
+    plutil -lint "$server_app/Contents/Info.plist" >/dev/null
 fi
 
 mkdir -p "$release_root"
@@ -160,6 +169,8 @@ ditto "$candidate_app" "$incoming_release/Shadow.app"
 
 shadow_digest=$(shasum -a 256 "$shadow_executable" | awk '{print $1}')
 helper_digest=$(shasum -a 256 "$decode_helper" | awk '{print $1}')
+server_digest=$(shasum -a 256 "$server_executable" | awk '{print $1}')
+server_helper_digest=$(shasum -a 256 "$server_decode_helper" | awk '{print $1}')
 geonames_index_digest=$(shasum -a 256 "$geonames_index" | awk '{print $1}')
 geonames_notice_digest=$(shasum -a 256 "$geonames_notice" | awk '{print $1}')
 rawnind_provider_digest=$(shasum -a 256 "$rawnind_provider" | awk '{print $1}')
@@ -172,6 +183,10 @@ copied_helper_digest=$(
         "$incoming_release/Shadow.app/Contents/MacOS/shadow-image-decode-helper" |
         awk '{print $1}'
 )
+copied_server_executable="$incoming_release/Shadow.app/Contents/Applications/Shadow Server.app/Contents/MacOS/Shadow Server"
+copied_server_helper="$incoming_release/Shadow.app/Contents/Applications/Shadow Server.app/Contents/MacOS/shadow-image-decode-helper"
+copied_server_digest=$(shasum -a 256 "$copied_server_executable" | awk '{print $1}')
+copied_server_helper_digest=$(shasum -a 256 "$copied_server_helper" | awk '{print $1}')
 copied_geonames_index="$incoming_release/Shadow.app/Contents/Resources/GeoNames/shadow-geonames-cities-v1.tsv"
 copied_geonames_notice="$incoming_release/Shadow.app/Contents/Resources/GeoNames/NOTICE.txt"
 copied_geonames_index_digest=$(shasum -a 256 "$copied_geonames_index" | awk '{print $1}')
@@ -182,6 +197,8 @@ copied_rawnind_provider_digest=$(shasum -a 256 "$copied_rawnind_provider" | awk 
 copied_rawnind_manifest_digest=$(shasum -a 256 "$copied_rawnind_manifest" | awk '{print $1}')
 if [ "$shadow_digest" != "$copied_shadow_digest" ] ||
     [ "$helper_digest" != "$copied_helper_digest" ] ||
+    [ "$server_digest" != "$copied_server_digest" ] ||
+    [ "$server_helper_digest" != "$copied_server_helper_digest" ] ||
     [ "$geonames_index_digest" != "$copied_geonames_index_digest" ] ||
     [ "$geonames_notice_digest" != "$copied_geonames_notice_digest" ] ||
     [ "$rawnind_provider_digest" != "$copied_rawnind_provider_digest" ] ||
@@ -215,6 +232,8 @@ worktree_digest=$(
     echo "worktree_status_sha256=$worktree_digest"
     echo "shadow_executable_sha256=$shadow_digest"
     echo "decode_helper_sha256=$helper_digest"
+    echo "server_executable_sha256=$server_digest"
+    echo "server_decode_helper_sha256=$server_helper_digest"
     echo "geonames_city_index_sha256=$geonames_index_digest"
     echo "geonames_notice_sha256=$geonames_notice_digest"
     echo "rawnind_provider_sha256=$rawnind_provider_digest"
@@ -233,6 +252,8 @@ next_link=
 canonical_app="$current_link/Shadow.app"
 if [ ! -x "$canonical_app/Contents/MacOS/Shadow" ] ||
     [ ! -x "$canonical_app/Contents/MacOS/shadow-image-decode-helper" ] ||
+    [ ! -x "$canonical_app/Contents/Applications/Shadow Server.app/Contents/MacOS/Shadow Server" ] ||
+    [ ! -x "$canonical_app/Contents/Applications/Shadow Server.app/Contents/MacOS/shadow-image-decode-helper" ] ||
     [ ! -r "$canonical_app/Contents/Resources/GeoNames/shadow-geonames-cities-v1.tsv" ] ||
     [ ! -r "$canonical_app/Contents/Resources/GeoNames/NOTICE.txt" ] ||
     [ ! -x "$canonical_app/Contents/Helpers/RawNIND/shadow-rawnind-foundation-provider" ] ||

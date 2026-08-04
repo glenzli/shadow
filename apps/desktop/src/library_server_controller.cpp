@@ -104,8 +104,21 @@ LibraryServerController::LibraryServerController(
     std::unique_ptr<SecretStore> secret_store,
     QObject* const parent
 ) :
-    QObject(parent), operations_(std::move(operations)),
-    settings_(makeSettings(isolated_settings_file)), secret_store_(std::move(secret_store)),
+    LibraryServerController(
+        std::move(operations),
+        makeSettings(isolated_settings_file),
+        std::move(secret_store),
+        parent
+    ) {}
+
+LibraryServerController::LibraryServerController(
+    LibraryServerControllerOperations operations,
+    std::unique_ptr<QSettings> settings,
+    std::unique_ptr<SecretStore> secret_store,
+    QObject* const parent
+) :
+    QObject(parent), operations_(std::move(operations)), settings_(std::move(settings)),
+    secret_store_(std::move(secret_store)),
     display_name_(settings_->value(QString::fromLatin1(display_name_key), defaultDisplayName())
                       .toString()
                       .trimmed()),

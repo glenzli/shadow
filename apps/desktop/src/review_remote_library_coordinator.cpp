@@ -1,8 +1,8 @@
 #include "review_remote_library_coordinator.hpp"
 
 #include <QDateTime>
-#include <QSettings>
 #include <QUrl>
+#include <QVariantMap>
 #include <QtConcurrentRun>
 
 #include <algorithm>
@@ -12,17 +12,9 @@
 
 namespace {
 
-constexpr auto server_address_key = "remote_library/server_address";
-constexpr auto token_stored_key = "remote_library/token_stored";
 constexpr auto secret_service = "dev.shadow.photo.remote-library";
-constexpr auto secret_account = "library-sharing-token";
-
-[[nodiscard]] std::unique_ptr<QSettings> makeSettings(const QString& isolated_settings_file) {
-    if (isolated_settings_file.isEmpty()) {
-        return std::make_unique<QSettings>();
-    }
-    return std::make_unique<QSettings>(isolated_settings_file, QSettings::IniFormat);
-}
+constexpr auto legacy_secret_account = "library-sharing-token";
+constexpr auto secret_account_prefix = "library-sharing-token:";
 
 [[nodiscard]] bool validAddress(const QString& value) {
     const QString normalized = value.trimmed();
@@ -72,9 +64,7 @@ ReviewRemoteLibraryCoordinator::ReviewRemoteLibraryCoordinator(
     QObject* const parent
 ) :
     QObject(parent), operations_(std::move(operations)), model_(&model),
-    settings_(makeSettings(isolated_settings_file)), secret_store_(std::move(secret_store)),
-    server_address_(settings_->value(QString::fromLatin1(server_address_key)).toString().trimmed()),
-    token_stored_(settings_->value(QString::fromLatin1(token_stored_key), false).toBool()) {
+    connection_store_(isolated_settings_file), secret_store_(std::move(secret_store)) {
     connect(
         &snapshot_watcher_,
         &QFutureWatcher<SnapshotTaskResult>::finished,
@@ -93,6 +83,7 @@ ReviewRemoteLibraryCoordinator::ReviewRemoteLibraryCoordinator(
         this,
         &ReviewRemoteLibraryCoordinator::finishMutationTask
     );
+    migrateLegacySecret();
 }
 
 ReviewRemoteLibraryCoordinator::~ReviewRemoteLibraryCoordinator() {
@@ -105,30 +96,34 @@ ReviewRemoteLibraryCoordinator::~ReviewRemoteLibraryCoordinator() {
 }
 
 void ReviewRemoteLibraryCoordinator::start() {
-    if (started_ || snapshot_watcher_.isRunning()) {
+    if (started_) {
         return;
     }
     started_ = true;
+    for (const auto& connection : connection_store_.connections()) {
+        snapshot_queue_.enqueue({
+            .kind = SnapshotTaskKind::LoadCached,
+            .connection_id = connection.id,
+        });
+    }
+    if (snapshot_queue_.isEmpty()) {
+        setStatus(QStringLiteral("offline-ready"));
+    }
+    startNextSnapshotTask();
     emit stateChanged();
-    snapshot_watcher_.setFuture(QtConcurrent::run(
-        &ReviewRemoteLibraryCoordinator::runSnapshotTask,
-        operations_,
-        SnapshotTaskKind::LoadCached,
-        QString{},
-        QString{}
-    ));
 }
 
 bool ReviewRemoteLibraryCoordinator::busy() const noexcept {
-    return snapshot_watcher_.isRunning() || materialize_watcher_.isRunning();
+    return !active_snapshot_connection_id_.isEmpty() || !snapshot_queue_.isEmpty()
+           || !materializing_connection_id_.isEmpty();
 }
 
 bool ReviewRemoteLibraryCoordinator::syncing() const noexcept {
-    return snapshot_watcher_.isRunning();
+    return !active_snapshot_connection_id_.isEmpty() || !snapshot_queue_.isEmpty();
 }
 
 bool ReviewRemoteLibraryCoordinator::materializing() const noexcept {
-    return materialize_watcher_.isRunning();
+    return !materializing_connection_id_.isEmpty();
 }
 
 bool ReviewRemoteLibraryCoordinator::secureStorageAvailable() const noexcept {
@@ -136,19 +131,64 @@ bool ReviewRemoteLibraryCoordinator::secureStorageAvailable() const noexcept {
 }
 
 bool ReviewRemoteLibraryCoordinator::tokenStored() const noexcept {
-    return token_stored_;
+    return std::any_of(
+        connection_store_.connections().cbegin(),
+        connection_store_.connections().cend(),
+        [](const RemoteLibraryConnection& connection) { return connection.token_stored; }
+    );
+}
+
+QVariantList ReviewRemoteLibraryCoordinator::connections() const {
+    QVariantList result;
+    result.reserve(connection_store_.connections().size());
+    for (const auto& connection : connection_store_.connections()) {
+        const auto snapshot = snapshots_.constFind(connection.id);
+        const bool has_server = snapshot != snapshots_.cend() && snapshot->has_server;
+        result.push_back(
+            QVariantMap{
+                {QStringLiteral("id"), connection.id},
+                {QStringLiteral("address"), connection.address},
+                {QStringLiteral("tokenStored"), connection.token_stored},
+                {QStringLiteral("connected"),
+                 connection.token_stored && !connection.address.isEmpty()},
+                {QStringLiteral("serverName"),
+                 has_server ? snapshot->server.display_name : QString{}},
+                {QStringLiteral("hasCachedServer"), has_server},
+                {QStringLiteral("originalsAvailable"),
+                 has_server && snapshot->server.originals_available},
+                {QStringLiteral("photoCount"),
+                 snapshot == snapshots_.cend() ? 0 : snapshot->photos.size()},
+                {QStringLiteral("statusCode"), connection_status_codes_.value(connection.id)},
+                {QStringLiteral("diagnosticText"), connection_diagnostics_.value(connection.id)},
+                {QStringLiteral("busy"),
+                 active_snapshot_connection_id_ == connection.id
+                     || materializing_connection_id_ == connection.id},
+            }
+        );
+    }
+    return result;
 }
 
 QString ReviewRemoteLibraryCoordinator::serverAddress() const {
-    return server_address_;
+    return connection_store_.connections().isEmpty()
+               ? QString{}
+               : connection_store_.connections().front().address;
 }
 
 bool ReviewRemoteLibraryCoordinator::hasServer() const noexcept {
-    return snapshot_.has_server;
+    return std::any_of(snapshots_.cbegin(), snapshots_.cend(), [](const auto& snapshot) {
+        return snapshot.has_server;
+    });
 }
 
 QString ReviewRemoteLibraryCoordinator::serverName() const {
-    return snapshot_.has_server ? snapshot_.server.display_name : QString{};
+    for (const auto& connection : connection_store_.connections()) {
+        const auto snapshot = snapshots_.constFind(connection.id);
+        if (snapshot != snapshots_.cend() && snapshot->has_server) {
+            return snapshot->server.display_name;
+        }
+    }
+    return {};
 }
 
 int ReviewRemoteLibraryCoordinator::remotePhotoCount() const noexcept {
@@ -173,140 +213,236 @@ bool ReviewRemoteLibraryCoordinator::ownsPresentationPhoto(
     return photos_.contains(presentation_photo_id);
 }
 
-bool ReviewRemoteLibraryCoordinator::saveConnection(
+QString ReviewRemoteLibraryCoordinator::saveConnection(
+    const QString& connection_id,
     const QString& server_address,
     const QString& token
 ) {
+    if (busy()) {
+        setStatus(QStringLiteral("operation-busy"));
+        return {};
+    }
     const QString normalized_address = server_address.trimmed();
     const QString normalized_token = token.trimmed();
     if (!validAddress(normalized_address)) {
         setStatus(QStringLiteral("invalid-address"));
-        return false;
+        return {};
     }
-    if (!validToken(normalized_token)) {
+    const RemoteLibraryConnection* existing = connection(connection_id);
+    if ((existing == nullptr || !existing->token_stored) && !validToken(normalized_token)) {
         setStatus(QStringLiteral("invalid-token"));
-        return false;
+        return {};
+    }
+    if (!normalized_token.isEmpty() && !validToken(normalized_token)) {
+        setStatus(QStringLiteral("invalid-token"));
+        return {};
     }
     if (!secureStorageAvailable()) {
         setStatus(QStringLiteral("secure-storage-unavailable"));
-        return false;
+        return {};
     }
-    const SecretStoreResult stored = secret_store_->write(
-        QString::fromLatin1(secret_service),
-        QString::fromLatin1(secret_account),
-        normalized_token
-    );
-    if (!stored.succeeded()) {
-        setStatus(QStringLiteral("secret-store-failed"), stored.diagnostic);
-        return false;
+    for (const auto& candidate : connection_store_.connections()) {
+        if (candidate.id != connection_id && candidate.address == normalized_address) {
+            setStatus(QStringLiteral("duplicate-address"));
+            return {};
+        }
     }
-    const bool connection_changed = server_address_ != normalized_address || !token_stored_;
-    server_address_ = normalized_address;
-    token_stored_ = true;
-    settings_->setValue(QString::fromLatin1(server_address_key), server_address_);
-    settings_->setValue(QString::fromLatin1(token_stored_key), true);
-    settings_->sync();
-    if (connection_changed) {
-        emit connectionChanged();
+
+    QString resolved_id = connection_id;
+    bool token_stored = existing != nullptr && existing->token_stored;
+    if (existing == nullptr) {
+        resolved_id = connection_store_.add(normalized_address, false);
     }
-    setStatus(QStringLiteral("connection-saved"));
-    return true;
+    const RemoteLibraryConnection* resolved = connection(resolved_id);
+    if (resolved == nullptr) {
+        setStatus(QStringLiteral("connection-save-failed"));
+        return {};
+    }
+    if (!normalized_token.isEmpty()) {
+        const SecretStoreResult stored = secret_store_->write(
+            QString::fromLatin1(secret_service),
+            QString::fromLatin1(secret_account_prefix) + resolved_id,
+            normalized_token
+        );
+        if (!stored.succeeded()) {
+            if (existing == nullptr) {
+                (void)connection_store_.remove(resolved_id);
+            }
+            setStatus(QStringLiteral("secret-store-failed"), stored.diagnostic);
+            return {};
+        }
+        token_stored = true;
+        if (resolved->uses_legacy_secret) {
+            (void)connection_store_.finishLegacySecretMigration(resolved_id);
+        }
+    }
+    if (!connection_store_.update(resolved_id, normalized_address, token_stored)) {
+        setStatus(QStringLiteral("connection-save-failed"));
+        return {};
+    }
+    setConnectionStatus(resolved_id, QStringLiteral("connection-saved"));
+    emit connectionChanged();
+    emit stateChanged();
+    syncNow(resolved_id);
+    return resolved_id;
 }
 
-bool ReviewRemoteLibraryCoordinator::removeConnection() {
+bool ReviewRemoteLibraryCoordinator::saveConnection(
+    const QString& server_address,
+    const QString& token
+) {
+    const QString existing_id = connection_store_.connections().isEmpty()
+                                    ? QString{}
+                                    : connection_store_.connections().front().id;
+    return !saveConnection(existing_id, server_address, token).isEmpty();
+}
+
+bool ReviewRemoteLibraryCoordinator::removeConnection(const QString& connection_id) {
+    if (busy()) {
+        setStatus(QStringLiteral("operation-busy"));
+        return false;
+    }
+    const RemoteLibraryConnection* existing = connection(connection_id);
+    if (existing == nullptr) {
+        return false;
+    }
     if (!secureStorageAvailable()) {
         setStatus(QStringLiteral("secure-storage-unavailable"));
         return false;
     }
-    const SecretStoreResult removed = secret_store_->remove(
-        QString::fromLatin1(secret_service),
-        QString::fromLatin1(secret_account)
-    );
+    const SecretStoreResult removed =
+        secret_store_->remove(QString::fromLatin1(secret_service), tokenAccount(*existing));
     if (removed.status != SecretStoreStatus::Success
         && removed.status != SecretStoreStatus::NotFound) {
         setStatus(QStringLiteral("secret-store-failed"), removed.diagnostic);
         return false;
     }
-    const bool connection_changed = !server_address_.isEmpty() || token_stored_;
-    server_address_.clear();
-    token_stored_ = false;
-    settings_->remove(QString::fromLatin1(server_address_key));
-    settings_->setValue(QString::fromLatin1(token_stored_key), false);
-    settings_->sync();
-    if (connection_changed) {
-        emit connectionChanged();
+    if (existing->uses_legacy_secret) {
+        (void)secret_store_->remove(
+            QString::fromLatin1(secret_service),
+            QString::fromLatin1(legacy_secret_account)
+        );
     }
+    if (!connection_store_.remove(connection_id)) {
+        return false;
+    }
+    snapshots_.remove(connection_id);
+    connection_status_codes_.remove(connection_id);
+    connection_diagnostics_.remove(connection_id);
+    removeConnectionPhotos(connection_id);
+    reapplyRemoteItems();
     setStatus(QStringLiteral("connection-removed"));
+    emit connectionChanged();
+    emit stateChanged();
     return true;
 }
 
-void ReviewRemoteLibraryCoordinator::syncNow() {
-    if (snapshot_watcher_.isRunning() || materialize_watcher_.isRunning()) {
+bool ReviewRemoteLibraryCoordinator::removeConnection() {
+    return !connection_store_.connections().isEmpty()
+           && removeConnection(connection_store_.connections().front().id);
+}
+
+void ReviewRemoteLibraryCoordinator::syncNow(const QString& connection_id) {
+    if (materialize_watcher_.isRunning()) {
+        setConnectionStatus(connection_id, QStringLiteral("operation-busy"));
         return;
     }
-    if (!validAddress(server_address_) || !token_stored_) {
-        setStatus(QStringLiteral("connection-required"));
+    const RemoteLibraryConnection* requested = connection(connection_id);
+    if (requested == nullptr || !validAddress(requested->address) || !requested->token_stored) {
+        setConnectionStatus(connection_id, QStringLiteral("connection-required"));
         return;
     }
-    const SecretStoreResult authorization = readAuthorization();
+    const bool already_queued = std::any_of(
+        snapshot_queue_.cbegin(),
+        snapshot_queue_.cend(),
+        [&connection_id](const SnapshotRequest& request) {
+            return request.kind == SnapshotTaskKind::Sync && request.connection_id == connection_id;
+        }
+    );
+    if (already_queued || active_snapshot_connection_id_ == connection_id) {
+        return;
+    }
+    const SecretStoreResult authorization = readAuthorization(connection_id);
     if (!authorization.succeeded() || !validToken(authorization.value)) {
         if (authorization.status == SecretStoreStatus::NotFound) {
-            token_stored_ = false;
-            settings_->setValue(QString::fromLatin1(token_stored_key), false);
-            settings_->sync();
+            (void)connection_store_.setTokenStored(connection_id, false);
             emit connectionChanged();
         }
-        setStatus(QStringLiteral("token-required"), authorization.diagnostic);
+        setConnectionStatus(
+            connection_id,
+            QStringLiteral("token-required"),
+            authorization.diagnostic
+        );
         return;
     }
-    setStatus(QStringLiteral("synchronizing"));
+    setConnectionStatus(connection_id, QStringLiteral("synchronizing"));
+    snapshot_queue_.enqueue({
+        .kind = SnapshotTaskKind::Sync,
+        .connection_id = connection_id,
+        .server_address = requested->address,
+        .authorization = authorization.value,
+    });
+    startNextSnapshotTask();
     emit stateChanged();
-    snapshot_watcher_.setFuture(QtConcurrent::run(
-        &ReviewRemoteLibraryCoordinator::runSnapshotTask,
-        operations_,
-        SnapshotTaskKind::Sync,
-        server_address_,
-        authorization.value
-    ));
+}
+
+void ReviewRemoteLibraryCoordinator::syncNow() {
+    syncAll();
+}
+
+void ReviewRemoteLibraryCoordinator::syncAll() {
+    const QVector<RemoteLibraryConnection> connections = connection_store_.connections();
+    for (const auto& connection : connections) {
+        syncNow(connection.id);
+    }
 }
 
 void ReviewRemoteLibraryCoordinator::reapplyRemoteItems() {
     (void)model_->replaceRemoteItems(projectedRemoteItems());
 }
 
-void ReviewRemoteLibraryCoordinator::materializeForEdit(
-    const QString& presentation_photo_id
-) {
-    if (snapshot_watcher_.isRunning() || materialize_watcher_.isRunning()) {
+void ReviewRemoteLibraryCoordinator::materializeForEdit(const QString& presentation_photo_id) {
+    if (busy()) {
         return;
     }
     const auto found = photos_.constFind(presentation_photo_id);
-    if (found == photos_.cend()) {
+    const QString connection_id = photo_connection_ids_.value(presentation_photo_id);
+    const RemoteLibraryConnection* source_connection = connection(connection_id);
+    const auto snapshot = snapshots_.constFind(connection_id);
+    if (found == photos_.cend() || source_connection == nullptr || snapshot == snapshots_.cend()) {
         setStatus(QStringLiteral("remote-photo-unavailable"));
         return;
     }
-    if (!snapshot_.server.originals_available) {
-        setStatus(QStringLiteral("remote-original-unavailable"));
+    if (!snapshot->has_server || !snapshot->server.originals_available) {
+        setConnectionStatus(connection_id, QStringLiteral("remote-original-unavailable"));
         return;
     }
-    const SecretStoreResult authorization = readAuthorization();
+    const SecretStoreResult authorization = readAuthorization(connection_id);
     if (!authorization.succeeded() || !validToken(authorization.value)
-        || !validAddress(server_address_)) {
-        setStatus(QStringLiteral("connection-required"), authorization.diagnostic);
+        || !validAddress(source_connection->address)) {
+        setConnectionStatus(
+            connection_id,
+            QStringLiteral("connection-required"),
+            authorization.diagnostic
+        );
         return;
     }
+    materializing_connection_id_ = connection_id;
     materializing_photo_id_ = presentation_photo_id;
-    setStatus(QStringLiteral("downloading-original"));
+    setConnectionStatus(connection_id, QStringLiteral("downloading-original"));
     emit stateChanged();
-    materialize_watcher_.setFuture(QtConcurrent::run(
-        &ReviewRemoteLibraryCoordinator::runMaterializeTask,
-        operations_,
-        presentation_photo_id,
-        server_address_,
-        authorization.value,
-        found->remote_photo_id,
-        found->remote_representation_id
-    ));
+    materialize_watcher_.setFuture(
+        QtConcurrent::run(
+            &ReviewRemoteLibraryCoordinator::runMaterializeTask,
+            operations_,
+            connection_id,
+            presentation_photo_id,
+            source_connection->address,
+            authorization.value,
+            found->remote_photo_id,
+            found->remote_representation_id
+        )
+    );
 }
 
 bool ReviewRemoteLibraryCoordinator::setDecision(
@@ -315,19 +451,16 @@ bool ReviewRemoteLibraryCoordinator::setDecision(
     const int rating
 ) {
     const auto found = photos_.find(presentation_photo_id);
-    if (found == photos_.end() || rating < 0 || rating > 5) {
+    const QString connection_id = photo_connection_ids_.value(presentation_photo_id);
+    if (found == photos_.end() || connection_id.isEmpty() || rating < 0 || rating > 5) {
         return false;
     }
     found->decision_flag = flag;
     found->decision_rating = static_cast<std::uint8_t>(rating);
     found->review_updated_at_ms = QDateTime::currentMSecsSinceEpoch();
-    (void)model_->updateDecision(
-        presentation_photo_id,
-        0,
-        decisionFlagName(flag),
-        rating
-    );
+    (void)model_->updateDecision(presentation_photo_id, 0, decisionFlagName(flag), rating);
     return enqueueMutation({
+        .connection_id = connection_id,
         .presentation_photo_id = presentation_photo_id,
         .remote_photo_id = found->remote_photo_id,
         .remote_representation_id = found->remote_representation_id,
@@ -345,7 +478,8 @@ bool ReviewRemoteLibraryCoordinator::setAffinity(
     const QString& color_label
 ) {
     const auto found = photos_.find(presentation_photo_id);
-    if (found == photos_.end() || !validColorLabel(color_label)) {
+    const QString connection_id = photo_connection_ids_.value(presentation_photo_id);
+    if (found == photos_.end() || connection_id.isEmpty() || !validColorLabel(color_label)) {
         return false;
     }
     found->liked = liked;
@@ -358,6 +492,7 @@ bool ReviewRemoteLibraryCoordinator::setAffinity(
         found->review_updated_at_ms
     );
     return enqueueMutation({
+        .connection_id = connection_id,
         .presentation_photo_id = presentation_photo_id,
         .remote_photo_id = found->remote_photo_id,
         .remote_representation_id = found->remote_representation_id,
@@ -369,20 +504,21 @@ bool ReviewRemoteLibraryCoordinator::setAffinity(
     });
 }
 
-ReviewRemoteLibraryCoordinator::SnapshotTaskResult
-ReviewRemoteLibraryCoordinator::runSnapshotTask(
+ReviewRemoteLibraryCoordinator::SnapshotTaskResult ReviewRemoteLibraryCoordinator::runSnapshotTask(
     Operations operations,
     const SnapshotTaskKind kind,
+    QString connection_id,
     QString server_address,
     QString authorization
 ) {
     SnapshotTaskResult result;
     result.kind = kind;
+    result.connection_id = connection_id;
     try {
         if (kind == SnapshotTaskKind::LoadCached) {
-            result.snapshot = operations.snapshot();
+            result.snapshot = operations.snapshot(connection_id);
         } else {
-            result.sync_result = operations.sync(server_address, authorization);
+            result.sync_result = operations.sync(connection_id, server_address, authorization);
             result.snapshot = result.sync_result.snapshot;
         }
     } catch (const std::exception& error) {
@@ -396,6 +532,7 @@ ReviewRemoteLibraryCoordinator::runSnapshotTask(
 ReviewRemoteLibraryCoordinator::MaterializeTaskResult
 ReviewRemoteLibraryCoordinator::runMaterializeTask(
     Operations operations,
+    QString connection_id,
     QString presentation_photo_id,
     QString server_address,
     QString authorization,
@@ -403,9 +540,11 @@ ReviewRemoteLibraryCoordinator::runMaterializeTask(
     QString remote_representation_id
 ) {
     MaterializeTaskResult result;
+    result.connection_id = std::move(connection_id);
     result.presentation_photo_id = std::move(presentation_photo_id);
     try {
         result.materialization = operations.materialize(
+            result.connection_id,
             server_address,
             authorization,
             remote_photo_id,
@@ -420,14 +559,12 @@ ReviewRemoteLibraryCoordinator::runMaterializeTask(
 }
 
 ReviewRemoteLibraryCoordinator::MutationTaskResult
-ReviewRemoteLibraryCoordinator::runMutationTask(
-    Operations operations,
-    MutationRequest request
-) {
+ReviewRemoteLibraryCoordinator::runMutationTask(Operations operations, MutationRequest request) {
     MutationTaskResult result;
     result.presentation_photo_id = request.presentation_photo_id;
     try {
         operations.set_review_state(
+            request.connection_id,
             request.remote_photo_id,
             request.remote_representation_id,
             request.flag,
@@ -446,28 +583,36 @@ ReviewRemoteLibraryCoordinator::runMutationTask(
 
 void ReviewRemoteLibraryCoordinator::finishSnapshotTask() {
     const SnapshotTaskResult result = snapshot_watcher_.result();
+    active_snapshot_connection_id_.clear();
     if (!result.error.isEmpty()) {
-        setStatus(
+        setConnectionStatus(
+            result.connection_id,
             result.kind == SnapshotTaskKind::Sync ? QStringLiteral("sync-failed")
                                                   : QStringLiteral("cache-load-failed"),
             result.error
         );
-        emit stateChanged();
-        return;
+    } else {
+        applySnapshot(result.connection_id, result.snapshot);
+        setConnectionStatus(
+            result.connection_id,
+            result.kind == SnapshotTaskKind::Sync ? QStringLiteral("synchronized")
+                                                  : QStringLiteral("offline-ready")
+        );
     }
-    applySnapshot(result.snapshot);
-    setStatus(
-        result.kind == SnapshotTaskKind::Sync ? QStringLiteral("synchronized")
-                                              : QStringLiteral("offline-ready")
-    );
+    startNextSnapshotTask();
     emit stateChanged();
 }
 
 void ReviewRemoteLibraryCoordinator::finishMaterializeTask() {
     const MaterializeTaskResult result = materialize_watcher_.result();
+    materializing_connection_id_.clear();
     materializing_photo_id_.clear();
     if (!result.error.isEmpty()) {
-        setStatus(QStringLiteral("materialize-failed"), result.error);
+        setConnectionStatus(
+            result.connection_id,
+            QStringLiteral("materialize-failed"),
+            result.error
+        );
         emit stateChanged();
         return;
     }
@@ -476,7 +621,7 @@ void ReviewRemoteLibraryCoordinator::finishMaterializeTask() {
         found->is_materialized = true;
     }
     reapplyRemoteItems();
-    setStatus(QStringLiteral("original-ready"));
+    setConnectionStatus(result.connection_id, QStringLiteral("original-ready"));
     emit stateChanged();
     emit localLibraryRefreshRequested();
     emit remotePhotoReady(
@@ -489,31 +634,62 @@ void ReviewRemoteLibraryCoordinator::finishMaterializeTask() {
 
 void ReviewRemoteLibraryCoordinator::finishMutationTask() {
     const MutationTaskResult result = mutation_watcher_.result();
+    mutation_task_active_ = false;
     if (!result.error.isEmpty()) {
-        setStatus(QStringLiteral("review-save-failed"), result.error);
+        const QString connection_id = photo_connection_ids_.value(result.presentation_photo_id);
+        setConnectionStatus(connection_id, QStringLiteral("review-save-failed"), result.error);
         emit stateChanged();
     }
     startMutationIfIdle();
 }
 
+void ReviewRemoteLibraryCoordinator::startNextSnapshotTask() {
+    if (!active_snapshot_connection_id_.isEmpty() || snapshot_queue_.isEmpty()) {
+        return;
+    }
+    SnapshotRequest request = snapshot_queue_.dequeue();
+    active_snapshot_connection_id_ = request.connection_id;
+    snapshot_watcher_.setFuture(
+        QtConcurrent::run(
+            &ReviewRemoteLibraryCoordinator::runSnapshotTask,
+            operations_,
+            request.kind,
+            request.connection_id,
+            request.server_address,
+            request.authorization
+        )
+    );
+}
+
 void ReviewRemoteLibraryCoordinator::startMutationIfIdle() {
-    if (mutation_watcher_.isRunning() || mutation_queue_.isEmpty()) {
+    if (mutation_task_active_ || mutation_queue_.isEmpty()) {
         return;
     }
     MutationRequest request = mutation_queue_.dequeue();
-    mutation_watcher_.setFuture(QtConcurrent::run(
-        &ReviewRemoteLibraryCoordinator::runMutationTask,
-        operations_,
-        std::move(request)
-    ));
+    mutation_task_active_ = true;
+    mutation_watcher_.setFuture(
+        QtConcurrent::run(
+            &ReviewRemoteLibraryCoordinator::runMutationTask,
+            operations_,
+            std::move(request)
+        )
+    );
 }
 
-void ReviewRemoteLibraryCoordinator::applySnapshot(BackendRemoteLibrarySnapshot snapshot) {
-    snapshot_ = std::move(snapshot);
-    photos_.clear();
-    for (const auto& photo : snapshot_.photos) {
-        if (!photo.is_materialized) {
-            photos_.insert(presentationPhotoId(photo), photo);
+void ReviewRemoteLibraryCoordinator::applySnapshot(
+    const QString& connection_id,
+    BackendRemoteLibrarySnapshot snapshot
+) {
+    removeConnectionPhotos(connection_id);
+    snapshots_.insert(connection_id, std::move(snapshot));
+    const auto stored = snapshots_.constFind(connection_id);
+    if (stored != snapshots_.cend()) {
+        for (const auto& photo : stored->photos) {
+            if (!photo.is_materialized) {
+                const QString presentation_id = presentationPhotoId(photo);
+                photos_.insert(presentation_id, photo);
+                photo_connection_ids_.insert(presentation_id, connection_id);
+            }
         }
     }
     reapplyRemoteItems();
@@ -527,12 +703,15 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         if (source.is_materialized) {
             continue;
         }
+        const QString connection_id = photo_connection_ids_.value(found.key());
+        const auto snapshot = snapshots_.constFind(connection_id);
+        const bool originals_available = snapshot != snapshots_.cend() && snapshot->has_server
+                                         && snapshot->server.originals_available;
         ReviewItem item;
         item.photo_id = found.key();
         item.representation_id = presentationRepresentationId(source);
-        item.visual_source_override = source.has_preview
-                                          ? QUrl::fromLocalFile(source.preview_path).toString()
-                                          : QString{};
+        item.visual_source_override =
+            source.has_preview ? QUrl::fromLocalFile(source.preview_path).toString() : QString{};
         item.is_remote = true;
         item.remote_server_id = source.server_id;
         item.remote_photo_id = source.remote_photo_id;
@@ -544,7 +723,7 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         item.color_label = source.color_label;
         item.library_state_updated_at_ms = source.review_updated_at_ms;
         item.title = source.title;
-        item.source_available = snapshot_.has_server && snapshot_.server.originals_available;
+        item.source_available = originals_available;
         item.visual_role = source.preview_role;
         item.visual_width = source.preview_width;
         item.visual_height = source.preview_height;
@@ -558,13 +737,10 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         item.camera_model = source.camera_model;
         item.lens_make = source.lens_make;
         item.lens_model = source.lens_model;
-        item.captured_at_unix_seconds = source.has_captured_at
-                                            ? source.captured_at_unix_seconds
-                                            : 0;
+        item.captured_at_unix_seconds =
+            source.has_captured_at ? source.captured_at_unix_seconds : 0;
         item.iso_speed = source.has_iso_speed ? source.iso_speed : 0.0;
-        item.exposure_time_seconds = source.has_exposure_time
-                                         ? source.exposure_time_seconds
-                                         : 0.0;
+        item.exposure_time_seconds = source.has_exposure_time ? source.exposure_time_seconds : 0.0;
         item.aperture_f_number = source.has_aperture ? source.aperture_f_number : 0.0;
         item.focal_length_mm = source.has_focal_length ? source.focal_length_mm : 0.0;
         item.raw_width = source.has_raw_dimensions ? source.raw_width : 0;
@@ -580,23 +756,105 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
     return items;
 }
 
-SecretStoreResult ReviewRemoteLibraryCoordinator::readAuthorization() const {
+SecretStoreResult
+ReviewRemoteLibraryCoordinator::readAuthorization(const QString& connection_id) const {
     if (!secureStorageAvailable()) {
         return {
             .status = SecretStoreStatus::Unavailable,
             .diagnostic = QStringLiteral("The operating system credential store is unavailable."),
         };
     }
-    return secret_store_->read(
-        QString::fromLatin1(secret_service),
-        QString::fromLatin1(secret_account)
-    );
+    const RemoteLibraryConnection* requested = connection(connection_id);
+    if (requested == nullptr) {
+        return {
+            .status = SecretStoreStatus::NotFound,
+            .diagnostic = QStringLiteral("The remote Library connection no longer exists."),
+        };
+    }
+    return secret_store_->read(QString::fromLatin1(secret_service), tokenAccount(*requested));
 }
 
-void ReviewRemoteLibraryCoordinator::setStatus(
-    const QString& code,
-    const QString& diagnostic
-) {
+const RemoteLibraryConnection*
+ReviewRemoteLibraryCoordinator::connection(const QString& connection_id) const {
+    for (const auto& connection : connection_store_.connections()) {
+        if (connection.id == connection_id) {
+            return &connection;
+        }
+    }
+    return nullptr;
+}
+
+QString
+ReviewRemoteLibraryCoordinator::tokenAccount(const RemoteLibraryConnection& connection) const {
+    return connection.uses_legacy_secret
+               ? QString::fromLatin1(legacy_secret_account)
+               : QString::fromLatin1(secret_account_prefix) + connection.id;
+}
+
+void ReviewRemoteLibraryCoordinator::migrateLegacySecret() {
+    const QVector<RemoteLibraryConnection> connections = connection_store_.connections();
+    for (const auto& connection : connections) {
+        if (!connection.uses_legacy_secret) {
+            continue;
+        }
+        if (!connection.token_stored) {
+            (void)connection_store_.finishLegacySecretMigration(connection.id);
+            continue;
+        }
+        if (!secureStorageAvailable()) {
+            return;
+        }
+        const SecretStoreResult legacy = secret_store_->read(
+            QString::fromLatin1(secret_service),
+            QString::fromLatin1(legacy_secret_account)
+        );
+        if (legacy.status == SecretStoreStatus::NotFound) {
+            (void)connection_store_.setTokenStored(connection.id, false);
+            (void)connection_store_.finishLegacySecretMigration(connection.id);
+            continue;
+        }
+        if (!legacy.succeeded()) {
+            setConnectionStatus(
+                connection.id,
+                QStringLiteral("secret-store-failed"),
+                legacy.diagnostic
+            );
+            continue;
+        }
+        const SecretStoreResult stored = secret_store_->write(
+            QString::fromLatin1(secret_service),
+            QString::fromLatin1(secret_account_prefix) + connection.id,
+            legacy.value
+        );
+        if (!stored.succeeded()) {
+            setConnectionStatus(
+                connection.id,
+                QStringLiteral("secret-store-failed"),
+                stored.diagnostic
+            );
+            continue;
+        }
+        (void)secret_store_->remove(
+            QString::fromLatin1(secret_service),
+            QString::fromLatin1(legacy_secret_account)
+        );
+        (void)connection_store_.finishLegacySecretMigration(connection.id);
+    }
+}
+
+void ReviewRemoteLibraryCoordinator::removeConnectionPhotos(const QString& connection_id) {
+    auto found = photo_connection_ids_.begin();
+    while (found != photo_connection_ids_.end()) {
+        if (found.value() == connection_id) {
+            photos_.remove(found.key());
+            found = photo_connection_ids_.erase(found);
+        } else {
+            ++found;
+        }
+    }
+}
+
+void ReviewRemoteLibraryCoordinator::setStatus(const QString& code, const QString& diagnostic) {
     if (status_code_ == code && diagnostic_text_ == diagnostic) {
         return;
     }
@@ -605,21 +863,31 @@ void ReviewRemoteLibraryCoordinator::setStatus(
     emit stateChanged();
 }
 
+void ReviewRemoteLibraryCoordinator::setConnectionStatus(
+    const QString& connection_id,
+    const QString& code,
+    const QString& diagnostic
+) {
+    if (!connection_id.isEmpty()) {
+        connection_status_codes_.insert(connection_id, code);
+        connection_diagnostics_.insert(connection_id, diagnostic);
+    }
+    setStatus(code, diagnostic);
+}
+
 bool ReviewRemoteLibraryCoordinator::enqueueMutation(MutationRequest request) {
     mutation_queue_.enqueue(std::move(request));
     startMutationIfIdle();
     return true;
 }
 
-QString ReviewRemoteLibraryCoordinator::presentationPhotoId(
-    const BackendRemoteLibraryPhoto& photo
-) {
+QString
+ReviewRemoteLibraryCoordinator::presentationPhotoId(const BackendRemoteLibraryPhoto& photo) {
     return QStringLiteral("remote:%1:%2").arg(photo.server_id, photo.remote_photo_id);
 }
 
 QString ReviewRemoteLibraryCoordinator::presentationRepresentationId(
     const BackendRemoteLibraryPhoto& photo
 ) {
-    return QStringLiteral("remote:%1:%2")
-        .arg(photo.server_id, photo.remote_representation_id);
+    return QStringLiteral("remote:%1:%2").arg(photo.server_id, photo.remote_representation_id);
 }

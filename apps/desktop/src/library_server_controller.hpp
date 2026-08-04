@@ -76,6 +76,12 @@ class LibraryServerController final : public QObject {
         std::unique_ptr<SecretStore> secret_store,
         QObject* parent = nullptr
     );
+    LibraryServerController(
+        LibraryServerControllerOperations operations,
+        std::unique_ptr<QSettings> settings,
+        std::unique_ptr<SecretStore> secret_store,
+        QObject* parent = nullptr
+    );
     ~LibraryServerController() override;
 
     LibraryServerController(const LibraryServerController&) = delete;

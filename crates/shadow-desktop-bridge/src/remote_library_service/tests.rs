@@ -7,6 +7,9 @@ use shadow_library_sharing::{RemoteReviewFlag, RemoteReviewState};
 
 use super::RemoteLibraryService;
 
+const CONNECTION_A: &str = "019fb225-9a01-7301-a64b-c0168f92b834";
+const CONNECTION_B: &str = "019fb225-9a01-7301-a64b-c0168f92b835";
+
 #[test]
 fn first_materialization_migrates_remote_curation_without_overwriting_local_changes() {
     let root = temporary_directory("curation-migration");
@@ -92,9 +95,37 @@ fn first_run_snapshot_is_empty_and_offline_safe() {
     let service = RemoteLibraryService::open(catalog.clone(), &catalog_path, &root.join("cache"))
         .expect("open remote Library service");
 
-    let snapshot = service.snapshot().expect("read empty snapshot");
+    let snapshot = service.snapshot(CONNECTION_A).expect("read empty snapshot");
     assert!(snapshot.server.is_none());
     assert!(snapshot.photos.is_empty());
+
+    drop(service);
+    drop(catalog);
+    actor.shutdown().expect("stop catalog actor");
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn connection_mirrors_have_independent_persistent_roots() {
+    let root = temporary_directory("connection-roots");
+    let catalog_path = root.join("catalog.sqlite");
+    let actor = CatalogActor::spawn(&catalog_path).expect("open catalog actor");
+    let catalog = actor.handle();
+    let service = RemoteLibraryService::open(catalog.clone(), &catalog_path, &root.join("cache"))
+        .expect("open remote Library service");
+
+    service.snapshot(CONNECTION_A).expect("open first mirror");
+    service.snapshot(CONNECTION_B).expect("open second mirror");
+    assert!(
+        root.join("remote-library/connections")
+            .join(CONNECTION_A)
+            .is_dir()
+    );
+    assert!(
+        root.join("remote-library/connections")
+            .join(CONNECTION_B)
+            .is_dir()
+    );
 
     drop(service);
     drop(catalog);

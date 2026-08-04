@@ -7,6 +7,10 @@ bool ReviewController::remoteLibraryBusy() const noexcept {
     return remote_library_coordinator_.busy();
 }
 
+QVariantList ReviewController::remoteLibraries() const {
+    return remote_library_coordinator_.connections();
+}
+
 bool ReviewController::remoteLibrarySyncing() const noexcept {
     return remote_library_coordinator_.syncing();
 }
@@ -56,19 +60,35 @@ bool ReviewController::saveRemoteLibraryConnection(
     const QString& server_address,
     const QString& token
 ) {
-    const bool saved = remote_library_coordinator_.saveConnection(server_address, token);
-    if (saved) {
-        remote_library_coordinator_.syncNow();
-    }
-    return saved;
+    return remote_library_coordinator_.saveConnection(server_address, token);
+}
+
+QString ReviewController::saveRemoteLibraryConnection(
+    const QString& connection_id,
+    const QString& server_address,
+    const QString& token
+) {
+    return remote_library_coordinator_.saveConnection(connection_id, server_address, token);
 }
 
 bool ReviewController::removeRemoteLibraryConnection() {
     return remote_library_coordinator_.removeConnection();
 }
 
+bool ReviewController::removeRemoteLibraryConnection(const QString& connection_id) {
+    return remote_library_coordinator_.removeConnection(connection_id);
+}
+
 void ReviewController::syncRemoteLibrary() {
     remote_library_coordinator_.syncNow();
+}
+
+void ReviewController::syncRemoteLibrary(const QString& connection_id) {
+    remote_library_coordinator_.syncNow(connection_id);
+}
+
+void ReviewController::syncAllRemoteLibraries() {
+    remote_library_coordinator_.syncAll();
 }
 
 void ReviewController::materializeRemotePhoto(const QString& photo_id) {
@@ -84,15 +104,12 @@ void ReviewController::refreshRemoteLibraryPresentation() {
 }
 
 bool ReviewController::remoteLibraryPresentationEligible() const {
-    return album_coordinator_.albumId().isEmpty()
-           && filtered_model_.captureMonth().isEmpty()
-           && filtered_model_.chineseLunarMonth() == 0
-           && filtered_model_.chineseLunarDay() == 0
+    return album_coordinator_.albumId().isEmpty() && filtered_model_.captureMonth().isEmpty()
+           && filtered_model_.chineseLunarMonth() == 0 && filtered_model_.chineseLunarDay() == 0
            && filtered_model_.chineseLunarMonthType() == QStringLiteral("all")
            && filtered_model_.cameraKey().isEmpty() && filtered_model_.lensKey().isEmpty()
            && filtered_model_.countryKey().isEmpty() && filtered_model_.localityKey().isEmpty()
-           && !filtered_model_.travelFilterEnabled()
-           && filtered_model_.keywordIdsAll().isEmpty()
+           && !filtered_model_.travelFilterEnabled() && filtered_model_.keywordIdsAll().isEmpty()
            && filtered_model_.excludedKeywordIdsAny().isEmpty();
 }
 

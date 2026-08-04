@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/remote_library_types.hpp"
+#include "remote_library_connection_store.hpp"
 #include "review_model.hpp"
 #include "secure_secret_store.hpp"
 
@@ -9,12 +10,11 @@
 #include <QObject>
 #include <QQueue>
 #include <QString>
+#include <QVariantList>
 
 #include <cstdint>
 #include <functional>
 #include <memory>
-
-class QSettings;
 
 /// Owns the desktop remote-Library client lifecycle.
 ///
@@ -27,9 +27,12 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
 
   public:
     struct Operations final {
-        std::function<BackendRemoteLibrarySnapshot()> snapshot;
-        std::function<BackendRemoteLibrarySyncResult(const QString&, const QString&)> sync;
+        std::function<BackendRemoteLibrarySnapshot(const QString&)> snapshot;
+        std::function<
+            BackendRemoteLibrarySyncResult(const QString&, const QString&, const QString&)>
+            sync;
         std::function<void(
+            const QString&,
             const QString&,
             const QString&,
             BackendReviewDecisionFlag,
@@ -40,6 +43,7 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
         )>
             set_review_state;
         std::function<BackendRemoteLibraryMaterialization(
+            const QString&,
             const QString&,
             const QString&,
             const QString&,
@@ -66,6 +70,7 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     [[nodiscard]] bool materializing() const noexcept;
     [[nodiscard]] bool secureStorageAvailable() const noexcept;
     [[nodiscard]] bool tokenStored() const noexcept;
+    [[nodiscard]] QVariantList connections() const;
     [[nodiscard]] QString serverAddress() const;
     [[nodiscard]] bool hasServer() const noexcept;
     [[nodiscard]] QString serverName() const;
@@ -75,21 +80,23 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     [[nodiscard]] QString materializingPhotoId() const;
     [[nodiscard]] bool ownsPresentationPhoto(const QString& presentation_photo_id) const;
 
+    [[nodiscard]] QString saveConnection(
+        const QString& connection_id,
+        const QString& server_address,
+        const QString& token
+    );
     [[nodiscard]] bool saveConnection(const QString& server_address, const QString& token);
+    [[nodiscard]] bool removeConnection(const QString& connection_id);
     [[nodiscard]] bool removeConnection();
+    void syncNow(const QString& connection_id);
     void syncNow();
+    void syncAll();
     void reapplyRemoteItems();
     void materializeForEdit(const QString& presentation_photo_id);
-    [[nodiscard]] bool setDecision(
-        const QString& presentation_photo_id,
-        BackendReviewDecisionFlag flag,
-        int rating
-    );
-    [[nodiscard]] bool setAffinity(
-        const QString& presentation_photo_id,
-        bool liked,
-        const QString& color_label
-    );
+    [[nodiscard]] bool
+    setDecision(const QString& presentation_photo_id, BackendReviewDecisionFlag flag, int rating);
+    [[nodiscard]] bool
+    setAffinity(const QString& presentation_photo_id, bool liked, const QString& color_label);
 
   signals:
     void stateChanged();
@@ -110,18 +117,21 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
 
     struct SnapshotTaskResult final {
         SnapshotTaskKind kind = SnapshotTaskKind::LoadCached;
+        QString connection_id;
         BackendRemoteLibrarySnapshot snapshot;
         BackendRemoteLibrarySyncResult sync_result;
         QString error;
     };
 
     struct MaterializeTaskResult final {
+        QString connection_id;
         QString presentation_photo_id;
         BackendRemoteLibraryMaterialization materialization;
         QString error;
     };
 
     struct MutationRequest final {
+        QString connection_id;
         QString presentation_photo_id;
         QString remote_photo_id;
         QString remote_representation_id;
@@ -140,11 +150,13 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     [[nodiscard]] static SnapshotTaskResult runSnapshotTask(
         Operations operations,
         SnapshotTaskKind kind,
+        QString connection_id,
         QString server_address,
         QString authorization
     );
     [[nodiscard]] static MaterializeTaskResult runMaterializeTask(
         Operations operations,
+        QString connection_id,
         QString presentation_photo_id,
         QString server_address,
         QString authorization,
@@ -157,29 +169,49 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     void finishSnapshotTask();
     void finishMaterializeTask();
     void finishMutationTask();
+    void startNextSnapshotTask();
     void startMutationIfIdle();
-    void applySnapshot(BackendRemoteLibrarySnapshot snapshot);
+    void applySnapshot(const QString& connection_id, BackendRemoteLibrarySnapshot snapshot);
     [[nodiscard]] QVector<ReviewItem> projectedRemoteItems() const;
-    [[nodiscard]] SecretStoreResult readAuthorization() const;
+    [[nodiscard]] SecretStoreResult readAuthorization(const QString& connection_id) const;
+    [[nodiscard]] const RemoteLibraryConnection* connection(const QString& connection_id) const;
+    [[nodiscard]] QString tokenAccount(const RemoteLibraryConnection& connection) const;
+    void migrateLegacySecret();
+    void removeConnectionPhotos(const QString& connection_id);
     void setStatus(const QString& code, const QString& diagnostic = {});
+    void setConnectionStatus(
+        const QString& connection_id,
+        const QString& code,
+        const QString& diagnostic = {}
+    );
     [[nodiscard]] bool enqueueMutation(MutationRequest request);
     [[nodiscard]] static QString presentationPhotoId(const BackendRemoteLibraryPhoto& photo);
-    [[nodiscard]] static QString presentationRepresentationId(
-        const BackendRemoteLibraryPhoto& photo
-    );
+    [[nodiscard]] static QString
+    presentationRepresentationId(const BackendRemoteLibraryPhoto& photo);
 
     Operations operations_;
     ReviewModel* model_;
-    std::unique_ptr<QSettings> settings_;
+    RemoteLibraryConnectionStore connection_store_;
     std::unique_ptr<SecretStore> secret_store_;
-    BackendRemoteLibrarySnapshot snapshot_;
+    QHash<QString, BackendRemoteLibrarySnapshot> snapshots_;
     QHash<QString, BackendRemoteLibraryPhoto> photos_;
-    QString server_address_;
+    QHash<QString, QString> photo_connection_ids_;
+    QHash<QString, QString> connection_status_codes_;
+    QHash<QString, QString> connection_diagnostics_;
     QString status_code_;
     QString diagnostic_text_;
+    QString active_snapshot_connection_id_;
+    QString materializing_connection_id_;
     QString materializing_photo_id_;
-    bool token_stored_ = false;
+    bool mutation_task_active_ = false;
     bool started_ = false;
+    struct SnapshotRequest final {
+        SnapshotTaskKind kind = SnapshotTaskKind::LoadCached;
+        QString connection_id;
+        QString server_address;
+        QString authorization;
+    };
+    QQueue<SnapshotRequest> snapshot_queue_;
     QQueue<MutationRequest> mutation_queue_;
     QFutureWatcher<SnapshotTaskResult> snapshot_watcher_;
     QFutureWatcher<MaterializeTaskResult> materialize_watcher_;

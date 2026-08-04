@@ -14,17 +14,9 @@ impl DesktopSession {
         &self,
         config: &ffi::FfiLibraryServerConfig,
     ) -> AnyResult<ffi::FfiLibraryServerSnapshot> {
-        let bind_address = SocketAddr::from_str(&config.bind_address)
-            .with_context(|| format!("parse Library server address {}", config.bind_address))?;
-        let authorization = AuthorizationToken::parse(config.authorization.clone())?;
-        let request = LibraryServerStartRequest {
-            bind_address,
-            authorization,
-            display_name: config.display_name.clone(),
-            share_roots: config.share_roots.iter().map(PathBuf::from).collect(),
-            serves_originals: config.serves_originals,
-        };
-        self.library_server.start(request).map(project_snapshot)
+        self.library_server
+            .start(start_request(config)?)
+            .map(project_snapshot)
     }
 
     pub(crate) fn stop_library_server(&self) -> AnyResult<ffi::FfiLibraryServerSnapshot> {
@@ -36,7 +28,22 @@ impl DesktopSession {
     }
 }
 
-fn project_snapshot(snapshot: LibraryServerSnapshot) -> ffi::FfiLibraryServerSnapshot {
+pub(crate) fn start_request(
+    config: &ffi::FfiLibraryServerConfig,
+) -> AnyResult<LibraryServerStartRequest> {
+    let bind_address = SocketAddr::from_str(&config.bind_address)
+        .with_context(|| format!("parse Library server address {}", config.bind_address))?;
+    let authorization = AuthorizationToken::parse(config.authorization.clone())?;
+    Ok(LibraryServerStartRequest {
+        bind_address,
+        authorization,
+        display_name: config.display_name.clone(),
+        share_roots: config.share_roots.iter().map(PathBuf::from).collect(),
+        serves_originals: config.serves_originals,
+    })
+}
+
+pub(crate) fn project_snapshot(snapshot: LibraryServerSnapshot) -> ffi::FfiLibraryServerSnapshot {
     ffi::FfiLibraryServerSnapshot {
         running: snapshot.running,
         local_address: snapshot

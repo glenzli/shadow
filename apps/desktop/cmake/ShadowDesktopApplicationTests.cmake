@@ -5,8 +5,8 @@
         COMMAND $<TARGET_FILE:shadow-desktop>
     )
     add_test(
-        NAME shadow-desktop-library-server-settings-startup
-        COMMAND $<TARGET_FILE:shadow-desktop> --open-settings sharing
+        NAME shadow-server-manager-qml-startup
+        COMMAND $<TARGET_FILE:shadow-server-manager>
     )
 
     add_executable(
@@ -131,10 +131,15 @@
     )
     set_tests_properties(
         shadow-desktop-qml-startup
-        shadow-desktop-library-server-settings-startup
         PROPERTIES
             ENVIRONMENT
                 "QT_QPA_PLATFORM=offscreen;SHADOW_DESKTOP_SMOKE_TEST=1;SHADOW_DESKTOP_DATA_ROOT=${CMAKE_CURRENT_BINARY_DIR}/qml-startup-smoke"
+    )
+    set_tests_properties(
+        shadow-server-manager-qml-startup
+        PROPERTIES
+            ENVIRONMENT
+                "QT_QPA_PLATFORM=offscreen;SHADOW_SERVER_MANAGER_SMOKE_TEST=1;SHADOW_SERVER_MANAGER_DATA_ROOT=${CMAKE_CURRENT_BINARY_DIR}/server-manager-startup-smoke"
     )
 
     add_executable(

@@ -8,6 +8,7 @@
 // Library lifecycle and durable application services.
 mod digest_hex;
 mod history_service;
+mod library_server_host;
 mod library_server_service;
 mod library_service;
 mod photo_inspection_service;
@@ -84,6 +85,7 @@ use crate::{cache_maintenance_service::CacheMaintenanceService, library_service:
 use detail_tile_cache::EditDetailSessionCache;
 use edit_preview::{OwnedEditedPreview, WarmEditPreviewSessionCache};
 use history_service::HistoryService;
+use library_server_host::{LibraryServerHost, open_library_server_host};
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
@@ -1685,6 +1687,7 @@ mod ffi {
 
     extern "Rust" {
         type DesktopSession;
+        type LibraryServerHost;
         type OwnedEditedPreview;
 
         /// Descriptor projection for one retained edit-preview owner.
@@ -1711,6 +1714,14 @@ mod ffi {
             catalog_path: &str,
             cache_root: &str,
         ) -> Result<Box<DesktopSession>>;
+        fn open_library_server_host(storage_root: &str) -> Result<Box<LibraryServerHost>>;
+        fn snapshot(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
+        fn start(
+            self: &LibraryServerHost,
+            config: &FfiLibraryServerConfig,
+        ) -> Result<FfiLibraryServerSnapshot>;
+        fn stop(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
+        fn reset_cache(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn begin_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<()>;
         fn scan_folder(
             self: &DesktopSession,
@@ -1725,15 +1736,20 @@ mod ffi {
             cursor_representation_id: &str,
             limit: u32,
         ) -> Result<FfiReviewPage>;
-        fn remote_library_snapshot(self: &DesktopSession) -> Result<FfiRemoteLibrarySnapshot>;
+        fn remote_library_snapshot(
+            self: &DesktopSession,
+            connection_id: &str,
+        ) -> Result<FfiRemoteLibrarySnapshot>;
         fn sync_remote_library(
             self: &DesktopSession,
+            connection_id: &str,
             server_address: &str,
             authorization: &str,
         ) -> Result<FfiRemoteLibrarySyncResult>;
         #[allow(clippy::too_many_arguments)]
         fn set_remote_library_review_state(
             self: &DesktopSession,
+            connection_id: &str,
             remote_photo_id: &str,
             remote_representation_id: &str,
             flag: FfiDecisionFlag,
@@ -1744,6 +1760,7 @@ mod ffi {
         ) -> Result<()>;
         fn materialize_remote_library_photo(
             self: &DesktopSession,
+            connection_id: &str,
             server_address: &str,
             authorization: &str,
             remote_photo_id: &str,

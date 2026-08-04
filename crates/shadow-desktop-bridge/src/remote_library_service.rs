@@ -5,6 +5,7 @@
 //! admitted into the local Catalog, where ordinary Recipe previews become authoritative.
 
 use std::{
+    fs,
     net::{SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::Mutex,
@@ -30,6 +31,9 @@ use shadow_library_sharing::{
 };
 
 use crate::CatalogHandle;
+
+const CONNECTIONS_DIRECTORY: &str = "connections";
+const LEGACY_MIRROR_FILE: &str = "remote-library.json";
 
 #[derive(Debug)]
 pub(crate) struct RemoteLibraryService {
@@ -61,17 +65,18 @@ impl RemoteLibraryService {
         })
     }
 
-    pub(crate) fn snapshot(&self) -> Result<RemoteLibrarySnapshot> {
+    pub(crate) fn snapshot(&self, connection_id: &str) -> Result<RemoteLibrarySnapshot> {
         let _operation = self
             .operation_lock
             .lock()
             .map_err(|_| anyhow!("remote Library operation lock was poisoned"))?;
-        let mirror = RemoteLibraryMirror::open(&self.mirror_root)?;
+        let mirror = RemoteLibraryMirror::open(self.connection_mirror_root(connection_id)?)?;
         Ok(self.project_snapshot(mirror.snapshot()))
     }
 
     pub(crate) fn sync(
         &self,
+        connection_id: &str,
         server_address: &str,
         authorization: &str,
     ) -> Result<RemoteLibrarySyncResult> {
@@ -80,7 +85,7 @@ impl RemoteLibraryService {
             .lock()
             .map_err(|_| anyhow!("remote Library operation lock was poisoned"))?;
         let client = client(server_address, authorization)?;
-        let mut mirror = RemoteLibraryMirror::open(&self.mirror_root)?;
+        let mut mirror = RemoteLibraryMirror::open(self.connection_mirror_root(connection_id)?)?;
         let report = mirror.sync(&client, &self.preview_store)?;
         Ok(RemoteLibrarySyncResult {
             snapshot: self.project_snapshot(mirror.snapshot()),
@@ -94,6 +99,7 @@ impl RemoteLibraryService {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn set_review_state(
         &self,
+        connection_id: &str,
         remote_photo_id: &str,
         remote_representation_id: &str,
         flag: RemoteReviewFlag,
@@ -106,7 +112,7 @@ impl RemoteLibraryService {
             .operation_lock
             .lock()
             .map_err(|_| anyhow!("remote Library operation lock was poisoned"))?;
-        let mut mirror = RemoteLibraryMirror::open(&self.mirror_root)?;
+        let mut mirror = RemoteLibraryMirror::open(self.connection_mirror_root(connection_id)?)?;
         mirror.set_review_state(
             parse_photo_id(remote_photo_id)?,
             parse_representation_id(remote_representation_id)?,
@@ -123,6 +129,7 @@ impl RemoteLibraryService {
 
     pub(crate) fn materialize(
         &self,
+        connection_id: &str,
         server_address: &str,
         authorization: &str,
         remote_photo_id: &str,
@@ -134,7 +141,7 @@ impl RemoteLibraryService {
             .map_err(|_| anyhow!("remote Library operation lock was poisoned"))?;
         let remote_photo_id = parse_photo_id(remote_photo_id)?;
         let remote_representation_id = parse_representation_id(remote_representation_id)?;
-        let mut mirror = RemoteLibraryMirror::open(&self.mirror_root)?;
+        let mut mirror = RemoteLibraryMirror::open(self.connection_mirror_root(connection_id)?)?;
         let remote = mirror
             .snapshot()
             .photos
@@ -257,6 +264,29 @@ impl RemoteLibraryService {
                 })?;
         }
         Ok(())
+    }
+
+    fn connection_mirror_root(&self, connection_id: &str) -> Result<PathBuf> {
+        let connection_id = uuid::Uuid::parse_str(connection_id)
+            .with_context(|| format!("parse remote Library connection id {connection_id:?}"))?;
+        let connection_root = self
+            .mirror_root
+            .join(CONNECTIONS_DIRECTORY)
+            .join(connection_id.to_string());
+        let legacy_mirror = self.mirror_root.join(LEGACY_MIRROR_FILE);
+        let connection_mirror = connection_root.join(LEGACY_MIRROR_FILE);
+        if legacy_mirror.is_file() && !connection_mirror.exists() {
+            fs::create_dir_all(&connection_root).with_context(|| {
+                format!(
+                    "create migrated remote Library mirror {}",
+                    connection_root.display()
+                )
+            })?;
+            fs::rename(&legacy_mirror, &connection_mirror).with_context(|| {
+                format!("migrate legacy remote Library mirror into connection {connection_id}")
+            })?;
+        }
+        Ok(connection_root)
     }
 
     fn project_snapshot(

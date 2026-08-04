@@ -4,77 +4,67 @@
 <context>
     <name>ApplicationSettingsDialog</name>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="29"/>
         <source>General</source>
         <translation>通用</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="29"/>
         <source>Appearance &amp; language</source>
         <translation>外观与语言</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="30"/>
         <source>Library</source>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="30"/>
         <source>Thumbnails &amp; metadata</source>
         <translation>缩略图与元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
-        <source>Sharing</source>
-        <translation>共享</translation>
-    </message>
-    <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
-        <source>This Mac as a server</source>
-        <translation>将这台 Mac 用作服务器</translation>
-    </message>
-    <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
         <source>AI &amp; Models</source>
         <translation>AI 与模型</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
         <source>Local processing policy</source>
         <translation>本地处理策略</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="35"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
         <source>Storage &amp; Cache</source>
         <translation>存储与缓存</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="35"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
         <source>Limits &amp; maintenance</source>
         <translation>上限与维护</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="36"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
         <source>Maps &amp; Location</source>
         <translation>地图与位置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="36"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
         <source>Offline city data &amp; Google</source>
         <translation>离线城市数据与 Google</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="107"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="104"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="116"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="113"/>
         <source>Application, local AI, storage, and service preferences</source>
         <translation>应用、本地 AI、存储和服务偏好设置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="131"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="128"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
@@ -3150,8 +3140,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="63"/>
-        <source>Organize photos and manage local sources. Original files remain read-only.</source>
-        <translation>整理照片并管理本地来源。原始文件保持只读。</translation>
+        <source>Manage local folders and remote Libraries together. Original files remain read-only.</source>
+        <translation>统一管理本地文件夹与远程图库。原始文件始终保持只读。</translation>
     </message>
     <message>
         <location filename="../qml/LibrarySourceHealthPane.qml" line="184"/>
@@ -3289,10 +3279,230 @@ R %2 · G %3 · B %4</translation>
         <translation>Shadow 会读取所选文件的完整内容，仅当其精确内容身份属于这张历史照片时才建立链接。文件名、EXIF 和文件大小均不作为匹配依据。</translation>
     </message>
     <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="26"/>
+        <source>Offline cache ready · %L1 photos</source>
+        <translation>离线缓存就绪 · %L1 张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="26"/>
+        <source>Connected · no cached photos yet</source>
+        <translation>已连接 · 暂无缓存照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="28"/>
+        <source>Synchronizing…</source>
+        <translation>正在同步…</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="30"/>
+        <source>Up to date · %L1 photos</source>
+        <translation>已是最新 · %L1 张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="32"/>
+        <source>Saved securely · synchronization queued</source>
+        <translation>已安全保存 · 同步已排队</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="34"/>
+        <source>Access token unavailable · reconnect this Library</source>
+        <translation>访问令牌不可用 · 请重新连接此图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="36"/>
+        <source>Offline · cached thumbnails remain available</source>
+        <translation>离线 · 已缓存的缩略图仍可使用</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="38"/>
+        <source>Local proxy cache could not be opened</source>
+        <translation>无法打开本地代理缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="40"/>
+        <source>Browsing only · original downloads are disabled</source>
+        <translation>仅可浏览 · 原片下载已禁用</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="42"/>
+        <source>Offline cache · %L1 photos</source>
+        <translation>离线缓存 · %L1 张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="42"/>
+        <source>Ready to synchronize</source>
+        <translation>可以同步</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="58"/>
+        <source>Enter a server address such as 192.168.1.20:45321.</source>
+        <translation>请输入服务器地址，例如 192.168.1.20:45321。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="60"/>
+        <source>Enter the access token configured by Shadow Server.</source>
+        <translation>请输入 Shadow 服务器配置的访问令牌。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="62"/>
+        <source>This server address is already in the Library list.</source>
+        <translation>此服务器地址已在图库列表中。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="66"/>
+        <source>The credential store could not complete the request.</source>
+        <translation>凭据存储未能完成此请求。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="68"/>
+        <source>The remote Library connection could not be saved.</source>
+        <translation>无法保存远程图库连接。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="70"/>
+        <source>Wait for the current remote Library operation to finish.</source>
+        <translation>请等待当前远程图库操作完成。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="103"/>
+        <source>Remove remote Library?</source>
+        <translation>移除远程图库？</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="111"/>
+        <source>%1 will leave this Library view. Its downloaded originals stay in the local Library, and its proxy cache can be reused if you add it again.</source>
+        <translation>%1 将从图库视图中移除。已下载的原片仍保留在本地图库中；再次添加时可复用其代理缓存。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="126"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="223"/>
         <location filename="../qml/LibrarySourceHealthPane.qml" line="85"/>
         <location filename="../qml/LibrarySourceHealthPane.qml" line="158"/>
         <source>CANCEL</source>
         <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="134"/>
+        <source>REMOVE LIBRARY</source>
+        <translation>移除图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="169"/>
+        <source>Edit Remote Library</source>
+        <translation>编辑远程图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="177"/>
+        <source>Update the server address or replace its secure access token. Cached thumbnails keep the same Library identity.</source>
+        <translation>更新服务器地址或替换安全访问令牌。已缓存的缩略图将继续使用同一个图库身份。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="200"/>
+        <source>Leave blank to keep the saved token</source>
+        <translation>留空以保留已保存的令牌</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="200"/>
+        <source>Access token required</source>
+        <translation>需要访问令牌</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="202"/>
+        <source>Replacement remote Library access token</source>
+        <translation>替换远程图库访问令牌</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="231"/>
+        <source>SAVE &amp; SYNC</source>
+        <translation>保存并同步</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="248"/>
+        <source>LIBRARIES</source>
+        <translation>图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="264"/>
+        <source>SYNC ALL</source>
+        <translation>全部同步</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="307"/>
+        <source>Local Library</source>
+        <translation>本地图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="315"/>
+        <source>This Mac · local folders and downloaded originals</source>
+        <translation>这台 Mac · 本地文件夹与已下载的原片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="322"/>
+        <source>LOCAL</source>
+        <translation>本地</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="383"/>
+        <source>Remote Library</source>
+        <translation>远程图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="415"/>
+        <source>EDIT</source>
+        <translation>编辑</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="429"/>
+        <source>SYNC</source>
+        <translation>同步</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="438"/>
+        <source>REMOVE</source>
+        <translation>移除</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="469"/>
+        <source>Add Remote Library</source>
+        <translation>添加远程图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="477"/>
+        <source>Shadow keeps an independent proxy cache and secure credential for every Library. The original RAW is fetched only when editing begins.</source>
+        <translation>Shadow 会为每个图库保留独立的代理缓存和安全凭据。只有开始编辑时才会获取 RAW 原片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="188"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="492"/>
+        <source>Mac address · 192.168.1.20:45321</source>
+        <translation>Mac 地址 · 192.168.1.20:45321</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="190"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="494"/>
+        <source>Remote Library server address</source>
+        <translation>远程图库服务器地址</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="504"/>
+        <source>Access token</source>
+        <translation>访问令牌</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="506"/>
+        <source>Remote Library access token</source>
+        <translation>远程图库访问令牌</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="518"/>
+        <source>ADD &amp; SYNC</source>
+        <translation>添加并同步</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="64"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="533"/>
+        <source>Secure credential storage is unavailable on this Mac.</source>
+        <translation>这台 Mac 无法使用安全凭据存储。</translation>
     </message>
     <message>
         <location filename="../qml/LibrarySourceHealthPane.qml" line="91"/>
@@ -3464,7 +3674,7 @@ R %2 · G %3 · B %4</translation>
         <translation>Shadow · 图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="166"/>
+        <location filename="../qml/Main.qml" line="171"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
@@ -6637,19 +6847,29 @@ Technical detail: %1</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="198"/>
+        <location filename="../src/main.cpp" line="215"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
     <message>
-        <location filename="../src/library_server_controller.cpp" line="41"/>
+        <location filename="../src/library_server_controller.cpp" line="39"/>
+        <source>This Mac · Shadow Library</source>
+        <translation>这台 Mac · Shadow 图库</translation>
+    </message>
+    <message>
+        <location filename="../src/library_server_controller.cpp" line="40"/>
         <source>%1 · Shadow Library</source>
         <translation>%1 · Shadow 图库</translation>
     </message>
     <message>
-        <location filename="../src/library_server_controller.cpp" line="44"/>
-        <source>This Mac · Shadow Library</source>
-        <translation>这台 Mac · Shadow 图库</translation>
+        <location filename="../src/server_manager/main.cpp" line="88"/>
+        <source>Shadow Server is already running</source>
+        <translation>Shadow Server 已在运行</translation>
+    </message>
+    <message>
+        <location filename="../src/server_manager/main.cpp" line="89"/>
+        <source>Use the existing Shadow Server window to manage Library sharing.</source>
+        <translation>请使用已打开的 Shadow Server 窗口管理图库共享。</translation>
     </message>
 </context>
 <context>
@@ -7072,7 +7292,7 @@ Technical detail: %1</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="609"/>
+        <location filename="../src/review_controller.hpp" line="617"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -7082,7 +7302,7 @@ Technical detail: %1</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="613"/>
+        <location filename="../src/review_controller.hpp" line="621"/>
         <location filename="../src/review_decision_coordinator.hpp" line="121"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
@@ -8854,6 +9074,30 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
 </context>
 <context>
+    <name>ServerManagerMain</name>
+    <message>
+        <location filename="../qml/ServerManagerMain.qml" line="18"/>
+        <location filename="../qml/ServerManagerMain.qml" line="72"/>
+        <source>Shadow Server</source>
+        <translation>Shadow 服务器</translation>
+    </message>
+    <message>
+        <location filename="../qml/ServerManagerMain.qml" line="80"/>
+        <source>Serving this Mac&apos;s photo library</source>
+        <translation>正在共享这台 Mac 的照片图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/ServerManagerMain.qml" line="80"/>
+        <source>Local Library server controller</source>
+        <translation>本地图库服务器控制器</translation>
+    </message>
+    <message>
+        <location filename="../qml/ServerManagerMain.qml" line="102"/>
+        <source>Start when Shadow Server opens</source>
+        <translation>打开 Shadow 服务器时自动启动</translation>
+    </message>
+</context>
+<context>
     <name>SettingsAiPane</name>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="39"/>
@@ -8968,292 +9212,122 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>SettingsLibraryPane</name>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="20"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="19"/>
         <source>Capture time</source>
         <translation>拍摄时间</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="21"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="20"/>
         <source>Location</source>
         <translation>位置</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="22"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="21"/>
         <source>Camera</source>
         <translation>相机</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="23"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="22"/>
         <source>Lens</source>
         <translation>镜头</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="24"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="23"/>
         <source>Shutter speed</source>
         <translation>快门速度</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="25"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="24"/>
         <source>Aperture</source>
         <translation>光圈</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="26"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="25"/>
         <source>ISO</source>
         <translation>ISO</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="27"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="26"/>
         <source>Focal length</source>
         <translation>焦距</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="28"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="27"/>
         <source>Preview dimensions</source>
         <translation>预览尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="29"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="28"/>
         <source>35 mm equivalent</source>
         <translation>35 毫米等效焦距</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="30"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="29"/>
         <source>RAW dimensions</source>
         <translation>RAW 尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="31"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="30"/>
         <source>Sensor bit depth</source>
         <translation>传感器位深</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="32"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="31"/>
         <source>Color filter array</source>
         <translation>彩色滤光阵列</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="33"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="32"/>
         <source>DNG version</source>
         <translation>DNG 版本</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="40"/>
-        <source>Offline cache ready · %L1 remote photos</source>
-        <translation>离线缓存已就绪 · %L1 张远程照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="42"/>
-        <source>No remote photos are cached on this Mac yet.</source>
-        <translation>这台 Mac 尚未缓存远程照片。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="44"/>
-        <source>Updating the remote Library…</source>
-        <translation>正在更新远程图库…</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="46"/>
-        <source>Remote Library updated · %L1 photos</source>
-        <translation>远程图库已更新 · %L1 张照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="49"/>
-        <source>Connection saved securely.</source>
-        <translation>连接已安全保存。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="51"/>
-        <source>Connection removed. Existing proxy thumbnails remain available offline.</source>
-        <translation>连接已移除。已有代理缩略图仍可离线浏览。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="53"/>
-        <source>Save the server address and access token first.</source>
-        <translation>请先保存服务器地址和访问令牌。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="55"/>
-        <source>The saved access token is unavailable. Enter it again.</source>
-        <translation>保存的访问令牌不可用，请重新输入。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="57"/>
-        <source>Enter a server address such as 192.168.1.20:45321.</source>
-        <translation>请输入服务器地址，例如 192.168.1.20:45321。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="59"/>
-        <source>Enter the access token configured for the Shadow Library server.</source>
-        <translation>请输入为 Shadow 图库服务器配置的访问令牌。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="61"/>
-        <source>Secure credential storage is unavailable on this Mac.</source>
-        <translation>这台 Mac 无法使用安全凭据存储。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="63"/>
-        <source>The credential store could not complete the request.</source>
-        <translation>凭据存储未能完成此请求。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="65"/>
-        <source>The remote Library could not be reached. Offline thumbnails remain available.</source>
-        <translation>无法连接远程图库，离线缩略图仍可浏览。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="67"/>
-        <source>Downloading and verifying the original RAW…</source>
-        <translation>正在下载并校验原始 RAW…</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="69"/>
-        <source>The original RAW is ready for editing on this Mac.</source>
-        <translation>原始 RAW 已可在这台 Mac 上编辑。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="71"/>
-        <source>The original RAW could not be downloaded or verified.</source>
-        <translation>无法下载或校验原始 RAW。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="73"/>
-        <source>This server does not currently allow original RAW downloads.</source>
-        <translation>此服务器当前不允许下载原始 RAW。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="75"/>
-        <source>A remote selection change could not be saved.</source>
-        <translation>无法保存一项远程选片修改。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="77"/>
-        <source>The local remote-Library cache could not be opened.</source>
-        <translation>无法打开本机的远程图库缓存。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="114"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="58"/>
         <source>Library</source>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="122"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="66"/>
         <source>Control Library density, metadata presentation, and reusable photographic resources.</source>
         <translation>控制图库密度、元数据展示和可复用的摄影资源。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="130"/>
-        <source>Remote Library</source>
-        <translation>远程图库</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="138"/>
-        <source>Browse proxy thumbnails from another Mac. The full RAW is downloaded, resumed, and verified only when you open it for editing; edit recipes and adjusted previews stay on this Mac.</source>
-        <translation>浏览另一台 Mac 提供的代理缩略图。仅在打开照片编辑时下载、续传并校验完整 RAW；编辑配方和调整后预览保留在这台 Mac 上。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="155"/>
-        <source>Mac address · 192.168.1.20:45321</source>
-        <translation>Mac 地址 · 192.168.1.20:45321</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="157"/>
-        <source>Remote Library server address</source>
-        <translation>远程图库服务器地址</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="169"/>
-        <source>Token saved — enter only to replace</source>
-        <translation>令牌已保存 — 仅在替换时输入</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="170"/>
-        <source>Access token</source>
-        <translation>访问令牌</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="172"/>
-        <source>Remote Library access token</source>
-        <translation>远程图库访问令牌</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="190"/>
-        <source>Replace &amp; Sync</source>
-        <translation>替换并同步</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="190"/>
-        <source>Connect &amp; Sync</source>
-        <translation>连接并同步</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="207"/>
-        <source>Sync Now</source>
-        <translation>立即同步</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="217"/>
-        <source>Remove Connection</source>
-        <translation>移除连接</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="243"/>
-        <source>Server · %1</source>
-        <translation>服务器 · %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="245"/>
-        <source>Server saved · currently offline</source>
-        <translation>服务器已保存 · 当前离线</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="247"/>
-        <source>Offline cache · %1</source>
-        <translation>离线缓存 · %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="249"/>
-        <source>No remote Library is connected.</source>
-        <translation>尚未连接远程图库。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="271"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="74"/>
         <source>Thumbnail size</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="280"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="83"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="300"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="103"/>
         <source>Metadata fields</source>
         <translation>元数据字段</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="309"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="112"/>
         <source>Restore Defaults</source>
         <translation>恢复默认值</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="337"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="140"/>
         <source>Photographic resources</source>
         <translation>摄影资源</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="345"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="148"/>
         <source>Manage reusable looks and optical profiles in their dedicated libraries.</source>
         <translation>在各自的资料库中管理可复用的外观和光学校正配置。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="356"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="159"/>
         <source>LUT Library…</source>
         <translation>LUT 资料库…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryPane.qml" line="361"/>
+        <location filename="../qml/SettingsLibraryPane.qml" line="164"/>
         <source>Optics Profiles…</source>
         <translation>光学校正配置…</translation>
     </message>
@@ -9261,302 +9335,302 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>SettingsLibraryServerPane</name>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="20"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="21"/>
         <source>%L1 B</source>
         <translation>%L1 B</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="22"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="23"/>
         <source>%L1 KB</source>
         <translation>%L1 KB</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="24"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="25"/>
         <source>%L1 MB</source>
         <translation>%L1 MB</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="25"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="26"/>
         <source>%L1 GB</source>
         <translation>%L1 GB</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="31"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="32"/>
         <source>Private RAW Provider available</source>
         <translation>私有 RAW Provider 可用</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="33"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="34"/>
         <source>Public RAW decoding only</source>
         <translation>仅使用公共 RAW 解码</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="35"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="36"/>
         <source>Provider Host not installed</source>
         <translation>未安装 Provider Host</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="37"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="38"/>
         <source>Checking Provider Host…</source>
         <translation>正在检查 Provider Host…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="43"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="44"/>
         <source>Checking the local server runtime…</source>
         <translation>正在检查本地服务器运行环境…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="44"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="45"/>
         <source>Scanning shared folders and preparing previews…</source>
         <translation>正在扫描共享文件夹并准备预览…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="45"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="46"/>
         <source>Stopping new connections…</source>
         <translation>正在停止接受新连接…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="46"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="47"/>
         <source>Restarting the server and rescanning shared folders…</source>
         <translation>正在重启服务器并重新扫描共享文件夹…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="47"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="48"/>
         <source>Clearing rebuildable server previews…</source>
         <translation>正在清理可重建的服务器预览…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="48"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="49"/>
         <source>This Mac is available to trusted Shadow clients.</source>
         <translation>受信任的 Shadow 客户端现在可以访问这台 Mac。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="49"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="50"/>
         <source>The server is ready to start.</source>
         <translation>服务器已准备好启动。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="50"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="51"/>
         <source>Library sharing has stopped.</source>
         <translation>图库共享已停止。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="51"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="52"/>
         <source>The server cache was cleared. It will be rebuilt on the next start.</source>
         <translation>服务器缓存已清理，将在下次启动时重新构建。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="52"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="53"/>
         <source>Add at least one shared folder first.</source>
         <translation>请先添加至少一个共享文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="53"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="54"/>
         <source>Choose an available local folder that is not already shared.</source>
         <translation>请选择一个尚未共享的可用本地文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="54"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="55"/>
         <source>Shared folder added.</source>
         <translation>已添加共享文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="55"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="56"/>
         <source>Shared folder removed from future manifests.</source>
         <translation>已从后续图库清单中移除该共享文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="56"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="57"/>
         <source>Secure credential storage is unavailable on this Mac.</source>
         <translation>这台 Mac 无法使用安全凭据存储。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="57"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="58"/>
         <source>The access token could not be read from secure storage.</source>
         <translation>无法从安全存储中读取访问令牌。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="58"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="59"/>
         <source>Access token copied. Share it only with a trusted device.</source>
         <translation>访问令牌已复制，请仅将其提供给可信设备。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="59"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="60"/>
         <source>A new access token was created. Existing clients must reconnect.</source>
         <translation>已创建新的访问令牌，现有客户端需要重新连接。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="60"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="61"/>
         <source>The access token could not be copied.</source>
         <translation>无法复制访问令牌。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="61"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="62"/>
         <source>The Library server could not complete the request.</source>
         <translation>图库服务器无法完成此操作。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="73"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="74"/>
         <source>Choose a folder to share</source>
         <translation>选择要共享的文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="81"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="82"/>
         <source>Clear server cache?</source>
         <translation>清理服务器缓存？</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="87"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="88"/>
         <source>Only the server Catalog and generated previews are removed. Original photos, shared-folder settings, and server identity remain unchanged.</source>
         <translation>只会移除服务器图库索引和生成的预览。原始照片、共享文件夹设置和服务器身份均保持不变。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="116"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="117"/>
         <source>Library Server</source>
         <translation>图库服务器</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="124"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="125"/>
         <source>Share proxy thumbnails for browsing and transfer an original RAW only when a trusted client opens it for editing.</source>
         <translation>共享用于浏览的代理缩略图，仅在可信客户端打开照片编辑时传输原始 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="148"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="149"/>
         <source>Sharing</source>
         <translation>正在共享</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="148"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="149"/>
         <source>Not sharing</source>
         <translation>未共享</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="157"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="158"/>
         <source>Address · %1</source>
         <translation>地址 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="158"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="159"/>
         <source>Start the server after choosing shared folders.</source>
         <translation>选择共享文件夹后即可启动服务器。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="175"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="176"/>
         <source>Stop Sharing</source>
         <translation>停止共享</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="175"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="176"/>
         <source>Start Sharing</source>
         <translation>开始共享</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="207"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="208"/>
         <source>Server identity</source>
         <translation>服务器身份</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="223"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="224"/>
         <source>Studio Mac</source>
         <translation>工作室 Mac</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="224"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="225"/>
         <source>Library server name</source>
         <translation>图库服务器名称</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="236"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="237"/>
         <source>Library server port</source>
         <translation>图库服务器端口</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="246"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="247"/>
         <source>Allow original RAW downloads</source>
         <translation>允许下载原始 RAW</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="256"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="12"/>
         <source>Start when Shadow opens</source>
         <translation>打开 Shadow 时自动启动</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="269"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="270"/>
         <source>Shared folders</source>
         <translation>共享文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="278"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="279"/>
         <source>Add Folder</source>
         <translation>添加文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="287"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="288"/>
         <source>No folders are shared. The server never exposes arbitrary paths from the main Library.</source>
         <translation>尚未共享任何文件夹。服务器不会暴露主图库中的任意路径。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="338"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="339"/>
         <source>Folder unavailable · %1</source>
         <translation>文件夹不可用 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="349"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="350"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="362"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="363"/>
         <source>%L1 indexed photos</source>
         <translation>已索引 %L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="370"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="371"/>
         <source>Rescan</source>
         <translation>重新扫描</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="380"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="381"/>
         <source>Provider, access &amp; cache</source>
         <translation>Provider、访问与缓存</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="392"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="393"/>
         <source>RAW preview runtime</source>
         <translation>RAW 预览运行环境</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="394"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="395"/>
         <source>Server preview cache</source>
         <translation>服务器预览缓存</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="396"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="397"/>
         <source>Access token</source>
         <translation>访问令牌</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="399"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="400"/>
         <source>Stored in Keychain</source>
         <translation>已存入钥匙串</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="399"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="400"/>
         <source>Created on first start</source>
         <translation>首次启动时创建</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="412"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="413"/>
         <source>Copy Access Token</source>
         <translation>复制访问令牌</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="420"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="421"/>
         <source>Create New Token</source>
         <translation>创建新令牌</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="431"/>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="432"/>
         <source>Clear Cache</source>
         <translation>清理缓存</translation>
     </message>

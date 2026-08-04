@@ -5,14 +5,13 @@
 
 namespace {
 
+using desktop_backend_projection::checked_qt_vector_size;
 using desktop_backend_projection::decision_flag;
 using desktop_backend_projection::ffi_decision_flag;
-using desktop_backend_projection::checked_qt_vector_size;
 using desktop_backend_projection::qstring;
 
-[[nodiscard]] BackendRemoteLibraryServer project_server(
-    const shadow::desktop::FfiRemoteLibraryServer& source
-) {
+[[nodiscard]] BackendRemoteLibraryServer
+project_server(const shadow::desktop::FfiRemoteLibraryServer& source) {
     return {
         .server_id = qstring(source.server_id),
         .display_name = qstring(source.display_name),
@@ -23,9 +22,8 @@ using desktop_backend_projection::qstring;
     };
 }
 
-[[nodiscard]] BackendRemoteLibraryPhoto project_photo(
-    const shadow::desktop::FfiRemoteLibraryPhoto& source
-) {
+[[nodiscard]] BackendRemoteLibraryPhoto
+project_photo(const shadow::desktop::FfiRemoteLibraryPhoto& source) {
     return {
         .server_id = qstring(source.server_id),
         .remote_photo_id = qstring(source.remote_photo_id),
@@ -69,10 +67,9 @@ using desktop_backend_projection::qstring;
     };
 }
 
-[[nodiscard]] BackendRemoteLibrarySnapshot project_snapshot(
-    const shadow::desktop::FfiRemoteLibrarySnapshot& source
-) {
-    BackendRemoteLibrarySnapshot result {
+[[nodiscard]] BackendRemoteLibrarySnapshot
+project_snapshot(const shadow::desktop::FfiRemoteLibrarySnapshot& source) {
+    BackendRemoteLibrarySnapshot result{
         .has_server = source.has_server,
         .server = project_server(source.server),
     };
@@ -85,15 +82,18 @@ using desktop_backend_projection::qstring;
 
 } // namespace
 
-BackendRemoteLibrarySnapshot DesktopBackend::remoteLibrarySnapshot() const {
-    return project_snapshot(impl_->session->remote_library_snapshot());
+BackendRemoteLibrarySnapshot
+DesktopBackend::remoteLibrarySnapshot(const QString& connection_id) const {
+    return project_snapshot(impl_->session->remote_library_snapshot(connection_id.toStdString()));
 }
 
 BackendRemoteLibrarySyncResult DesktopBackend::syncRemoteLibrary(
+    const QString& connection_id,
     const QString& server_address,
     const QString& authorization
 ) const {
     const auto result = impl_->session->sync_remote_library(
+        connection_id.toStdString(),
         server_address.toStdString(),
         authorization.toStdString()
     );
@@ -107,6 +107,7 @@ BackendRemoteLibrarySyncResult DesktopBackend::syncRemoteLibrary(
 }
 
 void DesktopBackend::setRemoteLibraryReviewState(
+    const QString& connection_id,
     const QString& remote_photo_id,
     const QString& remote_representation_id,
     const BackendReviewDecisionFlag flag,
@@ -116,6 +117,7 @@ void DesktopBackend::setRemoteLibraryReviewState(
     const std::int64_t updated_at_ms
 ) const {
     impl_->session->set_remote_library_review_state(
+        connection_id.toStdString(),
         remote_photo_id.toStdString(),
         remote_representation_id.toStdString(),
         ffi_decision_flag(flag),
@@ -127,12 +129,14 @@ void DesktopBackend::setRemoteLibraryReviewState(
 }
 
 BackendRemoteLibraryMaterialization DesktopBackend::materializeRemoteLibraryPhoto(
+    const QString& connection_id,
     const QString& server_address,
     const QString& authorization,
     const QString& remote_photo_id,
     const QString& remote_representation_id
 ) const {
     const auto result = impl_->session->materialize_remote_library_photo(
+        connection_id.toStdString(),
         server_address.toStdString(),
         authorization.toStdString(),
         remote_photo_id.toStdString(),

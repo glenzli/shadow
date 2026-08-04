@@ -10,23 +10,32 @@ use crate::remote_library_service::{
 };
 
 impl DesktopSession {
-    pub(crate) fn remote_library_snapshot(&self) -> AnyResult<ffi::FfiRemoteLibrarySnapshot> {
-        Ok(project_snapshot(self.remote_library.snapshot()?))
+    pub(crate) fn remote_library_snapshot(
+        &self,
+        connection_id: &str,
+    ) -> AnyResult<ffi::FfiRemoteLibrarySnapshot> {
+        Ok(project_snapshot(
+            self.remote_library.snapshot(connection_id)?,
+        ))
     }
 
     pub(crate) fn sync_remote_library(
         &self,
+        connection_id: &str,
         server_address: &str,
         authorization: &str,
     ) -> AnyResult<ffi::FfiRemoteLibrarySyncResult> {
-        Ok(project_sync_result(
-            self.remote_library.sync(server_address, authorization)?,
-        ))
+        Ok(project_sync_result(self.remote_library.sync(
+            connection_id,
+            server_address,
+            authorization,
+        )?))
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn set_remote_library_review_state(
         &self,
+        connection_id: &str,
         remote_photo_id: &str,
         remote_representation_id: &str,
         flag: ffi::FfiDecisionFlag,
@@ -36,6 +45,7 @@ impl DesktopSession {
         updated_at_ms: i64,
     ) -> AnyResult<()> {
         self.remote_library.set_review_state(
+            connection_id,
             remote_photo_id,
             remote_representation_id,
             remote_flag(flag),
@@ -48,12 +58,14 @@ impl DesktopSession {
 
     pub(crate) fn materialize_remote_library_photo(
         &self,
+        connection_id: &str,
         server_address: &str,
         authorization: &str,
         remote_photo_id: &str,
         remote_representation_id: &str,
     ) -> AnyResult<ffi::FfiRemoteLibraryMaterialization> {
         Ok(project_materialization(self.remote_library.materialize(
+            connection_id,
             server_address,
             authorization,
             remote_photo_id,

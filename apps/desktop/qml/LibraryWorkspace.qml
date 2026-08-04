@@ -60,11 +60,33 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Organize photos and manage local sources. Original files remain read-only.")
+                        text: qsTr("Manage local folders and remote Libraries together. Original files remain read-only.")
                         color: Theme.textMuted
                         font.pixelSize: 11
                     }
                 }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.border
+            }
+
+            LibraryRemoteConnectionsPane {
+                Layout.fillWidth: true
+                controller: library.controller
+            }
+
+            LibrarySourceHealthPane {
+                Layout.fillWidth: true
+                controller: library.controller
+            }
+
+            LibraryImportPane {
+                Layout.fillWidth: true
+                controller: library.controller
+                onChooseFolderRequested: library.chooseFolderRequested()
             }
 
             Rectangle {
@@ -80,23 +102,6 @@ Item {
                 allowAssignment: false
                 allowFiltering: true
                 manageTaxonomy: true
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                color: Theme.border
-            }
-
-            LibrarySourceHealthPane {
-                Layout.fillWidth: true
-                controller: library.controller
-            }
-
-            LibraryImportPane {
-                Layout.fillWidth: true
-                controller: library.controller
-                onChooseFolderRequested: library.chooseFolderRequested()
             }
 
             Item { Layout.preferredHeight: 32 }

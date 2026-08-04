@@ -34,10 +34,15 @@ class DesktopBackend final {
     [[nodiscard]] bool cancelFolderScan(std::uint64_t scan_id) const;
     [[nodiscard]] BackendPhotoInspection
     photoInspection(const QString& photo_id, const QString& representation_id) const;
-    [[nodiscard]] BackendRemoteLibrarySnapshot remoteLibrarySnapshot() const;
-    [[nodiscard]] BackendRemoteLibrarySyncResult
-    syncRemoteLibrary(const QString& server_address, const QString& authorization) const;
+    [[nodiscard]] BackendRemoteLibrarySnapshot
+    remoteLibrarySnapshot(const QString& connection_id) const;
+    [[nodiscard]] BackendRemoteLibrarySyncResult syncRemoteLibrary(
+        const QString& connection_id,
+        const QString& server_address,
+        const QString& authorization
+    ) const;
     void setRemoteLibraryReviewState(
+        const QString& connection_id,
         const QString& remote_photo_id,
         const QString& remote_representation_id,
         BackendReviewDecisionFlag flag,
@@ -47,6 +52,7 @@ class DesktopBackend final {
         std::int64_t updated_at_ms
     ) const;
     [[nodiscard]] BackendRemoteLibraryMaterialization materializeRemoteLibraryPhoto(
+        const QString& connection_id,
         const QString& server_address,
         const QString& authorization,
         const QString& remote_photo_id,

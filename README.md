@@ -157,16 +157,21 @@ downloads bounded chunks into a resumable `.part` file, verifies byte length and
 publishes the original into a separate local cache, registers that local path and whole-file
 identity in the client Catalog, and records the remote-to-local identity mapping. The server proxy
 remains a browse fallback; once the client Catalog has a current local Recipe preview, the shared
-presentation policy selects that adjusted local thumbnail first. The macOS desktop exposes the
-server address and Keychain-only access token in Library settings, loads its offline mirror without
-blocking startup, and projects remote proxies into Review. Opening a remote photo materializes and
-verifies the original before entering Precision; Recipe synchronization remains deliberately out
-of scope rather than becoming a hidden side effect of file transfer.
+presentation policy selects that adjusted local thumbnail first. **Library Management** presents
+local folders and any number of remote Libraries as peer sources. Every remote connection has a
+stable UUID, its own Keychain credential and persistent mirror, and an independently reported sync
+state; shared content-addressed proxy blobs still deduplicate identical bytes. The client loads all
+offline mirrors without blocking startup and projects their proxies into Review. Opening a remote
+photo materializes and verifies the original before entering Precision; Recipe synchronization
+remains deliberately out of scope rather than becoming a hidden side effect of file transfer.
 
-For normal server operation, run `./scripts/run_library_server_debug.sh`. It launches the canonical
-debug app directly into **Settings > Sharing**, where shared roots, access permission, startup
-policy, Provider state, rescan, cache, and listener lifetime can be managed together. The previous
-standalone CLI path remains available as
+For normal server operation, run `./scripts/run_library_server_debug.sh`. It launches the separate
+**Shadow Server.app** bundled with the canonical debug build, without starting the photo editor.
+That controller is the sole graphical owner of shared roots, access permission, startup policy,
+Provider state, rescan, cache, and listener lifetime. The normal Shadow photo application does not
+auto-start a competing listener. Closing the controller window while the server is running
+minimizes it; stop the listener first to quit normally. The direct CLI path remains
+available as
 `./scripts/run_library_server_debug.sh --headless /absolute/path/to/raw`; headless mode builds the
 current CLI source into an external debug target, keeps its Catalog, preview cache, stable identity,
 and generated access token under the sibling `.shadow-local-library-server` directory, and reuses
@@ -175,10 +180,9 @@ the Provider Host from the canonical debug app when compatible. Use
 `--check` to a headless command to inspect its resolved server paths without starting. The headless
 token file is user-only and is never printed.
 
-The macOS settings window also exposes a separate Sharing pane for operating this Mac as the
-server. It persists a bounded list of explicit shared roots, server name/port, application-start
-policy, and original-download permission; the access token remains in Keychain and is copied only
-after a direct user action. Starting or rescanning runs outside the UI thread, uses the same
+The standalone controller persists a bounded list of explicit shared roots, server name/port,
+controller-start policy, and original-download permission; the access token remains in Keychain
+and is copied only after a direct user action. Starting or rescanning runs outside the UI thread, uses the same
 embedded-preview-first Provider Host route as `library-serve`, and publishes only photos beneath
 the current roots. Removing a root therefore removes it from subsequent manifests without deleting
 the reusable server Catalog/cache. Cache reset is available only while stopped and preserves

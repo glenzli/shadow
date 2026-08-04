@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QThread>
 
@@ -20,8 +21,7 @@ void require(const bool condition, const std::string& message) {
     }
 }
 
-template <typename Predicate>
-void waitUntil(Predicate predicate, const std::string& message) {
+template <typename Predicate> void waitUntil(Predicate predicate, const std::string& message) {
     QElapsedTimer timer;
     timer.start();
     while (!predicate() && timer.elapsed() < 3'000) {
@@ -49,21 +49,42 @@ void waitUntil(Predicate predicate, const std::string& message) {
     photo.color_label = QStringLiteral("none");
     return {
         .has_server = true,
-        .server = {
-            .server_id = QStringLiteral("server-a"),
-            .display_name = QStringLiteral("Studio Mac"),
-            .embedded_previews_available = true,
-            .generated_proxies_available = true,
-            .originals_available = true,
-        },
+        .server =
+            {
+                .server_id = QStringLiteral("server-a"),
+                .display_name = QStringLiteral("Studio Mac"),
+                .embedded_previews_available = true,
+                .generated_proxies_available = true,
+                .originals_available = true,
+            },
         .photos = {photo},
     };
+}
+
+[[nodiscard]] BackendRemoteLibrarySnapshot remoteSnapshotB() {
+    BackendRemoteLibrarySnapshot snapshot = remoteSnapshot();
+    snapshot.server.server_id = QStringLiteral("server-b");
+    snapshot.server.display_name = QStringLiteral("Travel Mac");
+    snapshot.photos.front().server_id = QStringLiteral("server-b");
+    snapshot.photos.front().remote_photo_id = QStringLiteral("photo-b");
+    snapshot.photos.front().remote_representation_id = QStringLiteral("representation-b");
+    snapshot.photos.front().title = QStringLiteral("Remote B.nef");
+    snapshot.photos.front().preview_path = QStringLiteral("/client-cache/remote-b");
+    return snapshot;
 }
 
 void offline_sync_curation_and_materialization_are_non_blocking_and_identity_safe() {
     QTemporaryDir settings_root;
     require(settings_root.isValid(), "temporary settings root");
     const QString settings_file = settings_root.filePath(QStringLiteral("preferences.ini"));
+    {
+        QSettings settings(settings_file, QSettings::IniFormat);
+        settings.setValue(
+            QStringLiteral("remote_library/server_address"),
+            QStringLiteral("studio.local:45321")
+        );
+        settings.setValue(QStringLiteral("remote_library/token_stored"), false);
+    }
     ReviewModel model;
     ReviewItem local;
     local.photo_id = QStringLiteral("local-photo");
@@ -79,62 +100,80 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
     auto snapshot = remoteSnapshot();
     ReviewRemoteLibraryCoordinator coordinator(
         {
-            .snapshot = [snapshot, main_thread, &ran_off_main_thread]() {
-                ran_off_main_thread.store(
-                    QThread::currentThread() != main_thread,
-                    std::memory_order_release
-                );
-                return snapshot;
-            },
-            .sync = [snapshot, &sync_calls](const QString& address, const QString& token) {
-                require(address == QStringLiteral("studio.local:45321"), "synchronized address");
-                require(token.size() == 32, "secure token supplied only to worker operation");
-                sync_calls.fetch_add(1, std::memory_order_acq_rel);
-                return BackendRemoteLibrarySyncResult{
-                    .snapshot = snapshot,
-                    .page_count = 1,
-                    .photo_count = 1,
-                    .downloaded_previews = 0,
-                    .removed = 0,
-                };
-            },
-            .set_review_state = [&mutation_calls](
-                                    const QString& remote_photo_id,
-                                    const QString& remote_representation_id,
-                                    const BackendReviewDecisionFlag,
-                                    const std::uint8_t,
-                                    const bool,
-                                    const QString&,
-                                    const std::int64_t
-                                ) {
-                require(remote_photo_id == QStringLiteral("photo-a"), "remote photo identity");
-                require(
-                    remote_representation_id == QStringLiteral("representation-a"),
-                    "remote representation identity"
-                );
-                mutation_calls.fetch_add(1, std::memory_order_acq_rel);
-            },
-            .materialize = [&materialize_calls](
-                               const QString&,
-                               const QString& token,
-                               const QString& remote_photo_id,
-                               const QString& remote_representation_id
-                           ) {
-                require(token.size() == 32, "materialization receives secure token");
-                require(remote_photo_id == QStringLiteral("photo-a"), "materialized photo");
-                require(
-                    remote_representation_id == QStringLiteral("representation-a"),
-                    "materialized representation"
-                );
-                materialize_calls.fetch_add(1, std::memory_order_acq_rel);
-                return BackendRemoteLibraryMaterialization{
-                    .local_photo_id = QStringLiteral("local-materialized-photo"),
-                    .local_representation_id = QStringLiteral("local-materialized-representation"),
-                    .local_source_path = QStringLiteral("/local-cache/photo-a.nef"),
-                    .title = QStringLiteral("Remote A.nef"),
-                    .reused_existing = false,
-                };
-            },
+            .snapshot =
+                [snapshot, main_thread, &ran_off_main_thread](const QString& connection_id) {
+                    require(!connection_id.isEmpty(), "stable connection identity on cache read");
+                    ran_off_main_thread.store(
+                        QThread::currentThread() != main_thread,
+                        std::memory_order_release
+                    );
+                    return snapshot;
+                },
+            .sync =
+                [snapshot, &sync_calls](
+                    const QString& connection_id,
+                    const QString& address,
+                    const QString& token
+                ) {
+                    require(!connection_id.isEmpty(), "stable connection identity on sync");
+                    require(
+                        address == QStringLiteral("studio.local:45321"),
+                        "synchronized address"
+                    );
+                    require(token.size() == 32, "secure token supplied only to worker operation");
+                    sync_calls.fetch_add(1, std::memory_order_acq_rel);
+                    return BackendRemoteLibrarySyncResult{
+                        .snapshot = snapshot,
+                        .page_count = 1,
+                        .photo_count = 1,
+                        .downloaded_previews = 0,
+                        .removed = 0,
+                    };
+                },
+            .set_review_state =
+                [&mutation_calls](
+                    const QString& connection_id,
+                    const QString& remote_photo_id,
+                    const QString& remote_representation_id,
+                    const BackendReviewDecisionFlag,
+                    const std::uint8_t,
+                    const bool,
+                    const QString&,
+                    const std::int64_t
+                ) {
+                    require(!connection_id.isEmpty(), "stable connection identity on mutation");
+                    require(remote_photo_id == QStringLiteral("photo-a"), "remote photo identity");
+                    require(
+                        remote_representation_id == QStringLiteral("representation-a"),
+                        "remote representation identity"
+                    );
+                    mutation_calls.fetch_add(1, std::memory_order_acq_rel);
+                },
+            .materialize =
+                [&materialize_calls](
+                    const QString& connection_id,
+                    const QString&,
+                    const QString& token,
+                    const QString& remote_photo_id,
+                    const QString& remote_representation_id
+                ) {
+                    require(!connection_id.isEmpty(), "stable connection identity on materialize");
+                    require(token.size() == 32, "materialization receives secure token");
+                    require(remote_photo_id == QStringLiteral("photo-a"), "materialized photo");
+                    require(
+                        remote_representation_id == QStringLiteral("representation-a"),
+                        "materialized representation"
+                    );
+                    materialize_calls.fetch_add(1, std::memory_order_acq_rel);
+                    return BackendRemoteLibraryMaterialization{
+                        .local_photo_id = QStringLiteral("local-materialized-photo"),
+                        .local_representation_id =
+                            QStringLiteral("local-materialized-representation"),
+                        .local_source_path = QStringLiteral("/local-cache/photo-a.nef"),
+                        .title = QStringLiteral("Remote A.nef"),
+                        .reused_existing = false,
+                    };
+                },
         },
         model,
         settings_file,
@@ -153,12 +192,8 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
             && coordinator.remotePhotoCount() == 1,
         "offline mirror must append beside the local Catalog row"
     );
-    const QString presentation_photo_id = model
-                                              .data(
-                                                  model.index(1, 0),
-                                                  ReviewModel::PhotoIdRole
-                                              )
-                                              .toString();
+    const QString presentation_photo_id =
+        model.data(model.index(1, 0), ReviewModel::PhotoIdRole).toString();
     require(
         presentation_photo_id.startsWith(QStringLiteral("remote:server-a:")),
         "remote presentation identity must be namespaced by server"
@@ -171,7 +206,6 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
         ),
         "save secure connection"
     );
-    coordinator.syncNow();
     waitUntil(
         [&coordinator, &sync_calls]() {
             return coordinator.statusCode() == QStringLiteral("synchronized")
@@ -239,33 +273,46 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
 void shutdown_drains_queued_remote_curation() {
     QTemporaryDir settings_root;
     require(settings_root.isValid(), "shutdown settings root");
+    const QString settings_file = settings_root.filePath(QStringLiteral("preferences.ini"));
+    {
+        QSettings settings(settings_file, QSettings::IniFormat);
+        settings.setValue(
+            QStringLiteral("remote_library/server_address"),
+            QStringLiteral("studio.local:45321")
+        );
+        settings.setValue(QStringLiteral("remote_library/token_stored"), false);
+    }
     ReviewModel model;
     std::atomic<int> mutation_calls = 0;
     {
         ReviewRemoteLibraryCoordinator coordinator(
             {
-                .snapshot = []() { return remoteSnapshot(); },
-                .sync = [](const QString&, const QString&) {
-                    return BackendRemoteLibrarySyncResult{};
-                },
-                .set_review_state = [&mutation_calls](
-                                        const QString&,
-                                        const QString&,
-                                        const BackendReviewDecisionFlag,
-                                        const std::uint8_t,
-                                        const bool,
-                                        const QString&,
-                                        const std::int64_t
-                                    ) {
-                    QThread::msleep(10);
-                    mutation_calls.fetch_add(1, std::memory_order_acq_rel);
-                },
-                .materialize = [](const QString&, const QString&, const QString&, const QString&) {
-                    return BackendRemoteLibraryMaterialization{};
-                },
+                .snapshot = [](const QString&) { return remoteSnapshot(); },
+                .sync = [](const QString&,
+                           const QString&,
+                           const QString&) { return BackendRemoteLibrarySyncResult{}; },
+                .set_review_state =
+                    [&mutation_calls](
+                        const QString&,
+                        const QString&,
+                        const QString&,
+                        const BackendReviewDecisionFlag,
+                        const std::uint8_t,
+                        const bool,
+                        const QString&,
+                        const std::int64_t
+                    ) {
+                        QThread::msleep(10);
+                        mutation_calls.fetch_add(1, std::memory_order_acq_rel);
+                    },
+                .materialize = [](const QString&,
+                                  const QString&,
+                                  const QString&,
+                                  const QString&,
+                                  const QString&) { return BackendRemoteLibraryMaterialization{}; },
             },
             model,
-            settings_root.filePath(QStringLiteral("preferences.ini")),
+            settings_file,
             makeVolatileSecretStore()
         );
         coordinator.start();
@@ -273,9 +320,7 @@ void shutdown_drains_queued_remote_curation() {
             [&coordinator]() { return coordinator.remotePhotoCount() == 1; },
             "shutdown snapshot completion"
         );
-        const QString photo_id = model
-                                     .data(model.index(0, 0), ReviewModel::PhotoIdRole)
-                                     .toString();
+        const QString photo_id = model.data(model.index(0, 0), ReviewModel::PhotoIdRole).toString();
         require(
             coordinator.setDecision(photo_id, BackendReviewDecisionFlag::Picked, 1)
                 && coordinator.setDecision(photo_id, BackendReviewDecisionFlag::Picked, 2)
@@ -289,11 +334,133 @@ void shutdown_drains_queued_remote_curation() {
     );
 }
 
+void multiple_connections_keep_independent_identity_and_projection() {
+    QTemporaryDir settings_root;
+    require(settings_root.isValid(), "multi-connection settings root");
+    ReviewModel model;
+    std::atomic<int> sync_calls = 0;
+    ReviewRemoteLibraryCoordinator coordinator(
+        {
+            .snapshot = [](const QString&) { return BackendRemoteLibrarySnapshot{}; },
+            .sync =
+                [&sync_calls](
+                    const QString& connection_id,
+                    const QString& address,
+                    const QString& token
+                ) {
+                    require(!connection_id.isEmpty(), "multi-connection stable identity");
+                    require(token.size() == 32, "multi-connection secret routing");
+                    sync_calls.fetch_add(1, std::memory_order_acq_rel);
+                    return BackendRemoteLibrarySyncResult{
+                        .snapshot = address.startsWith(QStringLiteral("travel")) ? remoteSnapshotB()
+                                                                                 : remoteSnapshot(),
+                        .page_count = 1,
+                        .photo_count = 1,
+                    };
+                },
+            .set_review_state = [](const QString&,
+                                   const QString&,
+                                   const QString&,
+                                   BackendReviewDecisionFlag,
+                                   std::uint8_t,
+                                   bool,
+                                   const QString&,
+                                   std::int64_t) {},
+            .materialize =
+                [](const QString&, const QString&, const QString&, const QString&, const QString&) {
+                    return BackendRemoteLibraryMaterialization{};
+                },
+        },
+        model,
+        settings_root.filePath(QStringLiteral("preferences.ini")),
+        makeVolatileSecretStore()
+    );
+
+    const QString studio_id = coordinator.saveConnection(
+        {},
+        QStringLiteral("studio.local:45321"),
+        QStringLiteral("01234567890123456789012345678901")
+    );
+    require(!studio_id.isEmpty(), "first remote Library connection");
+    waitUntil(
+        [&coordinator, &sync_calls]() {
+            return !coordinator.busy() && sync_calls.load(std::memory_order_acquire) == 1;
+        },
+        "first remote Library synchronization"
+    );
+
+    const QString travel_id = coordinator.saveConnection(
+        {},
+        QStringLiteral("travel.local:45321"),
+        QStringLiteral("abcdefghijklmnopqrstuvwxyzABCDEF")
+    );
+    require(!travel_id.isEmpty() && travel_id != studio_id, "second stable connection identity");
+    waitUntil(
+        [&coordinator, &sync_calls]() {
+            return !coordinator.busy() && sync_calls.load(std::memory_order_acquire) == 2;
+        },
+        "second remote Library synchronization"
+    );
+
+    const QVariantList connections = coordinator.connections();
+    require(
+        connections.size() == 2 && coordinator.remotePhotoCount() == 2 && model.rowCount() == 2,
+        "both remote Libraries must remain independently visible (connections="
+            + std::to_string(connections.size())
+            + ", remote photos=" + std::to_string(coordinator.remotePhotoCount())
+            + ", rows=" + std::to_string(model.rowCount()) + ")"
+    );
+    require(
+        coordinator.removeConnection(studio_id) && coordinator.connections().size() == 1
+            && coordinator.remotePhotoCount() == 1 && model.rowCount() == 1,
+        "removing one remote Library must preserve the other projection"
+    );
+}
+
+void connection_store_preserves_stable_ids_and_legacy_migration() {
+    QTemporaryDir settings_root;
+    require(settings_root.isValid(), "connection store settings root");
+    const QString settings_file = settings_root.filePath(QStringLiteral("preferences.ini"));
+    QString first_id;
+    QString second_id;
+    {
+        RemoteLibraryConnectionStore store(settings_file);
+        first_id = store.add(QStringLiteral("studio.local:45321"), true);
+        second_id = store.add(QStringLiteral("travel.local:45321"), true);
+        require(first_id != second_id, "new Libraries receive distinct stable identities");
+    }
+    {
+        RemoteLibraryConnectionStore reopened(settings_file);
+        require(
+            reopened.connections().size() == 2 && reopened.connections().at(0).id == first_id
+                && reopened.connections().at(1).id == second_id,
+            "connection order and stable identities survive application restart"
+        );
+    }
+
+    const QString legacy_file = settings_root.filePath(QStringLiteral("legacy.ini"));
+    {
+        QSettings legacy(legacy_file, QSettings::IniFormat);
+        legacy.setValue(
+            QStringLiteral("remote_library/server_address"),
+            QStringLiteral("legacy.local:45321")
+        );
+        legacy.setValue(QStringLiteral("remote_library/token_stored"), true);
+    }
+    RemoteLibraryConnectionStore migrated(legacy_file);
+    require(
+        migrated.connections().size() == 1 && migrated.connections().front().uses_legacy_secret,
+        "the former single remote Library becomes one stable connection"
+    );
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     offline_sync_curation_and_materialization_are_non_blocking_and_identity_safe();
     shutdown_drains_queued_remote_curation();
+    multiple_connections_keep_independent_identity_and_projection();
+    connection_store_preserves_stable_ids_and_legacy_migration();
     return EXIT_SUCCESS;
 }

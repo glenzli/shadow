@@ -107,21 +107,31 @@ Application startup is split from environment-driven automation:
   key-read property. [`qml/MapProviderSettingsDialog.qml`](qml/MapProviderSettingsDialog.qml) is a
   thin compatibility wrapper for focused component loading rather than a second policy owner.
 - [`src/review_remote_library_coordinator.*`](src/review_remote_library_coordinator.hpp) owns the
-  complete desktop remote-Library lifecycle: offline mirror loading, Keychain-backed connection
-  state, background manifest synchronization, remote curation persistence, and verified on-demand
-  original materialization. [`src/review_controller_remote_library.cpp`](src/review_controller_remote_library.cpp)
-  is the thin QML facade routing owner; [`qml/SettingsLibraryPane.qml`](qml/SettingsLibraryPane.qml)
-  owns connection and sync interaction, while Review cards display only client-local proxy paths.
+  complete desktop remote-Library lifecycle: multi-mirror loading, per-connection Keychain routing,
+  background manifest synchronization, remote curation persistence, and verified on-demand
+  original materialization. [`src/remote_library_connection_store.*`](src/remote_library_connection_store.hpp)
+  owns ordered stable connection identities and migration from the former singleton setting;
+  secrets never enter that registry. [`src/review_controller_remote_library.cpp`](src/review_controller_remote_library.cpp)
+  is the thin QML facade routing owner. [`qml/LibraryRemoteConnectionsPane.qml`](qml/LibraryRemoteConnectionsPane.qml)
+  presents local and multiple remote Libraries together inside Library Management, while
+  [`qml/SettingsLibraryPane.qml`](qml/SettingsLibraryPane.qml) is limited to thumbnail, metadata,
+  and photographic-resource preferences. Review cards display only client-local proxy paths.
   Remote rows participate in locally mirrored curation filters but remain outside local-only
   albums, keywords, shared-node application, export, and metadata-facet scopes until materialized.
 - [`src/library_server_controller.*`](src/library_server_controller.hpp) owns the independent
-  settings-side lifecycle for sharing this Mac's folders: durable non-secret configuration,
+  lifecycle for sharing this Mac's folders: durable non-secret configuration,
   Keychain-only authorization, asynchronous start/stop/rescan/cache-reset admission, and bounded
   status projection. [`src/library_server_controller_backend.cpp`](src/library_server_controller_backend.cpp)
-  is its production adapter, while [`qml/SettingsLibraryServerPane.qml`](qml/SettingsLibraryServerPane.qml)
-  owns the complete management interaction. Provider discovery, scanning, listener threads, and
-  root/original-download enforcement stay in `shadow-desktop-bridge`; neither QML nor the Qt
-  controller shells out to a second server implementation.
+  retains the full-session adapter contract without giving the normal photo application listener
+  ownership; [`src/library_server_host.*`](src/library_server_host.hpp) and
+  [`src/backend/library_server_projection.*`](src/backend/library_server_projection.hpp) form the
+  lightweight shared boundary used by the dedicated process. [`src/server_manager/main.cpp`](src/server_manager/main.cpp)
+  and [`qml/ServerManagerMain.qml`](qml/ServerManagerMain.qml) own standalone **Shadow Server.app**
+  startup and window lifecycle. That shell alone presents
+  [`qml/SettingsLibraryServerPane.qml`](qml/SettingsLibraryServerPane.qml) and owns the graphical
+  listener lifetime, so launching the normal Shadow photo application cannot auto-start a competing
+  server. Provider discovery, scanning, listener threads, and root/original-download enforcement
+  stay in `shadow-desktop-bridge`; the server process does not initialize the photo-editing backend.
 - [`src/map/google_map_tiles_service.*`](src/map/google_map_tiles_service.hpp) owns the opt-in
   Google Map Tiles session, visible-only request queue, bounded policy-aware memory cache,
   `ETag` revalidation, backoff, cancellation, and viewport copyright lifecycle. It never installs

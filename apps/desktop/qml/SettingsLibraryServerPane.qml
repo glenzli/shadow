@@ -9,6 +9,7 @@ ScrollView {
     id: root
 
     required property var controller
+    property string autoStartLabel: qsTr("Start when Shadow opens")
 
     contentWidth: availableWidth
     clip: true
@@ -253,7 +254,7 @@ ScrollView {
 
                 ShadowSwitch {
                     compact: true
-                    text: qsTr("Start when Shadow opens")
+                    text: root.autoStartLabel
                     checked: root.controller.autoStart
                     onToggled: root.controller.autoStart = checked
                 }

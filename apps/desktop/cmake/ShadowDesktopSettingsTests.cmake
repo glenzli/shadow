@@ -550,7 +550,6 @@
             qml/ApplicationSettingsDialog.qml
             qml/SettingsGeneralPane.qml
             qml/SettingsLibraryPane.qml
-            qml/SettingsLibraryServerPane.qml
             qml/SettingsAiPane.qml
             qml/SettingsStoragePane.qml
             qml/MapProviderSettingsPane.qml
@@ -572,7 +571,6 @@
             icons/check.svg
             icons/map.svg
             icons/mask.svg
-            icons/library-manage.svg
             icons/review-grid.svg
             icons/settings.svg
     )
@@ -687,5 +685,58 @@
     )
     set_tests_properties(
         shadow-desktop-library-map-provider-overlay
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-library-remote-connections-pane-test
+        tests/library_remote_connections_pane_test.cpp
+    )
+    target_compile_features(
+        shadow-library-remote-connections-pane-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-library-remote-connections-pane-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-library-remote-connections-pane-test
+        URI Shadow.LibraryRemoteConnectionsContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/LibraryRemoteConnectionsPane.qml
+            qml/ShadowButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-library-remote-connections-pane-test
+        shadow-library-remote-connections-pane-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES
+            icons/add-folder.svg
+            icons/shared-link.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-remote-connections-pane-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-remote-connections-pane-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-remote-connections-pane
+        COMMAND shadow-library-remote-connections-pane-test
+    )
+    set_tests_properties(
+        shadow-desktop-library-remote-connections-pane
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )

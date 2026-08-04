@@ -5,6 +5,10 @@ set -eu
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 repository_parent=$(dirname -- "$repository_root")
+local_build_root=${SHADOW_LOCAL_BUILD_ROOT:-"$repository_parent/.shadow-local-build"}
+canonical_app="$local_build_root/current-debug/Shadow.app"
+server_app="$canonical_app/Contents/Applications/Shadow Server.app"
+server_executable="$server_app/Contents/MacOS/Shadow Server"
 
 usage() {
     cat <<'EOF'
@@ -14,8 +18,9 @@ usage:
   ./scripts/run_library_server_debug.sh --headless <shared-folder> [options]
 
 default control mode:
-  Launches the canonical Shadow debug app and opens Settings > Sharing, where the
-  managed Library server can be configured, started, stopped, and rescanned.
+  Launches the standalone Shadow Server controller from the canonical debug
+  bundle. It configures, starts, stops, and rescans this Mac's Library server
+  without opening the photo editor.
 
 headless options:
   --bind <address:port>   Listener address (default: 0.0.0.0:37641)
@@ -39,12 +44,22 @@ EOF
 if [ "${1:-}" != "--headless" ]; then
     case "${1:-}" in
         "")
-            exec "$repository_root/scripts/run_debug.sh" --open-settings sharing
+            if [ ! -x "$server_executable" ]; then
+                echo "Shadow Server is not present in the canonical debug build." >&2
+                echo "Expected: $server_app" >&2
+                exit 69
+            fi
+            exec "$server_executable"
             ;;
         --check)
             [ "$#" -eq 1 ] || { echo "--check does not accept extra control-mode arguments" >&2; exit 64; }
             "$repository_root/scripts/run_debug.sh" --check
-            echo "Library server control: Settings > Sharing"
+            if [ ! -x "$server_executable" ]; then
+                echo "Shadow Server is not present in the canonical debug build." >&2
+                echo "Expected: $server_app" >&2
+                exit 69
+            fi
+            echo "standalone server controller: $server_app"
             exit 0
             ;;
         -h|--help)
@@ -61,7 +76,6 @@ fi
 shift
 
 server_debug_root=${SHADOW_LIBRARY_SERVER_DEBUG_ROOT:-"$repository_parent/.shadow-local-library-server"}
-local_build_root=${SHADOW_LOCAL_BUILD_ROOT:-"$repository_parent/.shadow-local-build"}
 cargo_target_root=${SHADOW_LIBRARY_SERVER_CARGO_TARGET_DIR:-"$repository_parent/.shadow-local-target/library-server-debug"}
 canonical_helper="$local_build_root/current-debug/Shadow.app/Contents/MacOS/shadow-image-decode-helper"
 bind_address=${SHADOW_LIBRARY_SERVER_BIND:-"0.0.0.0:37641"}

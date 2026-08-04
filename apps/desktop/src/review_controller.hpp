@@ -250,6 +250,7 @@ class ReviewController final : public QObject {
     Q_PROPERTY(int filteredItemCount READ filteredItemCount NOTIFY filtersChanged)
     Q_PROPERTY(QVariantList sharedGradeNodes READ sharedGradeNodes NOTIFY sharedGradeNodesChanged)
     Q_PROPERTY(bool remoteLibraryBusy READ remoteLibraryBusy NOTIFY remoteLibraryChanged)
+    Q_PROPERTY(QVariantList remoteLibraries READ remoteLibraries NOTIFY remoteLibraryChanged)
     Q_PROPERTY(bool remoteLibrarySyncing READ remoteLibrarySyncing NOTIFY remoteLibraryChanged)
     Q_PROPERTY(
         bool remoteLibraryMaterializing READ remoteLibraryMaterializing NOTIFY remoteLibraryChanged
@@ -269,9 +270,7 @@ class ReviewController final : public QObject {
     Q_PROPERTY(
         QString remoteLibraryServerName READ remoteLibraryServerName NOTIFY remoteLibraryChanged
     )
-    Q_PROPERTY(
-        int remoteLibraryPhotoCount READ remoteLibraryPhotoCount NOTIFY remoteLibraryChanged
-    )
+    Q_PROPERTY(int remoteLibraryPhotoCount READ remoteLibraryPhotoCount NOTIFY remoteLibraryChanged)
     Q_PROPERTY(
         QString remoteLibraryStatusCode READ remoteLibraryStatusCode NOTIFY remoteLibraryChanged
     )
@@ -381,6 +380,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] int filteredItemCount() const noexcept;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
     [[nodiscard]] bool remoteLibraryBusy() const noexcept;
+    [[nodiscard]] QVariantList remoteLibraries() const;
     [[nodiscard]] bool remoteLibrarySyncing() const noexcept;
     [[nodiscard]] bool remoteLibraryMaterializing() const noexcept;
     [[nodiscard]] bool remoteLibrarySecureStorageAvailable() const noexcept;
@@ -450,8 +450,16 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void setPhotoLiked(const QString& photo_id, bool liked);
     Q_INVOKABLE bool
     saveRemoteLibraryConnection(const QString& server_address, const QString& token);
+    Q_INVOKABLE QString saveRemoteLibraryConnection(
+        const QString& connection_id,
+        const QString& server_address,
+        const QString& token
+    );
     Q_INVOKABLE bool removeRemoteLibraryConnection();
+    Q_INVOKABLE bool removeRemoteLibraryConnection(const QString& connection_id);
     Q_INVOKABLE void syncRemoteLibrary();
+    Q_INVOKABLE void syncRemoteLibrary(const QString& connection_id);
+    Q_INVOKABLE void syncAllRemoteLibraries();
     Q_INVOKABLE void materializeRemotePhoto(const QString& photo_id);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();

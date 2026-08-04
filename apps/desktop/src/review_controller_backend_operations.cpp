@@ -379,13 +379,18 @@ remote_library_operations(const std::shared_ptr<DesktopBackend>& backend) {
         throw std::invalid_argument("Remote Library backend is required");
     }
     return {
-        .snapshot = [backend]() { return backend->remoteLibrarySnapshot(); },
+        .snapshot = [backend](
+                        const QString& connection_id
+                    ) { return backend->remoteLibrarySnapshot(connection_id); },
         .sync =
-            [backend](const QString& server_address, const QString& authorization) {
-                return backend->syncRemoteLibrary(server_address, authorization);
-            },
+            [backend](
+                const QString& connection_id,
+                const QString& server_address,
+                const QString& authorization
+            ) { return backend->syncRemoteLibrary(connection_id, server_address, authorization); },
         .set_review_state =
             [backend](
+                const QString& connection_id,
                 const QString& remote_photo_id,
                 const QString& remote_representation_id,
                 const BackendReviewDecisionFlag flag,
@@ -395,6 +400,7 @@ remote_library_operations(const std::shared_ptr<DesktopBackend>& backend) {
                 const std::int64_t updated_at_ms
             ) {
                 backend->setRemoteLibraryReviewState(
+                    connection_id,
                     remote_photo_id,
                     remote_representation_id,
                     flag,
@@ -406,12 +412,14 @@ remote_library_operations(const std::shared_ptr<DesktopBackend>& backend) {
             },
         .materialize =
             [backend](
+                const QString& connection_id,
                 const QString& server_address,
                 const QString& authorization,
                 const QString& remote_photo_id,
                 const QString& remote_representation_id
             ) {
                 return backend->materializeRemoteLibraryPhoto(
+                    connection_id,
                     server_address,
                     authorization,
                     remote_photo_id,
