@@ -114,6 +114,14 @@ Application startup is split from environment-driven automation:
   owns connection and sync interaction, while Review cards display only client-local proxy paths.
   Remote rows participate in locally mirrored curation filters but remain outside local-only
   albums, keywords, shared-node application, export, and metadata-facet scopes until materialized.
+- [`src/library_server_controller.*`](src/library_server_controller.hpp) owns the independent
+  settings-side lifecycle for sharing this Mac's folders: durable non-secret configuration,
+  Keychain-only authorization, asynchronous start/stop/rescan/cache-reset admission, and bounded
+  status projection. [`src/library_server_controller_backend.cpp`](src/library_server_controller_backend.cpp)
+  is its production adapter, while [`qml/SettingsLibraryServerPane.qml`](qml/SettingsLibraryServerPane.qml)
+  owns the complete management interaction. Provider discovery, scanning, listener threads, and
+  root/original-download enforcement stay in `shadow-desktop-bridge`; neither QML nor the Qt
+  controller shells out to a second server implementation.
 - [`src/map/google_map_tiles_service.*`](src/map/google_map_tiles_service.hpp) owns the opt-in
   Google Map Tiles session, visible-only request queue, bounded policy-aware memory cache,
   `ETag` revalidation, backoff, cancellation, and viewport copyright lifecycle. It never installs

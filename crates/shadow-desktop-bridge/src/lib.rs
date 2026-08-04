@@ -8,6 +8,7 @@
 // Library lifecycle and durable application services.
 mod digest_hex;
 mod history_service;
+mod library_server_service;
 mod library_service;
 mod photo_inspection_service;
 mod relink_service;
@@ -16,6 +17,7 @@ mod review_service;
 mod scan_service;
 mod session_history;
 mod session_library;
+mod session_library_server;
 mod session_photo_inspection;
 mod session_remote_library;
 mod session_review;
@@ -58,6 +60,9 @@ mod session_cache_maintenance;
 mod session_export;
 
 pub use isolated_proxy::{ProviderHostInventory, inspect_provider_host};
+pub use library_server_service::{
+    LibraryServerService, LibraryServerSnapshot, LibraryServerStartRequest, LibraryServerStorage,
+};
 pub use photo_provider::PhotoInspector;
 
 use std::{
@@ -276,6 +281,29 @@ mod ffi {
         local_source_path: String,
         title: String,
         reused_existing: bool,
+    }
+
+    /// Native-only configuration for this Mac's managed remote-Library listener.
+    #[derive(Debug)]
+    struct FfiLibraryServerConfig {
+        bind_address: String,
+        authorization: String,
+        display_name: String,
+        share_roots: Vec<String>,
+        serves_originals: bool,
+    }
+
+    /// Bounded status projection for the Library-server settings UI.
+    #[derive(Debug)]
+    struct FfiLibraryServerSnapshot {
+        running: bool,
+        local_address: String,
+        display_name: String,
+        provider_mode: String,
+        photo_count: u64,
+        cache_byte_len: u64,
+        shared_root_count: u64,
+        serves_originals: bool,
     }
 
     /// Low-frequency details for one exact selected `{photo, representation}`.
@@ -1721,6 +1749,13 @@ mod ffi {
             remote_photo_id: &str,
             remote_representation_id: &str,
         ) -> Result<FfiRemoteLibraryMaterialization>;
+        fn library_server_snapshot(self: &DesktopSession) -> Result<FfiLibraryServerSnapshot>;
+        fn start_library_server(
+            self: &DesktopSession,
+            config: &FfiLibraryServerConfig,
+        ) -> Result<FfiLibraryServerSnapshot>;
+        fn stop_library_server(self: &DesktopSession) -> Result<FfiLibraryServerSnapshot>;
+        fn reset_library_server_cache(self: &DesktopSession) -> Result<FfiLibraryServerSnapshot>;
         fn photo_inspection(
             self: &DesktopSession,
             photo_id: &str,
@@ -2187,6 +2222,7 @@ struct DesktopSession {
     raw_foundation_runtime: raw_foundation_runtime::RawFoundationRuntime,
     library: LibraryService,
     remote_library: RemoteLibraryService,
+    library_server: LibraryServerService,
     relink: RelinkService,
     cache_maintenance: CacheMaintenanceService,
     photo_inspection: PhotoInspectionService,
@@ -2233,10 +2269,17 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         raw_foundation_runtime::RawFoundationRuntime::open(raw_foundation_paths)?;
     let session_previews = Arc::new(SessionPreviewStore::default());
     let remote_library = RemoteLibraryService::open(catalog.clone(), catalog_path, &cache_root)?;
+    let library_server_root = catalog_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("library-server");
     Ok(Box::new(DesktopSession {
         _actor: actor,
         library: LibraryService::new(catalog.clone()),
         remote_library,
+        library_server: LibraryServerService::new(LibraryServerStorage::for_root(
+            library_server_root,
+        )),
         relink: RelinkService::new(catalog.clone()),
         cache_maintenance,
         photo_inspection: PhotoInspectionService::new(catalog.clone()),

@@ -12,6 +12,7 @@
 #include "geonames_library_reverse_geocoder.hpp"
 #include "history_coordinator.hpp"
 #include "justified_review_layout_model.hpp"
+#include "library_server_controller.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
 #include "map/google_map_tiles_service.hpp"
@@ -217,6 +218,11 @@ int main(int argc, char* argv[]) {
     );
     ExportController export_controller(backend, isolated_settings_file);
     CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
+    LibraryServerController library_server_controller(
+        backend,
+        isolated_settings_file,
+        headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
+    );
     JustifiedReviewLayoutModel justified_review_layout;
     justified_review_layout.setSourceModel(controller.model());
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
@@ -281,6 +287,10 @@ int main(int argc, char* argv[]) {
         {
             QStringLiteral("cacheMaintenanceController"),
             QVariant::fromValue(&cache_maintenance_controller),
+        },
+        {
+            QStringLiteral("libraryServerController"),
+            QVariant::fromValue(&library_server_controller),
         },
         {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},

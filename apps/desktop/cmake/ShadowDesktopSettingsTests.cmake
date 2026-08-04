@@ -92,6 +92,38 @@
     add_test(NAME shadow-desktop-cache-preferences COMMAND shadow-cache-preferences-test)
 
     add_executable(
+        shadow-library-server-controller-test
+        tests/library_server_controller_test.cpp
+        src/library_server_controller.cpp
+        src/library_server_controller.hpp
+        src/secure_secret_store.hpp
+    )
+    target_compile_features(shadow-library-server-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-library-server-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-library-server-controller-test
+        PRIVATE Qt6::Concurrent Qt6::Core Qt6::Gui Qt6::Network
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-server-controller-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-server-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-server-controller
+        COMMAND shadow-library-server-controller-test
+    )
+
+    add_executable(
         shadow-map-provider-preferences-test
         tests/map_provider_preferences_test.cpp
         src/map_provider_preferences.cpp
@@ -518,6 +550,7 @@
             qml/ApplicationSettingsDialog.qml
             qml/SettingsGeneralPane.qml
             qml/SettingsLibraryPane.qml
+            qml/SettingsLibraryServerPane.qml
             qml/SettingsAiPane.qml
             qml/SettingsStoragePane.qml
             qml/MapProviderSettingsPane.qml
@@ -539,6 +572,7 @@
             icons/check.svg
             icons/map.svg
             icons/mask.svg
+            icons/library-manage.svg
             icons/review-grid.svg
             icons/settings.svg
     )

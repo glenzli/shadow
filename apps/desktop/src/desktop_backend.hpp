@@ -3,6 +3,7 @@
 #include "backend/cache_types.hpp"
 #include "backend/edit_types.hpp"
 #include "backend/history_types.hpp"
+#include "backend/library_server_types.hpp"
 #include "backend/library_types.hpp"
 #include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
@@ -51,6 +52,11 @@ class DesktopBackend final {
         const QString& remote_photo_id,
         const QString& remote_representation_id
     ) const;
+    [[nodiscard]] BackendLibraryServerSnapshot libraryServerSnapshot() const;
+    [[nodiscard]] BackendLibraryServerSnapshot
+    startLibraryServer(const BackendLibraryServerConfig& config) const;
+    [[nodiscard]] BackendLibraryServerSnapshot stopLibraryServer() const;
+    [[nodiscard]] BackendLibraryServerSnapshot resetLibraryServerCache() const;
     [[nodiscard]] BackendLibraryPhotoPage libraryPhotoPage(
         const BackendLibraryPhotoFilter& filter,
         BackendLibraryPhotoOrder order,
@@ -228,10 +234,8 @@ class DesktopBackend final {
     ) const;
     void discardSubjectMaskProposal(std::uint64_t proposal_token) const;
     [[nodiscard]] BackendRawFoundationRuntimeStatus probeRawFoundationRuntime() const;
-    [[nodiscard]] BackendRawFoundationNoiseAssessment assessRawFoundationNoise(
-        const QString& photo_id,
-        const QString& source_path
-    ) const;
+    [[nodiscard]] BackendRawFoundationNoiseAssessment
+    assessRawFoundationNoise(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] std::uint64_t
     beginRawFoundationJob(const QString& request_id, std::uint64_t generation) const;
     void cancelRawFoundationJob(std::uint64_t raw_foundation_job_token) const;

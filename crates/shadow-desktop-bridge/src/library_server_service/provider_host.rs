@@ -1,8 +1,4 @@
-//! Remote-Library adaptation for the isolated private decoder Provider Host.
-//!
-//! Public `LibRaw` remains the embedded-preview-first route. The verified Host is consulted only
-//! when the public snapshot cannot expose either an embedded preview or reference RGB, keeping
-//! ordinary RAW browsing cheap while making provider-only files visible.
+//! Embedded-preview-first decoder routing for the managed Library server.
 
 use std::{
     env,
@@ -10,14 +6,58 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use shadow_bridge::{
+    extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
+    render_libraw_reference_proxy,
+};
 use shadow_core::DecodeInspector;
-use shadow_desktop_bridge::{PhotoInspector, inspect_provider_host};
 use shadow_domain::{DecoderSnapshot, PreviewPayload, ProxyPayload};
 
-use crate::decode::LibRawInspector;
+use crate::{PhotoInspector, inspect_provider_host};
 
 const HELPER_PATH_ENVIRONMENT: &str = "SHADOW_DECODE_HELPER_PATH";
 const HELPER_EXECUTABLE_NAME: &str = "shadow-image-decode-helper";
+
+#[derive(Debug, Clone)]
+struct LibRawInspector {
+    version: String,
+}
+
+impl LibRawInspector {
+    fn new() -> Self {
+        Self {
+            version: libraw_provider_version(),
+        }
+    }
+}
+
+impl DecodeInspector for LibRawInspector {
+    fn provider_id(&self) -> &'static str {
+        "libraw"
+    }
+
+    fn provider_version(&self) -> &str {
+        &self.version
+    }
+
+    fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
+        inspect_libraw(path).map_err(|error| error.to_string())
+    }
+
+    fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
+        extract_best_libraw_preview(path).map_err(|error| error.to_string())
+    }
+
+    fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
+        render_libraw_reference_proxy(path, 2_048, 88)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    }
+
+    fn proxy_variant_key(&self) -> &'static str {
+        "libraw:grid-jpeg-2048-q88-444-v1"
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum PreviewRoute {
@@ -26,7 +66,7 @@ enum PreviewRoute {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct RemoteLibraryServerPreviewInspector {
+pub(super) struct LibraryServerPreviewInspector {
     public: LibRawInspector,
     provider_host: Option<PhotoInspector>,
     provider_version: String,
@@ -34,7 +74,7 @@ pub(super) struct RemoteLibraryServerPreviewInspector {
     active_source: Option<(PathBuf, PreviewRoute)>,
 }
 
-impl RemoteLibraryServerPreviewInspector {
+impl LibraryServerPreviewInspector {
     fn public_only() -> Self {
         let public = LibRawInspector::new();
         Self {
@@ -89,7 +129,7 @@ impl RemoteLibraryServerPreviewInspector {
     }
 }
 
-impl DecodeInspector for RemoteLibraryServerPreviewInspector {
+impl DecodeInspector for LibraryServerPreviewInspector {
     fn provider_id(&self) -> &'static str {
         "shadow-remote-library-preview-router"
     }
@@ -161,8 +201,8 @@ impl DecodeInspector for RemoteLibraryServerPreviewInspector {
 }
 
 #[derive(Debug)]
-pub(super) struct RemoteLibraryServerPreviewRuntime {
-    inspector: RemoteLibraryServerPreviewInspector,
+pub(super) struct LibraryServerPreviewRuntime {
+    inspector: LibraryServerPreviewInspector,
     mode: ProviderHostMode,
 }
 
@@ -173,11 +213,11 @@ enum ProviderHostMode {
     Private,
 }
 
-impl RemoteLibraryServerPreviewRuntime {
-    pub(super) fn discover(cache_root: &str) -> Result<Self> {
+impl LibraryServerPreviewRuntime {
+    pub(super) fn discover(cache_root: &Path) -> Result<Self> {
         let Some(helper_path) = configured_provider_host_path()? else {
             return Ok(Self {
-                inspector: RemoteLibraryServerPreviewInspector::public_only(),
+                inspector: LibraryServerPreviewInspector::public_only(),
                 mode: ProviderHostMode::Absent,
             });
         };
@@ -189,15 +229,15 @@ impl RemoteLibraryServerPreviewRuntime {
         })?;
         if !inventory.private_provider_available {
             return Ok(Self {
-                inspector: RemoteLibraryServerPreviewInspector::public_only(),
+                inspector: LibraryServerPreviewInspector::public_only(),
                 mode: ProviderHostMode::PublicOnly,
             });
         }
-        let runtime_cache = Path::new(cache_root).join("provider-host-runtime");
+        let runtime_cache = cache_root.join("provider-host-runtime");
         let inspector =
             PhotoInspector::new_with_provider_host(runtime_cache, helper_path, &inventory)?;
         Ok(Self {
-            inspector: RemoteLibraryServerPreviewInspector::with_provider_host(inspector),
+            inspector: LibraryServerPreviewInspector::with_provider_host(inspector),
             mode: ProviderHostMode::Private,
         })
     }
@@ -214,7 +254,7 @@ impl RemoteLibraryServerPreviewRuntime {
         }
     }
 
-    pub(super) fn into_inspector(self) -> RemoteLibraryServerPreviewInspector {
+    pub(super) fn into_inspector(self) -> LibraryServerPreviewInspector {
         self.inspector
     }
 }

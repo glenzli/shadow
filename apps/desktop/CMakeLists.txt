@@ -311,6 +311,7 @@ qt_add_executable(
     src/desktop_backend_edit.cpp
     src/desktop_backend_history.cpp
     src/desktop_backend_library.cpp
+    src/desktop_backend_library_server.cpp
     src/desktop_backend_remote_library.cpp
     src/desktop_backend_review.cpp
     src/desktop_backend.hpp
@@ -324,6 +325,7 @@ qt_add_executable(
     src/backend/cache_types.hpp
     src/backend/edit_types.hpp
     src/backend/library_types.hpp
+    src/backend/library_server_types.hpp
     src/backend/remote_library_types.hpp
     src/backend/review_types.hpp
     src/folder_scan_backend.cpp
@@ -425,6 +427,9 @@ qt_add_executable(
     src/geonames_library_reverse_geocoder.hpp
     src/justified_review_layout_model.cpp
     src/justified_review_layout_model.hpp
+    src/library_server_controller.cpp
+    src/library_server_controller_backend.cpp
+    src/library_server_controller.hpp
     src/google_library_reverse_geocoder.cpp
     src/google_library_reverse_geocoder.hpp
     src/library_reverse_geocoder.hpp
@@ -714,6 +719,7 @@ qt_add_qml_module(
         qml/ApplicationSettingsDialog.qml
         qml/SettingsGeneralPane.qml
         qml/SettingsLibraryPane.qml
+        qml/SettingsLibraryServerPane.qml
         qml/SettingsAiPane.qml
         qml/SettingsStoragePane.qml
         qml/Main.qml

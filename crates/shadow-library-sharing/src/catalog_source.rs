@@ -38,7 +38,55 @@ pub struct CatalogShareSource {
     catalog_path: PathBuf,
     preview_store: ContentAddressedStore,
     server_info: ServerInfo,
+    policy: CatalogSharePolicy,
     state: Mutex<SourceState>,
+}
+
+/// Server-local projection policy applied before native source identities enter the wire layer.
+#[derive(Debug, Clone)]
+pub struct CatalogSharePolicy {
+    allowed_roots: Option<Vec<PathBuf>>,
+    serves_originals: bool,
+}
+
+impl CatalogSharePolicy {
+    #[must_use]
+    pub fn for_roots(allowed_roots: Vec<PathBuf>, serves_originals: bool) -> Self {
+        Self {
+            allowed_roots: Some(
+                allowed_roots
+                    .into_iter()
+                    .filter_map(|root| root.canonicalize().ok())
+                    .collect(),
+            ),
+            serves_originals,
+        }
+    }
+
+    fn admitted_native_path(&self, location: &shadow_domain::AssetLocation) -> Option<PathBuf> {
+        let path = native_path(location).ok()?;
+        let Some(roots) = &self.allowed_roots else {
+            return Some(path);
+        };
+        let canonical = path.canonicalize().ok()?;
+        roots
+            .iter()
+            .any(|root| canonical.starts_with(root))
+            .then_some(canonical)
+    }
+
+    fn allows_location(&self, location: &shadow_domain::AssetLocation) -> bool {
+        self.admitted_native_path(location).is_some()
+    }
+}
+
+impl Default for CatalogSharePolicy {
+    fn default() -> Self {
+        Self {
+            allowed_roots: None,
+            serves_originals: true,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +117,29 @@ impl CatalogShareSource {
         display_name: impl Into<String>,
         private_preview_provider_available: bool,
     ) -> Result<Self, CatalogShareSourceError> {
+        Self::open_with_policy(
+            catalog_path,
+            preview_cache_root,
+            server_state_root,
+            display_name,
+            private_preview_provider_available,
+            CatalogSharePolicy::default(),
+        )
+    }
+
+    /// Opens a Catalog projection constrained to configured roots and original-download policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as `open`.
+    pub fn open_with_policy(
+        catalog_path: impl Into<PathBuf>,
+        preview_cache_root: impl Into<PathBuf>,
+        server_state_root: impl Into<PathBuf>,
+        display_name: impl Into<String>,
+        private_preview_provider_available: bool,
+        policy: CatalogSharePolicy,
+    ) -> Result<Self, CatalogShareSourceError> {
         let catalog_path = catalog_path.into();
         Catalog::open(&catalog_path)?;
         let preview_store = ContentAddressedStore::open(preview_cache_root.into())?;
@@ -87,7 +158,11 @@ impl CatalogShareSource {
                 capabilities: ServerCapabilities {
                     serves_embedded_previews: CapabilityAvailability::Available,
                     serves_generated_proxies: CapabilityAvailability::Available,
-                    serves_originals: CapabilityAvailability::Available,
+                    serves_originals: if policy.serves_originals {
+                        CapabilityAvailability::Available
+                    } else {
+                        CapabilityAvailability::Unavailable
+                    },
                     private_preview_provider: if private_preview_provider_available {
                         CapabilityAvailability::Available
                     } else {
@@ -97,6 +172,7 @@ impl CatalogShareSource {
                     maximum_original_chunk_bytes: MAX_ORIGINAL_CHUNK_BYTES,
                 },
             },
+            policy,
             state: Mutex::new(SourceState::default()),
         })
     }
@@ -132,21 +208,30 @@ impl LibraryShareSource for CatalogShareSource {
             None => None,
         };
         let catalog = self.catalog()?;
-        let page = catalog
-            .review_page(after.as_ref(), usize::from(limit))
-            .map_err(|error| catalog_remote_error(&error))?;
-        let mut manifests = Vec::with_capacity(page.items.len());
+        let mut source_cursor = after;
+        let mut manifests = Vec::with_capacity(usize::from(limit));
         let mut allowed = Vec::new();
-        for item in page.items {
-            let neutral_preview = neutral_preview(&catalog, &item)?;
-            if let RemotePreviewAvailability::Available(manifest) = &neutral_preview {
-                allowed.push((manifest.digest_blake3, manifest.clone()));
-            }
-            let metadata =
-                item.metadata
-                    .as_ref()
-                    .map_or_else(RemotePhotoMetadata::default, |metadata| {
-                        RemotePhotoMetadata {
+        let next_source_cursor =
+            loop {
+                let remaining = usize::from(limit).saturating_sub(manifests.len());
+                if remaining == 0 {
+                    break source_cursor;
+                }
+                let page = catalog
+                    .review_page(source_cursor.as_ref(), remaining)
+                    .map_err(|error| catalog_remote_error(&error))?;
+                let page_next = page.next_cursor;
+                for item in page.items {
+                    if !self.policy.allows_location(&item.location) {
+                        continue;
+                    }
+                    let neutral_preview = neutral_preview(&catalog, &item)?;
+                    if let RemotePreviewAvailability::Available(manifest) = &neutral_preview {
+                        allowed.push((manifest.digest_blake3, manifest.clone()));
+                    }
+                    let metadata = item.metadata.as_ref().map_or_else(
+                        RemotePhotoMetadata::default,
+                        |metadata| RemotePhotoMetadata {
                             captured_at_unix_seconds: nonzero_i64(
                                 metadata.captured_at_unix_seconds,
                             ),
@@ -161,18 +246,23 @@ impl LibraryShareSource for CatalogShareSource {
                             raw_dimensions: (metadata.raw_dimensions.width != 0
                                 && metadata.raw_dimensions.height != 0)
                                 .then_some(metadata.raw_dimensions),
-                        }
+                        },
+                    );
+                    manifests.push(RemotePhotoManifest {
+                        photo_id: item.photo_id,
+                        representation_id: item.representation_id,
+                        display_name: display_file_name(&item.location.display_path),
+                        source_byte_len: item.source.byte_len,
+                        source_modified_at_ms: item.source.modified_at_ms,
+                        metadata,
+                        preview: neutral_preview,
                     });
-            manifests.push(RemotePhotoManifest {
-                photo_id: item.photo_id,
-                representation_id: item.representation_id,
-                display_name: display_file_name(&item.location.display_path),
-                source_byte_len: item.source.byte_len,
-                source_modified_at_ms: item.source.modified_at_ms,
-                metadata,
-                preview: neutral_preview,
-            });
-        }
+                }
+                if manifests.len() == usize::from(limit) || page_next.is_none() {
+                    break page_next;
+                }
+                source_cursor = page_next;
+            };
 
         let mut state = self.state.lock().map_err(lock_error)?;
         if state.cursors.len() >= MAXIMUM_CURSOR_LEASES {
@@ -181,7 +271,7 @@ impl LibraryShareSource for CatalogShareSource {
         for (digest, manifest) in allowed {
             state.allowed_previews.insert(digest, manifest);
         }
-        let next_cursor = page.next_cursor.map(|cursor| {
+        let next_cursor = next_source_cursor.map(|cursor| {
             let token = Uuid::now_v7().to_string();
             state.cursors.insert(token.clone(), cursor);
             token
@@ -228,13 +318,27 @@ impl LibraryShareSource for CatalogShareSource {
         photo_id: PhotoId,
         representation_id: RepresentationId,
     ) -> Result<PreparedOriginal, RemoteError> {
+        if !self.policy.serves_originals {
+            return Err(remote_error(
+                RemoteErrorCode::Unavailable,
+                "original downloads are disabled by the server owner",
+            ));
+        }
         let catalog = self.catalog()?;
         let item = catalog
             .photo_source(photo_id)
             .map_err(|error| catalog_remote_error(&error))?
             .filter(|item| item.representation_id == representation_id)
             .ok_or_else(|| remote_error(RemoteErrorCode::NotFound, "photo source not found"))?;
-        let path = native_path(&item.location)?;
+        let path = self
+            .policy
+            .admitted_native_path(&item.location)
+            .ok_or_else(|| {
+                remote_error(
+                    RemoteErrorCode::NotFound,
+                    "photo source is outside the current shared roots",
+                )
+            })?;
         let before = source_fingerprint(&path)
             .map_err(|error| remote_error(RemoteErrorCode::Unavailable, error.to_string()))?;
         if before != item.source {

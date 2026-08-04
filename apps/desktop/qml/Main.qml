@@ -14,6 +14,7 @@ ApplicationWindow {
     required property var editPreviewPresentation
     required property var exportController
     required property var cacheMaintenanceController
+    required property var libraryServerController
     required property var aiPreferences
     required property var cachePreferences
     required property var historyController
@@ -104,6 +105,7 @@ ApplicationWindow {
         aiPreferences: window.aiPreferences
         cachePreferences: window.cachePreferences
         cacheMaintenanceController: window.cacheMaintenanceController
+        libraryServerController: window.libraryServerController
         mapProviderPreferences: window.mapProviderPreferences
         controller: window.controller
         editor: window.editor

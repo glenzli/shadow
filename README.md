@@ -82,6 +82,7 @@ cargo xtask desktop-i18n-check
 cargo xtask desktop-build
 cargo xtask raw-smoke ./local-reference/sample-assets/raw
 ./scripts/run_debug.sh
+./scripts/run_library_server_debug.sh /path/to/raw
 cargo run --package shadow-cli -- init ./catalogs/demo.sqlite
 cargo run --package shadow-cli -- scan ./catalogs/demo.sqlite /path/to/photos
 cargo run --package shadow-cli -- scan-cache ./catalogs/demo.sqlite ./catalogs/cache /path/to/photos
@@ -161,6 +162,23 @@ server address and Keychain-only access token in Library settings, loads its off
 blocking startup, and projects remote proxies into Review. Opening a remote photo materializes and
 verifies the original before entering Precision; Recipe synchronization remains deliberately out
 of scope rather than becoming a hidden side effect of file transfer.
+
+For a standalone server smoke test, run
+`./scripts/run_library_server_debug.sh /absolute/path/to/raw`. It builds the current CLI source
+into an external debug target, keeps its Catalog, preview cache, stable identity, and generated
+access token under the sibling `.shadow-local-library-server` directory, and reuses the Provider
+Host from the canonical debug app when available. Pass `--check` to inspect the resolved paths
+without starting, `--public-only` to exercise the LibRaw-only route, or `--help` for the complete
+option list. The token file is created with user-only permissions and is never printed.
+
+The macOS settings window also exposes a separate Sharing pane for operating this Mac as the
+server. It persists a bounded list of explicit shared roots, server name/port, application-start
+policy, and original-download permission; the access token remains in Keychain and is copied only
+after a direct user action. Starting or rescanning runs outside the UI thread, uses the same
+embedded-preview-first Provider Host route as `library-serve`, and publishes only photos beneath
+the current roots. Removing a root therefore removes it from subsequent manifests without deleting
+the reusable server Catalog/cache. Cache reset is available only while stopped and preserves
+original photos, root settings, access credentials, and the stable server identity.
 
 `cache-read` exercises the recovery boundary used by the Review grid.
 Missing or corrupt blobs conditionally invalidate only the exact Catalog record

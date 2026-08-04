@@ -12,6 +12,7 @@ Popup {
     required property var aiPreferences
     required property var cachePreferences
     required property var cacheMaintenanceController
+    required property var libraryServerController
     required property var mapProviderPreferences
     required property var controller
     required property var editor
@@ -29,6 +30,7 @@ Popup {
     readonly property var sections: [
         { key: "general", title: qsTr("General"), subtitle: qsTr("Appearance & language"), icon: "qrc:/icons/settings.svg" },
         { key: "library", title: qsTr("Library"), subtitle: qsTr("Thumbnails & metadata"), icon: "qrc:/icons/review-grid.svg" },
+        { key: "sharing", title: qsTr("Sharing"), subtitle: qsTr("This Mac as a server"), icon: "qrc:/icons/library-manage.svg" },
         { key: "ai", title: qsTr("AI & Models"), subtitle: qsTr("Local processing policy"), icon: "qrc:/icons/mask.svg" },
         { key: "storage", title: qsTr("Storage & Cache"), subtitle: qsTr("Limits & maintenance"), icon: "qrc:/icons/add-folder.svg" },
         { key: "maps", title: qsTr("Maps & Location"), subtitle: qsTr("Offline city data & Google"), icon: "qrc:/icons/map.svg" }
@@ -243,6 +245,10 @@ Popup {
                     onOpenLutLibraryRequested: root.openLutLibraryRequested()
                     onOpenOpticsProfileLibraryRequested:
                         root.openOpticsProfileLibraryRequested()
+                }
+
+                SettingsLibraryServerPane {
+                    controller: root.libraryServerController
                 }
 
                 SettingsAiPane {

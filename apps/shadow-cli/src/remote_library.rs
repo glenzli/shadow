@@ -3,7 +3,6 @@ use std::{
     net::SocketAddr,
     path::Path,
     str::FromStr,
-    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -14,18 +13,16 @@ use shadow_catalog::{
     RecordRepresentationContentIdentityStatus, RegisterAsset,
 };
 use shadow_core::{fingerprint_source, native_location};
+use shadow_desktop_bridge::{
+    LibraryServerService, LibraryServerStartRequest, LibraryServerStorage,
+};
 use shadow_domain::{PhotoId, RepresentationId, RepresentationKind};
 use shadow_library_sharing::{
-    AuthorizationToken, CatalogShareSource, LibraryClient, LibraryClientConfig, LibraryServer,
-    LibraryServerConfig, MirroredLocalSource, OriginalMaterializer, OriginalMaterializerPolicy,
-    RemoteLibraryMirror,
+    AuthorizationToken, LibraryClient, LibraryClientConfig, MirroredLocalSource,
+    OriginalMaterializer, OriginalMaterializerPolicy, RemoteLibraryMirror,
 };
 
-use super::{catalog, scan};
-
-mod provider_host;
-
-use provider_host::RemoteLibraryServerPreviewRuntime;
+use super::catalog;
 
 pub(super) struct ServeOptions<'a> {
     pub catalog_path: &'a str,
@@ -38,38 +35,31 @@ pub(super) struct ServeOptions<'a> {
 }
 
 pub(super) fn serve(options: &ServeOptions<'_>) -> Result<()> {
-    let preview_runtime = RemoteLibraryServerPreviewRuntime::discover(options.cache_root)?;
-    let private_preview_provider_available = preview_runtime.private_provider_available();
-    let provider_mode = preview_runtime.mode_label();
-    scan::folder_with_cache_and_inspector(
-        options.catalog_path,
-        options.cache_root,
-        options.folder,
-        preview_runtime.into_inspector(),
-    )?;
     let bind_address = SocketAddr::from_str(options.bind_address)
         .with_context(|| format!("parse bind address {}", options.bind_address))?;
-    let authorization = token_from_file(options.token_file)?;
-    let source = CatalogShareSource::open(
-        options.catalog_path,
-        options.cache_root,
-        options.server_state_root,
-        options.display_name,
-        private_preview_provider_available,
-    )?;
-    let running = LibraryServer::new(
-        LibraryServerConfig::new(bind_address, authorization),
-        Arc::new(source),
-    )
-    .start()?;
+    let service = LibraryServerService::new(LibraryServerStorage {
+        catalog_path: options.catalog_path.into(),
+        preview_cache_root: options.cache_root.into(),
+        state_root: options.server_state_root.into(),
+    });
+    let snapshot = service.start(LibraryServerStartRequest {
+        bind_address,
+        authorization: token_from_file(options.token_file)?,
+        display_name: options.display_name.to_owned(),
+        share_roots: vec![options.folder.into()],
+        serves_originals: true,
+    })?;
     println!(
         "remote Library ready: address={} folder={} preview_policy=embedded-first/generated-fallback private_provider={} provider_host={provider_mode}",
-        running.local_address(),
+        snapshot
+            .local_address
+            .context("running Library server did not report a local address")?,
         options.folder,
-        private_preview_provider_available,
+        snapshot.provider_mode == "private",
+        provider_mode = snapshot.provider_mode,
     );
     println!("press Ctrl-C to stop sharing");
-    let _running = running;
+    let _service = service;
     loop {
         std::thread::park();
     }

@@ -15,7 +15,7 @@ pub mod protocol;
 mod server;
 mod transport;
 
-pub use catalog_source::{CatalogShareSource, CatalogShareSourceError};
+pub use catalog_source::{CatalogSharePolicy, CatalogShareSource, CatalogShareSourceError};
 pub use client::{LibraryClient, LibraryClientConfig, LibraryClientError};
 pub use materializer::{
     MaterializedOriginal, OriginalMaterializer, OriginalMaterializerError,

@@ -29,6 +29,33 @@ class FakeCacheMaintenance final : public QObject {
     int refresh_count = 0;
 };
 
+class FakeLibraryServer final : public QObject {
+    Q_OBJECT
+
+  public:
+    Q_INVOKABLE void refresh() {
+        ++refresh_count;
+    }
+    Q_INVOKABLE void startServer() {}
+    Q_INVOKABLE void stopServer() {}
+    Q_INVOKABLE void rescanAndRestart() {}
+    Q_INVOKABLE void clearCache() {}
+    Q_INVOKABLE bool addSharedFolder(const QUrl&) {
+        return true;
+    }
+    Q_INVOKABLE bool removeSharedFolder(int) {
+        return true;
+    }
+    Q_INVOKABLE bool copyAccessToken() {
+        return true;
+    }
+    Q_INVOKABLE bool regenerateAccessToken() {
+        return true;
+    }
+
+    int refresh_count = 0;
+};
+
 namespace {
 
 [[nodiscard]] bool require(const bool condition, const char* const message) {
@@ -82,6 +109,23 @@ int main(int argc, char* argv[]) {
     set(maintenance, "hasPlan", false);
     set(maintenance, "overConfiguredLimit", false);
 
+    FakeLibraryServer library_server;
+    set(library_server, "busy", false);
+    set(library_server, "running", false);
+    set(library_server, "secureStorageAvailable", true);
+    set(library_server, "accessTokenStored", false);
+    set(library_server, "displayName", QStringLiteral("Studio Mac"));
+    set(library_server, "port", 37641);
+    set(library_server, "servesOriginals", true);
+    set(library_server, "autoStart", false);
+    set(library_server, "sharedFolders", QVariantList{});
+    set(library_server, "localAddress", QString{});
+    set(library_server, "providerMode", QStringLiteral("private"));
+    set(library_server, "photoCount", 0);
+    set(library_server, "cacheByteLength", 0);
+    set(library_server, "statusCode", QStringLiteral("ready"));
+    set(library_server, "diagnosticText", QString{});
+
     QObject maps;
     set(maps, "secureStorageAvailable", true);
     set(maps, "googleApiKeyStored", false);
@@ -118,6 +162,7 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("aiPreferences"), QVariant::fromValue(&ai)},
         {QStringLiteral("cachePreferences"), QVariant::fromValue(&cache)},
         {QStringLiteral("cacheMaintenanceController"), QVariant::fromValue(&maintenance)},
+        {QStringLiteral("libraryServerController"), QVariant::fromValue(&library_server)},
         {QStringLiteral("mapProviderPreferences"), QVariant::fromValue(&maps)},
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
@@ -154,8 +199,10 @@ int main(int argc, char* argv[]) {
         dialog->findChild<QObject*>(QStringLiteral("remoteLibraryServerAddressField"));
     QObject* const remote_connect =
         dialog->findChild<QObject*>(QStringLiteral("remoteLibraryConnectionSaveButton"));
+    QObject* const server_action =
+        dialog->findChild<QObject*>(QStringLiteral("libraryServerPrimaryAction"));
     if (!require(
-            dialog->property("selectedIndex").toInt() == 2,
+            dialog->property("selectedIndex").toInt() == 3,
             "AI can be opened directly from the shared settings entry"
         )
         || !require(
@@ -174,6 +221,10 @@ int main(int argc, char* argv[]) {
             "the Library settings pane packages remote server and secure-token admission"
         )
         || !require(
+            server_action != nullptr,
+            "the Sharing pane packages this Mac's managed Library server"
+        )
+        || !require(
             std::abs(dialog->property("doneButtonRightInset").toDouble() - 16.0) < 0.5,
             "the Done action stays pinned to the right edge of the settings header"
         )) {
@@ -184,8 +235,8 @@ int main(int argc, char* argv[]) {
                QMetaObject::invokeMethod(
                    dialog.get(),
                    "selectSection",
-                   Q_ARG(QVariant, QVariant(3))
-               ) && dialog->property("selectedIndex").toInt() == 3,
+                   Q_ARG(QVariant, QVariant(4))
+               ) && dialog->property("selectedIndex").toInt() == 4,
                "the settings shell switches to storage without opening another menu"
            )
                ? EXIT_SUCCESS
