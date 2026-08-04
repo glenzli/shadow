@@ -1,0 +1,20 @@
+[package]
+name = "shadow-library-sharing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+shadow-cache.workspace = true
+shadow-catalog.workspace = true
+shadow-domain.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

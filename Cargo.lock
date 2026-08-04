@@ -603,9 +603,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "shadow-bridge",
+ "shadow-cache",
  "shadow-catalog",
  "shadow-core",
  "shadow-domain",
+ "shadow-library-sharing",
+ "uuid",
 ]
 
 [[package]]
@@ -640,6 +643,7 @@ dependencies = [
  "shadow-catalog",
  "shadow-core",
  "shadow-domain",
+ "shadow-library-sharing",
  "thiserror",
  "uuid",
 ]
@@ -651,6 +655,20 @@ dependencies = [
  "blake3",
  "serde",
  "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "shadow-library-sharing"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "serde",
+ "serde_json",
+ "shadow-cache",
+ "shadow-catalog",
+ "shadow-domain",
  "thiserror",
  "uuid",
 ]

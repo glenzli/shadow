@@ -27,6 +27,8 @@ QtObject {
     property string selectedTitle: ""
     property string selectedPath: ""
     property bool selectedSourceAvailable: true
+    property bool selectedIsRemote: false
+    property var selectedRemoteInspection: ({})
     property string selectedRole: ""
     property string selectedVisualSource: ""
     property int selectedWidth: 0
@@ -35,6 +37,8 @@ QtObject {
     // recycling. A late response for another representation is invisible even
     // if a backend regression were to publish it.
     readonly property var selectedInspection: {
+        if (selectedIsRemote)
+            return selectedRemoteInspection
         const value = controller.photoInspection
         if (!value || !Boolean(value.available)
                 || String(value.photoId || "") !== selectedPhotoId
@@ -169,13 +173,31 @@ QtObject {
         selectedPath = card.sourcePath
         selectedSourceAvailable = card.sourceAvailable === undefined
             ? true : Boolean(card.sourceAvailable)
+        selectedIsRemote = Boolean(card.isRemote)
+        selectedRemoteInspection = selectedIsRemote ? {
+            "available": true,
+            "photoId": card.photoId,
+            "representationId": card.representationId,
+            "hasMetadata": Boolean(card.hasMetadata),
+            "cameraMake": String(card.cameraMake || ""),
+            "cameraModel": String(card.cameraModel || ""),
+            "lensMake": String(card.lensMake || ""),
+            "lensModel": String(card.lensModel || ""),
+            "capturedAtUnixSeconds": card.capturedAtUnixSeconds || 0,
+            "isoSpeed": Number(card.isoSpeed || 0),
+            "exposureTimeSeconds": Number(card.exposureTimeSeconds || 0),
+            "apertureFNumber": Number(card.apertureFNumber || 0),
+            "focalLengthMm": Number(card.focalLengthMm || 0),
+            "rawWidth": Number(card.rawWidth || 0),
+            "rawHeight": Number(card.rawHeight || 0)
+        } : ({})
         selectedRole = card.visualRole
         selectedVisualSource = card.visualSource
         selectedWidth = card.visualWidth
         selectedHeight = card.visualHeight
         if (identityChanged) {
             primaryContextInvalidated()
-            if (selectedSourceAvailable) {
+            if (selectedSourceAvailable && !selectedIsRemote) {
                 controller.requestPhotoInspection(
                     selectedPhotoId, selectedRepresentationId)
             } else {
@@ -232,7 +254,8 @@ QtObject {
             "photoId": String(card.photoId),
             "representationId": String(card.representationId),
             "sourcePath": String(card.sourcePath),
-            "title": String(card.title)
+            "title": String(card.title),
+            "isRemote": Boolean(card.isRemote)
         }
         selectedPhotoTargets = updated
         selectionAnchorPhotoId = card.photoId
@@ -252,6 +275,8 @@ QtObject {
         selectedTitle = ""
         selectedPath = ""
         selectedSourceAvailable = true
+        selectedIsRemote = false
+        selectedRemoteInspection = ({})
         selectedRole = ""
         selectedVisualSource = ""
         selectedWidth = 0

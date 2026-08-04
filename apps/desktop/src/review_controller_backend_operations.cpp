@@ -373,6 +373,54 @@ decision_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewRemoteLibraryCoordinator::Operations
+remote_library_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Remote Library backend is required");
+    }
+    return {
+        .snapshot = [backend]() { return backend->remoteLibrarySnapshot(); },
+        .sync =
+            [backend](const QString& server_address, const QString& authorization) {
+                return backend->syncRemoteLibrary(server_address, authorization);
+            },
+        .set_review_state =
+            [backend](
+                const QString& remote_photo_id,
+                const QString& remote_representation_id,
+                const BackendReviewDecisionFlag flag,
+                const std::uint8_t rating,
+                const bool liked,
+                const QString& color_label,
+                const std::int64_t updated_at_ms
+            ) {
+                backend->setRemoteLibraryReviewState(
+                    remote_photo_id,
+                    remote_representation_id,
+                    flag,
+                    rating,
+                    liked,
+                    color_label,
+                    updated_at_ms
+                );
+            },
+        .materialize =
+            [backend](
+                const QString& server_address,
+                const QString& authorization,
+                const QString& remote_photo_id,
+                const QString& remote_representation_id
+            ) {
+                return backend->materializeRemoteLibraryPhoto(
+                    server_address,
+                    authorization,
+                    remote_photo_id,
+                    remote_representation_id
+                );
+            },
+    };
+}
+
 [[nodiscard]] BackendReviewDecisionState
 backend_decision_state(const QString& photo_id, const ReviewDecisionValue& value) {
     const auto flag = review_decision_flag_from_name(value.flag);

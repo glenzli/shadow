@@ -199,11 +199,42 @@ void hierarchical_keyword_filters_are_normalized_server_predicates() {
     );
 }
 
+void remote_rows_participate_only_in_locally_evaluable_filters() {
+    ReviewItem local = item("local-photo", "local-representation", "picked", 5, false, true);
+    ReviewItem remote = item("remote:server:photo", "remote:server:representation", "picked", 5, false, true);
+    remote.is_remote = true;
+
+    ReviewModel source;
+    source.replace({local, remote}, 1);
+    ReviewFilterModel filtered;
+    filtered.setSourceModel(&source);
+
+    filtered.setFlagFilter(QStringLiteral("picked"));
+    filtered.setLikedFilter(QStringLiteral("liked"));
+    require(
+        filtered.rowCount() == 2,
+        "remote rows must participate in locally mirrored flag, rating, like, and color filters"
+    );
+
+    filtered.setCountryKey(QStringLiteral("cn"));
+    require(
+        filtered.rowCount() == 1,
+        "remote rows without a server-side place contract must not leak into local place facets"
+    );
+    filtered.setCountryKey({});
+    filtered.setKeywordIdsAll({QStringLiteral("keyword-a")});
+    require(
+        filtered.rowCount() == 1,
+        "remote rows without synchronized keyword membership must not enter keyword results"
+    );
+}
+
 } // namespace
 
 int main() {
     combined_lightroom_filters_intersect();
     catalog_metadata_facets_remain_typed_server_filters();
     hierarchical_keyword_filters_are_normalized_server_predicates();
+    remote_rows_participate_only_in_locally_evaluable_filters();
     return EXIT_SUCCESS;
 }

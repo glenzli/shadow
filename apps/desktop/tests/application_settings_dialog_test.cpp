@@ -97,6 +97,16 @@ int main(int argc, char* argv[]) {
     set(editor, "foundationAiDenoiseAvailable", false);
     set(editor, "foundationAiDenoiseStatusText", QString{});
 
+    QObject controller;
+    set(controller, "remoteLibraryBusy", false);
+    set(controller, "remoteLibrarySecureStorageAvailable", true);
+    set(controller, "remoteLibraryTokenStored", false);
+    set(controller, "remoteLibraryServerAddress", QString{});
+    set(controller, "remoteLibraryConnected", false);
+    set(controller, "remoteLibraryServerName", QString{});
+    set(controller, "remoteLibraryPhotoCount", 0);
+    set(controller, "remoteLibraryStatusCode", QString{});
+
     QQmlEngine engine;
     QQmlComponent component{&engine};
     component.loadFromModule(
@@ -109,6 +119,7 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("cachePreferences"), QVariant::fromValue(&cache)},
         {QStringLiteral("cacheMaintenanceController"), QVariant::fromValue(&maintenance)},
         {QStringLiteral("mapProviderPreferences"), QVariant::fromValue(&maps)},
+        {QStringLiteral("controller"), QVariant::fromValue(&controller)},
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
         {QStringLiteral("hostWidth"), 1200.0},
         {QStringLiteral("hostHeight"), 800.0},
@@ -139,6 +150,10 @@ int main(int argc, char* argv[]) {
         dialog->findChild<QObject*>(QStringLiteral("unlimitedCacheCheckBox"));
     QObject* const automatic_cleanup =
         dialog->findChild<QObject*>(QStringLiteral("automaticCacheCleanupSwitch"));
+    QObject* const remote_address =
+        dialog->findChild<QObject*>(QStringLiteral("remoteLibraryServerAddressField"));
+    QObject* const remote_connect =
+        dialog->findChild<QObject*>(QStringLiteral("remoteLibraryConnectionSaveButton"));
     if (!require(
             dialog->property("selectedIndex").toInt() == 2,
             "AI can be opened directly from the shared settings entry"
@@ -153,6 +168,10 @@ int main(int argc, char* argv[]) {
                 && unlimited_cache->property("shadowStyled").toBool()
                 && automatic_cleanup->property("shadowStyled").toBool(),
             "settings toggles use the packaged Shadow control family"
+        )
+        || !require(
+            remote_address != nullptr && remote_connect != nullptr,
+            "the Library settings pane packages remote server and secure-token admission"
         )
         || !require(
             std::abs(dialog->property("doneButtonRightInset").toDouble() - 16.0) < 0.5,

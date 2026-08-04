@@ -20,6 +20,11 @@ two signed exact-artifact handles / explicit outcome
 Pick / Reject / 0–5 rating command
   → full-state expected-head CAS → immutable human decision event
   → forward-only current projection → append-only inverse-event undo
+
+remote Mac manifest / client-local proxy cache
+  → ReviewRemoteLibraryCoordinator offline projection + background sync
+  → remote curation mirror / verified resumable RAW materialization
+  → normal local Catalog identity → Precision + local RecipePreview precedence
 ```
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
@@ -101,6 +106,14 @@ Application startup is split from environment-driven automation:
   a key and edit non-secret permissions inside the application settings shell, but it has no
   key-read property. [`qml/MapProviderSettingsDialog.qml`](qml/MapProviderSettingsDialog.qml) is a
   thin compatibility wrapper for focused component loading rather than a second policy owner.
+- [`src/review_remote_library_coordinator.*`](src/review_remote_library_coordinator.hpp) owns the
+  complete desktop remote-Library lifecycle: offline mirror loading, Keychain-backed connection
+  state, background manifest synchronization, remote curation persistence, and verified on-demand
+  original materialization. [`src/review_controller_remote_library.cpp`](src/review_controller_remote_library.cpp)
+  is the thin QML facade routing owner; [`qml/SettingsLibraryPane.qml`](qml/SettingsLibraryPane.qml)
+  owns connection and sync interaction, while Review cards display only client-local proxy paths.
+  Remote rows participate in locally mirrored curation filters but remain outside local-only
+  albums, keywords, shared-node application, export, and metadata-facet scopes until materialized.
 - [`src/map/google_map_tiles_service.*`](src/map/google_map_tiles_service.hpp) owns the opt-in
   Google Map Tiles session, visible-only request queue, bounded policy-aware memory cache,
   `ETag` revalidation, backoff, cancellation, and viewport copyright lifecycle. It never installs
@@ -167,7 +180,8 @@ Application startup is split from environment-driven automation:
 [`src/backend/review_types.hpp`](src/backend/review_types.hpp),
 [`src/backend/library_types.hpp`](src/backend/library_types.hpp),
 [`src/backend/edit_types.hpp`](src/backend/edit_types.hpp), and
-[`src/backend/cache_types.hpp`](src/backend/cache_types.hpp); follow the domain header before
+[`src/backend/cache_types.hpp`](src/backend/cache_types.hpp), while remote sharing DTOs live in
+[`src/backend/remote_library_types.hpp`](src/backend/remote_library_types.hpp); follow the domain header before
 changing a wire shape.
 
 Its implementation follows the same navigation:
@@ -183,6 +197,9 @@ Its implementation follows the same navigation:
   Grade Nodes, preview/detail rendering, and durable edit transitions.
 - [`src/desktop_backend_cache.cpp`](src/desktop_backend_cache.cpp) owns export-service access and
   conservative cache inventory/maintenance.
+- [`src/desktop_backend_remote_library.cpp`](src/desktop_backend_remote_library.cpp) owns the
+  bounded Qt/CXX projection for cached remote snapshots, synchronization, review-state mutation,
+  and verified local original materialization.
 - [`src/desktop_backend_history.cpp`](src/desktop_backend_history.cpp) and
   [`src/backend/history_projection.*`](src/backend/history_projection.hpp) own the bounded CXX/Qt
   projection for per-photo Recipe history, Library-wide commits, refs, keyset cursors, and semantic

@@ -14,6 +14,7 @@ workspace.
 | Catalog | [`shadow-catalog`](crates/shadow-catalog/src/lib.rs) | SQLite ownership, repositories, immutable ledgers, and projections |
 | Cache | [`shadow-cache`](crates/shadow-cache/README.md) | Content-addressed storage, verification, quarantine, and cache records |
 | Core workflows | [`shadow-core`](crates/shadow-core/src/lib.rs) | Scanning, source inspection, cache orchestration, and bounded workers |
+| Library sharing | [`shadow-library-sharing`](crates/shadow-library-sharing/README.md) | Authenticated remote manifests/proxies and verified on-demand original materialization |
 | AI evidence | [`shadow-ai`](crates/shadow-ai/README.md) | Technical observations, explicit feedback, admission, and model-independent scoring |
 | Rust image boundary | [`shadow-bridge`](crates/shadow-bridge/README.md) | Safe Rust API over the C++ decoder and render kernel |
 | Desktop services | [`shadow-desktop-bridge`](crates/shadow-desktop-bridge/README.md) | Long-lived Library, Review, Precision, export, and CXX-facing application services |
@@ -89,6 +90,9 @@ cargo run --package shadow-cli -- backup ./catalogs/demo.sqlite ./backups/demo-2
 cargo run --package shadow-cli -- verify-backup ./backups/demo-20260725.sqlite
 cargo run --package shadow-cli -- inspect-raw /path/to/input.dng
 cargo run --package shadow-cli -- inspect-store ./catalogs/demo.sqlite ./catalogs/cache /path/to/input.dng
+cargo run --package shadow-cli -- library-serve ./catalogs/server.sqlite ./catalogs/server-cache /path/to/raw ./catalogs/server-state 0.0.0.0:37641 ./catalogs/share-token "Studio Mac"
+cargo run --package shadow-cli -- library-sync 192.168.1.10:37641 ./catalogs/share-token ./catalogs/remote-mirror ./catalogs/remote-previews
+cargo run --package shadow-cli -- library-materialize 192.168.1.10:37641 ./catalogs/share-token ./catalogs/remote-mirror ./catalogs/remote-originals ./catalogs/local.sqlite <remote-photo-id> <remote-representation-id>
 ./build/native-dev/cpp/shadow-image/shadow-raw-probe /path/to/input.dng ./bench-results/raw-probe
 ```
 
@@ -133,6 +137,23 @@ has no preview, the C++ kernel renders and JPEG-encodes a versioned 2048-edge
 fallback without copying the full-size RGB buffer into Rust. Cache reads verify
 the digest and byte length lazily. Snapshots from multiple decoder providers may
 coexist for one representation.
+
+`library-serve` is the first Mac-to-Mac remote Library backend. It scans the selected folder,
+prefers camera-embedded previews, keeps the existing generated-proxy fallback, and publishes a
+bounded authenticated manifest without revealing native server paths. A RAW for which neither the
+public decoder nor an installed private provider can prepare a visual remains in the manifest with
+an explicit unavailable-preview state. `library-sync` mirrors that manifest and its
+content-addressed preview blobs into client-local storage for offline browsing.
+`library-materialize` is the edit-admission boundary: it prepares one exact server revision,
+downloads bounded chunks into a resumable `.part` file, verifies byte length and BLAKE3, atomically
+publishes the original into a separate local cache, registers that local path and whole-file
+identity in the client Catalog, and records the remote-to-local identity mapping. The server proxy
+remains a browse fallback; once the client Catalog has a current local Recipe preview, the shared
+presentation policy selects that adjusted local thumbnail first. The macOS desktop exposes the
+server address and Keychain-only access token in Library settings, loads its offline mirror without
+blocking startup, and projects remote proxies into Review. Opening a remote photo materializes and
+verifies the original before entering Precision; Recipe synchronization remains deliberately out
+of scope rather than becoming a hidden side effect of file transfer.
 
 `cache-read` exercises the recovery boundary used by the Review grid.
 Missing or corrupt blobs conditionally invalidate only the exact Catalog record

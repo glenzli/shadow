@@ -27,6 +27,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Exact source relinking from scan evidence or an unavailable Library card | [`src/relink_service.rs`](src/relink_service.rs) |
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
 | Exact selected-photo EXIF and technical inspection, independent from virtualized Review pages | [`src/photo_inspection_service.rs`](src/photo_inspection_service.rs), [`src/session_photo_inspection.rs`](src/session_photo_inspection.rs) |
+| Authenticated remote-Mac Library mirror, client-local curation, verified original materialization, and local Catalog migration | [`src/remote_library_service.rs`](src/remote_library_service.rs), [`src/session_remote_library.rs`](src/session_remote_library.rs) |
 | Photo source admission, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
 | Exact SAM 2.1 installation/application admission, resident provider session, and proposal staging | [`src/subject_mask_runtime.rs`](src/subject_mask_runtime.rs) |
 | Subject-mask preview, registration, apply, and discard authority | [`src/subject_mask_service.rs`](src/subject_mask_service.rs) |

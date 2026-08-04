@@ -13,6 +13,7 @@
 #include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
+#include "review_remote_library_coordinator.hpp"
 #include "review_shared_grade_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
 #include "review_travel_collection_coordinator.hpp"
@@ -49,6 +50,8 @@ organization_operations(const std::shared_ptr<DesktopBackend>& backend, ReviewMo
 shared_grade_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] ReviewDecisionCoordinator::Operations
 decision_operations(const std::shared_ptr<DesktopBackend>& backend);
+[[nodiscard]] ReviewRemoteLibraryCoordinator::Operations
+remote_library_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] BackendReviewDecisionState
 backend_decision_state(const QString& photo_id, const ReviewDecisionValue& value);
 

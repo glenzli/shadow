@@ -27,6 +27,9 @@ Item {
     readonly property string sourcePath: String(entry.sourcePath || "")
     readonly property bool sourceAvailable: entry.sourceAvailable === undefined
         ? true : Boolean(entry.sourceAvailable)
+    readonly property bool isRemote: Boolean(entry.isRemote)
+    readonly property string remotePreviewUnavailableReason:
+        String(entry.remotePreviewUnavailableReason || "")
     readonly property string visualRole: String(entry.visualRole || "")
     readonly property string visualError: String(entry.visualError || "")
     readonly property int visualWidth: Number(entry.visualWidth || 0)
@@ -63,6 +66,20 @@ Item {
     readonly property real edgeEnergy: Number(entry.edgeEnergy || 0)
     readonly property bool selected:
         workspace.isPhotoSelected(photoId, representationId)
+
+    function remotePreviewStatusText() {
+        switch (remotePreviewUnavailableReason) {
+        case "decoder_capability_missing":
+            return qsTr("PRIVATE RAW PREVIEW UNAVAILABLE")
+        case "not_prepared":
+            return qsTr("REMOTE PREVIEW NOT READY")
+        case "cache_unavailable":
+        case "preview_cache_unavailable":
+            return qsTr("REMOTE PREVIEW CACHE UNAVAILABLE")
+        default:
+            return qsTr("REMOTE PREVIEW UNAVAILABLE")
+        }
+    }
 
     Component.onDestruction: cardMenu.releaseOwner(card)
 
@@ -182,8 +199,31 @@ Item {
             Label {
                 id: missingSourceLabel
                 anchors.centerIn: parent
-                text: qsTr("ORIGINAL NOT FOUND")
+                text: card.isRemote
+                    ? qsTr("REMOTE RAW UNAVAILABLE") : qsTr("ORIGINAL NOT FOUND")
                 color: Theme.warningText
+                font.pixelSize: Theme.fontMeta
+                font.weight: Font.DemiBold
+            }
+        }
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 10
+            height: 24
+            width: remoteLabel.implicitWidth + 16
+            radius: Theme.compactControlRadius
+            visible: card.isRemote
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+
+            Label {
+                id: remoteLabel
+                anchors.centerIn: parent
+                text: qsTr("REMOTE")
+                color: Theme.textSecondary
                 font.pixelSize: Theme.fontMeta
                 font.weight: Font.DemiBold
             }
@@ -206,10 +246,44 @@ Item {
                     font.letterSpacing: 2
                 }
                 Label {
-                    text: card.visualError.length > 0
-                        ? qsTr("PREVIEW PENDING") : qsTr("NO VISUAL")
+                    width: Math.min(180, card.width - 28)
+                    text: card.isRemote
+                        && card.remotePreviewUnavailableReason.length > 0
+                        ? card.remotePreviewStatusText()
+                        : card.visualError.length > 0
+                            ? qsTr("PREVIEW PENDING") : qsTr("NO VISUAL")
                     color: Theme.textMuted
                     font.pixelSize: 9
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.fill: thumbnail
+            visible: card.isRemote
+                && card.workspace.controller.remoteLibraryMaterializingPhotoId
+                    === card.photoId
+            color: Theme.busyOverlay
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 8
+
+                BusyIndicator {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    running: parent.parent.visible
+                    width: 30
+                    height: 30
+                }
+
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: qsTr("DOWNLOADING RAW")
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontMeta
+                    font.weight: Font.DemiBold
                 }
             }
         }
@@ -318,14 +392,14 @@ Item {
                         cardMouse, mouse.x, mouse.y, card.workspace,
                         card.photoId, card.locationId, card.title,
                         card.sourcePath, card.sourceAvailable,
-                        card.liked, card.decisionFlag)
+                        card.liked, card.decisionFlag, card.isRemote)
                 }
             }
             onDoubleClicked: mouse => {
                 if (mouse.button !== Qt.LeftButton)
                     return
                 card.workspace.selectPhoto(card, 0)
-                if (card.sourceAvailable) {
+                if (card.sourceAvailable || card.isRemote) {
                     card.workspace.openSelectedPhoto()
                 } else {
                     card.workspace.relinkUnavailablePhoto(

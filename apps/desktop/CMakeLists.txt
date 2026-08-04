@@ -311,6 +311,7 @@ qt_add_executable(
     src/desktop_backend_edit.cpp
     src/desktop_backend_history.cpp
     src/desktop_backend_library.cpp
+    src/desktop_backend_remote_library.cpp
     src/desktop_backend_review.cpp
     src/desktop_backend.hpp
     src/backend/desktop_backend_private.hpp
@@ -323,6 +324,7 @@ qt_add_executable(
     src/backend/cache_types.hpp
     src/backend/edit_types.hpp
     src/backend/library_types.hpp
+    src/backend/remote_library_types.hpp
     src/backend/review_types.hpp
     src/folder_scan_backend.cpp
     src/folder_scan_backend.hpp
@@ -478,6 +480,7 @@ qt_add_executable(
     src/review_controller_library_map.cpp
     src/review_controller_library_metadata.cpp
     src/review_controller_library_query.cpp
+    src/review_controller_remote_library.cpp
     src/review_decision_coordinator.cpp
     src/review_decision_coordinator.hpp
     src/review_decision_session.hpp
@@ -506,6 +509,8 @@ qt_add_executable(
     src/review_library_query_coordinator.hpp
     src/review_model.cpp
     src/review_model.hpp
+    src/review_remote_library_coordinator.cpp
+    src/review_remote_library_coordinator.hpp
     src/review_photo_inspection_coordinator.cpp
     src/review_photo_inspection_coordinator.hpp
     src/review_photo_inspection_session.hpp

@@ -16,6 +16,7 @@
 #include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
+#include "review_remote_library_coordinator.hpp"
 #include "review_shared_grade_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
 #include "review_travel_collection_coordinator.hpp"
@@ -248,6 +249,40 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(int filteredItemCount READ filteredItemCount NOTIFY filtersChanged)
     Q_PROPERTY(QVariantList sharedGradeNodes READ sharedGradeNodes NOTIFY sharedGradeNodesChanged)
+    Q_PROPERTY(bool remoteLibraryBusy READ remoteLibraryBusy NOTIFY remoteLibraryChanged)
+    Q_PROPERTY(bool remoteLibrarySyncing READ remoteLibrarySyncing NOTIFY remoteLibraryChanged)
+    Q_PROPERTY(
+        bool remoteLibraryMaterializing READ remoteLibraryMaterializing NOTIFY remoteLibraryChanged
+    )
+    Q_PROPERTY(
+        bool remoteLibrarySecureStorageAvailable READ remoteLibrarySecureStorageAvailable NOTIFY
+            remoteLibraryChanged
+    )
+    Q_PROPERTY(
+        bool remoteLibraryTokenStored READ remoteLibraryTokenStored NOTIFY remoteLibraryChanged
+    )
+    Q_PROPERTY(
+        QString remoteLibraryServerAddress READ remoteLibraryServerAddress NOTIFY
+            remoteLibraryChanged
+    )
+    Q_PROPERTY(bool remoteLibraryConnected READ remoteLibraryConnected NOTIFY remoteLibraryChanged)
+    Q_PROPERTY(
+        QString remoteLibraryServerName READ remoteLibraryServerName NOTIFY remoteLibraryChanged
+    )
+    Q_PROPERTY(
+        int remoteLibraryPhotoCount READ remoteLibraryPhotoCount NOTIFY remoteLibraryChanged
+    )
+    Q_PROPERTY(
+        QString remoteLibraryStatusCode READ remoteLibraryStatusCode NOTIFY remoteLibraryChanged
+    )
+    Q_PROPERTY(
+        QString remoteLibraryDiagnosticText READ remoteLibraryDiagnosticText NOTIFY
+            remoteLibraryChanged
+    )
+    Q_PROPERTY(
+        QString remoteLibraryMaterializingPhotoId READ remoteLibraryMaterializingPhotoId NOTIFY
+            remoteLibraryChanged
+    )
     Q_PROPERTY(QAbstractItemModel* model READ model CONSTANT)
 
   public:
@@ -255,6 +290,7 @@ class ReviewController final : public QObject {
         std::shared_ptr<DesktopBackend> backend,
         MapProviderPreferences* map_provider_preferences,
         const QString& isolated_settings_file = {},
+        std::unique_ptr<SecretStore> remote_library_secret_store = {},
         QObject* parent = nullptr
     );
     ~ReviewController() override;
@@ -344,6 +380,18 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString sourceRelinkStatusText() const;
     [[nodiscard]] int filteredItemCount() const noexcept;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
+    [[nodiscard]] bool remoteLibraryBusy() const noexcept;
+    [[nodiscard]] bool remoteLibrarySyncing() const noexcept;
+    [[nodiscard]] bool remoteLibraryMaterializing() const noexcept;
+    [[nodiscard]] bool remoteLibrarySecureStorageAvailable() const noexcept;
+    [[nodiscard]] bool remoteLibraryTokenStored() const noexcept;
+    [[nodiscard]] QString remoteLibraryServerAddress() const;
+    [[nodiscard]] bool remoteLibraryConnected() const noexcept;
+    [[nodiscard]] QString remoteLibraryServerName() const;
+    [[nodiscard]] int remoteLibraryPhotoCount() const noexcept;
+    [[nodiscard]] QString remoteLibraryStatusCode() const;
+    [[nodiscard]] QString remoteLibraryDiagnosticText() const;
+    [[nodiscard]] QString remoteLibraryMaterializingPhotoId() const;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
     [[nodiscard]] ReviewModel* reviewModel() noexcept;
 
@@ -400,6 +448,11 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void setPhotoRating(const QString& photo_id, int rating);
     Q_INVOKABLE void setPhotoColorLabel(const QString& photo_id, const QString& color_label);
     Q_INVOKABLE void setPhotoLiked(const QString& photo_id, bool liked);
+    Q_INVOKABLE bool
+    saveRemoteLibraryConnection(const QString& server_address, const QString& token);
+    Q_INVOKABLE bool removeRemoteLibraryConnection();
+    Q_INVOKABLE void syncRemoteLibrary();
+    Q_INVOKABLE void materializeRemotePhoto(const QString& photo_id);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshLibraryFacets();
@@ -514,12 +567,22 @@ class ReviewController final : public QObject {
     void libraryMetadataChanged();
     void missingSourceLocationReviewChanged();
     void sharedGradeNodesChanged();
+    void remoteLibraryChanged();
+    void remotePhotoReady(
+        const QString& photoId,
+        const QString& representationId,
+        const QString& sourcePath,
+        const QString& title
+    );
     void decisionUndone();
 
   private:
     void initializeCoordinatorWiring();
     void requestLibraryReset();
     void scheduleFilterQuery();
+    void refreshRemoteLibraryPresentation();
+    [[nodiscard]] bool remoteLibraryPresentationEligible() const;
+    [[nodiscard]] int visibleRemotePhotoCount() const;
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
     [[nodiscard]] BackendLibraryPhotoOrder currentLibraryOrder() const noexcept;
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -553,6 +616,7 @@ class ReviewController final : public QObject {
         ),
     };
     ReviewModel model_;
+    ReviewRemoteLibraryCoordinator remote_library_coordinator_;
     ReviewFilterModel filtered_model_;
     QString library_sort_key_ = QStringLiteral("capture_time");
     bool library_sort_descending_ = true;

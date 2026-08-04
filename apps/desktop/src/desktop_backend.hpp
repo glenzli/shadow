@@ -4,6 +4,7 @@
 #include "backend/edit_types.hpp"
 #include "backend/history_types.hpp"
 #include "backend/library_types.hpp"
+#include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
 #include "folder_scan_backend.hpp"
 
@@ -32,6 +33,24 @@ class DesktopBackend final {
     [[nodiscard]] bool cancelFolderScan(std::uint64_t scan_id) const;
     [[nodiscard]] BackendPhotoInspection
     photoInspection(const QString& photo_id, const QString& representation_id) const;
+    [[nodiscard]] BackendRemoteLibrarySnapshot remoteLibrarySnapshot() const;
+    [[nodiscard]] BackendRemoteLibrarySyncResult
+    syncRemoteLibrary(const QString& server_address, const QString& authorization) const;
+    void setRemoteLibraryReviewState(
+        const QString& remote_photo_id,
+        const QString& remote_representation_id,
+        BackendReviewDecisionFlag flag,
+        std::uint8_t rating,
+        bool liked,
+        const QString& color_label,
+        std::int64_t updated_at_ms
+    ) const;
+    [[nodiscard]] BackendRemoteLibraryMaterialization materializeRemoteLibraryPhoto(
+        const QString& server_address,
+        const QString& authorization,
+        const QString& remote_photo_id,
+        const QString& remote_representation_id
+    ) const;
     [[nodiscard]] BackendLibraryPhotoPage libraryPhotoPage(
         const BackendLibraryPhotoFilter& filter,
         BackendLibraryPhotoOrder order,

@@ -141,6 +141,8 @@ Item {
                 required property string title
                 required property string sourcePath
                 required property bool sourceAvailable
+                required property bool isRemote
+                required property string remotePreviewUnavailableReason
                 required property string visualRole
                 required property string visualError
                 required property int visualWidth
@@ -206,9 +208,8 @@ Item {
                 }
 
                 Rectangle {
-                    anchors.left: parent.left
+                    anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
-                    anchors.leftMargin: 5
                     anchors.topMargin: 5
                     width: 7
                     height: 7
@@ -225,6 +226,29 @@ Item {
                     liked: filmCard.liked
                     showRating: false
                     iconSize: 12
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.leftMargin: 5
+                    anchors.topMargin: 5
+                    height: 20
+                    width: remoteFilmLabel.implicitWidth + 12
+                    radius: Theme.compactControlRadius
+                    visible: filmCard.isRemote
+                    color: Theme.panelRaised
+                    border.width: 1
+                    border.color: Theme.borderStrong
+
+                    Label {
+                        id: remoteFilmLabel
+                        anchors.centerIn: parent
+                        text: qsTr("REMOTE")
+                        color: Theme.textSecondary
+                        font.pixelSize: 8
+                        font.weight: Font.DemiBold
+                    }
                 }
 
                 Rectangle {
@@ -277,7 +301,7 @@ Item {
                         root.review.selectPhoto(filmCard, mouse.modifiers)
                     onDoubleClicked: {
                         root.review.selectPhoto(filmCard, 0)
-                        if (filmCard.sourceAvailable) {
+                        if (filmCard.sourceAvailable || filmCard.isRemote) {
                             root.review.openSelectedPhoto()
                         } else {
                             root.review.relinkUnavailablePhoto(

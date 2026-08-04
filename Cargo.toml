@@ -8,6 +8,7 @@ members = [
     "crates/shadow-core",
     "crates/shadow-desktop-bridge",
     "crates/shadow-domain",
+    "crates/shadow-library-sharing",
     "xtask",
 ]
 default-members = [
@@ -19,6 +20,7 @@ default-members = [
     "crates/shadow-core",
     "crates/shadow-desktop-bridge",
     "crates/shadow-domain",
+    "crates/shadow-library-sharing",
 ]
 resolver = "3"
 
@@ -46,6 +48,7 @@ shadow-cache = { path = "crates/shadow-cache" }
 shadow-core = { path = "crates/shadow-core" }
 shadow-desktop-bridge = { path = "crates/shadow-desktop-bridge" }
 shadow-domain = { path = "crates/shadow-domain" }
+shadow-library-sharing = { path = "crates/shadow-library-sharing" }
 thiserror = "2.0.18"
 time = { version = "0.3.47", features = ["parsing"] }
 tracing = "0.1.44"

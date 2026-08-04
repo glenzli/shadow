@@ -127,6 +127,7 @@
         tests/review_model/visual_generation_contract.cpp
         tests/review_model/item_projection_contract.cpp
         tests/review_model/snapshot_membership_contract.cpp
+        tests/review_model/remote_library_projection_contract.cpp
         src/review_model.cpp
         src/review_visual_request.cpp
     )
@@ -145,6 +146,46 @@
         )
     endif()
     add_test(NAME shadow-desktop-review-model COMMAND shadow-review-model-test)
+
+    add_executable(
+        shadow-review-remote-library-coordinator-test
+        tests/review_remote_library_coordinator_test.cpp
+        src/review_remote_library_coordinator.cpp
+        src/review_remote_library_coordinator.hpp
+        src/review_model.cpp
+        src/review_model.hpp
+        src/review_visual_request.cpp
+        src/review_visual_request.hpp
+        src/secure_secret_store.cpp
+        src/secure_secret_store.hpp
+    )
+    target_compile_features(
+        shadow-review-remote-library-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-remote-library-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-remote-library-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-remote-library-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-remote-library-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-remote-library-coordinator
+        COMMAND shadow-review-remote-library-coordinator-test
+    )
 
     add_executable(
         shadow-review-filter-model-test

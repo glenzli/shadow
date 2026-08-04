@@ -201,6 +201,7 @@ void ReviewFilterModel::setCaptureMonth(const QString& capture_month) {
         return;
     }
     capture_month_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -210,6 +211,7 @@ void ReviewFilterModel::setChineseLunarMonth(const int month) {
         return;
     }
     chinese_lunar_month_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -219,6 +221,7 @@ void ReviewFilterModel::setChineseLunarDay(const int day) {
         return;
     }
     chinese_lunar_day_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -228,6 +231,7 @@ void ReviewFilterModel::setChineseLunarMonthType(const QString& month_type) {
         return;
     }
     chinese_lunar_month_type_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -237,6 +241,7 @@ void ReviewFilterModel::setCameraKey(const QString& camera_key) {
         return;
     }
     camera_key_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -246,6 +251,7 @@ void ReviewFilterModel::setLensKey(const QString& lens_key) {
         return;
     }
     lens_key_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -255,6 +261,7 @@ void ReviewFilterModel::setCountryKey(const QString& country_key) {
         return;
     }
     country_key_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -264,6 +271,7 @@ void ReviewFilterModel::setLocalityKey(const QString& locality_key) {
         return;
     }
     locality_key_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -272,6 +280,7 @@ void ReviewFilterModel::setTravelFilterEnabled(const bool enabled) {
         return;
     }
     travel_filter_enabled_ = enabled;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -281,6 +290,7 @@ void ReviewFilterModel::setKeywordIdsAll(const QStringList& keyword_ids) {
         return;
     }
     keyword_ids_all_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -290,6 +300,7 @@ void ReviewFilterModel::setExcludedKeywordIdsAny(const QStringList& keyword_ids)
         return;
     }
     excluded_keyword_ids_any_ = normalized;
+    refreshRowsFilter();
     emit filtersChanged();
 }
 
@@ -335,6 +346,15 @@ bool ReviewFilterModel::filterAcceptsRow(
 ) const {
     const QModelIndex row = sourceModel()->index(source_row, 0, source_parent);
     if (!row.isValid()) {
+        return false;
+    }
+    const bool remote = sourceModel()->data(row, ReviewModel::IsRemoteRole).toBool();
+    if (remote
+        && (!capture_month_.isEmpty() || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
+            || chinese_lunar_month_type_ != QStringLiteral("all") || !camera_key_.isEmpty()
+            || !lens_key_.isEmpty() || !country_key_.isEmpty() || !locality_key_.isEmpty()
+            || travel_filter_enabled_ || !keyword_ids_all_.isEmpty()
+            || !excluded_keyword_ids_any_.isEmpty())) {
         return false;
     }
     const QString flag = sourceModel()->data(row, ReviewModel::DecisionFlagRole).toString();

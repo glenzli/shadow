@@ -105,6 +105,7 @@ ApplicationWindow {
         cachePreferences: window.cachePreferences
         cacheMaintenanceController: window.cacheMaintenanceController
         mapProviderPreferences: window.mapProviderPreferences
+        controller: window.controller
         editor: window.editor
         hostWidth: window.width
         hostHeight: window.height

@@ -18,6 +18,7 @@ ReviewController::ReviewController(
     std::shared_ptr<DesktopBackend> backend,
     MapProviderPreferences* const map_provider_preferences,
     const QString& isolated_settings_file,
+    std::unique_ptr<SecretStore> remote_library_secret_store,
     QObject* parent
 ) :
     QObject(parent), backend_(std::move(backend)),
@@ -34,6 +35,14 @@ ReviewController::ReviewController(
     map_coordinator_(BackendOperations::map_operations(backend_)),
     metadata_coordinator_(BackendOperations::metadata_operations(backend_)),
     import_coordinator_(BackendOperations::import_operations(backend_)), model_(this),
+    remote_library_coordinator_(
+        BackendOperations::remote_library_operations(backend_),
+        model_,
+        isolated_settings_file,
+        remote_library_secret_store ? std::move(remote_library_secret_store)
+                                    : makeSystemSecretStore(),
+        this
+    ),
     filtered_model_(this),
     query_coordinator_(BackendOperations::query_operations(backend_), model_),
     organization_coordinator_(BackendOperations::organization_operations(backend_, model_)),
@@ -53,10 +62,9 @@ ReviewController::ReviewController(
         },
         [this](const BackendReviewDecisionState& state) { projectDecisionState(state); }
     ) {
-    // Keep the constructor shape for existing test/application call sites.
-    // Library state is Catalog-backed now, so the former desktop-local
-    // settings file is deliberately not consulted.
-    (void)isolated_settings_file;
+    // Ordinary Library state is Catalog-backed. The isolated settings file is
+    // consumed only by device-local service preferences such as the remote
+    // server address; its access token remains in SecretStore.
     Q_ASSERT(map_provider_preferences_ != nullptr);
     initializeCoordinatorWiring();
 }
@@ -96,7 +104,9 @@ QVariantMap ReviewController::scanProgress() const {
 }
 
 int ReviewController::itemCount() const {
-    return query_coordinator_.itemCount();
+    return query_coordinator_.itemCount()
+           + (remoteLibraryPresentationEligible() ? remote_library_coordinator_.remotePhotoCount()
+                                                  : 0);
 }
 
 QVariantMap ReviewController::photoInspection() const {
@@ -384,7 +394,7 @@ QString ReviewController::sourceRelinkStatusText() const {
 }
 
 int ReviewController::filteredItemCount() const noexcept {
-    return query_coordinator_.itemCount();
+    return query_coordinator_.itemCount() + visibleRemotePhotoCount();
 }
 
 QVariantList ReviewController::sharedGradeNodes() const {

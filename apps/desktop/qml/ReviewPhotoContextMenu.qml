@@ -22,6 +22,7 @@ Popup {
     property bool photoSourceAvailable: true
     property bool photoLiked: false
     property string photoDecisionFlag: "unflagged"
+    property bool photoIsRemote: false
     property bool albumsExpanded: false
     property bool ratingsExpanded: false
     property bool nodesExpanded: false
@@ -37,7 +38,8 @@ Popup {
 
     function openAt(item, localX, localY, workspaceValue, photoIdValue,
                     locationIdValue, titleValue, sourcePathValue,
-                    sourceAvailableValue, likedValue, decisionFlagValue) {
+                    sourceAvailableValue, likedValue, decisionFlagValue,
+                    isRemoteValue) {
         workspace = workspaceValue
         photoId = String(photoIdValue)
         locationId = String(locationIdValue)
@@ -46,6 +48,7 @@ Popup {
         photoSourceAvailable = Boolean(sourceAvailableValue)
         photoLiked = Boolean(likedValue)
         photoDecisionFlag = String(decisionFlagValue)
+        photoIsRemote = Boolean(isRemoteValue)
         albumsExpanded = false
         nodesExpanded = false
         parent = Overlay.overlay
@@ -67,6 +70,7 @@ Popup {
         photoSourceAvailable = true
         photoLiked = false
         photoDecisionFlag = "unflagged"
+        photoIsRemote = false
     }
 
     background: Rectangle {
@@ -165,7 +169,7 @@ Popup {
         Divider {}
 
         MenuRow {
-            visible: !root.photoSourceAvailable
+            visible: !root.photoSourceAvailable && !root.photoIsRemote
             text: qsTr("Relink original…")
             iconSource: "qrc:/icons/shared-link.svg"
             iconColor: Theme.warningText
@@ -181,7 +185,7 @@ Popup {
         }
 
         MenuRow {
-            visible: !root.photoSourceAvailable
+            visible: !root.photoSourceAvailable && !root.photoIsRemote
             text: qsTr("Remove from Library…")
             iconSource: "qrc:/icons/trash.svg"
             iconColor: Theme.dangerText
@@ -196,7 +200,7 @@ Popup {
         }
 
         Divider {
-            visible: !root.photoSourceAvailable
+            visible: !root.photoSourceAvailable && !root.photoIsRemote
         }
 
         MenuRow {
@@ -286,6 +290,7 @@ Popup {
             text: qsTr("Add to Album")
             iconSource: "qrc:/icons/add-folder.svg"
             actionEnabled: root.hasWorkspace
+                && !root.workspace.selectionContainsRemote()
                 && root.workspace.manualLibraryAlbums.length > 0
                 && !root.workspace.controller.libraryAlbumsBusy
             expandable: true
@@ -308,6 +313,7 @@ Popup {
                     text: String(modelData.name)
                     iconSource: "qrc:/icons/library-manage.svg"
                     actionEnabled: root.hasWorkspace
+                        && !root.workspace.selectionContainsRemote()
                         && !root.workspace.controller.libraryAlbumsBusy
                     onActivated: {
                         if (!root.hasWorkspace)
@@ -324,6 +330,7 @@ Popup {
             text: qsTr("Apply Shared Node")
             iconSource: "qrc:/icons/shared-link.svg"
             actionEnabled: root.hasWorkspace
+                && !root.workspace.selectionContainsRemote()
                 && root.workspace.sharedNodeQuickList().length > 0
                 && root.workspace.selectedPhotoCount > 0
             expandable: true
@@ -346,6 +353,7 @@ Popup {
                     text: String(modelData.label)
                     iconSource: "qrc:/icons/shared-link.svg"
                     actionEnabled: root.hasWorkspace
+                        && !root.workspace.selectionContainsRemote()
                         && root.workspace.selectedPhotoCount > 0
                     onActivated: {
                         if (!root.hasWorkspace)
@@ -365,6 +373,7 @@ Popup {
                 text: qsTr("More shared nodes…")
                 iconSource: "qrc:/icons/shared-link.svg"
                 actionEnabled: root.hasWorkspace
+                    && !root.workspace.selectionContainsRemote()
                     && root.workspace.selectedPhotoCount > 0
                 onActivated: {
                     if (!root.hasWorkspace)
@@ -381,6 +390,7 @@ Popup {
             text: qsTr("Export photo")
             iconSource: "qrc:/icons/export.svg"
             actionEnabled: root.hasWorkspace
+                && !root.workspace.selectionContainsRemote()
                 && root.workspace.selectedPhotoCount > 0
             onActivated: {
                 if (!root.hasWorkspace)

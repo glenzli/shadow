@@ -45,6 +45,7 @@ Item {
     readonly property alias selectedPath: selectionState.selectedPath
     readonly property alias selectedSourceAvailable:
         selectionState.selectedSourceAvailable
+    readonly property alias selectedIsRemote: selectionState.selectedIsRemote
     readonly property alias selectedRole: selectionState.selectedRole
     readonly property alias selectedVisualSource: selectionState.selectedVisualSource
     readonly property alias selectedWidth: selectionState.selectedWidth
@@ -136,9 +137,10 @@ Item {
     // generated thumbnail. A row already published by an in-flight import is
     // therefore admissible; EditController owns any later open serialization.
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
-        && selectedRepresentationId.length > 0 && selectedPath.length > 0
+        && selectedRepresentationId.length > 0
+        && (selectedIsRemote || selectedPath.length > 0)
         && selectedSourceAvailable
-        && !comparison.compareMode
+        && !comparison.compareMode && !controller.remoteLibraryMaterializing
     readonly property var currentLibraryAlbum: {
         const albums = controller.libraryAlbums
         const selectedId = String(controller.libraryAlbumId)
@@ -264,6 +266,15 @@ Item {
 
     function batchSelectionTargets() {
         return selectionState.batchSelectionTargets()
+    }
+
+    function selectionContainsRemote() {
+        const targets = batchSelectionTargets()
+        for (let index = 0; index < targets.length; ++index) {
+            if (Boolean(targets[index].isRemote))
+                return true
+        }
+        return false
     }
 
     // `revisionId` is UUIDv7-based, so descending lexical order gives a
@@ -404,12 +415,33 @@ Item {
     function openSelectedPhoto() {
         if (!canOpenSelectedPhoto)
             return
+        if (selectedIsRemote) {
+            precisionOpenStatus = qsTr("Downloading the original RAW from the remote Library…")
+            controller.materializeRemotePhoto(selectedPhotoId)
+            return
+        }
         openPrecisionRequested(selectedPhotoId, selectedRepresentationId,
                                selectedPath, selectedTitle, selectedVisualSource)
     }
 
     function reportPrecisionOpenFailure(message) {
         precisionOpenStatus = String(message)
+    }
+
+    function remoteOpenFailureMessage(statusCode) {
+        switch (String(statusCode)) {
+        case "connection-required":
+        case "token-required":
+            return qsTr("Connect to the remote Library in Settings, then try again.")
+        case "remote-original-unavailable":
+            return qsTr("The remote server does not currently allow this RAW to be downloaded.")
+        case "remote-photo-unavailable":
+            return qsTr("This remote photo is no longer available in the local mirror.")
+        case "materialize-failed":
+            return qsTr("The remote RAW could not be downloaded. Check the server connection and try again.")
+        default:
+            return ""
+        }
     }
 
     function setSelectedFlag(flag) {
@@ -436,6 +468,19 @@ Item {
         }
         function onLikedChanged(photoId, liked) {
             selectionState.applyLikedChanged(photoId, liked)
+        }
+        function onRemotePhotoReady(photoId, representationId, sourcePath, title) {
+            review.precisionOpenStatus = ""
+            review.openPrecisionRequested(
+                photoId, representationId, sourcePath, title, "")
+        }
+        function onRemoteLibraryChanged() {
+            if (review.controller.remoteLibraryMaterializing)
+                return
+            const failure = review.remoteOpenFailureMessage(
+                review.controller.remoteLibraryStatusCode)
+            if (failure.length > 0)
+                review.precisionOpenStatus = failure
         }
     }
 

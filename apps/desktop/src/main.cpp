@@ -200,7 +200,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    ReviewController controller(backend, &map_provider_preferences, isolated_settings_file);
+    ReviewController controller(
+        backend,
+        &map_provider_preferences,
+        isolated_settings_file,
+        headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
+    );
     controller.setTravelLivingPlaces(personal_profile.livingPlaces());
     QObject::connect(
         &personal_profile,

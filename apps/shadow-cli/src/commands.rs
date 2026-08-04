@@ -1,4 +1,4 @@
-use super::{backup, catalog, decode, scan};
+use super::{backup, catalog, decode, remote_library, scan};
 use anyhow::{Result, bail};
 use shadow_domain::ImportSessionId;
 
@@ -35,6 +35,55 @@ pub(super) fn run(arguments: impl IntoIterator<Item = String>) -> Result<()> {
         [command, catalog_path, cache_root, folder] if command == "scan-cache" => {
             scan::folder_with_cache(catalog_path, cache_root, folder)?;
         }
+        [
+            command,
+            catalog_path,
+            cache_root,
+            folder,
+            server_state_root,
+            bind_address,
+            token_file,
+            display_name,
+        ] if command == "library-serve" => {
+            remote_library::serve(&remote_library::ServeOptions {
+                catalog_path,
+                cache_root,
+                folder,
+                server_state_root,
+                bind_address,
+                token_file,
+                display_name,
+            })?;
+        }
+        [
+            command,
+            server_address,
+            token_file,
+            mirror_root,
+            preview_cache_root,
+        ] if command == "library-sync" => {
+            remote_library::sync(server_address, token_file, mirror_root, preview_cache_root)?;
+        }
+        [
+            command,
+            server_address,
+            token_file,
+            mirror_root,
+            original_cache_root,
+            local_catalog_path,
+            remote_photo_id,
+            remote_representation_id,
+        ] if command == "library-materialize" => {
+            remote_library::materialize(&remote_library::MaterializeOptions {
+                server_address,
+                token_file,
+                mirror_root,
+                original_cache_root,
+                local_catalog_path,
+                remote_photo_id,
+                remote_representation_id,
+            })?;
+        }
         [command, catalog_path, session_id] if command == "resume" => {
             let session_id: ImportSessionId = session_id
                 .parse()
@@ -52,6 +101,6 @@ pub(super) fn run(arguments: impl IntoIterator<Item = String>) -> Result<()> {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli cache-read <catalog.sqlite> <cache-root> <path>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli backup <catalog.sqlite> <backup.sqlite>\n  shadow-cli verify-backup <backup.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>"
+        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli cache-read <catalog.sqlite> <cache-root> <path>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli backup <catalog.sqlite> <backup.sqlite>\n  shadow-cli verify-backup <backup.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>\n  shadow-cli library-serve <catalog.sqlite> <preview-cache> <folder> <server-state> <bind-address> <token-file> <display-name>\n  shadow-cli library-sync <server-address> <token-file> <mirror-root> <preview-cache>\n  shadow-cli library-materialize <server-address> <token-file> <mirror-root> <original-cache> <local-catalog.sqlite> <remote-photo-id> <remote-representation-id>"
     );
 }

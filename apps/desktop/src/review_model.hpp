@@ -30,6 +30,14 @@ struct ReviewItem final {
     QString representation_id;
     QString location_id;
     QString visual_handle;
+    /// Direct `file:` URL for a verified client-local remote proxy. Local
+    /// Catalog rows continue to use the authenticated image-provider handle.
+    QString visual_source_override;
+    bool is_remote = false;
+    QString remote_server_id;
+    QString remote_photo_id;
+    QString remote_representation_id;
+    QString remote_preview_unavailable_reason;
     quint64 decision_head_sequence = 0;
     QString decision_flag = QStringLiteral("unflagged");
     int decision_rating = 0;
@@ -129,6 +137,11 @@ class ReviewModel final : public QAbstractListModel {
         ColorLabelRole,
         LibraryStateUpdatedAtMsRole,
         HasDevelopmentEditsRole,
+        IsRemoteRole,
+        RemoteServerIdRole,
+        RemotePhotoIdRole,
+        RemoteRepresentationIdRole,
+        RemotePreviewUnavailableReasonRole,
     };
     Q_ENUM(Role)
 
@@ -154,6 +167,9 @@ class ReviewModel final : public QAbstractListModel {
     // operation: no unstable pagination cursor is exposed while the Catalog is
     // still changing.
     [[nodiscard]] bool reconcilePrefixSnapshot(QVector<ReviewItem> items, quint64 generation);
+    /// Replaces only client-mirrored remote rows while preserving every local
+    /// Catalog row and the current query generation.
+    [[nodiscard]] bool replaceRemoteItems(QVector<ReviewItem> items);
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
     /// Builds a generation-bound comparison source. Grid roles use their own
     /// immutable lifetime contract when projected through data().

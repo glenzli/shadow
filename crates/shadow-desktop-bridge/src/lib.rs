@@ -11,11 +11,13 @@ mod history_service;
 mod library_service;
 mod photo_inspection_service;
 mod relink_service;
+mod remote_library_service;
 mod review_service;
 mod scan_service;
 mod session_history;
 mod session_library;
 mod session_photo_inspection;
+mod session_remote_library;
 mod session_review;
 mod session_scan;
 mod wall_clock;
@@ -66,6 +68,7 @@ use shadow_catalog::{CatalogActor, CatalogHandle};
 use shadow_core::CachedArtifactLoader;
 
 use crate::relink_service::RelinkService;
+use crate::remote_library_service::RemoteLibraryService;
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
 use crate::session_preview_store::SessionPreviewStore;
@@ -186,6 +189,90 @@ mod ffi {
         near_white_fraction: f64,
         laplacian_variance: f64,
         edge_energy: f64,
+    }
+
+    /// One remembered remote Mac and the capabilities that are safe to present.
+    #[derive(Debug)]
+    struct FfiRemoteLibraryServer {
+        server_id: String,
+        display_name: String,
+        embedded_previews_available: bool,
+        generated_proxies_available: bool,
+        originals_available: bool,
+        private_preview_provider_available: bool,
+    }
+
+    /// One remotely browsable photo. Native server paths never enter this DTO;
+    /// `preview_path` points only at the verified client-local proxy cache.
+    #[derive(Debug)]
+    struct FfiRemoteLibraryPhoto {
+        server_id: String,
+        remote_photo_id: String,
+        remote_representation_id: String,
+        title: String,
+        source_byte_len: u64,
+        has_source_modified_at: bool,
+        source_modified_at_ms: i64,
+        has_preview: bool,
+        preview_path: String,
+        preview_role: String,
+        preview_width: u32,
+        preview_height: u32,
+        preview_unavailable_reason: String,
+        has_captured_at: bool,
+        captured_at_unix_seconds: i64,
+        camera_make: String,
+        camera_model: String,
+        lens_make: String,
+        lens_model: String,
+        has_iso_speed: bool,
+        iso_speed: f64,
+        has_exposure_time: bool,
+        exposure_time_seconds: f64,
+        has_aperture: bool,
+        aperture_f_number: f64,
+        has_focal_length: bool,
+        focal_length_mm: f64,
+        has_raw_dimensions: bool,
+        raw_width: u32,
+        raw_height: u32,
+        decision_flag: FfiDecisionFlag,
+        decision_rating: u8,
+        liked: bool,
+        color_label: String,
+        review_updated_at_ms: i64,
+        is_materialized: bool,
+        local_photo_id: String,
+        local_representation_id: String,
+        local_source_path: String,
+    }
+
+    /// Offline-capable client mirror snapshot. An absent server is the valid
+    /// first-run state before the first successful synchronization.
+    #[derive(Debug)]
+    struct FfiRemoteLibrarySnapshot {
+        has_server: bool,
+        server: FfiRemoteLibraryServer,
+        photos: Vec<FfiRemoteLibraryPhoto>,
+    }
+
+    #[derive(Debug)]
+    struct FfiRemoteLibrarySyncResult {
+        snapshot: FfiRemoteLibrarySnapshot,
+        page_count: u64,
+        photo_count: u64,
+        downloaded_previews: u64,
+        removed: u64,
+    }
+
+    /// Verified local edit admission for one remote original.
+    #[derive(Debug)]
+    struct FfiRemoteLibraryMaterialization {
+        local_photo_id: String,
+        local_representation_id: String,
+        local_source_path: String,
+        title: String,
+        reused_existing: bool,
     }
 
     /// Low-frequency details for one exact selected `{photo, representation}`.
@@ -1607,6 +1694,30 @@ mod ffi {
             cursor_representation_id: &str,
             limit: u32,
         ) -> Result<FfiReviewPage>;
+        fn remote_library_snapshot(self: &DesktopSession) -> Result<FfiRemoteLibrarySnapshot>;
+        fn sync_remote_library(
+            self: &DesktopSession,
+            server_address: &str,
+            authorization: &str,
+        ) -> Result<FfiRemoteLibrarySyncResult>;
+        #[allow(clippy::too_many_arguments)]
+        fn set_remote_library_review_state(
+            self: &DesktopSession,
+            remote_photo_id: &str,
+            remote_representation_id: &str,
+            flag: FfiDecisionFlag,
+            rating: u8,
+            liked: bool,
+            color_label: &str,
+            updated_at_ms: i64,
+        ) -> Result<()>;
+        fn materialize_remote_library_photo(
+            self: &DesktopSession,
+            server_address: &str,
+            authorization: &str,
+            remote_photo_id: &str,
+            remote_representation_id: &str,
+        ) -> Result<FfiRemoteLibraryMaterialization>;
         fn photo_inspection(
             self: &DesktopSession,
             photo_id: &str,
@@ -2072,6 +2183,7 @@ struct DesktopSession {
     raw_foundations: raw_foundation_service::RawFoundationService,
     raw_foundation_runtime: raw_foundation_runtime::RawFoundationRuntime,
     library: LibraryService,
+    remote_library: RemoteLibraryService,
     relink: RelinkService,
     cache_maintenance: CacheMaintenanceService,
     photo_inspection: PhotoInspectionService,
@@ -2117,9 +2229,11 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
     let raw_foundation_runtime =
         raw_foundation_runtime::RawFoundationRuntime::open(raw_foundation_paths)?;
     let session_previews = Arc::new(SessionPreviewStore::default());
+    let remote_library = RemoteLibraryService::open(catalog.clone(), catalog_path, &cache_root)?;
     Ok(Box::new(DesktopSession {
         _actor: actor,
         library: LibraryService::new(catalog.clone()),
+        remote_library,
         relink: RelinkService::new(catalog.clone()),
         cache_maintenance,
         photo_inspection: PhotoInspectionService::new(catalog.clone()),

@@ -54,6 +54,26 @@ void append_role(QList<int>& roles, const int role) {
         append_role(roles, ReviewModel::VisualHandleRole);
         append_role(roles, ReviewModel::VisualSourceRole);
     }
+    if (current.visual_source_override != replacement.visual_source_override) {
+        append_role(roles, ReviewModel::VisualSourceRole);
+    }
+    if (current.is_remote != replacement.is_remote) {
+        append_role(roles, ReviewModel::IsRemoteRole);
+    }
+    if (current.remote_server_id != replacement.remote_server_id) {
+        append_role(roles, ReviewModel::RemoteServerIdRole);
+    }
+    if (current.remote_photo_id != replacement.remote_photo_id) {
+        append_role(roles, ReviewModel::RemotePhotoIdRole);
+    }
+    if (current.remote_representation_id != replacement.remote_representation_id) {
+        append_role(roles, ReviewModel::RemoteRepresentationIdRole);
+    }
+    if (current.remote_preview_unavailable_reason
+        != replacement.remote_preview_unavailable_reason) {
+        append_role(roles, ReviewModel::RemotePreviewUnavailableReasonRole);
+        append_role(roles, ReviewModel::VisualErrorRole);
+    }
     if (current.title != replacement.title) {
         append_role(roles, ReviewModel::TitleRole);
     }
@@ -205,7 +225,12 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
     case VisualRole:
         return item.visual_role;
     case VisualErrorRole:
-        return item.has_visual ? QString{} : QStringLiteral("visual pending");
+        if (item.has_visual) {
+            return QString{};
+        }
+        return item.is_remote && !item.remote_preview_unavailable_reason.isEmpty()
+                   ? item.remote_preview_unavailable_reason
+                   : QStringLiteral("visual pending");
     case VisualWidthRole:
         return QVariant::fromValue(item.visual_width);
     case VisualHeightRole:
@@ -213,6 +238,9 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
     case VisualSourceRole:
         if (!item.has_visual) {
             return QString{};
+        }
+        if (!item.visual_source_override.isEmpty()) {
+            return item.visual_source_override;
         }
         return reviewVisualSource(
             item.visual_handle,
@@ -291,6 +319,16 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return QVariant::fromValue(item.library_state_updated_at_ms);
     case HasDevelopmentEditsRole:
         return item.has_development_edits;
+    case IsRemoteRole:
+        return item.is_remote;
+    case RemoteServerIdRole:
+        return item.remote_server_id;
+    case RemotePhotoIdRole:
+        return item.remote_photo_id;
+    case RemoteRepresentationIdRole:
+        return item.remote_representation_id;
+    case RemotePreviewUnavailableReasonRole:
+        return item.remote_preview_unavailable_reason;
     default:
         return {};
     }
@@ -346,6 +384,11 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {ColorLabelRole, "colorLabel"},
         {LibraryStateUpdatedAtMsRole, "libraryStateUpdatedAtMs"},
         {HasDevelopmentEditsRole, "hasDevelopmentEdits"},
+        {IsRemoteRole, "isRemote"},
+        {RemoteServerIdRole, "remoteServerId"},
+        {RemotePhotoIdRole, "remotePhotoId"},
+        {RemoteRepresentationIdRole, "remoteRepresentationId"},
+        {RemotePreviewUnavailableReasonRole, "remotePreviewUnavailableReason"},
     };
 }
 
@@ -488,6 +531,46 @@ bool ReviewModel::reconcilePrefixSnapshot(QVector<ReviewItem> items, const quint
         }
     }
     return reconcileSnapshot(std::move(items), generation);
+}
+
+bool ReviewModel::replaceRemoteItems(QVector<ReviewItem> items) {
+    if (!has_unique_stable_keys(items)
+        || std::any_of(items.cbegin(), items.cend(), [](const ReviewItem& item) {
+               return !item.is_remote;
+           })) {
+        return false;
+    }
+
+    QSet<QString> local_keys;
+    local_keys.reserve(items_.size());
+    for (const auto& item : items_) {
+        if (!item.is_remote) {
+            local_keys.insert(item.photo_id);
+        }
+    }
+    if (std::any_of(items.cbegin(), items.cend(), [&local_keys](const ReviewItem& item) {
+            return local_keys.contains(item.photo_id);
+        })) {
+        return false;
+    }
+
+    qsizetype row = items_.size();
+    while (row > 0) {
+        --row;
+        if (!items_.at(row).is_remote) {
+            continue;
+        }
+        const qsizetype last = row;
+        while (row > 0 && items_.at(row - 1).is_remote) {
+            --row;
+        }
+        const qsizetype first = row;
+        beginRemoveRows({}, static_cast<int>(first), static_cast<int>(last));
+        items_.remove(first, last - first + 1);
+        endRemoveRows();
+    }
+    append(std::move(items));
+    return true;
 }
 
 bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {

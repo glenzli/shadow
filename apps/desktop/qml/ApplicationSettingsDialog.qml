@@ -13,6 +13,7 @@ Popup {
     required property var cachePreferences
     required property var cacheMaintenanceController
     required property var mapProviderPreferences
+    required property var controller
     required property var editor
     required property real hostWidth
     required property real hostHeight
@@ -238,6 +239,7 @@ Popup {
 
                 SettingsLibraryPane {
                     preferences: root.preferences
+                    controller: root.controller
                     onOpenLutLibraryRequested: root.openLutLibraryRequested()
                     onOpenOpticsProfileLibraryRequested:
                         root.openOpticsProfileLibraryRequested()

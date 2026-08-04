@@ -182,6 +182,7 @@ Rectangle {
             toolTipText: qsTr("Apply a shared Grade Node to selection")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
+                && !toolbar.workspace.selectionContainsRemote()
             onClicked: toolbar.sharedGradeRequested(
                 applySharedGradeButton)
         }
@@ -192,6 +193,7 @@ Rectangle {
             toolTipText: qsTr("Add selected photos to a Manual Album")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
+                && !toolbar.workspace.selectionContainsRemote()
                 && toolbar.workspace.manualLibraryAlbums.length > 0
                 && !toolbar.workspace.controller.libraryAlbumsBusy
             onClicked: toolbar.workspace.addTargetsToManualAlbum(
@@ -204,6 +206,7 @@ Rectangle {
             toolTipText: qsTr("Remove selected photos from this Manual Album")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
+                && !toolbar.workspace.selectionContainsRemote()
                 && !toolbar.workspace.controller.libraryAlbumsBusy
             onClicked: toolbar.workspace.controller.removePhotosFromManualLibraryAlbum(
                 String(toolbar.workspace.currentLibraryAlbum.id),
@@ -215,6 +218,7 @@ Rectangle {
             toolTipText: qsTr("Export selected photos")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
+                && !toolbar.workspace.selectionContainsRemote()
             onClicked: toolbar.exportRequested(
                 toolbar.workspace.batchSelectionTargets())
         }

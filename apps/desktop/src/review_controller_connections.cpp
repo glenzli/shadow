@@ -14,6 +14,8 @@ void ReviewController::initializeCoordinatorWiring() {
     filtered_model_.setSourceModel(&model_);
     connect(&filtered_model_, &ReviewFilterModel::filtersChanged, this, [this]() {
         scheduleFilterQuery();
+        refreshRemoteLibraryPresentation();
+        emit itemCountChanged();
         emit filtersChanged();
     });
     const auto notify_filtered_count = [this]() { emit filtersChanged(); };
@@ -216,7 +218,11 @@ void ReviewController::initializeCoordinatorWiring() {
         &album_coordinator_,
         &ReviewLibraryAlbumCoordinator::albumSelectionChanged,
         this,
-        &ReviewController::libraryAlbumChanged
+        [this]() {
+            refreshRemoteLibraryPresentation();
+            emit libraryAlbumChanged();
+            emit itemCountChanged();
+        }
     );
     connect(
         &album_coordinator_,
@@ -312,7 +318,38 @@ void ReviewController::initializeCoordinatorWiring() {
         &query_coordinator_,
         &ReviewLibraryQueryCoordinator::decisionsReconciled,
         this,
-        &ReviewController::decisionStateChanged
+        [this]() {
+            refreshRemoteLibraryPresentation();
+            emit decisionStateChanged();
+        }
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::stateChanged,
+        this,
+        [this]() {
+            refreshRemoteLibraryPresentation();
+            emit remoteLibraryChanged();
+            emit itemCountChanged();
+        }
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::connectionChanged,
+        this,
+        &ReviewController::remoteLibraryChanged
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::remotePhotoReady,
+        this,
+        &ReviewController::remotePhotoReady
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::localLibraryRefreshRequested,
+        this,
+        &ReviewController::refreshVisibleLibrary
     );
     connect(
         &query_coordinator_,
@@ -386,5 +423,6 @@ void ReviewController::initializeCoordinatorWiring() {
     if (auto* const application = QCoreApplication::instance()) {
         application->installEventFilter(this);
     }
+    remote_library_coordinator_.start();
     QTimer::singleShot(0, this, [this]() { requestLibraryReset(); });
 }

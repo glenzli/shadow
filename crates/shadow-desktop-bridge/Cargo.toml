@@ -20,6 +20,7 @@ shadow-cache.workspace = true
 shadow-catalog.workspace = true
 shadow-core.workspace = true
 shadow-domain.workspace = true
+shadow-library-sharing.workspace = true
 shadow-ai.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
