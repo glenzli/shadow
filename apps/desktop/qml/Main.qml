@@ -25,6 +25,7 @@ ApplicationWindow {
     required property var googleMapTilesService
     required property var lutLibrary
     required property var opticsProfileLibrary
+    required property string initialSettingsSection
     property int workspaceIndex: 0
 
     width: 1480
@@ -85,7 +86,14 @@ ApplicationWindow {
             : effectiveAppearance === "light" ? false : Boolean(preferences.dark)
     }
 
-    Component.onCompleted: synchronizeTheme()
+    Component.onCompleted: {
+        synchronizeTheme()
+        if (initialSettingsSection.length > 0) {
+            Qt.callLater(function() {
+                applicationSettingsDialog.present(initialSettingsSection)
+            })
+        }
+    }
 
     Connections {
         target: window.preferences

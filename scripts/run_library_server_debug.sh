@@ -5,6 +5,61 @@ set -eu
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 repository_parent=$(dirname -- "$repository_root")
+
+usage() {
+    cat <<'EOF'
+usage:
+  ./scripts/run_library_server_debug.sh
+  ./scripts/run_library_server_debug.sh --check
+  ./scripts/run_library_server_debug.sh --headless <shared-folder> [options]
+
+default control mode:
+  Launches the canonical Shadow debug app and opens Settings > Sharing, where the
+  managed Library server can be configured, started, stopped, and rescanned.
+
+headless options:
+  --bind <address:port>   Listener address (default: 0.0.0.0:37641)
+  --name <display-name>   Name shown to Shadow clients
+  --provider-host <path>  Use an explicit RAW Provider Host helper
+  --public-only           Disable the private Provider Host fallback
+  --check                 Print the resolved headless configuration without starting
+  -h, --help              Show this help
+
+examples:
+  ./scripts/run_library_server_debug.sh
+  ./scripts/run_library_server_debug.sh --headless /Volumes/Photos/RAW
+  ./scripts/run_library_server_debug.sh --headless /Volumes/Photos/RAW \
+      --bind 0.0.0.0:38641 --name "Studio Mac"
+
+Headless mode creates an access token and rebuildable server data under the sibling
+.shadow-local-library-server directory. Press Ctrl-C to stop a headless server.
+EOF
+}
+
+if [ "${1:-}" != "--headless" ]; then
+    case "${1:-}" in
+        "")
+            exec "$repository_root/scripts/run_debug.sh" --open-settings sharing
+            ;;
+        --check)
+            [ "$#" -eq 1 ] || { echo "--check does not accept extra control-mode arguments" >&2; exit 64; }
+            "$repository_root/scripts/run_debug.sh" --check
+            echo "Library server control: Settings > Sharing"
+            exit 0
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "control mode takes no folder; use --headless before a shared folder" >&2
+            usage >&2
+            exit 64
+            ;;
+    esac
+fi
+shift
+
 server_debug_root=${SHADOW_LIBRARY_SERVER_DEBUG_ROOT:-"$repository_parent/.shadow-local-library-server"}
 local_build_root=${SHADOW_LOCAL_BUILD_ROOT:-"$repository_parent/.shadow-local-build"}
 cargo_target_root=${SHADOW_LIBRARY_SERVER_CARGO_TARGET_DIR:-"$repository_parent/.shadow-local-target/library-server-debug"}
@@ -16,28 +71,6 @@ provider_host_required=0
 public_only=0
 check_only=0
 shared_folder=
-
-usage() {
-    cat <<'EOF'
-usage:
-  ./scripts/run_library_server_debug.sh <shared-folder> [options]
-
-options:
-  --bind <address:port>   Listener address (default: 0.0.0.0:37641)
-  --name <display-name>   Name shown to Shadow clients
-  --provider-host <path>  Use an explicit RAW Provider Host helper
-  --public-only           Disable the private Provider Host fallback
-  --check                 Print the resolved configuration without starting
-  -h, --help              Show this help
-
-examples:
-  ./scripts/run_library_server_debug.sh /Volumes/Photos/RAW
-  ./scripts/run_library_server_debug.sh /Volumes/Photos/RAW --bind 0.0.0.0:38641 --name "Studio Mac"
-
-The first run creates an access token and rebuildable server data under the sibling
-.shadow-local-library-server directory. Press Ctrl-C to stop the server.
-EOF
-}
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -70,7 +103,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         --*)
-            echo "unknown option: $1" >&2
+            echo "unknown headless option: $1" >&2
             usage >&2
             exit 64
             ;;
@@ -91,7 +124,7 @@ if [ -n "${SHADOW_DECODE_HELPER_PATH:-}" ]; then
 fi
 
 if [ -z "$shared_folder" ]; then
-    echo "a shared folder is required" >&2
+    echo "a shared folder is required in headless mode" >&2
     usage >&2
     exit 64
 fi
@@ -137,7 +170,7 @@ preview_cache="$server_debug_root/preview-cache"
 server_state="$server_debug_root/state"
 token_file=${SHADOW_LIBRARY_SERVER_TOKEN_FILE:-"$server_debug_root/access-token"}
 
-echo "Shadow Library server debug"
+echo "Shadow Library headless server debug"
 echo "  shared folder: $shared_folder"
 echo "  listener: $bind_address"
 echo "  display name: $display_name"

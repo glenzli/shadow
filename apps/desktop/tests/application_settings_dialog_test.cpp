@@ -178,6 +178,24 @@ int main(int argc, char* argv[]) {
             QMetaObject::invokeMethod(
                 dialog.get(),
                 "present",
+                Q_ARG(QVariant, QVariant(QStringLiteral("sharing")))
+            ),
+            "the dialog exposes the managed server section to startup routing"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(
+            dialog->property("selectedIndex").toInt() == 2,
+            "the Sharing section can be opened directly"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    if (!require(
+            QMetaObject::invokeMethod(
+                dialog.get(),
+                "present",
                 Q_ARG(QVariant, QVariant(QStringLiteral("ai")))
             ),
             "the dialog exposes a section-aware presentation entry"

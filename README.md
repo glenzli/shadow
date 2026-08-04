@@ -82,7 +82,7 @@ cargo xtask desktop-i18n-check
 cargo xtask desktop-build
 cargo xtask raw-smoke ./local-reference/sample-assets/raw
 ./scripts/run_debug.sh
-./scripts/run_library_server_debug.sh /path/to/raw
+./scripts/run_library_server_debug.sh
 cargo run --package shadow-cli -- init ./catalogs/demo.sqlite
 cargo run --package shadow-cli -- scan ./catalogs/demo.sqlite /path/to/photos
 cargo run --package shadow-cli -- scan-cache ./catalogs/demo.sqlite ./catalogs/cache /path/to/photos
@@ -163,13 +163,17 @@ blocking startup, and projects remote proxies into Review. Opening a remote phot
 verifies the original before entering Precision; Recipe synchronization remains deliberately out
 of scope rather than becoming a hidden side effect of file transfer.
 
-For a standalone server smoke test, run
-`./scripts/run_library_server_debug.sh /absolute/path/to/raw`. It builds the current CLI source
-into an external debug target, keeps its Catalog, preview cache, stable identity, and generated
-access token under the sibling `.shadow-local-library-server` directory, and reuses the Provider
-Host from the canonical debug app when available. Pass `--check` to inspect the resolved paths
-without starting, `--public-only` to exercise the LibRaw-only route, or `--help` for the complete
-option list. The token file is created with user-only permissions and is never printed.
+For normal server operation, run `./scripts/run_library_server_debug.sh`. It launches the canonical
+debug app directly into **Settings > Sharing**, where shared roots, access permission, startup
+policy, Provider state, rescan, cache, and listener lifetime can be managed together. The previous
+standalone CLI path remains available as
+`./scripts/run_library_server_debug.sh --headless /absolute/path/to/raw`; headless mode builds the
+current CLI source into an external debug target, keeps its Catalog, preview cache, stable identity,
+and generated access token under the sibling `.shadow-local-library-server` directory, and reuses
+the Provider Host from the canonical debug app when compatible. Use
+`./scripts/run_library_server_debug.sh --check` to inspect the canonical control build, or append
+`--check` to a headless command to inspect its resolved server paths without starting. The headless
+token file is user-only and is never printed.
 
 The macOS settings window also exposes a separate Sharing pane for operating this Mac as the
 server. It persists a bounded list of explicit shared roots, server name/port, application-start

@@ -38,6 +38,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QUrl>
 #include <QVariant>
 #include <QWindow>
@@ -119,6 +120,21 @@ offer_development_catalog_reset(const std::exception& error) {
     return initial_folder;
 }
 
+[[nodiscard]] QString requestedSettingsSection(const QStringList& arguments) {
+    constexpr auto option = "--open-settings";
+    constexpr auto option_prefix = "--open-settings=";
+    for (qsizetype index = 1; index < arguments.size(); ++index) {
+        const QString& argument = arguments[index];
+        if (argument == QString::fromLatin1(option)) {
+            return index + 1 < arguments.size() ? arguments[index + 1].trimmed() : QString{};
+        }
+        if (argument.startsWith(QString::fromLatin1(option_prefix))) {
+            return argument.sliced(QString::fromLatin1(option_prefix).size()).trimmed();
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -127,6 +143,8 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow"));
+    const QString initial_settings_section =
+        requestedSettingsSection(QCoreApplication::arguments());
 
     // Native RAW providers (including a locally installed vendor SDK) execute
     // behind a separate helper process. Keep the helper beside the desktop
@@ -313,6 +331,10 @@ int main(int argc, char* argv[]) {
         {
             QStringLiteral("opticsProfileLibrary"),
             QVariant::fromValue(&optics_profile_library),
+        },
+        {
+            QStringLiteral("initialSettingsSection"),
+            initial_settings_section,
         },
     });
     engine.loadFromModule("Shadow.App", "Main");
