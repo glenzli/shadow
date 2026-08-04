@@ -23,6 +23,10 @@ use shadow_library_sharing::{
 
 use super::{catalog, scan};
 
+mod provider_host;
+
+use provider_host::RemoteLibraryServerPreviewRuntime;
+
 pub(super) struct ServeOptions<'a> {
     pub catalog_path: &'a str,
     pub cache_root: &'a str,
@@ -34,7 +38,15 @@ pub(super) struct ServeOptions<'a> {
 }
 
 pub(super) fn serve(options: &ServeOptions<'_>) -> Result<()> {
-    scan::folder_with_cache(options.catalog_path, options.cache_root, options.folder)?;
+    let preview_runtime = RemoteLibraryServerPreviewRuntime::discover(options.cache_root)?;
+    let private_preview_provider_available = preview_runtime.private_provider_available();
+    let provider_mode = preview_runtime.mode_label();
+    scan::folder_with_cache_and_inspector(
+        options.catalog_path,
+        options.cache_root,
+        options.folder,
+        preview_runtime.into_inspector(),
+    )?;
     let bind_address = SocketAddr::from_str(options.bind_address)
         .with_context(|| format!("parse bind address {}", options.bind_address))?;
     let authorization = token_from_file(options.token_file)?;
@@ -43,7 +55,7 @@ pub(super) fn serve(options: &ServeOptions<'_>) -> Result<()> {
         options.cache_root,
         options.server_state_root,
         options.display_name,
-        false,
+        private_preview_provider_available,
     )?;
     let running = LibraryServer::new(
         LibraryServerConfig::new(bind_address, authorization),
@@ -51,9 +63,10 @@ pub(super) fn serve(options: &ServeOptions<'_>) -> Result<()> {
     )
     .start()?;
     println!(
-        "remote Library ready: address={} folder={} preview_policy=embedded-first/generated-fallback private_provider=false",
+        "remote Library ready: address={} folder={} preview_policy=embedded-first/generated-fallback private_provider={} provider_host={provider_mode}",
         running.local_address(),
-        options.folder
+        options.folder,
+        private_preview_provider_available,
     );
     println!("press Ctrl-C to stop sharing");
     let _running = running;

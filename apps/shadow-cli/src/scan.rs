@@ -1,7 +1,8 @@
 use super::{catalog, decode::LibRawInspector};
 use anyhow::Result;
 use shadow_core::{
-    DecodeInspectionActor, ScanReport, resume_scan, scan_folder, scan_folder_with_inspection,
+    DecodeInspectionActor, DecodeInspector, ScanReport, resume_scan, scan_folder,
+    scan_folder_with_inspection,
 };
 use shadow_domain::ImportSessionId;
 use std::path::Path;
@@ -16,13 +17,19 @@ pub(super) fn folder(catalog_path: &str, folder: &str) -> Result<()> {
 }
 
 pub(super) fn folder_with_cache(catalog_path: &str, cache_root: &str, folder: &str) -> Result<()> {
+    folder_with_cache_and_inspector(catalog_path, cache_root, folder, LibRawInspector::new())
+}
+
+pub(super) fn folder_with_cache_and_inspector(
+    catalog_path: &str,
+    cache_root: &str,
+    folder: &str,
+    inspector: impl DecodeInspector,
+) -> Result<()> {
     let actor = catalog::open(catalog_path)?;
     let mut catalog = actor.handle();
-    let inspector = DecodeInspectionActor::spawn_with_cache(
-        catalog.clone(),
-        LibRawInspector::new(),
-        cache_root,
-    )?;
+    let inspector =
+        DecodeInspectionActor::spawn_with_cache(catalog.clone(), inspector, cache_root)?;
     let report = scan_folder_with_inspection(&mut catalog, &inspector.handle(), Path::new(folder))?;
     inspector.shutdown()?;
     print_report(report);

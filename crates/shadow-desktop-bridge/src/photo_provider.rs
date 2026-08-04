@@ -19,17 +19,18 @@ use shadow_domain::{DecoderSnapshot, PreviewPayload, ProxyPayload};
 
 use self::grid_proxy_identity::grid_proxy_variant_key;
 use crate::isolated_proxy::{
-    configured_helper_path, isolated_helper_implementation_identity,
+    ProviderHostInventory, configured_helper_path, isolated_helper_implementation_identity,
     render_isolated_photo_reference_proxy, render_isolated_photo_reference_proxy_to_file,
     snapshot_isolated_photo_decoder,
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct PhotoInspector {
+pub struct PhotoInspector {
     version: String,
     original_raster_extensions: Vec<String>,
     proxy_variant_key: String,
     isolated_proxy_runtime_cache: Option<PathBuf>,
+    isolated_helper_path: Option<PathBuf>,
 }
 
 // The generated-library proxy is deliberately a lower-bandwidth artifact than the warm editing
@@ -54,6 +55,10 @@ impl PhotoInspector {
     pub(crate) fn new_with_isolated_proxy_cache(
         runtime_cache_root: Option<PathBuf>,
     ) -> AnyResult<Self> {
+        let helper_path = runtime_cache_root
+            .is_some()
+            .then(configured_helper_path)
+            .flatten();
         let raw_development_plan_identity =
             raw_development_plan_identity(RawDevelopmentPlan::preview())
                 .context("build grid-proxy RAW-development cache identity")?;
@@ -63,7 +68,7 @@ impl PhotoInspector {
         // path, only the configured helper graph identity.
         let isolated_implementation_identity = runtime_cache_root
             .is_some()
-            .then(|| isolated_helper_implementation_identity(configured_helper_path().as_deref()))
+            .then(|| isolated_helper_implementation_identity(helper_path.as_deref()))
             .transpose()?;
         let version = match &isolated_implementation_identity {
             Some(identity) => format!(
@@ -86,6 +91,51 @@ impl PhotoInspector {
             // source-development intent or policy.
             proxy_variant_key,
             isolated_proxy_runtime_cache: runtime_cache_root,
+            isolated_helper_path: helper_path,
+        })
+    }
+
+    /// Builds the application-level photo inspector around a verified isolated Provider Host.
+    ///
+    /// The parent process never loads the private module. The child-provided router version is
+    /// folded into both inspection and proxy cache identities, including discovery-mode plugins
+    /// whose paths deliberately remain outside the Catalog.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a public-only inventory or an unavailable helper identity.
+    pub fn new_with_provider_host(
+        runtime_cache_root: PathBuf,
+        helper_path: PathBuf,
+        inventory: &ProviderHostInventory,
+    ) -> AnyResult<Self> {
+        if !inventory.private_provider_available {
+            anyhow::bail!("Provider Host inventory does not contain a private decoder");
+        }
+        let raw_development_plan_identity =
+            raw_development_plan_identity(RawDevelopmentPlan::preview())
+                .context("build grid-proxy RAW-development cache identity")?;
+        let helper_identity = isolated_helper_implementation_identity(Some(&helper_path))?;
+        let router_digest = blake3::hash(inventory.router_version.as_bytes())
+            .to_hex()
+            .to_string();
+        let isolated_implementation_identity =
+            format!("helper={helper_identity};router={router_digest}");
+        let version = format!(
+            "shadow-photo-provider-host-v1;isolated-helper-graph={isolated_implementation_identity}"
+        );
+        let proxy_variant_key = grid_proxy_variant_key(
+            PHOTO_GRID_PROXY_MAX_EDGE,
+            PHOTO_GRID_PROXY_JPEG_QUALITY,
+            &raw_development_plan_identity,
+            Some(&isolated_implementation_identity),
+        );
+        Ok(Self {
+            version,
+            original_raster_extensions: photo_supported_raster_extensions(),
+            proxy_variant_key,
+            isolated_proxy_runtime_cache: Some(runtime_cache_root),
+            isolated_helper_path: Some(helper_path),
         })
     }
 }
@@ -111,10 +161,10 @@ impl DecodeInspector for PhotoInspector {
                     .isolated_proxy_runtime_cache
                     .as_deref()
                     .ok_or_else(|| "isolated RAW inspection cache is unavailable".to_owned())?;
-                let helper_path = configured_helper_path().ok_or_else(|| {
+                let helper_path = self.isolated_helper_path.as_deref().ok_or_else(|| {
                     "isolated RAW decode helper is unavailable; Shadow will not run a native decoder inside the desktop process".to_owned()
                 })?;
-                snapshot_isolated_photo_decoder(&helper_path, runtime_cache_root, path)
+                snapshot_isolated_photo_decoder(helper_path, runtime_cache_root, path)
                     .map(|snapshot| {
                         // The child may route through a private provider whose
                         // identity the desktop intentionally cannot load. The
@@ -142,11 +192,11 @@ impl DecodeInspector for PhotoInspector {
 
     fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
         if let Some(runtime_cache_root) = &self.isolated_proxy_runtime_cache {
-            let helper_path = configured_helper_path().ok_or_else(|| {
+            let helper_path = self.isolated_helper_path.as_deref().ok_or_else(|| {
                 "isolated RAW decode helper is unavailable; Shadow will not run a native decoder inside the desktop process".to_owned()
             })?;
             return render_isolated_photo_reference_proxy(
-                &helper_path,
+                helper_path,
                 runtime_cache_root,
                 path,
                 PHOTO_GRID_PROXY_MAX_EDGE,

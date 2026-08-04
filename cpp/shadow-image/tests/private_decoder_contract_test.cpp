@@ -258,6 +258,28 @@ void private_decoder_router_prefers_an_explicit_local_module() {
 #endif
 }
 
+void private_decoder_inventory_reports_only_a_verified_module() {
+#if defined(SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH)
+  const auto public_inventory =
+      image::photo_decoder_provider_inventory(std::filesystem::path{});
+  expect(!public_inventory.private_provider_available,
+         "public provider inventory does not claim a private module");
+  expect(public_inventory.router_version.find(";private=") ==
+             std::string::npos,
+         "public provider inventory excludes private identity fields");
+
+  const auto private_inventory = image::photo_decoder_provider_inventory(
+      SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH);
+  expect(private_inventory.private_provider_available,
+         "private provider inventory reports a current module after loading it");
+  expect(private_inventory.router_version.find(";private=") !=
+             std::string::npos,
+         "private provider inventory retains the verified graph identity");
+#else
+  expect(false, "private decoder inventory fixture path must be configured");
+#endif
+}
+
 } // namespace
 
 int main() {
@@ -265,5 +287,6 @@ int main() {
   stale_private_decoder_plugin_is_rejected_before_construction();
   private_decoder_plugin_loads_an_explicit_local_module();
   private_decoder_router_prefers_an_explicit_local_module();
+  private_decoder_inventory_reports_only_a_verified_module();
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

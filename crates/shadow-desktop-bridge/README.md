@@ -28,7 +28,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
 | Exact selected-photo EXIF and technical inspection, independent from virtualized Review pages | [`src/photo_inspection_service.rs`](src/photo_inspection_service.rs), [`src/session_photo_inspection.rs`](src/session_photo_inspection.rs) |
 | Authenticated remote-Mac Library mirror, client-local curation, verified original materialization, and local Catalog migration | [`src/remote_library_service.rs`](src/remote_library_service.rs), [`src/session_remote_library.rs`](src/session_remote_library.rs) |
-| Photo source admission, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
+| Photo source admission, Provider Host inventory, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs), [`src/isolated_proxy/provider_inventory.rs`](src/isolated_proxy/provider_inventory.rs) |
 | Exact SAM 2.1 installation/application admission, resident provider session, and proposal staging | [`src/subject_mask_runtime.rs`](src/subject_mask_runtime.rs) |
 | Subject-mask preview, registration, apply, and discard authority | [`src/subject_mask_service.rs`](src/subject_mask_service.rs) |
 | Edit-session subject-mask prompt, refinement, and apply orchestration | [`src/session_subject_mask.rs`](src/session_subject_mask.rs) |

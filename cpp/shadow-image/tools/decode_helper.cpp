@@ -209,6 +209,30 @@ int probe_open_metadata(const fs::path& input) {
     return 0;
 }
 
+[[nodiscard]] std::string hex_encode_bounded(
+    std::string_view value,
+    std::size_t maximum_bytes,
+    std::string_view label
+);
+
+// Startup capability negotiation for long-lived clients such as the remote Library server. The
+// inventory runs inside this helper so loading a stale or malformed private module cannot crash
+// the caller. A successful receipt means the complete configured provider graph passed ABI
+// construction; it does not claim that any particular source is supported.
+int print_provider_inventory() {
+    const auto inventory = image::photo_decoder_provider_inventory();
+    std::cout
+        << "shadow-provider-host-v1 provider-inventory "
+        << (inventory.private_provider_available ? '1' : '0') << ' '
+        << hex_encode_bounded(
+               inventory.router_version,
+               max_identity_text_bytes,
+               "provider inventory router version"
+           )
+        << '\n';
+    return 0;
+}
+
 // The v2 receipt is line-oriented and deliberately contains only hex-encoded
 // implementation identities. It exposes neither user metadata nor local file
 // paths. The nonce is supplied by the desktop process and makes a stale child
@@ -616,6 +640,9 @@ int main(const int argument_count, char** arguments) {
         if (command == "probe" && argument_count == 3) {
             return probe_open_metadata(fs::path(arguments[2]));
         }
+        if (command == "provider-inventory" && argument_count == 2) {
+            return print_provider_inventory();
+        }
         if (command == "preview-receipt" && argument_count == 5) {
             return probe_preview_development(
                 fs::path(arguments[2]),
@@ -656,6 +683,7 @@ int main(const int argument_count, char** arguments) {
         std::cerr
             << "usage: shadow-image-decode-helper proxy <input> <output> <max-edge> <jpeg-quality>\n"
             << "       shadow-image-decode-helper probe <input>\n"
+            << "       shadow-image-decode-helper provider-inventory\n"
             << "       shadow-image-decode-helper preview-receipt <input> <max-edge> <nonce>\n"
             << "       shadow-image-decode-helper metadata-snapshot <input> <nonce>\n"
             << "       shadow-image-decode-helper decoder-snapshot <input> <nonce>\n"

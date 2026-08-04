@@ -622,6 +622,26 @@ std::unique_ptr<DecoderProvider> make_photo_decoder_provider() {
     return std::make_unique<PhotoDecoderRouter>(discovered_private_decoder_plugin_paths());
 }
 
+PhotoDecoderProviderInventory photo_decoder_provider_inventory() {
+    if (!private_decoder_plugins_enabled()) {
+        const auto provider = std::make_unique<PhotoDecoderRouter>(
+            std::vector<std::filesystem::path>{}
+        );
+        return PhotoDecoderProviderInventory{false, provider->info().version};
+    }
+    const std::filesystem::path explicit_path = configured_private_decoder_plugin_path();
+    if (!explicit_path.empty()) {
+        return photo_decoder_provider_inventory(explicit_path);
+    }
+    const auto paths = discovered_private_decoder_plugin_paths();
+    const bool private_provider_available = !paths.empty();
+    const auto provider = std::make_unique<PhotoDecoderRouter>(paths);
+    return PhotoDecoderProviderInventory{
+        private_provider_available,
+        provider->info().version,
+    };
+}
+
 std::unique_ptr<DecoderProvider> make_photo_decoder_provider(
     const std::filesystem::path& private_decoder_plugin_path
 ) {
@@ -630,6 +650,21 @@ std::unique_ptr<DecoderProvider> make_photo_decoder_provider(
         paths.push_back(private_decoder_plugin_path);
     }
     return std::make_unique<PhotoDecoderRouter>(std::move(paths));
+}
+
+PhotoDecoderProviderInventory photo_decoder_provider_inventory(
+    const std::filesystem::path& private_decoder_plugin_path
+) {
+    std::vector<std::filesystem::path> paths;
+    if (private_decoder_plugins_enabled() && !private_decoder_plugin_path.empty()) {
+        paths.push_back(private_decoder_plugin_path);
+    }
+    const bool private_provider_available = !paths.empty();
+    const auto provider = std::make_unique<PhotoDecoderRouter>(std::move(paths));
+    return PhotoDecoderProviderInventory{
+        private_provider_available,
+        provider->info().version,
+    };
 }
 
 } // namespace shadow::image

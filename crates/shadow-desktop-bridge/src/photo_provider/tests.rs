@@ -1,11 +1,15 @@
 use super::*;
 
 fn inspector_with_route_cache(runtime_cache_root: Option<PathBuf>) -> PhotoInspector {
+    let isolated_helper_path = runtime_cache_root
+        .as_ref()
+        .map(|_| PathBuf::from("/tmp/shadow-image-decode-helper"));
     PhotoInspector {
         version: "test-router-version".to_owned(),
         original_raster_extensions: vec!["jpg".to_owned(), "heif".to_owned()],
         proxy_variant_key: "test-proxy".to_owned(),
         isolated_proxy_runtime_cache: runtime_cache_root,
+        isolated_helper_path,
     }
 }
 

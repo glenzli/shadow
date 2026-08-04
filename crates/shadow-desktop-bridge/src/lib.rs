@@ -57,6 +57,9 @@ mod export_service;
 mod session_cache_maintenance;
 mod session_export;
 
+pub use isolated_proxy::{ProviderHostInventory, inspect_provider_host};
+pub use photo_provider::PhotoInspector;
+
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, atomic::AtomicU64},

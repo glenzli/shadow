@@ -13,6 +13,7 @@ shadow-cache.workspace = true
 shadow-catalog.workspace = true
 shadow-core.workspace = true
 shadow-domain.workspace = true
+shadow-desktop-bridge.workspace = true
 shadow-library-sharing.workspace = true
 uuid.workspace = true
 

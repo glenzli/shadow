@@ -14,6 +14,7 @@ mod helper_wire_fields;
 mod metadata;
 mod native_admission;
 mod persistent_evidence;
+mod provider_inventory;
 mod raw_frame_staging;
 mod reference_proxy;
 mod route_identity;
@@ -31,6 +32,7 @@ pub(crate) use native_admission::{
 };
 #[allow(unused_imports)]
 pub(crate) use persistent_evidence::IsolatedDecodeObservation;
+pub use provider_inventory::{ProviderHostInventory, inspect_provider_host};
 pub(crate) use raw_frame_staging::{IsolatedRawFrameStaging, stage_isolated_raw_frame};
 pub(crate) use reference_proxy::{
     render_isolated_photo_reference_proxy, render_isolated_photo_reference_proxy_to_file,

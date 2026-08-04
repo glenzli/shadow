@@ -606,6 +606,7 @@ dependencies = [
  "shadow-cache",
  "shadow-catalog",
  "shadow-core",
+ "shadow-desktop-bridge",
  "shadow-domain",
  "shadow-library-sharing",
  "uuid",

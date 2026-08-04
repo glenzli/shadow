@@ -141,4 +141,22 @@ public:
     const std::filesystem::path& private_decoder_plugin_path
 );
 
+/// Provider graph admitted by the isolated decoder-host process.
+///
+/// `private_provider_available` is true only after every configured private module has loaded and
+/// exposed a current ABI descriptor. `router_version` is the complete cache identity of that
+/// verified graph and contains no native source path.
+struct PhotoDecoderProviderInventory final {
+    bool private_provider_available{false};
+    std::string router_version;
+};
+
+/// Verifies the environment/discovery-selected private decoder graph.
+[[nodiscard]] PhotoDecoderProviderInventory photo_decoder_provider_inventory();
+
+/// Explicit-test form of the provider inventory. An empty path verifies the public graph only.
+[[nodiscard]] PhotoDecoderProviderInventory photo_decoder_provider_inventory(
+    const std::filesystem::path& private_decoder_plugin_path
+);
+
 } // namespace shadow::image

@@ -142,7 +142,14 @@ coexist for one representation.
 prefers camera-embedded previews, keeps the existing generated-proxy fallback, and publishes a
 bounded authenticated manifest without revealing native server paths. A RAW for which neither the
 public decoder nor an installed private provider can prepare a visual remains in the manifest with
-an explicit unavailable-preview state. `library-sync` mirrors that manifest and its
+an explicit unavailable-preview state. At startup the server looks for
+`SHADOW_DECODE_HELPER_PATH`, then for a sibling `shadow-image-decode-helper`. The helper verifies
+its complete configured/discovered private-provider graph in a crash-isolated inventory command;
+only a successful current-ABI private module enables the advertised private-preview capability.
+A missing helper or a valid public-only helper keeps the public `LibRaw` route enabled without
+claiming private support. The server still asks public `LibRaw` for an embedded preview first and
+consults the verified Provider Host only when the public snapshot has neither an embedded visual
+nor reference RGB. `library-sync` mirrors that manifest and its
 content-addressed preview blobs into client-local storage for offline browsing.
 `library-materialize` is the edit-admission boundary: it prepares one exact server revision,
 downloads bounded chunks into a resumable `.part` file, verifies byte length and BLAKE3, atomically
