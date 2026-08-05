@@ -3440,6 +3440,11 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="38"/>
+        <source>Access token does not match this server · edit the connection</source>
+        <translation>访问令牌与此服务器不匹配 · 请编辑连接</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="38"/>
         <source>Local proxy cache could not be opened</source>
         <translation>无法打开本地代理缓存</translation>
     </message>

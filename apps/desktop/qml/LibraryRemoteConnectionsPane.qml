@@ -34,6 +34,8 @@ ColumnLayout {
             return qsTr("Access token unavailable · reconnect this Library");
         case "sync-failed":
             return qsTr("Offline · cached thumbnails remain available");
+        case "authorization-failed":
+            return qsTr("Access token does not match this server · edit the connection");
         case "cache-load-failed":
             return qsTr("Local proxy cache could not be opened");
         case "remote-original-unavailable":
@@ -327,6 +329,7 @@ ColumnLayout {
                     }
 
                     Label {
+                        objectName: "remoteLibraryStatusLabel"
                         Layout.fillWidth: true
                         text: root.statusText(remoteRow.connection)
                         color: root.statusColor(remoteRow.connection)

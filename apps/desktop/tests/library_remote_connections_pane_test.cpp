@@ -50,8 +50,8 @@ class FakeRemoteLibraryController final : public QObject {
                 {QStringLiteral("serverName"), QStringLiteral("Travel Mac")},
                 {QStringLiteral("hasCachedServer"), false},
                 {QStringLiteral("photoCount"), 0},
-                {QStringLiteral("statusCode"), QStringLiteral("sync-failed")},
-                {QStringLiteral("diagnosticText"), QStringLiteral("offline")},
+                {QStringLiteral("statusCode"), QStringLiteral("authorization-failed")},
+                {QStringLiteral("diagnosticText"), QStringLiteral("authorization failed")},
                 {QStringLiteral("busy"), false},
             },
         };
@@ -162,6 +162,8 @@ int main(int argc, char* argv[]) {
 
     QList<QQuickItem*> sync_buttons;
     collectVisualChildren(pane_item, QStringLiteral("remoteLibrarySyncButton"), sync_buttons);
+    QList<QQuickItem*> status_labels;
+    collectVisualChildren(pane_item, QStringLiteral("remoteLibraryStatusLabel"), status_labels);
     QObject* const sync_all =
         pane->findChild<QObject*>(QStringLiteral("remoteLibrarySyncAllButton"));
     QList<QQuickItem*> remove_buttons;
@@ -185,6 +187,14 @@ int main(int argc, char* argv[]) {
     QObject* const add =
         pane->findChild<QObject*>(QStringLiteral("remoteLibraryConnectionAddButton"));
     if (!require(sync_buttons.size() == 2, "every configured Library has its own sync action")
+        || !require(
+            status_labels.size() == 2
+                && status_labels.at(1)->property("text").toString().contains(
+                    QStringLiteral("token"),
+                    Qt::CaseInsensitive
+                ),
+            "authorization failure is visible without a diagnostic tooltip"
+        )
         || !require(
             sync_all != nullptr && sync_all->property("visible").toBool(),
             "several Libraries expose one sync-all action"
