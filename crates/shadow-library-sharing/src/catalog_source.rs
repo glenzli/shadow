@@ -11,8 +11,9 @@ use std::{
 
 use shadow_cache::{BlobDigest, ContentAddressedStore};
 use shadow_catalog::{
-    CachedArtifactRecord, CachedArtifactRole, Catalog, CatalogError, RepresentationFingerprint,
-    ReviewCursor,
+    CachedArtifactRecord, CachedArtifactRole, Catalog, CatalogError, ContentIdentity,
+    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus,
+    RepresentationFingerprint, ReviewCursor,
 };
 use shadow_domain::{DecodeSupport, PhotoId, RepresentationId};
 use thiserror::Error;
@@ -22,9 +23,9 @@ use crate::{
     protocol::{
         CapabilityAvailability, LIBRARY_PROTOCOL_VERSION, MAX_LIBRARY_PAGE_SIZE,
         MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk, PreparedOriginal, PreviewUnavailableReason,
-        RemoteError, RemoteErrorCode, RemotePhotoManifest, RemotePhotoMetadata, RemotePhotoPage,
-        RemotePreviewAvailability, RemotePreviewManifest, RemotePreviewRole, ServerCapabilities,
-        ServerId, ServerInfo,
+        RemoteError, RemoteErrorCode, RemoteOriginalIdentity, RemotePhotoManifest,
+        RemotePhotoMetadata, RemotePhotoPage, RemotePreviewAvailability, RemotePreviewManifest,
+        RemotePreviewRole, RemoteRepresentationManifest, ServerCapabilities, ServerId, ServerInfo,
     },
     server::{LibraryShareSource, remote_error},
 };
@@ -248,6 +249,8 @@ impl LibraryShareSource for CatalogShareSource {
                                 .then_some(metadata.raw_dimensions),
                         },
                     );
+                    let representations =
+                        remote_representations(&catalog, &self.policy, item.photo_id)?;
                     manifests.push(RemotePhotoManifest {
                         photo_id: item.photo_id,
                         representation_id: item.representation_id,
@@ -256,6 +259,7 @@ impl LibraryShareSource for CatalogShareSource {
                         source_modified_at_ms: item.source.modified_at_ms,
                         metadata,
                         preview: neutral_preview,
+                        representations,
                     });
                 }
                 if manifests.len() == usize::from(limit) || page_next.is_none() {
@@ -324,11 +328,11 @@ impl LibraryShareSource for CatalogShareSource {
                 "original downloads are disabled by the server owner",
             ));
         }
-        let catalog = self.catalog()?;
+        let mut catalog = self.catalog()?;
         let item = catalog
-            .photo_source(photo_id)
+            .photo_representation(photo_id, representation_id)
             .map_err(|error| catalog_remote_error(&error))?
-            .filter(|item| item.representation_id == representation_id)
+            .filter(|item| item.online_location_count > 0)
             .ok_or_else(|| remote_error(RemoteErrorCode::NotFound, "photo source not found"))?;
         let path = self
             .policy
@@ -355,6 +359,20 @@ impl LibraryShareSource for CatalogShareSource {
             return Err(remote_error(
                 RemoteErrorCode::StaleSource,
                 "photo source changed while its identity was prepared",
+            ));
+        }
+        let identity_status = catalog
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id,
+                expected_source: before,
+                identity: ContentIdentity::whole_file_blake3(digest),
+                observed_at_ms: system_time_ms(SystemTime::now()).unwrap_or_default(),
+            })
+            .map_err(|error| catalog_remote_error(&error))?;
+        if identity_status == RecordRepresentationContentIdentityStatus::StaleSource {
+            return Err(remote_error(
+                RemoteErrorCode::StaleSource,
+                "photo source changed while its identity was recorded",
             ));
         }
         let revision_token = Uuid::now_v7().to_string();
@@ -436,6 +454,40 @@ impl LibraryShareSource for CatalogShareSource {
             bytes,
         ))
     }
+}
+
+fn remote_representations(
+    catalog: &Catalog,
+    policy: &CatalogSharePolicy,
+    photo_id: PhotoId,
+) -> Result<Vec<RemoteRepresentationManifest>, RemoteError> {
+    catalog
+        .photo_representations(photo_id)
+        .map_err(|error| catalog_remote_error(&error))?
+        .into_iter()
+        .filter(|representation| {
+            representation.online_location_count > 0
+                && policy.allows_location(&representation.location)
+        })
+        .map(|representation| {
+            let original_identity = catalog
+                .representation_whole_file_blake3(representation.representation_id)
+                .map_err(|error| catalog_remote_error(&error))?
+                .map_or(RemoteOriginalIdentity::NotPrepared, |digest_blake3| {
+                    RemoteOriginalIdentity::Available { digest_blake3 }
+                });
+            Ok(RemoteRepresentationManifest {
+                representation_id: representation.representation_id,
+                kind: representation.kind,
+                display_name: display_file_name(&representation.location.display_path),
+                source_byte_len: representation.source.byte_len,
+                source_modified_at_ms: representation.source.modified_at_ms,
+                location_count: representation.location_count,
+                online_location_count: representation.online_location_count,
+                original_identity,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Error)]

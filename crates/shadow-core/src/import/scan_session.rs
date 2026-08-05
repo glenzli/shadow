@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::{
+    companion_grouping::grouping_for_path,
     decode_schedule::DecodeScheduler,
     scan_contract::{
         ScanCancellation, ScanCompletion, ScanError, ScanIssue, ScanPhase, ScanProgress, ScanReport,
@@ -113,6 +114,7 @@ pub(super) fn run_scan_session(
     let scan_result = {
         let mut runtime = ScanRuntime {
             session_id,
+            root,
             scheduler,
             cancellation,
             progress,
@@ -144,6 +146,7 @@ pub(super) fn run_scan_session(
 
 struct ScanRuntime<'a, 'b> {
     session_id: ImportSessionId,
+    root: &'a Path,
     scheduler: Option<&'a DecodeScheduler<'a>>,
     cancellation: &'a ScanCancellation,
     progress: &'b mut dyn FnMut(&ScanProgress),
@@ -307,10 +310,16 @@ fn scan_file(
     if runtime.cancellation.is_cancelled() {
         return Ok(());
     }
+    let grouping = grouping_for_path(runtime.root, path, kind)?;
     let registered = measure_if(
         runtime.profiler.performance.profiled,
         &mut runtime.profiler.performance.asset_registration,
-        || catalog.register_import_asset(runtime.session_id, &request),
+        || match grouping.as_ref() {
+            Some(grouping) => {
+                catalog.register_import_asset_grouped(runtime.session_id, &request, grouping)
+            }
+            None => catalog.register_import_asset(runtime.session_id, &request),
+        },
     )?;
     runtime.profiler.mark_first_catalogued();
     record_registration_progress(

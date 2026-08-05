@@ -15,8 +15,17 @@ Start at [`lib.rs`](src/lib.rs), then follow:
 - `materializer` for resumable, digest-verified original download and atomic publication;
 - `presentation` for local adjusted-preview precedence over a remote browse proxy.
 
-The wire contract never serializes `AssetLocation` or a native path. A remote
-identity remains `(server_id, photo_id, representation_id)` until a verified
-original is deliberately registered in the client Catalog. Recipe history is
-not synchronized by this first contract: the editing device owns its Recipe,
-and its current local `RecipePreview` wins over the cached remote proxy.
+The wire contract never serializes `AssetLocation` or a native path. One
+manifest row represents a logical Photo, names its RAW-preferred browse/edit
+representation, and carries a bounded inventory of its currently shareable
+original RAW/raster representations. Each representation reports source counts
+and an optional exact whole-file BLAKE3 identity. `NotPrepared` is deliberate:
+first preview sync never reads an entire RAW merely to deduplicate it. Preparing
+an original records that verified identity in the server Catalog, so later
+syncs can reconcile the same bytes across changed server addresses or different
+servers.
+
+Until that strong identity is available, a remote identity remains
+`(server_id, photo_id, representation_id)`. Recipe history is not synchronized
+by this first contract: the editing device owns its Recipe, and its current
+local `RecipePreview` wins over the cached remote proxy.

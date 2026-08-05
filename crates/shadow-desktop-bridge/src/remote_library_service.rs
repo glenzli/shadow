@@ -328,6 +328,22 @@ impl RemoteLibraryService {
                 }
             };
         let metadata = &photo.manifest.metadata;
+        let original_digest_blake3 = photo.manifest.preferred_original_digest().or_else(|| {
+            photo
+                .local_source
+                .as_ref()
+                .map(|source| source.digest_blake3)
+        });
+        let representation_count = u32::try_from(photo.manifest.representations.len())
+            .unwrap_or(u32::MAX)
+            .max(1);
+        let source_location_count = photo
+            .manifest
+            .representations
+            .iter()
+            .map(|representation| representation.location_count)
+            .fold(0_u32, u32::saturating_add)
+            .max(1);
         RemoteLibraryPhoto {
             server_id: server.map_or_else(String::new, |info| info.server_id.0.to_string()),
             remote_photo_id: photo.manifest.photo_id,
@@ -335,6 +351,20 @@ impl RemoteLibraryService {
             title: photo.manifest.display_name.clone(),
             source_byte_len: photo.manifest.source_byte_len,
             source_modified_at_ms: photo.manifest.source_modified_at_ms,
+            original_digest_blake3,
+            representation_count,
+            source_location_count,
+            has_raw_representation: photo.manifest.representations.is_empty()
+                || photo
+                    .manifest
+                    .representations
+                    .iter()
+                    .any(|representation| representation.kind == RepresentationKind::OriginalRaw),
+            has_raster_representation: photo
+                .manifest
+                .representations
+                .iter()
+                .any(|representation| representation.kind == RepresentationKind::OriginalRaster),
             preview_path,
             preview_role,
             preview_width,
@@ -378,6 +408,11 @@ pub(crate) struct RemoteLibraryPhoto {
     pub(crate) title: String,
     pub(crate) source_byte_len: u64,
     pub(crate) source_modified_at_ms: Option<i64>,
+    pub(crate) original_digest_blake3: Option<[u8; 32]>,
+    pub(crate) representation_count: u32,
+    pub(crate) source_location_count: u32,
+    pub(crate) has_raw_representation: bool,
+    pub(crate) has_raster_representation: bool,
     pub(crate) preview_path: Option<PathBuf>,
     pub(crate) preview_role: String,
     pub(crate) preview_width: u32,

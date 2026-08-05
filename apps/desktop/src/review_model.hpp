@@ -46,6 +46,10 @@ struct ReviewLocalSourceAvailability final {
 struct ReviewItem final {
     QString photo_id;
     QString representation_id;
+    std::uint32_t representation_count = 1;
+    std::uint32_t source_location_count = 1;
+    bool has_raw_representation = false;
+    bool has_raster_representation = false;
     QString location_id;
     QString visual_handle;
     /// Direct `file:` URL for a verified client-local remote proxy. Local
@@ -109,6 +113,10 @@ class ReviewModel final : public QAbstractListModel {
     enum Role {
         PhotoIdRole = Qt::UserRole + 1,
         RepresentationIdRole,
+        RepresentationCountRole,
+        SourceLocationCountRole,
+        HasRawRepresentationRole,
+        HasRasterRepresentationRole,
         LocationIdRole,
         VisualHandleRole,
         TitleRole,

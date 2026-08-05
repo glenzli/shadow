@@ -324,6 +324,10 @@ library_review_item(const shadow::desktop::FfiLibraryPhotoItem& source) {
     return {
         .photo_id = qstring(source.photo_id),
         .representation_id = qstring(source.representation_id),
+        .representation_count = source.representation_count,
+        .source_location_count = source.source_location_count,
+        .has_raw_representation = source.has_raw_representation,
+        .has_raster_representation = source.has_raster_representation,
         .location_id = qstring(source.location_id),
         .visual_handle = qstring(source.visual_handle),
         .decision_head_sequence = source.decision_head_sequence,

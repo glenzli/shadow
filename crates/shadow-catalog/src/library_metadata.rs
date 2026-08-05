@@ -21,14 +21,28 @@ pub(crate) fn project_decoder_metadata_into_library_facts(
     metadata: &RawMetadataSnapshot,
     indexed_at_ms: i64,
 ) -> Result<(), CatalogError> {
-    let photo_id: Option<PhotoId> = transaction
+    let representation_owner: Option<(PhotoId, String, Option<String>)> = transaction
         .query_row(
-            "SELECT photo_id FROM representations WHERE id = ?1",
+            "SELECT incoming.photo_id, incoming.kind, indexed_rep.kind
+             FROM representations incoming
+             LEFT JOIN photo_library_facts facts ON facts.photo_id = incoming.photo_id
+             LEFT JOIN representations indexed_rep
+               ON indexed_rep.id = facts.indexed_representation_id
+             WHERE incoming.id = ?1",
             [representation_id.as_bytes().as_slice()],
-            |row| read_id(row, 0),
+            |row| Ok((read_id(row, 0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    let photo_id = photo_id.ok_or(CatalogError::RepresentationNotFound(representation_id))?;
+    let (photo_id, incoming_kind, indexed_kind) =
+        representation_owner.ok_or(CatalogError::RepresentationNotFound(representation_id))?;
+
+    // Decoder snapshots remain representation-specific and are always stored.
+    // The compact photo-first projection, however, must not become dependent on
+    // asynchronous completion order: once RAW metadata owns the projection, a
+    // later companion-JPEG inspection cannot replace it wholesale.
+    if incoming_kind == "original_raster" && indexed_kind.as_deref() == Some("original_raw") {
+        return Ok(());
+    }
 
     let camera_make = first_nonempty(&metadata.make, &metadata.normalized_make);
     let camera_model = first_nonempty(&metadata.model, &metadata.normalized_model);

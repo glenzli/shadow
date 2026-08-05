@@ -25,6 +25,12 @@ pub enum CatalogError {
         session_id: shadow_domain::ImportSessionId,
         display_path: String,
     },
+    #[error("invalid logical-photo import grouping: {0}")]
+    InvalidImportPhotoGrouping(String),
+    #[error(
+        "cannot group {display_path} because that path is already owned by another logical photo"
+    )]
+    ImportPhotoGroupingConflict { display_path: String },
     #[error(
         "cannot attach verified relocation because the target location is already registered: {display_path}"
     )]

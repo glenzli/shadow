@@ -21,6 +21,9 @@ pub(super) fn run_import_journal_message(catalog: &mut Catalog, message: ImportJ
         ImportJournalMessage::RegisterImportAsset(id, request, response) => {
             let _ = response.send(catalog.register_import_asset(id, &request));
         }
+        ImportJournalMessage::RegisterImportAssetGrouped(id, request, grouping, response) => {
+            let _ = response.send(catalog.register_import_asset_grouped(id, &request, &grouping));
+        }
         ImportJournalMessage::RegisterImportVerifiedRelocation(
             id,
             request,

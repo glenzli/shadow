@@ -15,6 +15,10 @@ Item {
 
     readonly property string photoId: String(entry.photoId || "")
     readonly property string representationId: String(entry.representationId || "")
+    readonly property int representationCount: Number(entry.representationCount || 1)
+    readonly property int sourceLocationCount: Number(entry.sourceLocationCount || 1)
+    readonly property bool hasRawRepresentation: Boolean(entry.hasRawRepresentation)
+    readonly property bool hasRasterRepresentation: Boolean(entry.hasRasterRepresentation)
     readonly property string locationId: String(entry.locationId || "")
     readonly property string visualHandle: String(entry.visualHandle || "")
     readonly property var decisionHeadSequence: entry.decisionHeadSequence || 0
@@ -326,7 +330,39 @@ Item {
 
                 RowLayout {
                     Layout.alignment: Qt.AlignRight
-                    spacing: 8
+                    spacing: 6
+
+                    Label {
+                        visible: card.representationCount > 1
+                            && card.hasRawRepresentation
+                            && card.hasRasterRepresentation
+                        text: "RAW+JPEG"
+                        color: Theme.textMuted
+                        font.pixelSize: 8
+                        font.weight: Font.DemiBold
+                        Accessible.name: qsTr("RAW and JPEG representations")
+                    }
+
+                    RowLayout {
+                        visible: card.sourceLocationCount > 1
+                        spacing: 2
+
+                        ShadowIcon {
+                            source: "qrc:/icons/shared-link.svg"
+                            color: Theme.textSecondary
+                            size: 12
+                        }
+
+                        Label {
+                            text: card.sourceLocationCount
+                            color: Theme.textSecondary
+                            font.pixelSize: 9
+                            font.weight: Font.DemiBold
+                        }
+
+                        Accessible.name: qsTr("%L1 source locations")
+                            .arg(card.sourceLocationCount)
+                    }
 
                     ShadowIcon {
                         objectName: "cardCaptionMissingSourceIndicator"

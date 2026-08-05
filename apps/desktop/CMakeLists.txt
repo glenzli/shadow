@@ -581,6 +581,8 @@ qt_add_executable(
     src/review_source_availability_monitor.hpp
     src/remote_library_connection_store.cpp
     src/remote_library_connection_store.hpp
+    src/remote_photo_aggregation.cpp
+    src/remote_photo_aggregation.hpp
     src/review_remote_library_coordinator.cpp
     src/review_remote_library_coordinator.hpp
     src/review_photo_inspection_coordinator.cpp

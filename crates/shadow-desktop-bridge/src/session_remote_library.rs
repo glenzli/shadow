@@ -127,6 +127,14 @@ fn project_photo(photo: RemoteLibraryPhoto) -> ffi::FfiRemoteLibraryPhoto {
         source_byte_len: photo.source_byte_len,
         has_source_modified_at: photo.source_modified_at_ms.is_some(),
         source_modified_at_ms: photo.source_modified_at_ms.unwrap_or_default(),
+        has_original_identity: photo.original_digest_blake3.is_some(),
+        original_digest_hex: photo
+            .original_digest_blake3
+            .map_or_else(String::new, hex_digest),
+        representation_count: photo.representation_count,
+        source_location_count: photo.source_location_count,
+        has_raw_representation: photo.has_raw_representation,
+        has_raster_representation: photo.has_raster_representation,
         has_preview: photo.preview_path.is_some(),
         preview_path: photo
             .preview_path
@@ -166,6 +174,16 @@ fn project_photo(photo: RemoteLibraryPhoto) -> ffi::FfiRemoteLibraryPhoto {
             .map_or_else(String::new, |source| source.representation_id.to_string()),
         local_source_path: local_source.map_or_else(String::new, |source| source.native_path),
     }
+}
+
+fn hex_digest(digest: [u8; 32]) -> String {
+    use std::fmt::Write as _;
+
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        write!(&mut encoded, "{byte:02x}").expect("writing into a String cannot fail");
+    }
+    encoded
 }
 
 fn project_materialization(

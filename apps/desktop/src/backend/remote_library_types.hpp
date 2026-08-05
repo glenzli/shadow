@@ -26,6 +26,12 @@ struct BackendRemoteLibraryPhoto final {
     std::uint64_t source_byte_len = 0;
     bool has_source_modified_at = false;
     std::int64_t source_modified_at_ms = 0;
+    bool has_original_identity = false;
+    QString original_digest_hex;
+    std::uint32_t representation_count = 1;
+    std::uint32_t source_location_count = 1;
+    bool has_raw_representation = false;
+    bool has_raster_representation = false;
     bool has_preview = false;
     QString preview_path;
     QString preview_role;

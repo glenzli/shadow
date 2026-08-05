@@ -153,6 +153,7 @@ impl LibraryShareSource for FixtureSource {
                     ..RemotePhotoMetadata::default()
                 },
                 preview: RemotePreviewAvailability::Available(self.preview_manifest()),
+                representations: Vec::new(),
             }],
             next_cursor: None,
         })

@@ -37,6 +37,18 @@ fn creates_current_catalog_shape() {
         )
         .expect("read v1 durable export queue table");
     assert_eq!(export_queue_table, 1);
+    let logical_photo_group_table: i64 = catalog
+        .connection
+        .query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM sqlite_schema
+                 WHERE type = 'table' AND name = 'import_photo_groups'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read logical-photo companion group table");
+    assert_eq!(logical_photo_group_table, 1);
 }
 
 #[test]

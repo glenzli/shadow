@@ -14,9 +14,10 @@ use super::{
 const MAX_REVIEW_PAGE_SIZE: usize = 512;
 
 impl Catalog {
-    /// Returns a bounded page containing one online original source location
-    /// (RAW or raster) per representation together with its preferred current
-    /// grid visual.
+    /// Returns a bounded page containing one RAW-preferred online original
+    /// representation per logical photo together with its preferred current
+    /// grid visual. An original raster is used only when that photo has no
+    /// online RAW representation.
     ///
     /// Shadow-generated proxies win over camera-embedded previews. The
     /// embedded image remains an immediate placeholder while the generated
@@ -183,6 +184,18 @@ impl Catalog {
              LEFT JOIN photo_decision_events de
                ON de.sequence = dc.head_sequence AND de.photo_id = r.photo_id
              WHERE r.kind IN ('original_raw', 'original_raster')
+               AND r.id = (
+                   SELECT r3.id FROM representations r3
+                   WHERE r3.photo_id = r.photo_id
+                     AND r3.kind IN ('original_raw', 'original_raster')
+                     AND EXISTS (
+                         SELECT 1 FROM locations l3
+                         WHERE l3.representation_id = r3.id AND l3.status = 'online'
+                     )
+                   ORDER BY CASE r3.kind WHEN 'original_raw' THEN 0 ELSE 1 END,
+                            r3.created_at_ms DESC, r3.id DESC
+                   LIMIT 1
+               )
                AND (?1 IS NULL OR l.display_path > ?1
                     OR (l.display_path = ?1 AND r.id > ?2))
              ORDER BY l.display_path, r.id

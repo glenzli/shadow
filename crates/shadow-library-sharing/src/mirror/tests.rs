@@ -29,6 +29,7 @@ fn materialized_mapping_survives_mirror_reopen() {
         preview: RemotePreviewAvailability::Unavailable {
             reason: PreviewUnavailableReason::DecoderCapabilityMissing,
         },
+        representations: Vec::new(),
     };
     mirror.snapshot.photos.push(RemotePhotoMirror {
         manifest: remote_manifest.clone(),
@@ -76,6 +77,7 @@ fn materialized_mapping_rejects_a_changed_remote_source_revision() {
         preview: RemotePreviewAvailability::Unavailable {
             reason: PreviewUnavailableReason::DecoderCapabilityMissing,
         },
+        representations: Vec::new(),
     };
     let local = MirroredLocalSource::for_remote_manifest(
         PhotoId::new_v7(),
@@ -108,6 +110,7 @@ fn remote_review_state_survives_mirror_reopen() {
             preview: RemotePreviewAvailability::Unavailable {
                 reason: PreviewUnavailableReason::NotPrepared,
             },
+            representations: Vec::new(),
         },
         cached_preview: None,
         review_state: RemoteReviewState::default(),
@@ -159,6 +162,7 @@ fn rejects_out_of_range_remote_rating() {
             preview: RemotePreviewAvailability::Unavailable {
                 reason: PreviewUnavailableReason::NotPrepared,
             },
+            representations: Vec::new(),
         },
         cached_preview: None,
         review_state: RemoteReviewState::default(),

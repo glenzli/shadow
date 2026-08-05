@@ -5,9 +5,9 @@
 //!
 //! Start with [`catalog`] for connection lifecycle, [`asset_registration`] for idempotent
 //! source registration, [`schema_v1`] for the on-disk shape, [`writer`] for serialized
-//! mutation dispatch, and [`library`] for photo-first browsing plus coordinate-bound place
-//! resolution. The responsibility-named repository modules below own feature reads and
-//! transactions.
+//! mutation dispatch, [`import_journal`] for durable scans and logical-photo companion grouping,
+//! and [`library`] for photo-first browsing plus coordinate-bound place resolution. The
+//! responsibility-named repository modules below own feature reads and transactions.
 
 mod asset_registration;
 mod backup;
@@ -63,7 +63,8 @@ pub use export_queue::{
 };
 pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
 pub use import_journal::{
-    ImportSession, ImportSessionState, ImportSessionSummary, SourceScanReconciliation,
+    ImportPhotoGrouping, ImportSession, ImportSessionState, ImportSessionSummary,
+    SourceScanReconciliation,
 };
 pub use library::{
     AlbumKind, AlbumRecord, ContentIdentity, ContentIdentityScope, LibraryApertureRange,
@@ -89,7 +90,10 @@ pub use recipe::{
     RecipeHistoryEntry, RecipeHistoryPage, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
     RecipeRefTarget, SetRecipeRef,
 };
-pub use review::{PhotoInspectionRecord, ReviewCursor, ReviewItemRecord, ReviewPageRecord};
+pub use review::{
+    PhotoInspectionRecord, PhotoRepresentationRecord, ReviewCursor, ReviewItemRecord,
+    ReviewPageRecord,
+};
 pub use store::CatalogStore;
 pub use technical_observation::{
     RecordTechnicalObservation, RecordTechnicalObservationStatus, TechnicalObservationRecord,

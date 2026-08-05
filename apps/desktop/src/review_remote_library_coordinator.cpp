@@ -329,7 +329,7 @@ bool ReviewRemoteLibraryCoordinator::removeConnection(const QString& connection_
     snapshots_.remove(connection_id);
     connection_status_codes_.remove(connection_id);
     connection_diagnostics_.remove(connection_id);
-    removeConnectionPhotos(connection_id);
+    rebuildPhotoAggregates();
     reapplyRemoteItems();
     setStatus(QStringLiteral("connection-removed"));
     emit connectionChanged();
@@ -405,11 +405,13 @@ void ReviewRemoteLibraryCoordinator::materializeForEdit(const QString& presentat
     if (busy()) {
         return;
     }
-    const auto found = photos_.constFind(presentation_photo_id);
-    const QString connection_id = photo_connection_ids_.value(presentation_photo_id);
+    const auto aggregate = photo_aggregates_.constFind(presentation_photo_id);
+    const RemotePhotoSourceChoice* source =
+        aggregate == photo_aggregates_.cend() ? nullptr : aggregate->preferredSource();
+    const QString connection_id = source == nullptr ? QString{} : source->connection_id;
     const RemoteLibraryConnection* source_connection = connection(connection_id);
     const auto snapshot = snapshots_.constFind(connection_id);
-    if (found == photos_.cend() || source_connection == nullptr || snapshot == snapshots_.cend()) {
+    if (source == nullptr || source_connection == nullptr || snapshot == snapshots_.cend()) {
         setStatus(QStringLiteral("remote-photo-unavailable"));
         return;
     }
@@ -439,8 +441,8 @@ void ReviewRemoteLibraryCoordinator::materializeForEdit(const QString& presentat
             presentation_photo_id,
             source_connection->address,
             authorization.value,
-            found->remote_photo_id,
-            found->remote_representation_id
+            source->photo.remote_photo_id,
+            source->photo.remote_representation_id
         )
     );
 }
@@ -459,17 +461,29 @@ bool ReviewRemoteLibraryCoordinator::setDecision(
     found->decision_rating = static_cast<std::uint8_t>(rating);
     found->review_updated_at_ms = QDateTime::currentMSecsSinceEpoch();
     (void)model_->updateDecision(presentation_photo_id, 0, decisionFlagName(flag), rating);
-    return enqueueMutation({
-        .connection_id = connection_id,
-        .presentation_photo_id = presentation_photo_id,
-        .remote_photo_id = found->remote_photo_id,
-        .remote_representation_id = found->remote_representation_id,
-        .flag = found->decision_flag,
-        .rating = found->decision_rating,
-        .liked = found->liked,
-        .color_label = found->color_label,
-        .updated_at_ms = found->review_updated_at_ms,
-    });
+    const auto aggregate = photo_aggregates_.find(presentation_photo_id);
+    if (aggregate == photo_aggregates_.end()) {
+        return false;
+    }
+    bool enqueued = false;
+    for (auto& source : aggregate->sources) {
+        source.photo.decision_flag = found->decision_flag;
+        source.photo.decision_rating = found->decision_rating;
+        source.photo.review_updated_at_ms = found->review_updated_at_ms;
+        enqueued = enqueueMutation({
+                       .connection_id = source.connection_id,
+                       .presentation_photo_id = presentation_photo_id,
+                       .remote_photo_id = source.photo.remote_photo_id,
+                       .remote_representation_id = source.photo.remote_representation_id,
+                       .flag = found->decision_flag,
+                       .rating = found->decision_rating,
+                       .liked = found->liked,
+                       .color_label = found->color_label,
+                       .updated_at_ms = found->review_updated_at_ms,
+                   })
+                   || enqueued;
+    }
+    return enqueued;
 }
 
 bool ReviewRemoteLibraryCoordinator::setAffinity(
@@ -491,17 +505,29 @@ bool ReviewRemoteLibraryCoordinator::setAffinity(
         color_label,
         found->review_updated_at_ms
     );
-    return enqueueMutation({
-        .connection_id = connection_id,
-        .presentation_photo_id = presentation_photo_id,
-        .remote_photo_id = found->remote_photo_id,
-        .remote_representation_id = found->remote_representation_id,
-        .flag = found->decision_flag,
-        .rating = found->decision_rating,
-        .liked = found->liked,
-        .color_label = found->color_label,
-        .updated_at_ms = found->review_updated_at_ms,
-    });
+    const auto aggregate = photo_aggregates_.find(presentation_photo_id);
+    if (aggregate == photo_aggregates_.end()) {
+        return false;
+    }
+    bool enqueued = false;
+    for (auto& source : aggregate->sources) {
+        source.photo.liked = found->liked;
+        source.photo.color_label = found->color_label;
+        source.photo.review_updated_at_ms = found->review_updated_at_ms;
+        enqueued = enqueueMutation({
+                       .connection_id = source.connection_id,
+                       .presentation_photo_id = presentation_photo_id,
+                       .remote_photo_id = source.photo.remote_photo_id,
+                       .remote_representation_id = source.photo.remote_representation_id,
+                       .flag = found->decision_flag,
+                       .rating = found->decision_rating,
+                       .liked = found->liked,
+                       .color_label = found->color_label,
+                       .updated_at_ms = found->review_updated_at_ms,
+                   })
+                   || enqueued;
+    }
+    return enqueued;
 }
 
 ReviewRemoteLibraryCoordinator::SnapshotTaskResult ReviewRemoteLibraryCoordinator::runSnapshotTask(
@@ -680,19 +706,41 @@ void ReviewRemoteLibraryCoordinator::applySnapshot(
     const QString& connection_id,
     BackendRemoteLibrarySnapshot snapshot
 ) {
-    removeConnectionPhotos(connection_id);
     snapshots_.insert(connection_id, std::move(snapshot));
-    const auto stored = snapshots_.constFind(connection_id);
-    if (stored != snapshots_.cend()) {
-        for (const auto& photo : stored->photos) {
-            if (!photo.is_materialized) {
-                const QString presentation_id = presentationPhotoId(photo);
-                photos_.insert(presentation_id, photo);
-                photo_connection_ids_.insert(presentation_id, connection_id);
+    rebuildPhotoAggregates();
+    reapplyRemoteItems();
+}
+
+void ReviewRemoteLibraryCoordinator::rebuildPhotoAggregates() {
+    photo_aggregates_ = aggregateRemotePhotos(snapshots_);
+    photos_.clear();
+    photo_connection_ids_.clear();
+    for (auto aggregate = photo_aggregates_.cbegin(); aggregate != photo_aggregates_.cend();
+         ++aggregate) {
+        if (aggregate->is_materialized) {
+            continue;
+        }
+        const RemotePhotoSourceChoice* preferred = aggregate->preferredSource();
+        if (preferred == nullptr) {
+            continue;
+        }
+        BackendRemoteLibraryPhoto projected = preferred->photo;
+        for (const auto& source : aggregate->sources) {
+            if (source.photo.review_updated_at_ms > projected.review_updated_at_ms) {
+                projected.decision_flag = source.photo.decision_flag;
+                projected.decision_rating = source.photo.decision_rating;
+                projected.liked = source.photo.liked;
+                projected.color_label = source.photo.color_label;
+                projected.review_updated_at_ms = source.photo.review_updated_at_ms;
             }
         }
+        projected.representation_count = aggregate->representation_count;
+        projected.source_location_count = aggregate->source_location_count;
+        projected.has_raw_representation = aggregate->has_raw_representation;
+        projected.has_raster_representation = aggregate->has_raster_representation;
+        photos_.insert(aggregate.key(), std::move(projected));
+        photo_connection_ids_.insert(aggregate.key(), preferred->connection_id);
     }
-    reapplyRemoteItems();
 }
 
 QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const {
@@ -709,7 +757,11 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
                                          && snapshot->server.originals_available;
         ReviewItem item;
         item.photo_id = found.key();
-        item.representation_id = presentationRepresentationId(source);
+        item.representation_id = presentationRepresentationId(found.key(), source);
+        item.representation_count = source.representation_count;
+        item.source_location_count = source.source_location_count;
+        item.has_raw_representation = source.has_raw_representation;
+        item.has_raster_representation = source.has_raster_representation;
         item.visual_source_override =
             source.has_preview ? QUrl::fromLocalFile(source.preview_path).toString() : QString{};
         item.is_remote = true;
@@ -842,18 +894,6 @@ void ReviewRemoteLibraryCoordinator::migrateLegacySecret() {
     }
 }
 
-void ReviewRemoteLibraryCoordinator::removeConnectionPhotos(const QString& connection_id) {
-    auto found = photo_connection_ids_.begin();
-    while (found != photo_connection_ids_.end()) {
-        if (found.value() == connection_id) {
-            photos_.remove(found.key());
-            found = photo_connection_ids_.erase(found);
-        } else {
-            ++found;
-        }
-    }
-}
-
 void ReviewRemoteLibraryCoordinator::setStatus(const QString& code, const QString& diagnostic) {
     if (status_code_ == code && diagnostic_text_ == diagnostic) {
         return;
@@ -881,13 +921,14 @@ bool ReviewRemoteLibraryCoordinator::enqueueMutation(MutationRequest request) {
     return true;
 }
 
-QString
-ReviewRemoteLibraryCoordinator::presentationPhotoId(const BackendRemoteLibraryPhoto& photo) {
-    return QStringLiteral("remote:%1:%2").arg(photo.server_id, photo.remote_photo_id);
-}
-
 QString ReviewRemoteLibraryCoordinator::presentationRepresentationId(
+    const QString& presentation_photo_id,
     const BackendRemoteLibraryPhoto& photo
 ) {
+    constexpr auto content_prefix = "remote-content:";
+    if (presentation_photo_id.startsWith(QLatin1StringView(content_prefix))) {
+        return QStringLiteral("remote-representation-content:%1")
+            .arg(presentation_photo_id.sliced(QLatin1StringView(content_prefix).size()));
+    }
     return QStringLiteral("remote:%1:%2").arg(photo.server_id, photo.remote_representation_id);
 }

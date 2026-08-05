@@ -339,12 +339,16 @@ pub(super) fn supported_revision(
 pub(super) fn review_item_count(connection: &rusqlite::Connection) -> Result<u64, CatalogError> {
     let count = connection.query_row(
         "SELECT COUNT(*)
-         FROM representations r
-         WHERE r.kind IN ('original_raw', 'original_raster')
-           AND EXISTS (
-               SELECT 1 FROM locations l
-               WHERE l.representation_id = r.id AND l.status = 'online'
-           )",
+         FROM photos p
+         WHERE EXISTS (
+             SELECT 1 FROM representations r
+             WHERE r.photo_id = p.id
+               AND r.kind IN ('original_raw', 'original_raster')
+               AND EXISTS (
+                   SELECT 1 FROM locations l
+                   WHERE l.representation_id = r.id AND l.status = 'online'
+               )
+         )",
         [],
         |row| row.get::<_, i64>(0),
     )?;

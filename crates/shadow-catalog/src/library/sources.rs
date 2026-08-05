@@ -115,6 +115,41 @@ impl Catalog {
             .map_err(Into::into)
     }
 
+    /// Returns the current exact whole-file BLAKE3 identity for one
+    /// representation when it was observed from the representation's current
+    /// source revision.
+    pub fn representation_whole_file_blake3(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<Option<[u8; 32]>, CatalogError> {
+        self.connection
+            .query_row(
+                "SELECT i.digest
+                 FROM representation_content_identities i
+                 JOIN representations r ON r.id = i.representation_id
+                 WHERE i.representation_id = ?1
+                   AND i.scope = 'whole_file'
+                   AND i.algorithm = 'blake3-256'
+                   AND i.provider_id = ''
+                   AND i.provider_version = ''
+                   AND i.source_byte_len = r.byte_len
+                   AND i.source_modified_at_ms IS r.modified_at_ms",
+                [representation_id.as_bytes().as_slice()],
+                |row| {
+                    let digest: Vec<u8> = row.get(0)?;
+                    digest.try_into().map_err(|digest: Vec<u8>| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Blob,
+                            format!("whole-file digest has {} bytes", digest.len()).into(),
+                        )
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// Registers a physical asset, reusing an existing logical representation
     /// only for a verified exact content identity.
     ///

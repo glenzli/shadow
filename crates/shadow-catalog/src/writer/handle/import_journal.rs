@@ -3,8 +3,8 @@
 use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
 
 use crate::{
-    CatalogError, CatalogStore, ContentIdentity, ImportSession, ImportSessionState,
-    ImportSessionSummary, RegisterAsset, RegisteredAsset,
+    CatalogError, CatalogStore, ContentIdentity, ImportPhotoGrouping, ImportSession,
+    ImportSessionState, ImportSessionSummary, RegisterAsset, RegisteredAsset,
 };
 
 use super::super::{
@@ -136,6 +136,22 @@ impl CatalogStore for CatalogHandle {
             Message::ImportJournal(ImportJournalMessage::RegisterImportAsset(
                 session_id,
                 request.clone(),
+                response,
+            ))
+        })
+    }
+
+    fn register_import_asset_grouped(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        grouping: &ImportPhotoGrouping,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        self.request(|response| {
+            Message::ImportJournal(ImportJournalMessage::RegisterImportAssetGrouped(
+                session_id,
+                request.clone(),
+                grouping.clone(),
                 response,
             ))
         })

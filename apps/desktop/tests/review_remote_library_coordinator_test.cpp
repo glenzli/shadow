@@ -1,4 +1,5 @@
 #include "review_remote_library_coordinator.hpp"
+#include "remote_photo_aggregation.hpp"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -417,6 +418,57 @@ void multiple_connections_keep_independent_identity_and_projection() {
     );
 }
 
+void exact_original_identity_merges_server_copies_and_retains_sources() {
+    BackendRemoteLibrarySnapshot studio = remoteSnapshot();
+    studio.server.originals_available = false;
+    studio.photos.front().has_original_identity = true;
+    studio.photos.front().original_digest_hex = QString(64, QLatin1Char('a'));
+    studio.photos.front().representation_count = 2;
+    studio.photos.front().source_location_count = 2;
+    studio.photos.front().has_raw_representation = true;
+    studio.photos.front().has_raster_representation = true;
+
+    BackendRemoteLibrarySnapshot travel = remoteSnapshotB();
+    travel.photos.front().has_original_identity = true;
+    travel.photos.front().original_digest_hex = QString(64, QLatin1Char('A'));
+    travel.photos.front().source_location_count = 1;
+    travel.photos.front().has_raw_representation = true;
+
+    const RemotePhotoAggregateMap aggregates = aggregateRemotePhotos({
+        {QStringLiteral("connection-studio"), studio},
+        {QStringLiteral("connection-travel"), travel},
+    });
+    require(aggregates.size() == 1, "exact content identity collapses server copies");
+    const auto aggregate = aggregates.constFind(
+        QStringLiteral("remote-content:") + QString(64, QLatin1Char('a'))
+    );
+    require(aggregate != aggregates.cend(), "content identity is the presentation key");
+    require(
+        aggregate->sources.size() == 2 && aggregate->representation_count == 2
+            && aggregate->source_location_count == 3 && aggregate->has_raw_representation
+            && aggregate->has_raster_representation,
+        "logical photo retains every representation and source capability"
+    );
+    require(
+        aggregate->preferredSource() != nullptr
+            && aggregate->preferredSource()->connection_id == QStringLiteral("connection-travel"),
+        "an original-capable source is preferred over an offline proxy"
+    );
+
+    studio.photos.front().has_original_identity = false;
+    studio.photos.front().original_digest_hex.clear();
+    travel.photos.front().has_original_identity = false;
+    travel.photos.front().original_digest_hex.clear();
+    require(
+        aggregateRemotePhotos({
+            {QStringLiteral("connection-studio"), studio},
+            {QStringLiteral("connection-travel"), travel},
+        }).size()
+            == 2,
+        "unprepared originals never merge from filenames or metadata alone"
+    );
+}
+
 void connection_store_preserves_stable_ids_and_legacy_migration() {
     QTemporaryDir settings_root;
     require(settings_root.isValid(), "connection store settings root");
@@ -461,6 +513,7 @@ int main(int argc, char** argv) {
     offline_sync_curation_and_materialization_are_non_blocking_and_identity_safe();
     shutdown_drains_queued_remote_curation();
     multiple_connections_keep_independent_identity_and_projection();
+    exact_original_identity_merges_server_copies_and_retains_sources();
     connection_store_preserves_stable_ids_and_legacy_migration();
     return EXIT_SUCCESS;
 }

@@ -58,6 +58,7 @@ pub use model::{
     library_equipment_key,
 };
 pub use place_resolution::MAX_LIBRARY_PLACE_RESOLUTION_CANDIDATES;
+pub(crate) use rows::{platform_from_text, representation_kind_from_text};
 pub(crate) use sources::{
     attach_location_to_identity_match, attach_location_to_library_source, find_identity_match,
     record_content_identity_if_current_in_transaction, upsert_library_source_in_transaction,

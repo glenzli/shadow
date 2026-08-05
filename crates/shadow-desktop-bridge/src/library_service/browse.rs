@@ -204,6 +204,10 @@ fn ffi_library_photo(
     Ok(ffi::FfiLibraryPhotoItem {
         photo_id: record.photo_id.to_string(),
         representation_id: record.representation_id.to_string(),
+        representation_count: record.representation_count,
+        source_location_count: record.source_location_count,
+        has_raw_representation: record.has_raw_representation,
+        has_raster_representation: record.has_raster_representation,
         location_id: record.location_id.to_string(),
         title: file_name(&record.location.display_path),
         source_path: record.location.display_path,

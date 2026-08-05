@@ -1,8 +1,8 @@
 use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
 
 use crate::{
-    Catalog, CatalogError, ContentIdentity, ImportSession, ImportSessionState, RegisterAsset,
-    RegisteredAsset,
+    Catalog, CatalogError, ContentIdentity, ImportPhotoGrouping, ImportSession, ImportSessionState,
+    RegisterAsset, RegisteredAsset,
 };
 
 /// Minimal persistence boundary required by the import scanner.
@@ -52,6 +52,20 @@ pub trait CatalogStore {
         &mut self,
         session_id: ImportSessionId,
         request: &RegisterAsset,
+    ) -> Result<RegisteredAsset, CatalogError>;
+
+    /// Registers a distinct representation under a conservative logical-photo
+    /// grouping established by the scanner.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the group is invalid, conflicts with an
+    /// existing photo owner, or cannot be committed atomically with the journal.
+    fn register_import_asset_grouped(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        grouping: &ImportPhotoGrouping,
     ) -> Result<RegisteredAsset, CatalogError>;
 
     /// Atomically attaches a newly discovered path to a representation only
@@ -134,6 +148,15 @@ impl CatalogStore for Catalog {
         request: &RegisterAsset,
     ) -> Result<RegisteredAsset, CatalogError> {
         Self::register_import_asset(self, session_id, request)
+    }
+
+    fn register_import_asset_grouped(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        grouping: &ImportPhotoGrouping,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        Self::register_import_asset_grouped(self, session_id, request, grouping)
     }
 
     fn register_import_verified_relocation(

@@ -231,6 +231,10 @@ QVector<ReviewItem> ReviewLibraryQueryCoordinator::reviewItems(QVector<BackendRe
         items.push_back({
             .photo_id = std::move(item.photo_id),
             .representation_id = std::move(item.representation_id),
+            .representation_count = item.representation_count,
+            .source_location_count = item.source_location_count,
+            .has_raw_representation = item.has_raw_representation,
+            .has_raster_representation = item.has_raster_representation,
             .location_id = std::move(item.location_id),
             .visual_handle = std::move(item.visual_handle),
             .decision_head_sequence = item.decision_head_sequence,

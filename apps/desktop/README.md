@@ -521,6 +521,11 @@ Review presentation keeps the workspace focused on selection and orchestration:
   geometry. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
   evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
   clipping, so the two browsing modes keep one visual contract without sharing interaction state.
+  [`src/remote_photo_aggregation.cpp`](src/remote_photo_aggregation.cpp) is the pure desktop policy
+  for collapsing exact-content matches from several remote Libraries into one logical card while
+  retaining each independently addressable source. The card receives representation/source counts
+  from both local and remote rows, marks RAW+JPEG companions, and shows a compact source-count
+  indicator only when more than one physical location is known.
   A grid card whose original is currently unreachable keeps a dimmed cached visual and presents
   one compact broken-link indicator; [`qml/LibraryMissingPhotoDialogs.qml`](qml/LibraryMissingPhotoDialogs.qml)
   owns the stable relink picker, folder-adoption confirmation, and non-destructive Library-removal

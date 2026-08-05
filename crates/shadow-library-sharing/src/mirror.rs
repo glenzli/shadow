@@ -357,6 +357,8 @@ impl MirroredLocalSource {
 struct MirroredRemoteSourceRevision {
     byte_len: u64,
     modified_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    digest_blake3: Option<[u8; 32]>,
 }
 
 impl From<&RemotePhotoManifest> for MirroredRemoteSourceRevision {
@@ -364,6 +366,7 @@ impl From<&RemotePhotoManifest> for MirroredRemoteSourceRevision {
         Self {
             byte_len: remote.source_byte_len,
             modified_at_ms: remote.source_modified_at_ms,
+            digest_blake3: remote.preferred_original_digest(),
         }
     }
 }

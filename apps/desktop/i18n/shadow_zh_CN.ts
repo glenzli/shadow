@@ -7631,6 +7631,16 @@ Technical detail: %1</source>
         <translation>等待缓存</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewPhotoCard.qml" line="361"/>
+        <source>RAW and JPEG representations</source>
+        <translation>RAW 和 JPEG 表示</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoCard.qml" line="386"/>
+        <source>%L1 source locations</source>
+        <translation>%L1 个来源位置</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewPhotoCard.qml" line="354"/>
         <source>Original file not found</source>
         <translation>原片未找到</translation>

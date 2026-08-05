@@ -5,7 +5,7 @@
 //! this boundary.
 
 use serde::{Deserialize, Serialize};
-use shadow_domain::{ImageDimensions, PhotoId, PreviewCodec, RepresentationId};
+use shadow_domain::{ImageDimensions, PhotoId, PreviewCodec, RepresentationId, RepresentationKind};
 use uuid::Uuid;
 
 pub const LIBRARY_PROTOCOL_VERSION: u32 = 1;
@@ -57,12 +57,55 @@ pub struct RemotePhotoPage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemotePhotoManifest {
     pub photo_id: PhotoId,
+    /// RAW-preferred representation used for the browse preview and default
+    /// edit admission.
     pub representation_id: RepresentationId,
     pub display_name: String,
     pub source_byte_len: u64,
     pub source_modified_at_ms: Option<i64>,
     pub metadata: RemotePhotoMetadata,
     pub preview: RemotePreviewAvailability,
+    /// All currently known original representations of this logical photo.
+    /// Older persisted mirrors deserialize an empty inventory and retain the
+    /// legacy preferred-representation fields above.
+    #[serde(default)]
+    pub representations: Vec<RemoteRepresentationManifest>,
+}
+
+impl RemotePhotoManifest {
+    #[must_use]
+    pub fn preferred_original_digest(&self) -> Option<[u8; 32]> {
+        self.representations
+            .iter()
+            .find(|representation| representation.representation_id == self.representation_id)
+            .and_then(|representation| match representation.original_identity {
+                RemoteOriginalIdentity::NotPrepared => None,
+                RemoteOriginalIdentity::Available { digest_blake3 } => Some(digest_blake3),
+            })
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RemoteRepresentationManifest {
+    pub representation_id: RepresentationId,
+    pub kind: RepresentationKind,
+    pub display_name: String,
+    pub source_byte_len: u64,
+    pub source_modified_at_ms: Option<i64>,
+    pub location_count: u32,
+    pub online_location_count: u32,
+    #[serde(default)]
+    pub original_identity: RemoteOriginalIdentity,
+}
+
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(tag = "availability", rename_all = "snake_case")]
+pub enum RemoteOriginalIdentity {
+    #[default]
+    NotPrepared,
+    Available {
+        digest_blake3: [u8; 32],
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

@@ -163,15 +163,28 @@ pub(crate) fn insert_asset(
     request: &RegisterAsset,
 ) -> rusqlite::Result<RegisteredAsset> {
     let photo_id = PhotoId::new_v7();
+    transaction.execute(
+        "INSERT INTO photos(id, created_at_ms) VALUES (?1, ?2)",
+        params![photo_id.as_bytes().as_slice(), request.now_ms],
+    )?;
+    insert_representation_for_photo(transaction, request, photo_id)
+}
+
+/// Inserts a distinct physical representation beneath an existing logical photo.
+///
+/// Callers must establish the photo association before entering this function;
+/// content equality and camera-companion inference belong to their dedicated
+/// identity policies, not to ordinary path registration.
+pub(crate) fn insert_representation_for_photo(
+    transaction: &Transaction<'_>,
+    request: &RegisterAsset,
+    photo_id: PhotoId,
+) -> rusqlite::Result<RegisteredAsset> {
     let representation_id = RepresentationId::new_v7();
     let location_id = LocationId::new_v7();
     let byte_len = i64::try_from(request.byte_len)
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
 
-    transaction.execute(
-        "INSERT INTO photos(id, created_at_ms) VALUES (?1, ?2)",
-        params![photo_id.as_bytes().as_slice(), request.now_ms],
-    )?;
     transaction.execute(
         "INSERT INTO representations(
              id, photo_id, kind, byte_len, modified_at_ms, created_at_ms

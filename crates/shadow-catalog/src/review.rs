@@ -6,10 +6,12 @@
 
 mod page;
 mod projection;
+mod representations;
 mod source;
 
 use shadow_domain::{
     AssetLocation, PhotoDecisionState, PhotoId, RawMetadataSnapshot, RepresentationId,
+    RepresentationKind,
 };
 
 use crate::{CachedArtifactRecord, RepresentationFingerprint, TechnicalObservationSummary};
@@ -62,6 +64,22 @@ pub struct ReviewPageRecord {
     pub items: Vec<ReviewItemRecord>,
     pub next_cursor: Option<ReviewCursor>,
     pub total_items: u64,
+}
+
+/// One physical original representation and its current source availability.
+///
+/// A logical photo may own several of these records (for example camera RAW
+/// and camera JPEG), while byte-identical copies remain multiple locations of
+/// a single representation.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PhotoRepresentationRecord {
+    pub photo_id: PhotoId,
+    pub representation_id: RepresentationId,
+    pub kind: RepresentationKind,
+    pub location: AssetLocation,
+    pub source: RepresentationFingerprint,
+    pub location_count: u32,
+    pub online_location_count: u32,
 }
 
 #[cfg(test)]

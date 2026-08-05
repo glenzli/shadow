@@ -556,11 +556,17 @@ pub struct LibraryPhotoCursor {
 }
 
 /// One logical photo in the Library grid. `location` is the most recently
-/// seen online original RAW location, not an ownership relationship.
+/// seen online preferred original location, not an ownership relationship.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LibraryPhotoRecord {
     pub photo_id: PhotoId,
     pub representation_id: RepresentationId,
+    /// Original RAW/raster representations attached to this logical photo.
+    pub representation_count: u32,
+    /// Known physical locations across those original representations.
+    pub source_location_count: u32,
+    pub has_raw_representation: bool,
+    pub has_raster_representation: bool,
     /// Exact historical location selected for this grid row. The desktop may
     /// use it for an explicit relink, but never infers identity from the path.
     pub location_id: LocationId,

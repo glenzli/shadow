@@ -60,7 +60,26 @@ impl Catalog {
                         WHERE edit_ref.photo_id = p.id
                           AND edit_ref.name = 'working'
                     ),
-                    l.id
+                    l.id,
+                    (SELECT COUNT(*) FROM representations representation_count
+                     WHERE representation_count.photo_id = p.id
+                       AND representation_count.kind IN ('original_raw', 'original_raster')),
+                    (SELECT COUNT(*)
+                     FROM locations source_location_count
+                     JOIN representations source_representation
+                       ON source_representation.id = source_location_count.representation_id
+                     WHERE source_representation.photo_id = p.id
+                       AND source_representation.kind IN ('original_raw', 'original_raster')),
+                    EXISTS (
+                        SELECT 1 FROM representations raw_representation
+                        WHERE raw_representation.photo_id = p.id
+                          AND raw_representation.kind = 'original_raw'
+                    ),
+                    EXISTS (
+                        SELECT 1 FROM representations raster_representation
+                        WHERE raster_representation.photo_id = p.id
+                          AND raster_representation.kind = 'original_raster'
+                    )
              {from_sql} WHERE {where_sql}"
         );
         let mut page_values = filter_values;

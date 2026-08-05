@@ -15,6 +15,10 @@ enum class BackendReviewDecisionFlag : std::uint8_t {
 struct BackendReviewItem final {
     QString photo_id;
     QString representation_id;
+    std::uint32_t representation_count = 1;
+    std::uint32_t source_location_count = 1;
+    bool has_raw_representation = false;
+    bool has_raster_representation = false;
     QString location_id;
     QString visual_handle;
     std::uint64_t decision_head_sequence = 0;

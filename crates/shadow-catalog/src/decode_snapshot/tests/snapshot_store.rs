@@ -1,6 +1,6 @@
-use shadow_domain::EntityId;
+use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationKind};
 
-use crate::{CatalogError, row_codec::read_id};
+use crate::{Catalog, CatalogError, ImportPhotoGrouping, RegisterAsset, row_codec::read_id};
 
 use super::{
     super::{
@@ -58,6 +58,77 @@ fn snapshot_round_trips_with_source_identity() {
     assert_eq!(facts.indexed_representation_id, Some(representation_id));
     assert_eq!(facts.indexed_source, Some(source));
     assert_eq!(facts.indexed_at_ms, 456);
+}
+
+#[test]
+fn companion_jpeg_metadata_cannot_replace_the_raw_photo_projection() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let session = catalog
+        .begin_import_session(
+            &AssetLocation::new(Platform::MacOs, b"/photos".to_vec(), "/photos"),
+            1,
+        )
+        .expect("begin import");
+    let group = ImportPhotoGrouping::same_directory_stem("img_0001").expect("group key");
+    let raw_request = companion_request("/photos/IMG_0001.NEF", RepresentationKind::OriginalRaw);
+    let jpeg_request =
+        companion_request("/photos/IMG_0001.JPG", RepresentationKind::OriginalRaster);
+    for request in [&raw_request, &jpeg_request] {
+        catalog
+            .record_import_discovered(session, request)
+            .expect("record discovery");
+    }
+    let raw = catalog
+        .register_import_asset_grouped(session, &raw_request, &group)
+        .expect("register RAW");
+    let jpeg = catalog
+        .register_import_asset_grouped(session, &jpeg_request, &group)
+        .expect("register JPEG");
+
+    let mut raw_snapshot = snapshot("libraw", "1", &[]);
+    raw_snapshot.metadata.make = "RAW authority".to_owned();
+    catalog
+        .record_decode_snapshot(&RecordDecodeSnapshot {
+            representation_id: raw.representation_id,
+            expected_source: RepresentationFingerprint {
+                byte_len: raw_request.byte_len,
+                modified_at_ms: raw_request.modified_at_ms,
+            },
+            snapshot: raw_snapshot,
+            inspected_at_ms: 10,
+        })
+        .expect("record RAW metadata");
+
+    let mut jpeg_snapshot = snapshot("jpeg", "1", &[]);
+    jpeg_snapshot.metadata.make = "JPEG completion order".to_owned();
+    catalog
+        .record_decode_snapshot(&RecordDecodeSnapshot {
+            representation_id: jpeg.representation_id,
+            expected_source: RepresentationFingerprint {
+                byte_len: jpeg_request.byte_len,
+                modified_at_ms: jpeg_request.modified_at_ms,
+            },
+            snapshot: jpeg_snapshot,
+            inspected_at_ms: 20,
+        })
+        .expect("record later JPEG metadata");
+
+    let facts = catalog
+        .photo_library_facts(raw.photo_id)
+        .expect("read facts")
+        .expect("projected facts");
+    assert_eq!(facts.camera_make, "RAW authority");
+    assert_eq!(facts.indexed_representation_id, Some(raw.representation_id));
+}
+
+fn companion_request(path: &str, kind: RepresentationKind) -> RegisterAsset {
+    RegisterAsset {
+        kind,
+        location: AssetLocation::new(Platform::MacOs, path.as_bytes().to_vec(), path),
+        byte_len: 1_024,
+        modified_at_ms: Some(123),
+        now_ms: 2,
+    }
 }
 
 #[test]

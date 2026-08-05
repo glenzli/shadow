@@ -11,7 +11,7 @@ use crate::{CatalogError, export_queue};
 /// The only on-disk Catalog shape supported by this development build.
 pub(crate) const SCHEMA_VERSION: i64 = 1;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r31-chinese-lunar-filter";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r32-logical-photo-representations";
 
 const SCHEMA_V1_CORE: &str = r"
 CREATE TABLE photos (
@@ -512,6 +512,21 @@ CREATE TABLE location_sources (
 CREATE INDEX location_sources_source_seen_idx
     ON location_sources(source_id, last_seen_at_ms DESC, location_id);
 
+CREATE TABLE import_photo_groups (
+    source_id     BLOB NOT NULL CHECK (length(source_id) = 16),
+    method        TEXT NOT NULL CHECK (method IN ('same_directory_stem')),
+    group_key     TEXT NOT NULL CHECK (length(group_key) BETWEEN 1 AND 4096),
+    photo_id      BLOB NOT NULL CHECK (length(photo_id) = 16),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (source_id, method, group_key),
+    FOREIGN KEY (source_id) REFERENCES library_sources(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX import_photo_groups_photo_idx
+    ON import_photo_groups(photo_id, source_id);
+
 CREATE TABLE representation_content_identities (
     representation_id BLOB NOT NULL CHECK (length(representation_id) = 16),
     scope             TEXT NOT NULL
@@ -847,7 +862,7 @@ CREATE INDEX locations_representation_status_current_idx
 const SCHEMA_V1_STATE: &str = r"
 CREATE TABLE catalog_schema (
     version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r31-chinese-lunar-filter'),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r32-logical-photo-representations'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";

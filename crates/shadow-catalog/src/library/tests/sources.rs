@@ -1,6 +1,6 @@
 use super::asset_registration_fixture::{register, register_scan_entry};
 use crate::{
-    Catalog, ContentIdentity, ImportSessionState, LibraryPhotoFilter,
+    Catalog, ContentIdentity, ImportSessionState, LibraryPhotoFilter, LibraryPhotoOrder,
     RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RegisterAsset,
     RelinkMatch, RepresentationFingerprint,
 };
@@ -171,6 +171,17 @@ fn exact_content_identity_relinks_a_moved_file_without_changing_photo_identity()
     assert_eq!(moved.status, crate::RegistrationStatus::NeedsRevalidation);
     assert_eq!(catalog.stats().expect("stats").photos, 1);
     assert_eq!(catalog.stats().expect("stats").locations, 2);
+    let page = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            LibraryPhotoOrder::FileNameAscending,
+            None,
+            10,
+        )
+        .expect("logical photo page");
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].representation_count, 1);
+    assert_eq!(page.items[0].source_location_count, 2);
     assert_eq!(
         catalog.relink_match(&identity).expect("lookup identity"),
         Some(RelinkMatch {

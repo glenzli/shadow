@@ -16,7 +16,9 @@ use crate::{
     RepresentationFingerprint,
 };
 use crate::{
-    asset_registration::{find_existing_asset, register_asset_in_transaction},
+    asset_registration::{
+        find_existing_asset, insert_representation_for_photo, register_asset_in_transaction,
+    },
     row_codec::{non_negative_count, read_id},
 };
 
@@ -66,6 +68,48 @@ pub struct ImportSessionSummary {
     pub needs_revalidation: u64,
     pub failed_entries: u64,
     pub issues: u64,
+}
+
+/// A conservative, source-scoped hint that several physical files represent
+/// the same logical camera capture.
+///
+/// This is intentionally weaker than a content identity: it may attach a RAW
+/// and its camera JPEG as distinct representations of one photo, but it never
+/// claims that their bytes are interchangeable locations of one representation.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ImportPhotoGrouping {
+    method: ImportPhotoGroupingMethod,
+    group_key: String,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum ImportPhotoGroupingMethod {
+    SameDirectoryStem,
+}
+
+impl ImportPhotoGroupingMethod {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::SameDirectoryStem => "same_directory_stem",
+        }
+    }
+}
+
+impl ImportPhotoGrouping {
+    /// Creates the conventional camera-sidecar grouping used for files such
+    /// as `IMG_0001.NEF` and `IMG_0001.JPG` in the same source directory.
+    pub fn same_directory_stem(group_key: impl Into<String>) -> Result<Self, CatalogError> {
+        let group_key = group_key.into();
+        if group_key.is_empty() || group_key.chars().count() > 4_096 || group_key.contains('\0') {
+            return Err(CatalogError::InvalidImportPhotoGrouping(
+                "same-directory stem key must contain 1 through 4096 non-NUL characters".to_owned(),
+            ));
+        }
+        Ok(Self {
+            method: ImportPhotoGroupingMethod::SameDirectoryStem,
+            group_key,
+        })
+    }
 }
 
 /// A non-destructive view of what one completed scan observed for one Library
@@ -275,6 +319,81 @@ impl Catalog {
     ) -> Result<RegisteredAsset, CatalogError> {
         let transaction = self.connection.transaction()?;
         let result = register_asset_in_transaction(&transaction, request)?;
+        finish_import_registration(&transaction, session_id, request, result)?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    /// Registers one representation under a source-scoped logical-photo group.
+    ///
+    /// The first observed member creates the photo; later members with the same
+    /// grouping key create their own representations under that photo. Existing
+    /// paths remain idempotent. A path already owned by a different photo fails
+    /// closed instead of silently merging user-authored state.
+    pub fn register_import_asset_grouped(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        grouping: &ImportPhotoGrouping,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        let transaction = self.connection.transaction()?;
+        let source_id = import_session_source_id(&transaction, session_id)?.ok_or_else(|| {
+            CatalogError::InvalidImportPhotoGrouping(
+                "grouped import requires a durable Library source".to_owned(),
+            )
+        })?;
+        let grouped_photo = transaction
+            .query_row(
+                "SELECT photo_id FROM import_photo_groups
+                 WHERE source_id = ?1 AND method = ?2 AND group_key = ?3",
+                params![
+                    source_id.as_bytes().as_slice(),
+                    grouping.method.as_str(),
+                    grouping.group_key,
+                ],
+                |row| read_id(row, 0),
+            )
+            .optional()?;
+        let existing = find_existing_asset(&transaction, &request.location)?;
+        let result = match (grouped_photo, existing) {
+            (Some(photo_id), None) => {
+                insert_representation_for_photo(&transaction, request, photo_id)?
+            }
+            (Some(photo_id), Some(existing)) if existing.photo_id == photo_id => {
+                register_asset_in_transaction(&transaction, request)?
+            }
+            (Some(_), Some(_)) => {
+                return Err(CatalogError::ImportPhotoGroupingConflict {
+                    display_path: request.location.display_path.clone(),
+                });
+            }
+            (None, _) => {
+                let result = register_asset_in_transaction(&transaction, request)?;
+                transaction.execute(
+                    "INSERT INTO import_photo_groups(
+                         source_id, method, group_key, photo_id, created_at_ms, updated_at_ms
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                    params![
+                        source_id.as_bytes().as_slice(),
+                        grouping.method.as_str(),
+                        grouping.group_key,
+                        result.photo_id.as_bytes().as_slice(),
+                        request.now_ms,
+                    ],
+                )?;
+                result
+            }
+        };
+        transaction.execute(
+            "UPDATE import_photo_groups SET updated_at_ms = ?4
+             WHERE source_id = ?1 AND method = ?2 AND group_key = ?3",
+            params![
+                source_id.as_bytes().as_slice(),
+                grouping.method.as_str(),
+                grouping.group_key,
+                request.now_ms,
+            ],
+        )?;
         finish_import_registration(&transaction, session_id, request, result)?;
         transaction.commit()?;
         Ok(result)
@@ -618,6 +737,20 @@ fn refresh_relinked_representation(
         [location_id.as_bytes().as_slice()],
     )?;
     Ok(())
+}
+
+fn import_session_source_id(
+    transaction: &rusqlite::Transaction<'_>,
+    session_id: ImportSessionId,
+) -> Result<Option<LibrarySourceId>, CatalogError> {
+    transaction
+        .query_row(
+            "SELECT source_id FROM import_sessions WHERE id = ?1",
+            [session_id.as_bytes().as_slice()],
+            |row| optional_id(row, 0),
+        )
+        .optional()?
+        .ok_or(CatalogError::ImportSessionNotFound(session_id))
 }
 
 fn is_disposable_standalone_import(

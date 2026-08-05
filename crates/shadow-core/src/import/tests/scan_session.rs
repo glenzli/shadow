@@ -46,6 +46,35 @@ fn scan_is_recursive_filtered_and_idempotent() {
 }
 
 #[test]
+fn scan_groups_a_camera_raw_and_companion_jpeg_without_hiding_other_rasters() {
+    let root = std::env::temp_dir().join(format!("shadow-companion-scan-{}", PhotoId::new_v7()));
+    fs::create_dir_all(&root).expect("create fixture directory");
+    fs::write(root.join("IMG_0001.JPG"), b"camera jpeg").expect("write JPEG first fixture");
+    fs::write(root.join("IMG_0001.NEF"), b"camera raw").expect("write RAW fixture");
+    fs::write(root.join("IMG_0001-edit.tiff"), b"derived raster")
+        .expect("write derived raster fixture");
+
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let first = scan_folder(&mut catalog, &root).expect("scan companion set");
+    let second = scan_folder(&mut catalog, &root).expect("repeat companion scan");
+
+    assert_eq!(first.inserted, 3);
+    assert_eq!(second.unchanged, 3);
+    let stats = catalog.stats().expect("catalog stats");
+    assert_eq!(
+        stats.photos, 2,
+        "RAW+JPEG form one photo; TIFF remains another"
+    );
+    assert_eq!(stats.representations, 3);
+    assert_eq!(stats.locations, 3);
+    let review = catalog.review_page(None, 10).expect("review page");
+    assert_eq!(review.total_items, 2);
+    assert_eq!(review.items.len(), 2);
+
+    fs::remove_dir_all(&root).expect("remove fixture directory");
+}
+
+#[test]
 fn controlled_scan_progress_is_monotonic_and_terminal() {
     let root = std::env::temp_dir().join(format!("shadow-progress-{}", PhotoId::new_v7()));
     fs::create_dir_all(&root).expect("create fixture directory");

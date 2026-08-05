@@ -29,9 +29,19 @@ pub(super) fn read_library_photo(row: &rusqlite::Row<'_>) -> rusqlite::Result<Li
     };
     let decision = photo_decision_state_from_columns(row.get(27)?, row.get(28)?, row.get(29)?)
         .map_err(|error| invalid_data(27, error.to_string()))?;
+    let representation_count: i64 = row.get(32)?;
+    let source_location_count: i64 = row.get(33)?;
     Ok(LibraryPhotoRecord {
         photo_id,
         representation_id,
+        representation_count: u32::try_from(representation_count).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(32, Type::Integer, Box::new(error))
+        })?,
+        source_location_count: u32::try_from(source_location_count).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(33, Type::Integer, Box::new(error))
+        })?,
+        has_raw_representation: row.get::<_, i64>(34)? != 0,
+        has_raster_representation: row.get::<_, i64>(35)? != 0,
         location_id: read_id(row, 31)?,
         location: AssetLocation::new(platform, row.get(3)?, row.get::<_, String>(4)?),
         source,
@@ -219,7 +229,10 @@ pub(super) fn read_missing_source_location(
     })
 }
 
-fn representation_kind_from_text(kind: &str, index: usize) -> rusqlite::Result<RepresentationKind> {
+pub(crate) fn representation_kind_from_text(
+    kind: &str,
+    index: usize,
+) -> rusqlite::Result<RepresentationKind> {
     match kind {
         "original_raw" => Ok(RepresentationKind::OriginalRaw),
         "original_raster" => Ok(RepresentationKind::OriginalRaster),
@@ -235,7 +248,7 @@ fn representation_kind_from_text(kind: &str, index: usize) -> rusqlite::Result<R
     }
 }
 
-pub(super) fn platform_from_text(
+pub(crate) fn platform_from_text(
     platform: &str,
     index: usize,
 ) -> rusqlite::Result<shadow_domain::Platform> {

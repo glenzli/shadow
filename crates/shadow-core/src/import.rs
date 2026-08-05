@@ -2,9 +2,11 @@
 //!
 //! Start with [`scan_folder`] or [`resume_scan`] for the public workflow,
 //! [`scan_contract`] for progress and terminal values, [`scan_session`] for the
-//! recursive journaled state machine, and [`decode_schedule`] for optional
+//! recursive journaled state machine, [`companion_grouping`] for conservative
+//! RAW+JPEG logical-photo association, and [`decode_schedule`] for optional
 //! decode-output reconciliation.
 
+mod companion_grouping;
 mod decode_schedule;
 mod folder_scan;
 mod scan_contract;

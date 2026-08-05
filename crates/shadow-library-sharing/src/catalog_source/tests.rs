@@ -1,10 +1,13 @@
 use std::{fs, path::PathBuf};
 
-use shadow_catalog::{Catalog, RegisterAsset};
+use shadow_catalog::{Catalog, ImportPhotoGrouping, RegisterAsset};
 use shadow_domain::{AssetLocation, Platform, RepresentationKind};
 
 use super::{CatalogSharePolicy, CatalogShareSource};
-use crate::{LibraryShareSource, protocol::CapabilityAvailability};
+use crate::{
+    LibraryShareSource,
+    protocol::{CapabilityAvailability, RemoteOriginalIdentity},
+};
 
 #[test]
 fn server_identity_is_stable_across_source_reopen() {
@@ -66,6 +69,72 @@ fn explicit_roots_and_original_permission_bound_the_manifest() {
     fs::remove_dir_all(root).expect("remove fixture");
 }
 
+#[test]
+fn manifest_lists_companion_representations_and_publishes_a_prepared_raw_identity() {
+    let root = temporary_directory("logical-photo-manifest");
+    let shared = root.join("shared");
+    fs::create_dir_all(&shared).expect("create shared root");
+    let raw_path = shared.join("IMG_0001.NEF");
+    let jpeg_path = shared.join("IMG_0001.JPG");
+    fs::write(&raw_path, b"raw original").expect("write RAW");
+    fs::write(&jpeg_path, b"camera jpeg").expect("write JPEG");
+
+    let catalog_path = root.join("catalog.sqlite");
+    let mut catalog = Catalog::open(&catalog_path).expect("create catalog");
+    let source_root = location(&shared);
+    let session = catalog
+        .begin_import_session(&source_root, 1)
+        .expect("begin import");
+    let group = ImportPhotoGrouping::same_directory_stem("img_0001").expect("group key");
+    let raw_request = registration_from_file(&raw_path, RepresentationKind::OriginalRaw);
+    let jpeg_request = registration_from_file(&jpeg_path, RepresentationKind::OriginalRaster);
+    for request in [&jpeg_request, &raw_request] {
+        catalog
+            .record_import_discovered(session, request)
+            .expect("record discovery");
+    }
+    let jpeg = catalog
+        .register_import_asset_grouped(session, &jpeg_request, &group)
+        .expect("register JPEG");
+    let raw = catalog
+        .register_import_asset_grouped(session, &raw_request, &group)
+        .expect("register RAW");
+    assert_eq!(jpeg.photo_id, raw.photo_id);
+    drop(catalog);
+
+    let source = CatalogShareSource::open_with_policy(
+        &catalog_path,
+        root.join("cache"),
+        root.join("state"),
+        "Studio",
+        false,
+        CatalogSharePolicy::for_roots(vec![shared.clone()], true),
+    )
+    .expect("open source");
+    let initial = source.list_photos(None, 96).expect("list logical photo");
+    assert_eq!(initial.items.len(), 1);
+    assert_eq!(initial.items[0].representation_id, raw.representation_id);
+    assert_eq!(initial.items[0].representations.len(), 2);
+    assert!(
+        initial.items[0]
+            .representations
+            .iter()
+            .all(|representation| {
+                representation.original_identity == RemoteOriginalIdentity::NotPrepared
+            })
+    );
+
+    let prepared = source
+        .prepare_original(raw.photo_id, raw.representation_id)
+        .expect("prepare RAW");
+    let refreshed = source.list_photos(None, 96).expect("refresh manifest");
+    assert_eq!(
+        refreshed.items[0].preferred_original_digest(),
+        Some(prepared.digest_blake3)
+    );
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
 #[cfg(unix)]
 #[test]
 fn shared_root_symlink_cannot_admit_an_outside_photo() {
@@ -116,6 +185,30 @@ fn registration(path: &std::path::Path, byte_len: u64) -> RegisterAsset {
         modified_at_ms: Some(1),
         now_ms: 1,
     }
+}
+
+fn registration_from_file(path: &std::path::Path, kind: RepresentationKind) -> RegisterAsset {
+    let metadata = path.metadata().expect("read fixture metadata");
+    RegisterAsset {
+        kind,
+        location: location(path),
+        byte_len: metadata.len(),
+        modified_at_ms: metadata.modified().ok().and_then(|modified| {
+            modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+        }),
+        now_ms: 1,
+    }
+}
+
+fn location(path: &std::path::Path) -> AssetLocation {
+    AssetLocation::new(
+        current_platform(),
+        path.to_string_lossy().as_bytes().to_vec(),
+        path.to_string_lossy(),
+    )
 }
 
 #[cfg(target_os = "macos")]

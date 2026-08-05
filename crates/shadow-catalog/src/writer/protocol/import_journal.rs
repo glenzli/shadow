@@ -5,8 +5,8 @@ use std::sync::mpsc::SyncSender;
 use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
 
 use crate::{
-    CatalogError, ContentIdentity, ImportSession, ImportSessionState, ImportSessionSummary,
-    RegisterAsset, RegisteredAsset,
+    CatalogError, ContentIdentity, ImportPhotoGrouping, ImportSession, ImportSessionState,
+    ImportSessionSummary, RegisterAsset, RegisteredAsset,
 };
 
 pub(in crate::writer) enum ImportJournalMessage {
@@ -33,6 +33,12 @@ pub(in crate::writer) enum ImportJournalMessage {
     RegisterImportAsset(
         ImportSessionId,
         RegisterAsset,
+        SyncSender<Result<RegisteredAsset, CatalogError>>,
+    ),
+    RegisterImportAssetGrouped(
+        ImportSessionId,
+        RegisterAsset,
+        ImportPhotoGrouping,
         SyncSender<Result<RegisteredAsset, CatalogError>>,
     ),
     RegisterImportVerifiedRelocation(

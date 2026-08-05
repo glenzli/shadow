@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/remote_library_types.hpp"
+#include "remote_photo_aggregation.hpp"
 #include "remote_library_connection_store.hpp"
 #include "review_model.hpp"
 #include "secure_secret_store.hpp"
@@ -177,7 +178,7 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     [[nodiscard]] const RemoteLibraryConnection* connection(const QString& connection_id) const;
     [[nodiscard]] QString tokenAccount(const RemoteLibraryConnection& connection) const;
     void migrateLegacySecret();
-    void removeConnectionPhotos(const QString& connection_id);
+    void rebuildPhotoAggregates();
     void setStatus(const QString& code, const QString& diagnostic = {});
     void setConnectionStatus(
         const QString& connection_id,
@@ -185,15 +186,17 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
         const QString& diagnostic = {}
     );
     [[nodiscard]] bool enqueueMutation(MutationRequest request);
-    [[nodiscard]] static QString presentationPhotoId(const BackendRemoteLibraryPhoto& photo);
-    [[nodiscard]] static QString
-    presentationRepresentationId(const BackendRemoteLibraryPhoto& photo);
+    [[nodiscard]] static QString presentationRepresentationId(
+        const QString& presentation_photo_id,
+        const BackendRemoteLibraryPhoto& photo
+    );
 
     Operations operations_;
     ReviewModel* model_;
     RemoteLibraryConnectionStore connection_store_;
     std::unique_ptr<SecretStore> secret_store_;
     QHash<QString, BackendRemoteLibrarySnapshot> snapshots_;
+    RemotePhotoAggregateMap photo_aggregates_;
     QHash<QString, BackendRemoteLibraryPhoto> photos_;
     QHash<QString, QString> photo_connection_ids_;
     QHash<QString, QString> connection_status_codes_;

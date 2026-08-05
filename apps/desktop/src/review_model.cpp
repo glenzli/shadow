@@ -47,6 +47,18 @@ void append_role(QList<int>& roles, const int role) {
     if (current.representation_id != replacement.representation_id) {
         append_role(roles, ReviewModel::RepresentationIdRole);
     }
+    if (current.representation_count != replacement.representation_count) {
+        append_role(roles, ReviewModel::RepresentationCountRole);
+    }
+    if (current.source_location_count != replacement.source_location_count) {
+        append_role(roles, ReviewModel::SourceLocationCountRole);
+    }
+    if (current.has_raw_representation != replacement.has_raw_representation) {
+        append_role(roles, ReviewModel::HasRawRepresentationRole);
+    }
+    if (current.has_raster_representation != replacement.has_raster_representation) {
+        append_role(roles, ReviewModel::HasRasterRepresentationRole);
+    }
     if (current.location_id != replacement.location_id) {
         append_role(roles, ReviewModel::LocationIdRole);
     }
@@ -212,6 +224,14 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.photo_id;
     case RepresentationIdRole:
         return item.representation_id;
+    case RepresentationCountRole:
+        return QVariant::fromValue(item.representation_count);
+    case SourceLocationCountRole:
+        return QVariant::fromValue(item.source_location_count);
+    case HasRawRepresentationRole:
+        return item.has_raw_representation;
+    case HasRasterRepresentationRole:
+        return item.has_raster_representation;
     case LocationIdRole:
         return item.location_id;
     case VisualHandleRole:
@@ -338,6 +358,10 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
     return {
         {PhotoIdRole, "photoId"},
         {RepresentationIdRole, "representationId"},
+        {RepresentationCountRole, "representationCount"},
+        {SourceLocationCountRole, "sourceLocationCount"},
+        {HasRawRepresentationRole, "hasRawRepresentation"},
+        {HasRasterRepresentationRole, "hasRasterRepresentation"},
         {LocationIdRole, "locationId"},
         {VisualHandleRole, "visualHandle"},
         {TitleRole, "title"},
