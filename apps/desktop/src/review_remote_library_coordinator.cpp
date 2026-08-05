@@ -33,10 +33,14 @@ constexpr auto secret_account_prefix = "library-sharing-token:";
 }
 
 [[nodiscard]] QString syncFailureStatus(const QString& diagnostic) {
-    return diagnostic.contains(QStringLiteral("authorization failed"), Qt::CaseInsensitive)
-                   || diagnostic.contains(QStringLiteral("unauthorized"), Qt::CaseInsensitive)
-               ? QStringLiteral("authorization-failed")
-               : QStringLiteral("sync-failed");
+    if (diagnostic.contains(QStringLiteral("authorization failed"), Qt::CaseInsensitive)
+        || diagnostic.contains(QStringLiteral("unauthorized"), Qt::CaseInsensitive)) {
+        return QStringLiteral("authorization-failed");
+    }
+    if (diagnostic.contains(QStringLiteral("server is busy"), Qt::CaseInsensitive)) {
+        return QStringLiteral("server-busy");
+    }
+    return QStringLiteral("sync-failed");
 }
 
 [[nodiscard]] QString decisionFlagName(const BackendReviewDecisionFlag flag) {

@@ -19,6 +19,7 @@ use crate::{
 fn authenticated_manifest_proxy_and_original_round_trip() {
     let fixture = FixtureSource::new();
     let original = fixture.original.clone();
+    let server_id = fixture.server_id;
     let photo_id = fixture.photo_id;
     let representation_id = fixture.representation_id;
     let token = AuthorizationToken::parse("01234567890123456789012345678901").expect("token");
@@ -60,6 +61,13 @@ fn authenticated_manifest_proxy_and_original_round_trip() {
         .expect("reuse original");
     assert!(second.reused_existing);
     assert_eq!(second.path, first.path);
+
+    for _ in 0..64 {
+        let server = client
+            .server_info()
+            .expect("repeated connection should remain admitted");
+        assert_eq!(server.server_id, server_id);
+    }
 
     running.shutdown().expect("stop server");
     fs::remove_dir_all(root).expect("remove fixture");

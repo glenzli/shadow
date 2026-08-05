@@ -254,6 +254,7 @@ fn run_listener(
             Ok((stream, _)) => {
                 if active.fetch_add(1, Ordering::AcqRel) >= MAXIMUM_ACTIVE_CONNECTIONS {
                     active.fetch_sub(1, Ordering::AcqRel);
+                    let _ = reject_busy_connection(stream, config.write_timeout);
                     continue;
                 }
                 let source = Arc::clone(&source);
@@ -263,13 +264,15 @@ fn run_listener(
                 let write_timeout = config.write_timeout;
                 thread::spawn(move || {
                     let _guard = ActiveConnectionGuard(active);
-                    let _ = handle_connection(
+                    if let Err(error) = handle_connection(
                         stream,
                         &authorization,
                         source.as_ref(),
                         read_timeout,
                         write_timeout,
-                    );
+                    ) {
+                        eprintln!("Shadow Library connection failed: {error}");
+                    }
                 });
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -292,6 +295,35 @@ impl Drop for ActiveConnectionGuard {
     }
 }
 
+fn reject_busy_connection(
+    mut stream: TcpStream,
+    write_timeout: Duration,
+) -> Result<(), LibraryServerError> {
+    stream.set_write_timeout(Some(write_timeout))?;
+    write_error_response(
+        &mut stream,
+        RemoteErrorCode::Unavailable,
+        "Library server is busy; retry the request",
+    )
+}
+
+fn write_error_response(
+    stream: &mut TcpStream,
+    code: RemoteErrorCode,
+    message: &'static str,
+) -> Result<(), LibraryServerError> {
+    write_response(
+        stream,
+        &ResponseHeader {
+            protocol_revision: LIBRARY_PROTOCOL_REVISION,
+            value: Err(remote_error(code, message)),
+            body_byte_len: 0,
+        },
+        &[],
+    )?;
+    Ok(())
+}
+
 fn handle_connection(
     mut stream: TcpStream,
     authorization: &AuthorizationToken,
@@ -299,8 +331,7 @@ fn handle_connection(
     read_timeout: Duration,
     write_timeout: Duration,
 ) -> Result<(), LibraryServerError> {
-    stream.set_read_timeout(Some(read_timeout))?;
-    stream.set_write_timeout(Some(write_timeout))?;
+    prepare_connection(&stream, read_timeout, write_timeout)?;
     let envelope = read_request(&mut stream)?;
     let (value, body) = if !authorization.authorizes(&envelope.authorization) {
         (
@@ -328,6 +359,19 @@ fn handle_connection(
     };
     write_response(&mut stream, &header, &body)?;
     Ok(())
+}
+
+fn prepare_connection(
+    stream: &TcpStream,
+    read_timeout: Duration,
+    write_timeout: Duration,
+) -> io::Result<()> {
+    // macOS propagates O_NONBLOCK from a nonblocking listener to accepted sockets.
+    // Request handlers use blocking framed reads with deadlines, so normalize the
+    // accepted stream before attempting to read the request length prefix.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(read_timeout))?;
+    stream.set_write_timeout(Some(write_timeout))
 }
 
 fn dispatch(

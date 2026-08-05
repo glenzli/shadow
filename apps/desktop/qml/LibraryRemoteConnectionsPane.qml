@@ -36,6 +36,8 @@ ColumnLayout {
             return qsTr("Offline · cached thumbnails remain available");
         case "authorization-failed":
             return qsTr("Access token does not match this server · edit the connection");
+        case "server-busy":
+            return qsTr("Server busy · retry in a moment");
         case "cache-load-failed":
             return qsTr("Local proxy cache could not be opened");
         case "remote-original-unavailable":
@@ -47,7 +49,7 @@ ColumnLayout {
 
     function statusColor(connection) {
         const code = String(connection.statusCode);
-        if (code.indexOf("failed") >= 0 || code === "token-required")
+        if (code.indexOf("failed") >= 0 || code === "token-required" || code === "server-busy")
             return Theme.dangerText;
         if (code === "synchronized" || code === "offline-ready")
             return Theme.successText;

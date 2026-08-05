@@ -20,10 +20,10 @@ ScrollView {
         if (value < 1024)
             return qsTr("%L1 B").arg(value)
         if (value < 1024 * 1024)
-            return qsTr("%L1 KB").arg(value / 1024, 0, "f", 1)
+            return qsTr("%1 KB").arg((value / 1024).toLocaleString(Qt.locale(), "f", 1))
         if (value < 1024 * 1024 * 1024)
-            return qsTr("%L1 MB").arg(value / (1024 * 1024), 0, "f", 1)
-        return qsTr("%L1 GB").arg(value / (1024 * 1024 * 1024), 0, "f", 1)
+            return qsTr("%1 MB").arg((value / (1024 * 1024)).toLocaleString(Qt.locale(), "f", 1))
+        return qsTr("%1 GB").arg((value / (1024 * 1024 * 1024)).toLocaleString(Qt.locale(), "f", 1))
     }
 
     function providerLabel() {
