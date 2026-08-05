@@ -6991,14 +6991,19 @@ Technical detail: %1</source>
 <context>
     <name>ReviewComparisonSlots</name>
     <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="33"/>
-        <source>Compare with adjacent photo</source>
-        <translation>与相邻照片比较</translation>
+        <location filename="../qml/ReviewComparisonSlots.qml" line="31"/>
+        <source>Compare photos</source>
+        <translation>比较照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="43"/>
-        <source>Lock this photo as the anchor, then review nearby candidates.</source>
-        <translation>将此照片锁定为基准，再查看附近的候选照片。</translation>
+        <location filename="../qml/ReviewComparisonSlots.qml" line="32"/>
+        <source>Open a two-photo comparison without changing either photo</source>
+        <translation>打开双照片比较，不更改任一照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonSlots.qml" line="39"/>
+        <source>The adjacent photo is selected initially; both panes can then move independently.</source>
+        <translation>初始选择相邻照片；随后两侧可独立切换。</translation>
     </message>
 </context>
 <context>
@@ -7545,7 +7550,17 @@ Technical detail: %1</source>
         <translation>喜欢所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewDecisionToolbar.qml" line="139"/>
+        <location filename="../qml/ReviewDecisionToolbar.qml" line="141"/>
+        <source>Remove selected photo from candidates</source>
+        <translation>从候选中移除所选照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewDecisionToolbar.qml" line="142"/>
+        <source>Add selected photo to candidates (C)</source>
+        <translation>将所选照片加入候选（C）</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewDecisionToolbar.qml" line="166"/>
         <source>Set color label: %1</source>
         <translation>设为 %1 色标</translation>
     </message>
@@ -7597,72 +7612,62 @@ Technical detail: %1</source>
         <translation>找不到原片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="84"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="85"/>
         <source>REMOTE PREVIEW UNAVAILABLE</source>
         <translation>远程预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="77"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="78"/>
         <source>PRIVATE RAW PREVIEW UNAVAILABLE</source>
         <translation>私有 RAW 预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="79"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="80"/>
         <source>REMOTE PREVIEW NOT READY</source>
         <translation>远程预览尚未就绪</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="82"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="83"/>
         <source>REMOTE PREVIEW CACHE UNAVAILABLE</source>
         <translation>远程预览缓存不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="219"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="220"/>
         <source>PREVIEW PENDING</source>
         <translation>预览等待中</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="219"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="220"/>
         <source>NO VISUAL</source>
         <translation>无图像</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="248"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="249"/>
         <source>DOWNLOADING RAW</source>
         <translation>正在下载 RAW</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="295"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="296"/>
         <source>%L1 × %L2</source>
         <translation>%L1 × %L2</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="296"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="297"/>
         <source>awaiting cache</source>
         <translation>等待缓存</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="319"/>
-        <source>Network Library source</source>
-        <translation>网络图库来源</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="319"/>
-        <source>Remote original cached locally</source>
-        <translation>远程原片已缓存到本机</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="330"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="329"/>
         <source>RAW and JPEG representations</source>
         <translation>RAW 和 JPEG 表示</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="350"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="349"/>
         <source>%L1 source locations</source>
         <translation>%L1 个来源位置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="360"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="359"/>
         <source>Original file not found</source>
         <translation>原片未找到</translation>
     </message>
@@ -7670,77 +7675,87 @@ Technical detail: %1</source>
 <context>
     <name>ReviewPhotoContextMenu</name>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="156"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="159"/>
         <source>Open in Precision</source>
         <translation>在精修中打开</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="172"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="174"/>
+        <source>Remove from Candidates</source>
+        <translation>从候选中移除</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="175"/>
+        <source>Add to Candidates</source>
+        <translation>加入候选</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="193"/>
         <source>Add or locate folder…</source>
         <translation>添加或定位文件夹…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="188"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="209"/>
         <source>Remove from Library…</source>
         <translation>从图库移除…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="206"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="227"/>
         <source>Remove Like</source>
         <translation>取消喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="206"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="227"/>
         <source>Like</source>
         <translation>喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="223"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="244"/>
         <source>Clear pick flag</source>
         <translation>清除入选标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="223"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="244"/>
         <source>Pick</source>
         <translation>入选</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="238"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="259"/>
         <source>Clear reject flag</source>
         <translation>清除淘汰标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="238"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="259"/>
         <source>Reject</source>
         <translation>淘汰</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="252"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="273"/>
         <source>Rating</source>
         <translation>星级</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="272"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="293"/>
         <source>%1 star</source>
         <translation>%1 星</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="289"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="310"/>
         <source>Add to Album</source>
         <translation>添加到相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="329"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="350"/>
         <source>Apply Shared Node</source>
         <translation>应用共享调整节点</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="372"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="393"/>
         <source>More shared nodes…</source>
         <translation>更多共享节点…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="389"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="410"/>
         <source>Export photo</source>
         <translation>导出照片</translation>
     </message>
@@ -7751,11 +7766,6 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewSinglePreview.qml" line="66"/>
         <source>Select a photo to begin review</source>
         <translation>选择一张照片开始选片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewSinglePreview.qml" line="285"/>
-        <source>Network Library source</source>
-        <translation>网络图库来源</translation>
     </message>
 </context>
 <context>
@@ -7791,7 +7801,7 @@ Technical detail: %1</source>
         <translation>编辑状态</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="73"/>
+        <location filename="../qml/ReviewExifSection.qml" line="112"/>
         <source>LOCATION</source>
         <translation>位置</translation>
     </message>
@@ -8280,26 +8290,6 @@ Technical detail: %1</source>
         <translation>完成</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonState.qml" line="47"/>
-        <source>A photo cannot occupy both comparison slots.</source>
-        <translation>一张照片不能同时占用两个比较位置。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonState.qml" line="50"/>
-        <source>Left evidence slot updated.</source>
-        <translation>左侧证据位置已更新。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonState.qml" line="51"/>
-        <source>Right evidence slot updated.</source>
-        <translation>右侧证据位置已更新。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonState.qml" line="53"/>
-        <source>No adjacent photo is available for quick comparison.</source>
-        <translation>没有可用于快速比较的相邻照片。</translation>
-    </message>
-    <message>
         <location filename="../qml/LibraryAlbumCreateDialog.qml" line="76"/>
         <source>Save the current Library conditions</source>
         <translation>保存当前图库条件</translation>
@@ -8372,7 +8362,6 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewComparisonEvidence.qml" line="40"/>
-        <location filename="../qml/ReviewComparisonView.qml" line="59"/>
         <source>COMPARE EVIDENCE</source>
         <translation>比较证据</translation>
     </message>
@@ -8382,17 +8371,16 @@ Technical detail: %1</source>
         <translation>本次会话中有 %L1 条有效记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="95"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="109"/>
         <source>Browse as a photo grid</source>
         <translation>以照片网格浏览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="105"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="119"/>
         <source>Review one photo with a filmstrip</source>
         <translation>以胶片带逐张选片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="229"/>
         <location filename="../qml/ReviewMetadataPresentation.qml" line="85"/>
         <location filename="../qml/ReviewMetadataPresentation.qml" line="88"/>
         <location filename="../qml/ReviewPhotoSummary.qml" line="82"/>
@@ -8613,298 +8601,128 @@ Technical detail: %1</source>
         <translation>条件</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="50"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="51"/>
         <source>ALL PHOTOS</source>
         <translation>全部照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="58"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="59"/>
         <source>%L1 visible</source>
         <translation>显示 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="66"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="67"/>
         <source>Manage photo sources</source>
         <translation>管理照片来源</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="75"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="76"/>
         <source>Browse Library facets</source>
         <translation>浏览图库分面</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="84"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="85"/>
         <source>Assign and filter Library keywords</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="115"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="96"/>
+        <source>Candidates %L1</source>
+        <translation>候选 %L1</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="99"/>
+        <source>Open the candidate arena</source>
+        <translation>打开候选竞技场</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="100"/>
+        <source>Add at least two photos to start the candidate arena</source>
+        <translation>至少加入两张照片才能开始候选竞技场</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="129"/>
         <source>Browse geotagged photos on a map</source>
         <translation>在地图上浏览带地理位置的照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="124"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="138"/>
         <source>SCALE</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="142"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="156"/>
         <source>Thumbnail scale</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="152"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="166"/>
         <source>Restore default thumbnail scale</source>
         <translation>恢复默认缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="165"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="179"/>
         <source>Open photo metadata</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="173"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="187"/>
         <source>%L1 selected</source>
         <translation>已选择 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="182"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="196"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="193"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="207"/>
         <source>Add selected photos to a Manual Album</source>
         <translation>将所选照片添加到手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="206"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="220"/>
         <source>Remove selected photos from this Manual Album</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="218"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="229"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="243"/>
         <source>Open selected photo in Precision</source>
         <translation>在精修中打开所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="179"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="186"/>
         <source>Searching the folder for supported photos…
 New RAW files will appear here as they are catalogued.</source>
         <translation>正在文件夹中搜索支持的照片…
 新的 RAW 文件会在收录后显示于此。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="181"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="188"/>
         <source>Import stopped, and no RAW files are currently visible.
 Already catalogued files remain safely stored.</source>
         <translation>导入已停止，目前没有可见的 RAW 文件。
 已收录的文件仍安全存储。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="182"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="189"/>
         <source>Add a folder to the local Library.
 Shadow will show embedded previews immediately, then replace them with locally generated proxies.</source>
         <translation>向本地图库添加文件夹。
 Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="58"/>
-        <source>ANCHOR · CANDIDATE</source>
-        <translation>基准 · 候选</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="69"/>
-        <source>Keep one anchor locked while nearby candidates change.</source>
-        <translation>锁定一个基准，在附近的候选照片间切换。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="70"/>
-        <source>A local preference event, not a rank or an AI score.</source>
-        <translation>一个本地偏好事件，不是排名或 AI 评分。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="90"/>
-        <source>‹ Previous</source>
-        <translation>‹ 上一张</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="97"/>
-        <source>Next ›</source>
-        <translation>下一张 ›</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="137"/>
-        <source>LOCKED ANCHOR</source>
-        <translation>已锁定基准</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="138"/>
-        <source>CANDIDATE</source>
-        <translation>候选</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="140"/>
-        <source>LEFT · A</source>
-        <translation>左侧 · A</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="140"/>
-        <source>RIGHT · B</source>
-        <translation>右侧 · B</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="202"/>
-        <source>VISUAL LOAD FAILED</source>
-        <translation>图像加载失败</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="203"/>
-        <source>LOADING VERIFIED VISUAL…</source>
-        <translation>正在加载已验证图像…</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="218"/>
-        <source>DISPLAY PROXY</source>
-        <translation>显示代理</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="247"/>
-        <source>TECHNICAL · DISPLAY PROXY</source>
-        <translation>技术信息 · 显示代理</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="258"/>
-        <source>No observation recorded — visual comparison is still available.</source>
-        <translation>尚未记录观测结果 — 仍可进行图像比较。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="272"/>
-        <source>MEAN</source>
-        <translation>均值</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="279"/>
-        <source>P50</source>
-        <translation>P50</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="286"/>
-        <source>P01</source>
-        <translation>P01</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="293"/>
-        <source>P99</source>
-        <translation>P99</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="300"/>
-        <source>BLACK</source>
-        <translation>黑色</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="308"/>
-        <source>WHITE</source>
-        <translation>白色</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="316"/>
-        <source>LAPL.</source>
-        <translation>LAPL.</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="324"/>
-        <source>EDGE</source>
-        <translation>边缘</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="339"/>
-        <source>INPUT  %L1 × %L2</source>
-        <translation>输入  %L1 × %L2</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="352"/>
-        <source>PIPELINE  %1</source>
-        <translation>管线  %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="366"/>
-        <source>ANALYZER  %1</source>
-        <translation>分析器  %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="381"/>
-        <source>EXACT ARTIFACTS + DECODED %1 FRAMES VERIFIED</source>
-        <translation>精确产物 + 解码后的 %1 帧已验证</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="383"/>
-        <source>WAITING FOR BOTH EXACT COMPARE FRAME RECEIPTS</source>
-        <translation>等待两个精确比较帧的回执</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="394"/>
-        <source>Feature models and ranking are not enabled. Technical facts come from each display proxy; different proxy upstreams may not be directly comparable.</source>
-        <translation>特征模型和排序尚未启用。技术数据来自各自的显示代理；采用不同上游代理的结果可能无法直接比较。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="408"/>
-        <source>Nearby</source>
-        <translation>附近</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="485"/>
-        <source>1 · LEFT PREFERRED</source>
-        <translation>1 · 左侧优先</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="487"/>
-        <source>2 · RIGHT PREFERRED</source>
-        <translation>2 · 右侧优先</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="489"/>
-        <source>3 · KEEP BOTH</source>
-        <translation>3 · 两者都保留</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="491"/>
-        <source>4 · KEEP NEITHER</source>
-        <translation>4 · 两者都不保留</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="493"/>
-        <source>0 · CANNOT COMPARE</source>
-        <translation>0 · 无法比较</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="510"/>
-        <source>Keep anchor</source>
-        <translation>保留基准</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="518"/>
-        <source>Promote candidate · Enter</source>
-        <translation>候选升为基准 · Enter</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="526"/>
-        <source>Keep both</source>
-        <translation>两张都保留</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="235"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="248"/>
         <source>Finding the first photos</source>
         <translation>正在查找首批照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="236"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="249"/>
         <source>Loading local Library</source>
         <translation>正在加载本地图库</translation>
     </message>
@@ -9027,96 +8845,86 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>DNG 版本</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="51"/>
+        <location filename="../qml/ReviewExifSection.qml" line="90"/>
         <source>Metadata is being prepared</source>
         <translation>正在准备元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="47"/>
+        <location filename="../qml/ReviewExifSection.qml" line="86"/>
         <source>Could not load metadata for this photo</source>
         <translation>无法载入这张照片的元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="63"/>
+        <location filename="../qml/ReviewExifSection.qml" line="102"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="72"/>
+        <location filename="../qml/ReviewExifSection.qml" line="111"/>
         <source>CAPTURED</source>
         <translation>拍摄时间</translation>
     </message>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="541"/>
-        <location filename="../qml/ReviewExifSection.qml" line="74"/>
+        <location filename="../qml/ReviewExifSection.qml" line="113"/>
         <source>CAMERA</source>
         <translation>相机</translation>
     </message>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="553"/>
-        <location filename="../qml/ReviewExifSection.qml" line="75"/>
+        <location filename="../qml/ReviewExifSection.qml" line="114"/>
         <source>LENS</source>
         <translation>镜头</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="76"/>
+        <location filename="../qml/ReviewExifSection.qml" line="115"/>
         <source>SHUTTER</source>
         <translation>快门</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="77"/>
+        <location filename="../qml/ReviewExifSection.qml" line="116"/>
         <source>APERTURE</source>
         <translation>光圈</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="78"/>
+        <location filename="../qml/ReviewExifSection.qml" line="117"/>
         <source>SENSITIVITY</source>
         <translation>感光度</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="79"/>
+        <location filename="../qml/ReviewExifSection.qml" line="118"/>
         <source>FOCAL LENGTH</source>
         <translation>焦距</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="80"/>
+        <location filename="../qml/ReviewExifSection.qml" line="119"/>
         <source>PREVIEW</source>
         <translation>预览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="81"/>
+        <location filename="../qml/ReviewExifSection.qml" line="120"/>
         <source>35 MM EQUIV.</source>
         <translation>35 毫米等效</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="82"/>
+        <location filename="../qml/ReviewExifSection.qml" line="121"/>
         <source>RAW SIZE</source>
         <translation>RAW 尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="83"/>
+        <location filename="../qml/ReviewExifSection.qml" line="122"/>
         <source>BIT DEPTH</source>
         <translation>位深</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="84"/>
+        <location filename="../qml/ReviewExifSection.qml" line="123"/>
         <source>CFA</source>
         <translation>CFA</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="85"/>
+        <location filename="../qml/ReviewExifSection.qml" line="124"/>
         <source>DNG</source>
         <translation>DNG</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="65"/>
-        <source>Compare slots A and B</source>
-        <translation>比较位置 A 和 B</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="77"/>
-        <source>Clear comparison slots</source>
-        <translation>清空比较位</translation>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoSummary.qml" line="66"/>
@@ -9129,9 +8937,61 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>撤回上次比较记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="78"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="54"/>
+        <source>PHOTO COMPARISON</source>
+        <translation>照片比较</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="62"/>
+        <source>Switch either pane independently. Comparing photos does not change ratings or selections.</source>
+        <translation>两侧可独立切换。比较照片不会更改评分或选择。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="70"/>
+        <source>Swap</source>
+        <translation>交换</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="71"/>
+        <source>Swap the left and right photos</source>
+        <translation>交换左右照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="77"/>
         <source>Exit comparison (Esc)</source>
         <translation>退出比较（Esc）</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="124"/>
+        <source>‹</source>
+        <translation>‹</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="125"/>
+        <source>Previous photo in this pane</source>
+        <translation>此侧的上一张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="144"/>
+        <source>›</source>
+        <translation>›</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="145"/>
+        <source>Next photo in this pane</source>
+        <translation>此侧的下一张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="183"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="110"/>
+        <source>IMAGE LOAD FAILED</source>
+        <translation>图像加载失败</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="184"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="110"/>
+        <source>LOADING PHOTO…</source>
+        <translation>正在加载照片…</translation>
     </message>
     <message>
         <location filename="../qml/ReviewExifSection.qml" line="35"/>
@@ -9139,49 +8999,9 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>查看全部照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="53"/>
+        <location filename="../qml/ReviewExifSection.qml" line="92"/>
         <source>No metadata is available for this photo</source>
         <translation>这张照片没有可用的元数据</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="55"/>
-        <source>COMPARE SLOTS</source>
-        <translation>比较位置</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="105"/>
-        <source>A  %1</source>
-        <translation>A  %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="107"/>
-        <source>A  Not set</source>
-        <translation>A  未设置</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="118"/>
-        <source>Set selected photo as comparison slot A</source>
-        <translation>将所选照片设为比较位 A</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="151"/>
-        <source>B  %1</source>
-        <translation>B  %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="153"/>
-        <source>B  Not set</source>
-        <translation>B  未设置</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="164"/>
-        <source>Set selected photo as comparison slot B</source>
-        <translation>将所选照片设为比较位 B</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="186"/>
-        <source>A display visual is required for comparison.</source>
-        <translation>比较需要可显示的图像。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapView.qml" line="78"/>
@@ -9294,32 +9114,32 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="423"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="444"/>
         <source>Downloading the original RAW from the remote Library…</source>
         <translation>正在从远程图库下载原始 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="429"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="450"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="446"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="467"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="448"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="469"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="450"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="471"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="452"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="473"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>
@@ -9352,6 +9172,156 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ReviewSelectionInspectionPane.qml" line="188"/>
         <source>Proxy detail</source>
         <translation>代理图细节</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewExifSection.qml" line="75"/>
+        <source>Local Library</source>
+        <translation>本地图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="22"/>
+        <source>Network Library source</source>
+        <translation>网络图库来源</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="21"/>
+        <source>Remote original cached locally</source>
+        <translation>远程原片已缓存到本机</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewExifSection.qml" line="50"/>
+        <source>SOURCE</source>
+        <translation>来源</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewExifSection.qml" line="74"/>
+        <source>Server Library</source>
+        <translation>服务器图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewExifSection.qml" line="72"/>
+        <source>Server Library · cached locally</source>
+        <translation>服务器图库 · 已缓存到本机</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonState.qml" line="33"/>
+        <source>A photo cannot occupy both comparison panes.</source>
+        <translation>同一张照片不能同时占据比较两侧。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewComparisonState.qml" line="35"/>
+        <source>No other photo is available in the current view.</source>
+        <translation>当前视图中没有其他可用照片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="135"/>
+        <source>CANDIDATE RESULTS</source>
+        <translation>候选结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="135"/>
+        <source>CANDIDATE ARENA</source>
+        <translation>候选竞技场</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="144"/>
+        <source>The draft is ranked in preference tiers. No photo metadata has changed.</source>
+        <translation>候选草稿已按偏好分层排序，照片元数据未发生更改。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="145"/>
+        <source>%L1 of %L2 candidates placed · %L3 comparisons</source>
+        <translation>已排列 %L1 / %L2 张候选 · 已比较 %L3 次</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="157"/>
+        <source>Undo</source>
+        <translation>撤销</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="164"/>
+        <source>Leave the candidate arena</source>
+        <translation>离开候选竞技场</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="182"/>
+        <source>LEFT</source>
+        <translation>左侧</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="191"/>
+        <source>RIGHT</source>
+        <translation>右侧</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="203"/>
+        <source>Left is better</source>
+        <translation>左侧更好</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="204"/>
+        <source>Choose the left photo (Left Arrow)</source>
+        <translation>选择左侧照片（左方向键）</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="211"/>
+        <source>Equally good</source>
+        <translation>同样好</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="212"/>
+        <source>Place both photos in the same preference tier</source>
+        <translation>将两张照片放在同一偏好层级</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="219"/>
+        <source>Right is better</source>
+        <translation>右侧更好</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="220"/>
+        <source>Choose the right photo (Right Arrow)</source>
+        <translation>选择右侧照片（右方向键）</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="226"/>
+        <source>Skip</source>
+        <translation>跳过</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="227"/>
+        <source>Leave this photo unresolved</source>
+        <translation>暂不决定这张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="269"/>
+        <source>TIER %L1</source>
+        <translation>第 %L1 层</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="328"/>
+        <source>Return to this photo in the Library</source>
+        <translation>返回图库并选择此照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="340"/>
+        <source>%L1 skipped candidates remain unresolved.</source>
+        <translation>仍有 %L1 张已跳过的候选尚未决定。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="354"/>
+        <source>Return to Library</source>
+        <translation>返回图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="360"/>
+        <source>View top result</source>
+        <translation>查看最佳结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="366"/>
+        <source>Clear candidates</source>
+        <translation>清空候选</translation>
     </message>
 </context>
 <context>

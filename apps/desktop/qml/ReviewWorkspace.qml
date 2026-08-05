@@ -30,10 +30,15 @@ Item {
         controller: review.controller
         selection: selectionState
         navigationModel: review.justifiedReviewLayout
-        onComparisonRecorded: gallerySurface.forceGalleryFocus()
+    }
+
+    ReviewCullingState {
+        id: cullingState
+        selection: selectionState
     }
 
     readonly property alias comparison: comparisonState
+    readonly property alias culling: cullingState
     readonly property alias selectedPhotoId: selectionState.selectedPhotoId
     readonly property alias selectedRepresentationId:
         selectionState.selectedRepresentationId
@@ -50,6 +55,8 @@ Item {
     readonly property alias selectedSourceAvailable:
         selectionState.selectedSourceAvailable
     readonly property alias selectedIsRemote: selectionState.selectedIsRemote
+    readonly property alias selectedRemoteOriginalCached:
+        selectionState.selectedRemoteOriginalCached
     readonly property alias selectedRole: selectionState.selectedRole
     readonly property alias selectedVisualSource: selectionState.selectedVisualSource
     readonly property alias selectedWidth: selectionState.selectedWidth
@@ -134,6 +141,7 @@ Item {
 
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
         && !comparison.compareMode
+        && !culling.arenaActive
         && !controller.scanning && !controller.refreshing
         && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
@@ -143,7 +151,8 @@ Item {
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
         && selectedRepresentationId.length > 0
         && (selectedIsRemote || selectedPath.length > 0)
-        && !comparison.compareMode && !controller.remoteLibraryMaterializing
+        && !comparison.compareMode && !culling.arenaActive
+        && !controller.remoteLibraryMaterializing
     readonly property var currentLibraryAlbum: {
         const albums = controller.libraryAlbums
         const selectedId = String(controller.libraryAlbumId)
@@ -269,6 +278,18 @@ Item {
 
     function batchSelectionTargets() {
         return selectionState.batchSelectionTargets()
+    }
+
+    function snapshotForCard(card) {
+        return selectionState.snapshotForCard(card)
+    }
+
+    function selectedVisualSnapshot() {
+        return selectionState.selectedSnapshot()
+    }
+
+    function toggleSelectedCandidate() {
+        return cullingState.toggleSelectedCandidate()
     }
 
     function selectionContainsRemote() {
@@ -499,40 +520,17 @@ Item {
     }
 
     Shortcut {
-        sequence: "1"
-        enabled: review.visible && review.comparison.canSubmitComparison
-        onActivated: review.comparison.submitComparison(0)
-    }
-
-    Shortcut {
-        sequence: "2"
-        enabled: review.visible && review.comparison.canSubmitComparison
-        onActivated: review.comparison.submitComparison(1)
-    }
-
-    Shortcut {
-        sequence: "3"
-        enabled: review.visible && review.comparison.canSubmitComparison
-        onActivated: review.comparison.submitComparison(2)
-    }
-
-    Shortcut {
-        sequence: "4"
-        enabled: review.visible && review.comparison.canSubmitComparison
-        onActivated: review.comparison.submitComparison(3)
-    }
-
-    Shortcut {
-        sequence: "0"
-        enabled: review.visible && review.comparison.canSubmitComparison
-        onActivated: review.comparison.submitComparison(4)
-    }
-
-    Shortcut {
         sequence: "Escape"
         enabled: review.visible && review.comparison.compareMode
             && !review.controller.comparisonBusy
         onActivated: review.comparison.exitComparison()
+    }
+
+    Shortcut {
+        sequence: "C"
+        enabled: review.visible && review.selectedPhotoCount === 1
+            && !review.comparison.compareMode && !review.culling.arenaActive
+        onActivated: review.toggleSelectedCandidate()
     }
 
     Shortcut {

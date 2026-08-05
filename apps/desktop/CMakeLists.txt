@@ -896,6 +896,8 @@ qt_add_qml_module(
         qml/ReviewSelectionState.qml
         qml/ReviewComparisonState.qml
         qml/ReviewComparisonView.qml
+        qml/ReviewCullingState.qml
+        qml/ReviewCullingArena.qml
         qml/ReviewDecisionToolbar.qml
         qml/ReviewGallerySurface.qml
         qml/ReviewGalleryToolbar.qml
@@ -905,6 +907,7 @@ qt_add_qml_module(
         qml/ReviewLibrarySidebar.qml
         qml/ReviewMetadataPresentation.qml
         qml/ReviewPhotoAffinity.qml
+        qml/ReviewRemoteSourceIndicator.qml
         qml/ReviewSystemCollections.qml
         qml/ReviewTravelCollections.qml
         qml/ReviewSharedGradePicker.qml

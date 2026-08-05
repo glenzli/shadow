@@ -122,6 +122,33 @@ Item {
         }
 
         Rectangle {
+            Layout.preferredWidth: 1
+            Layout.preferredHeight: 17
+            color: Theme.border
+        }
+
+        ShadowIconButton {
+            buttonSize: root.controlSize
+            iconSize: 16
+            source: "qrc:/icons/compare.svg"
+            selected: root.review.culling.containsCandidate(
+                root.review.selectedVisualSnapshot())
+            selectedSurfaceColor: Theme.accentSurface
+            selectedHoverSurfaceColor: Theme.accentSurface
+            selectedPressedSurfaceColor: Theme.accentSurfacePressed
+            selectedIconColor: Theme.accentSelectionText
+            toolTipText: selected
+                ? qsTr("Remove selected photo from candidates")
+                : qsTr("Add selected photo to candidates (C)")
+            accessibleName: toolTipText
+            enabled: root.review.selectedPhotoCount === 1
+                && root.review.selectedVisualSource.length > 0
+                && !root.review.comparison.compareMode
+                && !root.review.culling.arenaActive
+            onClicked: root.review.toggleSelectedCandidate()
+        }
+
+        Rectangle {
             visible: root.includeColorLabels
             Layout.preferredWidth: visible ? 1 : 0
             Layout.preferredHeight: 17

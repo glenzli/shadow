@@ -101,6 +101,8 @@ class FakeReviewCard final : public QObject {
     Q_PROPERTY(QString locationId MEMBER location_id CONSTANT)
     Q_PROPERTY(QString sourcePath MEMBER source_path CONSTANT)
     Q_PROPERTY(bool sourceAvailable MEMBER source_available CONSTANT)
+    Q_PROPERTY(bool isRemote MEMBER is_remote CONSTANT)
+    Q_PROPERTY(bool remoteOriginalCached MEMBER remote_original_cached CONSTANT)
     Q_PROPERTY(QString visualRole MEMBER visual_role CONSTANT)
     Q_PROPERTY(QString visualSource MEMBER visual_source CONSTANT)
     Q_PROPERTY(int visualWidth MEMBER visual_width CONSTANT)
@@ -121,6 +123,8 @@ class FakeReviewCard final : public QObject {
     QString location_id = QStringLiteral("location-a");
     QString source_path = QStringLiteral("/photos/selected.nef");
     bool source_available = true;
+    bool is_remote = false;
+    bool remote_original_cached = false;
     QString visual_role = QStringLiteral("generated_proxy");
     QString visual_source = QStringLiteral("image://shadow/selected");
     int visual_width = 1'600;
@@ -224,13 +228,30 @@ int main(int argc, char* argv[]) {
     if (!require(
             selection->property("selectedCameraMake").toString().isEmpty(),
             "a mismatched representation is rejected by production QML"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    auto remote_card = std::make_unique<FakeReviewCard>();
+    remote_card->photo_id = QStringLiteral("remote-photo");
+    remote_card->representation_id = QStringLiteral("remote-representation");
+    remote_card->is_remote = true;
+    remote_card->remote_original_cached = true;
+    if (!require(
+            invoke(selection.get(), "updatePrimaryPhoto", remote_card.get()),
+            "remote selection is invokable"
+        )
+        || !require(
+            selection->property("selectedIsRemote").toBool()
+                && selection->property("selectedRemoteOriginalCached").toBool(),
+            "remote origin and verified local cache residency remain independent selection facts"
         )
         || !require(
             QMetaObject::invokeMethod(selection.get(), "clearPrimaryPhoto"),
             "production clear function is invokable"
         )
         || !require(
-            controller.clear_count_ == 1,
+            controller.clear_count_ == 2,
             "clearing selection clears the independent inspection request"
         )) {
         return EXIT_FAILURE;

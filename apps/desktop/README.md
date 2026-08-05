@@ -523,7 +523,10 @@ Review presentation keeps the workspace focused on selection and orchestration:
   [`qml/ReviewSinglePreview.qml`](qml/ReviewSinglePreview.qml) own grid-card and filmstrip
   geometry. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
   evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
-  clipping, so the two browsing modes keep one visual contract without sharing interaction state.
+  clipping, so both browsing modes use edge-to-edge cropped thumbnails without sharing interaction
+  state. [`qml/ReviewRemoteSourceIndicator.qml`](qml/ReviewRemoteSourceIndicator.qml) owns the
+  network-origin glyph and its additive verified-local-cache badge; filmstrip thumbnails leave
+  origin presentation to the inspector instead of duplicating that badge.
   [`src/remote_photo_aggregation.cpp`](src/remote_photo_aggregation.cpp) is the pure desktop policy
   for collapsing exact-content matches from several remote Libraries into one logical card while
   retaining each independently addressable source. The card receives representation/source counts
@@ -543,13 +546,14 @@ Review presentation keeps the workspace focused on selection and orchestration:
   that repair fail closed.
 - [`qml/ReviewPhotoInspector.qml`](qml/ReviewPhotoInspector.qml) is the selected-photo scrolling
   index. [`qml/ReviewPhotoSummary.qml`](qml/ReviewPhotoSummary.qml) owns visual identity,
-  [`qml/ReviewExifSection.qml`](qml/ReviewExifSection.qml) owns configurable metadata and retry,
+  [`qml/ReviewExifSection.qml`](qml/ReviewExifSection.qml) owns source provenance, configurable
+  metadata, and retry,
   and [`qml/ReviewSelectionInspectionPane.qml`](qml/ReviewSelectionInspectionPane.qml) owns the
-  single-photo culling rail: an immediate proxy crop, an asynchronously replacing level-zero focus
-  region, camera AF evidence, and inexpensive exposure/detail references. It never assigns a
-  quality verdict. [`qml/ReviewComparisonSlots.qml`](qml/ReviewComparisonSlots.qml) owns comparison
-  admission, assignment, clearing, and entry; single-photo Review presents anchor–candidate entry
-  while the broad grid retains explicit A/B slots.
+  single-photo inspection rail: an immediate proxy crop, an asynchronously replacing level-zero
+  focus region, camera AF evidence, and inexpensive exposure/detail references. It never assigns a
+  quality verdict. [`qml/ReviewComparisonSlots.qml`](qml/ReviewComparisonSlots.qml) owns the ordinary
+  two-photo comparison entry in single-photo Review; Gallery and Map do not present duplicate
+  comparison slots.
 
 Library management uses the same page-composition boundary:
 
@@ -640,13 +644,20 @@ Review presentation keeps the workspace as the composition and compatibility sur
   the off-screen-safe Shift anchor, and the primary presentation snapshot. Detailed EXIF and
   technical facts come from an independent exact `{photo, representation}` request, so delegate
   recycling and Library pagination cannot replace the selected representation.
-- [`qml/ReviewComparisonState.qml`](qml/ReviewComparisonState.qml) owns frozen left/right evidence
-  snapshots, duplicate-photo rejection, prepared presentation tickets and sources, visual/backend
-  readiness, local status, submission, cancellation, and terminal cleanup. Its culling path locks
-  one anchor, moves a bounded candidate window through the existing Review navigation model, and
-  promotes a candidate only after an explicit right-preferred receipt succeeds. Merely navigating
-  never records preference evidence. Comparison surfaces navigate through this owner instead of
-  reopening the lifecycle in `ReviewWorkspace`.
+- [`qml/ReviewComparisonState.qml`](qml/ReviewComparisonState.qml) and
+  [`qml/ReviewComparisonView.qml`](qml/ReviewComparisonView.qml) own ordinary non-mutating 1:1
+  comparison. Entry freezes the selected photo and one adjacent visible result as independent
+  left/right snapshots; either side can then navigate the current sorted and filtered Library
+  result without moving the other. Swapping, navigating, entering, or leaving never writes a
+  decision or preference event, and the surface consumes the same repeatable cached visuals as
+  Library browsing rather than opening the exact-evidence backend lifecycle.
+- [`qml/ReviewCullingState.qml`](qml/ReviewCullingState.qml) owns the temporary candidate draft,
+  guided pairwise schedule, equal-preference tiers, unresolved skips, and exact one-step undo.
+  [`qml/ReviewCullingArena.qml`](qml/ReviewCullingArena.qml) owns its focused 1:1 presentation and
+  result tiers. Candidates enter explicitly from the photo toolbar or context menu; the arena uses
+  binary insertion to avoid asking every possible pair. Completing a session changes no photo
+  metadata. Selecting a result returns to Library, where the existing Like, flag, and rating tools
+  remain the explicit final keep action.
 - [`src/review_comparison_coordinator.cpp`](src/review_comparison_coordinator.cpp) owns the complete
   Compare lifecycle after cross-workflow admission: exact presentation preparation, decoded-frame
   verification, cancellation, serialized record/forget workers, receipt validation, session-local
@@ -864,13 +875,28 @@ head, synthesize pairwise examples, or grant a model write access to Pick,
 Reject, or rating. Color labels, bulk mutation, decision filtering, XMP
 round-trip, and durable cross-session command undo remain follow-up work.
 
-## Review Compare Evidence vertical slice
+## Review comparison and culling
 
-Review can place two already cached visuals side by side and ask for one explicit
+Ordinary comparison is a browsing capability, not a judgment. Review places two repeatable cached
+visuals side by side, initially the selected photo and its adjacent visible result. The two panes
+navigate independently within the current Library order. There is intentionally no 1/2/4 layout,
+no winner action, and no metadata or learning write coupled to this view.
+
+Culling is a separate temporary workflow. A user explicitly gathers candidates, enters a focused
+1:1 arena, and repeatedly chooses the better photo, declares a tie, skips a pair, or undoes the
+last choice. The scheduler incrementally builds ordered preference tiers instead of requiring all
+pair combinations. Results are advisory session state: selecting a result returns to the ordinary
+Library selection, where Like, rating, Pick, or Reject remains a separate deliberate action.
+
+## Review Compare Evidence backend
+
+The backend can place two already cached visuals side by side and ask for one explicit
 `PairwiseOutcome`: `LeftPreferred`, `RightPreferred`, `KeepBoth`, `KeepNeither`,
 or `CannotCompare`. Recording an outcome appends one human-feedback event in the
 `Global` learning scope. It does not mutate either photo, assign a Pick/Reject,
-or silently infer a label from merely opening or leaving the comparison.
+or silently infer a label from merely opening or leaving the comparison. The ordinary
+comparison and candidate arena deliberately do not invoke this exact-evidence contract; it remains
+available for a future explicit feedback-capture surface.
 
 Undo is deliberately non-destructive. It appends a forget fact targeting the
 source feedback event; it does not update or delete that event. The evidence

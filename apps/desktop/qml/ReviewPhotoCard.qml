@@ -133,10 +133,10 @@ Item {
             anchors.bottomMargin: -card.surfaceRadius
             source: card.visualSource
             radius: card.surfaceRadius
-            // The layout width itself is derived from visualWidth/visualHeight.
-            // Fitting is a defensive guarantee for imperfect/late metadata, never
-            // a photo crop mode.
-            fillMode: Image.PreserveAspectFit
+            // The card is an edge-to-edge browsing surface. Its geometry still
+            // follows visualWidth/visualHeight, while crop avoids letterboxed
+            // white gutters when metadata arrives late or is imperfect.
+            fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
             // Fine foliage and fabric otherwise alias when a warm 1024px
@@ -311,16 +311,11 @@ Item {
                     Layout.alignment: Qt.AlignRight
                     spacing: 6
 
-                    ShadowIcon {
+                    ReviewRemoteSourceIndicator {
                         objectName: "cardCaptionRemoteSourceIndicator"
                         visible: card.isRemote
-                        source: "qrc:/icons/network.svg"
-                        color: card.remoteOriginalCached
-                            ? Theme.successText : Theme.textSecondary
-                        size: 13
-                        Accessible.name: card.remoteOriginalCached
-                            ? qsTr("Remote original cached locally")
-                            : qsTr("Network Library source")
+                        cached: card.remoteOriginalCached
+                        iconSize: 13
                     }
 
                     Label {
@@ -411,7 +406,8 @@ Item {
                         cardMouse, mouse.x, mouse.y, card.workspace,
                         card.photoId, card.locationId, card.title,
                         card.sourcePath, card.sourceAvailable,
-                        card.liked, card.decisionFlag, card.isRemote)
+                        card.liked, card.decisionFlag, card.isRemote,
+                        card.workspace.snapshotForCard(card))
                 }
             }
             onDoubleClicked: mouse => {
@@ -429,7 +425,7 @@ Item {
         z: 2
         radius: card.surfaceRadius
         color: Theme.transparent
-        border.width: card.selected ? 3 : 1
+        border.width: card.selected ? 3 : 0
         border.color: card.selected ? Theme.accent : Theme.border
     }
 }

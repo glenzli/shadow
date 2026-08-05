@@ -23,6 +23,7 @@ Popup {
     property bool photoLiked: false
     property string photoDecisionFlag: "unflagged"
     property bool photoIsRemote: false
+    property var photoSnapshot: null
     property bool albumsExpanded: false
     property bool ratingsExpanded: false
     property bool nodesExpanded: false
@@ -39,7 +40,7 @@ Popup {
     function openAt(item, localX, localY, workspaceValue, photoIdValue,
                     locationIdValue, titleValue, sourcePathValue,
                     sourceAvailableValue, likedValue, decisionFlagValue,
-                    isRemoteValue) {
+                    isRemoteValue, snapshotValue) {
         workspace = workspaceValue
         photoId = String(photoIdValue)
         locationId = String(locationIdValue)
@@ -49,6 +50,7 @@ Popup {
         photoLiked = Boolean(likedValue)
         photoDecisionFlag = String(decisionFlagValue)
         photoIsRemote = Boolean(isRemoteValue)
+        photoSnapshot = snapshotValue || null
         albumsExpanded = false
         nodesExpanded = false
         parent = Overlay.overlay
@@ -71,6 +73,7 @@ Popup {
         photoLiked = false
         photoDecisionFlag = "unflagged"
         photoIsRemote = false
+        photoSnapshot = null
     }
 
     background: Rectangle {
@@ -161,6 +164,24 @@ Popup {
                 if (!root.hasWorkspace)
                     return
                 root.workspace.openSelectedPhoto()
+                root.close()
+            }
+        }
+
+        MenuRow {
+            text: root.hasWorkspace
+                && root.workspace.culling.containsCandidate(root.photoSnapshot)
+                ? qsTr("Remove from Candidates")
+                : qsTr("Add to Candidates")
+            iconSource: "qrc:/icons/compare.svg"
+            actionEnabled: root.hasWorkspace
+                && root.photoSnapshot !== null
+                && String(root.photoSnapshot.visualSource || "").length > 0
+                && !root.workspace.culling.arenaActive
+            onActivated: {
+                if (!root.hasWorkspace)
+                    return
+                root.workspace.culling.toggleCandidate(root.photoSnapshot)
                 root.close()
             }
         }

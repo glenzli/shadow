@@ -22,6 +22,7 @@ Rectangle {
     height: 42
     z: 3
     visible: !toolbar.workspace.comparison.compareMode
+        && !toolbar.workspace.culling.arenaActive
     color: Theme.chrome
 
     function setGalleryScale(value) {
@@ -87,6 +88,19 @@ Rectangle {
         }
 
         Item { Layout.fillWidth: true }
+
+        ShadowButton {
+            visible: toolbar.workspace.culling.candidateCount > 0
+            compact: true
+            variant: ShadowButton.Tinted
+            text: qsTr("Candidates %L1").arg(
+                toolbar.workspace.culling.candidateCount)
+            toolTipText: toolbar.workspace.culling.canStartArena
+                ? qsTr("Open the candidate arena")
+                : qsTr("Add at least two photos to start the candidate arena")
+            enabled: toolbar.workspace.culling.canStartArena
+            onClicked: toolbar.workspace.culling.startArena()
+        }
 
         ShadowIconButton {
             source: "qrc:/icons/review-grid.svg"

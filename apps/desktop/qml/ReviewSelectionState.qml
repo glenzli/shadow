@@ -30,6 +30,7 @@ QtObject {
     property string selectedPath: ""
     property bool selectedSourceAvailable: true
     property bool selectedIsRemote: false
+    property bool selectedRemoteOriginalCached: false
     property var selectedRemoteInspection: ({})
     property string selectedRole: ""
     property string selectedVisualSource: ""
@@ -163,6 +164,84 @@ QtObject {
         return values
     }
 
+    // Comparison and culling sessions retain immutable value snapshots, never
+    // virtualized delegates. Keep the shared projection with the selection
+    // owner so both workflows consume the same identity and visual fields.
+    function snapshotForCard(card) {
+        if (!card)
+            return null
+        return {
+            "photoId": String(card.photoId || ""),
+            "representationId": String(card.representationId || ""),
+            "locationId": String(card.locationId || ""),
+            "visualHandle": String(card.visualHandle || ""),
+            "decisionHeadSequence": card.decisionHeadSequence || 0,
+            "decisionFlag": String(card.decisionFlag || "unflagged"),
+            "decisionRating": Number(card.decisionRating || 0),
+            "liked": Boolean(card.liked),
+            "colorLabel": String(card.colorLabel || "none"),
+            "title": String(card.title || ""),
+            "sourcePath": String(card.sourcePath || ""),
+            "sourceAvailable": card.sourceAvailable === undefined
+                ? true : Boolean(card.sourceAvailable),
+            "isRemote": Boolean(card.isRemote),
+            "remoteOriginalCached": Boolean(card.remoteOriginalCached),
+            "visualRole": String(card.visualRole || ""),
+            "visualSource": String(card.visualSource || ""),
+            "visualWidth": Number(card.visualWidth || 0),
+            "visualHeight": Number(card.visualHeight || 0),
+            "hasMetadata": Boolean(card.hasMetadata),
+            "cameraMake": String(card.cameraMake || ""),
+            "cameraModel": String(card.cameraModel || ""),
+            "lensMake": String(card.lensMake || ""),
+            "lensModel": String(card.lensModel || ""),
+            "capturedAtUnixSeconds": card.capturedAtUnixSeconds || 0,
+            "isoSpeed": Number(card.isoSpeed || 0),
+            "exposureTimeSeconds": Number(card.exposureTimeSeconds || 0),
+            "apertureFNumber": Number(card.apertureFNumber || 0),
+            "focalLengthMm": Number(card.focalLengthMm || 0),
+            "rawWidth": Number(card.rawWidth || 0),
+            "rawHeight": Number(card.rawHeight || 0)
+        }
+    }
+
+    function selectedSnapshot() {
+        if (selectedPhotoId.length === 0)
+            return null
+        return snapshotForCard({
+            "photoId": selectedPhotoId,
+            "representationId": selectedRepresentationId,
+            "locationId": selectedLocationId,
+            "visualHandle": selectedVisualHandle,
+            "decisionHeadSequence": selectedDecisionHeadSequence,
+            "decisionFlag": selectedDecisionFlag,
+            "decisionRating": selectedDecisionRating,
+            "liked": selectedLiked,
+            "colorLabel": selectedColorLabel,
+            "title": selectedTitle,
+            "sourcePath": selectedPath,
+            "sourceAvailable": selectedSourceAvailable,
+            "isRemote": selectedIsRemote,
+            "remoteOriginalCached": selectedRemoteOriginalCached,
+            "visualRole": selectedRole,
+            "visualSource": selectedVisualSource,
+            "visualWidth": selectedWidth,
+            "visualHeight": selectedHeight,
+            "hasMetadata": selectedHasMetadata,
+            "cameraMake": selectedCameraMake,
+            "cameraModel": selectedCameraModel,
+            "lensMake": selectedLensMake,
+            "lensModel": selectedLensModel,
+            "capturedAtUnixSeconds": selectedCapturedAtUnixSeconds,
+            "isoSpeed": selectedIsoSpeed,
+            "exposureTimeSeconds": selectedExposureTimeSeconds,
+            "apertureFNumber": selectedApertureFNumber,
+            "focalLengthMm": selectedFocalLengthMm,
+            "rawWidth": selectedRawWidth,
+            "rawHeight": selectedRawHeight
+        })
+    }
+
     function updatePrimaryPhoto(card) {
         const identityChanged = selectedPhotoId !== card.photoId
             || selectedRepresentationId !== card.representationId
@@ -180,6 +259,7 @@ QtObject {
         selectedSourceAvailable = card.sourceAvailable === undefined
             ? true : Boolean(card.sourceAvailable)
         selectedIsRemote = Boolean(card.isRemote)
+        selectedRemoteOriginalCached = Boolean(card.remoteOriginalCached)
         selectedRemoteInspection = selectedIsRemote ? {
             "available": true,
             "photoId": card.photoId,
@@ -284,6 +364,7 @@ QtObject {
         selectedPath = ""
         selectedSourceAvailable = true
         selectedIsRemote = false
+        selectedRemoteOriginalCached = false
         selectedRemoteInspection = ({})
         selectedRole = ""
         selectedVisualSource = ""

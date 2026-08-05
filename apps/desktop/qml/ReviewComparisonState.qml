@@ -3,6 +3,9 @@ pragma Translator: "ReviewWorkspace"
 
 import QtQuick
 
+// Ordinary comparison is a non-mutating two-photo workspace. Each pane owns
+// an independent navigation cursor and consumes repeatable Library visuals;
+// exact one-purpose evidence tickets belong only to explicit feedback capture.
 QtObject {
     id: comparison
 
@@ -12,96 +15,79 @@ QtObject {
 
     property var leftComparisonSnapshot: null
     property var rightComparisonSnapshot: null
-    property bool leftComparisonVisualReady: false
-    property bool rightComparisonVisualReady: false
-    property bool comparisonBackendReady: false
-    property string comparisonPresentationId: ""
-    property string leftComparisonRequestTicket: ""
-    property string rightComparisonRequestTicket: ""
-    property string leftComparisonSource: ""
-    property string rightComparisonSource: ""
     property bool compareMode: false
-    property bool selectionCompareMode: false
-    property int candidateDirection: 1
-    property string pendingRecordedAction: ""
-    property var nearbyCandidateTargets: []
     property string localComparisonStatusKey: ""
     property int localComparisonStatusSlot: -1
 
     readonly property bool comparisonReady:
-        leftComparisonSnapshot !== null
-        && rightComparisonSnapshot !== null
-    readonly property bool comparisonVisualsReady:
-        leftComparisonVisualReady && rightComparisonVisualReady
-    readonly property bool canSubmitComparison:
-        comparisonReady
-        && comparisonVisualsReady
-        && comparisonBackendReady
-        && compareMode
-        && !controller.scanning
-        && !controller.refreshing
-        && !controller.comparisonBusy
-        && !controller.decisionBusy
+        snapshotReady(leftComparisonSnapshot)
+        && snapshotReady(rightComparisonSnapshot)
+    readonly property string leftComparisonSource:
+        leftComparisonSnapshot === null
+            ? "" : String(leftComparisonSnapshot.visualSource || "")
+    readonly property string rightComparisonSource:
+        rightComparisonSnapshot === null
+            ? "" : String(rightComparisonSnapshot.visualSource || "")
     readonly property string localComparisonStatus: {
         if (localComparisonStatusKey === "photo-in-both-slots")
-            return qsTr("A photo cannot occupy both comparison slots.")
-        if (localComparisonStatusKey === "slot-updated")
-            return localComparisonStatusSlot === 0
-                ? qsTr("Left evidence slot updated.")
-                : qsTr("Right evidence slot updated.")
+            return qsTr("A photo cannot occupy both comparison panes.")
         if (localComparisonStatusKey === "no-adjacent-photo")
-            return qsTr("No adjacent photo is available for quick comparison.")
+            return qsTr("No other photo is available in the current view.")
         return ""
     }
 
-    signal comparisonRecorded()
-
-    function selectedComparisonSnapshot() {
+    function normalizedSnapshot(value) {
+        if (!value)
+            return null
         return {
-            "photoId": String(selection.selectedPhotoId),
-            "representationId": String(selection.selectedRepresentationId),
-            "visualHandle": String(selection.selectedVisualHandle),
-            "title": String(selection.selectedTitle),
-            "sourcePath": String(selection.selectedPath),
-            "visualRole": String(selection.selectedRole),
-            "visualSource": String(selection.selectedVisualSource),
-            "visualWidth": Number(selection.selectedWidth),
-            "visualHeight": Number(selection.selectedHeight),
-            "hasTechnicalObservation":
-                Boolean(selection.selectedHasTechnicalObservation),
-            "technicalInputWidth":
-                Number(selection.selectedTechnicalInputWidth),
-            "technicalInputHeight":
-                Number(selection.selectedTechnicalInputHeight),
-            "technicalPreprocessingVersion": String(
-                selection.selectedTechnicalPreprocessingVersion),
-            "technicalImplementationVersion": String(
-                selection.selectedTechnicalImplementationVersion),
-            "meanLuma": Number(selection.selectedMeanLuma),
-            "p01Luma": Number(selection.selectedP01Luma),
-            "p50Luma": Number(selection.selectedP50Luma),
-            "p99Luma": Number(selection.selectedP99Luma),
-            "nearBlackFraction":
-                Number(selection.selectedNearBlackFraction),
-            "nearWhiteFraction":
-                Number(selection.selectedNearWhiteFraction),
-            "laplacianVariance":
-                Number(selection.selectedLaplacianVariance),
-            "edgeEnergy": Number(selection.selectedEdgeEnergy)
+            "photoId": String(value.photoId || ""),
+            "representationId": String(value.representationId || ""),
+            "visualHandle": String(value.visualHandle || ""),
+            "title": String(value.title || ""),
+            "sourcePath": String(value.sourcePath || ""),
+            "sourceAvailable": value.sourceAvailable === undefined
+                ? true : Boolean(value.sourceAvailable),
+            "isRemote": Boolean(value.isRemote),
+            "remoteOriginalCached": Boolean(value.remoteOriginalCached),
+            "visualRole": String(value.visualRole || ""),
+            "visualSource": String(value.visualSource || ""),
+            "visualWidth": Number(value.visualWidth || 0),
+            "visualHeight": Number(value.visualHeight || 0)
         }
     }
 
-    function sameComparisonIdentity(left, right) {
-        return left !== null && right !== null
-            && left.photoId === right.photoId
-            && left.representationId === right.representationId
-            && left.visualHandle === right.visualHandle
-            && left.visualSource === right.visualSource
+    function selectedSnapshot() {
+        if (typeof selection.selectedSnapshot === "function")
+            return normalizedSnapshot(selection.selectedSnapshot())
+        return normalizedSnapshot({
+            "photoId": selection.selectedPhotoId,
+            "representationId": selection.selectedRepresentationId,
+            "visualHandle": selection.selectedVisualHandle,
+            "title": selection.selectedTitle,
+            "sourcePath": selection.selectedPath,
+            "visualRole": selection.selectedRole,
+            "visualSource": selection.selectedVisualSource,
+            "visualWidth": selection.selectedWidth,
+            "visualHeight": selection.selectedHeight
+        })
     }
 
-    function setLocalComparisonStatus(statusKey, slot) {
-        localComparisonStatusSlot = slot
-        localComparisonStatusKey = statusKey
+    function snapshotReady(snapshot) {
+        return snapshot !== null
+            && String(snapshot.photoId || "").length > 0
+            && String(snapshot.representationId || "").length > 0
+            && String(snapshot.visualSource || "").length > 0
+    }
+
+    function sameIdentity(left, right) {
+        return left !== null && right !== null
+            && String(left.photoId || "") === String(right.photoId || "")
+            && String(left.representationId || "")
+                === String(right.representationId || "")
+    }
+
+    function selectionCanFillPane() {
+        return snapshotReady(selectedSnapshot())
     }
 
     function clearLocalComparisonStatus() {
@@ -109,242 +95,106 @@ QtObject {
         localComparisonStatusSlot = -1
     }
 
-    function selectionCanFillSlot() {
-        return selection.selectedPhotoId.length > 0
-            && selection.selectedRepresentationId.length > 0
-            && selection.selectedVisualHandle.length > 0
-            && selection.selectedVisualSource.length > 0
-    }
-
     function setSelectedAsLeft() {
-        if (!selectionCanFillSlot())
+        const snapshot = selectedSnapshot()
+        if (!snapshotReady(snapshot))
             return
-        if (rightComparisonSnapshot !== null
-                && rightComparisonSnapshot.photoId
-                    === selection.selectedPhotoId) {
-            setLocalComparisonStatus("photo-in-both-slots", -1)
-            return
-        }
-        leftComparisonVisualReady = false
-        comparisonBackendReady = false
-        leftComparisonSnapshot = selectedComparisonSnapshot()
-        setLocalComparisonStatus("slot-updated", 0)
-    }
-
-    function setSelectedAsRight() {
-        if (!selectionCanFillSlot())
-            return
-        if (leftComparisonSnapshot !== null
-                && leftComparisonSnapshot.photoId
-                    === selection.selectedPhotoId) {
-            setLocalComparisonStatus("photo-in-both-slots", -1)
+        if (sameIdentity(snapshot, rightComparisonSnapshot)) {
+            localComparisonStatusKey = "photo-in-both-slots"
+            localComparisonStatusSlot = 0
             return
         }
-        rightComparisonVisualReady = false
-        comparisonBackendReady = false
-        rightComparisonSnapshot = selectedComparisonSnapshot()
-        setLocalComparisonStatus("slot-updated", 1)
-    }
-
-    function resetPreparedComparison(cancelBackend) {
-        if (cancelBackend && comparisonPresentationId.length > 0)
-            controller.cancelComparison(comparisonPresentationId)
-        comparisonPresentationId = ""
-        leftComparisonRequestTicket = ""
-        rightComparisonRequestTicket = ""
-        leftComparisonSource = ""
-        rightComparisonSource = ""
-        leftComparisonVisualReady = false
-        rightComparisonVisualReady = false
-        comparisonBackendReady = false
-    }
-
-    function clearComparisonSlots(cancelBackend) {
-        resetPreparedComparison(cancelBackend !== false)
-        leftComparisonSnapshot = null
-        rightComparisonSnapshot = null
-        compareMode = false
-        selectionCompareMode = false
-        pendingRecordedAction = ""
-        nearbyCandidateTargets = []
+        leftComparisonSnapshot = snapshot
         clearLocalComparisonStatus()
     }
 
-    function enterComparison() {
-        if (!comparisonReady)
+    function setSelectedAsRight() {
+        const snapshot = selectedSnapshot()
+        if (!snapshotReady(snapshot))
             return
-        const prepared = controller.prepareComparison(
-            leftComparisonSnapshot.visualHandle,
-            rightComparisonSnapshot.visualHandle)
-        if (!prepared || String(prepared.presentationId).length === 0)
+        if (sameIdentity(snapshot, leftComparisonSnapshot)) {
+            localComparisonStatusKey = "photo-in-both-slots"
+            localComparisonStatusSlot = 1
             return
-        comparisonPresentationId = String(prepared.presentationId)
-        leftComparisonRequestTicket = String(prepared.leftRequestTicket)
-        rightComparisonRequestTicket = String(prepared.rightRequestTicket)
-        leftComparisonSource = String(prepared.leftSource)
-        rightComparisonSource = String(prepared.rightSource)
-        leftComparisonVisualReady = false
-        rightComparisonVisualReady = false
-        comparisonBackendReady = false
+        }
+        rightComparisonSnapshot = snapshot
+        clearLocalComparisonStatus()
+    }
+
+    function adjacentSnapshot(snapshot, direction) {
+        if (!snapshotReady(snapshot))
+            return null
+        return normalizedSnapshot(navigationModel.navigationTarget(
+            snapshot.photoId,
+            snapshot.representationId,
+            direction,
+            0))
+    }
+
+    function startQuickComparison() {
+        const selected = selectedSnapshot()
+        if (!snapshotReady(selected))
+            return
+        let adjacent = adjacentSnapshot(selected, 1)
+        if (!snapshotReady(adjacent))
+            adjacent = adjacentSnapshot(selected, -1)
+        if (!snapshotReady(adjacent)) {
+            localComparisonStatusKey = "no-adjacent-photo"
+            localComparisonStatusSlot = -1
+            return
+        }
+        leftComparisonSnapshot = selected
+        rightComparisonSnapshot = adjacent
         compareMode = true
         clearLocalComparisonStatus()
     }
 
-    function adjacentTarget(direction) {
-        return navigationModel.navigationTarget(
-            selection.selectedPhotoId,
-            selection.selectedRepresentationId,
-            direction,
-            0)
+    function enterComparison() {
+        if (comparisonReady) {
+            compareMode = true
+            clearLocalComparisonStatus()
+        }
     }
 
-    function startSelectionComparison() {
-        if (!selectionCanFillSlot())
+    function navigatePane(slot, direction) {
+        if (!compareMode)
             return
-        leftComparisonSnapshot = selectedComparisonSnapshot()
-        let target = adjacentTarget(1)
-        candidateDirection = 1
-        if (!target || String(target.photoId || "").length === 0) {
-            target = adjacentTarget(-1)
-            candidateDirection = -1
-        }
-        if (!target || String(target.photoId || "").length === 0) {
-            setLocalComparisonStatus("no-adjacent-photo", -1)
+        const current = slot === 0
+            ? leftComparisonSnapshot : rightComparisonSnapshot
+        const target = adjacentSnapshot(current, direction)
+        const other = slot === 0
+            ? rightComparisonSnapshot : leftComparisonSnapshot
+        if (!snapshotReady(target) || sameIdentity(target, other)) {
+            localComparisonStatusKey = "no-adjacent-photo"
+            localComparisonStatusSlot = slot
             return
         }
-        selectionCompareMode = true
-        selection.selectPhoto(target, 0)
-        rightComparisonSnapshot = selectedComparisonSnapshot()
-        refreshNearbyCandidates()
-        enterComparison()
-    }
-
-    function refreshNearbyCandidates() {
-        if (!selectionCompareMode || rightComparisonSnapshot === null) {
-            nearbyCandidateTargets = []
-            return
-        }
-        const before = []
-        let cursorPhotoId = selection.selectedPhotoId
-        let cursorRepresentationId = selection.selectedRepresentationId
-        for (let index = 0; index < 2; ++index) {
-            const target = navigationModel.navigationTarget(
-                cursorPhotoId, cursorRepresentationId, -1, 0)
-            if (!target || String(target.photoId || "").length === 0)
-                break
-            cursorPhotoId = String(target.photoId)
-            cursorRepresentationId = String(target.representationId)
-            if (cursorPhotoId !== leftComparisonSnapshot.photoId)
-                before.unshift(target)
-        }
-        const values = before
-        values.push(rightComparisonSnapshot)
-        cursorPhotoId = selection.selectedPhotoId
-        cursorRepresentationId = selection.selectedRepresentationId
-        for (let index = 0; index < 2; ++index) {
-            const target = navigationModel.navigationTarget(
-                cursorPhotoId, cursorRepresentationId, 1, 0)
-            if (!target || String(target.photoId || "").length === 0)
-                break
-            cursorPhotoId = String(target.photoId)
-            cursorRepresentationId = String(target.representationId)
-            if (cursorPhotoId !== leftComparisonSnapshot.photoId)
-                values.push(target)
-        }
-        nearbyCandidateTargets = values
-    }
-
-    function chooseCandidate(target) {
-        if (!selectionCompareMode || controller.comparisonBusy || !target
-                || String(target.photoId || "").length === 0
-                || String(target.photoId) === leftComparisonSnapshot.photoId
-                || String(target.photoId) === selection.selectedPhotoId)
-            return
-        resetPreparedComparison(true)
-        selection.selectPhoto(target, 0)
-        rightComparisonSnapshot = selectedComparisonSnapshot()
-        refreshNearbyCandidates()
-        enterComparison()
-    }
-
-    function navigateCandidate(direction) {
-        if (!selectionCompareMode || controller.comparisonBusy)
-            return
-        const target = adjacentTarget(direction)
-        if (!target || String(target.photoId || "").length === 0
-                || String(target.photoId) === leftComparisonSnapshot.photoId) {
-            setLocalComparisonStatus("no-adjacent-photo", -1)
-            return
-        }
-        candidateDirection = direction
-        resetPreparedComparison(true)
-        selection.selectPhoto(target, 0)
-        rightComparisonSnapshot = selectedComparisonSnapshot()
-        refreshNearbyCandidates()
-        enterComparison()
-    }
-
-    function submitSelectionComparison(outcome, recordedAction) {
-        if (!canSubmitComparison)
-            return
-        pendingRecordedAction = recordedAction
-        controller.recordComparison(comparisonPresentationId, outcome)
-    }
-
-    function promoteCandidate() {
-        submitSelectionComparison(1, "promote")
-    }
-
-    function keepAnchor() {
-        submitSelectionComparison(0, "advance")
-    }
-
-    function keepBoth() {
-        submitSelectionComparison(2, "advance")
-    }
-
-    function finishSelectionComparisonRecord() {
-        const promoted = pendingRecordedAction === "promote"
-        pendingRecordedAction = ""
-        resetPreparedComparison(false)
-        if (promoted)
-            leftComparisonSnapshot = rightComparisonSnapshot
-        rightComparisonSnapshot = null
-        comparisonRecorded()
-        const target = adjacentTarget(candidateDirection)
-        if (!target || String(target.photoId || "").length === 0
-                || String(target.photoId) === leftComparisonSnapshot.photoId) {
-            clearComparisonSlots(false)
-            return
-        }
-        selection.selectPhoto(target, 0)
-        rightComparisonSnapshot = selectedComparisonSnapshot()
-        refreshNearbyCandidates()
-        enterComparison()
-    }
-
-    function exitComparison() {
-        resetPreparedComparison(true)
-        compareMode = false
-        selectionCompareMode = false
-        pendingRecordedAction = ""
+        if (slot === 0)
+            leftComparisonSnapshot = target
+        else
+            rightComparisonSnapshot = target
         clearLocalComparisonStatus()
     }
 
-    function refreshComparisonReadiness() {
-        comparisonBackendReady = false
-        if (!compareMode || !comparisonVisualsReady
-                || comparisonPresentationId.length === 0)
+    function swapPanes() {
+        if (!comparisonReady)
             return
-        comparisonBackendReady = controller.confirmComparisonReady(
-            comparisonPresentationId,
-            leftComparisonRequestTicket,
-            rightComparisonRequestTicket)
+        const previousLeft = leftComparisonSnapshot
+        leftComparisonSnapshot = rightComparisonSnapshot
+        rightComparisonSnapshot = previousLeft
+        clearLocalComparisonStatus()
     }
 
-    function submitComparison(outcome) {
-        if (canSubmitComparison)
-            controller.recordComparison(comparisonPresentationId, outcome)
+    function clearComparisonSlots() {
+        leftComparisonSnapshot = null
+        rightComparisonSnapshot = null
+        compareMode = false
+        clearLocalComparisonStatus()
+    }
+
+    function exitComparison() {
+        compareMode = false
+        clearLocalComparisonStatus()
     }
 
     property Connections controllerConnections: Connections {
@@ -353,19 +203,6 @@ QtObject {
         function onItemCountChanged() {
             if (comparison.controller.itemCount === 0)
                 comparison.clearComparisonSlots()
-        }
-
-        function onComparisonRecorded() {
-            if (comparison.selectionCompareMode) {
-                comparison.finishSelectionComparisonRecord()
-                return
-            }
-            comparison.clearComparisonSlots(false)
-            comparison.comparisonRecorded()
-        }
-
-        function onComparisonForgotten() {
-            comparison.clearLocalComparisonStatus()
         }
     }
 }

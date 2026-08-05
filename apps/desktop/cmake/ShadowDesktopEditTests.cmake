@@ -595,6 +595,89 @@
     )
 
     add_executable(
+        shadow-review-culling-state-contract-test
+        tests/review_culling_state_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-review-culling-state-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-review-culling-state-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-review-culling-state-contract-test
+        PRIVATE Qt6::Core Qt6::Qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-culling-state-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-culling-state-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-culling-state-contract
+        COMMAND shadow-review-culling-state-contract-test
+    )
+
+    add_executable(
+        shadow-review-culling-arena-test
+        tests/review_culling_arena_test.cpp
+    )
+    target_compile_features(
+        shadow-review-culling-arena-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-review-culling-arena-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-review-culling-arena-test
+        URI Shadow.ReviewCullingArenaContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ReviewCullingArena.qml
+            qml/ShadowButton.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-review-culling-arena-test culling_arena_icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/clear.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-culling-arena-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-culling-arena-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-culling-arena
+        COMMAND shadow-review-culling-arena-test
+    )
+    set_tests_properties(
+        shadow-desktop-review-culling-arena
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-autosave-failure-recovery-contract-test
         tests/autosave_failure_recovery_contract_test.cpp
     )

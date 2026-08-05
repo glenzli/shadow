@@ -40,6 +40,45 @@ ColumnLayout {
         }
     }
 
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+
+        Label {
+            Layout.preferredWidth: 76
+            horizontalAlignment: Text.AlignRight
+            text: qsTranslate("ReviewWorkspace", "SOURCE")
+            color: exifSection.review.textMuted
+            font.pixelSize: 9
+        }
+
+        ReviewRemoteSourceIndicator {
+            visible: exifSection.review.selectedIsRemote
+            cached: exifSection.review.selectedRemoteOriginalCached
+            iconSize: 13
+        }
+
+        ShadowIcon {
+            visible: !exifSection.review.selectedIsRemote
+            source: "qrc:/icons/library-manage.svg"
+            color: exifSection.review.textSecondary
+            size: 13
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: exifSection.review.selectedIsRemote
+                ? (exifSection.review.selectedRemoteOriginalCached
+                    ? qsTranslate(
+                        "ReviewWorkspace", "Server Library · cached locally")
+                    : qsTranslate("ReviewWorkspace", "Server Library"))
+                : qsTranslate("ReviewWorkspace", "Local Library")
+            color: exifSection.review.textPrimary
+            font.pixelSize: 10
+            elide: Text.ElideRight
+        }
+    }
+
     Label {
         Layout.fillWidth: true
         visible: !exifSection.review.selectedHasMetadata

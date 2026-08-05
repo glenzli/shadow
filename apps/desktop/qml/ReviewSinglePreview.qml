@@ -178,6 +178,7 @@ Item {
                 required property string sourcePath
                 required property bool sourceAvailable
                 required property bool isRemote
+                required property bool remoteOriginalCached
                 required property string remotePreviewUnavailableReason
                 required property string visualRole
                 required property string visualError
@@ -235,7 +236,7 @@ Item {
                     anchors.fill: parent
                     source: filmCard.visualSource
                     radius: filmCard.radius
-                    fillMode: Image.PreserveAspectFit
+                    fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: true
                     smooth: true
@@ -262,28 +263,6 @@ Item {
                     liked: filmCard.liked
                     showRating: false
                     iconSize: 12
-                }
-
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.leftMargin: 5
-                    anchors.topMargin: 5
-                    width: 20
-                    height: 20
-                    radius: Theme.compactControlRadius
-                    visible: filmCard.isRemote
-                    color: Theme.panelRaised
-                    border.width: 1
-                    border.color: Theme.borderStrong
-
-                    ShadowIcon {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/network.svg"
-                        color: Theme.textSecondary
-                        size: 12
-                        Accessible.name: qsTr("Network Library source")
-                    }
                 }
 
                 Rectangle {
@@ -323,7 +302,7 @@ Item {
                     anchors.fill: parent
                     radius: filmCard.radius
                     color: Theme.transparent
-                    border.width: filmCard.selected ? 2 : 1
+                    border.width: filmCard.selected ? 2 : 0
                     border.color: filmCard.selected
                         ? Theme.accent : Theme.border
                 }

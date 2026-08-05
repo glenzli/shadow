@@ -71,6 +71,7 @@ Rectangle {
         anchors.bottomMargin: 18
         clip: true
         visible: !gallery.workspace.comparison.compareMode
+            && !gallery.workspace.culling.arenaActive
             && gallery.workspace.galleryPresentation === ReviewWorkspace.JustifiedGrid
         enabled: visible
         focus: visible
@@ -152,6 +153,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         visible: !gallery.workspace.comparison.compareMode
+            && !gallery.workspace.culling.arenaActive
             && gallery.workspace.galleryPresentation
                 === ReviewWorkspace.SinglePhotoFilmstrip
         review: gallery.workspace
@@ -165,6 +167,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         active: !gallery.workspace.comparison.compareMode
+            && !gallery.workspace.culling.arenaActive
             && gallery.workspace.galleryPresentation === ReviewWorkspace.Map
         visible: active
 
@@ -213,11 +216,17 @@ Rectangle {
         floating: true
         includeColorLabels: true
         visible: !gallery.workspace.comparison.compareMode
+            && !gallery.workspace.culling.arenaActive
             && gallery.workspace.galleryPresentation === ReviewWorkspace.JustifiedGrid
             && gallery.workspace.selectedPhotoId.length > 0
     }
 
     ReviewComparisonView {
+        review: gallery.workspace
+    }
+
+    ReviewCullingArena {
+        anchors.fill: parent
         review: gallery.workspace
     }
 

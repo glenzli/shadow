@@ -2,192 +2,52 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Owns comparison-slot assignment, admission, clearing, and entry.
+// Entry for the ordinary two-pane comparison workspace. The current photo is
+// placed on the left and the next visible Library photo is used as a convenient
+// default on the right; neither choice becomes a culling decision.
 ColumnLayout {
-    id: slots
+    id: comparisonEntry
 
     required property var review
 
-    readonly property bool mutationsAvailable:
-        !slots.review.controller.comparisonBusy
-        && !slots.review.controller.decisionBusy
-        && !slots.review.controller.scanning
-        && !slots.review.controller.refreshing
-        && !slots.review.controller.busy
-        && !slots.review.controller.loadingMore
-    readonly property bool selectedVisualAvailable:
-        slots.review.selectedPhotoId.length > 0
-        && slots.review.selectedRepresentationId.length > 0
-        && slots.review.selectedVisualHandle.length > 0
-        && slots.review.selectedVisualSource.length > 0
-    readonly property bool quickSelectionMode:
-        slots.review.galleryPresentation
-            === ReviewWorkspace.SinglePhotoFilmstrip
+    readonly property bool available:
+        !review.controller.comparisonBusy
+        && !review.controller.decisionBusy
+        && !review.controller.scanning
+        && !review.controller.refreshing
+        && !review.controller.busy
+        && !review.controller.loadingMore
+        && !review.culling.arenaActive
+        && review.selectedPhotoId.length > 0
+        && review.selectedRepresentationId.length > 0
+        && review.selectedVisualSource.length > 0
+        && !review.comparison.compareMode
 
-    spacing: 8
+    spacing: 6
 
     ShadowButton {
         Layout.fillWidth: true
-        visible: slots.quickSelectionMode
         variant: ShadowButton.Tinted
-        text: qsTr("Compare with adjacent photo")
-        enabled: slots.mutationsAvailable
-            && slots.selectedVisualAvailable
-            && !slots.review.comparison.compareMode
-        onClicked: slots.review.comparison.startSelectionComparison()
+        text: qsTr("Compare photos")
+        toolTipText: qsTr("Open a two-photo comparison without changing either photo")
+        enabled: comparisonEntry.available
+        onClicked: comparisonEntry.review.comparison.startQuickComparison()
     }
 
     Label {
         Layout.fillWidth: true
-        visible: slots.quickSelectionMode
-        text: qsTr("Lock this photo as the anchor, then review nearby candidates.")
-        color: slots.review.textMuted
+        text: qsTr("The adjacent photo is selected initially; both panes can then move independently.")
+        color: comparisonEntry.review.textMuted
         wrapMode: Text.WordWrap
-        font.pixelSize: 9
-    }
-
-    RowLayout {
-        Layout.fillWidth: true
-        visible: !slots.quickSelectionMode
-
-        Label {
-            Layout.fillWidth: true
-            text: qsTranslate("ReviewWorkspace", "COMPARE SLOTS")
-            color: slots.review.textMuted
-            font.pixelSize: 10
-            font.weight: Font.DemiBold
-        }
-
-        ShadowIconButton {
-            source: "qrc:/icons/compare.svg"
-            iconSize: 17
-            variant: ShadowIconButton.Tinted
-            toolTipText: qsTranslate(
-                "ReviewWorkspace", "Compare slots A and B")
-            accessibleName: toolTipText
-            enabled: slots.review.comparison.comparisonReady
-                && !slots.review.comparison.compareMode
-                && slots.mutationsAvailable
-            onClicked: slots.review.comparison.enterComparison()
-        }
-
-        ShadowIconButton {
-            source: "qrc:/icons/clear.svg"
-            iconSize: 16
-            toolTipText: qsTranslate(
-                "ReviewWorkspace", "Clear comparison slots")
-            accessibleName: toolTipText
-            enabled: slots.mutationsAvailable
-                && (slots.review.comparison.leftComparisonSnapshot !== null
-                    || slots.review.comparison.rightComparisonSnapshot
-                        !== null)
-            onClicked:
-                slots.review.comparison.clearComparisonSlots()
-        }
-    }
-
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: 34
-        visible: !slots.quickSelectionMode
-        radius: 6
-        color: Theme.surfaceSubtle
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 3
-            spacing: 6
-
-            Label {
-                Layout.fillWidth: true
-                text: slots.review.comparison.leftComparisonSnapshot
-                    ? qsTranslate("ReviewWorkspace", "A  %1").arg(
-                        slots.review.comparison.leftComparisonSnapshot.title)
-                    : qsTranslate("ReviewWorkspace", "A  Not set")
-                color: slots.review.comparison.leftComparisonSnapshot
-                    ? slots.review.textPrimary : slots.review.textMuted
-                elide: Text.ElideMiddle
-                font.pixelSize: 10
-                font.weight: Font.Medium
-            }
-
-            ShadowIconButton {
-                buttonSize: 28
-                source: "qrc:/icons/slot-left.svg"
-                toolTipText: qsTranslate(
-                    "ReviewWorkspace",
-                    "Set selected photo as comparison slot A")
-                accessibleName: toolTipText
-                enabled: !slots.review.comparison.compareMode
-                    && slots.mutationsAvailable
-                    && slots.selectedVisualAvailable
-                    && (slots.review.comparison.rightComparisonSnapshot
-                            === null
-                        || slots.review.comparison.rightComparisonSnapshot
-                            .photoId !== slots.review.selectedPhotoId)
-                onClicked:
-                    slots.review.comparison.setSelectedAsLeft()
-            }
-        }
-    }
-
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: 34
-        visible: !slots.quickSelectionMode
-        radius: 6
-        color: Theme.surfaceSubtle
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 3
-            spacing: 6
-
-            Label {
-                Layout.fillWidth: true
-                text: slots.review.comparison.rightComparisonSnapshot
-                    ? qsTranslate("ReviewWorkspace", "B  %1").arg(
-                        slots.review.comparison.rightComparisonSnapshot.title)
-                    : qsTranslate("ReviewWorkspace", "B  Not set")
-                color: slots.review.comparison.rightComparisonSnapshot
-                    ? slots.review.textPrimary : slots.review.textMuted
-                elide: Text.ElideMiddle
-                font.pixelSize: 10
-                font.weight: Font.Medium
-            }
-
-            ShadowIconButton {
-                buttonSize: 28
-                source: "qrc:/icons/slot-right.svg"
-                toolTipText: qsTranslate(
-                    "ReviewWorkspace",
-                    "Set selected photo as comparison slot B")
-                accessibleName: toolTipText
-                enabled: !slots.review.comparison.compareMode
-                    && slots.mutationsAvailable
-                    && slots.selectedVisualAvailable
-                    && (slots.review.comparison.leftComparisonSnapshot
-                            === null
-                        || slots.review.comparison.leftComparisonSnapshot
-                            .photoId !== slots.review.selectedPhotoId)
-                onClicked:
-                    slots.review.comparison.setSelectedAsRight()
-            }
-        }
+        font.pixelSize: Theme.fontMeta
     }
 
     Label {
         Layout.fillWidth: true
-        visible: !slots.quickSelectionMode
-            && slots.review.selectedPhotoId.length > 0
-            && slots.review.selectedVisualSource.length === 0
-        text: qsTranslate(
-            "ReviewWorkspace",
-            "A display visual is required for comparison.")
-        color: Theme.warningNoticeText
+        visible: comparisonEntry.review.comparison.localComparisonStatus.length > 0
+        text: comparisonEntry.review.comparison.localComparisonStatus
+        color: Theme.warningText
         wrapMode: Text.WordWrap
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
     }
 }
