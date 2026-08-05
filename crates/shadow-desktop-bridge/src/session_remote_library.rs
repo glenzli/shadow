@@ -165,7 +165,7 @@ fn project_photo(photo: RemoteLibraryPhoto) -> ffi::FfiRemoteLibraryPhoto {
         liked: photo.review_state.liked,
         color_label: photo.review_state.color_label,
         review_updated_at_ms: photo.review_state.updated_at_ms,
-        is_materialized: local_source.is_some(),
+        has_cached_original: local_source.is_some(),
         local_photo_id: local_source
             .as_ref()
             .map_or_else(String::new, |source| source.photo_id.to_string()),

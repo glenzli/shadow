@@ -45,7 +45,7 @@ fn unsupported_staging_fails_closed() {
     let fixture = staged_noise_fixture(0.002);
     fs::write(
         &fixture.manifest,
-        "shadow-raw-frame-staging-v1 width=256 height=256 cfa=RGBW black=64,64,64,64 white=16383,16383,16383,16383 sample_bytes=131072\n",
+        "shadow-raw-frame-staging-20260806.1 width=256 height=256 cfa=RGBW black=64,64,64,64 white=16383,16383,16383,16383 sample_bytes=131072\n",
     )
     .expect("replace manifest");
     assert!(matches!(
@@ -88,7 +88,7 @@ fn staged_noise_fixture(noise_sigma: f64) -> StagedFixture {
     fs::write(
         &manifest,
         format!(
-            "shadow-raw-frame-staging-v1 width={WIDTH} height={HEIGHT} cfa=RGGB black=64,64,64,64 white=16383,16383,16383,16383 provider_id_hex=- provider_version_hex=- sample_bytes={}\n",
+            "shadow-raw-frame-staging-20260806.1 width={WIDTH} height={HEIGHT} cfa=RGGB black=64,64,64,64 white=16383,16383,16383,16383 provider_id_hex=- provider_version_hex=- sample_bytes={}\n",
             WIDTH * HEIGHT * 2
         ),
     )

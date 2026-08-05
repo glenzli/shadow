@@ -21,7 +21,7 @@ namespace shadow::image {
 // Shadow is still in its fast, pre-release iteration phase: this number names the one current
 // RawFrame layout, not a backwards-compatibility promise. When the layout changes, all local
 // providers are rebuilt together and obsolete artifacts are discarded.
-inline constexpr std::uint32_t raw_frame_schema_version = 1U;
+inline constexpr std::uint32_t raw_frame_schema_version = 2026080601U;
 
 enum class RawFrameSampleEncoding : std::uint8_t {
     uint16_native,
@@ -79,23 +79,17 @@ struct RawSensorNoiseCalibration final {
             return false;
         }
         if (model == RawSensorNoiseModel::unavailable) {
-            return source == RawSensorNoiseCalibrationSource::unavailable
-                && iso_sensitivity == 0.0;
+            return source == RawSensorNoiseCalibrationSource::unavailable && iso_sensitivity == 0.0;
         }
-        if (
-            model != RawSensorNoiseModel::poisson_gaussian_per_cfa
+        if (model != RawSensorNoiseModel::poisson_gaussian_per_cfa
             || source == RawSensorNoiseCalibrationSource::unavailable
-            || !std::isfinite(iso_sensitivity) || iso_sensitivity <= 0.0
-        ) {
+            || !std::isfinite(iso_sensitivity) || iso_sensitivity <= 0.0) {
             return false;
         }
         for (std::size_t index = 0U; index < read_noise_stddev_dn.size(); ++index) {
-            if (
-                !std::isfinite(read_noise_stddev_dn[index])
+            if (!std::isfinite(read_noise_stddev_dn[index])
                 || !std::isfinite(shot_noise_variance_per_dn[index])
-                || read_noise_stddev_dn[index] < 0.0
-                || shot_noise_variance_per_dn[index] <= 0.0
-            ) {
+                || read_noise_stddev_dn[index] < 0.0 || shot_noise_variance_per_dn[index] <= 0.0) {
                 return false;
             }
         }
@@ -137,6 +131,12 @@ struct RawFrameDescriptor final {
     // or relabelling a camera-to-sRGB matrix as XYZ D50.
     std::array<double, 9U> camera_to_xyz_d50{};
     bool has_camera_to_xyz_d50 = false;
+    // Optional, row-major CIE XYZ -> Camera RGB calibration under D65. This is deliberately the
+    // inverse direction from `camera_to_xyz_d50`: LibRaw exposes `cam_xyz` in this form, before
+    // the daylight channel gains folded into `rgb_cam`. It is therefore the calibration needed
+    // to convert an authored illuminant white point into a physical camera neutral.
+    std::array<double, 9U> xyz_to_camera_d65{};
+    bool has_xyz_to_camera_d65 = false;
     // Optional, row-major Camera RGB -> linear sRGB/Rec.709 under D65. The camera input order is
     // canonical R, G, B after the two green CFA sites have been reconstructed into one channel:
     // `linear_srgb[row] = sum(camera_rgb[column] * M[row * 3 + column])`.
@@ -156,36 +156,31 @@ struct RawFrame final {
     [[nodiscard]] bool valid() const noexcept {
         const auto width = static_cast<std::uint64_t>(descriptor.storage_dimensions.width);
         const auto height = static_cast<std::uint64_t>(descriptor.storage_dimensions.height);
-        if (
-            descriptor.schema_version != raw_frame_schema_version || width == 0U || height == 0U
+        if (descriptor.schema_version != raw_frame_schema_version || width == 0U || height == 0U
             || descriptor.active_dimensions.width == 0U || descriptor.active_dimensions.height == 0U
             || descriptor.sample_encoding != RawFrameSampleEncoding::uint16_native
             || descriptor.cfa_pattern.empty() || !descriptor.sensor_noise.valid()
-            || descriptor.provider_id.empty() != descriptor.provider_version.empty()
-        ) {
+            || descriptor.provider_id.empty() != descriptor.provider_version.empty()) {
             return false;
         }
         const auto sample_count = width * height;
-        if (
-            sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-            || samples.size() != static_cast<std::size_t>(sample_count)
-        ) {
+        if (sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
+            || samples.size() != static_cast<std::size_t>(sample_count)) {
             return false;
         }
         const auto right = static_cast<std::uint64_t>(descriptor.active_margins.left)
-            + descriptor.active_dimensions.width + descriptor.active_margins.right;
+                           + descriptor.active_dimensions.width + descriptor.active_margins.right;
         const auto bottom = static_cast<std::uint64_t>(descriptor.active_margins.top)
-            + descriptor.active_dimensions.height + descriptor.active_margins.bottom;
+                            + descriptor.active_dimensions.height
+                            + descriptor.active_margins.bottom;
         if (right != width || bottom != height || descriptor.bits_per_sample == 0U
             || descriptor.bits_per_sample > 16U) {
             return false;
         }
         for (std::size_t index = 0U; index < descriptor.black_levels.size(); ++index) {
-            if (
-                descriptor.black_levels[index] >= descriptor.white_levels[index]
+            if (descriptor.black_levels[index] >= descriptor.white_levels[index]
                 || !std::isfinite(descriptor.as_shot_neutral[index])
-                || descriptor.as_shot_neutral[index] <= 0.0
-            ) {
+                || descriptor.as_shot_neutral[index] <= 0.0) {
                 return false;
             }
         }
@@ -202,16 +197,15 @@ struct RawFrame final {
             }
             return has_non_zero_coefficient;
         };
-        if (
-            !valid_declared_matrix(
-                descriptor.camera_to_xyz_d50,
-                descriptor.has_camera_to_xyz_d50
+        if (!valid_declared_matrix(descriptor.camera_to_xyz_d50, descriptor.has_camera_to_xyz_d50)
+            || !valid_declared_matrix(
+                descriptor.xyz_to_camera_d65,
+                descriptor.has_xyz_to_camera_d65
             )
             || !valid_declared_matrix(
                 descriptor.camera_to_linear_srgb_d65,
                 descriptor.has_camera_to_linear_srgb_d65
-            )
-        ) {
+            )) {
             return false;
         }
         if (descriptor.cfa_layout != RawFrameCfaLayout::bayer_2x2) {

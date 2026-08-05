@@ -65,6 +65,17 @@ struct PreparedFullEditDetailSource final {
     const OpticsSettings& optics_settings
 );
 
+// Crash-isolated ordinary RAW source. The staged frame owns sensor samples;
+// the in-process session contributes metadata/profile context only.
+[[nodiscard]] PreparedFullEditDetailSource prepare_full_edit_detail_source(
+    const DecodeSession& metadata_session,
+    RawFrame staged_frame,
+    const RawDevelopmentPlan& raw_development_plan,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+);
+
 // Foundation input is already reconstructed and therefore always publishes the materialized
 // scene-linear variant. The overload remains separate from resident-CFA admission and never
 // falls back to the original RawFrame route.

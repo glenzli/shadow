@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 
-SCHEMA = "shadow-raw-frame-staging-v1"
+SCHEMA = "shadow-raw-frame-staging-20260806.1"
 MAX_MANIFEST_BYTES = 16 * 1024
 MAX_DIMENSION = 100_000
 FIELDS = {
@@ -24,6 +24,7 @@ FIELDS = {
     "bits_per_sample",
     "as_shot_neutral",
     "camera_to_xyz_d50",
+    "xyz_to_camera_d65",
     "camera_to_linear_srgb_d65",
     "pending_dng_opcode_bytes",
     "provider_id_hex",
@@ -118,7 +119,7 @@ def load(manifest_path: Path) -> StagedRawFrame:
         pairs[key] = value
     if set(pairs) != FIELDS:
         raise ValueError("staged RAW frame manifest fields changed")
-    if pairs["descriptor_contract"] != "active-camera-colour-v1":
+    if pairs["descriptor_contract"] != "active-camera-colour-20260806.1":
         raise ValueError("staged RAW frame descriptor contract is unsupported")
 
     try:
@@ -163,6 +164,7 @@ def load(manifest_path: Path) -> StagedRawFrame:
         raise ValueError("staged RAW frame as-shot neutral is invalid")
     for field, label in (
         ("camera_to_xyz_d50", "D50 camera matrix"),
+        ("xyz_to_camera_d65", "D65 inverse camera matrix"),
         ("camera_to_linear_srgb_d65", "linear sRGB camera matrix"),
     ):
         if pairs[field] != "-":

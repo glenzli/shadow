@@ -712,6 +712,12 @@ mod ffi {
             plan: &FfiRawDevelopmentPlan,
             foundation: &FfiRawFoundation,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        fn prepare_edit_preview_with_staged_raw_development_plan(
+            self: &DecodeHandle,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            staging_manifest_path: &str,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
         fn prepare_edit_preview_with_staged_raw_foundation(
             self: &DecodeHandle,
             max_edge: u32,
@@ -730,6 +736,12 @@ mod ffi {
             self: &DecodeHandle,
             plan: &FfiRawDevelopmentPlan,
             foundation: &FfiRawFoundation,
+            requirements: &FfiDetailSessionRequirements,
+        ) -> Result<UniquePtr<FullEditDetailHandle>>;
+        fn prepare_edit_detail_with_staged_raw_development_plan(
+            self: &DecodeHandle,
+            plan: &FfiRawDevelopmentPlan,
+            staging_manifest_path: &str,
             requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn prepare_edit_detail_with_staged_raw_foundation(

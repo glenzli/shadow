@@ -1,8 +1,8 @@
 #include <shadow/image/decoder_error.hpp>
-#include <shadow/image/focus_observation.hpp>
 #include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/focus_observation.hpp>
 #include <shadow/image/libraw_development_settings.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/raw_development_plan.hpp>
@@ -18,8 +18,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -33,7 +33,8 @@ namespace shadow::image {
 
 namespace {
 
-using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
+using ProcessedImage =
+    std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
 // This version covers the display-orientation semantics of cached embedded-preview descriptors.
 // It is deliberately separate from the raw-frame and rendered-RGB contracts: the JPEG bytes do
 // not change, but their catalog geometry must match the auto-oriented image that Qt presents.
@@ -46,12 +47,11 @@ inline constexpr std::uint32_t libraw_embedded_preview_geometry_contract_version
 inline constexpr std::uint16_t nikon_nef_high_efficiency_compression = 13U;
 inline constexpr std::uint16_t nikon_nef_high_efficiency_star_compression = 14U;
 
-[[nodiscard]] bool libraw_nef_compression_requires_external_provider(
-    const LibRaw& decoder
-) noexcept {
+[[nodiscard]] bool
+libraw_nef_compression_requires_external_provider(const LibRaw& decoder) noexcept {
     const std::uint16_t compression = decoder.imgdata.makernotes.nikon.NEFCompression;
     return compression == nikon_nef_high_efficiency_compression
-        || compression == nikon_nef_high_efficiency_star_compression;
+           || compression == nikon_nef_high_efficiency_star_compression;
 }
 
 [[nodiscard]] std::string dng_version_string(const unsigned version) {
@@ -111,10 +111,8 @@ inline constexpr std::uint16_t nikon_nef_high_efficiency_star_compression = 14U;
     };
 }
 
-[[nodiscard]] RawFrameCfaLayout raw_frame_cfa_layout(
-    LibRaw& decoder,
-    const std::array<RawCfaColor, 4U>& bayer_2x2
-) noexcept {
+[[nodiscard]] RawFrameCfaLayout
+raw_frame_cfa_layout(LibRaw& decoder, const std::array<RawCfaColor, 4U>& bayer_2x2) noexcept {
     if (decoder.imgdata.idata.filters == 0U) {
         return RawFrameCfaLayout::monochrome;
     }
@@ -131,15 +129,12 @@ inline constexpr std::uint16_t nikon_nef_high_efficiency_star_compression = 14U;
         green += color == RawCfaColor::green ? 1U : 0U;
         blue += color == RawCfaColor::blue ? 1U : 0U;
     }
-    return red == 1U && green == 2U && blue == 1U
-        ? RawFrameCfaLayout::bayer_2x2
-        : RawFrameCfaLayout::unknown;
+    return red == 1U && green == 2U && blue == 1U ? RawFrameCfaLayout::bayer_2x2
+                                                  : RawFrameCfaLayout::unknown;
 }
 
-[[nodiscard]] std::array<int, 4U> raw_frame_color_indices(
-    LibRaw& decoder,
-    const RawFrameCfaLayout layout
-) noexcept {
+[[nodiscard]] std::array<int, 4U>
+raw_frame_color_indices(LibRaw& decoder, const RawFrameCfaLayout layout) noexcept {
     if (layout == RawFrameCfaLayout::monochrome) {
         return {0, 0, 0, 0};
     }
@@ -155,13 +150,11 @@ inline constexpr std::uint16_t nikon_nef_high_efficiency_star_compression = 14U;
     return index >= 0 && index < 4;
 }
 
-[[nodiscard]] constexpr std::uint32_t combined_black_level(
-    const std::uint32_t common,
-    const std::uint32_t correction
-) noexcept {
+[[nodiscard]] constexpr std::uint32_t
+combined_black_level(const std::uint32_t common, const std::uint32_t correction) noexcept {
     return correction > std::numeric_limits<std::uint32_t>::max() - common
-        ? std::numeric_limits<std::uint32_t>::max()
-        : common + correction;
+               ? std::numeric_limits<std::uint32_t>::max()
+               : common + correction;
 }
 
 static_assert(combined_black_level(255U, 1U) == 256U);
@@ -170,10 +163,8 @@ static_assert(
     == std::numeric_limits<std::uint32_t>::max()
 );
 
-[[nodiscard]] std::uint32_t raw_frame_black_level(
-    const libraw_colordata_t& color,
-    const int color_index
-) noexcept {
+[[nodiscard]] std::uint32_t
+raw_frame_black_level(const libraw_colordata_t& color, const int color_index) noexcept {
     const auto index = static_cast<std::size_t>(color_index);
     // LibRaw defines `black` as the common sensor floor and `cblack[0..3]` as
     // per-channel corrections to that floor. They are additive, not competing
@@ -183,10 +174,8 @@ static_assert(
     return combined_black_level(color.black, color.cblack[index]);
 }
 
-[[nodiscard]] std::uint32_t raw_frame_white_level(
-    const libraw_colordata_t& color,
-    const int color_index
-) noexcept {
+[[nodiscard]] std::uint32_t
+raw_frame_white_level(const libraw_colordata_t& color, const int color_index) noexcept {
     const auto channel_maximum = color.linear_max[static_cast<std::size_t>(color_index)];
     const auto black_level = raw_frame_black_level(color, color_index);
     return channel_maximum > black_level ? channel_maximum : color.maximum;
@@ -210,10 +199,8 @@ static_assert(
     // absent fourth coefficient as a neutral value.
     const char requested_color = data.idata.cdesc[requested];
     for (std::size_t candidate = 0U; candidate < 4U; ++candidate) {
-        if (
-            data.idata.cdesc[candidate] == requested_color
-            && positive_finite(data.color.cam_mul[candidate])
-        ) {
+        if (data.idata.cdesc[candidate] == requested_color
+            && positive_finite(data.color.cam_mul[candidate])) {
             return data.color.cam_mul[candidate];
         }
     }
@@ -265,8 +252,8 @@ static_assert(
         }
     }
     const double normalization = green_site_count == 0U
-        ? neutral.front()
-        : green_neutral_sum / static_cast<double>(green_site_count);
+                                     ? neutral.front()
+                                     : green_neutral_sum / static_cast<double>(green_site_count);
     if (!positive_finite(normalization)) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
@@ -336,17 +323,87 @@ static_assert(
     for (const double value : matrix) {
         has_non_zero_coefficient = has_non_zero_coefficient || value != 0.0;
     }
-    if (
-        !std::ranges::all_of(has_canonical_input, [](const bool present) { return present; })
-        || !has_non_zero_coefficient
-    ) {
+    if (!std::ranges::all_of(has_canonical_input, [](const bool present) { return present; })
+        || !has_non_zero_coefficient) {
         return std::nullopt;
     }
     return matrix;
 }
 
+[[nodiscard]] std::optional<std::array<double, 9U>> xyz_to_camera_d65(
+    const libraw_data_t& data,
+    const RawFrameCfaLayout layout,
+    const std::array<int, 4U>& color_indices
+) noexcept {
+    if (layout != RawFrameCfaLayout::bayer_2x2) {
+        return std::nullopt;
+    }
 
-[[nodiscard]] PreviewFormat preview_format(const LibRaw_internal_thumbnail_formats format) noexcept {
+    std::array<double, 9U> matrix{};
+    std::array<std::uint32_t, 3U> canonical_counts{};
+    std::array<bool, 4U> used_color_indices{};
+    for (const int color_index : color_indices) {
+        if (!valid_color_index(color_index)) {
+            return std::nullopt;
+        }
+        used_color_indices[static_cast<std::size_t>(color_index)] = true;
+    }
+    for (std::size_t source = 0U; source < used_color_indices.size(); ++source) {
+        if (!used_color_indices[source]) {
+            continue;
+        }
+        std::size_t canonical_output = 0U;
+        switch (data.idata.cdesc[source]) {
+        case 'R':
+        case 'r':
+            canonical_output = 0U;
+            break;
+        case 'G':
+        case 'g':
+            canonical_output = 1U;
+            break;
+        case 'B':
+        case 'b':
+            canonical_output = 2U;
+            break;
+        default:
+            return std::nullopt;
+        }
+        std::array<double, 3U> source_row{};
+        bool source_non_zero = false;
+        for (std::size_t xyz = 0U; xyz < 3U; ++xyz) {
+            const double coefficient = data.color.cam_xyz[source][xyz];
+            if (!std::isfinite(coefficient)) {
+                return std::nullopt;
+            }
+            source_row[xyz] = coefficient;
+            source_non_zero = source_non_zero || coefficient != 0.0;
+        }
+        // LibRaw may name a fourth CFA colour `G` while leaving its calibration row empty.
+        // It represents a second green site, not another independent colour transform.
+        if (!source_non_zero) {
+            continue;
+        }
+        ++canonical_counts[canonical_output];
+        for (std::size_t xyz = 0U; xyz < 3U; ++xyz) {
+            matrix[canonical_output * 3U + xyz] += source_row[xyz];
+        }
+    }
+    for (std::size_t output = 0U; output < canonical_counts.size(); ++output) {
+        if (canonical_counts[output] == 0U) {
+            return std::nullopt;
+        }
+        for (std::size_t xyz = 0U; xyz < 3U; ++xyz) {
+            matrix[output * 3U + xyz] /= static_cast<double>(canonical_counts[output]);
+        }
+    }
+    const bool non_zero =
+        std::ranges::any_of(matrix, [](const double coefficient) { return coefficient != 0.0; });
+    return non_zero ? std::optional{matrix} : std::nullopt;
+}
+
+[[nodiscard]] PreviewFormat
+preview_format(const LibRaw_internal_thumbnail_formats format) noexcept {
     switch (format) {
     case LIBRAW_INTERNAL_THUMBNAIL_JPEG:
         return PreviewFormat::jpeg;
@@ -396,21 +453,18 @@ static_assert(
     const double minutes = parts[1];
     const double seconds = parts[2];
     if (!std::isfinite(degrees) || !std::isfinite(minutes) || !std::isfinite(seconds)
-        || degrees < 0.0 || degrees > maximum || minutes < 0.0 || minutes >= 60.0
-        || seconds < 0.0 || seconds >= 60.0) {
+        || degrees < 0.0 || degrees > maximum || minutes < 0.0 || minutes >= 60.0 || seconds < 0.0
+        || seconds >= 60.0) {
         return std::nullopt;
     }
     double coordinate = degrees + minutes / 60.0 + seconds / 3'600.0;
     if (reference == 'S' || reference == 's' || reference == 'W' || reference == 'w') {
         coordinate = -coordinate;
-    } else if (
-        reference != 'N' && reference != 'n' && reference != 'E' && reference != 'e'
-    ) {
+    } else if (reference != 'N' && reference != 'n' && reference != 'E' && reference != 'e') {
         return std::nullopt;
     }
     return coordinate;
 }
-
 
 [[nodiscard]] AssetMetadata read_metadata(LibRaw& decoder) {
     const auto& identity = decoder.imgdata.idata;
@@ -445,11 +499,8 @@ static_assert(
     metadata.aperture_f_number = capture.aperture;
     metadata.focal_length_mm = capture.focal_len;
     const auto& maker_notes = decoder.imgdata.makernotes;
-    const int focus_record_count = std::clamp(
-        maker_notes.common.afcount,
-        0,
-        LIBRAW_AFDATA_MAXCOUNT
-    );
+    const int focus_record_count =
+        std::clamp(maker_notes.common.afcount, 0, LIBRAW_AFDATA_MAXCOUNT);
     for (int index = 0; index < focus_record_count; ++index) {
         const auto& record = maker_notes.common.afdata[static_cast<std::size_t>(index)];
         if (record.AFInfoData_tag != 0x00b7U || record.AFInfoData == nullptr) {
@@ -459,8 +510,8 @@ static_assert(
             continue;
         }
         const auto byte_order = record.AFInfoData_order == 0x4949
-            ? FocusRecordByteOrder::little_endian
-            : FocusRecordByteOrder::big_endian;
+                                    ? FocusRecordByteOrder::little_endian
+                                    : FocusRecordByteOrder::big_endian;
         metadata.focus_observation = nikon_focus_observation(
             record.AFInfoData_version,
             byte_order,
@@ -478,23 +529,20 @@ static_assert(
         const auto& location = maker_notes.sony.FocusLocation;
         metadata.focus_observation = sony_focus_observation(
             std::array<std::uint16_t, 4U>{
-                location[0U], location[1U], location[2U], location[3U],
+                location[0U],
+                location[1U],
+                location[2U],
+                location[3U],
             },
             sizes.flip
         );
     }
     metadata.captured_at_unix_seconds = static_cast<std::int64_t>(capture.timestamp);
     if (capture.parsed_gps.gpsparsed != 0) {
-        const auto latitude = libraw_gps_coordinate(
-            capture.parsed_gps.latitude,
-            capture.parsed_gps.latref,
-            90.0
-        );
-        const auto longitude = libraw_gps_coordinate(
-            capture.parsed_gps.longitude,
-            capture.parsed_gps.longref,
-            180.0
-        );
+        const auto latitude =
+            libraw_gps_coordinate(capture.parsed_gps.latitude, capture.parsed_gps.latref, 90.0);
+        const auto longitude =
+            libraw_gps_coordinate(capture.parsed_gps.longitude, capture.parsed_gps.longref, 180.0);
         if (latitude.has_value() && longitude.has_value()) {
             metadata.has_gps_coordinates = true;
             metadata.gps_latitude_degrees = *latitude;
@@ -503,8 +551,8 @@ static_assert(
         if (std::isfinite(capture.parsed_gps.altitude)) {
             metadata.has_gps_altitude = true;
             metadata.gps_altitude_meters = capture.parsed_gps.altref == 1
-                ? -static_cast<double>(capture.parsed_gps.altitude)
-                : static_cast<double>(capture.parsed_gps.altitude);
+                                               ? -static_cast<double>(capture.parsed_gps.altitude)
+                                               : static_cast<double>(capture.parsed_gps.altitude);
         }
     }
     metadata.lens_make = lens.LensMake;
@@ -558,13 +606,12 @@ static_assert(
 }
 
 class LibRawSession final : public DecodeSession {
-public:
+  public:
     explicit LibRawSession(
         std::filesystem::path path,
         LibRawDevelopmentSettings settings,
         ProviderInfo provider_info
-    )
-        : path_(std::move(path)), settings_(settings), provider_info_(std::move(provider_info)) {
+    ) : path_(std::move(path)), settings_(settings), provider_info_(std::move(provider_info)) {
         decoder_.imgdata.rawparams.max_raw_memory_mb = 2'048U;
         require_libraw_success(libraw_open_path(decoder_, path_), "open_file");
 
@@ -575,21 +622,22 @@ public:
         const bool decoder_advertises_unpack =
             decoder_.get_decoder_info(&decoder_info) == LIBRAW_SUCCESS
             && (decoder_info.decoder_flags
-                & (LIBRAW_DECODER_UNSUPPORTED_FORMAT | LIBRAW_DECODER_NOTSET)) == 0U;
+                & (LIBRAW_DECODER_UNSUPPORTED_FORMAT | LIBRAW_DECODER_NOTSET))
+                   == 0U;
         // Preserve factual metadata and any camera JPEG for browse mode, but do not let public
         // LibRaw enter its unsafe HE/HE* development path. The photo router still gives an
         // independently installed private provider the opportunity to claim this source after
         // seeing these public capabilities.
-        const bool decoder_can_unpack = decoder_advertises_unpack
+        const bool decoder_can_unpack =
+            decoder_advertises_unpack
             && !libraw_nef_compression_requires_external_provider(decoder_);
         capabilities_.metadata = true;
         capabilities_.embedded_previews = !previews_.empty();
-        capabilities_.raw_frame = decoder_can_unpack
-            && (decoder_.imgdata.idata.filters != 0U
-                || decoder_.imgdata.idata.colors == 1);
+        capabilities_.raw_frame =
+            decoder_can_unpack
+            && (decoder_.imgdata.idata.filters != 0U || decoder_.imgdata.idata.colors == 1);
         capabilities_.reference_rgb = decoder_can_unpack;
-        capabilities_.pending_corrections =
-            libraw_pending_corrections(decoder_.imgdata);
+        capabilities_.pending_corrections = libraw_pending_corrections(decoder_.imgdata);
         reference_developer_ = std::make_unique<LibRawReferenceDeveloper>(
             path_,
             settings_,
@@ -599,8 +647,7 @@ public:
             capabilities_.raw_frame,
             decoder_.imgdata.makernotes.nikon.NEFCompression
         );
-        capabilities_.raw_development =
-            reference_developer_->capabilities();
+        capabilities_.raw_development = reference_developer_->capabilities();
     }
 
     [[nodiscard]] const AssetMetadata& metadata() const noexcept override {
@@ -615,14 +662,13 @@ public:
         return previews_;
     }
 
-    [[nodiscard]] const RawDevelopmentCapabilities& raw_development_capabilities() const noexcept
-        override {
+    [[nodiscard]] const RawDevelopmentCapabilities&
+    raw_development_capabilities() const noexcept override {
         return capabilities_.raw_development;
     }
 
-    [[nodiscard]] RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
-        const RawDevelopmentPlan& plan
-    ) const noexcept override {
+    [[nodiscard]] RawDevelopmentPlanNegotiation
+    negotiate_raw_development_plan(const RawDevelopmentPlan& plan) const noexcept override {
         return reference_developer_->negotiate(plan);
     }
 
@@ -642,10 +688,7 @@ public:
 
         require_libraw_success(decoder_.unpack_thumb_ex(static_cast<int>(id)), "unpack_thumb_ex");
         int result = LIBRAW_SUCCESS;
-        ProcessedImage image(
-            decoder_.dcraw_make_mem_thumb(&result),
-            &LibRaw::dcraw_clear_mem
-        );
+        ProcessedImage image(decoder_.dcraw_make_mem_thumb(&result), &LibRaw::dcraw_clear_mem);
         if (!image) {
             throw_libraw_error(result, "dcraw_make_mem_thumb");
         }
@@ -723,12 +766,9 @@ public:
         descriptor.cfa_pattern = metadata_.cfa_pattern;
         descriptor.bits_per_sample = metadata_.sensor_bits;
         const auto color_indices = raw_frame_color_indices(decoder_, descriptor.cfa_layout);
-        if (
-            std::ranges::any_of(
-                color_indices,
-                [](const int color_index) { return !valid_color_index(color_index); }
-            )
-        ) {
+        if (std::ranges::any_of(color_indices, [](const int color_index) {
+                return !valid_color_index(color_index);
+            })) {
             throw DecodeError(
                 DecodeErrorCode::unsupported_layout,
                 LIBRAW_NOT_IMPLEMENTED,
@@ -748,13 +788,15 @@ public:
             descriptor.bayer_2x2,
             color_indices
         );
-        if (const auto matrix = camera_to_linear_srgb_d65(
-                decoder_.imgdata,
-                descriptor.cfa_layout,
-                color_indices
-            )) {
+        if (const auto matrix =
+                camera_to_linear_srgb_d65(decoder_.imgdata, descriptor.cfa_layout, color_indices)) {
             descriptor.camera_to_linear_srgb_d65 = *matrix;
             descriptor.has_camera_to_linear_srgb_d65 = true;
+        }
+        if (const auto matrix =
+                xyz_to_camera_d65(decoder_.imgdata, descriptor.cfa_layout, color_indices)) {
+            descriptor.xyz_to_camera_d65 = *matrix;
+            descriptor.has_xyz_to_camera_d65 = true;
         }
         descriptor.declared_pending_corrections = capabilities_.pending_corrections;
         frame.samples.resize(width * height);
@@ -775,24 +817,16 @@ public:
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb() const override {
-        return reference_developer_->render(
-            default_raw_development_plan()
-        );
+        return reference_developer_->render(default_raw_development_plan());
     }
 
-    [[nodiscard]] PixelBuffer render_reference_rgb(
-        const RawDevelopmentPlan& plan
-    ) const override {
+    [[nodiscard]] PixelBuffer render_reference_rgb(const RawDevelopmentPlan& plan) const override {
         return reference_developer_->render(plan);
     }
 
-    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
-        const std::uint32_t max_edge
-    ) const override {
-        return reference_developer_->render_preview(
-            max_edge,
-            preview_raw_development_plan()
-        );
+    [[nodiscard]] PixelBuffer
+    render_reference_rgb_for_preview(const std::uint32_t max_edge) const override {
+        return reference_developer_->render_preview(max_edge, preview_raw_development_plan());
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
@@ -802,7 +836,7 @@ public:
         return reference_developer_->render_preview(max_edge, plan);
     }
 
-private:
+  private:
     void ensure_unpacked() {
         require_raw_frame();
         if (unpacked_) {
@@ -812,7 +846,6 @@ private:
         unpacked_ = true;
     }
 
-
     void require_raw_frame() const {
         if (capabilities_.raw_frame)
             return;
@@ -820,11 +853,11 @@ private:
             throw DecodeError(
                 DecodeErrorCode::unsupported,
                 LIBRAW_NOT_IMPLEMENTED,
-                "this LibRaw source uses the processed-RGB compatibility path instead of Shadow RawFrame"
+                "this LibRaw source uses the processed-RGB compatibility path instead of Shadow "
+                "RawFrame"
             );
         }
-        const std::uint16_t compression =
-            decoder_.imgdata.makernotes.nikon.NEFCompression;
+        const std::uint16_t compression = decoder_.imgdata.makernotes.nikon.NEFCompression;
         if (compression == nikon_nef_high_efficiency_compression) {
             throw DecodeError(
                 DecodeErrorCode::unsupported,
@@ -859,7 +892,7 @@ private:
 };
 
 class LibRawProvider final : public DecoderProvider {
-public:
+  public:
     explicit LibRawProvider(LibRawDevelopmentSettings settings) : settings_(settings) {
         validate_libraw_development_settings(settings_);
         const unsigned capabilities = LibRaw::capabilities();
@@ -867,7 +900,7 @@ public:
         // Provider version participates in generated-proxy/cache identity. Include Shadow's
         // reference/output contracts so a transfer or gamut-mapping change cannot reuse bytes
         // generated under the same linked LibRaw release.
-        info_.version = "libraw=" + std::string(LibRaw::version()) + ";cap="
+        info_.version = "lr=" + std::string(LibRaw::version()) + ";cap="
                         + std::to_string(libraw_reference_development_contract_version) + ";linear="
                         + std::to_string(processed_linear_reference_rgb_contract_version)
                         + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
@@ -876,13 +909,12 @@ public:
                         + std::to_string(dng_noise_profile_contract_version) + ";preview="
                         + std::to_string(libraw_embedded_preview_geometry_contract_version)
                         + ";display=" + std::to_string(display_srgb8_output_transform_version)
-                        + ";settings=" + compact_libraw_development_settings_identity(settings_);
+                        + ";s=" + compact_libraw_development_settings_identity(settings_);
         if (info_.version.size() > 128U) {
             throw std::invalid_argument("LibRaw provider cache identity exceeds 128 bytes");
         }
         info_.dng_sdk = (capabilities & LIBRAW_CAPS_DNGSDK) != 0U;
-        info_.rawspeed =
-            (capabilities & (LIBRAW_CAPS_RAWSPEED | LIBRAW_CAPS_RAWSPEED3)) != 0U;
+        info_.rawspeed = (capabilities & (LIBRAW_CAPS_RAWSPEED | LIBRAW_CAPS_RAWSPEED3)) != 0U;
         info_.jpeg = (capabilities & LIBRAW_CAPS_JPEG) != 0U;
     }
 
@@ -890,22 +922,20 @@ public:
         return info_;
     }
 
-    [[nodiscard]] std::unique_ptr<DecodeSession> open(
-        const std::filesystem::path& path
-    ) const override {
+    [[nodiscard]] std::unique_ptr<DecodeSession>
+    open(const std::filesystem::path& path) const override {
         return std::make_unique<LibRawSession>(path, settings_, info_);
     }
 
-private:
+  private:
     LibRawDevelopmentSettings settings_;
     ProviderInfo info_;
 };
 
 } // namespace
 
-std::unique_ptr<DecoderProvider> make_libraw_decoder_provider(
-    const LibRawDevelopmentSettings settings
-) {
+std::unique_ptr<DecoderProvider>
+make_libraw_decoder_provider(const LibRawDevelopmentSettings settings) {
     return std::make_unique<LibRawProvider>(settings);
 }
 

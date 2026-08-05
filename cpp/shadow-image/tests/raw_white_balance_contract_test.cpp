@@ -24,8 +24,7 @@ void photographic_temperature_tint_round_trips_through_xy() {
          }) {
         const auto xy = image::raw_white_xy_from_temperature_tint(sample[0], sample[1]);
         expect(xy.has_value(), "valid photographic controls resolve to a CIE white point");
-        const auto presentation =
-            image::raw_white_balance_presentation_from_xy((*xy)[0], (*xy)[1]);
+        const auto presentation = image::raw_white_balance_presentation_from_xy((*xy)[0], (*xy)[1]);
         expect(presentation.has_value(), "resolved white point has a photographic presentation");
         expect_close(
             presentation->temperature_kelvin,
@@ -62,9 +61,15 @@ void dcp_camera_neutral_is_an_internal_calibration_value() {
 void generic_raw_frame_uses_its_explicit_camera_matrix() {
     auto descriptor = raw_descriptor();
     descriptor.camera_to_linear_srgb_d65 = {
-        1.0, 0.0, 0.0,
-        0.0, 1.0, 0.0,
-        0.0, 0.0, 1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     };
     descriptor.has_camera_to_linear_srgb_d65 = true;
     const auto authored = image::raw_frame_camera_neutral(
@@ -81,6 +86,46 @@ void generic_raw_frame_uses_its_explicit_camera_matrix() {
     expect_close((*authored)[2], 1.0, 0.08, "D65-like blue neutral is close to unity");
 }
 
+void libraw_calibration_resolves_a_physical_d65_camera_neutral() {
+    auto descriptor = raw_descriptor();
+    descriptor.xyz_to_camera_d65 = {
+        0.8161,
+        -0.2947,
+        -0.0739,
+        -0.4811,
+        1.2668,
+        0.2389,
+        -0.0437,
+        0.1229,
+        0.6524,
+    };
+    descriptor.has_xyz_to_camera_d65 = true;
+    descriptor.camera_to_linear_srgb_d65 = {
+        1.5114,
+        -0.3359,
+        -0.1755,
+        -0.1452,
+        1.5464,
+        -0.4012,
+        -0.0154,
+        -0.3624,
+        1.3778,
+    };
+    descriptor.has_camera_to_linear_srgb_d65 = true;
+    const auto authored = image::raw_frame_camera_neutral(
+        descriptor,
+        image::RawWhiteBalance{
+            .mode = image::RawWhiteBalanceMode::temperature_tint,
+            .temperature_kelvin = 6'500U,
+            .tint = 0,
+        }
+    );
+    expect(authored.has_value(), "LibRaw calibration resolves a D65 camera neutral");
+    expect((*authored)[0] > 0.35 && (*authored)[0] < 0.43, "D65 red camera response is physical");
+    expect_close((*authored)[1], 1.0, 1.0e-12, "D65 camera neutral is green-normalized");
+    expect((*authored)[2] > 0.70 && (*authored)[2] < 0.82, "D65 blue camera response is physical");
+}
+
 void invalid_authoring_values_fail_closed() {
     expect(
         !image::raw_white_xy_from_temperature_tint(1'999.0, 0.0).has_value()
@@ -95,6 +140,7 @@ int main() {
     photographic_temperature_tint_round_trips_through_xy();
     dcp_camera_neutral_is_an_internal_calibration_value();
     generic_raw_frame_uses_its_explicit_camera_matrix();
+    libraw_calibration_resolves_a_physical_d65_camera_neutral();
     invalid_authoring_values_fail_closed();
     std::cout << "shadow image RAW white-balance contract tests passed\n";
 }

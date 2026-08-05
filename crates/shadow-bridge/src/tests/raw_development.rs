@@ -97,7 +97,7 @@ fn recorded_ffi_raw_pipeline_receipt(path: ffi::FfiRawPipelinePath) -> ffi::FfiR
         source_provider_id: "fixture-provider".to_owned(),
         source_provider_version: "fixture-provider-v1".to_owned(),
         fallback_reason: String::new(),
-        raw_frame_schema_version: u32::from(is_raw_frame),
+        raw_frame_schema_version: if is_raw_frame { 2_026_080_601 } else { 0 },
         raw_developer_version: u32::from(is_raw_frame),
         requested_plan: ffi_detail_raw_development_plan(),
         effective_plan: ffi_detail_raw_development_plan(),
@@ -300,7 +300,7 @@ fn raw_pipeline_receipt_bridge_is_typed_cache_stable_and_validated() {
         raw_frame.cache_identity,
         "raw-pipeline-receipt-v1;fixture=canonical"
     );
-    assert_eq!(raw_frame.raw_frame_schema_version, 1);
+    assert_eq!(raw_frame.raw_frame_schema_version, 2_026_080_601);
     assert_eq!(raw_frame.raw_developer_version, 1);
     assert!(!raw_frame.used_fallback());
     assert_eq!(raw_frame.requested_plan, RawDevelopmentPlan::detail());

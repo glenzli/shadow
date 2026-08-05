@@ -56,6 +56,9 @@ struct ReviewItem final {
     /// Catalog rows continue to use the authenticated image-provider handle.
     QString visual_source_override;
     bool is_remote = false;
+    /// The authoritative original remains remote even when a verified local
+    /// cache object can satisfy editing without contacting its server.
+    bool remote_original_cached = false;
     QString remote_server_id;
     QString remote_photo_id;
     QString remote_representation_id;
@@ -164,6 +167,7 @@ class ReviewModel final : public QAbstractListModel {
         LibraryStateUpdatedAtMsRole,
         HasDevelopmentEditsRole,
         IsRemoteRole,
+        RemoteOriginalCachedRole,
         RemoteServerIdRole,
         RemotePhotoIdRole,
         RemoteRepresentationIdRole,
@@ -196,6 +200,10 @@ class ReviewModel final : public QAbstractListModel {
     /// Replaces only client-mirrored remote rows while preserving every local
     /// Catalog row and the current query generation.
     [[nodiscard]] bool replaceRemoteItems(QVector<ReviewItem> items);
+    enum class PresentationSortKey : std::uint8_t { CaptureTime, Name };
+    /// Orders the merged local/remote presentation. Catalog pagination remains
+    /// source-local; this model owns the final cross-source ordering.
+    void setPresentationOrder(PresentationSortKey key, bool descending);
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
     /// Builds a generation-bound comparison source. Grid roles use their own
     /// immutable lifetime contract when projected through data().
@@ -229,4 +237,6 @@ class ReviewModel final : public QAbstractListModel {
   private:
     QVector<ReviewItem> items_;
     std::atomic<quint64> generation_ = 0;
+    PresentationSortKey presentation_sort_key_ = PresentationSortKey::CaptureTime;
+    bool presentation_sort_descending_ = true;
 };

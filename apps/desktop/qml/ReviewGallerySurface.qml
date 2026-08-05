@@ -75,6 +75,10 @@ Rectangle {
         enabled: visible
         focus: visible
         spacing: gallery.workspace.justifiedReviewLayout.spacing
+        // The decision toolbar floats over the gallery. Keep a scrollable
+        // content safe area so the final caption can move fully above it.
+        bottomMargin: galleryDecisionToolbar.visible
+            ? galleryDecisionToolbar.height + 30 : 18
         cacheBuffer: 900
         model: gallery.workspace.justifiedReviewLayout
 

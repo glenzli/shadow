@@ -308,6 +308,14 @@ impl RemoteLibraryService {
         server: Option<&ServerInfo>,
         photo: &RemotePhotoMirror,
     ) -> RemoteLibraryPhoto {
+        let cached_original = photo.local_source.as_ref().filter(|source| {
+            source.matches_remote_source(&photo.manifest)
+                && Path::new(&source.native_path)
+                    .metadata()
+                    .is_ok_and(|metadata| {
+                        metadata.is_file() && metadata.len() == photo.manifest.source_byte_len
+                    })
+        });
         let preview_path = photo.cached_preview.as_ref().map(|preview| {
             self.preview_store
                 .resolve(BlobDigest::from_bytes(preview.manifest.digest_blake3))
@@ -328,12 +336,10 @@ impl RemoteLibraryService {
                 }
             };
         let metadata = &photo.manifest.metadata;
-        let original_digest_blake3 = photo.manifest.preferred_original_digest().or_else(|| {
-            photo
-                .local_source
-                .as_ref()
-                .map(|source| source.digest_blake3)
-        });
+        let original_digest_blake3 = photo
+            .manifest
+            .preferred_original_digest()
+            .or_else(|| cached_original.map(|source| source.digest_blake3));
         let representation_count = u32::try_from(photo.manifest.representations.len())
             .unwrap_or(u32::MAX)
             .max(1);
@@ -382,7 +388,7 @@ impl RemoteLibraryService {
             raw_width: metadata.raw_dimensions.map(|value| value.width),
             raw_height: metadata.raw_dimensions.map(|value| value.height),
             review_state: photo.review_state.clone(),
-            local_source: photo.local_source.clone(),
+            local_source: cached_original.cloned(),
         }
     }
 }

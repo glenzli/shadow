@@ -233,22 +233,22 @@ inline float3 develop_bayer_scene_linear_at(
     const CameraRgbSample camera = parameters.reconstruction_quality == 2u
         ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
         : camera_rgb_at(samples, parameters, raw_x, raw_y);
+    const float3 camera_values = parameters.neutralize_sensor_highlights != 0u
+        ? recover_sensor_clipped_camera_neutral(camera, parameters)
+        : camera.values;
     const float red =
-        parameters.camera_to_linear_srgb[0] * camera.values.x
-        + parameters.camera_to_linear_srgb[1] * camera.values.y
-        + parameters.camera_to_linear_srgb[2] * camera.values.z;
+        parameters.camera_to_linear_srgb[0] * camera_values.x
+        + parameters.camera_to_linear_srgb[1] * camera_values.y
+        + parameters.camera_to_linear_srgb[2] * camera_values.z;
     const float green =
-        parameters.camera_to_linear_srgb[3] * camera.values.x
-        + parameters.camera_to_linear_srgb[4] * camera.values.y
-        + parameters.camera_to_linear_srgb[5] * camera.values.z;
+        parameters.camera_to_linear_srgb[3] * camera_values.x
+        + parameters.camera_to_linear_srgb[4] * camera_values.y
+        + parameters.camera_to_linear_srgb[5] * camera_values.z;
     const float blue =
-        parameters.camera_to_linear_srgb[6] * camera.values.x
-        + parameters.camera_to_linear_srgb[7] * camera.values.y
-        + parameters.camera_to_linear_srgb[8] * camera.values.z;
-    const float3 scene_linear = float3(red, green, blue);
-    return parameters.neutralize_sensor_highlights != 0u
-        ? neutralize_sensor_clipped_highlight(scene_linear, camera)
-        : scene_linear;
+        parameters.camera_to_linear_srgb[6] * camera_values.x
+        + parameters.camera_to_linear_srgb[7] * camera_values.y
+        + parameters.camera_to_linear_srgb[8] * camera_values.z;
+    return float3(red, green, blue);
 }
 
 kernel void develop_bayer_full(
@@ -417,22 +417,22 @@ kernel void develop_bayer_area_preview(
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
     }
+    const float3 camera_values = parameters.neutralize_sensor_highlights != 0u
+        ? recover_sensor_clipped_camera_neutral(camera, parameters)
+        : camera.values;
     const float red =
-        parameters.camera_to_linear_srgb[0] * camera.values.x
-        + parameters.camera_to_linear_srgb[1] * camera.values.y
-        + parameters.camera_to_linear_srgb[2] * camera.values.z;
+        parameters.camera_to_linear_srgb[0] * camera_values.x
+        + parameters.camera_to_linear_srgb[1] * camera_values.y
+        + parameters.camera_to_linear_srgb[2] * camera_values.z;
     const float green =
-        parameters.camera_to_linear_srgb[3] * camera.values.x
-        + parameters.camera_to_linear_srgb[4] * camera.values.y
-        + parameters.camera_to_linear_srgb[5] * camera.values.z;
+        parameters.camera_to_linear_srgb[3] * camera_values.x
+        + parameters.camera_to_linear_srgb[4] * camera_values.y
+        + parameters.camera_to_linear_srgb[5] * camera_values.z;
     const float blue =
-        parameters.camera_to_linear_srgb[6] * camera.values.x
-        + parameters.camera_to_linear_srgb[7] * camera.values.y
-        + parameters.camera_to_linear_srgb[8] * camera.values.z;
-    float3 scene_linear = float3(red, green, blue);
-    if (parameters.neutralize_sensor_highlights != 0u) {
-        scene_linear = neutralize_sensor_clipped_highlight(scene_linear, camera);
-    }
+        parameters.camera_to_linear_srgb[6] * camera_values.x
+        + parameters.camera_to_linear_srgb[7] * camera_values.y
+        + parameters.camera_to_linear_srgb[8] * camera_values.z;
+    const float3 scene_linear = float3(red, green, blue);
     const uint output_index = (position.y * parameters.output_width + output_x) * 3u;
     output[output_index] = scene_linear.x;
     output[output_index + 1u] = scene_linear.y;

@@ -61,9 +61,10 @@ namespace {
 }
 
 [[nodiscard]] float sensor_clip_evidence(const float normalized) noexcept {
-    // Preserve a small shoulder below the declared white level: some camera encoders reserve
-    // one or two codes below that level, but the ratio is already not trustworthy there.
-    return std::clamp((normalized - 0.98F) * 50.0F, 0.0F, 1.0F);
+    // Only codes at the calibrated sensor ceiling have lost their colour
+    // ratio. Treating the ordinary highlight shoulder as clipped creates a
+    // visible reconstruction disk around point lights.
+    return std::clamp((normalized - 0.999F) * 1'000.0F, 0.0F, 1.0F);
 }
 
 [[nodiscard]] bool in_sensor_bounds(

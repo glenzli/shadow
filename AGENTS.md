@@ -1,5 +1,9 @@
 # Concurrent workspace coordination
 
+Before planning or changing code, read `DEV_SKELETON.md`; when reviewing or making a substantive
+change, also read `REVIEW_SKELETON.md`. These files contain durable orientation only. Verify all
+implementation facts through the source-first navigation rules below.
+
 When multiple agents or threads edit this workspace, use the personal
 `$coordinate-shared-workspace` skill before making new writes.
 

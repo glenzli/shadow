@@ -4,7 +4,10 @@
 #include <QObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QString>
+#include <QTest>
 #include <QUrl>
 #include <QVariantMap>
 
@@ -186,18 +189,65 @@ int main(int argc, char* argv[]) {
         || !require(
             std::abs(inline_slider->property("fillEndPosition").toDouble() - 0.4) < 0.000'001,
             "amount slider fill ends at its current value"
-        )
-        || !require(
-            QMetaObject::invokeMethod(inline_slider.get(), "requestNeutralReset"),
-            "inline slider exposes the shared double-click reset action"
         )) {
         return EXIT_FAILURE;
     }
+
+    auto* const inline_item = qobject_cast<QQuickItem*>(inline_slider.get());
+    QQuickWindow interaction_window;
+    interaction_window.resize(280, 80);
+    inline_item->setParentItem(interaction_window.contentItem());
+    inline_item->setPosition(QPointF{20.0, 24.0});
+    interaction_window.show();
+    drainBindings();
+    auto* const handle =
+        inline_slider->findChild<QQuickItem*>(QStringLiteral("shadowInlineSliderHandle"));
+    if (!require(handle != nullptr, "inline slider exposes its visible thumb for interaction")) {
+        return EXIT_FAILURE;
+    }
+    const QPointF initial_handle_center = handle->mapToItem(
+        interaction_window.contentItem(),
+        QPointF{handle->width() / 2.0, handle->height() / 2.0}
+    );
+    QTest::mousePress(
+        &interaction_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        initial_handle_center.toPoint()
+    );
+    QTest::mouseMove(
+        &interaction_window,
+        (initial_handle_center + QPointF{72.0, 0.0}).toPoint(),
+        40
+    );
+    QTest::mouseRelease(
+        &interaction_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        (initial_handle_center + QPointF{72.0, 0.0}).toPoint()
+    );
+    drainBindings();
+    if (!require(
+            inline_slider->property("value").toDouble() > 65.0,
+            "the visible thumb retains the Slider's real drag lifecycle"
+        )) {
+        return EXIT_FAILURE;
+    }
+    const QPointF dragged_handle_center = handle->mapToItem(
+        interaction_window.contentItem(),
+        QPointF{handle->width() / 2.0, handle->height() / 2.0}
+    );
+    QTest::mouseDClick(
+        &interaction_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        dragged_handle_center.toPoint()
+    );
     drainBindings();
     if (!require(
             recorder.inline_reset_count == 1
                 && std::abs(recorder.inline_reset_value - 100.0) < 0.000'001,
-            "inline reset delegates its declared default exactly once"
+            "a real thumb double click delegates its declared default exactly once"
         )) {
         return EXIT_FAILURE;
     }

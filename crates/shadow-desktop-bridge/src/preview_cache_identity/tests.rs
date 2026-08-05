@@ -23,7 +23,7 @@ fn receipt(canonical_identity: &str) -> RawPipelineReceipt {
         source_provider_id: "fixture-provider".to_owned(),
         source_provider_version: "1".to_owned(),
         fallback_reason: None,
-        raw_frame_schema_version: 1,
+        raw_frame_schema_version: 2_026_080_601,
         raw_developer_version: 1,
         requested_plan: plan,
         effective_plan: plan,

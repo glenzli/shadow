@@ -33,6 +33,15 @@ template <typename Predicate> void waitUntil(Predicate predicate, const std::str
     require(predicate(), message);
 }
 
+[[nodiscard]] int remoteRow(const ReviewModel& model) {
+    for (int row = 0; row < model.rowCount(); ++row) {
+        if (model.data(model.index(row, 0), ReviewModel::IsRemoteRole).toBool()) {
+            return row;
+        }
+    }
+    return -1;
+}
+
 [[nodiscard]] BackendRemoteLibrarySnapshot remoteSnapshot() {
     BackendRemoteLibraryPhoto photo;
     photo.server_id = QStringLiteral("server-a");
@@ -194,8 +203,13 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
             && coordinator.remotePhotoCount() == 1,
         "offline mirror must append beside the local Catalog row"
     );
-    const QString presentation_photo_id =
-        model.data(model.index(1, 0), ReviewModel::PhotoIdRole).toString();
+    const int projected_remote_row = remoteRow(model);
+    const QString presentation_photo_id = model
+                                              .data(
+                                                  model.index(projected_remote_row, 0),
+                                                  ReviewModel::PhotoIdRole
+                                              )
+                                              .toString();
     require(
         presentation_photo_id.startsWith(QStringLiteral("remote:server-a:")),
         "remote presentation identity must be namespaced by server"
@@ -233,8 +247,9 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
         "serialized remote curation persistence"
     );
     require(
-        model.data(model.index(1, 0), ReviewModel::DecisionRatingRole).toInt() == 4
-            && model.data(model.index(1, 0), ReviewModel::LikedRole).toBool(),
+        model.data(model.index(projected_remote_row, 0), ReviewModel::DecisionRatingRole).toInt()
+                == 4
+            && model.data(model.index(projected_remote_row, 0), ReviewModel::LikedRole).toBool(),
         "remote curation must update the grid optimistically"
     );
 
@@ -265,10 +280,14 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
         "verified local identity must be emitted and local Library refreshed"
     );
     require(
-        model.rowCount() == 1
-            && model.data(model.index(0, 0), ReviewModel::PhotoIdRole).toString()
-                   == QStringLiteral("local-photo"),
-        "materialized remote row must yield to the local Catalog projection"
+        model.rowCount() == 2 && remoteRow(model) >= 0
+            && model.data(model.index(remoteRow(model), 0), ReviewModel::PhotoIdRole).toString()
+                   == presentation_photo_id
+            && model.data(model.index(remoteRow(model), 0), ReviewModel::IsRemoteRole).toBool()
+            && model
+                   .data(model.index(remoteRow(model), 0), ReviewModel::RemoteOriginalCachedRole)
+                   .toBool(),
+        "a cached original must remain a remote-origin row with explicit local residency"
     );
 }
 
@@ -449,6 +468,22 @@ void exact_original_identity_merges_server_copies_and_retains_sources() {
             && aggregate->source_location_count == 3 && aggregate->has_raw_representation
             && aggregate->has_raster_representation,
         "logical photo retains every representation and source capability"
+    );
+
+    studio.photos.front().has_cached_original = true;
+    const auto cached = aggregateRemotePhotos({
+        {QStringLiteral("connection-studio"), studio},
+        {QStringLiteral("connection-travel"), travel},
+    });
+    const auto cached_aggregate = cached.constFind(
+        QStringLiteral("remote-content:") + QString(64, QLatin1Char('a'))
+    );
+    require(
+        cached_aggregate != cached.cend() && cached_aggregate->has_cached_original
+            && cached_aggregate->preferredSource() != nullptr
+            && cached_aggregate->preferredSource()->connection_id
+                   == QStringLiteral("connection-studio"),
+        "a verified cached original is residency evidence and the preferred offline edit source"
     );
     require(
         aggregate->preferredSource() != nullptr

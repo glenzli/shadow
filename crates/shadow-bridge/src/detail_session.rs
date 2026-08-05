@@ -326,6 +326,50 @@ impl LibRawEditDetailSession {
         Self::from_prepared_handle(handle, requirements)
     }
 
+    /// Opens full detail/export from an ordinary provider-neutral `RawFrame`
+    /// staged by the isolated decoder helper.
+    ///
+    /// # Errors
+    ///
+    /// Returns a staging, plan, optics, path, decoder, resource, admission, or
+    /// invalid-output error.
+    pub fn open_with_staged_raw_development_plan(
+        path: &Path,
+        staging_manifest_path: &Path,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+        requirements: DetailSessionRequirements,
+    ) -> Result<Self, BridgeError> {
+        raw_development_plan.validate()?;
+        if !matches!(
+            raw_development_plan.intent,
+            RawDevelopmentIntent::Detail | RawDevelopmentIntent::ExportImage
+        ) {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "staged RAW full resolution requires detail or export-image intent",
+            ));
+        }
+        let staging_manifest = staging_manifest_path
+            .to_str()
+            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        let mut decode_handle = open_photo(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(optics))?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_detail_with_staged_raw_development_plan(
+            &ffi_raw_development_plan(raw_development_plan),
+            staging_manifest,
+            &ffi::FfiDetailSessionRequirements {
+                requires_cpu_replay: requirements.requires_cpu_replay(),
+            },
+        )?;
+        Self::from_prepared_handle(handle, requirements)
+    }
+
     /// Opens full detail/export from a verified foundation and the exact
     /// provider-neutral `RawFrame` staged by the isolated decoder transaction.
     ///

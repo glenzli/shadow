@@ -49,9 +49,10 @@ struct ResidentRawDevelopmentParameters final {
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
+    float camera_neutral[3]{};
 };
 
-static_assert(sizeof(ResidentRawDevelopmentParameters) == 148U);
+static_assert(sizeof(ResidentRawDevelopmentParameters) == 160U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, orientation) == 40U);
@@ -59,6 +60,7 @@ static_assert(offsetof(ResidentRawDevelopmentParameters, neutralize_sensor_highl
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_quality) == 60U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_channels) == 64U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 112U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, camera_neutral) == 148U);
 
 [[nodiscard]] bool environment_enabled(const char* name) noexcept {
     const char* value = std::getenv(name);
@@ -175,6 +177,9 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     for (std::size_t index = 0U; index < 9U; ++index) {
         parameters.camera_to_linear_srgb[index] =
             static_cast<float>(transform.camera_to_linear_srgb_d65[index]);
+    }
+    for (std::size_t index = 0U; index < 3U; ++index) {
+        parameters.camera_neutral[index] = static_cast<float>(transform.camera_neutral[index]);
     }
     return parameters;
 }

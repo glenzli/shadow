@@ -17,6 +17,7 @@
 #include <shadow/image/warm_edit_preview.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include "../raw/raw_frame_source_preparation.hpp"
 #include "../raw/raw_preview_rebinding.hpp"
 #include "developed_source_raster.hpp"
 #include "edit_preview_rendering.hpp"
@@ -322,6 +323,42 @@ struct PreparedWarmEditProxy final {
         optics_provider,
         optics_settings
     );
+}
+
+[[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_preview_reference(
+    const DecodeSession& metadata_session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    RawFrame staged_frame,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    const RawPipelinePolicy policy = raw_pipeline_policy_from_environment();
+    if (policy.mode == RawPipelineMode::require_provider_processed) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "staged RAW preview development is disabled by the RAW pipeline policy"
+        );
+    }
+    auto rebindable = raw_pipeline_detail::prepare_raw_preview_rebinding(
+        raw_pipeline_detail::prepare_raw_frame_source(
+            metadata_session,
+            std::move(staged_frame),
+            raw_development_plan,
+            max_edge,
+            default_camera_profile_catalog()
+        )
+    );
+    auto prepared = finish_warm_edit_proxy(
+        metadata_session.metadata(),
+        max_edge,
+        std::move(rebindable.developed),
+        optics_provider,
+        optics_settings
+    );
+    prepared.raw_rebinding_source = std::move(rebindable.source);
+    return prepared;
 }
 
 [[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_foundation_reference(
@@ -1165,6 +1202,41 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         session,
         max_edge,
         raw_development_plan,
+        optics_provider.get(),
+        optics_settings
+    );
+    return WarmEditPreviewSession(
+        std::move(prepared.working_proxy),
+        max_edge,
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
+        std::move(prepared.optics_receipt),
+        std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.raw_rebinding_source),
+        std::move(optics_provider),
+        optics_settings
+    );
+}
+
+WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const DecodeSession& metadata_session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    RawFrame staged_frame,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    validate_warm_edit_max_edge(max_edge);
+    proxy_detail::validate_raw_development_plan_intent(
+        raw_development_plan,
+        RawDevelopmentIntent::preview,
+        "staged rebindable RAW warm edit preview"
+    );
+    auto prepared = prepare_warm_edit_proxy_from_preview_reference(
+        metadata_session,
+        max_edge,
+        raw_development_plan,
+        std::move(staged_frame),
         optics_provider.get(),
         optics_settings
     );

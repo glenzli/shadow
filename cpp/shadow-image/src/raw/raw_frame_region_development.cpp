@@ -155,56 +155,66 @@ required_denoise_halo(const detail::PreparedRawBayerDenoise& denoise) noexcept {
     return output;
 }
 
-[[nodiscard]] double
-smoothstep(const double edge0, const double edge1, const double value) noexcept {
-    const double normalized = std::clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
-    return normalized * normalized * (3.0 - 2.0 * normalized);
-}
-
-void neutralize_sensor_clipped_highlight(
-    std::array<double, 3U>& scene_linear,
-    const detail::CameraRgbSample& camera
+[[nodiscard]] std::array<double, 3U> blend_sensor_highlight_chroma(
+    const detail::CameraRgbSample& camera,
+    const std::array<double, 3U>& camera_neutral
 ) noexcept {
-    const double lowest = std::min({
-        static_cast<double>(camera.sensor_clip_coverage[0]),
-        static_cast<double>(camera.sensor_clip_coverage[1]),
-        static_cast<double>(camera.sensor_clip_coverage[2]),
-    });
-    const double highest = std::max({
-        static_cast<double>(camera.sensor_clip_coverage[0]),
-        static_cast<double>(camera.sensor_clip_coverage[1]),
-        static_cast<double>(camera.sensor_clip_coverage[2]),
-    });
-    const double second_highest = static_cast<double>(camera.sensor_clip_coverage[0])
-                                  + static_cast<double>(camera.sensor_clip_coverage[1])
-                                  + static_cast<double>(camera.sensor_clip_coverage[2]) - lowest
-                                  - highest;
-    const double camera_lowest = std::min({
+    const std::array<double, 3U> original{
         static_cast<double>(camera.values[0]),
         static_cast<double>(camera.values[1]),
         static_cast<double>(camera.values[2]),
-    });
-    const double camera_highest = std::max({
-        static_cast<double>(camera.values[0]),
-        static_cast<double>(camera.values[1]),
-        static_cast<double>(camera.values[2]),
-    });
-    const double camera_second_highest =
-        static_cast<double>(camera.values[0]) + static_cast<double>(camera.values[1])
-        + static_cast<double>(camera.values[2]) - camera_lowest - camera_highest;
-    const double multi_channel_clip = smoothstep(0.15, 0.75, second_highest);
-    const double single_channel_white =
-        smoothstep(0.40, 0.90, highest) * smoothstep(0.84, 0.98, camera_second_highest);
-    const double clipped_ratio = std::max(multi_channel_clip, single_channel_white);
-    const double peak = std::max({scene_linear[0], scene_linear[1], scene_linear[2]});
-    const double blend = clipped_ratio * smoothstep(0.85, 1.05, peak);
-    if (blend == 0.0) {
-        return;
+    };
+    std::array<double, 3U> balanced{};
+    double common_clip = std::numeric_limits<double>::infinity();
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        balanced[channel] = original[channel] / camera_neutral[channel];
+        common_clip = std::min(common_clip, 1.0 / camera_neutral[channel]);
     }
-    const double neutral = std::max(0.0, peak);
-    for (double& value : scene_linear) {
-        value += (neutral - value) * blend;
+    if (*std::max_element(balanced.cbegin(), balanced.cend()) <= common_clip) {
+        return original;
     }
+
+    const std::array<double, 3U> clipped{
+        std::min(balanced[0], common_clip),
+        std::min(balanced[1], common_clip),
+        std::min(balanced[2], common_clip),
+    };
+    constexpr double square_root_three = 1.7320508075688772;
+    constexpr double half_square_root_three = 0.8660254037844386;
+    const auto opponent = [](const std::array<double, 3U>& value) {
+        return std::array<double, 3U>{
+            value[0] + value[1] + value[2],
+            square_root_three * (value[0] - value[1]),
+            -value[0] - value[1] + 2.0 * value[2],
+        };
+    };
+    auto original_opponent = opponent(balanced);
+    const auto clipped_opponent = opponent(clipped);
+    const double original_chroma = original_opponent[1] * original_opponent[1]
+                                   + original_opponent[2] * original_opponent[2];
+    const double clipped_chroma = clipped_opponent[1] * clipped_opponent[1]
+                                  + clipped_opponent[2] * clipped_opponent[2];
+    if (original_chroma <= std::numeric_limits<double>::epsilon()) {
+        return original;
+    }
+
+    const double chroma_ratio = std::clamp(std::sqrt(clipped_chroma / original_chroma), 0.0, 1.0);
+    original_opponent[1] *= chroma_ratio;
+    original_opponent[2] *= chroma_ratio;
+    const std::array<double, 3U> recovered_balanced{
+        (original_opponent[0] + half_square_root_three * original_opponent[1]
+         - 0.5 * original_opponent[2])
+            / 3.0,
+        (original_opponent[0] - half_square_root_three * original_opponent[1]
+         - 0.5 * original_opponent[2])
+            / 3.0,
+        (original_opponent[0] + original_opponent[2]) / 3.0,
+    };
+    std::array<double, 3U> recovered{};
+    for (std::size_t channel = 0U; channel < recovered.size(); ++channel) {
+        recovered[channel] = std::max(0.0, recovered_balanced[channel] * camera_neutral[channel]);
+    }
+    return recovered;
 }
 
 } // namespace
@@ -410,15 +420,16 @@ void write_raw_frame_transformed_pixel(
     const bool neutralize_clipped_highlights,
     float* destination
 ) noexcept {
+    const std::array<double, 3U> camera_values =
+        neutralize_clipped_highlights
+            ? blend_sensor_highlight_chroma(camera, transform.camera_neutral)
+            : std::array<double, 3U>{camera.values[0], camera.values[1], camera.values[2]};
     std::array<double, 3U> scene_linear{};
     for (std::size_t output = 0U; output < 3U; ++output) {
         for (std::size_t input = 0U; input < 3U; ++input) {
-            scene_linear[output] += transform.camera_to_linear_srgb_d65[output * 3U + input]
-                                    * static_cast<double>(camera.values[input]);
+            scene_linear[output] +=
+                transform.camera_to_linear_srgb_d65[output * 3U + input] * camera_values[input];
         }
-    }
-    if (neutralize_clipped_highlights) {
-        neutralize_sensor_clipped_highlight(scene_linear, camera);
     }
     for (std::size_t output = 0U; output < 3U; ++output) {
         destination[output] = static_cast<float>(scene_linear[output]);

@@ -60,7 +60,7 @@ struct BackendRemoteLibraryPhoto final {
     bool liked = false;
     QString color_label = QStringLiteral("none");
     std::int64_t review_updated_at_ms = 0;
-    bool is_materialized = false;
+    bool has_cached_original = false;
     QString local_photo_id;
     QString local_representation_id;
     QString local_source_path;

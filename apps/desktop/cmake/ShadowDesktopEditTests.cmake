@@ -1049,6 +1049,7 @@
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
+    find_package(Qt6 6.11.1 REQUIRED COMPONENTS Test)
     add_executable(
         shadow-adjustment-controls-contract-test
         tests/shadow_adjustment_controls_contract_test.cpp
@@ -1063,7 +1064,7 @@
     )
     target_link_libraries(
         shadow-adjustment-controls-contract-test
-        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
     )
     if(MSVC)
         target_compile_options(

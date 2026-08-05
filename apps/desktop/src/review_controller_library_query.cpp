@@ -122,6 +122,11 @@ void ReviewController::setLibrarySortKey(const QString& sort_key) {
         return;
     }
     library_sort_key_ = normalized;
+    model_.setPresentationOrder(
+        normalized == QStringLiteral("name") ? ReviewModel::PresentationSortKey::Name
+                                               : ReviewModel::PresentationSortKey::CaptureTime,
+        library_sort_descending_
+    );
     emit libraryOrderChanged();
     requestLibraryReset();
 }
@@ -131,6 +136,11 @@ void ReviewController::setLibrarySortDescending(const bool descending) {
         return;
     }
     library_sort_descending_ = descending;
+    model_.setPresentationOrder(
+        library_sort_key_ == QStringLiteral("name") ? ReviewModel::PresentationSortKey::Name
+                                                      : ReviewModel::PresentationSortKey::CaptureTime,
+        descending
+    );
     emit libraryOrderChanged();
     requestLibraryReset();
 }

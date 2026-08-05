@@ -66,7 +66,7 @@ project_photo(const shadow::desktop::FfiRemoteLibraryPhoto& source) {
         .liked = source.liked,
         .color_label = qstring(source.color_label),
         .review_updated_at_ms = source.review_updated_at_ms,
-        .is_materialized = source.is_materialized,
+        .has_cached_original = source.has_cached_original,
         .local_photo_id = qstring(source.local_photo_id),
         .local_representation_id = qstring(source.local_representation_id),
         .local_source_path = qstring(source.local_source_path),

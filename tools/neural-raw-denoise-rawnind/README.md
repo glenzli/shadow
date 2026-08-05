@@ -355,7 +355,7 @@ cache entry; the application independently verifies the completed bytes and
 then publishes that same partial through `FoundationArtifactStore`.
 
 Desktop requests additionally pass `--input-raw-frame` with a request-private
-`shadow-raw-frame-staging-v1` manifest. In that route, the original
+`shadow-raw-frame-staging-20260806.1` manifest. In that route, the original
 `--input-raw` remains the durable source hash/size identity while the Bayer
 samples come from Shadow's already selected decoder. Decoder id/version and
 the staged-sample SHA-256 enter `raw_preprocessing`, so two decoder outputs

@@ -17,6 +17,7 @@ use shadow_core::fingerprint_source;
 
 use crate::isolated_proxy::{
     NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,
+    stage_isolated_raw_frame,
 };
 use crate::{
     DesktopSession, ffi,
@@ -133,6 +134,41 @@ fn open_export_session(
             Ok(session)
         }
         Err(public_decoder_error) => {
+            if !raw_plan.white_balance.is_as_shot() {
+                let helper_path = configured_helper_path().ok_or_else(|| {
+                    anyhow!(
+                        "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare export for {}: {public_decoder_error}",
+                        native_path.display()
+                    )
+                })?;
+                let staging_root = cache_root.join("decode-helper").join("raw-frame-staging");
+                let staging = stage_isolated_raw_frame(
+                    &helper_path,
+                    &staging_root,
+                    native_path,
+                )
+                .with_context(|| {
+                    format!(
+                        "stage provider-neutral RawFrame for manual Foundation export after public decoder could not prepare {}: {public_decoder_error}",
+                        native_path.display()
+                    )
+                })?;
+                let session = PhotoEditDetailSession::open_with_staged_raw_development_plan(
+                    native_path,
+                    staging.manifest_path(),
+                    raw_plan,
+                    optics,
+                    requirements,
+                )
+                .with_context(|| {
+                    format!(
+                        "prepare manual Foundation export from the isolated RawFrame for {}",
+                        native_path.display()
+                    )
+                })?;
+                ensure_foundation_development_receipt(raw_plan, session.raw_pipeline_receipt())?;
+                return Ok(session);
+            }
             if let Err(policy_error) = ensure_foundation_allows_rgb_fallback(raw_plan) {
                 return Err(anyhow!(
                     "{policy_error}; public decoder could not prepare export for {}: {public_decoder_error}",

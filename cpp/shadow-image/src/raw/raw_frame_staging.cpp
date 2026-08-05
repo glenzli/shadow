@@ -9,8 +9,8 @@
 #include <iomanip>
 #include <limits>
 #include <map>
-#include <sstream>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -29,8 +29,7 @@ namespace fs = std::filesystem;
     for (std::size_t index = 0U; index < nonce.size(); ++index) {
         const bool hyphen = index == 8U || index == 13U || index == 18U || index == 23U;
         const char value = nonce[index];
-        const bool lower_hex =
-            (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
+        const bool lower_hex = (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
         if (hyphen ? value != '-' : !lower_hex) {
             return false;
         }
@@ -40,8 +39,22 @@ namespace fs = std::filesystem;
 
 [[nodiscard]] std::string hex_encode(const std::string_view value) {
     constexpr std::array<char, 16U> digits{
-        '0', '1', '2', '3', '4', '5', '6', '7',
-        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+        '0',
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+        '6',
+        '7',
+        '8',
+        '9',
+        'a',
+        'b',
+        'c',
+        'd',
+        'e',
+        'f',
     };
     std::string encoded;
     encoded.reserve(value.size() * 2U);
@@ -72,13 +85,14 @@ namespace fs = std::filesystem;
     std::string decoded;
     decoded.reserve(value.size() / 2U);
     for (std::size_t index = 0U; index < value.size(); index += 2U) {
-        decoded.push_back(static_cast<char>((nibble(value[index]) << 4U) | nibble(value[index + 1U])));
+        decoded.push_back(
+            static_cast<char>((nibble(value[index]) << 4U) | nibble(value[index + 1U]))
+        );
     }
     return decoded;
 }
 
-template <typename Value>
-[[nodiscard]] std::string comma_values(const Value& values) {
+template <typename Value> [[nodiscard]] std::string comma_values(const Value& values) {
     std::ostringstream stream;
     stream << std::setprecision(17);
     for (std::size_t index = 0U; index < values.size(); ++index) {
@@ -156,10 +170,14 @@ parse_u32_values(const std::string& text, const char* const label) {
 
 [[nodiscard]] RawCfaColor parse_color(const char value) {
     switch (value) {
-    case 'R': return RawCfaColor::red;
-    case 'G': return RawCfaColor::green;
-    case 'B': return RawCfaColor::blue;
-    default: throw std::runtime_error("RAW frame staging CFA is invalid");
+    case 'R':
+        return RawCfaColor::red;
+    case 'G':
+        return RawCfaColor::green;
+    case 'B':
+        return RawCfaColor::blue;
+    default:
+        throw std::runtime_error("RAW frame staging CFA is invalid");
     }
 }
 
@@ -261,12 +279,9 @@ RawFrameStagingReceipt write_raw_frame_staging(
         const auto left = static_cast<std::size_t>(frame.descriptor.active_margins.left);
         const auto top = static_cast<std::size_t>(frame.descriptor.active_margins.top);
         for (std::uint32_t row = 0U; row < height; ++row) {
-            const auto source_offset =
-                (top + static_cast<std::size_t>(row)) * storage_width + left;
-            const auto source = std::span(
-                frame.samples.data() + source_offset,
-                static_cast<std::size_t>(width)
-            );
+            const auto source_offset = (top + static_cast<std::size_t>(row)) * storage_width + left;
+            const auto source =
+                std::span(frame.samples.data() + source_offset, static_cast<std::size_t>(width));
             for (std::size_t column = 0U; column < source.size(); ++column) {
                 const auto value = source[column];
                 encoded_row[column * 2U] = static_cast<std::uint8_t>(value & 0xffU);
@@ -301,31 +316,33 @@ RawFrameStagingReceipt write_raw_frame_staging(
         if (!manifest) {
             throw std::runtime_error("cannot create RAW frame staging manifest");
         }
-        manifest
-            << raw_frame_staging_schema
-            << " descriptor_contract=active-camera-colour-v1"
-            << " width=" << width
-            << " height=" << height
-            << " cfa=" << std::string(cfa.data(), cfa.size())
-            << " black=" << black[0] << ',' << black[1] << ',' << black[2] << ',' << black[3]
-            << " white=" << white[0] << ',' << white[1] << ',' << white[2] << ',' << white[3]
-            << " orientation=" << frame.descriptor.orientation
-            << " bits_per_sample=" << frame.descriptor.bits_per_sample
-            << " as_shot_neutral=" << comma_values(neutral)
-            << " camera_to_xyz_d50="
-            << (frame.descriptor.has_camera_to_xyz_d50
-                    ? comma_values(frame.descriptor.camera_to_xyz_d50)
-                    : "-")
-            << " camera_to_linear_srgb_d65="
-            << (frame.descriptor.has_camera_to_linear_srgb_d65
-                    ? comma_values(frame.descriptor.camera_to_linear_srgb_d65)
-                    : "-")
-            << " pending_dng_opcode_bytes="
-            << comma_values(frame.descriptor.declared_pending_corrections.dng_opcode_list_bytes)
-            << " provider_id_hex=" << hex_encode(frame.descriptor.provider_id)
-            << " provider_version_hex=" << hex_encode(frame.descriptor.provider_version)
-            << " sample_bytes=" << sample_bytes
-            << '\n';
+        manifest << raw_frame_staging_schema
+                 << " descriptor_contract=active-camera-colour-20260806.1"
+                 << " width=" << width << " height=" << height
+                 << " cfa=" << std::string(cfa.data(), cfa.size()) << " black=" << black[0] << ','
+                 << black[1] << ',' << black[2] << ',' << black[3] << " white=" << white[0] << ','
+                 << white[1] << ',' << white[2] << ',' << white[3]
+                 << " orientation=" << frame.descriptor.orientation
+                 << " bits_per_sample=" << frame.descriptor.bits_per_sample
+                 << " as_shot_neutral=" << comma_values(neutral) << " camera_to_xyz_d50="
+                 << (frame.descriptor.has_camera_to_xyz_d50
+                         ? comma_values(frame.descriptor.camera_to_xyz_d50)
+                         : "-")
+                 << " xyz_to_camera_d65="
+                 << (frame.descriptor.has_xyz_to_camera_d65
+                         ? comma_values(frame.descriptor.xyz_to_camera_d65)
+                         : "-")
+                 << " camera_to_linear_srgb_d65="
+                 << (frame.descriptor.has_camera_to_linear_srgb_d65
+                         ? comma_values(frame.descriptor.camera_to_linear_srgb_d65)
+                         : "-")
+                 << " pending_dng_opcode_bytes="
+                 << comma_values(
+                        frame.descriptor.declared_pending_corrections.dng_opcode_list_bytes
+                    )
+                 << " provider_id_hex=" << hex_encode(frame.descriptor.provider_id)
+                 << " provider_version_hex=" << hex_encode(frame.descriptor.provider_version)
+                 << " sample_bytes=" << sample_bytes << '\n';
         manifest.close();
         if (!manifest) {
             throw std::runtime_error("cannot write RAW frame staging manifest");
@@ -382,14 +399,26 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
             throw std::runtime_error("RAW frame staging manifest fields are malformed");
         }
     }
-    constexpr std::array<std::string_view, 15U> required{
-        "width", "height", "cfa", "black", "white", "orientation", "bits_per_sample",
-        "as_shot_neutral", "camera_to_xyz_d50", "camera_to_linear_srgb_d65",
-        "pending_dng_opcode_bytes", "provider_id_hex", "provider_version_hex", "sample_bytes",
+    constexpr std::array<std::string_view, 16U> required{
+        "width",
+        "height",
+        "cfa",
+        "black",
+        "white",
+        "orientation",
+        "bits_per_sample",
+        "as_shot_neutral",
+        "camera_to_xyz_d50",
+        "xyz_to_camera_d65",
+        "camera_to_linear_srgb_d65",
+        "pending_dng_opcode_bytes",
+        "provider_id_hex",
+        "provider_version_hex",
+        "sample_bytes",
         "descriptor_contract",
     };
-    // The fixed marker makes the expanded v1 descriptor fail closed against
-    // stale request-private manifests without introducing a v2 ladder.
+    // The fixed dated marker makes the expanded descriptor fail closed against stale
+    // request-private manifests without maintaining a compatibility ladder.
     if (fields.size() != required.size()) {
         throw std::runtime_error("RAW frame staging manifest field set changed");
     }
@@ -398,7 +427,7 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
             throw std::runtime_error("RAW frame staging manifest is missing a required field");
         }
     }
-    if (fields.at("descriptor_contract") != "active-camera-colour-v1") {
+    if (fields.at("descriptor_contract") != "active-camera-colour-20260806.1") {
         throw std::runtime_error("RAW frame staging descriptor contract is unsupported");
     }
     const auto width = parse_u32(fields.at("width"), "width");
@@ -420,7 +449,10 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
     }
     std::ifstream samples(sample_path, std::ios::binary);
     std::vector<std::uint8_t> encoded(static_cast<std::size_t>(expected_bytes));
-    samples.read(reinterpret_cast<char*>(encoded.data()), static_cast<std::streamsize>(encoded.size()));
+    samples.read(
+        reinterpret_cast<char*>(encoded.data()),
+        static_cast<std::streamsize>(encoded.size())
+    );
     if (!samples || samples.peek() != std::ifstream::traits_type::eof()) {
         throw std::runtime_error("RAW frame staging sample payload could not be read exactly");
     }
@@ -434,8 +466,7 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
     frame.descriptor.orientation = parse_i32(fields.at("orientation"), "orientation");
     frame.descriptor.cfa_layout = RawFrameCfaLayout::bayer_2x2;
     frame.descriptor.cfa_pattern = cfa;
-    frame.descriptor.bits_per_sample =
-        parse_u32(fields.at("bits_per_sample"), "bits per sample");
+    frame.descriptor.bits_per_sample = parse_u32(fields.at("bits_per_sample"), "bits per sample");
     frame.descriptor.black_levels = parse_u32_values<4U>(fields.at("black"), "black levels");
     frame.descriptor.white_levels = parse_u32_values<4U>(fields.at("white"), "white levels");
     frame.descriptor.as_shot_neutral =
@@ -447,6 +478,11 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
         frame.descriptor.camera_to_xyz_d50 =
             parse_double_values<9U>(fields.at("camera_to_xyz_d50"), "D50 camera matrix");
         frame.descriptor.has_camera_to_xyz_d50 = true;
+    }
+    if (fields.at("xyz_to_camera_d65") != "-") {
+        frame.descriptor.xyz_to_camera_d65 =
+            parse_double_values<9U>(fields.at("xyz_to_camera_d65"), "D65 XYZ camera matrix");
+        frame.descriptor.has_xyz_to_camera_d65 = true;
     }
     if (fields.at("camera_to_linear_srgb_d65") != "-") {
         frame.descriptor.camera_to_linear_srgb_d65 = parse_double_values<9U>(
@@ -461,9 +497,7 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
     for (std::size_t index = 0U; index < frame.samples.size(); ++index) {
         frame.samples[index] = static_cast<std::uint16_t>(
             static_cast<std::uint16_t>(encoded[index * 2U])
-            | static_cast<std::uint16_t>(
-                static_cast<std::uint16_t>(encoded[index * 2U + 1U]) << 8U
-            )
+            | static_cast<std::uint16_t>(static_cast<std::uint16_t>(encoded[index * 2U + 1U]) << 8U)
         );
     }
     if (!frame.is_bayer_2x2()) {

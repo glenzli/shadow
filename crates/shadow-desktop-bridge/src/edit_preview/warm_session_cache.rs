@@ -7,9 +7,12 @@
 
 use std::{
     collections::VecDeque,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex},
 };
+
+#[cfg(test)]
+use std::path::PathBuf;
 
 use anyhow::{Context, Result as AnyResult, anyhow};
 use shadow_bridge::{
@@ -19,14 +22,18 @@ use shadow_catalog::{RepresentationFingerprint, ReviewItemRecord};
 use shadow_domain::RepresentationId;
 
 use crate::{
+    isolated_proxy::{configured_helper_path, stage_isolated_raw_frame},
     photo_provider::isolated_edit_raster,
     preview_cache_identity::requested_raw_development_plan_cache_matches,
     raw_foundation_render_source::{
         RawFoundationRenderIdentity, RawFoundationRenderSelection, load_raw_foundation_for_render,
     },
-    recipe_v1::{ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt},
+    recipe_v1::ensure_foundation_development_receipt,
     session_photo_source::{catalog_native_path, ensure_native_decode_is_admitted},
 };
+
+#[cfg(test)]
+use crate::recipe_v1::ensure_foundation_allows_rgb_fallback;
 
 const MAX_WARM_EDIT_PREVIEW_SESSIONS: usize = 2;
 const CACHE_LOCK_POISONED: &str = "edit preview session cache lock is poisoned";
@@ -277,25 +284,86 @@ fn prepare_preview_session(
     raw_development_plan: RawDevelopmentPlan,
     optics: &OpticsSettings,
 ) -> AnyResult<PhotoEditPreviewSession> {
-    prepare_preview_session_with_routes(
-        runtime_cache_root,
-        native_path,
-        max_edge,
-        raw_development_plan,
-        optics,
-        |path, max_edge, raw_development_plan, optics| {
-            PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
-                path,
-                max_edge,
-                raw_development_plan,
-                optics,
+    let public_decoder_error =
+        match PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
+            native_path,
+            max_edge,
+            raw_development_plan,
+            optics,
+        ) {
+            Ok(prepared) => {
+                ensure_foundation_development_receipt(
+                    raw_development_plan,
+                    prepared.raw_pipeline_receipt(),
+                )?;
+                return Ok(prepared);
+            }
+            Err(error) => error,
+        };
+
+    if !raw_development_plan.white_balance.is_as_shot() {
+        let helper_path = configured_helper_path().ok_or_else(|| {
+            anyhow!(
+                "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare {}: {public_decoder_error}",
+                native_path.display()
             )
-            .map_err(Into::into)
-        },
-        isolated_edit_raster,
-    )
+        })?;
+        let staging_root = runtime_cache_root
+            .join("decode-helper")
+            .join("raw-frame-staging");
+        let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
+            .with_context(|| {
+                format!(
+                    "stage provider-neutral RawFrame for manual Foundation white balance after public decoder could not prepare {}: {public_decoder_error}",
+                    native_path.display()
+                )
+            })?;
+        let prepared = PhotoEditPreviewSession::open_with_staged_raw_development_plan(
+            native_path,
+            staging.manifest_path(),
+            max_edge,
+            raw_development_plan,
+            optics,
+        )
+        .with_context(|| {
+            format!(
+                "prepare manual Foundation white balance from the isolated RawFrame for {}",
+                native_path.display()
+            )
+        })?;
+        ensure_foundation_development_receipt(
+            raw_development_plan,
+            prepared.raw_pipeline_receipt(),
+        )?;
+        return Ok(prepared);
+    }
+
+    // Private providers stay outside the desktop process. The isolated helper
+    // produces a short-lived RGB JPEG for the camera-value compatibility case.
+    let temporary_raster = isolated_edit_raster(runtime_cache_root, native_path, max_edge)?;
+    let isolated_result: AnyResult<PhotoEditPreviewSession> = (|| {
+        let prepared = PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
+            &temporary_raster,
+            max_edge,
+            raw_development_plan,
+            optics,
+        )?;
+        ensure_foundation_development_receipt(
+            raw_development_plan,
+            prepared.raw_pipeline_receipt(),
+        )?;
+        Ok(prepared)
+    })();
+    let _ = std::fs::remove_file(&temporary_raster);
+    isolated_result.with_context(|| {
+        format!(
+            "public decoder could not prepare {}; isolated decoder fallback also failed: {public_decoder_error}",
+            native_path.display()
+        )
+    })
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn prepare_preview_session_with_routes<Open, Isolate>(
     runtime_cache_root: &Path,

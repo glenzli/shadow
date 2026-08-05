@@ -117,6 +117,9 @@ Application startup is split from environment-driven automation:
   individually visible under source health instead of being duplicated as a synthetic local card. While
   [`qml/SettingsLibraryPane.qml`](qml/SettingsLibraryPane.qml) is limited to thumbnail, metadata,
   and photographic-resource preferences. Review cards display only client-local proxy paths.
+  A verified downloaded original remains a remote-origin card with explicit cached residency and
+  can reopen offline from that cache; materialization never silently reclassifies it as a local
+  folder asset.
   Remote rows participate in locally mirrored curation filters but remain outside local-only
   albums, keywords, shared-node application, export, and metadata-facet scopes until materialized.
 - [`src/library_server_controller.*`](src/library_server_controller.hpp) owns the independent
@@ -793,11 +796,12 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`tests/review_library_query_coordinator/`](tests/review_library_query_coordinator/) contracts
   cover projection, pagination, reset coalescing, stale completion, failures, and lifetime.
 - [`src/review_model.cpp`](src/review_model.cpp) owns the photo-keyed Qt row projection, stable QML
-  roles, exact-location source-availability application, visual-generation URLs, and
-  reset/prefix/append reconciliation. Its single test runner
+  roles, exact-location source-availability application, visual-generation URLs, merged
+  local/remote presentation ordering, and reset/prefix/append reconciliation. Its single test runner
   routes to responsibility-named contracts under
   [`tests/review_model/`](tests/review_model/) for roles, mutable Library/decision state, visual
-  generations, item-field identity, and snapshot membership; executable test bodies do not live
+  generations, item-field identity, remote cache residency, cross-source ordering, and snapshot
+  membership; executable test bodies do not live
   in the runner or production model.
 - [`src/review_shared_grade_coordinator.cpp`](src/review_shared_grade_coordinator.cpp) owns the
   authoritative shared Grade Node snapshot and batch-link boundary: QML target normalization,

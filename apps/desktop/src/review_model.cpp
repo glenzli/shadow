@@ -33,6 +33,33 @@ namespace {
     return true;
 }
 
+[[nodiscard]] bool presentation_before(
+    const ReviewItem& left,
+    const ReviewItem& right,
+    const ReviewModel::PresentationSortKey key,
+    const bool descending
+) {
+    int comparison = 0;
+    if (key == ReviewModel::PresentationSortKey::Name) {
+        comparison = QString::compare(left.title, right.title, Qt::CaseInsensitive);
+    } else {
+        const bool left_has_capture = left.captured_at_unix_seconds != 0;
+        const bool right_has_capture = right.captured_at_unix_seconds != 0;
+        if (left_has_capture != right_has_capture) {
+            return left_has_capture;
+        }
+        if (left.captured_at_unix_seconds < right.captured_at_unix_seconds) {
+            comparison = -1;
+        } else if (left.captured_at_unix_seconds > right.captured_at_unix_seconds) {
+            comparison = 1;
+        }
+    }
+    if (comparison == 0) {
+        comparison = QString::compare(left.photo_id, right.photo_id, Qt::CaseSensitive);
+    }
+    return descending ? comparison > 0 : comparison < 0;
+}
+
 void append_role(QList<int>& roles, const int role) {
     if (!roles.contains(role)) {
         roles.append(role);
@@ -71,6 +98,9 @@ void append_role(QList<int>& roles, const int role) {
     }
     if (current.is_remote != replacement.is_remote) {
         append_role(roles, ReviewModel::IsRemoteRole);
+    }
+    if (current.remote_original_cached != replacement.remote_original_cached) {
+        append_role(roles, ReviewModel::RemoteOriginalCachedRole);
     }
     if (current.remote_server_id != replacement.remote_server_id) {
         append_role(roles, ReviewModel::RemoteServerIdRole);
@@ -341,6 +371,8 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.has_development_edits;
     case IsRemoteRole:
         return item.is_remote;
+    case RemoteOriginalCachedRole:
+        return item.remote_original_cached;
     case RemoteServerIdRole:
         return item.remote_server_id;
     case RemotePhotoIdRole:
@@ -409,6 +441,7 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {LibraryStateUpdatedAtMsRole, "libraryStateUpdatedAtMs"},
         {HasDevelopmentEditsRole, "hasDevelopmentEdits"},
         {IsRemoteRole, "isRemote"},
+        {RemoteOriginalCachedRole, "remoteOriginalCached"},
         {RemoteServerIdRole, "remoteServerId"},
         {RemotePhotoIdRole, "remotePhotoId"},
         {RemoteRepresentationIdRole, "remoteRepresentationId"},
@@ -578,23 +611,61 @@ bool ReviewModel::replaceRemoteItems(QVector<ReviewItem> items) {
         return false;
     }
 
-    qsizetype row = items_.size();
-    while (row > 0) {
-        --row;
-        if (!items_.at(row).is_remote) {
-            continue;
+    QVector<ReviewItem> merged;
+    merged.reserve(local_keys.size() + items.size());
+    for (const auto& existing : items_) {
+        if (!existing.is_remote) {
+            merged.push_back(existing);
         }
-        const qsizetype last = row;
-        while (row > 0 && items_.at(row - 1).is_remote) {
-            --row;
-        }
-        const qsizetype first = row;
-        beginRemoveRows({}, static_cast<int>(first), static_cast<int>(last));
-        items_.remove(first, last - first + 1);
-        endRemoveRows();
     }
-    append(std::move(items));
-    return true;
+    merged.append(std::move(items));
+    std::sort(
+        merged.begin(),
+        merged.end(),
+        [this](const ReviewItem& left, const ReviewItem& right) {
+            return presentation_before(
+                left,
+                right,
+                presentation_sort_key_,
+                presentation_sort_descending_
+            );
+        }
+    );
+    return reconcileSnapshot(
+        std::move(merged),
+        generation_.load(std::memory_order_acquire)
+    );
+}
+
+void ReviewModel::setPresentationOrder(
+    const PresentationSortKey key,
+    const bool descending
+) {
+    if (presentation_sort_key_ == key && presentation_sort_descending_ == descending) {
+        return;
+    }
+    presentation_sort_key_ = key;
+    presentation_sort_descending_ = descending;
+    if (items_.size() < 2) {
+        return;
+    }
+    QVector<ReviewItem> ordered = items_;
+    std::sort(
+        ordered.begin(),
+        ordered.end(),
+        [this](const ReviewItem& left, const ReviewItem& right) {
+            return presentation_before(
+                left,
+                right,
+                presentation_sort_key_,
+                presentation_sort_descending_
+            );
+        }
+    );
+    (void)reconcileSnapshot(
+        std::move(ordered),
+        generation_.load(std::memory_order_acquire)
+    );
 }
 
 bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {

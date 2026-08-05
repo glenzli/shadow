@@ -22,14 +22,10 @@ using detail::dcp_color_matrix_math::Vector3;
 using detail::dcp_color_matrix_math::xyz_d65_to_linear_srgb;
 
 constexpr double tint_duv_per_unit = 0.0001;
-constexpr double minimum_mired = 1'000'000.0
-                                 / static_cast<double>(
-                                     raw_white_balance_maximum_temperature_kelvin
-                                 );
-constexpr double maximum_mired = 1'000'000.0
-                                 / static_cast<double>(
-                                     raw_white_balance_minimum_temperature_kelvin
-                                 );
+constexpr double minimum_mired =
+    1'000'000.0 / static_cast<double>(raw_white_balance_maximum_temperature_kelvin);
+constexpr double maximum_mired =
+    1'000'000.0 / static_cast<double>(raw_white_balance_minimum_temperature_kelvin);
 
 struct Uv1960 final {
     double u = 0.0;
@@ -67,8 +63,7 @@ struct Uv1960 final {
     };
 }
 
-[[nodiscard]] std::optional<std::array<double, 2U>>
-uv_to_xy(const Uv1960 uv) noexcept {
+[[nodiscard]] std::optional<std::array<double, 2U>> uv_to_xy(const Uv1960 uv) noexcept {
     const double denominator = 2.0 * uv.u - 8.0 * uv.v + 4.0;
     if (!std::isfinite(denominator) || std::abs(denominator) <= 1.0e-12) {
         return std::nullopt;
@@ -86,30 +81,24 @@ uv_to_xy(const Uv1960 uv) noexcept {
 [[nodiscard]] std::optional<std::array<double, 2U>>
 temperature_locus_xy(const double temperature_kelvin) noexcept {
     if (!std::isfinite(temperature_kelvin)
-        || temperature_kelvin
-               < static_cast<double>(raw_white_balance_minimum_temperature_kelvin)
-        || temperature_kelvin
-               > static_cast<double>(raw_white_balance_maximum_temperature_kelvin)) {
+        || temperature_kelvin < static_cast<double>(raw_white_balance_minimum_temperature_kelvin)
+        || temperature_kelvin > static_cast<double>(raw_white_balance_maximum_temperature_kelvin)) {
         return std::nullopt;
     }
     const double temperature2 = temperature_kelvin * temperature_kelvin;
     const double temperature3 = temperature2 * temperature_kelvin;
-    const double x =
-        temperature_kelvin <= 4'000.0
-            ? -0.2661239e9 / temperature3 - 0.2343580e6 / temperature2
-                  + 0.8776956e3 / temperature_kelvin + 0.179910
-            : -3.0258469e9 / temperature3 + 2.1070379e6 / temperature2
-                  + 0.2226347e3 / temperature_kelvin + 0.240390;
+    const double x = temperature_kelvin <= 4'000.0
+                         ? -0.2661239e9 / temperature3 - 0.2343580e6 / temperature2
+                               + 0.8776956e3 / temperature_kelvin + 0.179910
+                         : -3.0258469e9 / temperature3 + 2.1070379e6 / temperature2
+                               + 0.2226347e3 / temperature_kelvin + 0.240390;
     double y = 0.0;
     if (temperature_kelvin <= 2'222.0) {
-        y = -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x
-            - 0.20219683;
+        y = -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683;
     } else if (temperature_kelvin <= 4'000.0) {
-        y = -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x
-            - 0.16748867;
+        y = -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867;
     } else {
-        y = 3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x
-            - 0.37001483;
+        y = 3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x - 0.37001483;
     }
     if (!xy_to_xyz(x, y).has_value()) {
         return std::nullopt;
@@ -164,8 +153,7 @@ temperature_locus_xy(const double temperature_kelvin) noexcept {
         return std::nullopt;
     }
     for (std::size_t iteration = 0U; iteration < 64U; ++iteration) {
-        if (squared_uv_distance(target, *first_uv)
-            < squared_uv_distance(target, *second_uv)) {
+        if (squared_uv_distance(target, *first_uv) < squared_uv_distance(target, *second_uv)) {
             high = second;
             second = first;
             second_uv = first_uv;
@@ -264,11 +252,11 @@ dcp_color_matrix_for_temperature(const DcpProfile& profile, const double tempera
     return interpolate(first, from_dcp(profile.calibration2->color_matrix), weight);
 }
 
-[[nodiscard]] std::optional<Vector3>
-normalized_positive_camera_neutral(Vector3 neutral) noexcept {
-    if (!std::ranges::all_of(neutral, [](const double value) {
-            return std::isfinite(value) && value > 0.0;
-        })
+[[nodiscard]] std::optional<Vector3> normalized_positive_camera_neutral(Vector3 neutral) noexcept {
+    if (!std::ranges::all_of(
+            neutral,
+            [](const double value) { return std::isfinite(value) && value > 0.0; }
+        )
         || neutral[1] <= 0.0) {
         return std::nullopt;
     }
@@ -278,14 +266,10 @@ normalized_positive_camera_neutral(Vector3 neutral) noexcept {
     return neutral;
 }
 
-[[nodiscard]] std::optional<Vector3> camera_neutral_from_matrix(
-    const Matrix3& camera_to_output,
-    const Vector3& output_white
-) noexcept {
+[[nodiscard]] std::optional<Vector3>
+camera_neutral_from_matrix(const Matrix3& camera_to_output, const Vector3& output_white) noexcept {
     try {
-        return normalized_positive_camera_neutral(
-            multiply(invert(camera_to_output), output_white)
-        );
+        return normalized_positive_camera_neutral(multiply(invert(camera_to_output), output_white));
     } catch (...) {
         return std::nullopt;
     }
@@ -299,17 +283,12 @@ bool RawWhiteBalancePresentation::valid() const noexcept {
                   >= static_cast<double>(raw_white_balance_minimum_temperature_kelvin)
            && temperature_kelvin
                   <= static_cast<double>(raw_white_balance_maximum_temperature_kelvin)
-           && std::isfinite(tint)
-           && xy_to_xyz(white_x, white_y).has_value();
+           && std::isfinite(tint) && xy_to_xyz(white_x, white_y).has_value();
 }
 
 std::optional<std::array<double, 2U>>
-raw_white_xy_from_temperature_tint(
-    const double temperature_kelvin,
-    const double tint
-) noexcept {
-    if (!std::isfinite(tint)
-        || tint < static_cast<double>(raw_white_balance_minimum_tint)
+raw_white_xy_from_temperature_tint(const double temperature_kelvin, const double tint) noexcept {
+    if (!std::isfinite(tint) || tint < static_cast<double>(raw_white_balance_minimum_tint)
         || tint > static_cast<double>(raw_white_balance_maximum_tint)) {
         return std::nullopt;
     }
@@ -326,10 +305,12 @@ raw_white_xy_from_temperature_tint(
     // Positive photographic tint is magenta, opposite the positive Duv
     // direction used by the chosen locus normal.
     const double displacement = -tint * tint_duv_per_unit;
-    return uv_to_xy(Uv1960{
-        .u = locus_uv->u + normal->u * displacement,
-        .v = locus_uv->v + normal->v * displacement,
-    });
+    return uv_to_xy(
+        Uv1960{
+            .u = locus_uv->u + normal->u * displacement,
+            .v = locus_uv->v + normal->v * displacement,
+        }
+    );
 }
 
 std::optional<RawWhiteBalancePresentation>
@@ -401,10 +382,8 @@ raw_as_shot_camera_neutral(const RawFrameDescriptor& descriptor) noexcept {
     return normalized_positive_camera_neutral(neutral);
 }
 
-std::optional<std::array<double, 3U>> raw_dcp_camera_neutral(
-    const DcpProfile& profile,
-    const RawWhiteBalance& white_balance
-) noexcept {
+std::optional<std::array<double, 3U>>
+raw_dcp_camera_neutral(const DcpProfile& profile, const RawWhiteBalance& white_balance) noexcept {
     if (!valid_raw_white_balance(white_balance)
         || white_balance.mode != RawWhiteBalanceMode::temperature_tint) {
         return std::nullopt;
@@ -485,6 +464,11 @@ std::optional<std::array<double, 3U>> raw_frame_camera_neutral(
     const auto white_xyz = xy_to_xyz((*xy)[0], (*xy)[1]);
     if (!white_xyz.has_value()) {
         return std::nullopt;
+    }
+    if (descriptor.has_xyz_to_camera_d65) {
+        return normalized_positive_camera_neutral(
+            multiply(descriptor.xyz_to_camera_d65, *white_xyz)
+        );
     }
     if (descriptor.has_camera_to_xyz_d50) {
         Matrix3 camera_to_xyz{};

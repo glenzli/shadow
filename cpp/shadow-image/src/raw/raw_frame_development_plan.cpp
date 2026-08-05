@@ -145,6 +145,7 @@ using Matrix3 = std::array<double, 9U>;
             multiply_matrix(xyz_d65_to_srgb, multiply_matrix(d50_to_d65, camera_to_xyz_d50));
     }
 
+    const auto neutral = canonical_camera_neutral(descriptor, white_balance);
     const auto multipliers = white_balance_multipliers(descriptor, white_balance);
     // Fold WB into the input columns so the hot loop performs one matrix multiply.
     for (std::size_t output = 0U; output < 3U; ++output) {
@@ -152,7 +153,7 @@ using Matrix3 = std::array<double, 9U>;
             camera_to_srgb[output * 3U + input] *= multipliers[input];
         }
     }
-    return RawFrameLinearTransform{camera_to_srgb};
+    return RawFrameLinearTransform{camera_to_srgb, neutral};
 }
 
 [[nodiscard]] double sampled_scene_linear_luminance_percentile(
@@ -355,7 +356,10 @@ RawFrameLinearTransform prepare_raw_frame_linear_transform(
                 "RAW frame colour binding received an invalid DCP transform"
             );
         }
-        return RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65};
+        return RawFrameLinearTransform{
+            camera_profile->camera_to_linear_srgb_d65,
+            canonical_camera_neutral(descriptor, white_balance),
+        };
     }
     return generic_raw_frame_transform(descriptor, white_balance);
 }

@@ -278,6 +278,48 @@ impl LibRawEditPreviewSession {
         Self::from_prepared_handle(handle)
     }
 
+    /// Opens an ordinary RAW preview from a provider-neutral `RawFrame`
+    /// staged by the isolated decoder helper. The original decode session is
+    /// used only for metadata, profiles, and optics; the returned warm session
+    /// retains its own bounded camera basis.
+    ///
+    /// # Errors
+    ///
+    /// Returns a staging, plan, optics, path, decoder, resource, admission, or
+    /// invalid-output error.
+    pub fn open_with_staged_raw_development_plan(
+        path: &Path,
+        staging_manifest_path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        validate_warm_edit_max_edge(max_edge)?;
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "staged RAW warm previews require preview RAW-development intent",
+            ));
+        }
+        let staging_manifest = staging_manifest_path
+            .to_str()
+            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        let mut decode_handle = open_photo(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(optics))?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_preview_with_staged_raw_development_plan(
+            max_edge,
+            &ffi_raw_development_plan(raw_development_plan),
+            staging_manifest,
+        )?;
+        Self::from_prepared_handle(handle)
+    }
+
     /// Opens a preview from one verified foundation and the exact
     /// provider-neutral `RawFrame` staged by the isolated decoder transaction.
     /// The staging files are borrowed only during synchronous native

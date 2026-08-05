@@ -13,7 +13,7 @@ use std::{
 
 use thiserror::Error;
 
-const STAGING_SCHEMA: &str = "shadow-raw-frame-staging-v1";
+const STAGING_SCHEMA: &str = "shadow-raw-frame-staging-20260806.1";
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 const MAX_SAMPLE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_SAMPLED_ROWS_PER_SITE: usize = 96;

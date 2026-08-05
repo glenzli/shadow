@@ -1,8 +1,8 @@
 #include "full_edit_detail_source_preparation.hpp"
 
+#include "../raw/raw_foundation_source.hpp"
 #include "developed_source_raster.hpp"
 #include "proxy_render_request_validation.hpp"
-#include "../raw/raw_foundation_source.hpp"
 
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/decoder_error.hpp>
@@ -360,6 +360,56 @@ PreparedFullEditDetailSource prepare_full_edit_detail_source(
         optics_settings,
         fallback_policy,
         std::move(raw_fallback_reason)
+    ));
+}
+
+PreparedFullEditDetailSource prepare_full_edit_detail_source(
+    const DecodeSession& metadata_session,
+    RawFrame staged_frame,
+    const RawDevelopmentPlan& raw_development_plan,
+    const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    if (raw_development_plan.intent != RawDevelopmentIntent::detail
+        && raw_development_plan.intent != RawDevelopmentIntent::export_image) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "staged RAW source requires detail or export-image intent"
+        );
+    }
+    validate_raw_development_plan_intent(
+        raw_development_plan,
+        raw_development_plan.intent,
+        raw_development_plan.intent == RawDevelopmentIntent::detail ? "staged RAW full edit detail"
+                                                                    : "staged RAW full image export"
+    );
+    static_cast<void>(requirements);
+    validate_full_detail_source_preflight(
+        metadata_session.metadata(),
+        FullDetailSourceStorage::materialized_scene_linear
+    );
+    const RawPipelinePolicy policy = raw_pipeline_policy_from_environment();
+    if (policy.mode == RawPipelineMode::require_provider_processed) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "staged RAW development is disabled by the RAW pipeline policy"
+        );
+    }
+    auto prepared = raw_pipeline_detail::prepare_raw_frame_source(
+        metadata_session,
+        std::move(staged_frame),
+        raw_development_plan,
+        std::nullopt,
+        default_camera_profile_catalog()
+    );
+    return prepare_materialized_source(finish_reference_rgb(
+        raw_pipeline_detail::materialize_prepared_raw_frame_source(std::move(prepared)),
+        metadata_session,
+        optics_provider,
+        optics_settings
     ));
 }
 

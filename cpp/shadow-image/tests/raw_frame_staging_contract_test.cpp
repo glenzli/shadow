@@ -40,10 +40,28 @@ image::RawFrame frame_fixture() {
     frame.descriptor.black_levels = {64U, 65U, 66U, 67U};
     frame.descriptor.white_levels = {16'383U, 16'383U, 16'383U, 16'383U};
     frame.descriptor.as_shot_neutral = {2.0, 1.0, 1.5, 1.0};
+    frame.descriptor.xyz_to_camera_d65 = {
+        0.8,
+        -0.2,
+        -0.1,
+        -0.4,
+        1.2,
+        0.2,
+        -0.1,
+        0.2,
+        0.6,
+    };
+    frame.descriptor.has_xyz_to_camera_d65 = true;
     frame.descriptor.camera_to_linear_srgb_d65 = {
-        1.0, 0.0, 0.0,
-        0.0, 1.0, 0.0,
-        0.0, 0.0, 1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     };
     frame.descriptor.has_camera_to_linear_srgb_d65 = true;
     frame.samples.resize(36U);
@@ -55,8 +73,8 @@ image::RawFrame frame_fixture() {
 
 void active_plane_and_shifted_cfa_are_published_atomically() {
     const auto unique = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path()
-        / ("shadow-raw-frame-staging-contract-" + std::to_string(unique));
+    const auto root =
+        fs::temp_directory_path() / ("shadow-raw-frame-staging-contract-" + std::to_string(unique));
     fs::create_directories(root);
     const auto manifest = root / "frame.shadowrawi";
     const auto receipt = image::write_raw_frame_staging(
@@ -72,7 +90,7 @@ void active_plane_and_shifted_cfa_are_published_atomically() {
         std::istreambuf_iterator<char>(manifest_stream),
         std::istreambuf_iterator<char>(),
     };
-    expect(text.starts_with("shadow-raw-frame-staging-v1 "), "manifest schema");
+    expect(text.starts_with("shadow-raw-frame-staging-20260806.1 "), "manifest schema");
     expect(text.find("cfa=BGGR") != std::string::npos, "active-origin CFA");
     expect(text.find("black=67,66,65,64") != std::string::npos, "active site levels");
     expect(
@@ -89,15 +107,25 @@ void active_plane_and_shifted_cfa_are_published_atomically() {
     expect(samples[0] == 7U && samples[1] == 0U, "first active sample");
     expect(samples[30] == 28U && samples[31] == 0U, "last active sample");
     const auto restored = image::read_raw_frame_staging(manifest);
-    expect(restored.descriptor.active_dimensions == image::Dimensions{4U, 4U}, "restored dimensions");
+    expect(
+        restored.descriptor.active_dimensions == image::Dimensions{4U, 4U},
+        "restored dimensions"
+    );
     expect(restored.descriptor.cfa_pattern == "BGGR", "restored active CFA");
-    expect(restored.descriptor.black_levels == std::array<std::uint32_t, 4U>{67U, 66U, 65U, 64U}, "restored site levels");
+    expect(
+        restored.descriptor.black_levels == std::array<std::uint32_t, 4U>{67U, 66U, 65U, 64U},
+        "restored site levels"
+    );
     expect(restored.descriptor.has_camera_to_linear_srgb_d65, "restored camera transform");
+    expect(
+        restored.descriptor.has_xyz_to_camera_d65
+            && restored.descriptor.xyz_to_camera_d65
+                   == frame_fixture().descriptor.xyz_to_camera_d65,
+        "restored physical illuminant calibration"
+    );
     expect(restored.samples.front() == 7U && restored.samples.back() == 28U, "restored samples");
     expect(
-        !fs::exists(
-            manifest.string() + ".partial-01234567-89ab-cdef-0123-456789abcdef"
-        ),
+        !fs::exists(manifest.string() + ".partial-01234567-89ab-cdef-0123-456789abcdef"),
         "manifest partial removed"
     );
     fs::remove_all(root);

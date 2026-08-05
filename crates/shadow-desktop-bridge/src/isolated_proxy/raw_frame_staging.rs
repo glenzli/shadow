@@ -18,7 +18,7 @@ use super::helper_process::{
     helper_stderr_suffix,
 };
 
-const PROTOCOL: &str = "shadow-raw-frame-staging-v1";
+const PROTOCOL: &str = "shadow-raw-frame-staging-20260806.1";
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 const MAX_SAMPLE_BYTES: u64 = 512 * 1024 * 1024;
 

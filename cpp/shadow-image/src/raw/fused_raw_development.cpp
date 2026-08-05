@@ -249,7 +249,7 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=neutral-v1";
+        return "sensor-highlights=camera-chroma-blend-20260806.2";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
@@ -294,6 +294,11 @@ bool RawFrameLinearTransform::valid() const noexcept {
             return false;
         }
         non_zero = non_zero || coefficient != 0.0;
+    }
+    for (const double neutral : camera_neutral) {
+        if (!std::isfinite(neutral) || neutral <= 0.0) {
+            return false;
+        }
     }
     return non_zero;
 }

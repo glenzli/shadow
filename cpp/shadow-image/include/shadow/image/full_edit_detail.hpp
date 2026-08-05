@@ -184,6 +184,14 @@ class FullEditDetailSession final {
         const OpticsSettings& optics_settings
     );
     friend FullEditDetailSession prepare_full_edit_detail(
+        const DecodeSession& metadata_session,
+        const RawDevelopmentPlan& raw_development_plan,
+        RawFrame staged_frame,
+        const FullEditDetailSourceRequirements& requirements,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
+    friend FullEditDetailSession prepare_full_edit_detail(
         const DecodeSession& session,
         const RawDevelopmentPlan& raw_development_plan,
         const RawFoundationCameraRgbView& foundation,
@@ -228,6 +236,19 @@ class FullEditDetailSession final {
     const DecodeSession& session,
     const RawDevelopmentPlan& raw_development_plan,
     const FullEditDetailSourceRequirements& requirements,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// Full-resolution counterpart of the staged ordinary RAW preview route.
+// The helper-produced sensor frame is developed by Shadow so absolute RAW
+// white balance remains executable without loading the private provider in
+// the host process.
+[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& metadata_session,
+    const RawDevelopmentPlan& raw_development_plan,
+    RawFrame staged_frame,
+    const FullEditDetailSourceRequirements& requirements = {},
     const OpticsProvider* optics_provider = nullptr,
     const OpticsSettings& optics_settings = default_optics_settings()
 );

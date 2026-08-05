@@ -420,6 +420,27 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_f
     return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
+std::unique_ptr<EditPreviewHandle>
+DecodeHandle::prepare_edit_preview_with_staged_raw_development_plan(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const rust::Str staging_manifest_path
+) const {
+    image::RawFrame staged_frame =
+        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+    auto prepared = image::prepare_rebindable_warm_edit_preview(
+        *session_,
+        max_edge,
+        raw_development_plan(plan),
+        std::move(staged_frame),
+        optics_provider_,
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
+    return std::make_unique<EditPreviewHandle>(std::move(prepared));
+}
+
 std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
     const std::uint32_t max_edge,
     const FfiRawDevelopmentPlan& plan,
@@ -763,6 +784,29 @@ std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_raw
         *session_,
         raw_development_plan(plan),
         view,
+        image::FullEditDetailSourceRequirements{
+            .requires_cpu_replay = requirements.requires_cpu_replay,
+        },
+        optics_provider_.get(),
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
+    return std::make_unique<FullEditDetailHandle>(std::move(prepared));
+}
+
+std::unique_ptr<FullEditDetailHandle>
+DecodeHandle::prepare_edit_detail_with_staged_raw_development_plan(
+    const FfiRawDevelopmentPlan& plan,
+    const rust::Str staging_manifest_path,
+    const FfiDetailSessionRequirements& requirements
+) const {
+    image::RawFrame staged_frame =
+        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+    auto prepared = image::prepare_full_edit_detail(
+        *session_,
+        raw_development_plan(plan),
+        std::move(staged_frame),
         image::FullEditDetailSourceRequirements{
             .requires_cpu_replay = requirements.requires_cpu_replay,
         },

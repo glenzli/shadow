@@ -17,14 +17,15 @@ class RawFrameStagingContract(unittest.TestCase):
             sample_path = Path(f"{manifest}.u16le")
             sample_path.write_bytes(samples.tobytes())
             manifest.write_text(
-                "shadow-raw-frame-staging-v1 "
-                "descriptor_contract=active-camera-colour-v1 "
+                "shadow-raw-frame-staging-20260806.1 "
+                "descriptor_contract=active-camera-colour-20260806.1 "
                 "width=4 height=4 cfa=GRBG "
                 "black=64,65,66,67 "
                 "white=16383,16383,16383,16383 "
                 "orientation=0 bits_per_sample=14 "
                 "as_shot_neutral=2,1,1.5,1 "
                 "camera_to_xyz_d50=- "
+                "xyz_to_camera_d65=1,0,0,0,1,0,0,0,1 "
                 "camera_to_linear_srgb_d65=1,0,0,0,1,0,0,0,1 "
                 "pending_dng_opcode_bytes=0,0,0 "
                 "provider_id_hex=736861646f772e74657374 "
@@ -44,13 +45,14 @@ class RawFrameStagingContract(unittest.TestCase):
             manifest = Path(directory_name) / "frame.shadowrawi"
             Path(f"{manifest}.u16le").write_bytes(b"\0" * 30)
             manifest.write_text(
-                "shadow-raw-frame-staging-v1 "
-                "descriptor_contract=active-camera-colour-v1 "
+                "shadow-raw-frame-staging-20260806.1 "
+                "descriptor_contract=active-camera-colour-20260806.1 "
                 "width=4 height=4 cfa=RGGB "
                 "black=0,0,0,0 white=1,1,1,1 "
                 "orientation=0 bits_per_sample=14 "
                 "as_shot_neutral=2,1,1.5,1 "
                 "camera_to_xyz_d50=- "
+                "xyz_to_camera_d65=1,0,0,0,1,0,0,0,1 "
                 "camera_to_linear_srgb_d65=1,0,0,0,1,0,0,0,1 "
                 "pending_dng_opcode_bytes=0,0,0 "
                 "provider_id_hex=- provider_version_hex=- "

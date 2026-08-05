@@ -19,6 +19,7 @@ void prefix_and_append_reject_duplicates_without_mutating_the_model();
 void snapshot_reconciliation_rejects_wrong_generation_without_mutation();
 void identical_snapshot_reconciliation_is_a_signal_free_no_op();
 void remote_rows_use_local_proxy_urls_and_replace_without_resetting_local_rows();
+void local_and_remote_rows_share_one_presentation_order();
 void remote_replacement_rejects_local_items_and_key_collisions();
 
 } // namespace review_model_test
@@ -42,6 +43,7 @@ int main() {
     snapshot_reconciliation_rejects_wrong_generation_without_mutation();
     identical_snapshot_reconciliation_is_a_signal_free_no_op();
     remote_rows_use_local_proxy_urls_and_replace_without_resetting_local_rows();
+    local_and_remote_rows_share_one_presentation_order();
     remote_replacement_rejects_local_items_and_key_collisions();
     return EXIT_SUCCESS;
 }

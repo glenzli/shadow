@@ -28,7 +28,7 @@ struct RemotePhotoAggregate final {
     std::uint32_t source_location_count = 1;
     bool has_raw_representation = false;
     bool has_raster_representation = false;
-    bool is_materialized = false;
+    bool has_cached_original = false;
 
     [[nodiscard]] const RemotePhotoSourceChoice* preferredSource() const noexcept;
 };

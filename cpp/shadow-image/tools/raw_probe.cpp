@@ -33,7 +33,7 @@ namespace image = shadow::image;
 using Clock = std::chrono::steady_clock;
 
 class Stopwatch final {
-public:
+  public:
     Stopwatch() : started_at_(Clock::now()) {}
 
     [[nodiscard]] double elapsed_ms() const {
@@ -41,14 +41,11 @@ public:
         return std::chrono::duration<double, std::milli>(elapsed).count();
     }
 
-private:
+  private:
     Clock::time_point started_at_;
 };
 
-void write_binary(
-    const fs::path& path,
-    const std::span<const std::uint8_t> bytes
-) {
+void write_binary(const fs::path& path, const std::span<const std::uint8_t> bytes) {
     std::ofstream output(path, std::ios::binary);
     if (!output) {
         throw std::runtime_error("cannot create " + path.string());
@@ -80,8 +77,8 @@ void write_u16_pnm(
     if (!output) {
         throw std::runtime_error("cannot create " + path.string());
     }
-    output << (channels == 1U ? "P5\n" : "P6\n") << dimensions.width << ' '
-           << dimensions.height << "\n65535\n";
+    output << (channels == 1U ? "P5\n" : "P6\n") << dimensions.width << ' ' << dimensions.height
+           << "\n65535\n";
     for (const std::uint16_t value : samples) {
         const char bytes[2] = {
             static_cast<char>((value >> 8U) & 0xffU),
@@ -102,9 +99,8 @@ struct ProbeLinearSource final {
     bool scene_linear_f32 = false;
 };
 
-[[nodiscard]] ProbeLinearSource materialize_probe_source(
-    const image::DevelopedSourcePixels& source
-) {
+[[nodiscard]] ProbeLinearSource
+materialize_probe_source(const image::DevelopedSourcePixels& source) {
     if (const auto* packed = std::get_if<image::PixelBuffer>(&source)) {
         return ProbeLinearSource{
             .dimensions = packed->dimensions,
@@ -118,9 +114,9 @@ struct ProbeLinearSource final {
     result.samples.resize(scene.samples.size());
     result.scene_linear_f32 = true;
     for (std::size_t index = 0U; index < scene.samples.size(); ++index) {
-        result.samples[index] = static_cast<std::uint16_t>(std::lround(std::clamp(
-            static_cast<double>(scene.samples[index]), 0.0, 1.0
-        ) * 65'535.0));
+        result.samples[index] = static_cast<std::uint16_t>(
+            std::lround(std::clamp(static_cast<double>(scene.samples[index]), 0.0, 1.0) * 65'535.0)
+        );
     }
     return result;
 }
@@ -139,8 +135,8 @@ void write_bitmap_preview(const fs::path& path, const image::PreviewPayload& pre
     if (!output) {
         throw std::runtime_error("cannot create " + path.string());
     }
-    output << (descriptor.channels == 1U ? "P5\n" : "P6\n")
-           << descriptor.dimensions.width << ' ' << descriptor.dimensions.height << "\n255\n";
+    output << (descriptor.channels == 1U ? "P5\n" : "P6\n") << descriptor.dimensions.width << ' '
+           << descriptor.dimensions.height << "\n255\n";
     output.write(
         reinterpret_cast<const char*>(preview.bytes.data()),
         static_cast<std::streamsize>(preview.bytes.size())
@@ -159,7 +155,8 @@ void write_bitmap_preview(const fs::path& path, const image::PreviewPayload& pre
     case image::PreviewFormat::jpeg:
         return output_directory / "embedded-preview.jpg";
     case image::PreviewFormat::bitmap:
-        return output_directory / (channels == 1U ? "embedded-preview.pgm" : "embedded-preview.ppm");
+        return output_directory
+               / (channels == 1U ? "embedded-preview.pgm" : "embedded-preview.ppm");
     case image::PreviewFormat::jpeg_xl:
         return output_directory / "embedded-preview.jxl";
     case image::PreviewFormat::h265:
@@ -209,8 +206,8 @@ void print_session(const image::ProviderInfo& provider, const image::DecodeSessi
               << "decoder.capability.embedded_previews="
               << (capabilities.embedded_previews ? "yes" : "no") << '\n'
               << "decoder.capability.raw_frame=" << (capabilities.raw_frame ? "yes" : "no") << '\n'
-              << "decoder.capability.reference_rgb="
-              << (capabilities.reference_rgb ? "yes" : "no") << '\n'
+              << "decoder.capability.reference_rgb=" << (capabilities.reference_rgb ? "yes" : "no")
+              << '\n'
               << "decoder.pending_corrections="
               << (capabilities.pending_corrections.has_pending() ? "yes" : "no") << '\n'
               << "thumbnail.candidates=" << session.previews().size() << '\n';
@@ -288,6 +285,28 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
               << "raw_frame.bits=" << frame.descriptor.bits_per_sample << '\n'
               << "raw_frame.cfa=" << frame.descriptor.cfa_pattern << '\n'
               << "raw_frame.bayer_2x2=" << (frame.is_bayer_2x2() ? "yes" : "no") << '\n'
+              << "raw_frame.as_shot_neutral=" << frame.descriptor.as_shot_neutral[0] << ','
+              << frame.descriptor.as_shot_neutral[1] << ',' << frame.descriptor.as_shot_neutral[2]
+              << ',' << frame.descriptor.as_shot_neutral[3] << '\n'
+              << "raw_frame.camera_to_linear_srgb_d65="
+              << frame.descriptor.camera_to_linear_srgb_d65[0] << ','
+              << frame.descriptor.camera_to_linear_srgb_d65[1] << ','
+              << frame.descriptor.camera_to_linear_srgb_d65[2] << ';'
+              << frame.descriptor.camera_to_linear_srgb_d65[3] << ','
+              << frame.descriptor.camera_to_linear_srgb_d65[4] << ','
+              << frame.descriptor.camera_to_linear_srgb_d65[5] << ';'
+              << frame.descriptor.camera_to_linear_srgb_d65[6] << ','
+              << frame.descriptor.camera_to_linear_srgb_d65[7] << ','
+              << frame.descriptor.camera_to_linear_srgb_d65[8] << '\n'
+              << "raw_frame.xyz_to_camera_d65=" << frame.descriptor.xyz_to_camera_d65[0] << ','
+              << frame.descriptor.xyz_to_camera_d65[1] << ','
+              << frame.descriptor.xyz_to_camera_d65[2] << ';'
+              << frame.descriptor.xyz_to_camera_d65[3] << ','
+              << frame.descriptor.xyz_to_camera_d65[4] << ','
+              << frame.descriptor.xyz_to_camera_d65[5] << ';'
+              << frame.descriptor.xyz_to_camera_d65[6] << ','
+              << frame.descriptor.xyz_to_camera_d65[7] << ','
+              << frame.descriptor.xyz_to_camera_d65[8] << '\n'
               << "raw_frame.sensor_noise.model=" << sensor_noise_model << '\n'
               << "raw_frame.sensor_noise.source=" << sensor_noise_source << '\n'
               << "raw_frame.sensor_noise.iso=" << sensor_noise.iso_sensitivity << '\n'
@@ -373,9 +392,16 @@ void inspect_neural_raw_frame(image::DecodeSession& session, const fs::path& out
               << "timing.neural_raw_frame_ms=" << timer.elapsed_ms() << '\n';
 }
 
-void render_reference_rgb(image::DecodeSession& session, const fs::path& output_directory) {
+void render_reference_rgb(
+    image::DecodeSession& session,
+    const fs::path& output_directory,
+    const std::optional<image::RawWhiteBalance> white_balance
+) {
     const Stopwatch timer;
-    const auto plan = image::default_raw_development_plan();
+    auto plan = image::default_raw_development_plan();
+    if (white_balance.has_value()) {
+        plan.white_balance = *white_balance;
+    }
     const image::DevelopedSourceReference source = image::develop_source_reference(
         session,
         plan,
@@ -401,7 +427,8 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
               << source.raw_development_receipt.effective_plan_identity << '\n'
               << "reference_rgb.development="
               << source.raw_development_receipt.development_settings_signature << '\n'
-              << "reference_rgb.storage=" << (rendered.scene_linear_f32 ? "scene-linear-f32" : "packed-u16") << '\n'
+              << "reference_rgb.storage="
+              << (rendered.scene_linear_f32 ? "scene-linear-f32" : "packed-u16") << '\n'
               << "reference_rgb.pipeline.path="
               << static_cast<unsigned>(source.pipeline_receipt.path) << '\n'
               << "reference_rgb.pipeline.identity="
@@ -412,11 +439,15 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
 
 void render_warm_preview_reference_rgb(
     image::DecodeSession& session,
-    const fs::path& output_directory
+    const fs::path& output_directory,
+    const std::optional<image::RawWhiteBalance> white_balance
 ) {
     constexpr std::uint32_t warm_preview_edge = 1'200U;
     const Stopwatch timer;
-    const auto plan = image::preview_raw_development_plan();
+    auto plan = image::preview_raw_development_plan();
+    if (white_balance.has_value()) {
+        plan.white_balance = *white_balance;
+    }
     const image::DevelopedSourceReference source = image::develop_source_reference(
         session,
         plan,
@@ -427,8 +458,8 @@ void render_warm_preview_reference_rgb(
     const fs::path output_path = output_directory / "preview-reference-linear-srgb-16bit.ppm";
     write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
     std::array<long double, 3U> channel_sum{};
-    const std::size_t pixel_count = static_cast<std::size_t>(rendered.dimensions.width)
-        * rendered.dimensions.height;
+    const std::size_t pixel_count =
+        static_cast<std::size_t>(rendered.dimensions.width) * rendered.dimensions.height;
     for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
         for (std::size_t channel = 0U; channel < channel_sum.size(); ++channel) {
             channel_sum[channel] += rendered.samples[pixel * rendered.channels + channel];
@@ -455,9 +486,7 @@ void render_warm_preview_reference_rgb(
               << "timing.preview_reference_ms=" << timer.elapsed_ms() << '\n';
 }
 
-[[nodiscard]] double display_high_frequency_energy(
-    const image::DisplayLumaImage& luma
-) {
+[[nodiscard]] double display_high_frequency_energy(const image::DisplayLumaImage& luma) {
     if (luma.dimensions.width < 3U || luma.dimensions.height < 3U) {
         return 0.0;
     }
@@ -465,21 +494,17 @@ void render_warm_preview_reference_rgb(
     std::uint64_t sample_count = 0U;
     for (std::uint32_t y = 1U; y + 1U < luma.dimensions.height; ++y) {
         for (std::uint32_t x = 1U; x + 1U < luma.dimensions.width; ++x) {
-            const std::size_t center = static_cast<std::size_t>(y)
-                    * luma.row_stride_samples + x;
-            const double neighbourhood = (
-                luma.samples[center - 1U]
-                + luma.samples[center + 1U]
-                + luma.samples[center - luma.row_stride_samples]
-                + luma.samples[center + luma.row_stride_samples]
-            ) * 0.25;
+            const std::size_t center = static_cast<std::size_t>(y) * luma.row_stride_samples + x;
+            const double neighbourhood = (luma.samples[center - 1U] + luma.samples[center + 1U]
+                                          + luma.samples[center - luma.row_stride_samples]
+                                          + luma.samples[center + luma.row_stride_samples])
+                                         * 0.25;
             total += std::abs(static_cast<double>(luma.samples[center]) - neighbourhood);
             ++sample_count;
         }
     }
-    return sample_count == 0U ? 0.0 : static_cast<double>(
-        total / static_cast<long double>(sample_count)
-    );
+    return sample_count == 0U ? 0.0
+                              : static_cast<double>(total / static_cast<long double>(sample_count));
 }
 
 void render_warm_denoise_diagnostic(
@@ -490,10 +515,8 @@ void render_warm_denoise_diagnostic(
     // a 1536px warm edit source, its complete CPU fallback for non-local operations, JPEG output,
     // and the same Detail & Effects node representation that is persisted in the catalog.
     constexpr std::uint32_t warm_preview_edge = 1'536U;
-    const image::WarmEditPreviewSession preview = image::prepare_warm_edit_preview(
-        session,
-        warm_preview_edge
-    );
+    const image::WarmEditPreviewSession preview =
+        image::prepare_warm_edit_preview(session, warm_preview_edge);
     const std::array<image::AdjustmentNode, 0U> neutral_nodes{};
     const std::array denoise_nodes{
         image::AdjustmentNode{
@@ -526,8 +549,10 @@ void render_warm_denoise_diagnostic(
     write_binary(output_directory / "warm-denoise-l100-d24-c100.jpg", denoised.proxy.bytes);
     write_binary(output_directory / "warm-raw-denoise-robust.jpg", raw_denoised.proxy.bytes);
 
-    const image::DisplayLumaImage neutral_luma = image::decode_jpeg_display_luma(neutral.proxy.bytes);
-    const image::DisplayLumaImage denoised_luma = image::decode_jpeg_display_luma(denoised.proxy.bytes);
+    const image::DisplayLumaImage neutral_luma =
+        image::decode_jpeg_display_luma(neutral.proxy.bytes);
+    const image::DisplayLumaImage denoised_luma =
+        image::decode_jpeg_display_luma(denoised.proxy.bytes);
     const image::DisplayLumaImage raw_denoised_luma =
         image::decode_jpeg_display_luma(raw_denoised.proxy.bytes);
     if (neutral_luma.dimensions != denoised_luma.dimensions
@@ -563,22 +588,25 @@ void render_warm_denoise_diagnostic(
               << "denoise_diagnostic.execution.denoised="
               << backend_name(denoised.execution.adjustment_backend) << '\n'
               << "denoise_diagnostic.display_mean_absolute_difference="
-              << static_cast<double>(absolute_difference
-                  / static_cast<long double>(neutral_luma.samples.size())) << '\n'
+              << static_cast<double>(
+                     absolute_difference / static_cast<long double>(neutral_luma.samples.size())
+                 )
+              << '\n'
               << "denoise_diagnostic.raw_robust_display_mean_absolute_difference="
-              << static_cast<double>(raw_absolute_difference
-                  / static_cast<long double>(neutral_luma.samples.size())) << '\n'
-              << "denoise_diagnostic.display_high_frequency_energy.neutral="
-              << neutral_energy << '\n'
-              << "denoise_diagnostic.display_high_frequency_energy.denoised="
-              << denoised_energy << '\n'
+              << static_cast<double>(
+                     raw_absolute_difference / static_cast<long double>(neutral_luma.samples.size())
+                 )
+              << '\n'
+              << "denoise_diagnostic.display_high_frequency_energy.neutral=" << neutral_energy
+              << '\n'
+              << "denoise_diagnostic.display_high_frequency_energy.denoised=" << denoised_energy
+              << '\n'
               << "denoise_diagnostic.display_high_frequency_energy_reduction="
               << (neutral_energy == 0.0 ? 0.0 : 1.0 - denoised_energy / neutral_energy) << '\n'
-              << "denoise_diagnostic.raw_robust_high_frequency_energy="
-              << raw_denoised_energy << '\n'
-              << "denoise_diagnostic.raw_robust_high_frequency_energy_reduction="
-              << (neutral_energy == 0.0 ? 0.0 : 1.0 - raw_denoised_energy / neutral_energy)
+              << "denoise_diagnostic.raw_robust_high_frequency_energy=" << raw_denoised_energy
               << '\n'
+              << "denoise_diagnostic.raw_robust_high_frequency_energy_reduction="
+              << (neutral_energy == 0.0 ? 0.0 : 1.0 - raw_denoised_energy / neutral_energy) << '\n'
               << "denoise_diagnostic.raw_robust_development="
               << raw_denoised_preview.raw_development_receipt().development_settings_signature
               << '\n'
@@ -590,10 +618,35 @@ void render_warm_denoise_diagnostic(
               << (output_directory / "warm-raw-denoise-robust.jpg").string() << '\n'
               << "timing.denoise_diagnostic.neutral_ms=" << neutral_ms << '\n'
               << "timing.denoise_diagnostic.denoised_ms=" << denoised_ms << '\n'
-              << "timing.denoise_diagnostic.raw_robust_prepare_ms="
-              << raw_denoise_prepare_ms << '\n'
-              << "timing.denoise_diagnostic.raw_robust_render_ms="
-              << raw_denoise_render_ms << '\n';
+              << "timing.denoise_diagnostic.raw_robust_prepare_ms=" << raw_denoise_prepare_ms
+              << '\n'
+              << "timing.denoise_diagnostic.raw_robust_render_ms=" << raw_denoise_render_ms << '\n';
+}
+
+void render_warm_highlight_diagnostic(
+    const image::DecodeSession& session,
+    const fs::path& output_directory
+) {
+    constexpr std::uint32_t warm_preview_edge = 1'536U;
+    const std::array<image::AdjustmentNode, 0U> neutral_nodes{};
+    auto enabled_plan = image::preview_raw_development_plan();
+    auto disabled_plan = enabled_plan;
+    disabled_plan.highlight_recovery = image::RawHighlightRecoveryIntent::disabled;
+    const image::WarmEditPreviewSession enabled =
+        image::prepare_warm_edit_preview(session, warm_preview_edge, enabled_plan);
+    const image::WarmEditPreviewSession disabled =
+        image::prepare_warm_edit_preview(session, warm_preview_edge, disabled_plan);
+    const image::AnalyzedEditPreview enabled_preview =
+        enabled.render_jpeg_with_analysis(neutral_nodes);
+    const image::AnalyzedEditPreview disabled_preview =
+        disabled.render_jpeg_with_analysis(neutral_nodes);
+    write_binary(output_directory / "warm-highlight-default.jpg", enabled_preview.proxy.bytes);
+    write_binary(output_directory / "warm-highlight-disabled.jpg", disabled_preview.proxy.bytes);
+    std::cout << "highlight_diagnostic.status=ok\n"
+              << "highlight_diagnostic.default_output="
+              << (output_directory / "warm-highlight-default.jpg").string() << '\n'
+              << "highlight_diagnostic.disabled_output="
+              << (output_directory / "warm-highlight-disabled.jpg").string() << '\n';
 }
 
 int run(
@@ -601,8 +654,10 @@ int run(
     const fs::path& output_directory,
     const bool preview_only,
     const bool denoise_diagnostic,
+    const bool highlight_diagnostic,
     const bool raw_frame_only,
-    const bool neural_raw_only
+    const bool neural_raw_only,
+    const std::optional<image::RawWhiteBalance> white_balance
 ) {
     fs::create_directories(output_directory);
     // Deliberately use the same routed provider as the desktop app. With no
@@ -613,8 +668,7 @@ int run(
 
     const Stopwatch open_timer;
     const auto session = provider->open(input_path);
-    std::cout << std::fixed << std::setprecision(3)
-              << "input=" << input_path.string() << '\n'
+    std::cout << std::fixed << std::setprecision(3) << "input=" << input_path.string() << '\n'
               << "output_directory=" << output_directory.string() << '\n'
               << "timing.open_ms=" << open_timer.elapsed_ms() << '\n';
     print_session(provider->info(), *session);
@@ -652,7 +706,11 @@ int run(
         }
         return 0;
     }
-    render_warm_preview_reference_rgb(*session, output_directory);
+    render_warm_preview_reference_rgb(*session, output_directory, white_balance);
+    if (highlight_diagnostic) {
+        render_warm_highlight_diagnostic(*session, output_directory);
+        return 0;
+    }
     if (denoise_diagnostic) {
         render_warm_denoise_diagnostic(*session, output_directory);
         return 0;
@@ -663,45 +721,70 @@ int run(
     if (!session->capabilities().raw_frame) {
         std::cout << "raw_frame.status=unavailable\n"
                   << "raw_frame.reason=provider-does-not-expose-raw-frame\n";
-        render_reference_rgb(*session, output_directory);
+        render_reference_rgb(*session, output_directory, white_balance);
         return 0;
     }
     inspect_raw_frame(*session, output_directory);
-    render_reference_rgb(*session, output_directory);
+    render_reference_rgb(*session, output_directory, white_balance);
     return 0;
 }
 
 } // namespace
 
 int main(const int argument_count, char** arguments) {
-    const bool preview_only = argument_count == 4
-        && std::string_view(arguments[3]) == "--preview-only";
-    const bool denoise_diagnostic = argument_count == 4
-        && std::string_view(arguments[3]) == "--denoise-diagnostic";
+    const bool preview_only =
+        argument_count == 4 && std::string_view(arguments[3]) == "--preview-only";
+    const bool denoise_diagnostic =
+        argument_count == 4 && std::string_view(arguments[3]) == "--denoise-diagnostic";
+    const bool highlight_diagnostic =
+        argument_count == 4 && std::string_view(arguments[3]) == "--highlight-diagnostic";
     const bool raw_frame_only =
         argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-only";
     const bool neural_raw_only =
         argument_count == 4 && std::string_view(arguments[3]) == "--neural-raw-only";
-    if (argument_count != 3 && !preview_only && !denoise_diagnostic && !raw_frame_only
-        && !neural_raw_only) {
+    const bool manual_white_balance =
+        argument_count == 6 && std::string_view(arguments[3]) == "--manual-white-balance";
+    if (argument_count != 3 && !preview_only && !denoise_diagnostic && !highlight_diagnostic
+        && !raw_frame_only && !neural_raw_only && !manual_white_balance) {
         std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> "
-                     "[--preview-only|--denoise-diagnostic|--raw-frame-only|"
-                     "--neural-raw-only]\n";
+                     "[--preview-only|--denoise-diagnostic|--highlight-diagnostic|"
+                     "--raw-frame-only|"
+                     "--neural-raw-only|--manual-white-balance <kelvin> <tint>]\n";
         return 2;
     }
 
     try {
+        std::optional<image::RawWhiteBalance> white_balance;
+        if (manual_white_balance) {
+            const auto temperature = std::stoul(arguments[4]);
+            const auto tint = std::stol(arguments[5]);
+            if (temperature > std::numeric_limits<std::uint32_t>::max()
+                || tint < std::numeric_limits<std::int16_t>::min()
+                || tint > std::numeric_limits<std::int16_t>::max()) {
+                throw std::invalid_argument("manual white balance is outside its integer range");
+            }
+            white_balance = image::RawWhiteBalance{
+                .mode = image::RawWhiteBalanceMode::temperature_tint,
+                .temperature_kelvin = static_cast<std::uint32_t>(temperature),
+                .tint = static_cast<std::int16_t>(tint),
+            };
+            if (!image::valid_raw_white_balance(*white_balance)) {
+                throw std::invalid_argument("manual white balance is outside the supported range");
+            }
+        }
         return run(
             arguments[1],
             arguments[2],
             preview_only,
             denoise_diagnostic,
+            highlight_diagnostic,
             raw_frame_only,
-            neural_raw_only
+            neural_raw_only,
+            white_balance
         );
     } catch (const image::DecodeError& error) {
-        std::cerr << "shadow-raw-probe: " << error.what() << " [provider="
-                  << error.provider_code() << "]\n";
+        std::cerr << "shadow-raw-probe: " << error.what() << " [provider=" << error.provider_code()
+                  << "]\n";
         return 1;
     } catch (const std::exception& error) {
         std::cerr << "shadow-raw-probe: " << error.what() << '\n';

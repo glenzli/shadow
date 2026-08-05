@@ -1,6 +1,7 @@
 #include "review_remote_library_coordinator.hpp"
 
 #include <QDateTime>
+#include <QFileInfo>
 #include <QUrl>
 #include <QVariantMap>
 #include <QtConcurrentRun>
@@ -426,6 +427,17 @@ void ReviewRemoteLibraryCoordinator::materializeForEdit(const QString& presentat
         setStatus(QStringLiteral("remote-photo-unavailable"));
         return;
     }
+    if (source->photo.has_cached_original && !source->photo.local_photo_id.isEmpty()
+        && !source->photo.local_representation_id.isEmpty()
+        && QFileInfo::exists(source->photo.local_source_path)) {
+        emit remotePhotoReady(
+            source->photo.local_photo_id,
+            source->photo.local_representation_id,
+            source->photo.local_source_path,
+            source->photo.title
+        );
+        return;
+    }
     if (!snapshot->has_server || !snapshot->server.originals_available) {
         setConnectionStatus(connection_id, QStringLiteral("remote-original-unavailable"));
         return;
@@ -655,7 +667,23 @@ void ReviewRemoteLibraryCoordinator::finishMaterializeTask() {
     }
     const auto found = photos_.find(result.presentation_photo_id);
     if (found != photos_.end()) {
-        found->is_materialized = true;
+        found->has_cached_original = true;
+        found->local_photo_id = result.materialization.local_photo_id;
+        found->local_representation_id = result.materialization.local_representation_id;
+        found->local_source_path = result.materialization.local_source_path;
+    }
+    const auto aggregate = photo_aggregates_.find(result.presentation_photo_id);
+    if (aggregate != photo_aggregates_.end()) {
+        aggregate->has_cached_original = true;
+        for (auto& source : aggregate->sources) {
+            if (source.connection_id != result.connection_id) {
+                continue;
+            }
+            source.photo.has_cached_original = true;
+            source.photo.local_photo_id = result.materialization.local_photo_id;
+            source.photo.local_representation_id = result.materialization.local_representation_id;
+            source.photo.local_source_path = result.materialization.local_source_path;
+        }
     }
     reapplyRemoteItems();
     setConnectionStatus(result.connection_id, QStringLiteral("original-ready"));
@@ -728,9 +756,6 @@ void ReviewRemoteLibraryCoordinator::rebuildPhotoAggregates() {
     photo_connection_ids_.clear();
     for (auto aggregate = photo_aggregates_.cbegin(); aggregate != photo_aggregates_.cend();
          ++aggregate) {
-        if (aggregate->is_materialized) {
-            continue;
-        }
         const RemotePhotoSourceChoice* preferred = aggregate->preferredSource();
         if (preferred == nullptr) {
             continue;
@@ -759,9 +784,6 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
     items.reserve(photos_.size());
     for (auto found = photos_.cbegin(); found != photos_.cend(); ++found) {
         const auto& source = found.value();
-        if (source.is_materialized) {
-            continue;
-        }
         const QString connection_id = photo_connection_ids_.value(found.key());
         const auto snapshot = snapshots_.constFind(connection_id);
         const bool originals_available = snapshot != snapshots_.cend() && snapshot->has_server
@@ -776,6 +798,7 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         item.visual_source_override =
             source.has_preview ? QUrl::fromLocalFile(source.preview_path).toString() : QString{};
         item.is_remote = true;
+        item.remote_original_cached = source.has_cached_original;
         item.remote_server_id = source.server_id;
         item.remote_photo_id = source.remote_photo_id;
         item.remote_representation_id = source.remote_representation_id;
@@ -786,7 +809,8 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         item.color_label = source.color_label;
         item.library_state_updated_at_ms = source.review_updated_at_ms;
         item.title = source.title;
-        item.source_available = originals_available;
+        item.source_path = source.has_cached_original ? source.local_source_path : QString{};
+        item.source_available = source.has_cached_original || originals_available;
         item.visual_role = source.preview_role;
         item.visual_width = source.preview_width;
         item.visual_height = source.preview_height;

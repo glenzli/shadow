@@ -30,6 +30,7 @@ struct RawDevelopmentParameters {
     float black_levels[4];
     float white_minus_black[4];
     float camera_to_linear_srgb[9];
+    float camera_neutral[3];
 };
 
 inline uint cfa_site(uint x, uint y) {
@@ -49,7 +50,7 @@ inline float normalized_sample(
 }
 
 inline float sensor_clip_evidence(const float normalized) {
-    return clamp((normalized - 0.98f) * 50.0f, 0.0f, 1.0f);
+    return clamp((normalized - 0.999f) * 1000.0f, 0.0f, 1.0f);
 }
 
 inline uint clipping_target_bin_begin(
@@ -199,44 +200,49 @@ inline CameraRgbSample camera_rgb_at(
     };
 }
 
-inline float smoothstep_scalar(const float edge0, const float edge1, const float value) {
-    const float normalized = clamp((value - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return normalized * normalized * (3.0f - 2.0f * normalized);
-}
-
-inline float3 neutralize_sensor_clipped_highlight(
-    const float3 scene_linear,
-    const CameraRgbSample camera
+inline float3 recover_sensor_clipped_camera_neutral(
+    const CameraRgbSample camera,
+    constant RawDevelopmentParameters& parameters
 ) {
-    const float3 sensor_clip_coverage = camera.sensor_clip_coverage;
-    const float lowest = min(
-        sensor_clip_coverage.x,
-        min(sensor_clip_coverage.y, sensor_clip_coverage.z)
+    const float3 neutral = float3(
+        parameters.camera_neutral[0],
+        parameters.camera_neutral[1],
+        parameters.camera_neutral[2]
     );
-    const float highest = max(
-        sensor_clip_coverage.x,
-        max(sensor_clip_coverage.y, sensor_clip_coverage.z)
+    const float3 balanced = camera.values / neutral;
+    const float common_clip = min(1.0f / neutral.x, min(1.0f / neutral.y, 1.0f / neutral.z));
+    if (max(balanced.x, max(balanced.y, balanced.z)) <= common_clip) {
+        return camera.values;
+    }
+    const float3 clipped = min(balanced, float3(common_clip));
+    const float3 original_opponent = float3(
+        balanced.x + balanced.y + balanced.z,
+        1.7320508075688772f * (balanced.x - balanced.y),
+        -balanced.x - balanced.y + 2.0f * balanced.z
     );
-    const float second_highest = sensor_clip_coverage.x + sensor_clip_coverage.y
-        + sensor_clip_coverage.z - lowest - highest;
-    const float camera_lowest = min(
-        camera.values.x,
-        min(camera.values.y, camera.values.z)
+    const float3 clipped_opponent = float3(
+        clipped.x + clipped.y + clipped.z,
+        1.7320508075688772f * (clipped.x - clipped.y),
+        -clipped.x - clipped.y + 2.0f * clipped.z
     );
-    const float camera_highest = max(
-        camera.values.x,
-        max(camera.values.y, camera.values.z)
+    const float original_chroma = dot(original_opponent.yz, original_opponent.yz);
+    if (original_chroma <= 1.0e-12f) {
+        return camera.values;
+    }
+    const float chroma_ratio = clamp(
+        sqrt(dot(clipped_opponent.yz, clipped_opponent.yz) / original_chroma),
+        0.0f,
+        1.0f
     );
-    const float camera_second_highest = camera.values.x + camera.values.y + camera.values.z
-        - camera_lowest - camera_highest;
-    const float multi_channel_clip = smoothstep_scalar(0.15f, 0.75f, second_highest);
-    const float single_channel_white = smoothstep_scalar(0.40f, 0.90f, highest)
-        * smoothstep_scalar(0.84f, 0.98f, camera_second_highest);
-    const float clipped_ratio = max(multi_channel_clip, single_channel_white);
-    const float peak = max(scene_linear.x, max(scene_linear.y, scene_linear.z));
-    const float highlight_ratio = smoothstep_scalar(0.85f, 1.05f, peak);
-    const float blend = clipped_ratio * highlight_ratio;
-    return mix(scene_linear, float3(max(0.0f, peak)), blend);
+    const float2 recovered_chroma = original_opponent.yz * chroma_ratio;
+    const float3 recovered_balanced = float3(
+        (original_opponent.x + 0.8660254037844386f * recovered_chroma.x
+         - 0.5f * recovered_chroma.y) / 3.0f,
+        (original_opponent.x - 0.8660254037844386f * recovered_chroma.x
+         - 0.5f * recovered_chroma.y) / 3.0f,
+        (original_opponent.x + recovered_chroma.y) / 3.0f
+    );
+    return max(recovered_balanced * neutral, float3(0.0f));
 }
 
 )METAL";

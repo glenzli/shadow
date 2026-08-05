@@ -19,6 +19,7 @@ use super::{
         MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
     },
     ffi,
+    isolated_proxy::{configured_helper_path, stage_isolated_raw_frame},
     photo_provider::isolated_edit_raster,
     preview_cache_identity::current_source_environment_cache_identity,
     raw_foundation_render_source::{
@@ -219,40 +220,82 @@ impl DesktopSession {
                     prepared
                 }
                 Err(public_decoder_error) => {
-                    if let Err(policy_error) =
-                        ensure_foundation_allows_rgb_fallback(raw_development_plan)
-                    {
-                        return Err(anyhow!(
-                            "{policy_error}; public decoder could not prepare detail for {}: {public_decoder_error}",
-                            native_path.display()
-                        ));
-                    }
-                    // Preserve the same safety contract as warm previews. This is an RGB fallback,
-                    // so it may not provide native sensor-resolution detail, but it remains fully
-                    // editable and never requires a private SDK in the desktop process.
-                    let temporary_raster = isolated_edit_raster(
-                        &self.cache_root,
-                        &native_path,
-                        MAX_DETAIL_VIEWPORT_SIDE,
-                    )?;
-                    let isolated_result = PhotoEditDetailSession::open_with_requirements(
-                        &temporary_raster,
-                        raw_development_plan,
-                        &optics,
-                        requirements,
-                    );
-                    let _ = std::fs::remove_file(&temporary_raster);
-                    let prepared = isolated_result.with_context(|| {
+                    if !raw_development_plan.white_balance.is_as_shot() {
+                        let helper_path = configured_helper_path().ok_or_else(|| {
+                            anyhow!(
+                                "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare detail for {}: {public_decoder_error}",
+                                native_path.display()
+                            )
+                        })?;
+                        let staging_root = self
+                            .cache_root
+                            .join("decode-helper")
+                            .join("raw-frame-staging");
+                        let staging = stage_isolated_raw_frame(
+                            &helper_path,
+                            &staging_root,
+                            &native_path,
+                        )
+                        .with_context(|| {
+                            format!(
+                                "stage provider-neutral RawFrame for manual Foundation detail after public decoder could not prepare {}: {public_decoder_error}",
+                                native_path.display()
+                            )
+                        })?;
+                        let prepared = PhotoEditDetailSession::open_with_staged_raw_development_plan(
+                            &native_path,
+                            staging.manifest_path(),
+                            raw_development_plan,
+                            &optics,
+                            requirements,
+                        )
+                        .with_context(|| {
+                            format!(
+                                "prepare manual Foundation detail from the isolated RawFrame for {}",
+                                native_path.display()
+                            )
+                        })?;
+                        ensure_foundation_development_receipt(
+                            raw_development_plan,
+                            prepared.raw_pipeline_receipt(),
+                        )?;
+                        prepared
+                    } else {
+                        if let Err(policy_error) =
+                            ensure_foundation_allows_rgb_fallback(raw_development_plan)
+                        {
+                            return Err(anyhow!(
+                                "{policy_error}; public decoder could not prepare detail for {}: {public_decoder_error}",
+                                native_path.display()
+                            ));
+                        }
+                        // Preserve the same safety contract as warm previews. This is an RGB fallback,
+                        // so it may not provide native sensor-resolution detail, but it remains fully
+                        // editable and never requires a private SDK in the desktop process.
+                        let temporary_raster = isolated_edit_raster(
+                            &self.cache_root,
+                            &native_path,
+                            MAX_DETAIL_VIEWPORT_SIDE,
+                        )?;
+                        let isolated_result = PhotoEditDetailSession::open_with_requirements(
+                            &temporary_raster,
+                            raw_development_plan,
+                            &optics,
+                            requirements,
+                        );
+                        let _ = std::fs::remove_file(&temporary_raster);
+                        let prepared = isolated_result.with_context(|| {
                         format!(
                             "public decoder could not prepare detail for {}; isolated decoder fallback also failed: {public_decoder_error}",
                             native_path.display()
                         )
                     })?;
-                    ensure_foundation_development_receipt(
-                        raw_development_plan,
-                        prepared.raw_pipeline_receipt(),
-                    )?;
-                    prepared
+                        ensure_foundation_development_receipt(
+                            raw_development_plan,
+                            prepared.raw_pipeline_receipt(),
+                        )?;
+                        prepared
+                    }
                 }
             }
         };

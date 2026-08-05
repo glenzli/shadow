@@ -141,14 +141,16 @@ Current contract rules:
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - `RawFrame` intentionally copies LibRaw memory and preserves raw-coordinate samples, active
   margins, CFA layout, per-CFA black/white calibration, as-shot neutral, an optional explicit
-  Camera RGB -> XYZ D50 matrix, optional exact embedded sensor-noise calibration, and pending DNG
+  Camera RGB -> XYZ D50 matrix, the optional physical XYZ D65 -> Camera RGB calibration used to
+  derive manual temperature/tint neutrals, optional exact embedded sensor-noise calibration, and pending DNG
   opcode declarations. It is explicitly
   pre-demosaic; unsupported CFA layouts remain inspectable but cannot enter Bayer-only
   processing. A later opaque/tiled buffer can remove this copy without changing the frame
   semantics.
 - `src/raw/raw_frame_staging.cpp` owns the short-lived AI sidecar projection of that same
   provider-neutral frame: the active Bayer rectangle is written as little-endian uint16 samples,
-  with CFA, black/white levels, and decoder identity in a bounded manifest. The sample file is
+  with CFA, black/white levels, both colour-calibration contracts, and decoder identity in a
+  bounded manifest. The sample file is
   published before the manifest and both stay outside the source tree.
 - Native-size Bayer reconstruction, the precompiled camera transform and orientation are fused
   into one output pass. The CPU path remains the exact reference. On macOS, Metal v1 performs the
@@ -199,7 +201,8 @@ DNG technology notice: This product includes DNG technology under license by Ado
 
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
-`metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, clipping, and highlight helpers;
+`metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, clipping, and the continuous
+camera-opponent highlight-chroma blend mirrored by the CPU region developer;
 `metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;
 `metal_raw_reconstruction_msl.hpp` owns balanced/high-quality detail and CFA-area previews; and
 `metal_dcp_color_msl.hpp` owns DCP post-processing. Host execution is split by transaction:
@@ -422,8 +425,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   `SHADOW_TEST_EDGE_AWARE_METAL_BENCHMARK`, `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK`,
   `SHADOW_TEST_FUSED_RAW_SENSOR_BENCHMARK`, and
   `SHADOW_TEST_FUSED_SENSOR_CLIPPING_BENCHMARK` timings.
-- `tests/fused_raw_highlight_treatment_contract_test.cpp` owns clipped-sensor neutralization,
-  explicit disablement, and CPU/Metal policy agreement.
+- `tests/fused_raw_highlight_treatment_contract_test.cpp` owns continuous clipped-highlight chroma
+  blending, explicit disablement, saturated-colour preservation, and CPU/Metal policy agreement.
 - `tests/fused_raw_input_validation_contract_test.cpp` owns typed rejection of unsupported
   orientation, transforms, highlight modes, and degenerate Bayer storage.
 - `tests/fused_raw_contract_test_support.hpp` owns only the synthetic RAW frame shared by those

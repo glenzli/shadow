@@ -42,8 +42,8 @@ namespace {
     if (source.photo.has_raw_representation) {
         rank += 2;
     }
-    if (!source.photo.is_materialized) {
-        rank += 1;
+    if (source.photo.has_cached_original) {
+        rank += 16;
     }
     return rank;
 }
@@ -87,7 +87,8 @@ void mergeAggregateSource(
         aggregate.has_raw_representation || source.photo.has_raw_representation;
     aggregate.has_raster_representation =
         aggregate.has_raster_representation || source.photo.has_raster_representation;
-    aggregate.is_materialized = aggregate.is_materialized || source.photo.is_materialized;
+    aggregate.has_cached_original =
+        aggregate.has_cached_original || source.photo.has_cached_original;
     const QString identity = sourceIdentity(source);
     for (auto& existing : aggregate.sources) {
         if (sourceIdentity(existing) == identity) {

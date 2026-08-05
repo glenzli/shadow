@@ -7647,6 +7647,11 @@ Technical detail: %1</source>
         <translation>网络图库来源</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewPhotoCard.qml" line="319"/>
+        <source>Remote original cached locally</source>
+        <translation>远程原片已缓存到本机</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewPhotoCard.qml" line="330"/>
         <source>RAW and JPEG representations</source>
         <translation>RAW 和 JPEG 表示</translation>

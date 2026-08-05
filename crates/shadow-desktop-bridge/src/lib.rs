@@ -257,7 +257,7 @@ mod ffi {
         liked: bool,
         color_label: String,
         review_updated_at_ms: i64,
-        is_materialized: bool,
+        has_cached_original: bool,
         local_photo_id: String,
         local_representation_id: String,
         local_source_path: String,

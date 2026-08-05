@@ -32,6 +32,7 @@ Item {
     readonly property bool sourceAvailable: entry.sourceAvailable === undefined
         ? true : Boolean(entry.sourceAvailable)
     readonly property bool isRemote: Boolean(entry.isRemote)
+    readonly property bool remoteOriginalCached: Boolean(entry.remoteOriginalCached)
     readonly property string remotePreviewUnavailableReason:
         String(entry.remotePreviewUnavailableReason || "")
     readonly property string visualRole: String(entry.visualRole || "")
@@ -314,9 +315,12 @@ Item {
                         objectName: "cardCaptionRemoteSourceIndicator"
                         visible: card.isRemote
                         source: "qrc:/icons/network.svg"
-                        color: Theme.textSecondary
+                        color: card.remoteOriginalCached
+                            ? Theme.successText : Theme.textSecondary
                         size: 13
-                        Accessible.name: qsTr("Network Library source")
+                        Accessible.name: card.remoteOriginalCached
+                            ? qsTr("Remote original cached locally")
+                            : qsTr("Network Library source")
                     }
 
                     Label {

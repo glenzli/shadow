@@ -43,9 +43,10 @@ struct RawDevelopmentParameters final {
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
+    float camera_neutral[3]{};
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 148U);
+static_assert(sizeof(RawDevelopmentParameters) == 160U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -56,11 +57,9 @@ static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 64U);
 static_assert(offsetof(RawDevelopmentParameters, black_levels) == 80U);
 static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 96U);
 static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 112U);
+static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
 
-
-[[nodiscard]] std::size_t configured_tile_budget(
-    const std::size_t maximum_buffer_bytes
-) noexcept {
+[[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
     std::size_t requested = desired_tile_bytes;
     // Scheduling-only test seam: changing this value cannot change the public pixels or receipt.
@@ -176,15 +175,16 @@ static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 112U)
     parameters.reconstruction_quality = static_cast<std::uint32_t>(quality);
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_channels[site] = cfa_channel(descriptor.bayer_2x2[site]);
-        parameters.black_levels[site] =
-            static_cast<float>(descriptor.black_levels[site]);
-        parameters.white_minus_black[site] = static_cast<float>(
-            descriptor.white_levels[site] - descriptor.black_levels[site]
-        );
+        parameters.black_levels[site] = static_cast<float>(descriptor.black_levels[site]);
+        parameters.white_minus_black[site] =
+            static_cast<float>(descriptor.white_levels[site] - descriptor.black_levels[site]);
     }
     for (std::size_t index = 0U; index < 9U; ++index) {
         parameters.camera_to_linear_srgb[index] =
             static_cast<float>(transform.camera_to_linear_srgb_d65[index]);
+    }
+    for (std::size_t index = 0U; index < 3U; ++index) {
+        parameters.camera_neutral[index] = static_cast<float>(transform.camera_neutral[index]);
     }
     return parameters;
 }
