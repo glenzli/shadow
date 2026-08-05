@@ -15,7 +15,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use shadow_catalog::CatalogActor;
+use shadow_catalog::{CatalogActor, CatalogError};
 use shadow_core::{DecodeInspectionActor, scan_folder_with_inspection};
 use shadow_library_sharing::{
     AuthorizationToken, CatalogSharePolicy, CatalogShareSource, LibraryServer, LibraryServerConfig,
@@ -269,12 +269,7 @@ impl LibraryServerService {
         share_roots: &[PathBuf],
         preview_runtime: LibraryServerPreviewRuntime,
     ) -> Result<()> {
-        let actor = CatalogActor::spawn(&self.storage.catalog_path).with_context(|| {
-            format!(
-                "open remote Library server Catalog {}",
-                self.storage.catalog_path.display()
-            )
-        })?;
+        let actor = self.open_catalog_actor()?;
         let mut catalog = actor.handle();
         let inspector = DecodeInspectionActor::spawn_with_cache(
             catalog.clone(),
@@ -292,6 +287,29 @@ impl LibraryServerService {
         drop(catalog);
         actor.shutdown()?;
         Ok(())
+    }
+
+    fn open_catalog_actor(&self) -> Result<CatalogActor> {
+        match CatalogActor::spawn(&self.storage.catalog_path) {
+            Ok(actor) => Ok(actor),
+            Err(CatalogError::DevelopmentCatalogResetRequired { .. }) => {
+                for catalog_path in catalog_files(&self.storage.catalog_path) {
+                    remove_file_if_present(&catalog_path)?;
+                }
+                CatalogActor::spawn(&self.storage.catalog_path).with_context(|| {
+                    format!(
+                        "rebuild incompatible remote Library server Catalog {}",
+                        self.storage.catalog_path.display()
+                    )
+                })
+            }
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "open remote Library server Catalog {}",
+                    self.storage.catalog_path.display()
+                )
+            }),
+        }
     }
 
     fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, ServiceState>> {

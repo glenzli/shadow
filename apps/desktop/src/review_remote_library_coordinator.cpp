@@ -1,7 +1,6 @@
 #include "review_remote_library_coordinator.hpp"
 
 #include <QDateTime>
-#include <QStringList>
 #include <QUrl>
 #include <QVariantMap>
 #include <QtConcurrentRun>
@@ -16,8 +15,6 @@ namespace {
 constexpr auto secret_service = "dev.shadow.photo.remote-library";
 constexpr auto legacy_secret_account = "library-sharing-token";
 constexpr auto secret_account_prefix = "library-sharing-token:";
-constexpr auto local_server_secret_service = "dev.shadow.photo.library-server";
-constexpr auto local_server_secret_account = "shared-access-token";
 
 [[nodiscard]] bool validAddress(const QString& value) {
     const QString normalized = value.trimmed();
@@ -32,28 +29,6 @@ constexpr auto local_server_secret_account = "shared-access-token";
     return normalized.size() >= 32 && normalized.size() <= 4'096
            && std::all_of(normalized.cbegin(), normalized.cend(), [](const QChar character) {
                   return character.isPrint() && !character.isSpace();
-              });
-}
-
-[[nodiscard]] bool isLoopbackServerAddress(const QString& value) {
-    const QString normalized = value.trimmed();
-    if (normalized.startsWith(QStringLiteral("[::1]:"))) {
-        return true;
-    }
-    const qsizetype separator = normalized.lastIndexOf(QLatin1Char(':'));
-    if (separator <= 0) {
-        return false;
-    }
-    const QString host = normalized.left(separator);
-    if (!host.startsWith(QStringLiteral("127."))) {
-        return false;
-    }
-    const QStringList octets = host.split(QLatin1Char('.'));
-    return octets.size() == 4
-           && std::all_of(octets.cbegin() + 1, octets.cend(), [](const QString& octet) {
-                  bool valid = false;
-                  const int value = octet.toInt(&valid);
-                  return valid && value >= 0 && value <= 255;
               });
 }
 
@@ -854,15 +829,6 @@ ReviewRemoteLibraryCoordinator::readAuthorization(const QString& connection_id) 
             .status = SecretStoreStatus::NotFound,
             .diagnostic = QStringLiteral("The remote Library connection no longer exists."),
         };
-    }
-    if (isLoopbackServerAddress(requested->address)) {
-        const SecretStoreResult local_server = secret_store_->read(
-            QString::fromLatin1(local_server_secret_service),
-            QString::fromLatin1(local_server_secret_account)
-        );
-        if (local_server.succeeded() && validToken(local_server.value)) {
-            return local_server;
-        }
     }
     return secret_store_->read(QString::fromLatin1(secret_service), tokenAccount(*requested));
 }

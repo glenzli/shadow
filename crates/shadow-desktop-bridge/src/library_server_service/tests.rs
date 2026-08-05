@@ -1,5 +1,6 @@
 use std::{fs, net::SocketAddr};
 
+use rusqlite::Connection;
 use shadow_library_sharing::AuthorizationToken;
 use uuid::Uuid;
 
@@ -62,5 +63,39 @@ fn managed_listener_scans_configured_root_and_stops_cleanly() {
     assert!(running.local_address.is_some());
     let stopped = service.stop().expect("stop managed server");
     assert!(!stopped.running);
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn incompatible_rebuildable_catalog_is_recreated_before_scanning() {
+    let root = std::env::temp_dir().join(format!("shadow-library-server-{}", Uuid::now_v7()));
+    let storage = LibraryServerStorage::for_root(root.join("service"));
+    fs::create_dir_all(storage.catalog_path.parent().expect("catalog parent"))
+        .expect("create service root");
+    let legacy = Connection::open(&storage.catalog_path).expect("open legacy catalog");
+    legacy
+        .execute_batch(
+            "CREATE TABLE catalog_schema (
+                 version INTEGER PRIMARY KEY NOT NULL,
+                 identity TEXT NOT NULL,
+                 created_at_ms INTEGER NOT NULL
+             ) STRICT;
+             INSERT INTO catalog_schema(version, identity, created_at_ms)
+             VALUES (1, 'shadow-catalog-v1-older-development-schema', 1);",
+        )
+        .expect("write legacy schema marker");
+    drop(legacy);
+
+    let service = LibraryServerService::new(storage.clone());
+    service
+        .open_catalog_actor()
+        .expect("rebuild incompatible server Catalog")
+        .shutdown()
+        .expect("stop rebuilt Catalog actor");
+    let identity: String = Connection::open(&storage.catalog_path)
+        .expect("reopen rebuilt catalog")
+        .query_row("SELECT identity FROM catalog_schema", [], |row| row.get(0))
+        .expect("read rebuilt schema identity");
+    assert!(identity.contains("logical-photo-representations"));
     fs::remove_dir_all(root).expect("remove fixture");
 }

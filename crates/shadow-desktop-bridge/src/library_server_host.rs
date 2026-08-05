@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 
 use crate::session_library_server::{project_snapshot, start_request};
 use crate::{LibraryServerService, LibraryServerStorage, ffi};
@@ -31,23 +31,38 @@ pub(crate) fn open_library_server_host(storage_root: &str) -> Result<Box<Library
 
 impl LibraryServerHost {
     pub(crate) fn snapshot(&self) -> Result<ffi::FfiLibraryServerSnapshot> {
-        self.service.snapshot().map(project_snapshot)
+        self.service
+            .snapshot()
+            .map(project_snapshot)
+            .map_err(|error| expanded_error(&error))
     }
 
     pub(crate) fn start(
         &self,
         config: &ffi::FfiLibraryServerConfig,
     ) -> Result<ffi::FfiLibraryServerSnapshot> {
+        let request = start_request(config).map_err(|error| expanded_error(&error))?;
         self.service
-            .start(start_request(config)?)
+            .start(request)
             .map(project_snapshot)
+            .map_err(|error| expanded_error(&error))
     }
 
     pub(crate) fn stop(&self) -> Result<ffi::FfiLibraryServerSnapshot> {
-        self.service.stop().map(project_snapshot)
+        self.service
+            .stop()
+            .map(project_snapshot)
+            .map_err(|error| expanded_error(&error))
     }
 
     pub(crate) fn reset_cache(&self) -> Result<ffi::FfiLibraryServerSnapshot> {
-        self.service.reset_cache().map(project_snapshot)
+        self.service
+            .reset_cache()
+            .map(project_snapshot)
+            .map_err(|error| expanded_error(&error))
     }
+}
+
+fn expanded_error(error: &Error) -> Error {
+    Error::msg(format!("{error:#}"))
 }

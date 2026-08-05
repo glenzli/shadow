@@ -507,83 +507,10 @@ void connection_store_preserves_stable_ids_and_legacy_migration() {
     );
 }
 
-void loopback_server_uses_the_local_server_credential_and_reports_rejection() {
+void authorization_rejection_is_actionable() {
     QTemporaryDir settings_root;
-    require(settings_root.isValid(), "loopback credential settings root");
-    const QString settings_file = settings_root.filePath(QStringLiteral("preferences.ini"));
-    RemoteLibraryConnectionStore store(settings_file);
-    const QString connection_id = store.add(QStringLiteral("127.0.0.1:37641"), true);
-
-    auto secrets = makeVolatileSecretStore();
-    require(
-        secrets
-            ->write(
-                QStringLiteral("dev.shadow.photo.remote-library"),
-                QStringLiteral("library-sharing-token:") + connection_id,
-                QString(32, QLatin1Char('x'))
-            )
-            .succeeded(),
-        "stale client token fixture"
-    );
-    require(
-        secrets
-            ->write(
-                QStringLiteral("dev.shadow.photo.library-server"),
-                QStringLiteral("shared-access-token"),
-                QString(32, QLatin1Char('l'))
-            )
-            .succeeded(),
-        "local server token fixture"
-    );
-
+    require(settings_root.isValid(), "authorization rejection settings root");
     ReviewModel model;
-    std::atomic<int> sync_calls = 0;
-    ReviewRemoteLibraryCoordinator coordinator(
-        {
-            .snapshot = [](const QString&) { return BackendRemoteLibrarySnapshot{}; },
-            .sync =
-                [&sync_calls](const QString&, const QString&, const QString& token) {
-                    require(
-                        token == QString(32, QLatin1Char('l')),
-                        "loopback sync must use the live local server token"
-                    );
-                    sync_calls.fetch_add(1, std::memory_order_acq_rel);
-                    return BackendRemoteLibrarySyncResult{};
-                },
-            .set_review_state = [](const QString&,
-                                   const QString&,
-                                   const QString&,
-                                   BackendReviewDecisionFlag,
-                                   std::uint8_t,
-                                   bool,
-                                   const QString&,
-                                   std::int64_t) {},
-            .materialize =
-                [](const QString&, const QString&, const QString&, const QString&, const QString&) {
-                    return BackendRemoteLibraryMaterialization{};
-                },
-        },
-        model,
-        settings_file,
-        std::move(secrets)
-    );
-    coordinator.start();
-    waitUntil([&coordinator]() { return !coordinator.busy(); }, "loopback cache load");
-    coordinator.syncNow(connection_id);
-    waitUntil(
-        [&coordinator, &sync_calls]() {
-            return !coordinator.busy() && sync_calls.load(std::memory_order_acquire) == 1;
-        },
-        "loopback synchronization"
-    );
-    require(
-        coordinator.statusCode() == QStringLiteral("synchronized"),
-        "live local server credential restores synchronization"
-    );
-
-    const QString remote_settings_file =
-        settings_root.filePath(QStringLiteral("remote-preferences.ini"));
-    ReviewModel remote_model;
     ReviewRemoteLibraryCoordinator rejected(
         {
             .snapshot = [](const QString&) { return BackendRemoteLibrarySnapshot{}; },
@@ -604,8 +531,8 @@ void loopback_server_uses_the_local_server_credential_and_reports_rejection() {
                     return BackendRemoteLibraryMaterialization{};
                 },
         },
-        remote_model,
-        remote_settings_file,
+        model,
+        settings_root.filePath(QStringLiteral("preferences.ini")),
         makeVolatileSecretStore()
     );
     const QString rejected_id = rejected.saveConnection(
@@ -631,6 +558,6 @@ int main(int argc, char** argv) {
     multiple_connections_keep_independent_identity_and_projection();
     exact_original_identity_merges_server_copies_and_retains_sources();
     connection_store_preserves_stable_ids_and_legacy_migration();
-    loopback_server_uses_the_local_server_credential_and_reports_rejection();
+    authorization_rejection_is_actionable();
     return EXIT_SUCCESS;
 }
