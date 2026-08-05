@@ -7,6 +7,7 @@ QtObject {
     id: selection
 
     required property var controller
+    property bool focusDetailEnabled: false
 
     property var selectedPhotoTargets: ({})
     // The anchor is an identity rather than a delegate index. Review delegates
@@ -25,6 +26,7 @@ QtObject {
     property bool selectedLiked: false
     property string selectedColorLabel: "none"
     property string selectedTitle: ""
+    property string selectedLocationId: ""
     property string selectedPath: ""
     property bool selectedSourceAvailable: true
     property bool selectedIsRemote: false
@@ -134,6 +136,9 @@ QtObject {
     readonly property real selectedEdgeEnergy:
         Number(selectedInspection.edgeEnergy || 0)
 
+    onSelectedInspectionChanged: Qt.callLater(refreshFocusDetail)
+    onFocusDetailEnabledChanged: Qt.callLater(refreshFocusDetail)
+
     readonly property int selectedPhotoCount:
         Object.keys(selectedPhotoTargets).length
 
@@ -170,6 +175,7 @@ QtObject {
         selectedLiked = card.liked
         selectedColorLabel = card.colorLabel
         selectedTitle = card.title
+        selectedLocationId = String(card.locationId || "")
         selectedPath = card.sourcePath
         selectedSourceAvailable = card.sourceAvailable === undefined
             ? true : Boolean(card.sourceAvailable)
@@ -197,6 +203,7 @@ QtObject {
         selectedHeight = card.visualHeight
         if (identityChanged) {
             primaryContextInvalidated()
+            controller.clearFocusDetail()
             if (selectedSourceAvailable && !selectedIsRemote) {
                 controller.requestPhotoInspection(
                     selectedPhotoId, selectedRepresentationId)
@@ -273,6 +280,7 @@ QtObject {
         selectedLiked = false
         selectedColorLabel = "none"
         selectedTitle = ""
+        selectedLocationId = ""
         selectedPath = ""
         selectedSourceAvailable = true
         selectedIsRemote = false
@@ -282,7 +290,23 @@ QtObject {
         selectedWidth = 0
         selectedHeight = 0
         controller.clearPhotoInspection()
+        controller.clearFocusDetail()
         primaryContextInvalidated()
+    }
+
+    function refreshFocusDetail() {
+        if (!focusDetailEnabled || selectedPhotoId.length === 0
+                || selectedPath.length === 0
+                || selectedIsRemote || !selectedSourceAvailable
+                || !selectedHasFocusObservation) {
+            controller.clearFocusDetail()
+            return
+        }
+        controller.requestFocusDetail(
+            selectedPhotoId,
+            selectedPath,
+            selectedFocusObservationCenterX,
+            selectedFocusObservationCenterY)
     }
 
     function clearSelection() {
@@ -308,5 +332,22 @@ QtObject {
     function applyLikedChanged(photoId, liked) {
         if (selectedPhotoId === photoId)
             selectedLiked = liked
+    }
+
+    function applySourceAvailabilityChanged(photoId, available) {
+        if (selectedPhotoId !== photoId || selectedIsRemote)
+            return
+        const nextAvailable = Boolean(available)
+        if (selectedSourceAvailable === nextAvailable)
+            return
+        selectedSourceAvailable = nextAvailable
+        primaryContextInvalidated()
+        if (nextAvailable) {
+            controller.requestPhotoInspection(
+                selectedPhotoId, selectedRepresentationId)
+        } else {
+            controller.clearPhotoInspection()
+            controller.clearFocusDetail()
+        }
     }
 }

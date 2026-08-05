@@ -16,3 +16,16 @@ void ReviewController::retryPhotoInspection() {
 void ReviewController::clearPhotoInspection() {
     photo_inspection_coordinator_.clear();
 }
+
+void ReviewController::requestFocusDetail(
+    const QString& photo_id,
+    const QString& source_path,
+    const double center_x,
+    const double center_y
+) {
+    focus_detail_coordinator_.request(photo_id, source_path, center_x, center_y);
+}
+
+void ReviewController::clearFocusDetail() {
+    focus_detail_coordinator_.clear();
+}

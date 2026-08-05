@@ -182,4 +182,72 @@ void photo_identity_survives_representation_relink() {
     );
 }
 
+void local_source_availability_is_exact_and_remote_rows_are_excluded() {
+    ReviewItem local = keyed_item("local", "Local");
+    local.location_id = QStringLiteral("location-local");
+    local.source_path = QStringLiteral("/photos/local.raw");
+    local.source_available = true;
+
+    ReviewItem remote = keyed_item("remote", "Remote");
+    remote.location_id = QStringLiteral("location-remote");
+    remote.source_path = QStringLiteral("/mirror/remote.raw");
+    remote.source_available = true;
+    remote.is_remote = true;
+
+    ReviewModel model;
+    model.replace({local, remote}, 23);
+    const auto probes = model.localSourceProbes();
+    require(
+        probes
+            == QVector<ReviewLocalSourceProbe>{ReviewLocalSourceProbe{
+                .photo_id = local.photo_id,
+                .location_id = local.location_id,
+                .source_path = local.source_path,
+            }},
+        "only loaded local filesystem rows must enter availability probing"
+    );
+
+    int availability_signals = 0;
+    QObject::connect(
+        &model,
+        &ReviewModel::localSourceAvailabilityChanged,
+        [&availability_signals](const QString&, const bool) { ++availability_signals; }
+    );
+    ModelSignalCounts observed;
+    observe_model(model, observed);
+
+    const ReviewLocalSourceAvailability stale{
+        .source =
+            ReviewLocalSourceProbe{
+                .photo_id = local.photo_id,
+                .location_id = QStringLiteral("old-location"),
+                .source_path = local.source_path,
+            },
+        .available = false,
+    };
+    require(
+        !model.applyLocalSourceAvailability({stale})
+            && value(model, 0, ReviewModel::SourceAvailableRole).toBool(),
+        "a late result for an old location must not mark the current source missing"
+    );
+
+    const ReviewLocalSourceAvailability missing{
+        .source = probes.front(),
+        .available = false,
+    };
+    require(
+        model.applyLocalSourceAvailability({missing})
+            && !value(model, 0, ReviewModel::SourceAvailableRole).toBool()
+            && value(model, 1, ReviewModel::SourceAvailableRole).toBool() && observed.changed == 1
+            && observed.last_changed_roles == QList<int>{ReviewModel::SourceAvailableRole}
+            && availability_signals == 1,
+        "an exact local observation must update only the source-availability role"
+    );
+    require(
+        !model.applyLocalSourceAvailability({missing}) && observed.changed == 1
+            && availability_signals == 1,
+        "an unchanged availability observation must be signal-free"
+    );
+}
+
 } // namespace review_model_test

@@ -67,12 +67,5 @@ Rectangle {
         }
 
         Item { Layout.fillHeight: true }
-
-        Label {
-            text: qsTranslate("ReviewWorkspace", "LOCAL · MACOS")
-            color: Theme.textQuiet
-            font.pixelSize: 9
-            font.letterSpacing: 1.2
-        }
     }
 }

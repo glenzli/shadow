@@ -1,6 +1,31 @@
 # Precision edit-session, preview/detail transport, tool interaction, and
 # packaged edit-component contracts.
     add_executable(
+        shadow-edit-source-admission-test
+        tests/edit_source_admission_test.cpp
+        src/edit_source_admission.cpp
+        src/edit_source_admission.hpp
+    )
+    target_compile_features(shadow-edit-source-admission-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-source-admission-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-source-admission-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-edit-source-admission-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-edit-source-admission-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-source-admission
+        COMMAND shadow-edit-source-admission-test
+    )
+
+    add_executable(
         shadow-edit-fine-parameter-registry-test
         tests/edit_fine_parameter_registry_test.cpp
         src/edit_fine_parameter_registry.cpp

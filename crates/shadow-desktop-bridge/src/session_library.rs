@@ -3,7 +3,9 @@
 use anyhow::Result as AnyResult;
 
 use super::{
-    DesktopSession, ffi, relink_service::VerifiedSourceRelinkReceipt, wall_clock::current_time_ms,
+    DesktopSession, ffi,
+    relink_service::{LibrarySourceRecoveryReceipt, VerifiedSourceRelinkReceipt},
+    wall_clock::current_time_ms,
 };
 
 fn ffi_verified_source_relink_receipt(
@@ -14,6 +16,18 @@ fn ffi_verified_source_relink_receipt(
         representation_id: source.representation_id,
         location_id: source.location_id,
         display_path: source.display_path,
+        library_root_path: source.library_root_path,
+    }
+}
+
+fn ffi_library_source_recovery_receipt(
+    source: LibrarySourceRecoveryReceipt,
+) -> ffi::FfiLibrarySourceRecoveryReceipt {
+    ffi::FfiLibrarySourceRecoveryReceipt {
+        library_root_path: source.library_root_path,
+        recovered_photo_count: source.recovered_photo_count,
+        unresolved_photo_count: source.unresolved_photo_count,
+        retired_unavailable_source: source.retired_unavailable_source,
     }
 }
 
@@ -135,6 +149,31 @@ impl DesktopSession {
             self.relink
                 .relink_library_source_location(location_id, candidate_path)?,
         ))
+    }
+
+    pub(crate) fn recover_library_source(
+        &self,
+        source_id: &str,
+        replacement_folder: &str,
+    ) -> AnyResult<ffi::FfiLibrarySourceRecoveryReceipt> {
+        Ok(ffi_library_source_recovery_receipt(
+            self.relink
+                .recover_library_source(source_id, replacement_folder)?,
+        ))
+    }
+
+    pub(crate) fn reconcile_missing_source_photos(
+        &self,
+        scan_session_id: &str,
+    ) -> AnyResult<ffi::FfiSourceReconciliationReceipt> {
+        let receipt = self
+            .library
+            .reconcile_missing_source_photos(scan_session_id)?;
+        Ok(ffi::FfiSourceReconciliationReceipt {
+            reviewed: receipt.reviewed,
+            archived: receipt.archived,
+            retained_available: receipt.retained_available,
+        })
     }
 
     pub(crate) fn create_manual_library_album(

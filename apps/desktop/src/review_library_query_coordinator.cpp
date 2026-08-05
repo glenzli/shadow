@@ -231,6 +231,7 @@ QVector<ReviewItem> ReviewLibraryQueryCoordinator::reviewItems(QVector<BackendRe
         items.push_back({
             .photo_id = std::move(item.photo_id),
             .representation_id = std::move(item.representation_id),
+            .location_id = std::move(item.location_id),
             .visual_handle = std::move(item.visual_handle),
             .decision_head_sequence = item.decision_head_sequence,
             .decision_flag = review_decision_flag_name(item.decision_flag),
@@ -241,6 +242,7 @@ QVector<ReviewItem> ReviewLibraryQueryCoordinator::reviewItems(QVector<BackendRe
             .has_development_edits = item.has_development_edits,
             .title = std::move(item.title),
             .source_path = std::move(item.source_path),
+            .source_available = item.source_available,
             .visual_role = std::move(item.visual_role),
             .visual_width = item.visual_width,
             .visual_height = item.visual_height,

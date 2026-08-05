@@ -11,6 +11,7 @@ void absence_and_legitimate_zero_are_distinct();
 void replace_and_append_keep_their_items_intact();
 void snapshot_reconciliation_updates_visual_and_technical_roles_in_place();
 void photo_identity_survives_representation_relink();
+void local_source_availability_is_exact_and_remote_rows_are_excluded();
 void snapshot_reconciliation_moves_rows_without_losing_persistent_identity();
 void snapshot_reconciliation_inserts_and_removes_keyed_rows();
 void prefix_reconciliation_updates_the_front_without_dropping_loaded_tail();
@@ -33,6 +34,7 @@ int main() {
     replace_and_append_keep_their_items_intact();
     snapshot_reconciliation_updates_visual_and_technical_roles_in_place();
     photo_identity_survives_representation_relink();
+    local_source_availability_is_exact_and_remote_rows_are_excluded();
     snapshot_reconciliation_moves_rows_without_losing_persistent_identity();
     snapshot_reconciliation_inserts_and_removes_keyed_rows();
     prefix_reconciliation_updates_the_front_without_dropping_loaded_tail();

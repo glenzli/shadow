@@ -178,6 +178,11 @@ fn exact_content_identity_relinks_a_moved_file_without_changing_photo_identity()
             representation_id: original.representation_id,
         })
     );
+    assert!(
+        catalog
+            .representation_has_current_whole_file_identity(original.representation_id)
+            .expect("read current whole-file identity state")
+    );
 }
 
 #[test]
@@ -230,6 +235,11 @@ fn source_mutation_invalidates_identity_and_rejects_a_late_hash_result() {
             .expect("lookup old identity"),
         None
     );
+    assert!(
+        !catalog
+            .representation_has_current_whole_file_identity(original.representation_id)
+            .expect("stale whole-file identity is not current")
+    );
 
     assert_eq!(
         catalog
@@ -247,6 +257,38 @@ fn source_mutation_invalidates_identity_and_rejects_a_late_hash_result() {
             .relink_match(&identity)
             .expect("old identity stays absent"),
         None
+    );
+}
+
+#[test]
+fn folder_relink_target_query_is_bounded_to_the_historical_subtree() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let direct = register(&mut catalog, "/archive/day/direct.nef");
+    let nested = register(&mut catalog, "/archive/day/nested/child.nef");
+    register(&mut catalog, "/archive/day-old/unrelated.nef");
+    let archived = register(&mut catalog, "/archive/day/archived.nef");
+    catalog
+        .archive_library_photo(archived.photo_id)
+        .expect("archive excluded photo");
+
+    let targets = catalog
+        .library_source_relink_targets_beneath(&AssetLocation::new(
+            Platform::MacOs,
+            b"/archive/day".to_vec(),
+            "/archive/day",
+        ))
+        .expect("query historical subtree");
+    let representations = targets
+        .iter()
+        .map(|target| target.representation_id)
+        .collect::<Vec<_>>();
+    assert_eq!(targets.len(), 2);
+    assert!(representations.contains(&direct.representation_id));
+    assert!(representations.contains(&nested.representation_id));
+    assert!(
+        targets
+            .iter()
+            .all(|target| target.location.display_path.starts_with("/archive/day/"))
     );
 }
 

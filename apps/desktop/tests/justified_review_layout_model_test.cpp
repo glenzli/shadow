@@ -1,9 +1,11 @@
 #include "justified_review_layout_model.hpp"
 #include "review_model.hpp"
 
-#include <cstdlib>
+#include <QSortFilterProxyModel>
+
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -16,11 +18,8 @@ void require(const bool condition, const std::string& message) {
     }
 }
 
-[[nodiscard]] ReviewItem photo(
-    const char* const id,
-    const std::uint32_t width,
-    const std::uint32_t height
-) {
+[[nodiscard]] ReviewItem
+photo(const char* const id, const std::uint32_t width, const std::uint32_t height) {
     ReviewItem item;
     item.photo_id = QString::fromLatin1(id);
     item.representation_id = QStringLiteral("representation-") + item.photo_id;
@@ -47,18 +46,17 @@ void preserves_aspect_ratio_and_never_crops() {
     layout.setTargetRowHeight(180);
 
     require(layout.rowCount() >= 1, "photos must produce visible rows");
-    const QVariantList first_row = layout.data(
-        layout.index(0, 0), JustifiedReviewLayoutModel::ItemsRole
-    ).toList();
+    const QVariantList first_row =
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::ItemsRole).toList();
     require(!first_row.isEmpty(), "a row must expose its photo maps");
 
     for (const QVariant& variant : first_row) {
         const QVariantMap item = variant.toMap();
         const qreal expected = item.value(QStringLiteral("visualWidth")).toReal()
-            / item.value(QStringLiteral("visualHeight")).toReal();
-        const qreal actual = item.value(QStringLiteral("layoutWidth")).toReal()
-            / layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::RowHeightRole)
-                .toReal();
+                               / item.value(QStringLiteral("visualHeight")).toReal();
+        const qreal actual =
+            item.value(QStringLiteral("layoutWidth")).toReal()
+            / layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::RowHeightRole).toReal();
         require(
             std::abs(expected - actual) < 0.02,
             "each displayed thumbnail must retain the original aspect ratio"
@@ -74,13 +72,11 @@ void density_changes_the_target_thumbnail_scale() {
     layout.setSourceModel(&photos);
     layout.setAvailableWidth(1000);
     layout.setTargetRowHeight(120);
-    const int small_height = layout.data(
-        layout.index(0, 0), JustifiedReviewLayoutModel::RowHeightRole
-    ).toInt();
+    const int small_height =
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::RowHeightRole).toInt();
     layout.setTargetRowHeight(280);
-    const int large_height = layout.data(
-        layout.index(0, 0), JustifiedReviewLayoutModel::RowHeightRole
-    ).toInt();
+    const int large_height =
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::RowHeightRole).toInt();
     require(
         large_height > small_height,
         "the toolbar density control must enlarge an incomplete final row"
@@ -107,27 +103,45 @@ void keyboard_navigation_follows_rows_and_nearest_columns() {
     layout.setTargetRowHeight(96);
     require(layout.rowCount() >= 2, "the fixture must produce several visual rows");
 
-    const QVariantMap right = layout.navigationTarget(
-        QStringLiteral("a"),
-        QStringLiteral("representation-a"),
-        1,
-        0
-    );
+    const QVariantMap right =
+        layout.navigationTarget(QStringLiteral("a"), QStringLiteral("representation-a"), 1, 0);
     require(
         right.value(QStringLiteral("photoId")).toString() == QStringLiteral("b"),
         "Right must follow catalog order inside a visual row"
     );
 
-    const QVariantMap down = layout.navigationTarget(
-        QStringLiteral("b"),
-        QStringLiteral("representation-b"),
-        0,
-        1
-    );
+    const QVariantMap down =
+        layout.navigationTarget(QStringLiteral("b"), QStringLiteral("representation-b"), 0, 1);
     require(
-        !down.isEmpty()
-            && down.value(QStringLiteral("layoutRow")).toInt() == 1,
+        !down.isEmpty() && down.value(QStringLiteral("layoutRow")).toInt() == 1,
         "Down must enter the next visual row"
+    );
+}
+
+void preserves_missing_source_roles_through_the_gallery_projection() {
+    ReviewItem missing = photo("missing", 6000, 4000);
+    missing.location_id = QStringLiteral("missing-location");
+    missing.source_path = QStringLiteral("/missing/original.raw");
+    missing.source_available = false;
+
+    ReviewModel photos;
+    photos.replace({missing}, 1);
+    QSortFilterProxyModel filtered;
+    filtered.setSourceModel(&photos);
+
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&filtered);
+    layout.setAvailableWidth(600);
+    const QVariantList items =
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::ItemsRole).toList();
+    require(items.size() == 1, "the missing photo must remain in the gallery projection");
+    const QVariantMap projected = items.front().toMap();
+    require(
+        projected.value(QStringLiteral("locationId")).toString()
+                == QStringLiteral("missing-location")
+            && projected.contains(QStringLiteral("sourceAvailable"))
+            && !projected.value(QStringLiteral("sourceAvailable")).toBool(),
+        "the gallery projection must preserve the exact location and unavailable state"
     );
 }
 
@@ -137,5 +151,6 @@ int main() {
     preserves_aspect_ratio_and_never_crops();
     density_changes_the_target_thumbnail_scale();
     keyboard_navigation_follows_rows_and_nearest_columns();
+    preserves_missing_source_roles_through_the_gallery_projection();
     return EXIT_SUCCESS;
 }

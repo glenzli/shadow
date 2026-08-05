@@ -16,8 +16,9 @@
 ///
 /// A completed folder scan is only an external refresh trigger. This owner
 /// independently serializes source-health reads, missing-location paging,
-/// exact user-selected relinks, and non-destructive removal of unavailable
-/// photos; rejects stale review pages; publishes the
+/// exact user-selected folder-owned relinks, source-level replacement, and
+/// non-destructive removal of photos confirmed unavailable at every retained
+/// original path; rejects stale review pages; publishes the
 /// stable QML projections and localized terminal status; and waits for every
 /// worker before destruction.
 class ReviewSourceHealthCoordinator final : public QObject {
@@ -44,6 +45,13 @@ class ReviewSourceHealthCoordinator final : public QObject {
             const QString& candidate_path
         )>
             relink_library;
+        std::function<BackendLibrarySourceRecoveryReceipt(
+            const QString& source_id,
+            const QString& replacement_folder
+        )>
+            recover_source;
+        std::function<BackendSourceReconciliationReceipt(const QString& scan_session_id)>
+            reconcile_missing;
         std::function<bool(const QString& photo_id)> archive_photo;
     };
 
@@ -58,6 +66,7 @@ class ReviewSourceHealthCoordinator final : public QObject {
     [[nodiscard]] bool missingLocationsBusy() const noexcept;
     [[nodiscard]] bool missingLocationsHasMore() const noexcept;
     [[nodiscard]] bool relinkBusy() const noexcept;
+    [[nodiscard]] bool reconcileBusy() const noexcept;
     [[nodiscard]] QString relinkStatusText() const;
     [[nodiscard]] LocalizedUiMessage globalStatusMessage() const;
 
@@ -68,12 +77,15 @@ class ReviewSourceHealthCoordinator final : public QObject {
     void loadMoreMissingLocations();
     void relinkMissingLocation(const QString& location_id, const QUrl& candidate_url);
     void relinkUnavailableLocation(const QString& location_id, const QUrl& candidate_url);
+    void recoverSource(const QString& source_id, const QUrl& candidate_url);
+    void reconcileMissing(const QString& scan_session_id, const QString& source_path);
     void archiveUnavailablePhoto(const QString& photo_id, const QString& title);
     void retranslateUi();
 
   signals:
     void sourceHealthChanged();
     void libraryVisibilityChanged();
+    void libraryFolderScanRequested(const QString& folder_path);
     void missingLocationReviewChanged();
     void globalStatusMessageChanged();
 
@@ -112,6 +124,21 @@ class ReviewSourceHealthCoordinator final : public QObject {
         QString error;
         QString photo_id;
         QString title;
+        quint64 request_id = 0;
+    };
+
+    struct RecoverSourceTaskResult final {
+        BackendLibrarySourceRecoveryReceipt receipt;
+        QString error;
+        QString source_id;
+        quint64 request_id = 0;
+    };
+
+    struct ReconcileTaskResult final {
+        BackendSourceReconciliationReceipt receipt;
+        QString error;
+        QString scan_session_id;
+        QString source_path;
         quint64 request_id = 0;
     };
 
@@ -162,17 +189,36 @@ class ReviewSourceHealthCoordinator final : public QObject {
         QString title,
         quint64 request_id
     );
+    [[nodiscard]] static RecoverSourceTaskResult runRecoverSourceTask(
+        std::function<BackendLibrarySourceRecoveryReceipt(
+            const QString& source_id,
+            const QString& replacement_folder
+        )> operation,
+        QString source_id,
+        QString replacement_folder,
+        quint64 request_id
+    );
+    [[nodiscard]] static ReconcileTaskResult runReconcileTask(
+        std::function<BackendSourceReconciliationReceipt(const QString& scan_session_id)> operation,
+        QString scan_session_id,
+        QString source_path,
+        quint64 request_id
+    );
 
     void startSourceHealthTask();
     void startRemoveSourceTask(const QString& source_id, const QString& source_path);
     void startMissingLocationTask(bool append);
     void startRelinkTask(const QString& location_id, const QString& candidate_path);
     void startLibraryRelinkTask(const QString& location_id, const QString& candidate_path);
+    void startRecoverSourceTask(const QString& source_id, const QString& candidate_path);
+    void startReconcileTask(const QString& scan_session_id, const QString& source_path);
     void startArchivePhotoTask(const QString& photo_id, const QString& title);
     void finishSourceHealthTask();
     void finishRemoveSourceTask();
     void finishMissingLocationTask();
     void finishRelinkTask();
+    void finishRecoverSourceTask();
+    void finishReconcileTask();
     void finishArchivePhotoTask();
     void publishGlobalStatus(LocalizedUiMessage status);
 
@@ -196,6 +242,12 @@ class ReviewSourceHealthCoordinator final : public QObject {
     bool relink_running_ = false;
     quint64 relink_request_id_ = 0;
     quint64 active_relink_request_id_ = 0;
+    bool recover_source_running_ = false;
+    quint64 recover_source_request_id_ = 0;
+    quint64 active_recover_source_request_id_ = 0;
+    bool reconcile_running_ = false;
+    quint64 reconcile_request_id_ = 0;
+    quint64 active_reconcile_request_id_ = 0;
     LocalizedUiMessage relink_status_message_;
     LocalizedUiMessage global_status_message_;
     bool archive_photo_running_ = false;
@@ -205,5 +257,7 @@ class ReviewSourceHealthCoordinator final : public QObject {
     QFutureWatcher<RemoveSourceTaskResult> remove_source_watcher_;
     QFutureWatcher<MissingLocationTaskResult> missing_locations_watcher_;
     QFutureWatcher<RelinkTaskResult> relink_watcher_;
+    QFutureWatcher<RecoverSourceTaskResult> recover_source_watcher_;
+    QFutureWatcher<ReconcileTaskResult> reconcile_watcher_;
     QFutureWatcher<ArchivePhotoTaskResult> archive_photo_watcher_;
 };

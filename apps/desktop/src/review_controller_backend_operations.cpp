@@ -104,6 +104,13 @@ source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
             [backend](const QString& location_id, const QString& candidate_path) {
                 return backend->relinkLibrarySourceLocation(location_id, candidate_path);
             },
+        .recover_source =
+            [backend](const QString& source_id, const QString& replacement_folder) {
+                return backend->recoverLibrarySource(source_id, replacement_folder);
+            },
+        .reconcile_missing = [backend](
+                                 const QString& scan_session_id
+                             ) { return backend->reconcileMissingSourcePhotos(scan_session_id); },
         .archive_photo =
             [backend](const QString& photo_id) { return backend->archiveLibraryPhoto(photo_id); },
     };

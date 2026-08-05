@@ -52,6 +52,12 @@ void run_projection_pagination_contracts() {
             && decisions.front().rating == 3,
         "the first page projects its row, decision, count, and continuation"
     );
+    require(
+        model.data(model.index(0, 0), ReviewModel::LocationIdRole).toString()
+                == QStringLiteral("photo-1-location")
+            && !model.data(model.index(0, 0), ReviewModel::SourceAvailableRole).toBool(),
+        "the page projection must preserve the exact location and missing-source state"
+    );
     require(coordinator.loadMore(true), "an admitted continuation starts");
     wait_until(
         [&coordinator, &model]() { return !coordinator.loadingMore() && model.rowCount() == 2; },

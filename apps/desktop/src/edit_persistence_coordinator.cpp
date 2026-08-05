@@ -1,5 +1,6 @@
 #include "edit_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
+#include "edit_source_admission.hpp"
 
 #include <QtConcurrent>
 
@@ -39,6 +40,13 @@ bool EditController::openPhoto(
         )));
         return false;
     }
+    if (!editSourceIsAvailable(source_path)) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "The original file is missing · return to Library to relink its folder"
+        )));
+        return false;
+    }
     if (active_
         && (photo_id != photo_id_ || representation_id != representation_id_
             || source_path != source_path_)) {
@@ -51,13 +59,15 @@ bool EditController::openPhoto(
             // current operation reaches a safe controller boundary. Autosave
             // may need to chain once more if the user changed controls while
             // its snapshot was in flight.
-            persistence_state_.queuePhotoOpen(PendingPhotoOpen{
-                .photo_id = photo_id,
-                .representation_id = representation_id,
-                .source_path = source_path,
-                .title = title,
-                .provisional_preview_source = provisional_preview_source,
-            });
+            persistence_state_.queuePhotoOpen(
+                PendingPhotoOpen{
+                    .photo_id = photo_id,
+                    .representation_id = representation_id,
+                    .source_path = source_path,
+                    .title = title,
+                    .provisional_preview_source = provisional_preview_source,
+                }
+            );
             setStatusMessage(
                 edit_message(QT_TRANSLATE_NOOP("EditController", "Preparing the selected photo…"))
             );
@@ -79,13 +89,15 @@ bool EditController::openPhoto(
         // Shadow's working ref is an autosave, not a manually committed version. Queue the
         // selected photo, force the pending working snapshot now, and resume this exact open
         // request once persistence succeeds. This is intentionally non-blocking for browsing.
-        persistence_state_.queuePhotoOpen(PendingPhotoOpen{
-            .photo_id = photo_id,
-            .representation_id = representation_id,
-            .source_path = source_path,
-            .title = title,
-            .provisional_preview_source = provisional_preview_source,
-        });
+        persistence_state_.queuePhotoOpen(
+            PendingPhotoOpen{
+                .photo_id = photo_id,
+                .representation_id = representation_id,
+                .source_path = source_path,
+                .title = title,
+                .provisional_preview_source = provisional_preview_source,
+            }
+        );
         persistence_state_.stopAutosaveDebounce();
         if (autosaveFailed()) {
             // Do not silently retry a known permanent error on every library
@@ -351,8 +363,7 @@ void EditController::saveVersion(const QString& version_name) {
 
 void EditController::loadVersionDraft(const QString& commit_id) {
     const QString normalized_commit_id = commit_id.trimmed();
-    if (!active_ || normalized_commit_id.isEmpty()
-        || persistence_state_.hasPendingVersionSave()) {
+    if (!active_ || normalized_commit_id.isEmpty() || persistence_state_.hasPendingVersionSave()) {
         return;
     }
     if (stateTaskRunning()) {
@@ -412,8 +423,7 @@ void EditController::cancelPendingPhotoOpen() {
 }
 
 bool EditController::discardFailedAutosaveAndOpenPendingPhoto() {
-    if (!autosaveFailed() || stateTaskRunning()
-        || !persistence_state_.hasPendingPhotoOpen()) {
+    if (!autosaveFailed() || stateTaskRunning() || !persistence_state_.hasPendingPhotoOpen()) {
         return false;
     }
     // This is reached only from the explicit destructive recovery action in
@@ -484,10 +494,10 @@ void EditController::finishStateTask() {
             emit activeChanged();
             emit gradeNodeActionsChanged();
         }
-        const bool newer_draft_exists = result.kind == EditStateTaskKind::Autosave && active_
-                                        && dirty_ && persistence_state_.autosaveRequested()
-                                        && working_revision_
-                                               != persistence_state_.autosaveSnapshotRevision();
+        const bool newer_draft_exists =
+            result.kind == EditStateTaskKind::Autosave && active_ && dirty_
+            && persistence_state_.autosaveRequested()
+            && working_revision_ != persistence_state_.autosaveSnapshotRevision();
         if (newer_draft_exists) {
             // This task was saving an older slider snapshot. It may legitimately lose a
             // compare-and-swap race while the user has already made a newer edit, so give that
@@ -666,8 +676,7 @@ void EditController::finishStateTask() {
 }
 
 bool EditController::openPendingPhoto() {
-    if (persistence_state_.closeAfterAutosave()
-        || !persistence_state_.hasPendingPhotoOpen()) {
+    if (persistence_state_.closeAfterAutosave() || !persistence_state_.hasPendingPhotoOpen()) {
         return false;
     }
     std::optional<PendingPhotoOpen> pending = persistence_state_.takePendingPhotoOpen();
@@ -683,8 +692,7 @@ bool EditController::openPendingPhoto() {
 
 void EditController::maybeFinishDeferredApplicationClose() {
     if (!persistence_state_.closeAfterAutosave() || stateTaskRunning() || current_rendering_
-        || before_rendering_
-        || detail_rendering_) {
+        || before_rendering_ || detail_rendering_) {
         return;
     }
     persistence_state_.cancelApplicationClose();

@@ -48,11 +48,11 @@ pub enum RegistrationStatus {
 
 #[derive(Debug)]
 pub(crate) struct ExistingAsset {
-    photo_id: PhotoId,
-    representation_id: RepresentationId,
-    location_id: LocationId,
-    byte_len: u64,
-    modified_at_ms: Option<i64>,
+    pub(crate) photo_id: PhotoId,
+    pub(crate) representation_id: RepresentationId,
+    pub(crate) location_id: LocationId,
+    pub(crate) byte_len: u64,
+    pub(crate) modified_at_ms: Option<i64>,
 }
 
 impl Catalog {

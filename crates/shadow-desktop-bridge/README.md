@@ -17,14 +17,15 @@ presentation, SQLite schema details, or native image algorithms.
 | Hierarchical keyword taxonomy, assignment provenance, batch mutation, and CXX projection | [`src/library_service/keywords.rs`](src/library_service/keywords.rs) |
 | Non-destructive removal of logical photos from active Library projections | [`src/library_service/lifecycle.rs`](src/library_service/lifecycle.rs) |
 | Albums, memberships, and photo-affinity state | [`src/library_service/organization.rs`](src/library_service/organization.rs) |
-| Source inventory removal, source-health, and missing-location projections | [`src/library_service/source_health.rs`](src/library_service/source_health.rs) |
+| Source inventory removal, source-health/missing-location projections, and all-location-confirmed missing-photo reconciliation | [`src/library_service/source_health.rs`](src/library_service/source_health.rs) |
 | Manual capture/GPS correction state and single-photo mutation | [`src/library_service/metadata.rs`](src/library_service/metadata.rs) |
 | Batch capture-time preview/apply and GPX preview/apply lifecycles | [`src/library_service/metadata/capture_time_batch.rs`](src/library_service/metadata/capture_time_batch.rs), [`src/library_service/metadata/gpx.rs`](src/library_service/metadata/gpx.rs) |
 | Desktop-session Library, relink, scan, and durable-export CXX delegation | [`src/session_library.rs`](src/session_library.rs), [`src/session_scan.rs`](src/session_scan.rs), [`src/session_export.rs`](src/session_export.rs) |
 | Desktop-session Review and cache-maintenance CXX delegation | [`src/session_review.rs`](src/session_review.rs), [`src/session_cache_maintenance.rs`](src/session_cache_maintenance.rs) |
 | Canonical wall-clock conversion and digest encoding | [`src/wall_clock.rs`](src/wall_clock.rs), [`src/digest_hex.rs`](src/digest_hex.rs) |
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
-| Exact source relinking from scan evidence or an unavailable Library card | [`src/relink_service.rs`](src/relink_service.rs) |
+| Folder-owned source relinking from scan evidence, an unavailable Library card, or a configured source: verified attachment, replacement-root adoption, unresolved counts, and safe obsolete-source retirement | [`src/relink_service.rs`](src/relink_service.rs) |
+| Replacement-folder planning: old-directory sibling/source-tree discovery, exact-identity matching, bounded legacy identity bootstrapping, ambiguity rejection, and pre-scan duplicate prevention | [`src/relink_service/folder_recovery.rs`](src/relink_service/folder_recovery.rs) |
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
 | Exact selected-photo EXIF and technical inspection, independent from virtualized Review pages | [`src/photo_inspection_service.rs`](src/photo_inspection_service.rs), [`src/session_photo_inspection.rs`](src/session_photo_inspection.rs) |
 | Authenticated remote-Mac Library mirror, client-local curation, verified original materialization, and local Catalog migration | [`src/remote_library_service.rs`](src/remote_library_service.rs), [`src/session_remote_library.rs`](src/session_remote_library.rs) |

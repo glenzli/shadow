@@ -1,4 +1,5 @@
-use shadow_domain::{AssetLocation, Platform, RepresentationKind};
+use rusqlite::params;
+use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationKind};
 
 use super::import_fixtures::{request, request_at, root};
 use crate::{
@@ -137,7 +138,7 @@ fn verified_relocation_attaches_the_existing_representation_and_journals_once() 
 }
 
 #[test]
-fn verified_relocation_rejects_stale_identity_or_registered_target_without_side_effects() {
+fn verified_relocation_rejects_stale_identity_and_consolidates_an_untouched_import_duplicate() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let original = catalog
         .register_asset(&request())
@@ -197,22 +198,101 @@ fn verified_relocation_rejects_stale_identity_or_registered_target_without_side_
     let existing_target = catalog
         .register_import_asset(session_id, &moved_request)
         .expect("ordinary registration occupies target");
-    let conflict = catalog
+    let consolidated = catalog
         .register_import_verified_relocation(
             session_id,
             &moved_request,
             original.representation_id,
             &identity,
         )
-        .expect_err("pre-existing target must not be merged by relocation");
+        .expect("untouched ordinary-import duplicate is safely consolidated");
+    assert_eq!(consolidated.photo_id, original.photo_id);
+    assert_eq!(consolidated.representation_id, original.representation_id);
+    assert_eq!(consolidated.location_id, existing_target.location_id);
+    assert_eq!(catalog.stats().expect("stats").locations, 3);
+    assert_eq!(
+        catalog
+            .connection
+            .query_row(
+                "SELECT lifecycle_state FROM photos WHERE id = ?1",
+                [existing_target.photo_id.as_bytes().as_slice()],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("read duplicate lifecycle"),
+        "archived"
+    );
+    assert_eq!(
+        catalog
+            .connection
+            .query_row(
+                "SELECT representation_id FROM locations WHERE id = ?1",
+                [existing_target.location_id.as_bytes().as_slice()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .expect("read consolidated location owner"),
+        original.representation_id.as_bytes().to_vec()
+    );
+}
+
+#[test]
+fn verified_relocation_does_not_consolidate_a_registered_photo_with_user_state() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let original = catalog
+        .register_asset(&request())
+        .expect("register original");
+    let identity = ContentIdentity::whole_file_blake3([31; 32]);
+    catalog
+        .record_representation_content_identity(&RecordRepresentationContentIdentity {
+            representation_id: original.representation_id,
+            expected_source: RepresentationFingerprint {
+                byte_len: 42,
+                modified_at_ms: Some(100),
+            },
+            identity: identity.clone(),
+            observed_at_ms: 10,
+        })
+        .expect("record exact identity");
+    let session_id = catalog
+        .begin_import_session(&root(), 20)
+        .expect("begin relocation session");
+    let moved_request = relocated_request();
+    catalog
+        .record_import_discovered(session_id, &moved_request)
+        .expect("journal relocated discovery");
+    let occupied = catalog
+        .register_import_asset(session_id, &moved_request)
+        .expect("ordinary import occupies target");
+    catalog
+        .connection
+        .execute(
+            "INSERT INTO photo_library_state(photo_id, liked, color_label, updated_at_ms)
+             VALUES (?1, 1, 'none', 21)",
+            params![occupied.photo_id.as_bytes().as_slice()],
+        )
+        .expect("add user state to imported duplicate");
+
+    let error = catalog
+        .register_import_verified_relocation(
+            session_id,
+            &moved_request,
+            original.representation_id,
+            &identity,
+        )
+        .expect_err("user-authored duplicate must not be consolidated automatically");
     assert!(matches!(
-        conflict,
+        error,
         CatalogError::RelinkTargetLocationAlreadyRegistered { .. }
     ));
-    assert_eq!(catalog.stats().expect("stats").locations, 3);
-    assert_ne!(
-        existing_target.representation_id,
-        original.representation_id
+    assert_eq!(
+        catalog
+            .connection
+            .query_row(
+                "SELECT representation_id FROM locations WHERE id = ?1",
+                [occupied.location_id.as_bytes().as_slice()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .expect("read unchanged location owner"),
+        occupied.representation_id.as_bytes().to_vec()
     );
 }
 

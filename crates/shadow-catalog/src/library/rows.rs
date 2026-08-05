@@ -235,7 +235,10 @@ fn representation_kind_from_text(kind: &str, index: usize) -> rusqlite::Result<R
     }
 }
 
-fn platform_from_text(platform: &str, index: usize) -> rusqlite::Result<shadow_domain::Platform> {
+pub(super) fn platform_from_text(
+    platform: &str,
+    index: usize,
+) -> rusqlite::Result<shadow_domain::Platform> {
     match platform {
         "macos" => Ok(shadow_domain::Platform::MacOs),
         "windows" => Ok(shadow_domain::Platform::Windows),

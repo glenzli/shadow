@@ -34,6 +34,7 @@ void relink_owns_admission_arguments_receipt_and_status() {
                 .representation_id = QStringLiteral("representation-relinked"),
                 .location_id = QStringLiteral("location-relinked"),
                 .display_path = QString::fromUtf8("/新位置/照片.nef"),
+                .library_root_path = QString::fromUtf8("/新位置"),
             };
         }
     ));
@@ -66,7 +67,7 @@ void relink_owns_admission_arguments_receipt_and_status() {
     require(received_scan_id == QStringLiteral("scan-relink"), "relink scan identity");
     require(received_location_id == QStringLiteral("location-relink"), "relink location identity");
     require(received_path == QStringLiteral("/candidate/moved.nef"), "relink candidate path");
-    const QString success = QString::fromUtf8("Verified and linked · /新位置/照片.nef");
+    const QString success = QString::fromUtf8("Verified and added Library folder · /新位置");
     require(coordinator.relinkStatusText() == success, "relink receipt status");
     require(
         coordinator.globalStatusMessage().translated() == success,
@@ -139,6 +140,7 @@ void unavailable_card_relink_and_archive_refresh_library_visibility() {
             .representation_id = QStringLiteral("representation-card"),
             .location_id = QStringLiteral("location-new"),
             .display_path = QStringLiteral("/reattached/card.nef"),
+            .library_root_path = QStringLiteral("/reattached"),
         };
     };
     configured.archive_photo = [&](const QString& photo_id) {
@@ -147,9 +149,15 @@ void unavailable_card_relink_and_archive_refresh_library_visibility() {
     };
     ReviewSourceHealthCoordinator coordinator(std::move(configured));
     int visibility_changes = 0;
+    QString requested_scan_folder;
     QObject::connect(&coordinator, &ReviewSourceHealthCoordinator::libraryVisibilityChanged, [&]() {
         ++visibility_changes;
     });
+    QObject::connect(
+        &coordinator,
+        &ReviewSourceHealthCoordinator::libraryFolderScanRequested,
+        [&](const QString& folder_path) { requested_scan_folder = folder_path; }
+    );
 
     coordinator.relinkUnavailableLocation(
         QStringLiteral("  location-card  "),
@@ -163,6 +171,10 @@ void unavailable_card_relink_and_archive_refresh_library_visibility() {
         received_location == QStringLiteral("location-card")
             && received_candidate == QStringLiteral("/candidate/card.nef"),
         "card relink did not own normalized value arguments"
+    );
+    require(
+        requested_scan_folder == QStringLiteral("/reattached"),
+        "folder-owned relink did not request a scan of the adopted folder"
     );
 
     coordinator.archiveUnavailablePhoto(

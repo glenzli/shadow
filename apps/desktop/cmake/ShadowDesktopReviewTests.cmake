@@ -119,6 +119,62 @@
     )
 
     add_executable(
+        shadow-review-focus-detail-coordinator-test
+        tests/review_focus_detail_coordinator_test.cpp
+        ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
+        src/review_focus_detail_coordinator.cpp
+        src/review_focus_detail_coordinator.hpp
+        src/review_focus_detail_provider.cpp
+        src/review_focus_detail_provider.hpp
+        src/desktop_backend.cpp
+        src/desktop_backend.hpp
+        src/desktop_backend_edit.cpp
+        src/backend/rust_owned_edit_preview_frame.cpp
+        src/backend/rust_owned_edit_preview_frame.hpp
+        src/folder_scan_backend.cpp
+        src/folder_scan_backend.hpp
+        src/photo_inspection_projection.cpp
+        src/photo_inspection_projection.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(
+        shadow-review-focus-detail-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-focus-detail-coordinator-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-review-focus-detail-coordinator-test
+        PRIVATE
+            shadow-desktop-export-backend
+            Qt6::Concurrent
+            Qt6::Quick
+    )
+    add_dependencies(
+        shadow-review-focus-detail-coordinator-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-focus-detail-coordinator-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-focus-detail-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-focus-detail-coordinator
+        COMMAND shadow-review-focus-detail-coordinator-test
+    )
+
+    add_executable(
         shadow-review-model-test
         tests/review_model_test.cpp
         tests/review_model/review_model_fixture.hpp
@@ -146,6 +202,71 @@
         )
     endif()
     add_test(NAME shadow-desktop-review-model COMMAND shadow-review-model-test)
+
+    add_executable(
+        shadow-library-source-quick-probe-test
+        tests/library_source_quick_probe_test.cpp
+        src/library_source_quick_probe.cpp
+        src/library_source_quick_probe.hpp
+    )
+    target_compile_features(shadow-library-source-quick-probe-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-library-source-quick-probe-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-library-source-quick-probe-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-library-source-quick-probe-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-source-quick-probe-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-source-quick-probe
+        COMMAND shadow-library-source-quick-probe-test
+    )
+
+    add_executable(
+        shadow-review-source-availability-monitor-test
+        tests/review_source_availability_monitor_test.cpp
+        src/review_source_availability_monitor.cpp
+        src/review_source_availability_monitor.hpp
+        src/review_model.cpp
+        src/review_model.hpp
+        src/review_visual_request.cpp
+        src/review_visual_request.hpp
+    )
+    target_compile_features(
+        shadow-review-source-availability-monitor-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-source-availability-monitor-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-source-availability-monitor-test
+        PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-source-availability-monitor-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-source-availability-monitor-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-source-availability-monitor
+        COMMAND shadow-review-source-availability-monitor-test
+    )
 
     add_executable(
         shadow-review-remote-library-coordinator-test
@@ -376,6 +497,8 @@
         tests/review_source_health_coordinator/relink_lifetime_contract.cpp
         src/review_source_health_coordinator.cpp
         src/review_source_health_coordinator.hpp
+        src/library_source_quick_probe.cpp
+        src/library_source_quick_probe.hpp
     )
     target_compile_features(
         shadow-review-source-health-coordinator-test

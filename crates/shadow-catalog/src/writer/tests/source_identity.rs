@@ -45,6 +45,11 @@ fn actor_reads_exact_relink_matches_without_attaching_a_location() {
             representation_id: registered.representation_id,
         })
     );
+    assert!(
+        handle
+            .representation_has_current_whole_file_identity(registered.representation_id)
+            .expect("read identity presence through actor")
+    );
     actor.shutdown().expect("shutdown actor");
 }
 

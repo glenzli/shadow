@@ -1,5 +1,7 @@
 #include "review_source_health_coordinator.hpp"
 
+#include "library_source_quick_probe.hpp"
+
 #include <QtConcurrentRun>
 
 #include <initializer_list>
@@ -24,7 +26,8 @@ ReviewSourceHealthCoordinator::ReviewSourceHealthCoordinator(
     QObject* parent
 ) : QObject(parent), operations_(std::move(operations)) {
     if (!operations_.source_health || !operations_.remove_source || !operations_.missing_locations
-        || !operations_.relink || !operations_.relink_library || !operations_.archive_photo) {
+        || !operations_.relink || !operations_.relink_library || !operations_.recover_source
+        || !operations_.reconcile_missing || !operations_.archive_photo) {
         throw std::invalid_argument("complete Review source-health operations are required");
     }
     connect(
@@ -57,6 +60,18 @@ ReviewSourceHealthCoordinator::ReviewSourceHealthCoordinator(
         this,
         &ReviewSourceHealthCoordinator::finishArchivePhotoTask
     );
+    connect(
+        &recover_source_watcher_,
+        &QFutureWatcher<RecoverSourceTaskResult>::finished,
+        this,
+        &ReviewSourceHealthCoordinator::finishRecoverSourceTask
+    );
+    connect(
+        &reconcile_watcher_,
+        &QFutureWatcher<ReconcileTaskResult>::finished,
+        this,
+        &ReviewSourceHealthCoordinator::finishReconcileTask
+    );
 }
 
 ReviewSourceHealthCoordinator::~ReviewSourceHealthCoordinator() {
@@ -64,6 +79,8 @@ ReviewSourceHealthCoordinator::~ReviewSourceHealthCoordinator() {
     remove_source_watcher_.waitForFinished();
     missing_locations_watcher_.waitForFinished();
     relink_watcher_.waitForFinished();
+    recover_source_watcher_.waitForFinished();
+    reconcile_watcher_.waitForFinished();
     archive_photo_watcher_.waitForFinished();
 }
 
@@ -85,6 +102,26 @@ QVariantList ReviewSourceHealthCoordinator::sourceHealth() const {
                 {QStringLiteral("knownLocations"), source.known_locations},
                 {QStringLiteral("seenLocations"), source.seen_locations},
                 {QStringLiteral("notSeenLocations"), source.not_seen_locations},
+                {
+                    QStringLiteral("sourceRootAvailable"),
+                    source.source_root_available,
+                },
+                {
+                    QStringLiteral("hasQuickInventory"),
+                    source.has_quick_inventory,
+                },
+                {
+                    QStringLiteral("currentSupportedFiles"),
+                    source.current_supported_files,
+                },
+                {
+                    QStringLiteral("quickInventoryNeedsScan"),
+                    source.quick_inventory_needs_scan,
+                },
+                {
+                    QStringLiteral("suspectedMissingLocations"),
+                    source.suspected_missing_locations,
+                },
             }
         );
     }
@@ -135,7 +172,11 @@ bool ReviewSourceHealthCoordinator::missingLocationsHasMore() const noexcept {
 }
 
 bool ReviewSourceHealthCoordinator::relinkBusy() const noexcept {
-    return relink_running_;
+    return relink_running_ || recover_source_running_;
+}
+
+bool ReviewSourceHealthCoordinator::reconcileBusy() const noexcept {
+    return reconcile_running_;
 }
 
 QString ReviewSourceHealthCoordinator::relinkStatusText() const {
@@ -159,7 +200,7 @@ void ReviewSourceHealthCoordinator::removeSource(
     const QString& source_path
 ) {
     const QString normalized_source_id = source_id.trimmed();
-    if (remove_source_running_ || relink_running_ || archive_photo_running_
+    if (remove_source_running_ || relinkBusy() || reconcile_running_ || archive_photo_running_
         || normalized_source_id.isEmpty()) {
         return;
     }
@@ -208,8 +249,9 @@ void ReviewSourceHealthCoordinator::relinkMissingLocation(
 ) {
     const QString normalized_location_id = location_id.trimmed();
     const QString candidate_path = candidate_url.toLocalFile();
-    if (relink_running_ || archive_photo_running_ || missing_location_scan_id_.isEmpty()
-        || normalized_location_id.isEmpty() || candidate_path.isEmpty()) {
+    if (relinkBusy() || reconcile_running_ || archive_photo_running_
+        || missing_location_scan_id_.isEmpty() || normalized_location_id.isEmpty()
+        || candidate_path.isEmpty()) {
         return;
     }
     startRelinkTask(normalized_location_id, candidate_path);
@@ -221,11 +263,36 @@ void ReviewSourceHealthCoordinator::relinkUnavailableLocation(
 ) {
     const QString normalized_location_id = location_id.trimmed();
     const QString candidate_path = candidate_url.toLocalFile();
-    if (relink_running_ || archive_photo_running_ || normalized_location_id.isEmpty()
-        || candidate_path.isEmpty()) {
+    if (relinkBusy() || reconcile_running_ || archive_photo_running_
+        || normalized_location_id.isEmpty() || candidate_path.isEmpty()) {
         return;
     }
     startLibraryRelinkTask(normalized_location_id, candidate_path);
+}
+
+void ReviewSourceHealthCoordinator::recoverSource(
+    const QString& source_id,
+    const QUrl& candidate_url
+) {
+    const QString normalized_source_id = source_id.trimmed();
+    const QString candidate_path = candidate_url.toLocalFile();
+    if (relinkBusy() || reconcile_running_ || archive_photo_running_
+        || normalized_source_id.isEmpty() || candidate_path.isEmpty()) {
+        return;
+    }
+    startRecoverSourceTask(normalized_source_id, candidate_path);
+}
+
+void ReviewSourceHealthCoordinator::reconcileMissing(
+    const QString& scan_session_id,
+    const QString& source_path
+) {
+    const QString normalized_scan_id = scan_session_id.trimmed();
+    if (reconcile_running_ || relinkBusy() || archive_photo_running_
+        || normalized_scan_id.isEmpty()) {
+        return;
+    }
+    startReconcileTask(normalized_scan_id, source_path);
 }
 
 void ReviewSourceHealthCoordinator::archiveUnavailablePhoto(
@@ -233,7 +300,8 @@ void ReviewSourceHealthCoordinator::archiveUnavailablePhoto(
     const QString& title
 ) {
     const QString normalized_photo_id = photo_id.trimmed();
-    if (archive_photo_running_ || relink_running_ || normalized_photo_id.isEmpty()) {
+    if (archive_photo_running_ || relinkBusy() || reconcile_running_
+        || normalized_photo_id.isEmpty()) {
         return;
     }
     startArchivePhotoTask(normalized_photo_id, title);
@@ -254,6 +322,27 @@ ReviewSourceHealthCoordinator::runSourceHealthTask(
     result.request_id = request_id;
     try {
         result.sources = operation();
+        for (auto& source : result.sources) {
+            if (!source.source_enabled) {
+                continue;
+            }
+            const LibrarySourceQuickProbe probe = probeLibrarySource(source.source_display_path);
+            source.source_root_available = probe.root_available;
+            // A missing root is itself a complete cheap observation. An
+            // available root is useful only when its directory walk settled.
+            source.has_quick_inventory = !probe.root_available || probe.inventory_complete;
+            source.current_supported_files = probe.supported_files;
+            if (!source.has_latest_completed_scan || !source.has_quick_inventory) {
+                continue;
+            }
+            source.quick_inventory_needs_scan =
+                !source.source_root_available
+                || source.current_supported_files != source.known_locations;
+            if (source.known_locations > source.current_supported_files) {
+                source.suspected_missing_locations =
+                    source.known_locations - source.current_supported_files;
+            }
+        }
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -365,6 +454,45 @@ ReviewSourceHealthCoordinator::runArchivePhotoTask(
     return result;
 }
 
+ReviewSourceHealthCoordinator::RecoverSourceTaskResult
+ReviewSourceHealthCoordinator::runRecoverSourceTask(
+    std::function<BackendLibrarySourceRecoveryReceipt(
+        const QString& source_id,
+        const QString& replacement_folder
+    )> operation,
+    QString source_id,
+    QString replacement_folder,
+    const quint64 request_id
+) {
+    RecoverSourceTaskResult result;
+    result.source_id = source_id;
+    result.request_id = request_id;
+    try {
+        result.receipt = operation(source_id, replacement_folder);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+ReviewSourceHealthCoordinator::ReconcileTaskResult ReviewSourceHealthCoordinator::runReconcileTask(
+    std::function<BackendSourceReconciliationReceipt(const QString& scan_session_id)> operation,
+    QString scan_session_id,
+    QString source_path,
+    const quint64 request_id
+) {
+    ReconcileTaskResult result;
+    result.scan_session_id = scan_session_id;
+    result.source_path = source_path;
+    result.request_id = request_id;
+    try {
+        result.receipt = operation(scan_session_id);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
 void ReviewSourceHealthCoordinator::startSourceHealthTask() {
     if (source_health_running_) {
         source_health_refresh_pending_ = true;
@@ -460,6 +588,44 @@ void ReviewSourceHealthCoordinator::startLibraryRelinkTask(
             location_id,
             candidate_path,
             active_relink_request_id_
+        )
+    );
+}
+
+void ReviewSourceHealthCoordinator::startRecoverSourceTask(
+    const QString& source_id,
+    const QString& candidate_path
+) {
+    recover_source_running_ = true;
+    relink_status_message_ =
+        source_health_message(QT_TRANSLATE_NOOP("ReviewController", "Locating missing originals…"));
+    active_recover_source_request_id_ = ++recover_source_request_id_;
+    emit missingLocationReviewChanged();
+    recover_source_watcher_.setFuture(
+        QtConcurrent::run(
+            runRecoverSourceTask,
+            operations_.recover_source,
+            source_id,
+            candidate_path,
+            active_recover_source_request_id_
+        )
+    );
+}
+
+void ReviewSourceHealthCoordinator::startReconcileTask(
+    const QString& scan_session_id,
+    const QString& source_path
+) {
+    reconcile_running_ = true;
+    active_reconcile_request_id_ = ++reconcile_request_id_;
+    emit sourceHealthChanged();
+    reconcile_watcher_.setFuture(
+        QtConcurrent::run(
+            runReconcileTask,
+            operations_.reconcile_missing,
+            scan_session_id,
+            source_path,
+            active_reconcile_request_id_
         )
     );
 }
@@ -571,10 +737,13 @@ void ReviewSourceHealthCoordinator::finishRelinkTask() {
     const bool accepted = result.request_id == active_relink_request_id_;
     if (accepted && result.error.isEmpty()) {
         relink_status_message_ = source_health_message(
-            QT_TRANSLATE_NOOP("ReviewController", "Verified and linked · %1"),
-            {result.receipt.display_path}
+            QT_TRANSLATE_NOOP("ReviewController", "Verified and added Library folder · %1"),
+            {result.receipt.library_root_path}
         );
         publishGlobalStatus(relink_status_message_);
+        if (!result.receipt.library_root_path.isEmpty()) {
+            emit libraryFolderScanRequested(result.receipt.library_root_path);
+        }
         emit libraryVisibilityChanged();
     } else if (accepted) {
         relink_status_message_ = source_health_message(
@@ -584,6 +753,75 @@ void ReviewSourceHealthCoordinator::finishRelinkTask() {
         publishGlobalStatus(relink_status_message_);
     }
     emit missingLocationReviewChanged();
+}
+
+void ReviewSourceHealthCoordinator::finishRecoverSourceTask() {
+    RecoverSourceTaskResult result = recover_source_watcher_.result();
+    recover_source_running_ = false;
+    const bool accepted = result.request_id == active_recover_source_request_id_;
+    if (accepted && result.error.isEmpty()) {
+        relink_status_message_ = source_health_message(
+            result.receipt.unresolved_photo_count == 0
+                ? QT_TRANSLATE_NOOP(
+                      "ReviewController",
+                      "Located %1 photos and added Library folder · %2"
+                  )
+                : QT_TRANSLATE_NOOP(
+                      "ReviewController",
+                      "Located %1 photos; %2 remain missing · %3"
+                  ),
+            result.receipt.unresolved_photo_count == 0
+                ? std::initializer_list<LocalizedUiArgument>{
+                      result.receipt.recovered_photo_count,
+                      result.receipt.library_root_path,
+                  }
+                : std::initializer_list<LocalizedUiArgument>{
+                      result.receipt.recovered_photo_count,
+                      result.receipt.unresolved_photo_count,
+                      result.receipt.library_root_path,
+                  }
+        );
+        publishGlobalStatus(relink_status_message_);
+        if (!result.receipt.library_root_path.isEmpty()) {
+            emit libraryFolderScanRequested(result.receipt.library_root_path);
+        }
+        emit libraryVisibilityChanged();
+        refreshSourceHealth();
+    } else if (accepted) {
+        relink_status_message_ = source_health_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not locate missing originals · %1"),
+            {result.error}
+        );
+        publishGlobalStatus(relink_status_message_);
+    }
+    emit missingLocationReviewChanged();
+    emit sourceHealthChanged();
+}
+
+void ReviewSourceHealthCoordinator::finishReconcileTask() {
+    ReconcileTaskResult result = reconcile_watcher_.result();
+    reconcile_running_ = false;
+    const bool accepted = result.request_id == active_reconcile_request_id_;
+    if (accepted && result.error.isEmpty()) {
+        if (result.receipt.archived > 0) {
+            emit libraryVisibilityChanged();
+        }
+        publishGlobalStatus(source_health_message(
+            QT_TRANSLATE_NOOP(
+                "ReviewController",
+                "Removed %1 unavailable photos from Library · %2"
+            ),
+            {result.receipt.archived, result.source_path}
+        ));
+        closeMissingLocationReview();
+        refreshSourceHealth();
+    } else if (accepted) {
+        publishGlobalStatus(source_health_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not reconcile missing photos · %1"),
+            {result.error}
+        ));
+    }
+    emit sourceHealthChanged();
 }
 
 void ReviewSourceHealthCoordinator::finishArchivePhotoTask() {

@@ -111,6 +111,9 @@ directory and atomically advances `current-debug`, so users never need to find a
 build path and a running app is never modified in place. The canonical debug contract includes the
 frozen RawNIND provider and local pinned model: promotion rejects a provider-less candidate, and
 `./scripts/run_debug.sh --check` reports the exact executable/model paths without launching Shadow.
+The normal launcher detaches Shadow and returns the terminal immediately; output is appended to
+`.shadow-local-build/logs/shadow-debug.log`. Use `./scripts/run_debug.sh --foreground` when live
+terminal output or process-attached debugging is needed.
 
 `cargo xtask format` delegates Rust to the repository `rustfmt.toml` and applies
 the repository `.clang-format` to changed C, C++, Objective-C, and Objective-C++
@@ -166,7 +169,10 @@ photo materializes and verifies the original before entering Precision; Recipe s
 remains deliberately out of scope rather than becoming a hidden side effect of file transfer.
 
 For normal server operation, run `./scripts/run_library_server_debug.sh`. It launches the separate
-**Shadow Server.app** bundled with the canonical debug build, without starting the photo editor.
+**Shadow Server.app** bundled with the canonical debug build, without starting the photo editor,
+then returns the terminal immediately. Controller output is appended to
+`.shadow-local-build/logs/shadow-server-controller-debug.log`; pass `--foreground` to keep the
+controller attached to the terminal.
 That controller is the sole graphical owner of shared roots, access permission, startup policy,
 Provider state, rescan, cache, and listener lifetime. The normal Shadow photo application does not
 auto-start a competing listener. Closing the controller window while the server is running

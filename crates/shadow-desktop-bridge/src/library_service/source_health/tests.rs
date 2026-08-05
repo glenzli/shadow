@@ -71,3 +71,81 @@ fn removing_a_symlinked_source_also_hides_source_less_canonical_imports() {
     actor.shutdown().expect("shutdown catalog actor");
     std::fs::remove_dir_all(fixture_root).expect("remove source-removal fixture");
 }
+
+#[test]
+fn reconciliation_archives_only_photos_still_missing_after_a_completed_scan() {
+    let fixture_root =
+        std::env::temp_dir().join(format!("shadow-source-reconcile-{}", Uuid::now_v7()));
+    std::fs::create_dir_all(&fixture_root).expect("create reconciliation root");
+    let available_path = fixture_root.join("available.nef");
+    let missing_path = fixture_root.join("missing.nef");
+    std::fs::write(&available_path, b"available").expect("write available original");
+    std::fs::write(&missing_path, b"missing").expect("write missing original");
+
+    let actor =
+        CatalogActor::spawn(&fixture_root.join("catalog.sqlite")).expect("spawn catalog actor");
+    let mut handle = actor.handle();
+    let root = native_location(&fixture_root);
+    let first_scan = handle
+        .begin_import_session(&root, 1)
+        .expect("begin first reconciliation scan");
+    for (offset, path) in [&available_path, &missing_path].iter().enumerate() {
+        let metadata = std::fs::metadata(path).expect("inspect reconciliation fixture");
+        let request = RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: native_location(path),
+            byte_len: metadata.len(),
+            modified_at_ms: None,
+            now_ms: i64::try_from(offset).expect("small offset") + 2,
+        };
+        handle
+            .record_import_discovered(first_scan, &request)
+            .expect("record first reconciliation discovery");
+        handle
+            .register_import_asset(first_scan, &request)
+            .expect("register first reconciliation asset");
+    }
+    handle
+        .finish_import_session(first_scan, ImportSessionState::Completed, None, 5)
+        .expect("finish first reconciliation scan");
+    std::fs::remove_file(&missing_path).expect("remove missing fixture source");
+
+    let second_scan = handle
+        .begin_import_session(&root, 10)
+        .expect("begin second reconciliation scan");
+    let metadata = std::fs::metadata(&available_path).expect("inspect remaining original");
+    let available_request = RegisterAsset {
+        kind: RepresentationKind::OriginalRaw,
+        location: native_location(&available_path),
+        byte_len: metadata.len(),
+        modified_at_ms: None,
+        now_ms: 11,
+    };
+    handle
+        .record_import_discovered(second_scan, &available_request)
+        .expect("record remaining discovery");
+    handle
+        .register_import_asset(second_scan, &available_request)
+        .expect("register remaining asset");
+    handle
+        .finish_import_session(second_scan, ImportSessionState::Completed, None, 12)
+        .expect("finish second reconciliation scan");
+
+    let service = LibraryService::new(actor.handle());
+    let receipt = service
+        .reconcile_missing_source_photos(&second_scan.to_string())
+        .expect("reconcile missing source photos");
+    assert_eq!(receipt.reviewed, 1);
+    assert_eq!(receipt.archived, 1);
+    assert_eq!(receipt.retained_available, 0);
+    assert_eq!(
+        service
+            .catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count reconciled photos"),
+        1
+    );
+
+    actor.shutdown().expect("shutdown catalog actor");
+    std::fs::remove_dir_all(fixture_root).expect("remove reconciliation fixture");
+}

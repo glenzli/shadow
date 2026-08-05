@@ -20,11 +20,35 @@ ColumnLayout {
         && slots.review.selectedRepresentationId.length > 0
         && slots.review.selectedVisualHandle.length > 0
         && slots.review.selectedVisualSource.length > 0
+    readonly property bool quickSelectionMode:
+        slots.review.galleryPresentation
+            === ReviewWorkspace.SinglePhotoFilmstrip
 
     spacing: 8
 
+    ShadowButton {
+        Layout.fillWidth: true
+        visible: slots.quickSelectionMode
+        variant: ShadowButton.Tinted
+        text: qsTr("Compare with adjacent photo")
+        enabled: slots.mutationsAvailable
+            && slots.selectedVisualAvailable
+            && !slots.review.comparison.compareMode
+        onClicked: slots.review.comparison.startSelectionComparison()
+    }
+
+    Label {
+        Layout.fillWidth: true
+        visible: slots.quickSelectionMode
+        text: qsTr("Lock this photo as the anchor, then review nearby candidates.")
+        color: slots.review.textMuted
+        wrapMode: Text.WordWrap
+        font.pixelSize: 9
+    }
+
     RowLayout {
         Layout.fillWidth: true
+        visible: !slots.quickSelectionMode
 
         Label {
             Layout.fillWidth: true
@@ -65,6 +89,7 @@ ColumnLayout {
     Rectangle {
         Layout.fillWidth: true
         Layout.preferredHeight: 34
+        visible: !slots.quickSelectionMode
         radius: 6
         color: Theme.surfaceSubtle
 
@@ -110,6 +135,7 @@ ColumnLayout {
     Rectangle {
         Layout.fillWidth: true
         Layout.preferredHeight: 34
+        visible: !slots.quickSelectionMode
         radius: 6
         color: Theme.surfaceSubtle
 
@@ -154,7 +180,8 @@ ColumnLayout {
 
     Label {
         Layout.fillWidth: true
-        visible: slots.review.selectedPhotoId.length > 0
+        visible: !slots.quickSelectionMode
+            && slots.review.selectedPhotoId.length > 0
             && slots.review.selectedVisualSource.length === 0
         text: qsTranslate(
             "ReviewWorkspace",

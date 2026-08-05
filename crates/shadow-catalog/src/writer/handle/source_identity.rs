@@ -82,6 +82,20 @@ impl CatalogHandle {
         })
     }
 
+    /// Reports whether a representation already has a current whole-file
+    /// BLAKE3 identity through the single Catalog actor.
+    pub fn representation_has_current_whole_file_identity(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<bool, CatalogError> {
+        self.request(|response| {
+            Message::SourceIdentity(SourceIdentityMessage::HasCurrentWholeFileIdentity(
+                representation_id,
+                response,
+            ))
+        })
+    }
+
     /// Returns the current source fingerprint for a representation.
     ///
     /// # Errors

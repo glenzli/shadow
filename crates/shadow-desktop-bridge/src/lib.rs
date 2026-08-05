@@ -682,6 +682,26 @@ mod ffi {
         representation_id: String,
         location_id: String,
         display_path: String,
+        library_root_path: String,
+    }
+
+    /// Result of locating all safely identifiable missing originals for one
+    /// configured Library source.
+    #[derive(Debug)]
+    struct FfiLibrarySourceRecoveryReceipt {
+        library_root_path: String,
+        recovered_photo_count: u64,
+        unresolved_photo_count: u64,
+        retired_unavailable_source: bool,
+    }
+
+    /// Result of removing scan-missing photos only after every retained
+    /// original location was checked and remained unavailable.
+    #[derive(Debug)]
+    struct FfiSourceReconciliationReceipt {
+        reviewed: u64,
+        archived: u64,
+        retained_available: u64,
     }
 
     /// Stable cursor for one explicitly ordered Library page. An empty photo
@@ -1836,6 +1856,15 @@ mod ffi {
             location_id: &str,
             candidate_path: &str,
         ) -> Result<FfiVerifiedSourceRelinkReceipt>;
+        fn recover_library_source(
+            self: &DesktopSession,
+            source_id: &str,
+            replacement_folder: &str,
+        ) -> Result<FfiLibrarySourceRecoveryReceipt>;
+        fn reconcile_missing_source_photos(
+            self: &DesktopSession,
+            scan_session_id: &str,
+        ) -> Result<FfiSourceReconciliationReceipt>;
         fn archive_library_photo(self: &DesktopSession, photo_id: &str) -> Result<bool>;
         fn create_manual_library_album(
             self: &DesktopSession,

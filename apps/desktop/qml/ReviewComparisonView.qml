@@ -15,6 +15,31 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 18
                 visible: review.comparison.compareMode
+                focus: visible
+
+                onVisibleChanged: {
+                    if (visible)
+                        forceActiveFocus()
+                }
+
+                Keys.onPressed: event => {
+                    if (event.key === Qt.Key_Escape) {
+                        review.comparison.exitComparison()
+                    } else if (review.comparison.selectionCompareMode
+                               && event.key === Qt.Key_Left) {
+                        review.comparison.navigateCandidate(-1)
+                    } else if (review.comparison.selectionCompareMode
+                               && event.key === Qt.Key_Right) {
+                        review.comparison.navigateCandidate(1)
+                    } else if (review.comparison.selectionCompareMode
+                               && (event.key === Qt.Key_Return
+                                   || event.key === Qt.Key_Enter)) {
+                        review.comparison.promoteCandidate()
+                    } else {
+                        return
+                    }
+                    event.accepted = true
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -29,7 +54,9 @@ Item {
                             spacing: 2
 
                             Label {
-                                text: qsTr("COMPARE EVIDENCE")
+                                text: review.comparison.selectionCompareMode
+                                    ? qsTr("ANCHOR · CANDIDATE")
+                                    : qsTr("COMPARE EVIDENCE")
                                 color: review.textPrimary
                                 font.pixelSize: 15
                                 font.weight: Font.DemiBold
@@ -38,7 +65,9 @@ Item {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: qsTr("A local preference event, not a rank or an AI score.")
+                                text: review.comparison.selectionCompareMode
+                                    ? qsTr("Keep one anchor locked while nearby candidates change.")
+                                    : qsTr("A local preference event, not a rank or an AI score.")
                                 color: review.textMuted
                                 font.pixelSize: 10
                             }
@@ -50,6 +79,25 @@ Item {
                             accessibleName: toolTipText
                             enabled: !review.controller.comparisonBusy
                             onClicked: review.comparison.exitComparison()
+                        }
+
+                        RowLayout {
+                            visible: review.comparison.selectionCompareMode
+                            spacing: 5
+
+                            ShadowButton {
+                                compact: true
+                                text: qsTr("‹ Previous")
+                                enabled: !review.controller.comparisonBusy
+                                onClicked: review.comparison.navigateCandidate(-1)
+                            }
+
+                            ShadowButton {
+                                compact: true
+                                text: qsTr("Next ›")
+                                enabled: !review.controller.comparisonBusy
+                                onClicked: review.comparison.navigateCandidate(1)
+                            }
                         }
                     }
 
@@ -84,8 +132,12 @@ Item {
                                         Layout.fillWidth: true
 
                                         Label {
-                                            text: comparisonCard.index === 0
-                                                ? qsTr("LEFT · A") : qsTr("RIGHT · B")
+                                            text: review.comparison.selectionCompareMode
+                                                ? (comparisonCard.index === 0
+                                                    ? qsTr("LOCKED ANCHOR")
+                                                    : qsTr("CANDIDATE"))
+                                                : (comparisonCard.index === 0
+                                                    ? qsTr("LEFT · A") : qsTr("RIGHT · B"))
                                             color: review.accent
                                             font.pixelSize: 9
                                             font.weight: Font.Bold
@@ -348,7 +400,65 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        Layout.preferredHeight: 78
+                        visible: review.comparison.selectionCompareMode
+                        spacing: 6
+
+                        Label {
+                            text: qsTr("Nearby")
+                            color: review.textMuted
+                            font.pixelSize: 9
+                        }
+
+                        Repeater {
+                            model: review.comparison.nearbyCandidateTargets
+
+                            delegate: Rectangle {
+                                id: nearbyCandidate
+
+                                required property var modelData
+
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                Layout.fillHeight: true
+                                radius: 4
+                                color: Theme.comparisonCanvas
+                                border.width: String(modelData.photoId)
+                                    === review.selectedPhotoId ? 2 : 1
+                                border.color: String(modelData.photoId)
+                                    === review.selectedPhotoId
+                                    ? review.accent : review.border
+
+                                Image {
+                                    anchors.fill: parent
+                                    anchors.margins: 2
+                                    source: String(nearbyCandidate.modelData.visualSource || "")
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: true
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !review.controller.comparisonBusy
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: review.comparison.chooseCandidate(
+                                        nearbyCandidate.modelData)
+                                }
+
+                                ToolTip.visible: candidateHover.hovered
+                                ToolTip.text: String(
+                                    nearbyCandidate.modelData.title || "")
+
+                                HoverHandler { id: candidateHover }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
                         spacing: 8
+                        visible: !review.comparison.selectionCompareMode
 
                         Repeater {
                             model: ListModel {
@@ -387,6 +497,35 @@ Item {
                                 }
                                 onClicked: review.comparison.submitComparison(outcomeValue)
                             }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: review.comparison.selectionCompareMode
+
+                        ShadowButton {
+                            Layout.fillWidth: true
+                            text: qsTr("Keep anchor")
+                            enabled: review.comparison.canSubmitComparison
+                            onClicked: review.comparison.keepAnchor()
+                        }
+
+                        ShadowButton {
+                            Layout.fillWidth: true
+                            variant: ShadowButton.Primary
+                            text: qsTr("Promote candidate · Enter")
+                            enabled: review.comparison.canSubmitComparison
+                            onClicked: review.comparison.promoteCandidate()
+                        }
+
+                        ShadowButton {
+                            Layout.fillWidth: true
+                            variant: ShadowButton.Tinted
+                            text: qsTr("Keep both")
+                            enabled: review.comparison.canSubmitComparison
+                            onClicked: review.comparison.keepBoth()
                         }
                     }
 

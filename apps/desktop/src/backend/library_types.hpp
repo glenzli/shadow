@@ -192,6 +192,13 @@ struct BackendLibrarySourceHealth final {
     std::uint64_t known_locations = 0;
     std::uint64_t seen_locations = 0;
     std::uint64_t not_seen_locations = 0;
+    // Device-local quick inventory. These fields are populated by the desktop
+    // after reading durable Catalog scan evidence; they never cross the FFI.
+    bool source_root_available = false;
+    bool has_quick_inventory = false;
+    std::uint64_t current_supported_files = 0;
+    bool quick_inventory_needs_scan = false;
+    std::uint64_t suspected_missing_locations = 0;
 };
 
 /// One original location absent from a particular completed source scan. It is
@@ -215,12 +222,27 @@ struct BackendMissingSourceLocationPage final {
 };
 
 /// Receipt for an explicit source reattach that passed complete identity
-/// verification. It adds a source location to an existing photo.
+/// verification. The containing folder is now a durable Library source and
+/// must be scanned by the desktop after the exact location is attached.
 struct BackendVerifiedSourceRelinkReceipt final {
     QString photo_id;
     QString representation_id;
     QString location_id;
     QString display_path;
+    QString library_root_path;
+};
+
+struct BackendLibrarySourceRecoveryReceipt final {
+    QString library_root_path;
+    std::uint64_t recovered_photo_count = 0;
+    std::uint64_t unresolved_photo_count = 0;
+    bool retired_unavailable_source = false;
+};
+
+struct BackendSourceReconciliationReceipt final {
+    std::uint64_t reviewed = 0;
+    std::uint64_t archived = 0;
+    std::uint64_t retained_available = 0;
 };
 
 /// Keyset cursor for one explicitly ordered Library page. `photo_id` is the

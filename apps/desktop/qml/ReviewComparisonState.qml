@@ -8,6 +8,7 @@ QtObject {
 
     required property var controller
     required property var selection
+    required property var navigationModel
 
     property var leftComparisonSnapshot: null
     property var rightComparisonSnapshot: null
@@ -20,6 +21,10 @@ QtObject {
     property string leftComparisonSource: ""
     property string rightComparisonSource: ""
     property bool compareMode: false
+    property bool selectionCompareMode: false
+    property int candidateDirection: 1
+    property string pendingRecordedAction: ""
+    property var nearbyCandidateTargets: []
     property string localComparisonStatusKey: ""
     property int localComparisonStatusSlot: -1
 
@@ -44,6 +49,8 @@ QtObject {
             return localComparisonStatusSlot === 0
                 ? qsTr("Left evidence slot updated.")
                 : qsTr("Right evidence slot updated.")
+        if (localComparisonStatusKey === "no-adjacent-photo")
+            return qsTr("No adjacent photo is available for quick comparison.")
         return ""
     }
 
@@ -157,6 +164,9 @@ QtObject {
         leftComparisonSnapshot = null
         rightComparisonSnapshot = null
         compareMode = false
+        selectionCompareMode = false
+        pendingRecordedAction = ""
+        nearbyCandidateTargets = []
         clearLocalComparisonStatus()
     }
 
@@ -180,9 +190,144 @@ QtObject {
         clearLocalComparisonStatus()
     }
 
+    function adjacentTarget(direction) {
+        return navigationModel.navigationTarget(
+            selection.selectedPhotoId,
+            selection.selectedRepresentationId,
+            direction,
+            0)
+    }
+
+    function startSelectionComparison() {
+        if (!selectionCanFillSlot())
+            return
+        leftComparisonSnapshot = selectedComparisonSnapshot()
+        let target = adjacentTarget(1)
+        candidateDirection = 1
+        if (!target || String(target.photoId || "").length === 0) {
+            target = adjacentTarget(-1)
+            candidateDirection = -1
+        }
+        if (!target || String(target.photoId || "").length === 0) {
+            setLocalComparisonStatus("no-adjacent-photo", -1)
+            return
+        }
+        selectionCompareMode = true
+        selection.selectPhoto(target, 0)
+        rightComparisonSnapshot = selectedComparisonSnapshot()
+        refreshNearbyCandidates()
+        enterComparison()
+    }
+
+    function refreshNearbyCandidates() {
+        if (!selectionCompareMode || rightComparisonSnapshot === null) {
+            nearbyCandidateTargets = []
+            return
+        }
+        const before = []
+        let cursorPhotoId = selection.selectedPhotoId
+        let cursorRepresentationId = selection.selectedRepresentationId
+        for (let index = 0; index < 2; ++index) {
+            const target = navigationModel.navigationTarget(
+                cursorPhotoId, cursorRepresentationId, -1, 0)
+            if (!target || String(target.photoId || "").length === 0)
+                break
+            cursorPhotoId = String(target.photoId)
+            cursorRepresentationId = String(target.representationId)
+            if (cursorPhotoId !== leftComparisonSnapshot.photoId)
+                before.unshift(target)
+        }
+        const values = before
+        values.push(rightComparisonSnapshot)
+        cursorPhotoId = selection.selectedPhotoId
+        cursorRepresentationId = selection.selectedRepresentationId
+        for (let index = 0; index < 2; ++index) {
+            const target = navigationModel.navigationTarget(
+                cursorPhotoId, cursorRepresentationId, 1, 0)
+            if (!target || String(target.photoId || "").length === 0)
+                break
+            cursorPhotoId = String(target.photoId)
+            cursorRepresentationId = String(target.representationId)
+            if (cursorPhotoId !== leftComparisonSnapshot.photoId)
+                values.push(target)
+        }
+        nearbyCandidateTargets = values
+    }
+
+    function chooseCandidate(target) {
+        if (!selectionCompareMode || controller.comparisonBusy || !target
+                || String(target.photoId || "").length === 0
+                || String(target.photoId) === leftComparisonSnapshot.photoId
+                || String(target.photoId) === selection.selectedPhotoId)
+            return
+        resetPreparedComparison(true)
+        selection.selectPhoto(target, 0)
+        rightComparisonSnapshot = selectedComparisonSnapshot()
+        refreshNearbyCandidates()
+        enterComparison()
+    }
+
+    function navigateCandidate(direction) {
+        if (!selectionCompareMode || controller.comparisonBusy)
+            return
+        const target = adjacentTarget(direction)
+        if (!target || String(target.photoId || "").length === 0
+                || String(target.photoId) === leftComparisonSnapshot.photoId) {
+            setLocalComparisonStatus("no-adjacent-photo", -1)
+            return
+        }
+        candidateDirection = direction
+        resetPreparedComparison(true)
+        selection.selectPhoto(target, 0)
+        rightComparisonSnapshot = selectedComparisonSnapshot()
+        refreshNearbyCandidates()
+        enterComparison()
+    }
+
+    function submitSelectionComparison(outcome, recordedAction) {
+        if (!canSubmitComparison)
+            return
+        pendingRecordedAction = recordedAction
+        controller.recordComparison(comparisonPresentationId, outcome)
+    }
+
+    function promoteCandidate() {
+        submitSelectionComparison(1, "promote")
+    }
+
+    function keepAnchor() {
+        submitSelectionComparison(0, "advance")
+    }
+
+    function keepBoth() {
+        submitSelectionComparison(2, "advance")
+    }
+
+    function finishSelectionComparisonRecord() {
+        const promoted = pendingRecordedAction === "promote"
+        pendingRecordedAction = ""
+        resetPreparedComparison(false)
+        if (promoted)
+            leftComparisonSnapshot = rightComparisonSnapshot
+        rightComparisonSnapshot = null
+        comparisonRecorded()
+        const target = adjacentTarget(candidateDirection)
+        if (!target || String(target.photoId || "").length === 0
+                || String(target.photoId) === leftComparisonSnapshot.photoId) {
+            clearComparisonSlots(false)
+            return
+        }
+        selection.selectPhoto(target, 0)
+        rightComparisonSnapshot = selectedComparisonSnapshot()
+        refreshNearbyCandidates()
+        enterComparison()
+    }
+
     function exitComparison() {
         resetPreparedComparison(true)
         compareMode = false
+        selectionCompareMode = false
+        pendingRecordedAction = ""
         clearLocalComparisonStatus()
     }
 
@@ -211,6 +356,10 @@ QtObject {
         }
 
         function onComparisonRecorded() {
+            if (comparison.selectionCompareMode) {
+                comparison.finishSelectionComparisonRecord()
+                return
+            }
             comparison.clearComparisonSlots(false)
             comparison.comparisonRecorded()
         }

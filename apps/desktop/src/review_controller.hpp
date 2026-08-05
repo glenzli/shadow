@@ -5,6 +5,7 @@
 #include "review_comparison_coordinator.hpp"
 #include "review_decision_coordinator.hpp"
 #include "review_filter_model.hpp"
+#include "review_focus_detail_coordinator.hpp"
 #include "review_import_coordinator.hpp"
 #include "review_library_album_coordinator.hpp"
 #include "review_library_facet_coordinator.hpp"
@@ -18,6 +19,7 @@
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_remote_library_coordinator.hpp"
 #include "review_shared_grade_coordinator.hpp"
+#include "review_source_availability_monitor.hpp"
 #include "review_source_health_coordinator.hpp"
 #include "review_travel_collection_coordinator.hpp"
 
@@ -47,6 +49,11 @@ class ReviewController final : public QObject {
     Q_PROPERTY(QVariantMap photoInspection READ photoInspection NOTIFY photoInspectionChanged)
     Q_PROPERTY(bool photoInspectionBusy READ photoInspectionBusy NOTIFY photoInspectionChanged)
     Q_PROPERTY(bool photoInspectionFailed READ photoInspectionFailed NOTIFY photoInspectionChanged)
+    Q_PROPERTY(QString focusDetailImageSource READ focusDetailImageSource NOTIFY focusDetailChanged)
+    Q_PROPERTY(QString focusDetailStatusText READ focusDetailStatusText NOTIFY focusDetailChanged)
+    Q_PROPERTY(bool focusDetailBusy READ focusDetailBusy NOTIFY focusDetailChanged)
+    Q_PROPERTY(bool focusDetailReady READ focusDetailReady NOTIFY focusDetailChanged)
+    Q_PROPERTY(bool focusDetailFailed READ focusDetailFailed NOTIFY focusDetailChanged)
     Q_PROPERTY(bool comparisonBusy READ comparisonBusy NOTIFY comparisonStateChanged)
     Q_PROPERTY(bool canUndoComparison READ canUndoComparison NOTIFY comparisonStateChanged)
     Q_PROPERTY(int sessionEvidenceCount READ sessionEvidenceCount NOTIFY comparisonStateChanged)
@@ -206,6 +213,10 @@ class ReviewController final : public QObject {
         bool librarySourceRemovalBusy READ librarySourceRemovalBusy NOTIFY
             librarySourceHealthChanged
     )
+    Q_PROPERTY(
+        bool librarySourceReconcileBusy READ librarySourceReconcileBusy NOTIFY
+            librarySourceHealthChanged
+    )
     Q_PROPERTY(QVariantMap libraryMetadata READ libraryMetadata NOTIFY libraryMetadataChanged)
     Q_PROPERTY(
         QVariantMap libraryCaptureTimePreview READ libraryCaptureTimePreview NOTIFY
@@ -306,6 +317,11 @@ class ReviewController final : public QObject {
     [[nodiscard]] QVariantMap photoInspection() const;
     [[nodiscard]] bool photoInspectionBusy() const noexcept;
     [[nodiscard]] bool photoInspectionFailed() const noexcept;
+    [[nodiscard]] QString focusDetailImageSource() const;
+    [[nodiscard]] QString focusDetailStatusText() const;
+    [[nodiscard]] bool focusDetailBusy() const noexcept;
+    [[nodiscard]] bool focusDetailReady() const noexcept;
+    [[nodiscard]] bool focusDetailFailed() const noexcept;
     [[nodiscard]] bool comparisonBusy() const noexcept;
     [[nodiscard]] bool canUndoComparison() const noexcept;
     [[nodiscard]] int sessionEvidenceCount() const noexcept;
@@ -364,6 +380,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] QVariantList librarySourceHealth() const;
     [[nodiscard]] bool librarySourceHealthBusy() const noexcept;
     [[nodiscard]] bool librarySourceRemovalBusy() const noexcept;
+    [[nodiscard]] bool librarySourceReconcileBusy() const noexcept;
     [[nodiscard]] QVariantMap libraryMetadata() const;
     [[nodiscard]] QVariantMap libraryCaptureTimePreview() const;
     [[nodiscard]] QVariantMap libraryGpxPreview() const;
@@ -394,6 +411,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString remoteLibraryMaterializingPhotoId() const;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
     [[nodiscard]] ReviewModel* reviewModel() noexcept;
+    [[nodiscard]] std::shared_ptr<ReviewFocusDetailStore> focusDetailStore() const noexcept;
 
     void setFilterFlag(const QString& filter);
     void setFilterMinimumRating(int rating);
@@ -425,6 +443,13 @@ class ReviewController final : public QObject {
     requestPhotoInspection(const QString& photo_id, const QString& representation_id);
     Q_INVOKABLE void retryPhotoInspection();
     Q_INVOKABLE void clearPhotoInspection();
+    Q_INVOKABLE void requestFocusDetail(
+        const QString& photo_id,
+        const QString& source_path,
+        double center_x,
+        double center_y
+    );
+    Q_INVOKABLE void clearFocusDetail();
     /// Returns the inclusive, currently filtered Library range between two
     /// presentation identities. This keeps Shift selection stable even when a
     /// justified grid has virtualized most of its delegates.
@@ -486,7 +511,16 @@ class ReviewController final : public QObject {
     );
     Q_INVOKABLE void refreshLibraryAlbums();
     Q_INVOKABLE void refreshLibrarySourceHealth();
+    Q_INVOKABLE void verifyLibrarySource(const QString& source_path);
+    Q_INVOKABLE bool confirmLocalSourceAvailable(
+        const QString& photo_id,
+        const QString& location_id,
+        const QString& source_path
+    );
     Q_INVOKABLE void removeLibrarySource(const QString& source_id, const QString& source_path);
+    Q_INVOKABLE void recoverLibrarySource(const QString& source_id, const QUrl& candidate_url);
+    Q_INVOKABLE void
+    reconcileMissingSourcePhotos(const QString& scan_session_id, const QString& source_path);
     Q_INVOKABLE void requestLibraryMetadata(const QString& photo_id);
     Q_INVOKABLE void clearLibraryMetadata();
     Q_INVOKABLE void setLibraryCaptureTime(
@@ -548,6 +582,7 @@ class ReviewController final : public QObject {
     void statusTextChanged();
     void itemCountChanged();
     void photoInspectionChanged();
+    void focusDetailChanged();
     void comparisonStateChanged();
     void comparisonStatusTextChanged();
     void comparisonRecorded();
@@ -562,6 +597,7 @@ class ReviewController final : public QObject {
     );
     void colorLabelChanged(const QString& photoId, const QString& colorLabel);
     void likedChanged(const QString& photoId, bool liked);
+    void sourceAvailabilityChanged(const QString& photoId, bool available);
     void filtersChanged();
     void libraryOrderChanged();
     void libraryAlbumChanged();
@@ -602,6 +638,8 @@ class ReviewController final : public QObject {
     std::shared_ptr<DesktopBackend> backend_;
     MapProviderPreferences* map_provider_preferences_ = nullptr;
     ReviewPhotoInspectionCoordinator photo_inspection_coordinator_;
+    std::shared_ptr<ReviewFocusDetailStore> focus_detail_store_;
+    ReviewFocusDetailCoordinator focus_detail_coordinator_;
     ReviewSourceHealthCoordinator source_health_coordinator_;
     ReviewLibraryAlbumCoordinator album_coordinator_;
     ReviewLibraryFacetCoordinator facet_coordinator_;
@@ -624,6 +662,7 @@ class ReviewController final : public QObject {
         ),
     };
     ReviewModel model_;
+    ReviewSourceAvailabilityMonitor source_availability_monitor_;
     ReviewRemoteLibraryCoordinator remote_library_coordinator_;
     ReviewFilterModel filtered_model_;
     QString library_sort_key_ = QStringLiteral("capture_time");

@@ -20,6 +20,7 @@
 #include "personal_location_search.hpp"
 #include "personal_profile.hpp"
 #include "review_controller.hpp"
+#include "review_focus_detail_provider.hpp"
 #include "thumbnail_provider.hpp"
 #include "ui_preferences.hpp"
 
@@ -271,6 +272,10 @@ int main(int argc, char* argv[]) {
 
     auto* const thumbnail_provider = new ThumbnailProvider(backend, controller.reviewModel());
     engine.addImageProvider(QStringLiteral("shadow"), thumbnail_provider);
+    engine.addImageProvider(
+        QStringLiteral("shadow-review-detail"),
+        new ReviewFocusDetailProvider(controller.focusDetailStore())
+    );
     auto* const edit_preview_provider =
         new EditPreviewProvider(edit_preview_store, edit_preview_presentation_context);
     engine.addImageProvider(QStringLiteral("shadow-edit"), edit_preview_provider);

@@ -2,11 +2,11 @@
 
 use std::sync::mpsc::SyncSender;
 
-use shadow_domain::{AssetLocation, ImportSessionId, LibrarySourceId, LocationId};
+use shadow_domain::{AssetLocation, ImportSessionId, LibrarySourceId, LocationId, PhotoId};
 
 use crate::{
     CatalogError, LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationCursor,
-    MissingSourceLocationPage, MissingSourceRelinkTarget,
+    MissingSourceLocationPage, MissingSourceLocationRecord, MissingSourceRelinkTarget,
 };
 
 pub(in crate::writer) enum SourceHealthMessage {
@@ -33,5 +33,17 @@ pub(in crate::writer) enum SourceHealthMessage {
     LibrarySourceRelinkTarget(
         LocationId,
         SyncSender<Result<Option<MissingSourceRelinkTarget>, CatalogError>>,
+    ),
+    LibrarySourceRelinkTargetsBeneath(
+        AssetLocation,
+        SyncSender<Result<Vec<MissingSourceLocationRecord>, CatalogError>>,
+    ),
+    LibrarySourceRelinkTargets(
+        LibrarySourceId,
+        SyncSender<Result<Vec<MissingSourceLocationRecord>, CatalogError>>,
+    ),
+    LibraryPhotoOriginalLocations(
+        PhotoId,
+        SyncSender<Result<Vec<AssetLocation>, CatalogError>>,
     ),
 }

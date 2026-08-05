@@ -19,6 +19,10 @@ pub(super) fn run_source_identity_message(catalog: &mut Catalog, message: Source
         SourceIdentityMessage::RelinkMatch(identity, response) => {
             let _ = response.send(catalog.relink_match(&identity));
         }
+        SourceIdentityMessage::HasCurrentWholeFileIdentity(representation_id, response) => {
+            let _ = response
+                .send(catalog.representation_has_current_whole_file_identity(representation_id));
+        }
         SourceIdentityMessage::Fingerprint(representation_id, response) => {
             let _ = response.send(catalog.representation_fingerprint(representation_id));
         }

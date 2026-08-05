@@ -20,10 +20,16 @@ use crate::{
 
 use super::{
     ContentIdentity, LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_PAGE_SIZE,
-    MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceRelinkTarget,
-    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RelinkMatch,
-    rows::{read_library_source, read_library_source_health, read_missing_source_location},
+    MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceLocationRecord,
+    MissingSourceRelinkTarget, RecordRepresentationContentIdentity,
+    RecordRepresentationContentIdentityStatus, RelinkMatch,
+    rows::{
+        platform_from_text, read_library_source, read_library_source_health,
+        read_missing_source_location,
+    },
 };
+
+const MAX_LIBRARY_SOURCE_RELINK_TARGETS: usize = 4_096;
 
 impl Catalog {
     /// Records a versioned content identity for an existing representation.
@@ -75,6 +81,37 @@ impl Catalog {
                 },
             )
             .optional()
+            .map_err(Into::into)
+    }
+
+    /// Reports whether one representation already owns a current whole-file
+    /// BLAKE3 identity.
+    ///
+    /// Folder recovery uses this as a fail-closed boundary: a weak
+    /// same-name/same-size candidate may initialize an older catalog, but it
+    /// may never replace an existing strong identity merely because the
+    /// candidate happens to share those weak attributes.
+    pub fn representation_has_current_whole_file_identity(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<bool, CatalogError> {
+        self.connection
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1
+                     FROM representation_content_identities i
+                     JOIN representations r ON r.id = i.representation_id
+                     WHERE i.representation_id = ?1
+                       AND i.scope = 'whole_file'
+                       AND i.algorithm = 'blake3-256'
+                       AND i.provider_id = ''
+                       AND i.provider_version = ''
+                       AND i.source_byte_len = r.byte_len
+                       AND i.source_modified_at_ms IS r.modified_at_ms
+                 )",
+                [representation_id.as_bytes().as_slice()],
+                |row| row.get(0),
+            )
             .map_err(Into::into)
     }
 
@@ -402,6 +439,157 @@ impl Catalog {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    /// Lists active original locations beneath one historical filesystem
+    /// directory for an explicit folder-recovery operation.
+    ///
+    /// The query is deliberately bounded and returns catalog facts only.
+    /// The desktop recovery service applies the platform-native exact-parent
+    /// check and performs all filesystem probing outside the `SQLite` writer.
+    pub fn library_source_relink_targets_beneath(
+        &self,
+        root: &AssetLocation,
+    ) -> Result<Vec<MissingSourceLocationRecord>, CatalogError> {
+        if root.native_path.is_empty() {
+            return Err(CatalogError::InvalidLibraryQuery(
+                "folder recovery requires a nonempty native path".to_owned(),
+            ));
+        }
+        let descendant_prefix = descendant_prefix(root);
+        let row_limit = i64::try_from(MAX_LIBRARY_SOURCE_RELINK_TARGETS + 1).unwrap_or(i64::MAX);
+        let mut statement = self.connection.prepare(
+            "SELECT p.id, r.id, l.id, l.platform, l.native_path, l.display_path,
+                    r.kind, r.byte_len, r.modified_at_ms,
+                    f.captured_at_unix_seconds, f.camera_key,
+                    COALESCE((
+                        SELECT MAX(source_locations.last_seen_at_ms)
+                        FROM location_sources source_locations
+                        WHERE source_locations.location_id = l.id
+                    ), l.created_at_ms)
+             FROM locations l
+             JOIN representations r ON r.id = l.representation_id
+             JOIN photos p ON p.id = r.photo_id
+             LEFT JOIN photo_library_facts f ON f.photo_id = p.id
+             WHERE l.platform = ?1
+               AND (
+                   l.native_path = ?2
+                   OR substr(l.native_path, 1, length(?3)) = ?3
+               )
+               AND p.lifecycle_state = 'active'
+               AND r.kind IN ('original_raw', 'original_raster')
+               AND l.status = 'online'
+               AND (
+                   NOT EXISTS (
+                       SELECT 1 FROM location_sources ownership
+                       WHERE ownership.location_id = l.id
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM location_sources ownership
+                       JOIN library_sources source
+                         ON source.id = ownership.source_id
+                        AND source.enabled = 1
+                       WHERE ownership.location_id = l.id
+                   )
+               )
+             ORDER BY l.native_path, l.id
+             LIMIT ?4",
+        )?;
+        let rows = statement.query_map(
+            params![
+                root.platform.as_str(),
+                root.native_path.as_slice(),
+                descendant_prefix,
+                row_limit,
+            ],
+            read_missing_source_location,
+        )?;
+        let targets = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        if targets.len() > MAX_LIBRARY_SOURCE_RELINK_TARGETS {
+            return Err(CatalogError::InvalidLibraryQuery(format!(
+                "folder recovery is limited to {MAX_LIBRARY_SOURCE_RELINK_TARGETS} catalog locations"
+            )));
+        }
+        Ok(targets)
+    }
+
+    /// Lists the active original locations currently owned by one configured
+    /// Library source for an explicit source-level recovery operation.
+    ///
+    /// This is a bounded catalog projection only. The caller must still
+    /// verify filesystem absence and full content identity outside `SQLite`.
+    pub fn library_source_relink_targets(
+        &self,
+        source_id: LibrarySourceId,
+    ) -> Result<Vec<MissingSourceLocationRecord>, CatalogError> {
+        let row_limit = i64::try_from(MAX_LIBRARY_SOURCE_RELINK_TARGETS + 1).unwrap_or(i64::MAX);
+        let mut statement = self.connection.prepare(
+            "SELECT p.id, r.id, l.id, l.platform, l.native_path, l.display_path,
+                    r.kind, r.byte_len, r.modified_at_ms,
+                    f.captured_at_unix_seconds, f.camera_key,
+                    ownership.last_seen_at_ms
+             FROM location_sources ownership
+             JOIN library_sources source ON source.id = ownership.source_id
+             JOIN locations l ON l.id = ownership.location_id
+             JOIN representations r ON r.id = l.representation_id
+             JOIN photos p ON p.id = r.photo_id
+             LEFT JOIN photo_library_facts f ON f.photo_id = p.id
+             WHERE ownership.source_id = ?1
+               AND source.enabled = 1
+               AND p.lifecycle_state = 'active'
+               AND r.kind IN ('original_raw', 'original_raster')
+               AND l.status = 'online'
+             ORDER BY l.native_path, l.id
+             LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![source_id.as_bytes().as_slice(), row_limit],
+            read_missing_source_location,
+        )?;
+        let targets = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        if targets.len() > MAX_LIBRARY_SOURCE_RELINK_TARGETS {
+            return Err(CatalogError::InvalidLibraryQuery(format!(
+                "source recovery is limited to {MAX_LIBRARY_SOURCE_RELINK_TARGETS} catalog locations"
+            )));
+        }
+        Ok(targets)
+    }
+
+    /// Returns every original location retained for one active photo. A
+    /// source reconciliation uses this to avoid archiving a photo that is
+    /// still reachable through another path or overlapping source.
+    pub fn library_photo_original_locations(
+        &self,
+        photo_id: shadow_domain::PhotoId,
+    ) -> Result<Vec<AssetLocation>, CatalogError> {
+        let mut statement = self.connection.prepare(
+            "SELECT l.platform, l.native_path, l.display_path
+             FROM representations r
+             JOIN locations l ON l.representation_id = r.id
+             JOIN photos p ON p.id = r.photo_id
+             WHERE p.id = ?1
+               AND p.lifecycle_state = 'active'
+               AND r.kind IN ('original_raw', 'original_raster')
+               AND l.status = 'online'
+             ORDER BY l.native_path, l.id
+             LIMIT 257",
+        )?;
+        let rows = statement.query_map([photo_id.as_bytes().as_slice()], |row| {
+            let platform: String = row.get(0)?;
+            Ok(AssetLocation::new(
+                platform_from_text(&platform, 0)?,
+                row.get(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let locations = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        if locations.len() > 256 {
+            return Err(CatalogError::InvalidLibraryQuery(
+                "photo source reconciliation is limited to 256 original locations".to_owned(),
+            ));
+        }
+        Ok(locations)
     }
 }
 

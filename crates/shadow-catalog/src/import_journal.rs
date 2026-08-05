@@ -287,13 +287,17 @@ impl Catalog {
     /// This is intentionally stricter than ordinary import registration:
     /// callers must first journal discovery, verify an exact identity outside
     /// the writer, and retain the representation id selected by that proof.
-    /// A path that already exists, an absent identity, or an identity owned by
-    /// another representation are all rejected without mutating the catalog.
+    /// A path already owned by the expected representation is idempotent. A
+    /// path owned by a standalone, untouched ordinary-import duplicate is
+    /// conservatively reassigned and that duplicate photo is archived; any
+    /// user-authored state makes the operation fail closed. An absent identity
+    /// or an identity owned by another representation is always rejected.
     ///
     /// # Errors
     ///
-    /// Returns [`CatalogError`] if the prior discovery is absent, the target
-    /// is not new, or the exact identity no longer proves the expected owner.
+    /// Returns [`CatalogError`] if the prior discovery is absent, a registered
+    /// target cannot be safely consolidated, or the exact identity no longer
+    /// proves the expected owner.
     pub fn register_import_verified_relocation(
         &mut self,
         session_id: ImportSessionId,
@@ -303,12 +307,6 @@ impl Catalog {
     ) -> Result<RegisteredAsset, CatalogError> {
         identity.validate()?;
         let transaction = self.connection.transaction()?;
-
-        if find_existing_asset(&transaction, &request.location)?.is_some() {
-            return Err(CatalogError::RelinkTargetLocationAlreadyRegistered {
-                display_path: request.location.display_path.clone(),
-            });
-        }
 
         let actual = find_identity_match(&transaction, identity)?.ok_or(
             CatalogError::RelinkIdentityNotRecorded {
@@ -322,7 +320,59 @@ impl Catalog {
             });
         }
 
-        let result = attach_location_to_identity_match(&transaction, request, actual)?;
+        let existing = find_existing_asset(&transaction, &request.location)?;
+        let result = match existing {
+            None => attach_location_to_identity_match(&transaction, request, actual)?,
+            Some(existing) if existing.representation_id == expected_representation_id => {
+                refresh_relinked_representation(
+                    &transaction,
+                    expected_representation_id,
+                    existing.location_id,
+                    request,
+                )?;
+                RegisteredAsset {
+                    photo_id: actual.photo_id,
+                    representation_id: expected_representation_id,
+                    location_id: existing.location_id,
+                    status: crate::RegistrationStatus::NeedsRevalidation,
+                }
+            }
+            Some(existing) => {
+                if !is_disposable_standalone_import(
+                    &transaction,
+                    existing.photo_id,
+                    existing.representation_id,
+                    existing.location_id,
+                )? {
+                    return Err(CatalogError::RelinkTargetLocationAlreadyRegistered {
+                        display_path: request.location.display_path.clone(),
+                    });
+                }
+                transaction.execute(
+                    "UPDATE locations SET representation_id = ?1 WHERE id = ?2",
+                    params![
+                        expected_representation_id.as_bytes().as_slice(),
+                        existing.location_id.as_bytes().as_slice(),
+                    ],
+                )?;
+                refresh_relinked_representation(
+                    &transaction,
+                    expected_representation_id,
+                    existing.location_id,
+                    request,
+                )?;
+                transaction.execute(
+                    "UPDATE photos SET lifecycle_state = 'archived' WHERE id = ?1",
+                    [existing.photo_id.as_bytes().as_slice()],
+                )?;
+                RegisteredAsset {
+                    photo_id: actual.photo_id,
+                    representation_id: expected_representation_id,
+                    location_id: existing.location_id,
+                    status: crate::RegistrationStatus::NeedsRevalidation,
+                }
+            }
+        };
         // The lookup above proves the digest has not changed; this only refreshes
         // the observation time and binds it to the newly attached physical
         // source. `attach_location_to_identity_match` changed the
@@ -545,6 +595,72 @@ impl Catalog {
             not_seen_locations: known_locations.saturating_sub(seen_locations),
         }))
     }
+}
+
+fn refresh_relinked_representation(
+    transaction: &rusqlite::Transaction<'_>,
+    representation_id: RepresentationId,
+    location_id: shadow_domain::LocationId,
+    request: &RegisterAsset,
+) -> rusqlite::Result<()> {
+    let byte_len = i64::try_from(request.byte_len)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    transaction.execute(
+        "UPDATE representations SET byte_len = ?2, modified_at_ms = ?3 WHERE id = ?1",
+        params![
+            representation_id.as_bytes().as_slice(),
+            byte_len,
+            request.modified_at_ms,
+        ],
+    )?;
+    transaction.execute(
+        "UPDATE locations SET status = 'online' WHERE id = ?1",
+        [location_id.as_bytes().as_slice()],
+    )?;
+    Ok(())
+}
+
+fn is_disposable_standalone_import(
+    transaction: &rusqlite::Transaction<'_>,
+    photo_id: shadow_domain::PhotoId,
+    representation_id: RepresentationId,
+    location_id: shadow_domain::LocationId,
+) -> rusqlite::Result<bool> {
+    transaction.query_row(
+        "SELECT EXISTS(
+             SELECT 1
+             FROM photos p
+             WHERE p.id = ?1
+               AND p.lifecycle_state = 'active'
+               AND (SELECT COUNT(*) FROM representations r WHERE r.photo_id = p.id) = 1
+               AND (
+                   SELECT COUNT(*) FROM locations l
+                   WHERE l.representation_id = ?2
+               ) = 1
+               AND EXISTS(
+                   SELECT 1 FROM locations l
+                   WHERE l.id = ?3 AND l.representation_id = ?2
+               )
+               AND NOT EXISTS(SELECT 1 FROM recipe_commits c WHERE c.photo_id = p.id)
+               AND NOT EXISTS(SELECT 1 FROM photo_decision_events d WHERE d.photo_id = p.id)
+               AND NOT EXISTS(SELECT 1 FROM photo_library_state s WHERE s.photo_id = p.id)
+               AND NOT EXISTS(
+                   SELECT 1 FROM photo_library_metadata_overrides m WHERE m.photo_id = p.id
+               )
+               AND NOT EXISTS(
+                   SELECT 1 FROM library_album_memberships a WHERE a.photo_id = p.id
+               )
+               AND NOT EXISTS(
+                   SELECT 1 FROM library_photo_keywords k WHERE k.photo_id = p.id
+               )
+         )",
+        params![
+            photo_id.as_bytes().as_slice(),
+            representation_id.as_bytes().as_slice(),
+            location_id.as_bytes().as_slice(),
+        ],
+        |row| row.get(0),
+    )
 }
 
 fn registration_state(status: RegistrationStatus) -> &'static str {

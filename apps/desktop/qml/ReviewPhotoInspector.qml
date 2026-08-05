@@ -45,6 +45,20 @@ Rectangle {
                 review: photoInspector.review
             }
 
+            ReviewSelectionInspectionPane {
+                Layout.fillWidth: true
+                review: photoInspector.review
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                visible: photoInspector.review.galleryPresentation
+                    === ReviewWorkspace.SinglePhotoFilmstrip
+                    && photoInspector.review.selectedPhotoId.length > 0
+                color: photoInspector.review.border
+            }
+
             ReviewExifSection {
                 Layout.fillWidth: true
                 review: photoInspector.review

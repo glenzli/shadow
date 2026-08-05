@@ -22,6 +22,9 @@ using RelinkOperation = std::function<
     BackendVerifiedSourceRelinkReceipt(const QString&, const QString&, const QString&)>;
 using LibraryRelinkOperation =
     std::function<BackendVerifiedSourceRelinkReceipt(const QString&, const QString&)>;
+using RecoverSourceOperation =
+    std::function<BackendLibrarySourceRecoveryReceipt(const QString&, const QString&)>;
+using ReconcileMissingOperation = std::function<BackendSourceReconciliationReceipt(const QString&)>;
 using ArchivePhotoOperation = std::function<bool(const QString&)>;
 
 inline void require(const bool condition, const std::string& message) {
@@ -53,7 +56,11 @@ inline ReviewSourceHealthCoordinator::Operations operations(
     RemoveSourceOperation remove_source = [](const QString&) { return true; },
     LibraryRelinkOperation relink_library =
         [](const QString&, const QString&) { return BackendVerifiedSourceRelinkReceipt{}; },
-    ArchivePhotoOperation archive_photo = [](const QString&) { return true; }
+    ArchivePhotoOperation archive_photo = [](const QString&) { return true; },
+    RecoverSourceOperation recover_source =
+        [](const QString&, const QString&) { return BackendLibrarySourceRecoveryReceipt{}; },
+    ReconcileMissingOperation reconcile_missing =
+        [](const QString&) { return BackendSourceReconciliationReceipt{}; }
 ) {
     if (!source_health) {
         source_health = [] { return QVector<BackendLibrarySourceHealth>{}; };
@@ -79,12 +86,22 @@ inline ReviewSourceHealthCoordinator::Operations operations(
     if (!archive_photo) {
         archive_photo = [](const QString&) { return true; };
     }
+    if (!recover_source) {
+        recover_source = [](const QString&, const QString&) {
+            return BackendLibrarySourceRecoveryReceipt{};
+        };
+    }
+    if (!reconcile_missing) {
+        reconcile_missing = [](const QString&) { return BackendSourceReconciliationReceipt{}; };
+    }
     return {
         .source_health = std::move(source_health),
         .remove_source = std::move(remove_source),
         .missing_locations = std::move(missing_locations),
         .relink = std::move(relink),
         .relink_library = std::move(relink_library),
+        .recover_source = std::move(recover_source),
+        .reconcile_missing = std::move(reconcile_missing),
         .archive_photo = std::move(archive_photo),
     };
 }

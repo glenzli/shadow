@@ -28,6 +28,7 @@ pub(in crate::writer) enum SourceIdentityMessage {
         ContentIdentity,
         SyncSender<Result<Option<RelinkMatch>, CatalogError>>,
     ),
+    HasCurrentWholeFileIdentity(RepresentationId, SyncSender<Result<bool, CatalogError>>),
     Fingerprint(
         RepresentationId,
         SyncSender<Result<RepresentationFingerprint, CatalogError>>,

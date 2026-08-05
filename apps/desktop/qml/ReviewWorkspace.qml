@@ -20,6 +20,8 @@ Item {
     ReviewSelectionState {
         id: selectionState
         controller: review.controller
+        focusDetailEnabled: review.galleryPresentation
+            === ReviewWorkspace.SinglePhotoFilmstrip
         onPrimaryContextInvalidated: review.precisionOpenStatus = ""
     }
 
@@ -27,6 +29,7 @@ Item {
         id: comparisonState
         controller: review.controller
         selection: selectionState
+        navigationModel: review.justifiedReviewLayout
         onComparisonRecorded: gallerySurface.forceGalleryFocus()
     }
 
@@ -42,6 +45,7 @@ Item {
     readonly property alias selectedLiked: selectionState.selectedLiked
     readonly property alias selectedColorLabel: selectionState.selectedColorLabel
     readonly property alias selectedTitle: selectionState.selectedTitle
+    readonly property alias selectedLocationId: selectionState.selectedLocationId
     readonly property alias selectedPath: selectionState.selectedPath
     readonly property alias selectedSourceAvailable:
         selectionState.selectedSourceAvailable
@@ -139,7 +143,6 @@ Item {
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
         && selectedRepresentationId.length > 0
         && (selectedIsRemote || selectedPath.length > 0)
-        && selectedSourceAvailable
         && !comparison.compareMode && !controller.remoteLibraryMaterializing
     readonly property var currentLibraryAlbum: {
         const albums = controller.libraryAlbums
@@ -324,6 +327,7 @@ Item {
         selectionState.selectPhoto({
             "photoId": String(cluster.photoId || ""),
             "representationId": String(cluster.representationId || ""),
+            "locationId": String(cluster.locationId || ""),
             "sourcePath": String(cluster.sourcePath || ""),
             "sourceAvailable": true,
             "title": String(cluster.title || ""),
@@ -420,6 +424,13 @@ Item {
             controller.materializeRemotePhoto(selectedPhotoId)
             return
         }
+        if (!controller.confirmLocalSourceAvailable(
+                selectedPhotoId, selectedLocationId, selectedPath)) {
+            precisionOpenStatus = qsTr("Original file not found. Relink its folder or remove it from the Library.")
+            missingPhotoDialogs.presentMissing(
+                selectedPhotoId, selectedLocationId, selectedTitle, selectedPath)
+            return
+        }
         openPrecisionRequested(selectedPhotoId, selectedRepresentationId,
                                selectedPath, selectedTitle, selectedVisualSource)
     }
@@ -468,6 +479,9 @@ Item {
         }
         function onLikedChanged(photoId, liked) {
             selectionState.applyLikedChanged(photoId, liked)
+        }
+        function onSourceAvailabilityChanged(photoId, available) {
+            selectionState.applySourceAvailabilityChanged(photoId, available)
         }
         function onRemotePhotoReady(photoId, representationId, sourcePath, title) {
             review.precisionOpenStatus = ""

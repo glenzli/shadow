@@ -157,7 +157,6 @@ Popup {
             iconSource: "qrc:/icons/edit.svg"
             actionEnabled: root.hasWorkspace
                 && root.workspace.canOpenSelectedPhoto
-                && root.photoSourceAvailable
             onActivated: {
                 if (!root.hasWorkspace)
                     return
@@ -170,10 +169,10 @@ Popup {
 
         MenuRow {
             visible: !root.photoSourceAvailable && !root.photoIsRemote
-            text: qsTr("Relink original…")
-            iconSource: "qrc:/icons/shared-link.svg"
+            text: qsTr("Add or locate folder…")
+            iconSource: "qrc:/icons/add-folder.svg"
             iconColor: Theme.warningText
-            actionEnabled: root.hasWorkspace && root.locationId.length > 0
+            actionEnabled: root.hasWorkspace && root.photoId.length > 0
             onActivated: {
                 if (!root.hasWorkspace)
                     return

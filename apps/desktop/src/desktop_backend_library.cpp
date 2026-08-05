@@ -292,6 +292,7 @@ verified_source_relink_receipt(const shadow::desktop::FfiVerifiedSourceRelinkRec
         .representation_id = qstring(source.representation_id),
         .location_id = qstring(source.location_id),
         .display_path = qstring(source.display_path),
+        .library_root_path = qstring(source.library_root_path),
     };
 }
 
@@ -664,6 +665,33 @@ BackendVerifiedSourceRelinkReceipt DesktopBackend::relinkLibrarySourceLocation(
         location_id.toStdString(),
         candidate_path.toStdString()
     ));
+}
+
+BackendLibrarySourceRecoveryReceipt DesktopBackend::recoverLibrarySource(
+    const QString& source_id,
+    const QString& replacement_folder
+) const {
+    const auto receipt = impl_->session->recover_library_source(
+        source_id.toStdString(),
+        replacement_folder.toStdString()
+    );
+    return {
+        .library_root_path = qstring(receipt.library_root_path),
+        .recovered_photo_count = receipt.recovered_photo_count,
+        .unresolved_photo_count = receipt.unresolved_photo_count,
+        .retired_unavailable_source = receipt.retired_unavailable_source,
+    };
+}
+
+BackendSourceReconciliationReceipt
+DesktopBackend::reconcileMissingSourcePhotos(const QString& scan_session_id) const {
+    const auto receipt =
+        impl_->session->reconcile_missing_source_photos(scan_session_id.toStdString());
+    return {
+        .reviewed = receipt.reviewed,
+        .archived = receipt.archived,
+        .retained_available = receipt.retained_available,
+    };
 }
 
 bool DesktopBackend::archiveLibraryPhoto(const QString& photo_id) const {

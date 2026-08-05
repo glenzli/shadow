@@ -46,6 +46,12 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewController::photoInspectionChanged
     );
     connect(
+        &focus_detail_coordinator_,
+        &ReviewFocusDetailCoordinator::stateChanged,
+        this,
+        &ReviewController::focusDetailChanged
+    );
+    connect(
         &metadata_coordinator_,
         &ReviewLibraryMetadataCoordinator::stateChanged,
         this,
@@ -203,6 +209,12 @@ void ReviewController::initializeCoordinatorWiring() {
         }
     );
     connect(
+        &model_,
+        &ReviewModel::localSourceAvailabilityChanged,
+        this,
+        &ReviewController::sourceAvailabilityChanged
+    );
+    connect(
         &organization_coordinator_,
         &ReviewLibraryOrganizationCoordinator::statusMessageChanged,
         this,
@@ -248,6 +260,12 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewSourceHealthCoordinator::sourceHealthChanged,
         this,
         &ReviewController::librarySourceHealthChanged
+    );
+    connect(
+        &source_health_coordinator_,
+        &ReviewSourceHealthCoordinator::libraryFolderScanRequested,
+        this,
+        [this](const QString& folder_path) { scanFolder(QUrl::fromLocalFile(folder_path)); }
     );
     connect(
         &source_health_coordinator_,

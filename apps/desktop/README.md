@@ -113,7 +113,8 @@ Application startup is split from environment-driven automation:
   owns ordered stable connection identities and migration from the former singleton setting;
   secrets never enter that registry. [`src/review_controller_remote_library.cpp`](src/review_controller_remote_library.cpp)
   is the thin QML facade routing owner. [`qml/LibraryRemoteConnectionsPane.qml`](qml/LibraryRemoteConnectionsPane.qml)
-  presents local and multiple remote Libraries together inside Library Management, while
+  presents only configured remote Libraries inside Library Management; local folders remain
+  individually visible under source health instead of being duplicated as a synthetic local card. While
   [`qml/SettingsLibraryPane.qml`](qml/SettingsLibraryPane.qml) is limited to thumbnail, metadata,
   and photographic-resource preferences. Review cards display only client-local proxy paths.
   Remote rows participate in locally mirrored curation filters but remain outside local-only
@@ -258,6 +259,9 @@ Its implementation follows the same navigation:
   and Canvas are absent from a new stack until added; they remain single-use, photo-private, and
   non-reorderable. Model execution stays in the RAW Foundation controller and authored framing
   stays in the geometry controller.
+- [`src/edit_source_admission.*`](src/edit_source_admission.hpp) owns the final filesystem-only
+  guard before a local original enters Precision. A disappeared path returns to the Library
+  recovery flow and never becomes a misleading decoder failure.
 - [`src/edit_mask_assignment_controller.cpp`](src/edit_mask_assignment_controller.cpp) owns the
   atomic choice between attaching a new mask to the selected empty node and creating, masking,
   inserting, and selecting one new node. QML never chains those state mutations.
@@ -517,22 +521,38 @@ Review presentation keeps the workspace focused on selection and orchestration:
   geometry. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
   evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
   clipping, so the two browsing modes keep one visual contract without sharing interaction state.
-  A grid card whose original is currently unreachable keeps its cached visual and presents an
-  explicit missing badge; [`qml/LibraryMissingPhotoDialogs.qml`](qml/LibraryMissingPhotoDialogs.qml)
-  owns the stable relink picker and non-destructive Library-removal confirmation after the
-  virtualized card has released its context menu.
+  A grid card whose original is currently unreachable keeps a dimmed cached visual and presents
+  one compact broken-link indicator; [`qml/LibraryMissingPhotoDialogs.qml`](qml/LibraryMissingPhotoDialogs.qml)
+  owns the stable relink picker, folder-adoption confirmation, and non-destructive Library-removal
+  confirmation after the virtualized card has released its context menu. Existing exact identities
+  remain path-independent; older catalogs can bootstrap an identity only from one uniquely named,
+  same-size candidate inside the explicitly selected folder. The selected photo establishes the
+  old-directory to replacement-directory mapping; Shadow verifies and reattaches every recoverable
+  sibling before the ordinary scan can create duplicate logical photos. A recovered candidate is
+  never retained as a standalone source: Shadow reuses an enabled containing source when present,
+  otherwise adds the selected folder and immediately scans it in full. An untouched standalone
+  duplicate created by an earlier scan is conservatively consolidated; any user-authored state makes
+  that repair fail closed.
 - [`qml/ReviewPhotoInspector.qml`](qml/ReviewPhotoInspector.qml) is the selected-photo scrolling
   index. [`qml/ReviewPhotoSummary.qml`](qml/ReviewPhotoSummary.qml) owns visual identity,
   [`qml/ReviewExifSection.qml`](qml/ReviewExifSection.qml) owns configurable metadata and retry,
-  and [`qml/ReviewComparisonSlots.qml`](qml/ReviewComparisonSlots.qml) owns comparison admission,
-  assignment, clearing, and entry.
+  and [`qml/ReviewSelectionInspectionPane.qml`](qml/ReviewSelectionInspectionPane.qml) owns the
+  single-photo culling rail: an immediate proxy crop, an asynchronously replacing level-zero focus
+  region, camera AF evidence, and inexpensive exposure/detail references. It never assigns a
+  quality verdict. [`qml/ReviewComparisonSlots.qml`](qml/ReviewComparisonSlots.qml) owns comparison
+  admission, assignment, clearing, and entry; single-photo Review presents anchor–candidate entry
+  while the broad grid retains explicit A/B slots.
 
 Library management uses the same page-composition boundary:
 
 - [`qml/LibrarySourceHealthPane.qml`](qml/LibrarySourceHealthPane.qml) owns source-scan evidence,
-  non-destructive scan-root removal, missing-location paging, and exact-content relink
-  confirmation. Removing a root hides photos available only through that root while preserving
-  their photo, edit, Catalog-location, and source-file records; adding the root again restores them.
+  folder-availability presentation, non-destructive scan-root removal, missing-location paging,
+  source-level identity-first relocation, and confirmed removal of photos still unavailable at
+  every known original path. An unavailable folder is a danger-state card with an explicit
+  relocate/remove choice; a partially missing folder is a warning-state card with locate, check,
+  review, and confirmed-remove actions. Removing a root hides photos available only through that
+  root while preserving their photo, edit, Catalog-location, and source-file records; adding the
+  root again restores them.
 - [`qml/LibraryImportPane.qml`](qml/LibraryImportPane.qml) owns catalog count, folder admission,
   and observable import activity.
 
@@ -614,8 +634,11 @@ Review presentation keeps the workspace as the composition and compatibility sur
   recycling and Library pagination cannot replace the selected representation.
 - [`qml/ReviewComparisonState.qml`](qml/ReviewComparisonState.qml) owns frozen left/right evidence
   snapshots, duplicate-photo rejection, prepared presentation tickets and sources, visual/backend
-  readiness, local status, submission, cancellation, and terminal cleanup. Comparison surfaces
-  navigate through this owner instead of reopening the lifecycle in `ReviewWorkspace`.
+  readiness, local status, submission, cancellation, and terminal cleanup. Its culling path locks
+  one anchor, moves a bounded candidate window through the existing Review navigation model, and
+  promotes a candidate only after an explicit right-preferred receipt succeeds. Merely navigating
+  never records preference evidence. Comparison surfaces navigate through this owner instead of
+  reopening the lifecycle in `ReviewWorkspace`.
 - [`src/review_comparison_coordinator.cpp`](src/review_comparison_coordinator.cpp) owns the complete
   Compare lifecycle after cross-workflow admission: exact presentation preparation, decoded-frame
   verification, cancellation, serialized record/forget workers, receipt validation, session-local
@@ -639,6 +662,13 @@ Review presentation keeps the workspace as the composition and compatibility sur
   independent request generation and stale-completion rejection; neither contract observes the
   Library page generation. Focused coordinator and session tests cover rapid reselection, clear,
   failure/retry, and same-identity refresh.
+- [`src/review_focus_detail_coordinator.*`](src/review_focus_detail_coordinator.hpp) owns the
+  cancellable focus-region request after inspection publishes a real camera focus position. It
+  reuses the current photo Recipe and the Precision level-zero detail renderer, requests one
+  384-pixel region, coalesces rapid filmstrip navigation, and rejects stale completion.
+  [`src/review_focus_detail_provider.*`](src/review_focus_detail_provider.hpp) retains only that
+  current generation for asynchronous QML image delivery; Review does not build a second RAW or
+  edit pipeline and does not retain a full-resolution presentation image.
 - [`src/review_library_metadata_coordinator.cpp`](src/review_library_metadata_coordinator.cpp)
   keeps metadata reads, manual corrections, batch capture-time preview/apply, GPX parsing/preview,
   and confirmed batch application off the GUI thread. Decoder EXIF remains the immutable
@@ -649,16 +679,42 @@ Review presentation keeps the workspace as the composition and compatibility sur
   set on demand.
 - [`src/review_source_health_coordinator.cpp`](src/review_source_health_coordinator.cpp) owns the
   complete Library source-health review lifecycle: serialized health refreshes, scan-scoped
-  missing-location paging, stale-page rejection, asynchronous source removal, exact user-selected
-  relink workers from either scan evidence or a current unavailable grid location, non-destructive
-  logical-photo removal, localized status, and destruction wait. Folder scanning only requests a
-  health refresh at its terminal boundary; it does not share this state machine. The responsibility-named
+  missing-location paging, stale-page rejection, asynchronous source removal, identity-first
+  user-selected relink workers from scan evidence, a current unavailable grid location, or a whole
+  configured source, all-location confirmation before batch photo removal, localized status, and
+  destruction wait. Each refresh also consumes
+  [`src/library_source_quick_probe.*`](src/library_source_quick_probe.hpp), a decode-free recursive
+  supported-file count that marks folders whose live inventory differs from the Catalog and lets
+  the user admit a full scan only where needed. A successful proof emits the
+  adopted containing source root to the ordinary import coordinator, which scans the complete
+  folder only after every safely matched photo has been attached. A wholly unavailable source is
+  retired only when all of its missing originals match the selected replacement tree; a partial
+  recovery leaves the old source active and reports the unresolved count. Those proof transactions
+  are deliberately not published as completed-scan evidence.
+  Folder scanning otherwise only requests a health refresh at its terminal boundary and does not
+  share this state machine. The responsibility-named
   [`tests/review_source_health_coordinator/`](tests/review_source_health_coordinator/) suite covers
   refresh coalescing and projection, review switching/closing and keyset continuation, plus relink
   admission, receipts, errors, and lifetime.
   [`review_source_health_backend_contract_test.cpp`](tests/review_source_health_backend_contract_test.cpp)
   additionally runs two completed scans through the real desktop session, pages the resulting
-  missing-location evidence, and proves that a wrong complete-file identity cannot relink it.
+  missing-location evidence, rejects a wrong candidate, then proves that an older identity-less
+  import recovers both the selected photo and its same-directory sibling before scanning the
+  explicitly selected replacement folder. It also proves whole-source replacement retires the
+  unavailable root without duplicate photos, and completed-scan reconciliation archives only the
+  originals that remain unavailable.
+- [`src/review_source_availability_monitor.*`](src/review_source_availability_monitor.hpp) owns
+  transient runtime checks for originals represented by the currently loaded local Library rows.
+  It snapshots exact photo/location/path tuples, probes only filesystem metadata off the UI
+  thread, and updates the existing card/selection availability role when a file is deleted, moved,
+  restored, or the application becomes active again. Periodic checks pause while Shadow is
+  inactive. The same owner provides the explicit synchronous path confirmation used immediately
+  before Precision admission. It never rescans a folder, decodes a RAW,
+  changes Catalog evidence, or applies a late observation after relink. The separate source-health
+  coordinator remains the owner of durable completed-scan evidence and verified relocation.
+  Explicit Precision opening additionally performs one synchronous exact-path confirmation through
+  `review_controller_library_management.cpp`, closing the race between a user double-click and an
+  in-flight monitor result while keeping ordinary heartbeats asynchronous.
 - [`src/review_library_query_coordinator.cpp`](src/review_library_query_coordinator.cpp) carries
   Library order with the filter generation and validates an order-typed continuation cursor.
   Future Group By is a separate query dimension: capture month, camera, and lens headers must be
@@ -732,7 +788,8 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`tests/review_library_query_coordinator/`](tests/review_library_query_coordinator/) contracts
   cover projection, pagination, reset coalescing, stale completion, failures, and lifetime.
 - [`src/review_model.cpp`](src/review_model.cpp) owns the photo-keyed Qt row projection, stable QML
-  roles, visual-generation URLs, and reset/prefix/append reconciliation. Its single test runner
+  roles, exact-location source-availability application, visual-generation URLs, and
+  reset/prefix/append reconciliation. Its single test runner
   routes to responsibility-named contracts under
   [`tests/review_model/`](tests/review_model/) for roles, mutable Library/decision state, visual
   generations, item-field identity, and snapshot membership; executable test bodies do not live

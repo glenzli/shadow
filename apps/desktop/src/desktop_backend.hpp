@@ -103,6 +103,10 @@ class DesktopBackend final {
     ) const;
     [[nodiscard]] BackendVerifiedSourceRelinkReceipt
     relinkLibrarySourceLocation(const QString& location_id, const QString& candidate_path) const;
+    [[nodiscard]] BackendLibrarySourceRecoveryReceipt
+    recoverLibrarySource(const QString& source_id, const QString& replacement_folder) const;
+    [[nodiscard]] BackendSourceReconciliationReceipt
+    reconcileMissingSourcePhotos(const QString& scan_session_id) const;
     [[nodiscard]] bool archiveLibraryPhoto(const QString& photo_id) const;
     [[nodiscard]] BackendLibraryAlbum createManualLibraryAlbum(const QString& name) const;
     [[nodiscard]] BackendLibraryKeyword

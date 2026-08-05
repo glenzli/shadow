@@ -24,6 +24,20 @@ fi
 rawnind_model_root="$user_home/Library/Application Support/Shadow/Shadow/models/rawnind-public-bayer-release-5.6.0"
 rawnind_package=${SHADOW_RAWNIND_PACKAGE_PATH:-"$rawnind_model_root/rawdenoise-nind.dtmodel"}
 rawnind_graph=${SHADOW_RAWNIND_BAYER_GRAPH_PATH:-"$rawnind_model_root/model_bayer.onnx"}
+debug_log_root=${SHADOW_DEBUG_LOG_ROOT:-"$local_build_root/logs"}
+debug_log="$debug_log_root/shadow-debug.log"
+
+usage() {
+    cat <<'EOF'
+usage:
+  ./scripts/run_debug.sh [Shadow options]
+  ./scripts/run_debug.sh --foreground [Shadow options]
+  ./scripts/run_debug.sh --check
+
+By default Shadow starts in the background and this script returns immediately.
+Use --foreground to keep Shadow attached to the terminal and stream its output.
+EOF
+}
 
 verify_rawnind_command_surface() {
     provider=$1
@@ -112,6 +126,7 @@ if ! "$rawnind_provider" \
 fi
 
 if [ "${1:-}" = "--check" ]; then
+    [ "$#" -eq 1 ] || { echo "--check does not accept extra arguments" >&2; exit 64; }
     echo "canonical debug app: $canonical_app"
     echo "offline city index: $geonames_index"
     echo "AI RAW Denoise provider: $rawnind_provider"
@@ -120,4 +135,19 @@ if [ "${1:-}" = "--check" ]; then
     exit 0
 fi
 
-exec "$shadow_executable" "$@"
+case "${1:-}" in
+    --foreground)
+        shift
+        exec "$shadow_executable" "$@"
+        ;;
+    -h|--help)
+        usage
+        exit 0
+        ;;
+esac
+
+mkdir -p "$debug_log_root"
+nohup "$shadow_executable" "$@" >>"$debug_log" 2>&1 </dev/null &
+shadow_pid=$!
+echo "Shadow started in the background (pid $shadow_pid)."
+echo "log: $debug_log"

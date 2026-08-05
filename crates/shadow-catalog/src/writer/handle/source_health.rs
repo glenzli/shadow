@@ -1,10 +1,10 @@
 //! Client adapters for Library source inventory and missing-location review.
 
-use shadow_domain::{AssetLocation, ImportSessionId, LibrarySourceId, LocationId};
+use shadow_domain::{AssetLocation, ImportSessionId, LibrarySourceId, LocationId, PhotoId};
 
 use crate::{
     CatalogError, LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationCursor,
-    MissingSourceLocationPage, MissingSourceRelinkTarget,
+    MissingSourceLocationPage, MissingSourceLocationRecord, MissingSourceRelinkTarget,
 };
 
 use super::super::{
@@ -101,6 +101,45 @@ impl CatalogHandle {
             Message::SourceHealth(SourceHealthMessage::LibrarySourceRelinkTarget(
                 location_id,
                 response,
+            ))
+        })
+    }
+
+    /// Reads the bounded active-original catalog facts beneath a historical
+    /// directory before an explicit folder recovery plans sibling matches.
+    pub fn library_source_relink_targets_beneath(
+        &self,
+        root: &AssetLocation,
+    ) -> Result<Vec<MissingSourceLocationRecord>, CatalogError> {
+        self.request(|response| {
+            Message::SourceHealth(SourceHealthMessage::LibrarySourceRelinkTargetsBeneath(
+                root.clone(),
+                response,
+            ))
+        })
+    }
+
+    /// Reads the bounded active-original catalog facts owned by one source
+    /// before a source-level recovery verifies a replacement folder.
+    pub fn library_source_relink_targets(
+        &self,
+        source_id: LibrarySourceId,
+    ) -> Result<Vec<MissingSourceLocationRecord>, CatalogError> {
+        self.request(|response| {
+            Message::SourceHealth(SourceHealthMessage::LibrarySourceRelinkTargets(
+                source_id, response,
+            ))
+        })
+    }
+
+    /// Reads all retained original locations for one active Library photo.
+    pub fn library_photo_original_locations(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Vec<AssetLocation>, CatalogError> {
+        self.request(|response| {
+            Message::SourceHealth(SourceHealthMessage::LibraryPhotoOriginalLocations(
+                photo_id, response,
             ))
         })
     }

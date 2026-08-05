@@ -1,6 +1,8 @@
 #include "source_health_fixture.hpp"
 
+#include <QFile>
 #include <QSemaphore>
+#include <QTemporaryDir>
 
 #include <atomic>
 
@@ -98,6 +100,47 @@ void source_health_failure_publishes_the_canonical_global_message() {
     );
 }
 
+void quick_inventory_flags_only_the_sources_that_need_a_full_scan() {
+    QTemporaryDir root;
+    require(root.isValid(), "quick-inventory temporary root");
+    QFile photo(root.filePath(QStringLiteral("present.nef")));
+    require(photo.open(QIODevice::WriteOnly), "quick-inventory fixture opens");
+    require(photo.write("raw") == 3, "quick-inventory fixture writes");
+    photo.close();
+
+    ReviewSourceHealthCoordinator coordinator(operations([&]() {
+        return QVector<BackendLibrarySourceHealth>{
+            {
+                .source_id = QStringLiteral("source-probed"),
+                .source_display_path = root.path(),
+                .source_enabled = true,
+                .has_latest_completed_scan = true,
+                .scan_session_id = QStringLiteral("scan-probed"),
+                .known_locations = 2,
+                .seen_locations = 2,
+            },
+        };
+    }));
+
+    coordinator.refreshSourceHealth();
+    wait_until([&]() { return !coordinator.sourceHealthBusy(); }, "quick inventory did not settle");
+    const QVariantMap source = coordinator.sourceHealth().constFirst().toMap();
+    require(source.value(QStringLiteral("sourceRootAvailable")).toBool(), "root available");
+    require(source.value(QStringLiteral("hasQuickInventory")).toBool(), "inventory present");
+    require(
+        source.value(QStringLiteral("currentSupportedFiles")).toULongLong() == 1,
+        "current supported-file count"
+    );
+    require(
+        source.value(QStringLiteral("quickInventoryNeedsScan")).toBool(),
+        "count mismatch requests a full scan"
+    );
+    require(
+        source.value(QStringLiteral("suspectedMissingLocations")).toULongLong() == 1,
+        "count shortfall estimates one missing original"
+    );
+}
+
 void removing_a_source_is_async_and_refreshes_the_projection() {
     QSemaphore remove_started;
     QSemaphore release_remove;
@@ -118,11 +161,9 @@ void removing_a_source_is_async_and_refreshes_the_projection() {
             return true;
         }
     ));
-    QObject::connect(
-        &coordinator,
-        &ReviewSourceHealthCoordinator::libraryVisibilityChanged,
-        [&]() { ++visibility_changes; }
-    );
+    QObject::connect(&coordinator, &ReviewSourceHealthCoordinator::libraryVisibilityChanged, [&]() {
+        ++visibility_changes;
+    });
 
     coordinator.removeSource(QStringLiteral("source-1"), QStringLiteral("/photos"));
     require(remove_started.tryAcquire(1, 3'000), "source removal did not start");
@@ -144,12 +185,83 @@ void removing_a_source_is_async_and_refreshes_the_projection() {
     );
 }
 
+void source_level_recovery_requests_the_verified_replacement_scan() {
+    QString recovered_source_id;
+    QString selected_folder;
+    QString requested_scan;
+    std::atomic<int> visibility_changes = 0;
+    ReviewSourceHealthCoordinator coordinator(
+        operations({}, {}, {}, {}, {}, {}, [&](const QString& source_id, const QString& folder) {
+            recovered_source_id = source_id;
+            selected_folder = folder;
+            return BackendLibrarySourceRecoveryReceipt{
+                .library_root_path = folder,
+                .recovered_photo_count = 7,
+                .unresolved_photo_count = 0,
+                .retired_unavailable_source = true,
+            };
+        })
+    );
+    QObject::connect(
+        &coordinator,
+        &ReviewSourceHealthCoordinator::libraryFolderScanRequested,
+        [&](const QString& folder) { requested_scan = folder; }
+    );
+    QObject::connect(&coordinator, &ReviewSourceHealthCoordinator::libraryVisibilityChanged, [&]() {
+        ++visibility_changes;
+    });
+
+    coordinator.recoverSource(
+        QStringLiteral("source-missing"),
+        QUrl::fromLocalFile(QStringLiteral("/replacement"))
+    );
+    wait_until([&]() { return !coordinator.relinkBusy(); }, "source recovery did not settle");
+    require(recovered_source_id == QStringLiteral("source-missing"), "source recovery identity");
+    require(selected_folder == QStringLiteral("/replacement"), "source recovery folder");
+    require(requested_scan == QStringLiteral("/replacement"), "replacement scan request");
+    require(visibility_changes.load() == 1, "source recovery visibility invalidation");
+}
+
+void reconciliation_archives_only_the_backend_confirmed_missing_photos() {
+    QString reconciled_scan;
+    std::atomic<int> visibility_changes = 0;
+    ReviewSourceHealthCoordinator coordinator(
+        operations({}, {}, {}, {}, {}, {}, {}, [&](const QString& scan_id) {
+            reconciled_scan = scan_id;
+            return BackendSourceReconciliationReceipt{
+                .reviewed = 5,
+                .archived = 3,
+                .retained_available = 2,
+            };
+        })
+    );
+    QObject::connect(&coordinator, &ReviewSourceHealthCoordinator::libraryVisibilityChanged, [&]() {
+        ++visibility_changes;
+    });
+
+    coordinator.reconcileMissing(QStringLiteral("scan-missing"), QStringLiteral("/photos"));
+    wait_until(
+        [&]() { return !coordinator.reconcileBusy(); },
+        "source reconciliation did not settle"
+    );
+    require(reconciled_scan == QStringLiteral("scan-missing"), "reconciled scan identity");
+    require(visibility_changes.load() == 1, "reconciliation visibility invalidation");
+    require(
+        coordinator.globalStatusMessage().translated()
+            == QStringLiteral("Removed 3 unavailable photos from Library · /photos"),
+        "reconciliation terminal status"
+    );
+}
+
 } // namespace
 
 void run_source_health_refresh_contracts() {
     complete_projection_and_pending_refresh_are_owned_together();
     source_health_failure_publishes_the_canonical_global_message();
+    quick_inventory_flags_only_the_sources_that_need_a_full_scan();
     removing_a_source_is_async_and_refreshes_the_projection();
+    source_level_recovery_requests_the_verified_replacement_scan();
+    reconciliation_archives_only_the_backend_confirmed_missing_photos();
 }
 
 } // namespace review_source_health_test

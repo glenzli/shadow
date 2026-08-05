@@ -615,6 +615,57 @@ std::optional<ReviewLibraryStateValue> ReviewModel::libraryStateFor(const QStrin
     };
 }
 
+QVector<ReviewLocalSourceProbe> ReviewModel::localSourceProbes() const {
+    QVector<ReviewLocalSourceProbe> probes;
+    probes.reserve(items_.size());
+    for (const auto& item : items_) {
+        if (item.is_remote || item.photo_id.isEmpty() || item.location_id.isEmpty()
+            || item.source_path.isEmpty()) {
+            continue;
+        }
+        probes.push_back({
+            .photo_id = item.photo_id,
+            .location_id = item.location_id,
+            .source_path = item.source_path,
+        });
+    }
+    return probes;
+}
+
+bool ReviewModel::applyLocalSourceAvailability(
+    const QVector<ReviewLocalSourceAvailability>& observations
+) {
+    QHash<QString, ReviewLocalSourceAvailability> by_photo;
+    by_photo.reserve(observations.size());
+    for (const auto& observation : observations) {
+        if (observation.source.photo_id.isEmpty() || observation.source.location_id.isEmpty()
+            || observation.source.source_path.isEmpty()) {
+            continue;
+        }
+        by_photo.insert(observation.source.photo_id, observation);
+    }
+
+    bool any_changed = false;
+    for (qsizetype row = 0; row < items_.size(); ++row) {
+        auto& item = items_[row];
+        if (item.is_remote) {
+            continue;
+        }
+        const auto observation = by_photo.constFind(item.photo_id);
+        if (observation == by_photo.cend() || observation->source.location_id != item.location_id
+            || observation->source.source_path != item.source_path
+            || observation->available == item.source_available) {
+            continue;
+        }
+        item.source_available = observation->available;
+        const QModelIndex changed = index(static_cast<int>(row), 0);
+        emit dataChanged(changed, changed, {SourceAvailableRole});
+        emit localSourceAvailabilityChanged(item.photo_id, item.source_available);
+        any_changed = true;
+    }
+    return any_changed;
+}
+
 bool ReviewModel::updateDecision(
     const QString& photo_id,
     const quint64 head_sequence,

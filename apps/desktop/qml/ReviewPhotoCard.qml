@@ -145,6 +145,11 @@ Item {
             // proxy cache. A fixed 1024px presentation layer remains sharp at
             // the allowed gallery scale and reuses one decoded cache entry.
             requestedSourceSize: Qt.size(1024, 1024)
+            opacity: card.sourceAvailable ? 1.0 : 0.46
+
+            Behavior on opacity {
+                NumberAnimation { duration: 120 }
+            }
         }
 
         Rectangle {
@@ -184,30 +189,6 @@ Item {
         }
 
         Rectangle {
-            anchors.left: parent.left
-            anchors.bottom: caption.top
-            anchors.leftMargin: 10
-            anchors.bottomMargin: 10
-            height: 26
-            width: missingSourceLabel.implicitWidth + 18
-            radius: Theme.compactControlRadius
-            visible: !card.sourceAvailable
-            color: Theme.warningSurface
-            border.width: 1
-            border.color: Theme.warningBorder
-
-            Label {
-                id: missingSourceLabel
-                anchors.centerIn: parent
-                text: card.isRemote
-                    ? qsTr("REMOTE RAW UNAVAILABLE") : qsTr("ORIGINAL NOT FOUND")
-                color: Theme.warningText
-                font.pixelSize: Theme.fontMeta
-                font.weight: Font.DemiBold
-            }
-        }
-
-        Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
             anchors.topMargin: 10
@@ -230,9 +211,11 @@ Item {
         }
 
         Rectangle {
+            id: noVisualPlaceholder
             anchors.fill: thumbnail
             visible: card.visualSource.length === 0
             color: Theme.surfaceSubtle
+            opacity: card.sourceAvailable ? 1.0 : 0.46
 
             Column {
                 anchors.centerIn: parent
@@ -345,6 +328,15 @@ Item {
                     Layout.alignment: Qt.AlignRight
                     spacing: 8
 
+                    ShadowIcon {
+                        objectName: "cardCaptionMissingSourceIndicator"
+                        visible: !card.sourceAvailable
+                        source: "qrc:/icons/shared-link.svg"
+                        color: Theme.warningText
+                        size: 13
+                        Accessible.name: qsTr("Original file not found")
+                    }
+
                     ReviewPhotoAffinity {
                         objectName: "cardCaptionLikeIndicator"
                         liked: card.liked
@@ -399,13 +391,7 @@ Item {
                 if (mouse.button !== Qt.LeftButton)
                     return
                 card.workspace.selectPhoto(card, 0)
-                if (card.sourceAvailable || card.isRemote) {
-                    card.workspace.openSelectedPhoto()
-                } else {
-                    card.workspace.relinkUnavailablePhoto(
-                        card.photoId, card.locationId,
-                        card.title, card.sourcePath)
-                }
+                card.workspace.openSelectedPhoto()
             }
         }
     }

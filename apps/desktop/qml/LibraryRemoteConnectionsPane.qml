@@ -267,66 +267,6 @@ ColumnLayout {
         }
     }
 
-    Rectangle {
-        Layout.fillWidth: true
-        implicitHeight: localContent.implicitHeight + 28
-        radius: 8
-        color: Theme.panelRaised
-        border.width: 1
-        border.color: Theme.border
-
-        RowLayout {
-            id: localContent
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 16
-            anchors.rightMargin: 16
-            spacing: 12
-
-            Rectangle {
-                Layout.preferredWidth: 34
-                Layout.preferredHeight: 34
-                radius: 8
-                color: Theme.accentSurfaceQuiet
-
-                ShadowIcon {
-                    anchors.centerIn: parent
-                    source: "qrc:/icons/add-folder.svg"
-                    color: Theme.accent
-                    size: 17
-                }
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Local Library")
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fontSection
-                    font.weight: Font.DemiBold
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("This Mac · local folders and downloaded originals")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontMeta
-                }
-            }
-
-            Label {
-                text: qsTr("LOCAL")
-                color: Theme.accentTextMuted
-                font.pixelSize: Theme.fontMeta
-                font.weight: Font.DemiBold
-            }
-        }
-    }
-
     Repeater {
         model: root.remoteLibraries.length
 

@@ -58,9 +58,11 @@ pub trait CatalogStore {
     /// after an external full-content verifier established the exact identity.
     ///
     /// The caller must have recorded the discovery entry first. Implementors
-    /// reject a pre-existing target path or an identity that does not still
-    /// belong to `expected_representation_id`; they never turn weak matching
-    /// metadata into an implicit merge.
+    /// may consolidate a pre-existing target only when it is a standalone,
+    /// untouched ordinary-import duplicate; user-authored state fails closed.
+    /// An identity that does not still belong to
+    /// `expected_representation_id` is always rejected, and weak matching
+    /// metadata never becomes an implicit merge.
     ///
     /// # Errors
     ///

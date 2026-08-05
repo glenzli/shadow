@@ -83,6 +83,29 @@ fn actor_routes_source_inventory_health_and_missing_location_review() {
         .expect("read relink target through actor")
         .expect("missing location remains valid evidence");
     assert_eq!(target.location, page.items[0]);
+    let subtree = handle
+        .library_source_relink_targets_beneath(&root)
+        .expect("read folder recovery targets through actor");
+    assert_eq!(subtree.len(), 2);
+    assert!(
+        subtree
+            .iter()
+            .any(|item| item.representation_id == observed.representation_id)
+    );
+    assert!(
+        subtree
+            .iter()
+            .any(|item| item.representation_id == missing.representation_id)
+    );
+    let owned_targets = handle
+        .library_source_relink_targets(sources[0].id)
+        .expect("read source-owned recovery targets through actor");
+    assert_eq!(owned_targets.len(), 2);
+    let original_locations = handle
+        .library_photo_original_locations(missing.photo_id)
+        .expect("read retained photo locations through actor");
+    assert_eq!(original_locations.len(), 1);
+    assert_eq!(original_locations[0].display_path, "/archive/missing.nef");
     assert!(
         handle
             .missing_source_relink_target(second_scan, observed_again.location_id)

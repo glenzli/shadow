@@ -25,6 +25,24 @@ struct ReviewLibraryStateValue final {
     bool operator==(const ReviewLibraryStateValue&) const = default;
 };
 
+/// Immutable input to the asynchronous local-source availability monitor.
+/// The location and path are retained so a late filesystem result cannot be
+/// applied after the same logical photo has been relinked elsewhere.
+struct ReviewLocalSourceProbe final {
+    QString photo_id;
+    QString location_id;
+    QString source_path;
+
+    bool operator==(const ReviewLocalSourceProbe&) const = default;
+};
+
+struct ReviewLocalSourceAvailability final {
+    ReviewLocalSourceProbe source;
+    bool available = false;
+
+    bool operator==(const ReviewLocalSourceAvailability&) const = default;
+};
+
 struct ReviewItem final {
     QString photo_id;
     QString representation_id;
@@ -177,6 +195,14 @@ class ReviewModel final : public QAbstractListModel {
     [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(const QString& photo_id) const;
     [[nodiscard]] std::optional<ReviewLibraryStateValue>
     libraryStateFor(const QString& photo_id) const;
+    /// Snapshots every currently loaded local source for off-thread file
+    /// availability checks. Remote rows have a separate materialization
+    /// lifecycle and are intentionally excluded.
+    [[nodiscard]] QVector<ReviewLocalSourceProbe> localSourceProbes() const;
+    /// Applies exact-location observations without replacing rows or changing
+    /// the query generation. Stale results are ignored after relink/reset.
+    [[nodiscard]] bool
+    applyLocalSourceAvailability(const QVector<ReviewLocalSourceAvailability>& observations);
     [[nodiscard]] bool
     updateDecision(const QString& photo_id, quint64 head_sequence, const QString& flag, int rating);
     /// Applies the Catalog-authoritative durable Library state for a loaded
@@ -188,6 +214,9 @@ class ReviewModel final : public QAbstractListModel {
         const QString& color_label,
         std::int64_t updated_at_ms
     );
+
+  signals:
+    void localSourceAvailabilityChanged(const QString& photoId, bool available);
 
   private:
     QVector<ReviewItem> items_;

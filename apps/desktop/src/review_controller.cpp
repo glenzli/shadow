@@ -23,6 +23,8 @@ ReviewController::ReviewController(
 ) :
     QObject(parent), backend_(std::move(backend)),
     map_provider_preferences_(map_provider_preferences), photo_inspection_coordinator_(backend_),
+    focus_detail_store_(std::make_shared<ReviewFocusDetailStore>()),
+    focus_detail_coordinator_(backend_, focus_detail_store_),
     source_health_coordinator_(BackendOperations::source_health_operations(backend_)),
     album_coordinator_(BackendOperations::album_operations(backend_)),
     facet_coordinator_(BackendOperations::facet_operations(backend_)),
@@ -35,6 +37,7 @@ ReviewController::ReviewController(
     map_coordinator_(BackendOperations::map_operations(backend_)),
     metadata_coordinator_(BackendOperations::metadata_operations(backend_)),
     import_coordinator_(BackendOperations::import_operations(backend_)), model_(this),
+    source_availability_monitor_(model_, this),
     remote_library_coordinator_(
         BackendOperations::remote_library_operations(backend_),
         model_,
@@ -119,6 +122,26 @@ bool ReviewController::photoInspectionBusy() const noexcept {
 
 bool ReviewController::photoInspectionFailed() const noexcept {
     return photo_inspection_coordinator_.failed();
+}
+
+QString ReviewController::focusDetailImageSource() const {
+    return focus_detail_coordinator_.imageSource();
+}
+
+QString ReviewController::focusDetailStatusText() const {
+    return focus_detail_coordinator_.statusText();
+}
+
+bool ReviewController::focusDetailBusy() const noexcept {
+    return focus_detail_coordinator_.busy();
+}
+
+bool ReviewController::focusDetailReady() const noexcept {
+    return focus_detail_coordinator_.ready();
+}
+
+bool ReviewController::focusDetailFailed() const noexcept {
+    return focus_detail_coordinator_.failed();
 }
 
 bool ReviewController::comparisonBusy() const noexcept {
@@ -341,6 +364,10 @@ bool ReviewController::librarySourceRemovalBusy() const noexcept {
     return source_health_coordinator_.removeSourceBusy();
 }
 
+bool ReviewController::librarySourceReconcileBusy() const noexcept {
+    return source_health_coordinator_.reconcileBusy();
+}
+
 QVariantMap ReviewController::libraryMetadata() const {
     return metadata_coordinator_.metadata();
 }
@@ -409,9 +436,21 @@ ReviewModel* ReviewController::reviewModel() noexcept {
     return &model_;
 }
 
+std::shared_ptr<ReviewFocusDetailStore> ReviewController::focusDetailStore() const noexcept {
+    return focus_detail_store_;
+}
+
 bool ReviewController::eventFilter(QObject* const watched, QEvent* const event) {
-    if (watched == QCoreApplication::instance() && event->type() == QEvent::LanguageChange) {
-        retranslateUi();
+    if (watched == QCoreApplication::instance()) {
+        if (event->type() == QEvent::LanguageChange) {
+            retranslateUi();
+        } else if (event->type() == QEvent::ApplicationActivate && !scanning()) {
+            // Returning to Shadow is the natural low-cost heartbeat boundary:
+            // refresh loaded rows immediately and compare each configured
+            // folder's lightweight inventory off the UI thread.
+            source_availability_monitor_.refreshNow();
+            refreshLibrarySourceHealth();
+        }
     }
     return QObject::eventFilter(watched, event);
 }
@@ -420,6 +459,7 @@ void ReviewController::retranslateUi() {
     emit statusTextChanged();
     comparison_coordinator_.retranslateUi();
     source_health_coordinator_.retranslateUi();
+    focus_detail_coordinator_.retranslateUi();
     keyword_coordinator_.retranslateUi();
     emit decisionStatusTextChanged();
 }

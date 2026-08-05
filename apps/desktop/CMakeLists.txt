@@ -451,6 +451,8 @@ qt_add_executable(
     src/edit_persistence_task_coordinator.hpp
     src/edit_render_coordinator.cpp
     src/edit_retouch_controller.cpp
+    src/edit_source_admission.cpp
+    src/edit_source_admission.hpp
     src/edit_stroke_input.cpp
     src/edit_stroke_input.hpp
     src/edit_task_runner.cpp
@@ -571,8 +573,12 @@ qt_add_executable(
     src/review_library_organization_coordinator.hpp
     src/review_library_query_coordinator.cpp
     src/review_library_query_coordinator.hpp
+    src/library_source_quick_probe.cpp
+    src/library_source_quick_probe.hpp
     src/review_model.cpp
     src/review_model.hpp
+    src/review_source_availability_monitor.cpp
+    src/review_source_availability_monitor.hpp
     src/remote_library_connection_store.cpp
     src/remote_library_connection_store.hpp
     src/review_remote_library_coordinator.cpp
@@ -580,6 +586,10 @@ qt_add_executable(
     src/review_photo_inspection_coordinator.cpp
     src/review_photo_inspection_coordinator.hpp
     src/review_photo_inspection_session.hpp
+    src/review_focus_detail_coordinator.cpp
+    src/review_focus_detail_coordinator.hpp
+    src/review_focus_detail_provider.cpp
+    src/review_focus_detail_provider.hpp
     src/review_shared_grade_coordinator.cpp
     src/review_shared_grade_coordinator.hpp
     src/review_source_health_coordinator.cpp
@@ -916,6 +926,7 @@ qt_add_qml_module(
         qml/ReviewPhotoContextMenu.qml
         qml/ReviewExifSection.qml
         qml/ReviewPhotoInspector.qml
+        qml/ReviewSelectionInspectionPane.qml
         qml/ReviewPhotoSummary.qml
         qml/ReviewSinglePreview.qml
         qml/ShadowButton.qml

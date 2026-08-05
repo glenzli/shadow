@@ -63,12 +63,14 @@ inline BackendReviewItem item(
     return {
         .photo_id = photo_id,
         .representation_id = photo_id + QStringLiteral("-representation"),
+        .location_id = photo_id + QStringLiteral("-location"),
         .visual_handle = photo_id + QStringLiteral("-visual"),
         .decision_head_sequence = head,
         .decision_flag = flag,
         .decision_rating = rating,
         .title = title,
         .source_path = QStringLiteral("/tmp/") + photo_id,
+        .source_available = false,
     };
 }
 

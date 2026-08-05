@@ -1,16 +1,29 @@
 //! Reversible Library source removal, source-health, and missing-location projections.
 
-use anyhow::{Context, Result as AnyResult};
+use std::collections::HashSet;
+
+use anyhow::{Context, Result as AnyResult, bail};
 use shadow_catalog::{
     LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationCursor,
     MissingSourceLocationPage,
 };
 use shadow_core::{native_location, native_path_from_location};
-use shadow_domain::{ImportSessionId, LibrarySourceId, LocationId};
+use shadow_domain::{ImportSessionId, LibrarySourceId, LocationId, PhotoId};
 
 use crate::{ffi, review_service::file_name, wall_clock::current_time_ms};
 
 use super::LibraryService;
+
+const MAX_SOURCE_RECONCILIATION_PHOTOS: usize = 4_096;
+
+/// Result of explicitly removing photos that remained unavailable after one
+/// completed source scan and an immediate all-location filesystem check.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct SourceReconciliationReceipt {
+    pub reviewed: u64,
+    pub archived: u64,
+    pub retained_available: u64,
+}
 
 impl LibraryService {
     /// Removes only the configured discovery root. Catalog locations, photos,
@@ -84,6 +97,69 @@ impl LibraryService {
             empty_ffi_missing_source_location_page,
             ffi_missing_source_location_page,
         ))
+    }
+
+    /// Archives only scan-missing photos for which every retained original
+    /// location is still unavailable at confirmation time. This preserves a
+    /// photo that remains reachable through an overlapping source or a second
+    /// path, even when one source-specific scan did not see it.
+    pub(crate) fn reconcile_missing_source_photos(
+        &self,
+        scan_session_id: &str,
+    ) -> AnyResult<SourceReconciliationReceipt> {
+        let scan_session_id = scan_session_id
+            .trim()
+            .parse::<ImportSessionId>()
+            .with_context(|| format!("parse source-health scan session id {scan_session_id}"))?;
+        let mut cursor = None;
+        let mut photo_ids = HashSet::<PhotoId>::new();
+        loop {
+            let Some(page) =
+                self.catalog
+                    .missing_source_location_page(scan_session_id, cursor.as_ref(), 256)?
+            else {
+                bail!("the selected source scan is no longer available for reconciliation");
+            };
+            for item in page.items {
+                photo_ids.insert(item.photo_id);
+                if photo_ids.len() > MAX_SOURCE_RECONCILIATION_PHOTOS {
+                    bail!(
+                        "source reconciliation is limited to {MAX_SOURCE_RECONCILIATION_PHOTOS} photos"
+                    );
+                }
+            }
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+
+        let mut archived_photo_count = 0_u64;
+        let mut retained_available_photo_count = 0_u64;
+        for photo_id in &photo_ids {
+            let locations = self.catalog.library_photo_original_locations(*photo_id)?;
+            let definitely_unavailable = !locations.is_empty()
+                && locations.iter().all(|location| {
+                    let Ok(path) = native_path_from_location(location) else {
+                        // A location from another platform cannot be disproved by
+                        // this machine. Retain the photo rather than treating a
+                        // path-decoding failure as evidence that the original is
+                        // gone.
+                        return false;
+                    };
+                    std::fs::metadata(path).map_or(true, |metadata| !metadata.is_file())
+                });
+            if definitely_unavailable {
+                archived_photo_count += u64::from(self.catalog.archive_library_photo(*photo_id)?);
+            } else {
+                retained_available_photo_count += 1;
+            }
+        }
+        Ok(SourceReconciliationReceipt {
+            reviewed: u64::try_from(photo_ids.len()).unwrap_or(u64::MAX),
+            archived: archived_photo_count,
+            retained_available: retained_available_photo_count,
+        })
     }
 }
 

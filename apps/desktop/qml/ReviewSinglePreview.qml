@@ -68,6 +68,42 @@ Item {
         font.pixelSize: Theme.fontBody
     }
 
+    Rectangle {
+        objectName: "singlePhotoMissingSourceBadge"
+        anchors.left: heroImage.left
+        anchors.bottom: heroImage.bottom
+        anchors.leftMargin: 14
+        anchors.bottomMargin: 14
+        z: 3
+        width: missingSourceContents.implicitWidth + 16
+        height: 28
+        radius: Theme.compactControlRadius
+        visible: root.review.selectedPhotoId.length > 0
+            && !root.review.selectedSourceAvailable
+        color: Theme.warningSurface
+        border.width: 1
+        border.color: Theme.warningBorder
+
+        Row {
+            id: missingSourceContents
+            anchors.centerIn: parent
+            spacing: 6
+
+            ShadowIcon {
+                source: "qrc:/icons/shared-link.svg"
+                color: Theme.warningText
+                size: 13
+            }
+
+            Label {
+                text: qsTranslate("ReviewPhotoCard", "ORIGINAL NOT FOUND")
+                color: Theme.warningText
+                font.pixelSize: Theme.fontMeta
+                font.weight: Font.DemiBold
+            }
+        }
+    }
+
     ReviewDecisionToolbar {
         id: floatingDecisionToolbar
         anchors.right: heroImage.right
@@ -301,13 +337,7 @@ Item {
                         root.review.selectPhoto(filmCard, mouse.modifiers)
                     onDoubleClicked: {
                         root.review.selectPhoto(filmCard, 0)
-                        if (filmCard.sourceAvailable || filmCard.isRemote) {
-                            root.review.openSelectedPhoto()
-                        } else {
-                            root.review.relinkUnavailablePhoto(
-                                filmCard.photoId, filmCard.locationId,
-                                filmCard.title, filmCard.sourcePath)
-                        }
+                        root.review.openSelectedPhoto()
                     }
                 }
             }

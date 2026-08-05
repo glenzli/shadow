@@ -46,5 +46,14 @@ pub(super) fn run_source_health_message(catalog: &mut Catalog, message: SourceHe
         SourceHealthMessage::LibrarySourceRelinkTarget(location_id, response) => {
             let _ = response.send(catalog.library_source_relink_target(location_id));
         }
+        SourceHealthMessage::LibrarySourceRelinkTargetsBeneath(root, response) => {
+            let _ = response.send(catalog.library_source_relink_targets_beneath(&root));
+        }
+        SourceHealthMessage::LibrarySourceRelinkTargets(source_id, response) => {
+            let _ = response.send(catalog.library_source_relink_targets(source_id));
+        }
+        SourceHealthMessage::LibraryPhotoOriginalLocations(photo_id, response) => {
+            let _ = response.send(catalog.library_photo_original_locations(photo_id));
+        }
     }
 }

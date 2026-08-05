@@ -6,27 +6,59 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-// Owns reversible source removal, source-scan evidence, missing-location
-// paging, and the exact-content relink confirmation transaction. It never
-// creates a new Library source.
+// Owns folder availability presentation, reversible source removal,
+// source-scan evidence, missing-location paging, source-level recovery, and
+// confirmed removal of originals that remain unavailable everywhere.
 ColumnLayout {
     id: sourceHealth
 
     required property var controller
     property string pendingRelinkLocationId: ""
-    property url pendingRelinkCandidate: ""
+    property url pendingRelinkFolder: ""
+    property string pendingRecoverSourceId: ""
+    property url pendingRecoverFolder: ""
     property string pendingRemoveSourceId: ""
     property string pendingRemoveSourcePath: ""
+    property string pendingReconcileScanId: ""
+    property string pendingReconcileSourcePath: ""
+    property int pendingReconcileCount: 0
+    readonly property int missingPhotoCount: {
+        let total = 0
+        const sources = controller.librarySourceHealth
+        for (let index = 0; index < sources.length; ++index) {
+            total += Math.max(
+                Number(sources[index].notSeenLocations || 0),
+                Number(sources[index].suspectedMissingLocations || 0))
+        }
+        return total
+    }
+    readonly property int foldersNeedingCheck: {
+        let total = 0
+        const sources = controller.librarySourceHealth
+        for (let index = 0; index < sources.length; ++index) {
+            if (Boolean(sources[index].quickInventoryNeedsScan))
+                ++total
+        }
+        return total
+    }
 
     spacing: 8
 
-    FileDialog {
-        id: relinkFileDialog
-        title: qsTr("Choose the moved original file")
-        fileMode: FileDialog.OpenFile
+    FolderDialog {
+        id: relinkFolderDialog
+        title: qsTr("Choose the folder containing the moved original")
         onAccepted: {
-            sourceHealth.pendingRelinkCandidate = selectedFile
+            sourceHealth.pendingRelinkFolder = selectedFolder
             relinkConfirmPopup.open()
+        }
+    }
+
+    FolderDialog {
+        id: recoverSourceFolderDialog
+        title: qsTr("Choose the folder containing the missing originals")
+        onAccepted: {
+            sourceHealth.pendingRecoverFolder = selectedFolder
+            recoverSourceConfirmPopup.open()
         }
     }
 
@@ -53,7 +85,7 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Verify and link original")
+                text: qsTr("Search and add this folder")
                 color: Theme.textPrimary
                 font.pixelSize: 15
                 font.weight: Font.DemiBold
@@ -61,7 +93,7 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Shadow will read the complete selected file and link it only when its exact content identity belongs to this historical photo. File name, EXIF and size are not used as a match.")
+                text: qsTr("Shadow will search this folder and its subfolders, reconnect the matching original, then add and scan the selected folder.")
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -69,7 +101,7 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                text: sourceHealth.pendingRelinkCandidate.toString()
+                text: sourceHealth.pendingRelinkFolder.toString()
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontMeta
                 elide: Text.ElideMiddle
@@ -88,12 +120,14 @@ ColumnLayout {
                 }
 
                 ShadowButton {
-                    text: qsTr("VERIFY AND LINK")
+                    text: qsTr("SEARCH AND ADD FOLDER")
                     variant: ShadowButton.Primary
+                    enabled: !Boolean(sourceHealth.controller.sourceRelinkBusy)
+                        && !Boolean(sourceHealth.controller.scanning)
                     onClicked: {
                         sourceHealth.controller.relinkMissingSourceLocation(
                             sourceHealth.pendingRelinkLocationId,
-                            sourceHealth.pendingRelinkCandidate
+                            sourceHealth.pendingRelinkFolder
                         )
                         relinkConfirmPopup.close()
                     }
@@ -177,6 +211,158 @@ ColumnLayout {
         }
     }
 
+    Popup {
+        id: recoverSourceConfirmPopup
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: 410
+        padding: 18
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            radius: 10
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.warningBorder
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Locate missing originals")
+                color: Theme.textPrimary
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Shadow will verify matching originals, add this folder, and replace the unavailable folder when every original is recovered.")
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: sourceHealth.pendingRecoverFolder.toString()
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMeta
+                elide: Text.ElideMiddle
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    compact: true
+                    text: qsTr("CANCEL")
+                    onClicked: recoverSourceConfirmPopup.close()
+                }
+
+                ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Primary
+                    text: qsTr("LOCATE ORIGINALS")
+                    enabled: !sourceHealth.controller.sourceRelinkBusy
+                        && !sourceHealth.controller.scanning
+                    onClicked: {
+                        sourceHealth.controller.recoverLibrarySource(
+                            sourceHealth.pendingRecoverSourceId,
+                            sourceHealth.pendingRecoverFolder
+                        )
+                        recoverSourceConfirmPopup.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: reconcileConfirmPopup
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: 410
+        padding: 18
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+
+        background: Rectangle {
+            radius: 10
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.dangerBorder
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Remove missing photos?")
+                color: Theme.textPrimary
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Shadow will check every known original path and remove only photos that are still unavailable. Edits and source records are retained for recovery.")
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("%L1 missing photos · %2")
+                    .arg(sourceHealth.pendingReconcileCount.toLocaleString())
+                    .arg(sourceHealth.pendingReconcileSourcePath)
+                color: Theme.warningText
+                font.pixelSize: Theme.fontMeta
+                elide: Text.ElideMiddle
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    compact: true
+                    text: qsTr("CANCEL")
+                    onClicked: reconcileConfirmPopup.close()
+                }
+
+                ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Danger
+                    text: qsTr("REMOVE MISSING PHOTOS")
+                    enabled: !sourceHealth.controller.librarySourceReconcileBusy
+                        && !sourceHealth.controller.scanning
+                    onClicked: {
+                        sourceHealth.controller.reconcileMissingSourcePhotos(
+                            sourceHealth.pendingReconcileScanId,
+                            sourceHealth.pendingReconcileSourcePath
+                        )
+                        reconcileConfirmPopup.close()
+                    }
+                }
+            }
+        }
+    }
+
     RowLayout {
         Layout.fillWidth: true
 
@@ -189,6 +375,24 @@ ColumnLayout {
         }
 
         Item { Layout.fillWidth: true }
+
+        Label {
+            visible: sourceHealth.missingPhotoCount > 0
+            text: qsTr("%L1 MISSING")
+                .arg(sourceHealth.missingPhotoCount.toLocaleString())
+            color: Theme.warningText
+            font.pixelSize: Theme.fontMeta
+            font.weight: Font.DemiBold
+        }
+
+        Label {
+            visible: sourceHealth.foldersNeedingCheck > 0
+            text: qsTr("%L1 FOLDERS NEED CHECK")
+                .arg(sourceHealth.foldersNeedingCheck.toLocaleString())
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontMeta
+            font.weight: Font.DemiBold
+        }
 
         BusyIndicator {
             Layout.preferredWidth: 16
@@ -217,12 +421,28 @@ ColumnLayout {
             delegate: Rectangle {
                 id: sourceRow
                 required property var modelData
+                readonly property bool folderUnavailable:
+                    Boolean(modelData.hasQuickInventory)
+                    && !Boolean(modelData.sourceRootAvailable)
+                readonly property int missingCount: Math.max(
+                    Number(modelData.notSeenLocations || 0),
+                    Number(modelData.suspectedMissingLocations || 0))
+                readonly property bool hasMissingPhotos:
+                    !folderUnavailable && missingCount > 0
+                readonly property bool hasConfirmedMissingPhotos:
+                    Boolean(modelData.hasLatestCompletedScan)
+                    && Number(modelData.notSeenLocations || 0) > 0
 
                 Layout.fillWidth: true
                 implicitHeight: sourceHealthContent.implicitHeight + 28
                 radius: 8
-                color: Theme.panelRaised
-                border.color: Theme.border
+                color: folderUnavailable
+                    ? Theme.dangerSurface
+                    : hasMissingPhotos ? Theme.warningSurface : Theme.panelRaised
+                border.width: 1
+                border.color: folderUnavailable
+                    ? Theme.dangerBorder
+                    : hasMissingPhotos ? Theme.warningBorder : Theme.border
 
                 ColumnLayout {
                     id: sourceHealthContent
@@ -239,31 +459,68 @@ ColumnLayout {
 
                         ShadowIcon {
                             source: "qrc:/icons/add-folder.svg"
-                            color: sourceRow.modelData.enabled
-                                ? Theme.textMuted : Theme.textSubtle
+                            color: sourceRow.folderUnavailable
+                                ? Theme.dangerText
+                                : sourceRow.hasMissingPhotos
+                                    ? Theme.warningText
+                                    : sourceRow.modelData.enabled
+                                        ? Theme.textMuted : Theme.textSubtle
                             size: 16
+                        }
+
+                        Rectangle {
+                            visible: sourceRow.folderUnavailable
+                                || sourceRow.hasMissingPhotos
+                            implicitWidth: 18
+                            implicitHeight: 18
+                            radius: 9
+                            color: sourceRow.folderUnavailable
+                                ? Theme.dangerText : Theme.warningText
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: "!"
+                                color: Theme.panelRaised
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                            }
                         }
 
                         Label {
                             Layout.fillWidth: true
                             text: sourceRow.modelData.sourcePath
-                            color: sourceRow.modelData.enabled
-                                ? Theme.textPrimary : Theme.textMuted
+                            color: sourceRow.folderUnavailable
+                                ? Theme.dangerText
+                                : sourceRow.hasMissingPhotos
+                                    ? Theme.warningText
+                                    : sourceRow.modelData.enabled
+                                        ? Theme.textPrimary : Theme.textMuted
                             font.pixelSize: Theme.fontSection
                             font.weight: Font.DemiBold
+                            font.strikeout: sourceRow.folderUnavailable
                             elide: Text.ElideMiddle
                         }
 
                         Label {
-                            text: sourceRow.modelData.enabled
-                                ? qsTr("ACTIVE") : qsTr("PAUSED")
-                            color: sourceRow.modelData.enabled
-                                ? Theme.accent : Theme.textSubtle
+                            text: sourceRow.folderUnavailable
+                                ? qsTr("FOLDER UNAVAILABLE")
+                                : sourceRow.hasMissingPhotos
+                                    ? qsTr("%L1 MISSING")
+                                        .arg(sourceRow.missingCount.toLocaleString())
+                                    : sourceRow.modelData.enabled
+                                        ? qsTr("ACTIVE") : qsTr("PAUSED")
+                            color: sourceRow.folderUnavailable
+                                ? Theme.dangerText
+                                : sourceRow.hasMissingPhotos
+                                    ? Theme.warningText
+                                    : sourceRow.modelData.enabled
+                                        ? Theme.accent : Theme.textSubtle
                             font.pixelSize: Theme.fontMeta
                             font.weight: Font.DemiBold
                         }
 
                         ShadowIconButton {
+                            visible: !sourceRow.folderUnavailable
                             source: "qrc:/icons/trash.svg"
                             variant: ShadowIconButton.Quiet
                             enabled: !sourceHealth.controller.librarySourceRemovalBusy
@@ -282,14 +539,23 @@ ColumnLayout {
 
                     Label {
                         Layout.fillWidth: true
-                        text: !sourceRow.modelData.hasLatestCompletedScan
+                        text: sourceRow.folderUnavailable
+                            ? qsTr("Folder unavailable · %L1 catalog photos need recovery.")
+                                .arg(Number(sourceRow.modelData.knownLocations).toLocaleString())
+                            : sourceRow.modelData.quickInventoryNeedsScan
+                                ? qsTr("Quick check found %L1 supported files; the Catalog expects %L2. Run a full check.")
+                                    .arg(Number(sourceRow.modelData.currentSupportedFiles).toLocaleString())
+                                    .arg(Number(sourceRow.modelData.knownLocations).toLocaleString())
+                            : !sourceRow.modelData.hasLatestCompletedScan
                             ? qsTr("No completed scan has been recorded yet.")
                             : Number(sourceRow.modelData.notSeenLocations) === 0
                                 ? qsTr("The latest scan accounted for all known locations.")
                                 : qsTr("%L1 locations were not seen in this scan.")
                                     .arg(Number(sourceRow.modelData.notSeenLocations).toLocaleString())
-                        color: Number(sourceRow.modelData.notSeenLocations) > 0
-                            ? Theme.textSecondary : Theme.textMuted
+                        color: sourceRow.folderUnavailable
+                            ? Theme.dangerText
+                            : sourceRow.hasMissingPhotos
+                                ? Theme.warningText : Theme.textMuted
                         font.pixelSize: Theme.fontMeta
                         wrapMode: Text.WordWrap
                     }
@@ -313,29 +579,111 @@ ColumnLayout {
                             font.pixelSize: Theme.fontMeta
                         }
 
-                        Item { Layout.fillWidth: true }
-                    }
+                        Label {
+                            visible: sourceRow.modelData.hasQuickInventory
+                                && sourceRow.modelData.sourceRootAvailable
+                            text: qsTr("NOW  %L1")
+                                .arg(Number(sourceRow.modelData.currentSupportedFiles).toLocaleString())
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontMeta
+                        }
 
-                    Label {
-                        Layout.fillWidth: true
-                        visible: sourceRow.modelData.hasLatestCompletedScan
-                            && Number(sourceRow.modelData.notSeenLocations) > 0
-                        text: qsTr("This is scan evidence for this source only; photos may remain available elsewhere.")
-                        color: Theme.textSubtle
-                        font.pixelSize: Theme.fontMeta
-                        wrapMode: Text.WordWrap
+                        Item { Layout.fillWidth: true }
+
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: sourceRow.modelData.hasLatestCompletedScan
-                            && Number(sourceRow.modelData.notSeenLocations) > 0
+                        visible: Boolean(sourceRow.modelData.quickInventoryNeedsScan)
+                            && !sourceRow.folderUnavailable
+                            && !sourceRow.hasMissingPhotos
 
                         Item { Layout.fillWidth: true }
 
+                        ShadowButton {
+                            compact: true
+                            variant: ShadowButton.Primary
+                            text: qsTr("CHECK FOLDER")
+                            enabled: !sourceHealth.controller.scanning
+                                && !sourceHealth.controller.refreshing
+                            onClicked: sourceHealth.controller.verifyLibrarySource(
+                                sourceRow.modelData.sourcePath)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: sourceRow.folderUnavailable
+                            || sourceRow.hasMissingPhotos
+                        spacing: 8
+
+                        ShadowButton {
+                            compact: true
+                            variant: ShadowButton.Secondary
+                            text: sourceRow.folderUnavailable
+                                ? qsTr("RELOCATE FOLDER")
+                                : qsTr("LOCATE MISSING PHOTOS")
+                            enabled: !sourceHealth.controller.sourceRelinkBusy
+                                && !sourceHealth.controller.scanning
+                            onClicked: {
+                                sourceHealth.pendingRecoverSourceId =
+                                    sourceRow.modelData.sourceId
+                                recoverSourceFolderDialog.open()
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ShadowButton {
+                            visible: sourceRow.folderUnavailable
+                            compact: true
+                            variant: ShadowButton.Danger
+                            text: qsTr("REMOVE FROM LIBRARY")
+                            enabled: !sourceHealth.controller.librarySourceRemovalBusy
+                                && !sourceHealth.controller.scanning
+                            onClicked: {
+                                sourceHealth.pendingRemoveSourceId =
+                                    sourceRow.modelData.sourceId
+                                sourceHealth.pendingRemoveSourcePath =
+                                    sourceRow.modelData.sourcePath
+                                removeSourceConfirmPopup.open()
+                            }
+                        }
+
+                        ShadowButton {
+                            visible: sourceRow.hasMissingPhotos
+                                && !sourceRow.hasConfirmedMissingPhotos
+                            compact: true
+                            variant: ShadowButton.Primary
+                            text: qsTr("CHECK FOLDER")
+                            enabled: !sourceHealth.controller.scanning
+                                && !sourceHealth.controller.refreshing
+                            onClicked: sourceHealth.controller.verifyLibrarySource(
+                                sourceRow.modelData.sourcePath)
+                        }
+
+                        ShadowButton {
+                            visible: sourceRow.hasConfirmedMissingPhotos
+                            compact: true
+                            variant: ShadowButton.Danger
+                            text: qsTr("REMOVE MISSING PHOTOS")
+                            enabled: !sourceHealth.controller.librarySourceReconcileBusy
+                                && !sourceHealth.controller.scanning
+                            onClicked: {
+                                sourceHealth.pendingReconcileScanId =
+                                    sourceRow.modelData.scanSessionId
+                                sourceHealth.pendingReconcileSourcePath =
+                                    sourceRow.modelData.sourcePath
+                                sourceHealth.pendingReconcileCount = Number(
+                                    sourceRow.modelData.notSeenLocations)
+                                reconcileConfirmPopup.open()
+                            }
+                        }
+
                         ShadowIconButton {
-                            visible: sourceHealth.controller.missingSourceLocationScanId
-                                !== sourceRow.modelData.scanSessionId
+                            visible: sourceRow.hasConfirmedMissingPhotos
+                                && sourceHealth.controller.missingSourceLocationScanId
+                                    !== sourceRow.modelData.scanSessionId
                             source: "qrc:/icons/metadata.svg"
                             variant: ShadowIconButton.Quiet
                             toolTipText: qsTr("REVIEW NOT-SEEN LOCATIONS")
@@ -444,13 +792,13 @@ ColumnLayout {
                                         ShadowIconButton {
                                             source: "qrc:/icons/add-folder.svg"
                                             variant: ShadowIconButton.Quiet
-                                            toolTipText: qsTr("LOCATE MOVED ORIGINAL")
+                                            toolTipText: qsTr("SEARCH FOLDER FOR ORIGINAL")
                                             accessibleName: toolTipText
                                             enabled: !sourceHealth.controller.sourceRelinkBusy
                                             onClicked: {
                                                 sourceHealth.pendingRelinkLocationId =
                                                     missingLocationRow.modelData.locationId
-                                                relinkFileDialog.open()
+                                                relinkFolderDialog.open()
                                             }
                                         }
 
@@ -490,7 +838,7 @@ ColumnLayout {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: qsTr("Select a moved original to verify it. Shadow creates no new Library source and changes nothing unless the complete file identity matches exactly.")
+                text: qsTr("Shadow will search this folder and its subfolders, reconnect the matching original, then add and scan the selected folder.")
                                 color: Theme.textSubtle
                                 font.pixelSize: Theme.fontMeta
                                 wrapMode: Text.WordWrap

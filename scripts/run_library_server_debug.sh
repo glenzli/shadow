@@ -9,18 +9,22 @@ local_build_root=${SHADOW_LOCAL_BUILD_ROOT:-"$repository_parent/.shadow-local-bu
 canonical_app="$local_build_root/current-debug/Shadow.app"
 server_app="$canonical_app/Contents/Applications/Shadow Server.app"
 server_executable="$server_app/Contents/MacOS/Shadow Server"
+debug_log_root=${SHADOW_DEBUG_LOG_ROOT:-"$local_build_root/logs"}
+server_controller_log="$debug_log_root/shadow-server-controller-debug.log"
 
 usage() {
     cat <<'EOF'
 usage:
   ./scripts/run_library_server_debug.sh
+  ./scripts/run_library_server_debug.sh --foreground
   ./scripts/run_library_server_debug.sh --check
   ./scripts/run_library_server_debug.sh --headless <shared-folder> [options]
 
 default control mode:
   Launches the standalone Shadow Server controller from the canonical debug
   bundle. It configures, starts, stops, and rescans this Mac's Library server
-  without opening the photo editor.
+  without opening the photo editor. The controller starts in the background;
+  use --foreground to keep it attached to the terminal.
 
 headless options:
   --bind <address:port>   Listener address (default: 0.0.0.0:37641)
@@ -49,6 +53,19 @@ if [ "${1:-}" != "--headless" ]; then
                 echo "Expected: $server_app" >&2
                 exit 69
             fi
+            mkdir -p "$debug_log_root"
+            nohup "$server_executable" >>"$server_controller_log" 2>&1 </dev/null &
+            server_controller_pid=$!
+            echo "Shadow Server controller started in the background (pid $server_controller_pid)."
+            echo "log: $server_controller_log"
+            ;;
+        --foreground)
+            [ "$#" -eq 1 ] || { echo "--foreground does not accept control-mode arguments" >&2; exit 64; }
+            if [ ! -x "$server_executable" ]; then
+                echo "Shadow Server is not present in the canonical debug build." >&2
+                echo "Expected: $server_app" >&2
+                exit 69
+            fi
             exec "$server_executable"
             ;;
         --check)
@@ -72,6 +89,7 @@ if [ "${1:-}" != "--headless" ]; then
             exit 64
             ;;
     esac
+    exit 0
 fi
 shift
 
