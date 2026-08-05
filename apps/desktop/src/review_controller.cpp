@@ -43,7 +43,7 @@ ReviewController::ReviewController(
         model_,
         isolated_settings_file,
         remote_library_secret_store ? std::move(remote_library_secret_store)
-                                    : makeSystemSecretStore(),
+                                    : makeVolatileSecretStore(),
         this
     ),
     filtered_model_(this),
@@ -67,7 +67,7 @@ ReviewController::ReviewController(
     ) {
     // Ordinary Library state is Catalog-backed. The isolated settings file is
     // consumed only by device-local service preferences such as the remote
-    // server address; its access token remains in SecretStore.
+    // server address; its access token remains in the injected local store.
     Q_ASSERT(map_provider_preferences_ != nullptr);
     initializeCoordinatorWiring();
 }

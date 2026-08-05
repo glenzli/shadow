@@ -269,21 +269,20 @@ Item {
                     anchors.top: parent.top
                     anchors.leftMargin: 5
                     anchors.topMargin: 5
+                    width: 20
                     height: 20
-                    width: remoteFilmLabel.implicitWidth + 12
                     radius: Theme.compactControlRadius
                     visible: filmCard.isRemote
                     color: Theme.panelRaised
                     border.width: 1
                     border.color: Theme.borderStrong
 
-                    Label {
-                        id: remoteFilmLabel
+                    ShadowIcon {
                         anchors.centerIn: parent
-                        text: qsTr("REMOTE")
+                        source: "qrc:/icons/network.svg"
                         color: Theme.textSecondary
-                        font.pixelSize: 8
-                        font.weight: Font.DemiBold
+                        size: 12
+                        Accessible.name: qsTr("Network Library source")
                     }
                 }
 

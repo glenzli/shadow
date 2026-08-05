@@ -21,34 +21,26 @@ struct SecretStoreResult {
     }
 };
 
-/// Narrow platform-secret boundary used by desktop services.
+/// Narrow local-credential boundary used by desktop services.
 ///
-/// Callers persist only stable service/account identifiers in ordinary
-/// settings. Secret values remain in the platform credential store and are
-/// never projected into QML properties.
+/// Credentials are stored in a Shadow-owned, user-private file selected by
+/// the application. Values are never projected into QML properties.
 class SecretStore {
-public:
+  public:
     virtual ~SecretStore() = default;
 
     [[nodiscard]] virtual bool available() const noexcept = 0;
-    [[nodiscard]] virtual SecretStoreResult read(
-        const QString& service,
-        const QString& account
-    ) const = 0;
-    [[nodiscard]] virtual SecretStoreResult write(
-        const QString& service,
-        const QString& account,
-        const QString& value
-    ) = 0;
-    [[nodiscard]] virtual SecretStoreResult remove(
-        const QString& service,
-        const QString& account
-    ) = 0;
+    [[nodiscard]] virtual SecretStoreResult
+    read(const QString& service, const QString& account) const = 0;
+    [[nodiscard]] virtual SecretStoreResult
+    write(const QString& service, const QString& account, const QString& value) = 0;
+    [[nodiscard]] virtual SecretStoreResult
+    remove(const QString& service, const QString& account) = 0;
 };
 
-/// Returns the host credential-store implementation. Unsupported platforms
-/// fail closed rather than writing secrets to a plaintext fallback.
-[[nodiscard]] std::unique_ptr<SecretStore> makeSystemSecretStore();
+/// Returns a persistent Shadow-local credential store. The containing
+/// directory and resulting file are restricted to the current user.
+[[nodiscard]] std::unique_ptr<SecretStore> makeLocalSecretStore(const QString& storage_file);
 
 /// Process-local store for isolated smoke tests and other explicitly
 /// non-persistent sessions.

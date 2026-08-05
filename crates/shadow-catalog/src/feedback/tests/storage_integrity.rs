@@ -8,7 +8,7 @@ fn migration_six_creates_immutable_feedback_storage() {
     let catalog = Catalog::open_in_memory().expect("open catalog");
     assert_eq!(
         catalog.schema_version().expect("schema version"),
-        crate::schema_v1::SCHEMA_VERSION
+        crate::schema::SCHEMA_VERSION
     );
     let tables: i64 = catalog
         .connection

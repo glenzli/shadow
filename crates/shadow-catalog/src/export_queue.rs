@@ -25,7 +25,7 @@ pub use model::{
     ExportPresetRevisionId, ExportPresetRevisionRecord, ExportQueueRecovery, ExportSettingsSource,
     MAX_EXPORT_JOB_PAGE_SIZE, NewExportItem, NewExportOutputReceipt,
 };
-pub(crate) use schema::SCHEMA_V1_EXPORT_QUEUE;
+pub(crate) use schema::SCHEMA_EXPORT_QUEUE;
 
 #[cfg(test)]
 mod tests;

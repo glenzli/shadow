@@ -5,7 +5,12 @@ use std::path::Path;
 pub(super) fn initialize(path: &str) -> Result<()> {
     let actor = open(path)?;
     let catalog = actor.handle();
-    println!("initialized catalog schema v{}", catalog.schema_version()?);
+    let revision = catalog.schema_version()?;
+    println!(
+        "initialized catalog schema revision {}.{}",
+        revision / 100,
+        revision % 100
+    );
     print_stats(catalog.stats()?);
     Ok(())
 }

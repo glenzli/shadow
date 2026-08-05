@@ -1,19 +1,21 @@
-//! Authoritative construction and identity checks for the single supported
-//! development Catalog schema.
+//! Authoritative construction and identity checks for the current development
+//! Catalog schema.
 //!
 //! Shadow has no migration chain before its first compatibility promise. This
-//! module creates schema v1 atomically and rejects every other persisted shape.
+//! module creates the current dated revision atomically and rejects every other
+//! persisted shape.
 
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::{CatalogError, export_queue};
 
-/// The only on-disk Catalog shape supported by this development build.
-pub(crate) const SCHEMA_VERSION: i64 = 1;
+/// The only on-disk Catalog revision supported by this development build.
+/// Encoded as YYYYMMDDNN, where NN is the contract's daily sequence.
+pub(crate) const SCHEMA_VERSION: i64 = 2_026_080_601;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-v1-r32-logical-photo-representations";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-20260806.1-logical-photo-representations";
 
-const SCHEMA_V1_CORE: &str = r"
+const SCHEMA_CORE: &str = r"
 CREATE TABLE photos (
     id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     created_at_ms   INTEGER NOT NULL,
@@ -54,7 +56,7 @@ CREATE INDEX locations_status_sort_name_idx
     ON locations(status, sort_name_key, id);
 ";
 
-const SCHEMA_V1_IMPORT: &str = r"
+const SCHEMA_IMPORT: &str = r"
 CREATE TABLE import_sessions (
     id                BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     root_platform     TEXT NOT NULL,
@@ -108,7 +110,7 @@ CREATE TABLE import_issues (
 CREATE INDEX import_issues_session_idx ON import_issues(session_id);
 ";
 
-const SCHEMA_V1_DECODER: &str = r"
+const SCHEMA_DECODER: &str = r"
 CREATE TABLE representation_decode_snapshots (
     representation_id       BLOB NOT NULL CHECK (length(representation_id) = 16),
     provider_id              TEXT NOT NULL CHECK (length(provider_id) > 0),
@@ -152,7 +154,7 @@ CREATE INDEX representation_previews_selection_idx
     ON representation_previews(representation_id, decodable, width, height);
 ";
 
-const SCHEMA_V1_CACHE: &str = r"
+const SCHEMA_CACHE: &str = r"
 CREATE TABLE representation_cached_artifacts (
     representation_id    BLOB NOT NULL CHECK (length(representation_id) = 16),
     role                 TEXT NOT NULL
@@ -187,7 +189,7 @@ CREATE INDEX representation_cached_artifact_blob_idx
     ON representation_cached_artifacts(blob_algorithm, blob_digest);
 ";
 
-const SCHEMA_V1_RECIPE: &str = r"
+const SCHEMA_RECIPE: &str = r"
 CREATE TABLE recipe_commits (
     id             BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     photo_id       BLOB NOT NULL CHECK (length(photo_id) = 16),
@@ -232,7 +234,7 @@ CREATE TABLE recipe_refs (
 CREATE INDEX recipe_refs_commit_idx ON recipe_refs(commit_id);
 ";
 
-const SCHEMA_V1_FEEDBACK: &str = r"
+const SCHEMA_FEEDBACK: &str = r"
 CREATE TABLE ai_feedback_events (
     sequence       INTEGER PRIMARY KEY NOT NULL CHECK (sequence > 0),
     event_id       TEXT NOT NULL UNIQUE
@@ -294,7 +296,7 @@ BEGIN
 END;
 ";
 
-const SCHEMA_V1_TECHNICAL_OBSERVATION: &str = r"
+const SCHEMA_TECHNICAL_OBSERVATION: &str = r"
 CREATE TABLE representation_technical_observations (
     representation_id             BLOB NOT NULL CHECK (length(representation_id) = 16),
     source_role                   TEXT NOT NULL
@@ -344,7 +346,7 @@ CREATE INDEX representation_technical_observation_source_idx
 
 // The current table is deliberately only a movable pointer. Flag/rating values
 // remain authoritative in immutable, integrity-checked ledger events.
-const SCHEMA_V1_DECISION: &str = r"
+const SCHEMA_DECISION: &str = r"
 CREATE TABLE photo_decision_events (
     sequence             INTEGER PRIMARY KEY NOT NULL CHECK (sequence > 0),
     event_id             TEXT NOT NULL UNIQUE
@@ -399,7 +401,7 @@ END;
 // Library-level edit history is deliberately parallel to the per-photo Recipe
 // tables. These immutable content-addressed objects, global commits, ordered
 // parents, and CAS-updated refs are all part of the initial catalog shape.
-const SCHEMA_V1_EDIT_REPOSITORY: &str = r"
+const SCHEMA_EDIT_REPOSITORY: &str = r"
 CREATE TABLE edit_objects (
     digest          BLOB PRIMARY KEY NOT NULL CHECK (length(digest) = 32),
     hash_algorithm  TEXT NOT NULL CHECK (hash_algorithm = 'blake3-256'),
@@ -484,7 +486,7 @@ CREATE INDEX edit_repository_refs_commit_idx ON edit_repository_refs(commit_id);
 // explicitly discovery sources and locations, never ownership boundaries for
 // photos. The rows here are intentionally small, indexed projections; source
 // decoder JSON and rebuildable preview bytes remain outside this hot path.
-const SCHEMA_V1_LIBRARY: &str = r"
+const SCHEMA_LIBRARY: &str = r"
 CREATE TABLE library_sources (
     id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     platform        TEXT NOT NULL,
@@ -852,17 +854,17 @@ CREATE INDEX library_photo_keywords_keyword_idx
 // Covering traversal indexes support the photo-first Library query, which
 // resolves one current original RAW representation and online location per
 // photo without repeatedly sorting their history.
-const SCHEMA_V1_LIBRARY_INDEXES: &str = r"
+const SCHEMA_LIBRARY_INDEXES: &str = r"
 CREATE INDEX representations_photo_kind_current_idx
     ON representations(photo_id, kind, created_at_ms DESC, id DESC);
 CREATE INDEX locations_representation_status_current_idx
     ON locations(representation_id, status, created_at_ms DESC, id DESC);
 ";
 
-const SCHEMA_V1_STATE: &str = r"
+const SCHEMA_STATE: &str = r"
 CREATE TABLE catalog_schema (
-    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r32-logical-photo-representations'),
+    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026080601),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260806.1-logical-photo-representations'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";
@@ -870,19 +872,19 @@ CREATE TABLE catalog_schema (
 // Ordered only by SQL foreign-key and CREATE TABLE dependencies. These
 // fragments are applied once to an empty Catalog in one transaction; they are
 // not a migration history.
-const SCHEMA_V1_COMPONENTS: &[&str] = &[
-    SCHEMA_V1_CORE,
-    SCHEMA_V1_IMPORT,
-    SCHEMA_V1_DECODER,
-    SCHEMA_V1_CACHE,
-    SCHEMA_V1_RECIPE,
-    SCHEMA_V1_FEEDBACK,
-    SCHEMA_V1_TECHNICAL_OBSERVATION,
-    SCHEMA_V1_DECISION,
-    SCHEMA_V1_EDIT_REPOSITORY,
-    export_queue::SCHEMA_V1_EXPORT_QUEUE,
-    SCHEMA_V1_LIBRARY,
-    SCHEMA_V1_LIBRARY_INDEXES,
+const SCHEMA_COMPONENTS: &[&str] = &[
+    SCHEMA_CORE,
+    SCHEMA_IMPORT,
+    SCHEMA_DECODER,
+    SCHEMA_CACHE,
+    SCHEMA_RECIPE,
+    SCHEMA_FEEDBACK,
+    SCHEMA_TECHNICAL_OBSERVATION,
+    SCHEMA_DECISION,
+    SCHEMA_EDIT_REPOSITORY,
+    export_queue::SCHEMA_EXPORT_QUEUE,
+    SCHEMA_LIBRARY,
+    SCHEMA_LIBRARY_INDEXES,
 ];
 
 pub(crate) fn initialize(connection: &mut Connection) -> Result<(), CatalogError> {
@@ -915,8 +917,8 @@ pub(crate) fn initialize(connection: &mut Connection) -> Result<(), CatalogError
     }
 
     let transaction = connection.transaction()?;
-    transaction.execute_batch(SCHEMA_V1_STATE)?;
-    for component in SCHEMA_V1_COMPONENTS {
+    transaction.execute_batch(SCHEMA_STATE)?;
+    for component in SCHEMA_COMPONENTS {
         transaction.execute_batch(component)?;
     }
     transaction.execute(

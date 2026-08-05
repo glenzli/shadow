@@ -26,7 +26,7 @@ Item {
     function statusMessage() {
         switch (String(preferences.statusCode)) {
         case "api-key-saved":
-            return qsTr("API key saved securely.")
+            return qsTr("API key saved on this Mac.")
         case "api-key-removed":
             return qsTr("API key removed. Google service permissions are off.")
         case "invalid-api-key":
@@ -36,9 +36,9 @@ Item {
         case "api-key-required":
             return qsTr("Save an API key before allowing Google services.")
         case "secure-storage-unavailable":
-            return qsTr("Secure credential storage is unavailable on this system.")
+            return qsTr("Shadow's local credential file is unavailable.")
         case "secret-store-failed":
-            return qsTr("The credential store could not complete the request.")
+            return qsTr("Shadow could not update its local credential file.")
         default:
             return ""
         }
@@ -156,7 +156,7 @@ Item {
             Label {
                 Layout.fillWidth: true
                 text: root.preferences.googleApiKeyStored
-                    ? qsTr("Stored in the operating system credential store. The key is not written to the catalog, preferences file, or backups.")
+                    ? qsTr("Stored in a user-private Shadow file on this Mac. It is not written to the catalog or backups.")
                     : qsTr("No Google API key is stored.")
                 color: root.preferences.googleApiKeyStored
                     ? Theme.successText : Theme.textMuted

@@ -41,7 +41,7 @@ struct LibraryServerTaskResult final {
 /// Owns this Mac's remote-Library configuration and listener lifecycle.
 ///
 /// Folder scanning, Provider admission, and server threads remain in the Rust service. This
-/// facade keeps persistent user intent, Keychain-only authorization, asynchronous admission, and
+/// facade keeps persistent user intent, Shadow-local authorization, asynchronous admission, and
 /// QML-safe state projection together.
 class LibraryServerController final : public QObject {
     Q_OBJECT

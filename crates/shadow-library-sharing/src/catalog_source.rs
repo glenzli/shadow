@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     protocol::{
-        CapabilityAvailability, LIBRARY_PROTOCOL_VERSION, MAX_LIBRARY_PAGE_SIZE,
+        CapabilityAvailability, LIBRARY_PROTOCOL_REVISION, MAX_LIBRARY_PAGE_SIZE,
         MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk, PreparedOriginal, PreviewUnavailableReason,
         RemoteError, RemoteErrorCode, RemoteOriginalIdentity, RemotePhotoManifest,
         RemotePhotoMetadata, RemotePhotoPage, RemotePreviewAvailability, RemotePreviewManifest,
@@ -153,7 +153,7 @@ impl CatalogShareSource {
             catalog_path,
             preview_store,
             server_info: ServerInfo {
-                protocol_version: LIBRARY_PROTOCOL_VERSION,
+                protocol_revision: LIBRARY_PROTOCOL_REVISION,
                 server_id,
                 display_name,
                 capabilities: ServerCapabilities {

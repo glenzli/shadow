@@ -413,7 +413,7 @@ SecretStoreResult LibraryServerController::readAccessToken() const {
     if (!secureStorageAvailable()) {
         return {
             .status = SecretStoreStatus::Unavailable,
-            .diagnostic = QStringLiteral("The operating system credential store is unavailable."),
+            .diagnostic = QStringLiteral("Shadow's local credential file is unavailable."),
         };
     }
     return secret_store_->read(

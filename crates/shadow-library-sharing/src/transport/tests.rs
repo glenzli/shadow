@@ -1,5 +1,5 @@
 use crate::protocol::{
-    CapabilityAvailability, LIBRARY_PROTOCOL_VERSION, Request, RequestEnvelope, ResponseHeader,
+    CapabilityAvailability, LIBRARY_PROTOCOL_REVISION, Request, RequestEnvelope, ResponseHeader,
     ResponseValue, ServerCapabilities, ServerId, ServerInfo,
 };
 
@@ -8,7 +8,7 @@ use super::{read_request, read_response, write_request, write_response};
 #[test]
 fn framed_request_and_binary_response_round_trip() {
     let request = RequestEnvelope {
-        protocol_version: LIBRARY_PROTOCOL_VERSION,
+        protocol_revision: LIBRARY_PROTOCOL_REVISION,
         authorization: "01234567890123456789012345678901".to_owned(),
         request: Request::ServerInfo,
     };
@@ -18,9 +18,9 @@ fn framed_request_and_binary_response_round_trip() {
     assert!(matches!(decoded.request, Request::ServerInfo));
 
     let header = ResponseHeader {
-        protocol_version: LIBRARY_PROTOCOL_VERSION,
+        protocol_revision: LIBRARY_PROTOCOL_REVISION,
         value: Ok(ResponseValue::ServerInfo(ServerInfo {
-            protocol_version: LIBRARY_PROTOCOL_VERSION,
+            protocol_revision: LIBRARY_PROTOCOL_REVISION,
             server_id: ServerId(uuid::Uuid::now_v7()),
             display_name: "Studio Mac".to_owned(),
             capabilities: ServerCapabilities {

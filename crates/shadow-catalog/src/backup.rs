@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     CatalogStats,
     row_codec::count_rows,
-    schema_v1::{SCHEMA_VERSION, catalog_tables_exist, current_version},
+    schema::{SCHEMA_VERSION, catalog_tables_exist, current_version},
 };
 
 const BACKUP_PAGES_PER_STEP: i32 = 256;
@@ -58,7 +58,7 @@ pub enum CatalogBackupError {
     #[error("catalog backup SQLite operation failed: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error(
-        "catalog backup uses unsupported schema version {actual}; expected current schema {expected}"
+        "catalog backup uses unsupported schema revision {actual}; expected current revision {expected}"
     )]
     SchemaVersionMismatch { expected: i64, actual: i64 },
     #[error("catalog backup is missing one or more required catalog tables")]

@@ -390,17 +390,17 @@
         <translation>绿边去除量</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="75"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="77"/>
         <source>Finish the current version operation first</source>
         <translation>请先完成当前版本操作</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="82"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="84"/>
         <source>This photo is already open in Precision</source>
         <translation>此照片已在精修中打开</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="183"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="187"/>
         <source>Loading non-destructive edit history…</source>
         <translation>正在加载无损编辑历史…</translation>
     </message>
@@ -758,22 +758,22 @@
         <translation>原片已丢失 · 请返回图库重新定位其文件夹</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="70"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="72"/>
         <source>Preparing the selected photo…</source>
         <translation>正在准备所选照片…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="102"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="106"/>
         <source>Autosave failed · resolve it before replacing this photo&apos;s working changes</source>
         <translation>自动保存失败 · 请先解决此问题，再切换此照片的工作调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="115"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="119"/>
         <source>Saving current adjustments before opening the selected photo…</source>
         <translation>正在保存当前调整，然后打开所选照片…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="296"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="300"/>
         <source>Resetting this photo’s development edits…</source>
         <translation>正在重置此照片的开发调整…</translation>
     </message>
@@ -964,64 +964,64 @@
         <translation>已恢复当前保存的版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="317"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="321"/>
         <source>Enter a name for this version</source>
         <translation>请为此版本输入名称</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="375"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="387"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="378"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="390"/>
         <source>Saving current adjustments before loading another version</source>
         <translation>正在保存当前调整，然后加载另一版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="518"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="520"/>
         <source>Autosave failed · %1</source>
         <translation>自动保存失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="525"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="527"/>
         <source>This photo uses an earlier development edit recipe that this build cannot read. Resetting removes only this photo’s edit history; the original file, Library metadata, ratings, flags, and albums are unchanged.</source>
         <translation>此照片使用了当前版本无法读取的早期开发调整配方。重置只会删除此照片的调整历史；原始文件、图库元数据、评分、旗标和相册不会受影响。</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="535"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="537"/>
         <source>Could not reset this photo’s old development edits · %1</source>
         <translation>无法重置此照片的旧开发调整 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="545"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="547"/>
         <source>Could not open this photo · %1</source>
         <translation>无法打开此照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="550"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="552"/>
         <source>Version operation failed · %1</source>
         <translation>版本操作失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="504"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="585"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="506"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="587"/>
         <source>Saving newer adjustments locally…</source>
         <translation>正在自动保存更新后的调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="625"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="627"/>
         <source>Edit history ready · rendering preview</source>
         <translation>编辑历史已就绪 · 正在渲染预览</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="632"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="634"/>
         <source>Old development edits reset · rendering the current recipe</source>
         <translation>旧开发调整已重置 · 正在渲染当前配方</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="648"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="650"/>
         <source>Current adjustments saved locally</source>
         <translation>当前调整已自动保存</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="652"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="654"/>
         <source>Named version loaded as a draft · adjust it to create a new working state</source>
         <translation>命名版本已作为草稿载入；继续调整会创建新的当前工作状态</translation>
     </message>
@@ -1111,23 +1111,23 @@
         <translation>无法安全表示已保存的色调曲线</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="229"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="233"/>
         <source>Saving current adjustments before closing Precision…</source>
         <translation>正在保存当前调整，然后关闭精修…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="334"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="342"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="338"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="346"/>
         <source>Creating Library version “%1”…</source>
         <translation>正在创建图库版本“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="396"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="399"/>
         <source>Loading saved version into working changes…</source>
         <translation>正在将已保存版本载入工作修改…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="641"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="643"/>
         <source>Library version created · the previous state remains available</source>
         <translation>图库版本已创建 · 之前的状态仍然保留</translation>
     </message>
@@ -3075,27 +3075,27 @@ R %2 · G %3 · B %4</translation>
         <translation>添加或定位文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="175"/>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="176"/>
         <source>Choose the folder containing %1</source>
         <translation>选择包含 %1 的文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="187"/>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="188"/>
         <source>Search this folder for the original?</source>
         <translation>在此文件夹中搜索原片？</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="198"/>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="199"/>
         <source>Shadow will search the selected folder and its subfolders, reconnect the matching original, then add and scan the selected folder.</source>
         <translation>Shadow 将搜索所选文件夹及其子文件夹，重新连接匹配的原片，然后添加并扫描该文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="218"/>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="219"/>
         <source>Remove missing photo from Library?</source>
         <translation>从图库移除失联照片？</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="229"/>
+        <location filename="../qml/LibraryMissingPhotoDialogs.qml" line="230"/>
         <source>%1 will no longer appear in the Library. The original file and Shadow’s non-destructive edits are not deleted.</source>
         <translation>%1 将不再显示在图库中。原始文件和 Shadow 的无损编辑不会被删除。</translation>
     </message>
@@ -3149,22 +3149,22 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>LibraryWorkspace</name>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="146"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="162"/>
         <source>Remove Library folder?</source>
         <translation>移除图库文件夹？</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="154"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="170"/>
         <source>Remove this folder from Shadow’s Library? Photos available only through this folder leave the Gallery. Edits and original files are kept, and return if the folder is added again.</source>
         <translation>要从 Shadow 图库中移除此文件夹吗？仅可通过此文件夹访问的照片将从图库中隐藏。编辑记录和原始文件会保留；再次添加此文件夹后，照片会连同编辑记录一起恢复。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="183"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="199"/>
         <source>REMOVE FOLDER</source>
         <translation>移除文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="307"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="528"/>
         <source>REMOVE FOLDER FROM LIBRARY</source>
         <translation>从图库中移除文件夹</translation>
     </message>
@@ -3179,197 +3179,201 @@ R %2 · G %3 · B %4</translation>
         <translation>统一管理本地文件夹与远程图库。原始文件始终保持只读。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="44"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="49"/>
         <source>Choose the folder containing the moved original</source>
         <translation>选择包含已移动原片的文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="53"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="58"/>
         <source>Choose the folder containing the missing originals</source>
         <translation>选择包含丢失原片的文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="74"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="88"/>
         <source>Search and add this folder</source>
         <translation>搜索并添加此文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="82"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="96"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="841"/>
         <source>Shadow will search this folder and its subfolders, reconnect the matching original, then add and scan the selected folder.</source>
         <translation>Shadow 将搜索此文件夹及其子文件夹，重新连接匹配的原片，然后添加并扫描所选文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="109"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="123"/>
         <source>SEARCH AND ADD FOLDER</source>
         <translation>搜索并添加文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="235"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="237"/>
         <source>Locate missing originals</source>
         <translation>定位丢失原片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="243"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="245"/>
         <source>Shadow will verify matching originals, add this folder, and replace the unavailable folder when every original is recovered.</source>
         <translation>Shadow 将验证匹配的原片并添加此文件夹；全部原片恢复后，会替换不可用的旧文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="275"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="274"/>
         <source>LOCATE ORIGINALS</source>
         <translation>定位原片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="310"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="312"/>
         <source>Remove missing photos?</source>
         <translation>移除丢失照片？</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="318"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="320"/>
         <source>Shadow will check every known original path and remove only photos that are still unavailable. Edits and source records are retained for recovery.</source>
         <translation>Shadow 将检查所有已知原片路径，只移除仍不可用的照片。编辑记录和来源记录会保留，以便恢复。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="327"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="328"/>
         <source>%L1 missing photos · %2</source>
         <translation>缺失 %L1 张照片 · %2</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="352"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="351"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="669"/>
         <source>REMOVE MISSING PHOTOS</source>
         <translation>移除丢失照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="202"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="370"/>
         <source>SOURCE HEALTH</source>
         <translation>来源状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="213"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="381"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="508"/>
         <source>%L1 MISSING</source>
         <translation>缺失 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="222"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="390"/>
         <source>%L1 FOLDERS NEED CHECK</source>
         <translation>%L1 个文件夹待核对</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="240"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="408"/>
         <source>REFRESH SOURCE HEALTH</source>
         <translation>刷新来源状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="295"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="511"/>
         <source>ACTIVE</source>
         <translation>正在使用</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="295"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="511"/>
         <source>PAUSED</source>
         <translation>已暂停</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="455"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="506"/>
         <source>FOLDER UNAVAILABLE</source>
         <translation>文件夹不可用</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="323"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="543"/>
         <source>Folder unavailable · %L1 catalog photos need recovery.</source>
         <translation>文件夹不可用 · 图库中的 %L1 张照片需要恢复。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="326"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="546"/>
         <source>Quick check found %L1 supported files; the Catalog expects %L2. Run a full check.</source>
         <translation>快速检查发现 %L1 个受支持文件，图库预期 %L2 个。请执行完整核对。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="330"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="550"/>
         <source>No completed scan has been recorded yet.</source>
         <translation>尚未有已完成的扫描记录。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="332"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="552"/>
         <source>The latest scan accounted for all known locations.</source>
         <translation>最近一次扫描已覆盖所有已知位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="333"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="553"/>
         <source>%L1 locations were not seen in this scan.</source>
         <translation>本次扫描未发现 %L1 个位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="347"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="569"/>
         <source>KNOWN  %L1</source>
         <translation>已知  %L1</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="354"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="576"/>
         <source>SEEN  %L1</source>
         <translation>已发现  %L1</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="363"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="585"/>
         <source>NOW  %L1</source>
         <translation>当前  %L1</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="376"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="606"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="658"/>
         <source>CHECK FOLDER</source>
         <translation>核对文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="564"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="624"/>
         <source>RELOCATE FOLDER</source>
         <translation>重新定位文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="565"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="625"/>
         <source>LOCATE MISSING PHOTOS</source>
         <translation>定位丢失照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="590"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="641"/>
         <source>REMOVE FROM LIBRARY</source>
         <translation>从图库移除</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="416"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="689"/>
         <source>REVIEW NOT-SEEN LOCATIONS</source>
         <translation>查看未发现的位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="446"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="719"/>
         <source>NOT-SEEN LOCATIONS</source>
         <translation>未发现的位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="463"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="736"/>
         <source>CLOSE LOCATION REVIEW</source>
         <translation>关闭位置检查</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="473"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="746"/>
         <source>No locations are available for this completed scan.</source>
         <translation>此已完成扫描没有可用的位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="522"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="795"/>
         <source>SEARCH FOLDER FOR ORIGINAL</source>
         <translation>在文件夹中搜索原片</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="537"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="810"/>
         <source>Verifying complete file…</source>
         <translation>正在验证完整文件…</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="560"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="833"/>
         <source>LOAD MORE LOCATIONS</source>
         <translation>加载更多位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="583"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="856"/>
         <source>No source scans yet. Import a folder to establish one.</source>
         <translation>尚无来源扫描。请导入文件夹以建立扫描记录。</translation>
     </message>
@@ -3424,11 +3428,6 @@ R %2 · G %3 · B %4</translation>
         <translation>已是最新 · %L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="32"/>
-        <source>Saved securely · synchronization queued</source>
-        <translation>已安全保存 · 同步已排队</translation>
-    </message>
-    <message>
         <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="34"/>
         <source>Access token unavailable · reconnect this Library</source>
         <translation>访问令牌不可用 · 请重新连接此图库</translation>
@@ -3444,180 +3443,187 @@ R %2 · G %3 · B %4</translation>
         <translation>访问令牌与此服务器不匹配 · 请编辑连接</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="38"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="40"/>
         <source>Local proxy cache could not be opened</source>
         <translation>无法打开本地代理缓存</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="40"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="42"/>
         <source>Browsing only · original downloads are disabled</source>
         <translation>仅可浏览 · 原片下载已禁用</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="42"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="44"/>
         <source>Offline cache · %L1 photos</source>
         <translation>离线缓存 · %L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="42"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="44"/>
         <source>Ready to synchronize</source>
         <translation>可以同步</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="58"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="60"/>
         <source>Enter a server address such as 192.168.1.20:45321.</source>
         <translation>请输入服务器地址，例如 192.168.1.20:45321。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="60"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="62"/>
         <source>Enter the access token configured by Shadow Server.</source>
         <translation>请输入 Shadow 服务器配置的访问令牌。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="62"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="64"/>
         <source>This server address is already in the Library list.</source>
         <translation>此服务器地址已在图库列表中。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="66"/>
-        <source>The credential store could not complete the request.</source>
-        <translation>凭据存储未能完成此请求。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="68"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="70"/>
         <source>The remote Library connection could not be saved.</source>
         <translation>无法保存远程图库连接。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="70"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="72"/>
         <source>Wait for the current remote Library operation to finish.</source>
         <translation>请等待当前远程图库操作完成。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="103"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="105"/>
         <source>Remove remote Library?</source>
         <translation>移除远程图库？</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="111"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="113"/>
         <source>%1 will leave this Library view. Its downloaded originals stay in the local Library, and its proxy cache can be reused if you add it again.</source>
         <translation>%1 将从图库视图中移除。已下载的原片仍保留在本地图库中；再次添加时可复用其代理缓存。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="126"/>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="223"/>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="103"/>
-        <location filename="../qml/LibrarySourceHealthPane.qml" line="176"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="128"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="225"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="117"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="192"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="267"/>
+        <location filename="../qml/LibrarySourceHealthPane.qml" line="344"/>
         <source>CANCEL</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="134"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="136"/>
         <source>REMOVE LIBRARY</source>
         <translation>移除图库</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="169"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="171"/>
         <source>Edit Remote Library</source>
         <translation>编辑远程图库</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="177"/>
-        <source>Update the server address or replace its secure access token. Cached thumbnails keep the same Library identity.</source>
-        <translation>更新服务器地址或替换安全访问令牌。已缓存的缩略图将继续使用同一个图库身份。</translation>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="32"/>
+        <source>Saved locally · synchronization queued</source>
+        <translation>已保存在本机 · 已加入同步队列</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="200"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="66"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="476"/>
+        <source>Shadow&apos;s local credential file is unavailable.</source>
+        <translation>Shadow 的本地凭据文件不可用。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="68"/>
+        <source>Shadow could not update its local credential file.</source>
+        <translation>Shadow 无法更新本地凭据文件。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="179"/>
+        <source>Update the server address or paste a replacement access token. Cached thumbnails keep the same Library identity.</source>
+        <translation>更新服务器地址，或粘贴新的访问令牌。已缓存的缩略图会保留同一个图库身份。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="202"/>
         <source>Leave blank to keep the saved token</source>
         <translation>留空以保留已保存的令牌</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="200"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="202"/>
         <source>Access token required</source>
         <translation>需要访问令牌</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="202"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="204"/>
         <source>Replacement remote Library access token</source>
         <translation>替换远程图库访问令牌</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="231"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="233"/>
         <source>SAVE &amp; SYNC</source>
         <translation>保存并同步</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="248"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="250"/>
         <source>LIBRARIES</source>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="264"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="266"/>
         <source>SYNC ALL</source>
         <translation>全部同步</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="323"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="325"/>
         <source>Remote Library</source>
         <translation>远程图库</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="355"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="358"/>
         <source>EDIT</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="369"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="372"/>
         <source>SYNC</source>
         <translation>同步</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="378"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="381"/>
         <source>REMOVE</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="409"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="412"/>
         <source>Add Remote Library</source>
         <translation>添加远程图库</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="417"/>
-        <source>Shadow keeps an independent proxy cache and secure credential for every Library. The original RAW is fetched only when editing begins.</source>
-        <translation>Shadow 会为每个图库保留独立的代理缓存和安全凭据。只有开始编辑时才会获取 RAW 原片。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="188"/>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="432"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="190"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="435"/>
         <source>Mac address · 192.168.1.20:45321</source>
         <translation>Mac 地址 · 192.168.1.20:45321</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="190"/>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="434"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="192"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="437"/>
         <source>Remote Library server address</source>
         <translation>远程图库服务器地址</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="444"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="420"/>
+        <source>Paste the access token copied from Shadow Server. Shadow keeps it in a user-private local file and fetches the original RAW only when editing begins.</source>
+        <translation>粘贴从 Shadow 服务器复制的访问令牌。Shadow 会将其保存在仅当前用户可访问的本地文件中，并且只在开始编辑时获取 RAW 原片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="447"/>
         <source>Access token</source>
         <translation>访问令牌</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="446"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="449"/>
         <source>Remote Library access token</source>
         <translation>远程图库访问令牌</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="458"/>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="461"/>
         <source>ADD &amp; SYNC</source>
         <translation>添加并同步</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="64"/>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="473"/>
-        <source>Secure credential storage is unavailable on this Mac.</source>
-        <translation>这台 Mac 无法使用安全凭据存储。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryImportPane.qml" line="98"/>
@@ -3989,11 +3995,6 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>MapProviderSettingsPane</name>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="29"/>
-        <source>API key saved securely.</source>
-        <translation>API 密钥已安全保存。</translation>
-    </message>
-    <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="31"/>
         <source>API key removed. Google service permissions are off.</source>
         <translation>API 密钥已移除，Google 服务权限已关闭。</translation>
@@ -4012,16 +4013,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/MapProviderSettingsPane.qml" line="37"/>
         <source>Save an API key before allowing Google services.</source>
         <translation>请先保存 API 密钥，再允许使用 Google 服务。</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="39"/>
-        <source>Secure credential storage is unavailable on this system.</source>
-        <translation>此系统上的安全凭据存储不可用。</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="41"/>
-        <source>The credential store could not complete the request.</source>
-        <translation>凭据存储未能完成此请求。</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="68"/>
@@ -4070,9 +4061,24 @@ R %2 · G %3 · B %4</translation>
         <translation>移除</translation>
     </message>
     <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="29"/>
+        <source>API key saved on this Mac.</source>
+        <translation>API 密钥已保存在这台 Mac 上。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="39"/>
+        <source>Shadow&apos;s local credential file is unavailable.</source>
+        <translation>Shadow 的本地凭据文件不可用。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="41"/>
+        <source>Shadow could not update its local credential file.</source>
+        <translation>Shadow 无法更新本地凭据文件。</translation>
+    </message>
+    <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="159"/>
-        <source>Stored in the operating system credential store. The key is not written to the catalog, preferences file, or backups.</source>
-        <translation>已存储在操作系统的凭据存储中。此密钥不会写入照片目录、偏好设置文件或备份。</translation>
+        <source>Stored in a user-private Shadow file on this Mac. It is not written to the catalog or backups.</source>
+        <translation>保存在这台 Mac 上仅当前用户可访问的 Shadow 文件中，不会写入图库或备份。</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="160"/>
@@ -6952,7 +6958,7 @@ Technical detail: %1</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="216"/>
+        <location filename="../src/main.cpp" line="220"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -6993,17 +6999,17 @@ Technical detail: %1</source>
 <context>
     <name>ReviewController</name>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="560"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="682"/>
         <source>Removed Library folder · %1</source>
         <translation>已移除图库文件夹 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="561"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="683"/>
         <source>Library folder was already removed · %1</source>
         <translation>图库文件夹已被移除 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="567"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="689"/>
         <source>Could not remove Library folder · %1</source>
         <translation>无法移除图库文件夹 · %1</translation>
     </message>
@@ -7178,17 +7184,17 @@ Technical detail: %1</source>
         <translation>无法获取导入进度 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="360"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="366"/>
         <source>Live Library refresh delayed · import is still safe and continuing · %1</source>
         <translation>实时图库刷新延迟 · 导入仍在安全继续 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="365"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="371"/>
         <source>Library refresh failed · visible photos retained · %1</source>
         <translation>资料库刷新失败 · 保留当前可见照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="479"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="485"/>
         <source>Could not count Library photos · %1</source>
         <translation>无法统计资料库照片 · %1</translation>
     </message>
@@ -7243,37 +7249,37 @@ Technical detail: %1</source>
         <translation>无法更新资料库相册 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="537"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="659"/>
         <source>Could not load Library source health · %1</source>
         <translation>无法加载资料库来源状态 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="596"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="718"/>
         <source>Could not load source scan review · %1</source>
         <translation>无法加载来源扫描检查 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="618"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="740"/>
         <source>Verified and added Library folder · %1</source>
         <translation>已验证并添加图库文件夹 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="628"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="750"/>
         <source>Could not link selected source · %1</source>
         <translation>无法链接所选来源 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="646"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="837"/>
         <source>Removed photo from Library · %1</source>
         <translation>已从图库移除照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="647"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="838"/>
         <source>Photo was already removed from Library · %1</source>
         <translation>照片已从图库移除 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="655"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="846"/>
         <source>Could not remove photo from Library · %1</source>
         <translation>无法从图库移除照片 · %1</translation>
     </message>
@@ -7364,38 +7370,38 @@ Technical detail: %1</source>
         <translation>正在更新资料库整理…</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="476"/>
-        <location filename="../src/review_source_health_coordinator.cpp" line="497"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="560"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="581"/>
         <source>Verifying selected source…</source>
         <translation>正在验证所选来源…</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="573"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="601"/>
         <source>Locating missing originals…</source>
         <translation>正在定位丢失原片…</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="711"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="765"/>
         <source>Located %1 photos and added Library folder · %2</source>
         <translation>已定位 %1 张照片并添加图库文件夹 · %2</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="716"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="769"/>
         <source>Located %1 photos; %2 remain missing · %3</source>
         <translation>已定位 %1 张照片；仍有 %2 张丢失 · %3</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="735"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="792"/>
         <source>Could not locate missing originals · %1</source>
         <translation>无法定位丢失原片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="752"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="810"/>
         <source>Removed %1 unavailable photos from Library · %2</source>
         <translation>已从图库移除 %1 张不可用照片 · %2</translation>
     </message>
     <message>
-        <location filename="../src/review_source_health_coordinator.cpp" line="761"/>
+        <location filename="../src/review_source_health_coordinator.cpp" line="820"/>
         <source>Could not reconcile missing photos · %1</source>
         <translation>无法核对丢失照片 · %1</translation>
     </message>
@@ -7440,7 +7446,7 @@ Technical detail: %1</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="647"/>
+        <location filename="../src/review_controller.hpp" line="655"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -7450,7 +7456,7 @@ Technical detail: %1</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="651"/>
+        <location filename="../src/review_controller.hpp" line="659"/>
         <location filename="../src/review_decision_coordinator.hpp" line="121"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
@@ -7542,20 +7548,20 @@ Technical detail: %1</source>
 <context>
     <name>ReviewFocusDetailCoordinator</name>
     <message>
-        <location filename="../src/review_focus_detail_coordinator.cpp" line="159"/>
-        <location filename="../src/review_focus_detail_coordinator.cpp" line="178"/>
+        <location filename="../src/review_focus_detail_coordinator.cpp" line="163"/>
+        <location filename="../src/review_focus_detail_coordinator.cpp" line="183"/>
         <source>Preparing 100% focus detail…</source>
         <translation>正在准备 100% 焦点细节…</translation>
     </message>
     <message>
-        <location filename="../src/review_focus_detail_coordinator.cpp" line="180"/>
-        <location filename="../src/review_focus_detail_coordinator.cpp" line="219"/>
+        <location filename="../src/review_focus_detail_coordinator.cpp" line="185"/>
+        <location filename="../src/review_focus_detail_coordinator.cpp" line="224"/>
         <source>100% focus detail ready</source>
         <translation>100% 焦点细节已就绪</translation>
     </message>
     <message>
-        <location filename="../src/review_focus_detail_coordinator.cpp" line="182"/>
-        <location filename="../src/review_focus_detail_coordinator.cpp" line="212"/>
+        <location filename="../src/review_focus_detail_coordinator.cpp" line="187"/>
+        <location filename="../src/review_focus_detail_coordinator.cpp" line="217"/>
         <source>100% focus detail is unavailable</source>
         <translation>100% 焦点细节不可用</translation>
     </message>
@@ -7581,72 +7587,72 @@ Technical detail: %1</source>
 <context>
     <name>ReviewPhotoCard</name>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="203"/>
+        <location filename="../qml/ReviewSinglePreview.qml" line="99"/>
         <source>ORIGINAL NOT FOUND</source>
         <translation>找不到原片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="225"/>
-        <source>REMOTE</source>
-        <translation>远程</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="80"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="84"/>
         <source>REMOTE PREVIEW UNAVAILABLE</source>
         <translation>远程预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="73"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="77"/>
         <source>PRIVATE RAW PREVIEW UNAVAILABLE</source>
         <translation>私有 RAW 预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="75"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="79"/>
         <source>REMOTE PREVIEW NOT READY</source>
         <translation>远程预览尚未就绪</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="78"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="82"/>
         <source>REMOTE PREVIEW CACHE UNAVAILABLE</source>
         <translation>远程预览缓存不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="254"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="219"/>
         <source>PREVIEW PENDING</source>
         <translation>预览等待中</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="254"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="219"/>
         <source>NO VISUAL</source>
         <translation>无图像</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="283"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="248"/>
         <source>DOWNLOADING RAW</source>
         <translation>正在下载 RAW</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="330"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="295"/>
         <source>%L1 × %L2</source>
         <translation>%L1 × %L2</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="331"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="296"/>
         <source>awaiting cache</source>
         <translation>等待缓存</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="361"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="319"/>
+        <source>Network Library source</source>
+        <translation>网络图库来源</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoCard.qml" line="330"/>
         <source>RAW and JPEG representations</source>
         <translation>RAW 和 JPEG 表示</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="386"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="350"/>
         <source>%L1 source locations</source>
         <translation>%L1 个来源位置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="354"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="360"/>
         <source>Original file not found</source>
         <translation>原片未找到</translation>
     </message>
@@ -7737,9 +7743,9 @@ Technical detail: %1</source>
         <translation>选择一张照片开始选片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSinglePreview.qml" line="247"/>
-        <source>REMOTE</source>
-        <translation>远程</translation>
+        <location filename="../qml/ReviewSinglePreview.qml" line="285"/>
+        <source>Network Library source</source>
+        <translation>网络图库来源</translation>
     </message>
 </context>
 <context>
@@ -9278,32 +9284,32 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="421"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="423"/>
         <source>Downloading the original RAW from the remote Library…</source>
         <translation>正在从远程图库下载原始 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="427"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="429"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="444"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="446"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="446"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="448"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="448"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="450"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="450"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="452"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>
@@ -9323,17 +9329,17 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>没有相机焦点记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSelectionInspectionPane.qml" line="178"/>
+        <location filename="../qml/ReviewSelectionInspectionPane.qml" line="164"/>
         <source>Shadow reference</source>
         <translation>暗部参考</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSelectionInspectionPane.qml" line="190"/>
+        <location filename="../qml/ReviewSelectionInspectionPane.qml" line="176"/>
         <source>Highlight reference</source>
         <translation>高光参考</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSelectionInspectionPane.qml" line="202"/>
+        <location filename="../qml/ReviewSelectionInspectionPane.qml" line="188"/>
         <source>Proxy detail</source>
         <translation>代理图细节</translation>
     </message>
@@ -9705,16 +9711,6 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>已从后续图库清单中移除该共享文件夹。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="57"/>
-        <source>Secure credential storage is unavailable on this Mac.</source>
-        <translation>这台 Mac 无法使用安全凭据存储。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="58"/>
-        <source>The access token could not be read from secure storage.</source>
-        <translation>无法从安全存储中读取访问令牌。</translation>
-    </message>
-    <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="59"/>
         <source>Access token copied. Share it only with a trusted device.</source>
         <translation>访问令牌已复制，请仅将其提供给可信设备。</translation>
@@ -9820,6 +9816,16 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>打开 Shadow 时自动启动</translation>
     </message>
     <message>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="57"/>
+        <source>Shadow&apos;s local credential file is unavailable.</source>
+        <translation>Shadow 的本地凭据文件不可用。</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="58"/>
+        <source>The access token could not be read from Shadow&apos;s local file.</source>
+        <translation>无法从 Shadow 的本地文件读取访问令牌。</translation>
+    </message>
+    <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="270"/>
         <source>Shared folders</source>
         <translation>共享文件夹</translation>
@@ -9876,13 +9882,13 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="400"/>
-        <source>Stored in Keychain</source>
-        <translation>已存入钥匙串</translation>
+        <source>Created on first start</source>
+        <translation>首次启动时创建</translation>
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="400"/>
-        <source>Created on first start</source>
-        <translation>首次启动时创建</translation>
+        <source>Stored locally</source>
+        <translation>已保存在本机</translation>
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="413"/>

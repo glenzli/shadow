@@ -820,7 +820,7 @@ ReviewRemoteLibraryCoordinator::readAuthorization(const QString& connection_id) 
     if (!secureStorageAvailable()) {
         return {
             .status = SecretStoreStatus::Unavailable,
-            .diagnostic = QStringLiteral("The operating system credential store is unavailable."),
+            .diagnostic = QStringLiteral("Shadow's local credential file is unavailable."),
         };
     }
     const RemoteLibraryConnection* requested = connection(connection_id);

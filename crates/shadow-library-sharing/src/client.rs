@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::{
     protocol::{
-        LIBRARY_PROTOCOL_VERSION, MAX_LIBRARY_PAGE_SIZE, MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk,
+        LIBRARY_PROTOCOL_REVISION, MAX_LIBRARY_PAGE_SIZE, MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk,
         PreparedOriginal, RemoteErrorCode, RemotePhotoPage, RemotePreviewManifest, Request,
         RequestEnvelope, ResponseValue, ServerInfo,
     },
@@ -190,16 +190,16 @@ impl LibraryClient {
         write_request(
             &mut stream,
             &RequestEnvelope {
-                protocol_version: LIBRARY_PROTOCOL_VERSION,
+                protocol_revision: LIBRARY_PROTOCOL_REVISION,
                 authorization: self.config.authorization.as_str().to_owned(),
                 request,
             },
         )?;
         let (header, body) = read_response(&mut stream)?;
-        if header.protocol_version != LIBRARY_PROTOCOL_VERSION {
-            return Err(LibraryClientError::ProtocolVersion {
-                actual: header.protocol_version,
-                expected: LIBRARY_PROTOCOL_VERSION,
+        if header.protocol_revision != LIBRARY_PROTOCOL_REVISION {
+            return Err(LibraryClientError::ProtocolRevision {
+                actual: header.protocol_revision,
+                expected: LIBRARY_PROTOCOL_REVISION,
             });
         }
         let value = header.value.map_err(|error| LibraryClientError::Remote {
@@ -221,8 +221,8 @@ pub enum LibraryClientError {
         code: RemoteErrorCode,
         message: String,
     },
-    #[error("remote Library protocol is {actual}, expected {expected}")]
-    ProtocolVersion { actual: u32, expected: u32 },
+    #[error("remote Library protocol revision is {actual}, expected {expected}")]
+    ProtocolRevision { actual: u32, expected: u32 },
     #[error("remote Library returned an unexpected {actual} response for {expected}")]
     UnexpectedResponse {
         expected: &'static str,

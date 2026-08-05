@@ -54,8 +54,8 @@ ScrollView {
         case "folder-invalid": return qsTr("Choose an available local folder that is not already shared.")
         case "folder-added": return qsTr("Shared folder added.")
         case "folder-removed": return qsTr("Shared folder removed from future manifests.")
-        case "secure-storage-unavailable": return qsTr("Secure credential storage is unavailable on this Mac.")
-        case "secret-store-failed": return qsTr("The access token could not be read from secure storage.")
+        case "secure-storage-unavailable": return qsTr("Shadow's local credential file is unavailable.")
+        case "secret-store-failed": return qsTr("The access token could not be read from Shadow's local file.")
         case "token-copied": return qsTr("Access token copied. Share it only with a trusted device.")
         case "token-regenerated": return qsTr("A new access token was created. Existing clients must reconnect.")
         case "clipboard-unavailable": return qsTr("The access token could not be copied.")
@@ -397,7 +397,7 @@ ScrollView {
                 Label { text: qsTr("Access token"); color: Theme.textMuted; font.pixelSize: Theme.fontMeta }
                 Label {
                     Layout.fillWidth: true
-                    text: root.controller.accessTokenStored ? qsTr("Stored in Keychain") : qsTr("Created on first start")
+                    text: root.controller.accessTokenStored ? qsTr("Stored locally") : qsTr("Created on first start")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontMeta
                 }

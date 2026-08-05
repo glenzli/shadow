@@ -7,7 +7,7 @@ cache only when editing needs it.
 
 Start at [`lib.rs`](src/lib.rs), then follow:
 
-- `protocol` for the versioned request, response, capability, and manifest values;
+- `protocol` for the dated-revision request, response, capability, and manifest values;
 - `catalog_source` for the read-only projection from a local Catalog and preview cache;
 - `server` for authenticated admission and bounded request execution;
 - `client` for the matching one-request-per-connection transport;
@@ -29,3 +29,11 @@ Until that strong identity is available, a remote identity remains
 `(server_id, photo_id, representation_id)`. Recipe history is not synchronized
 by this first contract: the editing device owns its Recipe, and its current
 local `RecipePreview` wins over the cached remote proxy.
+
+Shadow-owned wire revisions use `YYYYMMDD.N`. The serialized integer is
+`YYYYMMDDNN`, while diagnostics and documentation use the dotted form. A
+compatible optional addition is advertised through `ServerCapabilities`; an
+incompatible request/response shape advances `LIBRARY_PROTOCOL_REVISION`.
+Debug peers must match exactly. A future stable channel may widen that policy
+with explicit minimum-readable/minimum-writable revisions rather than inferring
+compatibility from numeric ordering.

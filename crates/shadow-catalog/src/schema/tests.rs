@@ -5,7 +5,10 @@ use crate::{Catalog, catalog::configure_connection};
 fn creates_current_catalog_shape() {
     let catalog = Catalog::open_in_memory().expect("open catalog");
 
-    assert_eq!(catalog.schema_version().expect("schema version"), 1);
+    assert_eq!(
+        catalog.schema_version().expect("schema revision"),
+        SCHEMA_VERSION
+    );
     let raw_frame_column: i64 = catalog
         .connection
         .query_row(
@@ -52,9 +55,9 @@ fn creates_current_catalog_shape() {
 }
 
 #[test]
-fn rejects_prior_v1_identity_for_a_development_reset() {
-    let mut connection = Connection::open_in_memory().expect("open prior v1 fixture");
-    configure_connection(&connection, false).expect("configure prior v1 fixture");
+fn rejects_prior_identity_for_a_development_reset() {
+    let mut connection = Connection::open_in_memory().expect("open prior revision fixture");
+    configure_connection(&connection, false).expect("configure prior revision fixture");
     connection
         .execute_batch(
             "CREATE TABLE catalog_schema (

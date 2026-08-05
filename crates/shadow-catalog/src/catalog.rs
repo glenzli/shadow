@@ -8,7 +8,7 @@ use shadow_domain::LocationStatus;
 use crate::{
     CatalogError,
     row_codec::{count_rows, non_negative_count},
-    schema_v1,
+    schema,
 };
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl Catalog {
     pub fn open(path: &Path) -> Result<Self, CatalogError> {
         let mut connection = Connection::open(path)?;
         configure_connection(&connection, true)?;
-        schema_v1::initialize(&mut connection)?;
+        schema::initialize(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -49,7 +49,7 @@ impl Catalog {
     pub fn open_in_memory() -> Result<Self, CatalogError> {
         let mut connection = Connection::open_in_memory()?;
         configure_connection(&connection, false)?;
-        schema_v1::initialize(&mut connection)?;
+        schema::initialize(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -59,7 +59,7 @@ impl Catalog {
     ///
     /// Returns [`CatalogError`] if the schema state cannot be queried.
     pub fn schema_version(&self) -> Result<i64, CatalogError> {
-        schema_v1::current_version(&self.connection).map_err(Into::into)
+        schema::current_version(&self.connection).map_err(Into::into)
     }
 
     /// Returns persisted entity counts and the revalidation backlog.

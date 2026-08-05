@@ -335,21 +335,6 @@ target_link_libraries(
         Iconv::Iconv
 )
 add_dependencies(shadow-library-server-control shadow-desktop-rust-build)
-if(APPLE)
-    target_sources(
-        shadow-library-server-control
-        PRIVATE src/secure_secret_store_mac.mm
-    )
-    target_link_libraries(
-        shadow-library-server-control
-        PRIVATE "-framework CoreFoundation" "-framework Security"
-    )
-else()
-    target_sources(
-        shadow-library-server-control
-        PRIVATE src/secure_secret_store_stub.cpp
-    )
-endif()
 if(MSVC)
     target_compile_options(
         shadow-library-server-control
@@ -693,6 +678,7 @@ qt_add_resources(
         icons/metadata.svg
         icons/move-down.svg
         icons/move-up.svg
+        icons/network.svg
         icons/node-add.svg
         icons/overlay-hide.svg
         icons/overlay-show.svg

@@ -177,7 +177,11 @@ int main(int argc, char* argv[]) {
     CachePreferences cache_preferences(cache_root, isolated_settings_file);
     MapProviderPreferences map_provider_preferences(
         isolated_settings_file,
-        headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
+        headless_startup_smoke
+            ? makeVolatileSecretStore()
+            : makeLocalSecretStore(
+                  QDir(application_data).filePath(QStringLiteral("map-provider-credentials.ini"))
+              )
     );
     PersonalProfile personal_profile(application_data, isolated_settings_file);
     PersonalLocationSearch personal_location_search(defaultGeoNamesCityIndexPath());
@@ -223,7 +227,11 @@ int main(int argc, char* argv[]) {
         backend,
         &map_provider_preferences,
         isolated_settings_file,
-        headless_startup_smoke ? makeVolatileSecretStore() : makeSystemSecretStore()
+        headless_startup_smoke
+            ? makeVolatileSecretStore()
+            : makeLocalSecretStore(
+                  QDir(application_data).filePath(QStringLiteral("remote-library-credentials.ini"))
+              )
     );
     controller.setTravelLivingPlaces(personal_profile.livingPlaces());
     QObject::connect(

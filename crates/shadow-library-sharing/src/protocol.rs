@@ -1,4 +1,4 @@
-//! Versioned values exchanged by a remote Library server and client.
+//! Dated-revision values exchanged by a remote Library server and client.
 //!
 //! The protocol intentionally carries stable identities, bounded metadata,
 //! and content digests. Native paths and decoder-private values never cross
@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 use shadow_domain::{ImageDimensions, PhotoId, PreviewCodec, RepresentationId, RepresentationKind};
 use uuid::Uuid;
 
-pub const LIBRARY_PROTOCOL_VERSION: u32 = 1;
+/// Current wire revision encoded as YYYYMMDDNN, where NN is the contract's
+/// daily sequence. Compatible additions use capabilities; incompatible wire
+/// changes advance this revision.
+pub const LIBRARY_PROTOCOL_REVISION: u32 = 2_026_080_601;
 pub const MAX_LIBRARY_PAGE_SIZE: u16 = 256;
 pub const MAX_ORIGINAL_CHUNK_BYTES: u32 = 4 * 1_024 * 1_024;
 
@@ -18,7 +21,7 @@ pub struct ServerId(pub Uuid);
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ServerInfo {
-    pub protocol_version: u32,
+    pub protocol_revision: u32,
     pub server_id: ServerId,
     pub display_name: String,
     pub capabilities: ServerCapabilities,
@@ -204,7 +207,7 @@ pub(crate) enum ResponseValue {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ResponseHeader {
-    pub protocol_version: u32,
+    pub protocol_revision: u32,
     pub value: Result<ResponseValue, RemoteError>,
     pub body_byte_len: u64,
 }
@@ -228,7 +231,7 @@ pub enum RemoteErrorCode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RequestEnvelope {
-    pub protocol_version: u32,
+    pub protocol_revision: u32,
     pub authorization: String,
     pub request: Request,
 }

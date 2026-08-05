@@ -3,7 +3,7 @@
 /// Schema-v1 component for durable export work. The numeric catalog schema is
 /// deliberately still v1 while development is unstable; changing this shape
 /// changes the v1 identity marker and requires a development-catalog reset.
-pub(crate) const SCHEMA_V1_EXPORT_QUEUE: &str = r"
+pub(crate) const SCHEMA_EXPORT_QUEUE: &str = r"
 CREATE TABLE export_presets (
     id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     name            TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 256),

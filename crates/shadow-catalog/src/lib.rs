@@ -4,7 +4,7 @@
 //! knows nothing about Qt, RAW decoding, or render jobs.
 //!
 //! Start with [`catalog`] for connection lifecycle, [`asset_registration`] for idempotent
-//! source registration, [`schema_v1`] for the on-disk shape, [`writer`] for serialized
+//! source registration, [`schema`] for the on-disk shape, [`writer`] for serialized
 //! mutation dispatch, [`import_journal`] for durable scans and logical-photo companion grouping,
 //! and [`library`] for photo-first browsing plus coordinate-bound place resolution. The
 //! responsibility-named repository modules below own feature reads and transactions.
@@ -25,7 +25,7 @@ mod library_metadata;
 mod recipe;
 mod review;
 mod row_codec;
-mod schema_v1;
+mod schema;
 mod store;
 mod technical_observation;
 mod writer;

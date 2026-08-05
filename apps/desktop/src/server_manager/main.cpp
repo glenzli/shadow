@@ -96,7 +96,10 @@ int main(int argc, char* argv[]) {
     LibraryServerController controller(
         host.operations(),
         sharedServerSettings(data_root),
-        smoke_test ? makeVolatileSecretStore() : makeSystemSecretStore()
+        smoke_test ? makeVolatileSecretStore()
+                   : makeLocalSecretStore(
+                         QDir(data_root).filePath(QStringLiteral("library-server-credentials.ini"))
+                     )
     );
 
     QTranslator translator;

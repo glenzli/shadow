@@ -29,7 +29,7 @@ ColumnLayout {
         case "synchronized":
             return qsTr("Up to date · %L1 photos").arg(connection.photoCount);
         case "connection-saved":
-            return qsTr("Saved securely · synchronization queued");
+            return qsTr("Saved locally · synchronization queued");
         case "token-required":
             return qsTr("Access token unavailable · reconnect this Library");
         case "sync-failed":
@@ -63,9 +63,9 @@ ColumnLayout {
         case "duplicate-address":
             return qsTr("This server address is already in the Library list.");
         case "secure-storage-unavailable":
-            return qsTr("Secure credential storage is unavailable on this Mac.");
+            return qsTr("Shadow's local credential file is unavailable.");
         case "secret-store-failed":
-            return qsTr("The credential store could not complete the request.");
+            return qsTr("Shadow could not update its local credential file.");
         case "connection-save-failed":
             return qsTr("The remote Library connection could not be saved.");
         case "operation-busy":
@@ -176,7 +176,7 @@ ColumnLayout {
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("Update the server address or replace its secure access token. Cached thumbnails keep the same Library identity.")
+                    text: qsTr("Update the server address or paste a replacement access token. Cached thumbnails keep the same Library identity.")
                     color: Theme.textMuted
                     font.pixelSize: 11
                     wrapMode: Text.WordWrap
@@ -417,7 +417,7 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Shadow keeps an independent proxy cache and secure credential for every Library. The original RAW is fetched only when editing begins.")
+                text: qsTr("Paste the access token copied from Shadow Server. Shadow keeps it in a user-private local file and fetches the original RAW only when editing begins.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
@@ -473,7 +473,7 @@ ColumnLayout {
             Label {
                 Layout.fillWidth: true
                 visible: !root.controller.remoteLibrarySecureStorageAvailable
-                text: qsTr("Secure credential storage is unavailable on this Mac.")
+                text: qsTr("Shadow's local credential file is unavailable.")
                 color: Theme.dangerText
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap

@@ -452,21 +452,6 @@
         shadow-secure-secret-store-test
         PRIVATE Qt6::Core
     )
-    if(APPLE)
-        target_sources(
-            shadow-secure-secret-store-test
-            PRIVATE src/secure_secret_store_mac.mm
-        )
-        target_link_libraries(
-            shadow-secure-secret-store-test
-            PRIVATE "-framework CoreFoundation" "-framework Security"
-        )
-    else()
-        target_sources(
-            shadow-secure-secret-store-test
-            PRIVATE src/secure_secret_store_stub.cpp
-        )
-    endif()
     if(MSVC)
         target_compile_options(
             shadow-secure-secret-store-test

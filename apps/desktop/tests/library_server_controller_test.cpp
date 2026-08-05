@@ -151,7 +151,7 @@ int main(int argc, char* argv[]) {
         )
         || !require(
             service->last_config.authorization.size() >= 32,
-            "start creates a bounded Keychain token without exposing it as a property"
+            "start creates a bounded local token without exposing it as a property"
         )) {
         return EXIT_FAILURE;
     }

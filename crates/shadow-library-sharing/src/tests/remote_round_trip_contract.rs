@@ -7,7 +7,7 @@ use crate::{
     AuthorizationToken, LibraryClient, LibraryClientConfig, LibraryServer, LibraryServerConfig,
     LibraryShareSource, OriginalMaterializer, OriginalMaterializerPolicy, RemoteLibraryMirror,
     protocol::{
-        CapabilityAvailability, LIBRARY_PROTOCOL_VERSION, MAX_LIBRARY_PAGE_SIZE,
+        CapabilityAvailability, LIBRARY_PROTOCOL_REVISION, MAX_LIBRARY_PAGE_SIZE,
         MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk, PreparedOriginal, RemoteError, RemoteErrorCode,
         RemotePhotoManifest, RemotePhotoMetadata, RemotePhotoPage, RemotePreviewAvailability,
         RemotePreviewManifest, RemotePreviewRole, ServerCapabilities, ServerId, ServerInfo,
@@ -114,7 +114,7 @@ impl FixtureSource {
 impl LibraryShareSource for FixtureSource {
     fn server_info(&self) -> ServerInfo {
         ServerInfo {
-            protocol_version: LIBRARY_PROTOCOL_VERSION,
+            protocol_revision: LIBRARY_PROTOCOL_REVISION,
             server_id: self.server_id,
             display_name: "Fixture Mac".to_owned(),
             capabilities: ServerCapabilities {

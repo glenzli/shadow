@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::{
     protocol::{
-        LIBRARY_PROTOCOL_VERSION, MAX_LIBRARY_PAGE_SIZE, MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk,
+        LIBRARY_PROTOCOL_REVISION, MAX_LIBRARY_PAGE_SIZE, MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk,
         PreparedOriginal, RemoteError, RemoteErrorCode, RemotePhotoPage, RemotePreviewManifest,
         Request, ResponseHeader, ResponseValue, ServerInfo,
     },
@@ -310,11 +310,11 @@ fn handle_connection(
             )),
             Vec::new(),
         )
-    } else if envelope.protocol_version != LIBRARY_PROTOCOL_VERSION {
+    } else if envelope.protocol_revision != LIBRARY_PROTOCOL_REVISION {
         (
             Err(remote_error(
                 RemoteErrorCode::InvalidRequest,
-                "unsupported Library protocol version",
+                "unsupported Library protocol revision",
             )),
             Vec::new(),
         )
@@ -322,7 +322,7 @@ fn handle_connection(
         dispatch(source, envelope.request)
     };
     let header = ResponseHeader {
-        protocol_version: LIBRARY_PROTOCOL_VERSION,
+        protocol_revision: LIBRARY_PROTOCOL_REVISION,
         body_byte_len: u64::try_from(body.len()).unwrap_or(u64::MAX),
         value,
     };

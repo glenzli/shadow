@@ -1,7 +1,7 @@
 use shadow_domain::{EntityId, PhotoId, RepresentationId, RepresentationKind};
 
 use super::{
-    LIBRARY_PROTOCOL_VERSION, PreviewUnavailableReason, RemoteOriginalIdentity,
+    LIBRARY_PROTOCOL_REVISION, PreviewUnavailableReason, RemoteOriginalIdentity,
     RemotePhotoManifest, RemotePhotoMetadata, RemotePreviewAvailability,
     RemoteRepresentationManifest, Request, RequestEnvelope,
 };
@@ -9,7 +9,7 @@ use super::{
 #[test]
 fn request_round_trip_preserves_typed_remote_identity() {
     let request = RequestEnvelope {
-        protocol_version: LIBRARY_PROTOCOL_VERSION,
+        protocol_revision: LIBRARY_PROTOCOL_REVISION,
         authorization: "01234567890123456789012345678901".to_owned(),
         request: Request::PrepareOriginal {
             photo_id: PhotoId::new_v7(),
@@ -17,8 +17,10 @@ fn request_round_trip_preserves_typed_remote_identity() {
         },
     };
     let json = serde_json::to_vec(&request).expect("serialize request");
+    assert_eq!(LIBRARY_PROTOCOL_REVISION, 2_026_080_601);
+    assert!(String::from_utf8_lossy(&json).contains("\"protocol_revision\":2026080601"));
     let decoded: RequestEnvelope = serde_json::from_slice(&json).expect("deserialize request");
-    assert_eq!(decoded.protocol_version, LIBRARY_PROTOCOL_VERSION);
+    assert_eq!(decoded.protocol_revision, LIBRARY_PROTOCOL_REVISION);
     assert!(matches!(decoded.request, Request::PrepareOriginal { .. }));
 }
 

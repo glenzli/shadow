@@ -193,28 +193,6 @@ Item {
         }
 
         Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: 10
-            height: 24
-            width: remoteLabel.implicitWidth + 16
-            radius: Theme.compactControlRadius
-            visible: card.isRemote
-            color: Theme.panelRaised
-            border.width: 1
-            border.color: Theme.borderStrong
-
-            Label {
-                id: remoteLabel
-                anchors.centerIn: parent
-                text: qsTr("REMOTE")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontMeta
-                font.weight: Font.DemiBold
-            }
-        }
-
-        Rectangle {
             id: noVisualPlaceholder
             anchors.fill: thumbnail
             visible: card.visualSource.length === 0
@@ -331,6 +309,15 @@ Item {
                 RowLayout {
                     Layout.alignment: Qt.AlignRight
                     spacing: 6
+
+                    ShadowIcon {
+                        objectName: "cardCaptionRemoteSourceIndicator"
+                        visible: card.isRemote
+                        source: "qrc:/icons/network.svg"
+                        color: Theme.textSecondary
+                        size: 13
+                        Accessible.name: qsTr("Network Library source")
+                    }
 
                     Label {
                         visible: card.representationCount > 1

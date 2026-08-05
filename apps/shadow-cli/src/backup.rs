@@ -31,9 +31,11 @@ fn print_receipt(receipt: &CatalogBackupReceipt) {
 }
 
 fn print_verification(verification: &CatalogBackupVerification) {
+    let revision = verification.schema_version;
     println!(
-        "backup: schema_v{} pages={} page_size={} bytes={}",
-        verification.schema_version,
+        "backup: schema_revision={}.{} pages={} page_size={} bytes={}",
+        revision / 100,
+        revision % 100,
         verification.page_count,
         verification.page_size,
         verification.database_bytes

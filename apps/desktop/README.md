@@ -10,12 +10,12 @@ startup Catalog page / Add Folder / QML Review grid
   → shadow-core controlled scan / cancellable decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
-  → bounded display-luma observation worker → Catalog v1 summary
+  → bounded display-luma observation worker → dated Catalog summary
 
 two signed exact-artifact handles / explicit outcome
   → compare-only request tickets → verified cache bytes
   → Qt decoded RGBA frame receipt → ReviewComparisonCoordinator evidence write
-  → Catalog v1 append-only Global feedback / forget fact
+  → dated Catalog append-only Global feedback / forget fact
 
 Pick / Reject / 0–5 rating command
   → full-state expected-head CAS → immutable human decision event
@@ -99,15 +99,15 @@ Application startup is split from environment-driven automation:
   map-service permissions, the derived Library basemap readiness/style, and the native-only Google
   credential lifecycle. With no permitted service it publishes an explicit `none` provider instead
   of silently selecting an unavailable basemap.
-  [`src/secure_secret_store.*`](src/secure_secret_store.hpp) is the narrow platform credential
-  boundary: macOS stores the key as a device-local generic password in Keychain, isolated smoke
-  sessions use volatile memory, and unsupported platforms fail closed without a plaintext
-  fallback. [`qml/MapProviderSettingsPane.qml`](qml/MapProviderSettingsPane.qml) may save or remove
+  [`src/secure_secret_store.*`](src/secure_secret_store.hpp) is the narrow local credential
+  boundary: production stores each credential family in a user-private Shadow file and isolated
+  smoke sessions use volatile memory. It never calls a platform credential prompt.
+  [`qml/MapProviderSettingsPane.qml`](qml/MapProviderSettingsPane.qml) may save or remove
   a key and edit non-secret permissions inside the application settings shell, but it has no
   key-read property. [`qml/MapProviderSettingsDialog.qml`](qml/MapProviderSettingsDialog.qml) is a
   thin compatibility wrapper for focused component loading rather than a second policy owner.
 - [`src/review_remote_library_coordinator.*`](src/review_remote_library_coordinator.hpp) owns the
-  complete desktop remote-Library lifecycle: multi-mirror loading, per-connection Keychain routing,
+  complete desktop remote-Library lifecycle: multi-mirror loading, per-connection local-token routing,
   background manifest synchronization, remote curation persistence, and verified on-demand
   original materialization. [`src/remote_library_connection_store.*`](src/remote_library_connection_store.hpp)
   owns ordered stable connection identities and migration from the former singleton setting;
@@ -120,8 +120,8 @@ Application startup is split from environment-driven automation:
   Remote rows participate in locally mirrored curation filters but remain outside local-only
   albums, keywords, shared-node application, export, and metadata-facet scopes until materialized.
 - [`src/library_server_controller.*`](src/library_server_controller.hpp) owns the independent
-  lifecycle for sharing this Mac's folders: durable non-secret configuration,
-  Keychain-only authorization, asynchronous start/stop/rescan/cache-reset admission, and bounded
+  lifecycle for sharing this Mac's folders: durable configuration, user-private local authorization,
+  asynchronous start/stop/rescan/cache-reset admission, and bounded
   status projection. [`src/library_server_controller_backend.cpp`](src/library_server_controller_backend.cpp)
   retains the full-session adapter contract without giving the normal photo application listener
   ownership; [`src/library_server_host.*`](src/library_server_host.hpp) and
@@ -154,7 +154,7 @@ Application startup is split from environment-driven automation:
   failure falls back to the local city index; [`src/default_library_reverse_geocoder.*`](src/default_library_reverse_geocoder.hpp)
   is the narrow production composition boundary. [`src/google_library_reverse_geocoder.*`](src/google_library_reverse_geocoder.hpp)
   separately owns the authorized Google Geocoding API request, bounded response parsing,
-  cancellation, and safe diagnostics. It reuses the Keychain-backed Maps Platform key and never
+  cancellation, and safe diagnostics. It reuses the Shadow-local Maps Platform key and never
   starts merely because a key exists. No Google user sign-in is involved; the key's Cloud project
   must enable billing and the Geocoding API.
   [`src/review_library_place_resolution_coordinator.*`](src/review_library_place_resolution_coordinator.hpp)
