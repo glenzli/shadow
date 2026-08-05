@@ -24,6 +24,7 @@ local_build_root=${SHADOW_LOCAL_BUILD_ROOT:-"$repository_parent/.shadow-local-bu
 release_root="$local_build_root/releases/debug"
 current_link="$local_build_root/current-debug"
 promotion_lock="$local_build_root/.promote-debug-build.lock"
+promotion_lock_helper="$script_directory/acquire_debug_promotion_lock.py"
 
 shadow_executable="$candidate_app/Contents/MacOS/Shadow"
 decode_helper="$candidate_app/Contents/MacOS/shadow-image-decode-helper"
@@ -127,18 +128,9 @@ if [ -f "$candidate_app/Contents/Info.plist" ] && command -v plutil >/dev/null 2
     plutil -lint "$server_app/Contents/Info.plist" >/dev/null
 fi
 
-mkdir -p "$release_root"
-if [ -e "$current_link" ] && [ ! -L "$current_link" ]; then
-    echo "promote debug build: canonical entry exists but is not a symlink: $current_link" >&2
-    exit 73
-fi
-if ! mkdir "$promotion_lock" 2>/dev/null; then
-    echo "promote debug build: another steward is already promoting the canonical build" >&2
-    exit 73
-fi
-
 incoming_release=
 next_link=
+promotion_lock_token=
 cleanup() {
     if [ -n "$next_link" ] && [ -L "$next_link" ]; then
         rm "$next_link"
@@ -150,9 +142,33 @@ cleanup() {
             fi
             ;;
     esac
-    rmdir "$promotion_lock" 2>/dev/null || true
+    if [ -n "$promotion_lock_token" ]; then
+        python3 "$promotion_lock_helper" release "$promotion_lock" \
+            --token "$promotion_lock_token" || true
+    fi
 }
+
+if ! mkdir -p "$local_build_root"; then
+    echo "promote debug build: cannot create local build root: $local_build_root" >&2
+    echo "promote debug build: this is an environment failure, not lock contention" >&2
+    exit 77
+fi
+promotion_steward=${SHADOW_CANONICAL_DEBUG_STEWARD:-"promotion-shell-$$"}
+promotion_lock_token=$(
+    python3 "$promotion_lock_helper" acquire "$promotion_lock" \
+        --owner "$promotion_steward"
+)
 trap cleanup EXIT HUP INT TERM
+
+if ! mkdir -p "$release_root"; then
+    echo "promote debug build: cannot create release root: $release_root" >&2
+    echo "promote debug build: this is an environment failure, not lock contention" >&2
+    exit 77
+fi
+if [ -e "$current_link" ] && [ ! -L "$current_link" ]; then
+    echo "promote debug build: canonical entry exists but is not a symlink: $current_link" >&2
+    exit 73
+fi
 
 revision=$(git -C "$repository_root" rev-parse --short=12 HEAD)
 promoted_at=$(date -u '+%Y%m%dT%H%M%SZ')

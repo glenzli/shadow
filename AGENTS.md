@@ -411,15 +411,28 @@ repository with `scripts/run_debug.sh`.
 - A task may report its private build path as validation evidence, but must not present that path
   as the application's normal launch command.
 - Only a temporary **canonical debug build steward** may mutate `current-debug`. The steward claims
-  that shared output, waits for all source contracts included by the build to reach buildable
-  handoffs, and validates the complete current-source application rather than assembling a shell
-  and helper from different checkpoints.
+  the exact pseudo-path `.agent-coordination/resources/canonical-debug` with semantic write
+  `release:canonical-debug`. Reuse those identities for every promotion; aliases such as
+  `canonical-debug-current`, `canonical-debug-build`, or `canonical-debug-promotion` do not name
+  separate resources. The steward waits for all source contracts included by the build to reach
+  buildable handoffs and validates the complete current-source application rather than assembling
+  a shell and helper from different checkpoints.
 - Before promotion, run the local workspace guard, the canonical desktop build and localization
   gate, startup/edit smoke coverage, and any installed private-provider smoke relevant to the
   changed decoder boundary. Record the exact validation label and source scope in the handoff.
 - Promote with `scripts/promote_debug_build.sh /absolute/path/to/Shadow.app <validation-label>`.
   Promotion copies the candidate into an immutable revision/timestamp directory and atomically
   advances `current-debug`; it never mutates an app that the user may already be running.
+- The promotion script's physical directory lock is a final race guard, not the logical claim.
+  Only an atomic already-exists result means another steward may hold it. Permission, sandbox,
+  missing-parent, read-only-filesystem, and malformed-lock failures are environment blockers and
+  must preserve their real error category instead of being reported as contention.
+- If promotion needs user authorization or an environment change, pause the canonical debug claim
+  with the candidate checkpoint, exact operation, `release:canonical-debug`, stable error kind,
+  and resume condition. Do not release a claim while promising to resume the same promotion. After
+  authorization, recheck the physical lock, `current-debug`, candidate identity, and source base;
+  resume with that evidence before retrying. If a prior task released the claim, reacquire the
+  exact canonical resource first.
 - The owner of a task-private build may delete it only after its source handoff and any required
   promotion are complete. The promotion steward does not delete another task's directory. Retain
   the current promoted release and at least one previous release for rollback; prune older promoted
