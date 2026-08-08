@@ -99,8 +99,11 @@ oriented_raw_dimensions(Dimensions reconstruction_dimensions, std::int32_t orien
     const PreparedRawFrameRegion& region
 );
 
-[[nodiscard]] RawDemosaicReceipt
-raw_frame_region_demosaic_receipt(const RawFrame& frame, RawDevelopmentQuality quality) noexcept;
+[[nodiscard]] RawDemosaicReceipt raw_frame_region_demosaic_receipt(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    RawDevelopmentQuality quality
+) noexcept;
 
 // Area previews share the exact measured camera-to-working transform with native resident
 // regions. Sensor clipping remains a separately projected source diagnostic, never a colour

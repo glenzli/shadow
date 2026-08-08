@@ -89,7 +89,7 @@ fn recorded_ffi_raw_pipeline_receipt(path: ffi::FfiRawPipelinePath) -> ffi::FfiR
         path,
         cache_identity: "raw-pipeline-receipt-v1;fixture=canonical".to_owned(),
         pipeline_identity: if is_raw_frame {
-            "shadow-raw-frame-developer-v1"
+            "shadow-raw-frame-developer-v2"
         } else {
             "shadow-provider-processed-compatibility-v1"
         }

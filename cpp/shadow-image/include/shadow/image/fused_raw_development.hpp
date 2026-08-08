@@ -41,22 +41,21 @@ raw_highlight_treatment_identity(RawHighlightRecoveryIntent intent) noexcept;
 // and CFA-area-preview work.
 [[nodiscard]] RawDevelopmentBackendMode raw_development_backend_mode_from_environment();
 
-// Camera RGB -> linear sRGB/Rec.709 D65, row-major. The caller compiles all color decisions into
-// this one immutable matrix before rendering:
-//
-// - the generic provider route folds AsShotNeutral white balance into its camera matrix;
-// - the DCP route passes DcpColorTransform::camera_to_linear_srgb_d65, which already contains
-//   white balance, chromatic adaptation, and BaselineExposureOffset.
-//
-// Keeping profile interpretation outside this hot loop lets the same bounded renderer serve
-// public LibRaw and independently implemented provider paths without learning either profile
-// format.
+// Camera RGB -> linear sRGB/Rec.709 D65, row-major, plus the optional selected white balance in
+// CFA-site order. Generic RAW must scale and saturate the selected white balance before
+// demosaic: deferring it into this matrix is not equivalent when a sensor channel has saturated.
+// DCP transforms already own their photographic white balance and leave the CFA multipliers at
+// identity.
 struct RawFrameLinearTransform final {
     std::array<double, 9U> camera_to_linear_srgb_d65{};
-    // Camera-space response to the selected neutral, normalized to green. It remains in the
-    // prepared source contract for white-balance provenance; the reconstruction terminal applies
-    // only the compiled matrix and never performs a clip-dependent colour rewrite.
+    // Camera-space response to the selected neutral, normalized to green, retained for
+    // provenance and human white-balance presentation.
     std::array<double, 3U> camera_neutral{1.0, 1.0, 1.0};
+    // Selected CFA-site gains. The generic route applies these to normalized sensor samples
+    // before interpolation and clips the result at the calibrated white point, matching LibRaw's
+    // scale_colors ordering for ordinary clipped highlights.
+    std::array<double, 4U> cfa_white_balance{1.0, 1.0, 1.0, 1.0};
+    bool apply_cfa_white_balance = false;
 
     [[nodiscard]] bool valid() const noexcept;
 };

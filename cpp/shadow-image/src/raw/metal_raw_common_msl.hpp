@@ -29,6 +29,9 @@ struct RawDevelopmentParameters {
     float black_levels[4];
     float white_minus_black[4];
     float camera_to_linear_srgb[9];
+    float cfa_white_balance[4];
+    uint apply_cfa_white_balance;
+    uint clamp_cfa_white_balance;
 };
 
 inline uint cfa_site(uint x, uint y) {
@@ -43,8 +46,15 @@ inline float normalized_sample(
 ) {
     const uint site = cfa_site(x, y);
     const uint sample_index = y * parameters.storage_width + x;
-    return (float(samples[sample_index]) - parameters.black_levels[site])
+    float normalized = (float(samples[sample_index]) - parameters.black_levels[site])
         / parameters.white_minus_black[site];
+    if (parameters.apply_cfa_white_balance != 0u) {
+        normalized *= parameters.cfa_white_balance[site];
+        if (parameters.clamp_cfa_white_balance != 0u) {
+            normalized = clamp(normalized, 0.0f, 1.0f);
+        }
+    }
+    return normalized;
 }
 
 inline uint clipping_target_bin_begin(

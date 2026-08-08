@@ -48,9 +48,12 @@ struct ResidentRawDevelopmentParameters final {
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
+    float cfa_white_balance[4]{};
+    std::uint32_t apply_cfa_white_balance = 0U;
+    std::uint32_t clamp_cfa_white_balance = 0U;
 };
 
-static_assert(sizeof(ResidentRawDevelopmentParameters) == 144U);
+static_assert(sizeof(ResidentRawDevelopmentParameters) == 168U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, orientation) == 40U);
@@ -58,6 +61,8 @@ static_assert(offsetof(ResidentRawDevelopmentParameters, project_sensor_clipping
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_quality) == 56U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_channels) == 60U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 108U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance) == 144U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, apply_cfa_white_balance) == 160U);
 
 [[nodiscard]] bool environment_enabled(const char* name) noexcept {
     const char* value = std::getenv(name);
@@ -173,6 +178,15 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.camera_to_linear_srgb[index] =
             static_cast<float>(transform.camera_to_linear_srgb_d65[index]);
     }
+    for (std::size_t site = 0U; site < 4U; ++site) {
+        parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
+    }
+    parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
+    parameters.clamp_cfa_white_balance =
+        transform.apply_cfa_white_balance
+                && plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default
+            ? 1U
+            : 0U;
     return parameters;
 }
 
@@ -535,7 +549,7 @@ RawDemosaicReceipt MetalResidentRawSource::demosaic_receipt() const noexcept {
                          : RawDemosaicAlgorithm::bayer_bilinear_v1,
         .black_subtraction_applied = true,
         .white_level_normalization_applied = true,
-        .white_balance_applied = false,
+        .white_balance_applied = implementation_->transform.apply_cfa_white_balance,
         .dng_opcodes_applied = false,
     };
 }

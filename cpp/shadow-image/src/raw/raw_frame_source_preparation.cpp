@@ -16,7 +16,7 @@ namespace shadow::image::raw_pipeline_detail {
 namespace {
 
 inline constexpr std::string_view raw_frame_pipeline_identity =
-    "shadow-raw-frame-developer-v1:bayer-area-preview+bayer-bilinear:"
+    "shadow-raw-frame-developer-v2:cfa-wb-before-demosaic:bayer-area-preview+bayer-bilinear:"
     "raw-denoise-cfa-bilateral-v1:plan-camera-neutral:camera-matrix:scene-linear-f32";
 
 [[nodiscard]] const char* camera_profile_status_name(const RawCameraProfileStatus status) noexcept {

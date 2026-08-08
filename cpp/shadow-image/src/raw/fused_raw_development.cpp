@@ -111,14 +111,17 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     return output;
 }
 
-[[nodiscard]] RawDemosaicReceipt make_area_demosaic_receipt(const RawFrame& frame) noexcept {
+[[nodiscard]] RawDemosaicReceipt make_area_demosaic_receipt(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform
+) noexcept {
     return RawDemosaicReceipt{
         .schema_version = raw_demosaic_receipt_schema_version,
         .source_raw_frame_schema_version = frame.descriptor.schema_version,
         .algorithm = RawDemosaicAlgorithm::bayer_area_preview_v1,
         .black_subtraction_applied = true,
         .white_level_normalization_applied = true,
-        .white_balance_applied = false,
+        .white_balance_applied = transform.apply_cfa_white_balance,
         .dng_opcodes_applied = false,
     };
 }
@@ -127,7 +130,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     return receipt.schema_version == raw_demosaic_receipt_schema_version
            && receipt.source_raw_frame_schema_version == raw_frame_schema_version
            && receipt.black_subtraction_applied && receipt.white_level_normalization_applied
-           && !receipt.white_balance_applied && !receipt.dng_opcodes_applied;
+           && !receipt.dng_opcodes_applied;
 }
 
 [[nodiscard]] FusedRawFrameDevelopment develop_on_cpu(
@@ -180,7 +183,8 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
              &output,
              reconstruction_dimensions,
              output_dimensions,
-             area_sampling](const std::uint32_t first_row, const std::uint32_t last_row) {
+             area_sampling,
+             highlight_recovery](const std::uint32_t first_row, const std::uint32_t last_row) {
                 for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
                     for (std::uint32_t output_x = 0U; output_x < output_dimensions.width;
                          ++output_x) {
@@ -194,7 +198,10 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                             frame,
                             *area_sampling,
                             source_x,
-                            source_y
+                            source_y,
+                            &transform,
+                            highlight_recovery == RawHighlightRecoveryIntent::provider_default
+                                && transform.apply_cfa_white_balance
                         );
                         const auto output_index =
                             (static_cast<std::size_t>(output_y) * output_dimensions.width
@@ -214,8 +221,9 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     FusedRawFrameDevelopment result{
         .scene_linear = std::move(output),
         .demosaic_receipt =
-            area_preview ? make_area_demosaic_receipt(frame)
-                         : raw_pipeline_detail::raw_frame_region_demosaic_receipt(frame, quality),
+            area_preview
+                ? make_area_demosaic_receipt(frame, transform)
+                : raw_pipeline_detail::raw_frame_region_demosaic_receipt(frame, transform, quality),
         .backend = RawDevelopmentBackend::cpu,
         .highlight_recovery = highlight_recovery,
     };
@@ -247,7 +255,7 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=measured-source-20260808.1";
+        return "sensor-highlights=cfa-white-point-before-demosaic-20260809.1";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
@@ -295,6 +303,11 @@ bool RawFrameLinearTransform::valid() const noexcept {
     }
     for (const double neutral : camera_neutral) {
         if (!std::isfinite(neutral) || neutral <= 0.0) {
+            return false;
+        }
+    }
+    for (const double multiplier : cfa_white_balance) {
+        if (!std::isfinite(multiplier) || multiplier <= 0.0) {
             return false;
         }
     }

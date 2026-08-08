@@ -208,11 +208,10 @@ ResidentRawSource prepare_resident_raw_source(
     const RawDevelopmentPlanNegotiationStatus plan_negotiation_status =
         prepared.plan_negotiation_status_;
     RawPipelineReceipt pipeline = std::move(prepared.pipeline_);
-    detail::NeuralRawDenoiseResult neural_denoised =
-        detail::execute_prepared_neural_raw_denoise(
-            std::move(prepared.frame_),
-            prepared.development_.neural_raw_denoise()
-        );
+    detail::NeuralRawDenoiseResult neural_denoised = detail::execute_prepared_neural_raw_denoise(
+        std::move(prepared.frame_),
+        prepared.development_.neural_raw_denoise()
+    );
     RawBayerDenoiseResult denoised = detail::execute_prepared_raw_bayer_denoise(
         std::move(neural_denoised.frame),
         prepared.development_.raw_denoise()
@@ -226,6 +225,7 @@ ResidentRawSource prepare_resident_raw_source(
     }
     const RawDemosaicReceipt demosaic = raw_frame_region_demosaic_receipt(
         denoised.frame,
+        prepared.development_.linear_transform(),
         prepared.development_.development_plan().quality
     );
     RawDevelopmentReceipt raw_receipt = finalize_raw_frame_development_receipt(
@@ -249,10 +249,7 @@ ResidentRawSource prepare_resident_raw_source(
         std::move(pipeline),
         RawDevelopmentBackend::cpu,
         prepared.development_.development_plan().highlight_recovery,
-        detail::combined_raw_denoise_cache_identity(
-            neural_denoised.receipt,
-            denoised.receipt
-        )
+        detail::combined_raw_denoise_cache_identity(neural_denoised.receipt, denoised.receipt)
     );
     const std::uint64_t retained_bytes = checked_retained_bytes(denoised.frame);
     return ResidentRawSource(

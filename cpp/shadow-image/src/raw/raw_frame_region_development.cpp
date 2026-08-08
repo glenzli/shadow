@@ -430,8 +430,22 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
                     const std::uint32_t raw_y = frame.descriptor.active_margins.top + source_y;
                     const detail::CameraRgbSample camera =
                         region.algorithm() == RawDemosaicAlgorithm::bayer_edge_aware_v1
-                            ? detail::edge_aware_camera_rgb_sample_at(frame, raw_x, raw_y)
-                            : detail::bilinear_camera_rgb_sample_at(frame, raw_x, raw_y);
+                            ? detail::edge_aware_camera_rgb_sample_at(
+                                  frame,
+                                  raw_x,
+                                  raw_y,
+                                  &transform,
+                                  highlight_recovery == RawHighlightRecoveryIntent::provider_default
+                                      && transform.apply_cfa_white_balance
+                              )
+                            : detail::bilinear_camera_rgb_sample_at(
+                                  frame,
+                                  raw_x,
+                                  raw_y,
+                                  &transform,
+                                  highlight_recovery == RawHighlightRecoveryIntent::provider_default
+                                      && transform.apply_cfa_white_balance
+                              );
                     const std::size_t output_index =
                         (static_cast<std::size_t>(local_y) * region.requested_core().width
                          + local_x)
@@ -450,6 +464,7 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
 
 RawDemosaicReceipt raw_frame_region_demosaic_receipt(
     const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
     const RawDevelopmentQuality quality
 ) noexcept {
     return RawDemosaicReceipt{
@@ -460,7 +475,7 @@ RawDemosaicReceipt raw_frame_region_demosaic_receipt(
                          : RawDemosaicAlgorithm::bayer_bilinear_v1,
         .black_subtraction_applied = true,
         .white_level_normalization_applied = true,
-        .white_balance_applied = false,
+        .white_balance_applied = transform.apply_cfa_white_balance,
         .dng_opcodes_applied = false,
     };
 }

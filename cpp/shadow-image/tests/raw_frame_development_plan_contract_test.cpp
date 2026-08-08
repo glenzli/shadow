@@ -87,14 +87,17 @@ void prepared_plan_applies_absolute_temperature_tint_before_every_downstream_gra
         0.0
     );
 
-    const auto& as_shot_matrix = as_shot.linear_transform().camera_to_linear_srgb_d65;
-    const auto& manual_matrix = manual.linear_transform().camera_to_linear_srgb_d65;
+    const auto& as_shot_transform = as_shot.linear_transform();
+    const auto& manual_transform = manual.linear_transform();
     expect(
-        as_shot_matrix[0] == 2.0 && as_shot_matrix[4] == 1.0 && as_shot_matrix[8] == 4.0
-            && std::abs(manual_matrix[0] - 1.0) < 0.08
-            && std::abs(manual_matrix[4] - 1.0) < 0.08
-            && std::abs(manual_matrix[8] - 1.0) < 0.08,
-        "absolute D65-like white balance replaces AsShot multipliers in the prepared transform"
+        as_shot_transform.apply_cfa_white_balance && as_shot_transform.cfa_white_balance[0] == 2.0
+            && as_shot_transform.cfa_white_balance[1] == 1.0
+            && as_shot_transform.cfa_white_balance[2] == 1.0
+            && as_shot_transform.cfa_white_balance[3] == 4.0
+            && std::abs(manual_transform.cfa_white_balance[0] - 1.0) < 0.08
+            && std::abs(manual_transform.cfa_white_balance[1] - 1.0) < 0.08
+            && std::abs(manual_transform.cfa_white_balance[3] - 1.0) < 0.08,
+        "absolute D65-like white balance replaces AsShot CFA gains before reconstruction"
     );
     expect(
         manual.development_plan().white_balance == manual_plan.white_balance,

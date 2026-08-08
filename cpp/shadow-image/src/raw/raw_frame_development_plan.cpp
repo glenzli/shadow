@@ -56,28 +56,46 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     return *neutral;
 }
 
-[[nodiscard]] std::array<double, 3U> white_balance_multipliers(
+[[nodiscard]] std::array<double, 4U> cfa_white_balance_multipliers(
     const RawFrameDescriptor& descriptor,
     const RawWhiteBalance& white_balance
 ) {
-    const auto neutral = canonical_camera_neutral(descriptor, white_balance);
-    std::array<double, 3U> multipliers{
-        1.0 / neutral[0],
-        1.0 / neutral[1],
-        1.0 / neutral[2],
-    };
-    const double green = multipliers[1];
-    if (!std::isfinite(green) || green <= 0.0) {
-        throw DecodeError(
-            DecodeErrorCode::unsupported_layout,
-            0,
-            "RAW frame camera neutral produces an invalid white balance"
-        );
+    std::array<double, 4U> neutral{};
+    if (white_balance.mode == RawWhiteBalanceMode::as_shot) {
+        neutral = descriptor.as_shot_neutral;
+    } else {
+        const auto canonical = canonical_camera_neutral(descriptor, white_balance);
+        for (std::size_t site = 0U; site < neutral.size(); ++site) {
+            switch (descriptor.bayer_2x2[site]) {
+            case RawCfaColor::red:
+                neutral[site] = canonical[0U];
+                break;
+            case RawCfaColor::green:
+                neutral[site] = canonical[1U];
+                break;
+            case RawCfaColor::blue:
+                neutral[site] = canonical[2U];
+                break;
+            case RawCfaColor::unknown:
+                throw DecodeError(
+                    DecodeErrorCode::unsupported_layout,
+                    0,
+                    "RAW frame white balance encountered an unknown CFA colour"
+                );
+            }
+        }
     }
-    for (auto& value : multipliers) {
-        value /= green;
+    for (double& value : neutral) {
+        if (!std::isfinite(value) || value <= 0.0) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported_layout,
+                0,
+                "RAW frame camera neutral produces an invalid CFA white balance"
+            );
+        }
+        value = 1.0 / value;
     }
-    return multipliers;
+    return neutral;
 }
 
 using Matrix3 = std::array<double, 9U>;
@@ -146,14 +164,12 @@ using Matrix3 = std::array<double, 9U>;
     }
 
     const auto neutral = canonical_camera_neutral(descriptor, white_balance);
-    const auto multipliers = white_balance_multipliers(descriptor, white_balance);
-    // Fold WB into the input columns so the hot loop performs one matrix multiply.
-    for (std::size_t output = 0U; output < 3U; ++output) {
-        for (std::size_t input = 0U; input < 3U; ++input) {
-            camera_to_srgb[output * 3U + input] *= multipliers[input];
-        }
-    }
-    return RawFrameLinearTransform{camera_to_srgb, neutral};
+    return RawFrameLinearTransform{
+        .camera_to_linear_srgb_d65 = camera_to_srgb,
+        .camera_neutral = neutral,
+        .cfa_white_balance = cfa_white_balance_multipliers(descriptor, white_balance),
+        .apply_cfa_white_balance = true,
+    };
 }
 
 [[nodiscard]] double sampled_scene_linear_luminance_percentile(
@@ -193,7 +209,13 @@ using Matrix3 = std::array<double, 9U>;
         for (std::uint32_t x = 0U; x < sample_columns; ++x) {
             const std::uint32_t raw_x = frame.descriptor.active_margins.left
                                         + source_coordinate(x, sample_columns, active.width);
-            const auto camera = detail::bilinear_camera_rgb_at(frame, raw_x, raw_y);
+            const auto camera = detail::bilinear_camera_rgb_at(
+                frame,
+                raw_x,
+                raw_y,
+                &transform,
+                transform.apply_cfa_white_balance
+            );
             const std::size_t index = (static_cast<std::size_t>(y) * sample_columns + x) * 3U;
             for (std::size_t output = 0U; output < 3U; ++output) {
                 double linear_srgb = 0.0;

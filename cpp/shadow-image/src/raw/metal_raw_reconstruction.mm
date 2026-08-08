@@ -42,9 +42,12 @@ struct RawDevelopmentParameters final {
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
+    float cfa_white_balance[4]{};
+    std::uint32_t apply_cfa_white_balance = 0U;
+    std::uint32_t clamp_cfa_white_balance = 0U;
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 144U);
+static_assert(sizeof(RawDevelopmentParameters) == 168U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -54,6 +57,8 @@ static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 60U);
 static_assert(offsetof(RawDevelopmentParameters, black_levels) == 76U);
 static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
 static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 144U);
+static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 160U);
 
 [[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
@@ -120,15 +125,18 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     return output;
 }
 
-[[nodiscard]] RawDemosaicReceipt
-make_receipt(const RawFrame& frame, const RawDemosaicAlgorithm algorithm) noexcept {
+[[nodiscard]] RawDemosaicReceipt make_receipt(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const RawDemosaicAlgorithm algorithm
+) noexcept {
     return RawDemosaicReceipt{
         .schema_version = raw_demosaic_receipt_schema_version,
         .source_raw_frame_schema_version = frame.descriptor.schema_version,
         .algorithm = algorithm,
         .black_subtraction_applied = true,
         .white_level_normalization_applied = true,
-        .white_balance_applied = false,
+        .white_balance_applied = transform.apply_cfa_white_balance,
         .dng_opcodes_applied = false,
     };
 }
@@ -139,7 +147,8 @@ make_receipt(const RawFrame& frame, const RawDemosaicAlgorithm algorithm) noexce
     const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions,
     const RawDevelopmentQuality quality,
-    const bool project_sensor_clipping
+    const bool project_sensor_clipping,
+    const RawHighlightRecoveryIntent highlight_recovery
 ) {
     const auto& descriptor = frame.descriptor;
     RawDevelopmentParameters parameters;
@@ -166,6 +175,15 @@ make_receipt(const RawFrame& frame, const RawDemosaicAlgorithm algorithm) noexce
         parameters.camera_to_linear_srgb[index] =
             static_cast<float>(transform.camera_to_linear_srgb_d65[index]);
     }
+    for (std::size_t site = 0U; site < 4U; ++site) {
+        parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
+    }
+    parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
+    parameters.clamp_cfa_white_balance =
+        transform.apply_cfa_white_balance
+                && highlight_recovery == RawHighlightRecoveryIntent::provider_default
+            ? 1U
+            : 0U;
     return parameters;
 }
 
@@ -400,7 +418,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             reconstruction_dimensions,
             output_dimensions,
             quality,
-            continuations.project_sensor_clipping
+            continuations.project_sensor_clipping,
+            highlight_recovery
         );
         const auto pipeline =
             area_preview ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
@@ -547,6 +566,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         .scene_linear = std::move(output),
         .demosaic_receipt = make_receipt(
             frame,
+            transform,
             area_preview                             ? RawDemosaicAlgorithm::bayer_area_preview_v1
             : quality == RawDevelopmentQuality::high ? RawDemosaicAlgorithm::bayer_edge_aware_v1
                                                      : RawDemosaicAlgorithm::bayer_bilinear_v1

@@ -104,7 +104,8 @@ using shadow::image::test_support::failures;
             frame.samples
                 [static_cast<std::size_t>(y) * frame.descriptor.storage_dimensions.width + x] =
                 static_cast<std::uint16_t>(
-                    colour == image::RawCfaColor::red ? frame.descriptor.white_levels[site] : 100U
+                    colour == image::RawCfaColor::red ? frame.descriptor.white_levels[site]
+                                                       : 100U
                 );
         }
     }
