@@ -31,6 +31,7 @@ class RawPreviewRebindingSource final {
     ) const;
     [[nodiscard]] bool supports_foundation_amount_rebinding() const noexcept;
     [[nodiscard]] const AssetMetadata& metadata() const noexcept;
+    [[nodiscard]] RawPreviewRebindingTelemetry telemetry() const noexcept;
 
   private:
     struct Impl;

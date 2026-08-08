@@ -181,6 +181,7 @@ class WarmEditGpuSession;
 }
 namespace raw_pipeline_detail {
 class RawPreviewRebindingSource;
+struct RawPreviewRebindingTelemetry;
 }
 
 class WarmEditPreviewSession final {
@@ -208,6 +209,11 @@ class WarmEditPreviewSession final {
     // foundation but owns a fresh scene-linear proxy, DCP receipt and GPU edit session. Raster
     // sessions and legacy borrowed-optics preparations deliberately report false.
     [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
+    // Source-stage observability stays attached to the retained camera basis,
+    // so a new immutable session can report cumulative rebind execution
+    // without polluting Recipe/cache provenance.
+    [[nodiscard]] raw_pipeline_detail::RawPreviewRebindingTelemetry
+    raw_rebinding_telemetry() const noexcept;
     [[nodiscard]] WarmEditPreviewSession
     rebind_raw_development_plan(const RawDevelopmentPlan& raw_development_plan) const;
     // AI-only bounded-source fast path. The new session shares the retained original/AI

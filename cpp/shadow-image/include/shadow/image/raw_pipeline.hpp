@@ -19,6 +19,25 @@ namespace shadow::image {
 struct CameraProfileCatalog;
 struct RawFoundationCameraRgbView;
 
+namespace raw_pipeline_detail {
+
+// Runtime-only source-stage evidence for one retained camera-space basis. It
+// deliberately names execution rather than Recipe semantics: callers can
+// distinguish an ordinary CFA re-development from the AI camera-RGB route
+// without making a backend or timing decision part of a persisted edit.
+struct RawPreviewRebindingTelemetry final {
+    std::uint64_t bind_count = 0U;
+    std::uint64_t ordinary_raw_bind_count = 0U;
+    std::uint64_t ordinary_raw_metal_development_count = 0U;
+    std::uint64_t ordinary_raw_cpu_development_count = 0U;
+    std::uint64_t foundation_camera_rgb_bind_count = 0U;
+    std::uint64_t foundation_amount_bind_count = 0U;
+    std::uint64_t dcp_metal_execution_count = 0U;
+    std::uint64_t dcp_cpu_execution_count = 0U;
+};
+
+} // namespace raw_pipeline_detail
+
 // The RAW pipeline is a host policy, not a camera-provider setting. Providers only expose
 // source samples and capabilities; Shadow decides whether those samples enter its sensor-domain
 // developer or the provider's processed-RGB compatibility path. Keeping the choice explicit

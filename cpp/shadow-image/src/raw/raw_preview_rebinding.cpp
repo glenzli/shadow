@@ -11,6 +11,7 @@
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 
+#include <atomic>
 #include <optional>
 #include <string>
 #include <utility>
@@ -99,6 +100,14 @@ struct RawPreviewRebindingSource::Impl final {
     std::optional<CameraProfileDefinition> camera_profile_definition;
     SensorClippingMask sensor_clipping;
     RawPreviewBasis basis;
+    std::atomic<std::uint64_t> bind_count{0U};
+    std::atomic<std::uint64_t> ordinary_raw_bind_count{0U};
+    std::atomic<std::uint64_t> ordinary_raw_metal_development_count{0U};
+    std::atomic<std::uint64_t> ordinary_raw_cpu_development_count{0U};
+    std::atomic<std::uint64_t> foundation_camera_rgb_bind_count{0U};
+    std::atomic<std::uint64_t> foundation_amount_bind_count{0U};
+    std::atomic<std::uint64_t> dcp_metal_execution_count{0U};
+    std::atomic<std::uint64_t> dcp_cpu_execution_count{0U};
 
     Impl(
         PreparedRawFrameDevelopment development,
@@ -123,6 +132,25 @@ RawPreviewRebindingSource::~RawPreviewRebindingSource() = default;
 
 const AssetMetadata& RawPreviewRebindingSource::metadata() const noexcept {
     return impl_->metadata;
+}
+
+RawPreviewRebindingTelemetry RawPreviewRebindingSource::telemetry() const noexcept {
+    return RawPreviewRebindingTelemetry{
+        .bind_count = impl_->bind_count.load(std::memory_order_relaxed),
+        .ordinary_raw_bind_count = impl_->ordinary_raw_bind_count.load(std::memory_order_relaxed),
+        .ordinary_raw_metal_development_count =
+            impl_->ordinary_raw_metal_development_count.load(std::memory_order_relaxed),
+        .ordinary_raw_cpu_development_count =
+            impl_->ordinary_raw_cpu_development_count.load(std::memory_order_relaxed),
+        .foundation_camera_rgb_bind_count =
+            impl_->foundation_camera_rgb_bind_count.load(std::memory_order_relaxed),
+        .foundation_amount_bind_count =
+            impl_->foundation_amount_bind_count.load(std::memory_order_relaxed),
+        .dcp_metal_execution_count =
+            impl_->dcp_metal_execution_count.load(std::memory_order_relaxed),
+        .dcp_cpu_execution_count =
+            impl_->dcp_cpu_execution_count.load(std::memory_order_relaxed),
+    };
 }
 
 DevelopedSourceReference
@@ -168,6 +196,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         std::move(binding.dcp),
         impl_->development_template.source_scene_luminance_percentile()
     );
+    impl_->bind_count.fetch_add(1U, std::memory_order_relaxed);
 
     if (const auto* ordinary = std::get_if<OrdinaryRawPreviewBasis>(&impl_->basis)) {
         if (foundation_amount_percent.has_value()) {
@@ -185,10 +214,21 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             effective_plan.highlight_recovery,
             effective_plan.quality
         );
+        impl_->ordinary_raw_bind_count.fetch_add(1U, std::memory_order_relaxed);
+        if (developed.backend == RawDevelopmentBackend::metal) {
+            impl_->ordinary_raw_metal_development_count.fetch_add(1U, std::memory_order_relaxed);
+        } else {
+            impl_->ordinary_raw_cpu_development_count.fetch_add(1U, std::memory_order_relaxed);
+        }
         DcpColorExecutionBackend dcp_backend = DcpColorExecutionBackend::cpu;
         const DcpColorTransform* dcp = rebound_development.camera_profile();
         if (dcp != nullptr && dcp->has_post_matrix_stages()) {
             dcp_backend = apply_dcp_color_rendering_stages(developed.scene_linear, *dcp);
+            if (dcp_backend == DcpColorExecutionBackend::metal) {
+                impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
+            } else {
+                impl_->dcp_cpu_execution_count.fetch_add(1U, std::memory_order_relaxed);
+            }
         }
         RawDevelopmentReceipt receipt = finalize_raw_frame_development_receipt(
             rebound_development,
@@ -227,6 +267,10 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
     }
 
     const auto& foundation = std::get<FoundationRawPreviewBasis>(impl_->basis);
+    impl_->foundation_camera_rgb_bind_count.fetch_add(1U, std::memory_order_relaxed);
+    if (foundation_amount_percent.has_value()) {
+        impl_->foundation_amount_bind_count.fetch_add(1U, std::memory_order_relaxed);
+    }
     DevelopedRawFoundation developed = foundation_amount_percent.has_value()
                                            ? develop_prepared_raw_foundation(
                                                  foundation.camera_rgb,
@@ -241,6 +285,11 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
     const DcpColorTransform* dcp = rebound_development.camera_profile();
     if (dcp != nullptr && dcp->has_post_matrix_stages()) {
         dcp_backend = apply_dcp_color_rendering_stages(developed.scene_linear, *dcp);
+        if (dcp_backend == DcpColorExecutionBackend::metal) {
+            impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
+        } else {
+            impl_->dcp_cpu_execution_count.fetch_add(1U, std::memory_order_relaxed);
+        }
     }
     const auto foundation_negotiation = requested_plan == effective_plan
                                             ? RawDevelopmentPlanNegotiationStatus::accepted

@@ -551,6 +551,13 @@ bool WarmEditPreviewSession::supports_raw_development_rebinding() const noexcept
     return raw_rebinding_source_ != nullptr;
 }
 
+raw_pipeline_detail::RawPreviewRebindingTelemetry
+WarmEditPreviewSession::raw_rebinding_telemetry() const noexcept {
+    return raw_rebinding_source_ != nullptr
+        ? raw_rebinding_source_->telemetry()
+        : raw_pipeline_detail::RawPreviewRebindingTelemetry{};
+}
+
 WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
     const RawDevelopmentPlan& raw_development_plan
 ) const {

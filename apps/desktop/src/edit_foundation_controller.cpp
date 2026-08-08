@@ -10,10 +10,12 @@ constexpr int DEFAULT_TEMPERATURE_KELVIN = 5'500;
 constexpr int MIN_TINT = -150;
 constexpr int MAX_TINT = 150;
 constexpr int FOUNDATION_PREVIEW_THROTTLE_MS = 16;
-// RAW white balance changes immutable prepared-source provenance today. Debounce
-// a continuous drag until it pauses instead of repeatedly decoding/demosaicing
-// a source that the next pointer event will immediately supersede.
-constexpr int RAW_WHITE_BALANCE_PREVIEW_THROTTLE_MS = 120;
+// RAW white balance changes immutable prepared-source provenance, but a warm
+// session retains the decoded/denoised camera basis. Keep the interactive
+// cadence at roughly 20 fps while the source-stage GPU hand-off is prepared:
+// this scheduler coalesces superseded work and always renders the latest value.
+// The final gesture value still renders immediately at normal quality.
+constexpr int RAW_WHITE_BALANCE_PREVIEW_THROTTLE_MS = 48;
 
 } // namespace
 

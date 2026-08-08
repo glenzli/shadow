@@ -52,9 +52,16 @@ void ordinary_raw_rebinds_without_a_second_decode() {
     );
 
     const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
+    const auto telemetry = rebound.raw_rebinding_telemetry();
     expect(
         decoder.raw_frame_count() == 1U && decoder.processed_count() == 0U,
         "ordinary RAW white-balance rebinding neither decodes nor enters provider RGB"
+    );
+    expect(
+        telemetry.bind_count == 2U && telemetry.ordinary_raw_bind_count == 2U
+            && telemetry.ordinary_raw_cpu_development_count == 2U
+            && telemetry.ordinary_raw_metal_development_count == 0U,
+        "ordinary RAW rebind telemetry records the retained source and its actual backend"
     );
     expect(
         rebound.raw_development_receipt().requested_plan.white_balance
@@ -105,6 +112,7 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
     const auto amount_rebound =
         initial.rebind_raw_foundation_amount(image::preview_raw_development_plan(), 25U);
+    const auto telemetry = amount_rebound.raw_rebinding_telemetry();
     expect(
         initial.supports_raw_development_rebinding() && decoder.raw_frame_count() == 1U
             && decoder.processed_count() == 0U,
@@ -113,6 +121,12 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     expect(
         initial.supports_raw_foundation_amount_rebinding() && decoder.raw_frame_count() == 1U,
         "AI amount rebind retains paired bounded bases without a second RAW decode"
+    );
+    expect(
+        telemetry.bind_count == 3U && telemetry.foundation_camera_rgb_bind_count == 3U
+            && telemetry.foundation_amount_bind_count == 1U
+            && telemetry.ordinary_raw_bind_count == 0U,
+        "AI RAW rebind telemetry distinguishes camera-RGB and amount-only source work"
     );
     expect(
         rebound.raw_pipeline_receipt().pipeline_identity.find(artifact_digest) != std::string::npos
