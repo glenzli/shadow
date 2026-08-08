@@ -53,10 +53,9 @@ raw_highlight_treatment_identity(RawHighlightRecoveryIntent intent) noexcept;
 // format.
 struct RawFrameLinearTransform final {
     std::array<double, 9U> camera_to_linear_srgb_d65{};
-    // Camera-space response to the selected neutral, normalized to green.
-    // Highlight recovery uses this before the matrix so clipped CFA channels
-    // are reconstructed as measured camera ratios instead of painted after
-    // colour conversion.
+    // Camera-space response to the selected neutral, normalized to green. It remains in the
+    // prepared source contract for white-balance provenance; the reconstruction terminal applies
+    // only the compiled matrix and never performs a clip-dependent colour rewrite.
     std::array<double, 3U> camera_neutral{1.0, 1.0, 1.0};
 
     [[nodiscard]] bool valid() const noexcept;

@@ -7,7 +7,8 @@ namespace shadow::image::detail {
 inline constexpr char metal_raw_reconstruction_source[] = R"METAL(
 // High-quality detail reconstruction mirrors bayer_sampling.cpp: estimate green along the
 // smoothest sensor direction, then interpolate red/blue as local colour differences. The
-// bilinear sample remains the edge fallback and the owner of clipping evidence.
+// bilinear sample remains the edge fallback; clipping is projected separately
+// from the immutable RAW plane.
 struct DirectionalGreenEstimate {
     float value;
     float gradient;
@@ -233,9 +234,7 @@ inline float3 develop_bayer_scene_linear_at(
     const CameraRgbSample camera = parameters.reconstruction_quality == 2u
         ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
         : camera_rgb_at(samples, parameters, raw_x, raw_y);
-    const float3 camera_values = parameters.neutralize_sensor_highlights != 0u
-        ? recover_sensor_clipped_camera_neutral(camera, parameters)
-        : camera.values;
+    const float3 camera_values = camera.values;
     const float red =
         parameters.camera_to_linear_srgb[0] * camera_values.x
         + parameters.camera_to_linear_srgb[1] * camera_values.y
@@ -370,7 +369,6 @@ kernel void develop_bayer_area_preview(
     );
     float totals[3] = {0.0f, 0.0f, 0.0f};
     float weights[3] = {0.0f, 0.0f, 0.0f};
-    float clipped_weights[3] = {0.0f, 0.0f, 0.0f};
     for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const float overlap_y = max(
             0.0f,
@@ -386,7 +384,6 @@ kernel void develop_bayer_area_preview(
             const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
             totals[channel] += normalized * weight;
             weights[channel] += weight;
-            clipped_weights[channel] += sensor_clip_evidence(normalized) * weight;
         }
     }
     // An active footprint always contains each CFA colour for supported previews. Preserve the
@@ -406,20 +403,13 @@ kernel void develop_bayer_area_preview(
             totals[0] / weights[0],
             totals[1] / weights[1],
             totals[2] / weights[2]
-        ),
-        float3(
-            clipped_weights[0] / weights[0],
-            clipped_weights[1] / weights[1],
-            clipped_weights[2] / weights[2]
         )
     };
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
     }
-    const float3 camera_values = parameters.neutralize_sensor_highlights != 0u
-        ? recover_sensor_clipped_camera_neutral(camera, parameters)
-        : camera.values;
+    const float3 camera_values = camera.values;
     const float red =
         parameters.camera_to_linear_srgb[0] * camera_values.x
         + parameters.camera_to_linear_srgb[1] * camera_values.y

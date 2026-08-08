@@ -2,8 +2,8 @@
 #include <shadow/image/proxy_rendering.hpp>
 
 #include "metal_dcp_color_encoding.hpp"
-#include "metal_raw_development.hpp"
 #include "metal_raw_denoise_encoding.hpp"
+#include "metal_raw_development.hpp"
 #include "metal_raw_runtime.hpp"
 
 #include <algorithm>
@@ -36,28 +36,24 @@ struct RawDevelopmentParameters final {
     std::int32_t orientation = 0;
     std::uint32_t output_row_offset = 0U;
     std::uint32_t output_tile_height = 0U;
-    std::uint32_t neutralize_sensor_highlights = 0U;
     std::uint32_t project_sensor_clipping = 0U;
     std::uint32_t reconstruction_quality = 0U;
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
-    float camera_neutral[3]{};
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 160U);
+static_assert(sizeof(RawDevelopmentParameters) == 144U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
-static_assert(offsetof(RawDevelopmentParameters, neutralize_sensor_highlights) == 52U);
-static_assert(offsetof(RawDevelopmentParameters, project_sensor_clipping) == 56U);
-static_assert(offsetof(RawDevelopmentParameters, reconstruction_quality) == 60U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 64U);
-static_assert(offsetof(RawDevelopmentParameters, black_levels) == 80U);
-static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 96U);
-static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 112U);
-static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
+static_assert(offsetof(RawDevelopmentParameters, project_sensor_clipping) == 52U);
+static_assert(offsetof(RawDevelopmentParameters, reconstruction_quality) == 56U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 60U);
+static_assert(offsetof(RawDevelopmentParameters, black_levels) == 76U);
+static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
+static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
 
 [[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
@@ -68,11 +64,7 @@ static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
     if (configured != nullptr && *configured != '\0') {
         const std::string_view text(configured);
         std::size_t parsed = 0U;
-        const auto conversion = std::from_chars(
-            text.data(),
-            text.data() + text.size(),
-            parsed
-        );
+        const auto conversion = std::from_chars(text.data(), text.data() + text.size(), parsed);
         if (conversion.ec == std::errc{} && conversion.ptr == text.data() + text.size()
             && parsed > 0U) {
             requested = parsed;
@@ -81,13 +73,10 @@ static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
     return std::min(requested, maximum_buffer_bytes);
 }
 
-[[nodiscard]] Dimensions oriented_dimensions(
-    const Dimensions dimensions,
-    const std::int32_t orientation
-) noexcept {
-    return orientation == 5 || orientation == 6
-        ? Dimensions{dimensions.height, dimensions.width}
-        : dimensions;
+[[nodiscard]] Dimensions
+oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation) noexcept {
+    return orientation == 5 || orientation == 6 ? Dimensions{dimensions.height, dimensions.width}
+                                                : dimensions;
 }
 
 [[nodiscard]] std::uint32_t cfa_channel(const RawCfaColor color) {
@@ -126,16 +115,13 @@ static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
 
     SceneLinearRgbFrame output;
     output.dimensions = dimensions;
-    output.row_stride_bytes =
-        static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float);
+    output.row_stride_bytes = static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float);
     output.samples.resize(sample_count);
     return output;
 }
 
-[[nodiscard]] RawDemosaicReceipt make_receipt(
-    const RawFrame& frame,
-    const RawDemosaicAlgorithm algorithm
-) noexcept {
+[[nodiscard]] RawDemosaicReceipt
+make_receipt(const RawFrame& frame, const RawDemosaicAlgorithm algorithm) noexcept {
     return RawDemosaicReceipt{
         .schema_version = raw_demosaic_receipt_schema_version,
         .source_raw_frame_schema_version = frame.descriptor.schema_version,
@@ -152,7 +138,6 @@ static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
     const RawFrameLinearTransform& transform,
     const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions,
-    const RawHighlightRecoveryIntent highlight_recovery,
     const RawDevelopmentQuality quality,
     const bool project_sensor_clipping
 ) {
@@ -169,8 +154,6 @@ static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
     parameters.reconstruction_width = reconstruction_dimensions.width;
     parameters.reconstruction_height = reconstruction_dimensions.height;
     parameters.orientation = descriptor.orientation;
-    parameters.neutralize_sensor_highlights =
-        highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
     parameters.project_sensor_clipping = project_sensor_clipping ? 1U : 0U;
     parameters.reconstruction_quality = static_cast<std::uint32_t>(quality);
     for (std::size_t site = 0U; site < 4U; ++site) {
@@ -182,9 +165,6 @@ static_assert(offsetof(RawDevelopmentParameters, camera_neutral) == 148U);
     for (std::size_t index = 0U; index < 9U; ++index) {
         parameters.camera_to_linear_srgb[index] =
             static_cast<float>(transform.camera_to_linear_srgb_d65[index]);
-    }
-    for (std::size_t index = 0U; index < 3U; ++index) {
-        parameters.camera_neutral[index] = static_cast<float>(transform.camera_neutral[index]);
     }
     return parameters;
 }
@@ -199,9 +179,10 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawDevelopmentQuality quality,
     const MetalRawDevelopmentContinuations continuations
 ) {
-    const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
-        ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
-        : frame.descriptor.active_dimensions;
+    const Dimensions reconstruction_dimensions =
+        preview_max_edge.has_value()
+            ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
+            : frame.descriptor.active_dimensions;
     const bool area_preview = reconstruction_dimensions != frame.descriptor.active_dimensions;
 
     if (!metal_raw_development_available()) {
@@ -218,11 +199,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     }
 
     std::size_t input_bytes = 0U;
-    if (!checked_multiply(
-            frame.samples.size(),
-            sizeof(std::uint16_t),
-            input_bytes
-        )
+    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), input_bytes)
         || input_bytes == 0U
         || input_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
         return MetalRawDevelopmentAttempt{
@@ -242,17 +219,14 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         if (!raw_denoise_encoding.has_value()) {
             return MetalRawDevelopmentAttempt{
                 .development = std::nullopt,
-                .diagnostic = diagnostic.empty()
-                    ? "Metal could not prepare fused RAW denoise"
-                    : std::move(diagnostic),
+                .diagnostic = diagnostic.empty() ? "Metal could not prepare fused RAW denoise"
+                                                 : std::move(diagnostic),
             };
         }
     }
 
-    const Dimensions output_dimensions = oriented_dimensions(
-        reconstruction_dimensions,
-        frame.descriptor.orientation
-    );
+    const Dimensions output_dimensions =
+        oriented_dimensions(reconstruction_dimensions, frame.descriptor.orientation);
     std::size_t output_row_bytes = 0U;
     if (!checked_multiply(
             static_cast<std::size_t>(output_dimensions.width),
@@ -278,15 +252,11 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     }
     // Keep the hidden test seam scheduling-only: even an accidentally tiny requested budget must
     // still admit one complete output row and therefore cannot force a backend/receipt change.
-    const std::size_t tile_budget = std::max(
-        output_row_bytes,
-        configured_tile_budget(maximum_buffer_bytes)
-    );
+    const std::size_t tile_budget =
+        std::max(output_row_bytes, configured_tile_budget(maximum_buffer_bytes));
     const std::size_t rows_by_budget = tile_budget / output_row_bytes;
-    const auto tile_rows = static_cast<std::uint32_t>(std::min<std::size_t>(
-        rows_by_budget,
-        output_dimensions.height
-    ));
+    const auto tile_rows =
+        static_cast<std::uint32_t>(std::min<std::size_t>(rows_by_budget, output_dimensions.height));
     std::size_t tile_buffer_bytes = 0U;
     if (!checked_multiply(
             output_row_bytes,
@@ -331,8 +301,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             return MetalRawDevelopmentAttempt{
                 .development = std::nullopt,
                 .diagnostic = diagnostic.empty()
-                    ? "Metal could not prepare fused RAW/DCP input rendering"
-                    : std::move(diagnostic),
+                                  ? "Metal could not prepare fused RAW/DCP input rendering"
+                                  : std::move(diagnostic),
             };
         }
     }
@@ -340,11 +310,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     std::size_t gpu_resource_bytes = 0U;
     if (!checked_add(input_bytes, tile_buffer_bytes, gpu_resource_bytes)
         || (continuations.project_sensor_clipping
-            && !checked_add(
-                gpu_resource_bytes,
-                clipping_tile_bytes,
-                gpu_resource_bytes
-            ))
+            && !checked_add(gpu_resource_bytes, clipping_tile_bytes, gpu_resource_bytes))
         || (raw_denoise_encoding
             && !checked_add(
                 gpu_resource_bytes,
@@ -362,15 +328,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             .diagnostic = "Metal RAW working-set size overflowed",
         };
     }
-    const auto recommended_working_set = static_cast<std::size_t>(
-        metal_raw_device().recommendedMaxWorkingSetSize
-    );
-    if (recommended_working_set > 0U
-        && gpu_resource_bytes > recommended_working_set / 3U) {
+    const auto recommended_working_set =
+        static_cast<std::size_t>(metal_raw_device().recommendedMaxWorkingSetSize);
+    if (recommended_working_set > 0U && gpu_resource_bytes > recommended_working_set / 3U) {
         return MetalRawDevelopmentAttempt{
             .development = std::nullopt,
-            .diagnostic =
-                "RAW sensor and output tile exceed Shadow's Metal working-set allowance",
+            .diagnostic = "RAW sensor and output tile exceed Shadow's Metal working-set allowance",
         };
     }
 
@@ -387,12 +350,10 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         sensor_clipping_mask = std::move(mask);
     }
     @autoreleasepool {
-        OwnedObjectiveCObject input_buffer(
-            [metal_raw_device()
-                newBufferWithBytes:frame.samples.data()
-                length:input_bytes
-                options:MTLResourceStorageModeShared]
-        );
+        OwnedObjectiveCObject input_buffer([metal_raw_device()
+            newBufferWithBytes:frame.samples.data()
+                        length:input_bytes
+                       options:MTLResourceStorageModeShared]);
         if (!input_buffer) {
             return MetalRawDevelopmentAttempt{
                 .development = std::nullopt,
@@ -401,9 +362,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         }
         OwnedObjectiveCObject denoised_buffer(
             raw_denoise_encoding
-                ? [metal_raw_device()
-                    newBufferWithLength:raw_denoise_encoding->sample_bytes()
-                    options:MTLResourceStorageModeShared]
+                ? [metal_raw_device() newBufferWithLength:raw_denoise_encoding->sample_bytes()
+                                                  options:MTLResourceStorageModeShared]
                 : nil
         );
         if (raw_denoise_encoding && !denoised_buffer) {
@@ -412,11 +372,9 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                 .diagnostic = "Metal could not allocate the resident denoised sensor plane",
             };
         }
-        OwnedObjectiveCObject tile_buffer(
-            [metal_raw_device()
-                newBufferWithLength:tile_buffer_bytes
-                options:MTLResourceStorageModeShared]
-        );
+        OwnedObjectiveCObject tile_buffer([metal_raw_device()
+            newBufferWithLength:tile_buffer_bytes
+                        options:MTLResourceStorageModeShared]);
         if (!tile_buffer) {
             return MetalRawDevelopmentAttempt{
                 .development = std::nullopt,
@@ -425,9 +383,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         }
         OwnedObjectiveCObject clipping_tile_buffer(
             continuations.project_sensor_clipping
-                ? [metal_raw_device()
-                    newBufferWithLength:clipping_tile_bytes
-                    options:MTLResourceStorageModeShared]
+                ? [metal_raw_device() newBufferWithLength:clipping_tile_bytes
+                                                  options:MTLResourceStorageModeShared]
                 : nil
         );
         if (continuations.project_sensor_clipping && !clipping_tile_buffer) {
@@ -442,37 +399,24 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             transform,
             reconstruction_dimensions,
             output_dimensions,
-            highlight_recovery,
             quality,
             continuations.project_sensor_clipping
         );
-        const auto pipeline = area_preview
-            ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
-        const NSUInteger thread_width = std::min<NSUInteger>(
-            32U,
-            std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
-        );
+        const auto pipeline =
+            area_preview ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
+        const NSUInteger thread_width =
+            std::min<NSUInteger>(32U, std::max<NSUInteger>(1U, pipeline.threadExecutionWidth));
         const NSUInteger thread_height = std::max<NSUInteger>(
             1U,
-            std::min<NSUInteger>(
-                8U,
-                pipeline.maxTotalThreadsPerThreadgroup / thread_width
-            )
+            std::min<NSUInteger>(8U, pipeline.maxTotalThreadsPerThreadgroup / thread_width)
         );
-        const MTLSize threads_per_group = MTLSizeMake(
-            thread_width,
-            thread_height,
-            1U
-        );
+        const MTLSize threads_per_group = MTLSizeMake(thread_width, thread_height, 1U);
 
-        for (std::uint32_t first_row = 0U;
-             first_row < output_dimensions.height;
+        for (std::uint32_t first_row = 0U; first_row < output_dimensions.height;
              first_row += tile_rows) {
             parameters.output_row_offset = first_row;
-            parameters.output_tile_height = std::min(
-                tile_rows,
-                output_dimensions.height - first_row
-            );
+            parameters.output_tile_height =
+                std::min(tile_rows, output_dimensions.height - first_row);
             id<MTLCommandBuffer> command_buffer = [metal_raw_command_queue() commandBuffer];
             if (command_buffer == nil) {
                 return MetalRawDevelopmentAttempt{
@@ -491,8 +435,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                     return MetalRawDevelopmentAttempt{
                         .development = std::nullopt,
                         .diagnostic = diagnostic.empty()
-                            ? "Metal could not encode fused RAW denoise"
-                            : std::move(diagnostic),
+                                          ? "Metal could not encode fused RAW denoise"
+                                          : std::move(diagnostic),
                     };
                 }
             }
@@ -505,17 +449,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             }
             [encoder setComputePipelineState:pipeline];
             [encoder setBuffer:static_cast<id<MTLBuffer>>(
-                                   raw_denoise_encoding ? denoised_buffer.get()
-                                                        : input_buffer.get()
+                                   raw_denoise_encoding ? denoised_buffer.get() : input_buffer.get()
                                )
                         offset:0U
                        atIndex:0U];
-            [encoder setBuffer:static_cast<id<MTLBuffer>>(tile_buffer.get())
-                        offset:0U
-                       atIndex:1U];
-            [encoder setBytes:&parameters
-                       length:sizeof(parameters)
-                      atIndex:2U];
+            [encoder setBuffer:static_cast<id<MTLBuffer>>(tile_buffer.get()) offset:0U atIndex:1U];
+            [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
             if (continuations.project_sensor_clipping) {
                 [encoder setBuffer:static_cast<id<MTLBuffer>>(input_buffer.get())
                             offset:0U
@@ -525,15 +464,14 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                            atIndex:4U];
             }
             [encoder dispatchThreads:MTLSizeMake(
-                    output_dimensions.width,
-                    parameters.output_tile_height,
-                    1U
-                )
+                                         output_dimensions.width,
+                                         parameters.output_tile_height,
+                                         1U
+                                     )
                 threadsPerThreadgroup:threads_per_group];
             [encoder endEncoding];
             if (dcp_encoding) {
-                id<MTLComputeCommandEncoder> dcp_encoder =
-                    [command_buffer computeCommandEncoder];
+                id<MTLComputeCommandEncoder> dcp_encoder = [command_buffer computeCommandEncoder];
                 std::string diagnostic;
                 const auto tile_pixel_count = static_cast<std::uint32_t>(
                     static_cast<std::size_t>(output_dimensions.width)
@@ -552,8 +490,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                     return MetalRawDevelopmentAttempt{
                         .development = std::nullopt,
                         .diagnostic = diagnostic.empty()
-                            ? "Metal could not encode fused RAW/DCP input rendering"
-                            : std::move(diagnostic),
+                                          ? "Metal could not encode fused RAW/DCP input rendering"
+                                          : std::move(diagnostic),
                     };
                 }
                 [dcp_encoder endEncoding];
@@ -609,11 +547,9 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         .scene_linear = std::move(output),
         .demosaic_receipt = make_receipt(
             frame,
-            area_preview
-                ? RawDemosaicAlgorithm::bayer_area_preview_v1
-                : quality == RawDevelopmentQuality::high
-                    ? RawDemosaicAlgorithm::bayer_edge_aware_v1
-                    : RawDemosaicAlgorithm::bayer_bilinear_v1
+            area_preview                             ? RawDemosaicAlgorithm::bayer_area_preview_v1
+            : quality == RawDevelopmentQuality::high ? RawDemosaicAlgorithm::bayer_edge_aware_v1
+                                                     : RawDemosaicAlgorithm::bayer_bilinear_v1
         ),
         .backend = RawDevelopmentBackend::metal,
         .highlight_recovery = highlight_recovery,

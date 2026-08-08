@@ -42,25 +42,22 @@ struct ResidentRawDevelopmentParameters final {
     std::int32_t orientation = 0;
     std::uint32_t output_row_offset = 0U;
     std::uint32_t output_tile_height = 0U;
-    std::uint32_t neutralize_sensor_highlights = 0U;
     std::uint32_t project_sensor_clipping = 0U;
     std::uint32_t reconstruction_quality = 0U;
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
-    float camera_neutral[3]{};
 };
 
-static_assert(sizeof(ResidentRawDevelopmentParameters) == 160U);
+static_assert(sizeof(ResidentRawDevelopmentParameters) == 144U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, orientation) == 40U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, neutralize_sensor_highlights) == 52U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_quality) == 60U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_channels) == 64U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 112U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, camera_neutral) == 148U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, project_sensor_clipping) == 52U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_quality) == 56U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_channels) == 60U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 108U);
 
 [[nodiscard]] bool environment_enabled(const char* name) noexcept {
     const char* value = std::getenv(name);
@@ -165,8 +162,6 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     parameters.reconstruction_height = descriptor.active_dimensions.height;
     parameters.orientation = descriptor.orientation;
     parameters.output_tile_height = region.height;
-    parameters.neutralize_sensor_highlights =
-        plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
     parameters.reconstruction_quality = static_cast<std::uint32_t>(plan.quality);
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_channels[site] = cfa_channel(descriptor.bayer_2x2[site]);
@@ -177,9 +172,6 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     for (std::size_t index = 0U; index < 9U; ++index) {
         parameters.camera_to_linear_srgb[index] =
             static_cast<float>(transform.camera_to_linear_srgb_d65[index]);
-    }
-    for (std::size_t index = 0U; index < 3U; ++index) {
-        parameters.camera_neutral[index] = static_cast<float>(transform.camera_neutral[index]);
     }
     return parameters;
 }
@@ -817,18 +809,16 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
         return ResidentRawSourceAttempt{
             .source = nullptr,
             .fallback_source = std::optional<PreparedRawFrameSource>(std::move(prepared)),
-            .diagnostic =
-                "neural RAW denoise requires the materialized source transaction",
+            .diagnostic = "neural RAW denoise requires the materialized source transaction",
         };
     }
     if (!frame.valid() || !frame.is_bayer_2x2()) {
         return fail("Metal resident RAW source requires a valid Bayer two-by-two RawFrame");
     }
-    detail::NeuralRawDenoiseResult neural_denoised =
-        detail::execute_prepared_neural_raw_denoise(
-            std::move(frame),
-            development.neural_raw_denoise()
-        );
+    detail::NeuralRawDenoiseResult neural_denoised = detail::execute_prepared_neural_raw_denoise(
+        std::move(frame),
+        development.neural_raw_denoise()
+    );
     frame = std::move(neural_denoised.frame);
     if (development.preview_max_edge().has_value()
         || development.reconstruction_dimensions() != frame.descriptor.active_dimensions) {

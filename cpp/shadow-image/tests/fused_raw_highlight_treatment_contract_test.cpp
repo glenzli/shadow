@@ -111,7 +111,7 @@ using shadow::image::test_support::failures;
     return frame;
 }
 
-void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
+void sensor_clipped_highlights_preserve_measured_source_colour() {
     const image::RawFrameLinearTransform transform{
         {
             2.0,
@@ -138,19 +138,43 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         );
         expect(
             cpu.highlight_recovery == image::RawHighlightRecoveryIntent::provider_default,
-            "default fused development records continuous camera-space highlight blending"
+            "default fused development records measured source colour treatment"
         );
+        const auto disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            sensor_clipped_frame(),
+            transform,
+            max_edge,
+            image::RawDevelopmentBackendMode::cpu,
+            image::RawHighlightRecoveryIntent::disabled
+        );
+        float maximum_default_delta = 0.0F;
+        float maximum_measured_chroma = 0.0F;
         for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); index += 3U) {
             const auto red = cpu.scene_linear.samples[index];
             const auto green = cpu.scene_linear.samples[index + 1U];
             const auto blue = cpu.scene_linear.samples[index + 2U];
-            const auto min_channel = std::min({red, green, blue});
-            const auto max_channel = std::max({red, green, blue});
-            expect(
-                min_channel >= 0.75F && max_channel - min_channel <= 0.20F,
-                "sensor-clipped highlights preserve luminance while suppressing false hue"
+            maximum_measured_chroma = std::max(
+                maximum_measured_chroma,
+                std::max({red, green, blue}) - std::min({red, green, blue})
             );
+            for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                maximum_default_delta = std::max(
+                    maximum_default_delta,
+                    std::abs(
+                        cpu.scene_linear.samples[index + channel]
+                        - disabled.scene_linear.samples[index + channel]
+                    )
+                );
+            }
         }
+        expect(
+            maximum_default_delta <= 1.0e-6F,
+            "default source development does not rewrite a clipped camera colour"
+        );
+        expect(
+            maximum_measured_chroma > 0.20F,
+            "sensor-clipped camera colour remains measured until a later explicit rendering stage"
+        );
     }
 
     const auto disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -165,7 +189,7 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
             && disabled.highlight_recovery == image::RawHighlightRecoveryIntent::disabled
             && image::raw_highlight_treatment_identity(disabled.highlight_recovery)
                    == "sensor-highlights=disabled",
-        "disabled highlight treatment remains explicit in the fused result"
+        "disabled source treatment remains explicit in the fused result"
     );
     bool disabled_preserves_channel_difference = false;
     for (std::size_t index = 0U; index < disabled.scene_linear.samples.size(); index += 3U) {
@@ -178,7 +202,7 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
     }
     expect(
         disabled_preserves_channel_difference,
-        "disabled highlight treatment does not silently neutralize clipped sensor colours"
+        "disabled source treatment preserves measured clipped sensor colours"
     );
 
     const auto one_channel = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -194,9 +218,8 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         const auto min_channel = std::min({red, green, blue});
         const auto max_channel = std::max({red, green, blue});
         expect(
-            min_channel > 0.5F && max_channel - min_channel <= 0.25F,
-            "a single clipped CFA colour with near-white companions stays bounded before output "
-            "mapping"
+            max_channel > min_channel + 0.50F,
+            "a single clipped CFA colour is not desaturated during source reconstruction"
         );
     }
 
@@ -247,8 +270,8 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         );
     }
     expect(
-        canon_maximum_chroma < canon_disabled_maximum_chroma * 0.35F,
-        "a Canon-like clipped sun continuously reduces false chroma without replacing luminance"
+        std::abs(canon_maximum_chroma - canon_disabled_maximum_chroma) <= 1.0e-6F,
+        "a Canon-like clipped sun keeps its measured source chroma until explicit rendering"
     );
 
     const auto near_white_default = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -275,8 +298,8 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         );
     }
     expect(
-        maximum_default_delta > 0.0F && std::isfinite(maximum_default_delta),
-        "white-balanced near-clipping colour transitions into highlight blending continuously"
+        maximum_default_delta <= 1.0e-6F,
+        "near-white source samples are not changed by a parser-stage highlight policy"
     );
 
     const image::RawFrameLinearTransform identity{{
@@ -348,7 +371,7 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
     }
     expect(
         maximum_enabled_difference <= enabled_parity_tolerance,
-        "Metal applies camera-space highlight blending within bounded fp32 CPU parity"
+        "Metal preserves measured sensor colour within bounded fp32 CPU parity"
     );
 
     const auto disabled_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -360,7 +383,7 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
     );
     expect(
         disabled_metal.highlight_recovery == image::RawHighlightRecoveryIntent::disabled,
-        "Metal records disabled sensor-highlight treatment"
+        "Metal records disabled source treatment"
     );
     float maximum_disabled_difference = 0.0F;
     for (std::size_t index = 0U; index < disabled.scene_linear.samples.size(); ++index) {
@@ -373,13 +396,13 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
     }
     expect(
         maximum_disabled_difference <= 4.0e-5F,
-        "Metal disabled-highlight output stays within fp32 CPU tolerance"
+        "Metal disabled-source output stays within fp32 CPU tolerance"
     );
 }
 
 } // namespace
 
 int main() {
-    sensor_clipped_highlights_are_neutral_before_u16_clipping();
+    sensor_clipped_highlights_preserve_measured_source_colour();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

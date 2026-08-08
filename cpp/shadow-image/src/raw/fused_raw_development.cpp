@@ -180,8 +180,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
              &output,
              reconstruction_dimensions,
              output_dimensions,
-             area_sampling,
-             highlight_recovery](const std::uint32_t first_row, const std::uint32_t last_row) {
+             area_sampling](const std::uint32_t first_row, const std::uint32_t last_row) {
                 for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
                     for (std::uint32_t output_x = 0U; output_x < output_dimensions.width;
                          ++output_x) {
@@ -204,7 +203,6 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                         raw_pipeline_detail::write_raw_frame_transformed_pixel(
                             camera,
                             transform,
-                            highlight_recovery == RawHighlightRecoveryIntent::provider_default,
                             output.samples.data() + output_index
                         );
                     }
@@ -249,7 +247,7 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=camera-chroma-blend-20260806.2";
+        return "sensor-highlights=measured-source-20260808.1";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:

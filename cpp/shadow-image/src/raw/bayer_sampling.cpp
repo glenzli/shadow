@@ -29,10 +29,7 @@ namespace {
     return -1;
 }
 
-[[nodiscard]] std::size_t cfa_site(
-    const std::uint32_t raw_x,
-    const std::uint32_t raw_y
-) noexcept {
+[[nodiscard]] std::size_t cfa_site(const std::uint32_t raw_x, const std::uint32_t raw_y) noexcept {
     return static_cast<std::size_t>((raw_y & 1U) * 2U + (raw_x & 1U));
 }
 
@@ -60,21 +57,14 @@ namespace {
     );
 }
 
-[[nodiscard]] float sensor_clip_evidence(const float normalized) noexcept {
-    // Only codes at the calibrated sensor ceiling have lost their colour
-    // ratio. Treating the ordinary highlight shoulder as clipped creates a
-    // visible reconstruction disk around point lights.
-    return std::clamp((normalized - 0.999F) * 1'000.0F, 0.0F, 1.0F);
-}
-
 [[nodiscard]] bool in_sensor_bounds(
     const RawFrameDescriptor& descriptor,
     const std::int64_t raw_x,
     const std::int64_t raw_y
 ) noexcept {
     return raw_x >= 0 && raw_y >= 0
-        && raw_x < static_cast<std::int64_t>(descriptor.storage_dimensions.width)
-        && raw_y < static_cast<std::int64_t>(descriptor.storage_dimensions.height);
+           && raw_x < static_cast<std::int64_t>(descriptor.storage_dimensions.width)
+           && raw_y < static_cast<std::int64_t>(descriptor.storage_dimensions.height);
 }
 
 [[nodiscard]] std::optional<float> directional_green_estimate(
@@ -91,8 +81,9 @@ namespace {
         return std::nullopt;
     }
 
-    const auto try_direction = [&](const std::int64_t dx, const std::int64_t dy)
-        -> std::optional<std::pair<float, float>> {
+    const auto try_direction =
+        [&](const std::int64_t dx,
+            const std::int64_t dy) -> std::optional<std::pair<float, float>> {
         const auto left_x = static_cast<std::int64_t>(raw_x) - dx;
         const auto left_y = static_cast<std::int64_t>(raw_y) - dy;
         const auto right_x = static_cast<std::int64_t>(raw_x) + dx;
@@ -111,12 +102,10 @@ namespace {
             return static_cast<std::uint32_t>(coordinate);
         };
         if (cfa_color_at(descriptor, as_u32(left_x), as_u32(left_y)) != RawCfaColor::green
-            || cfa_color_at(descriptor, as_u32(right_x), as_u32(right_y))
-                != RawCfaColor::green
-            || cfa_color_at(descriptor, as_u32(far_left_x), as_u32(far_left_y))
-                != center_colour
+            || cfa_color_at(descriptor, as_u32(right_x), as_u32(right_y)) != RawCfaColor::green
+            || cfa_color_at(descriptor, as_u32(far_left_x), as_u32(far_left_y)) != center_colour
             || cfa_color_at(descriptor, as_u32(far_right_x), as_u32(far_right_y))
-                != center_colour) {
+                   != center_colour) {
             return std::nullopt;
         }
         const float left = normalized_sample(frame, as_u32(left_x), as_u32(left_y));
@@ -137,7 +126,7 @@ namespace {
         const float horizontal_weight = 1.0F / (epsilon + horizontal->second);
         const float vertical_weight = 1.0F / (epsilon + vertical->second);
         return (horizontal->first * horizontal_weight + vertical->first * vertical_weight)
-            / (horizontal_weight + vertical_weight);
+               / (horizontal_weight + vertical_weight);
     }
     if (horizontal.has_value()) {
         return horizontal->first;
@@ -170,8 +159,7 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
-            std::string(operation)
-                + " requires at least a two-by-two stored Bayer sensor plane"
+            std::string(operation) + " requires at least a two-by-two stored Bayer sensor plane"
         );
     }
 }
@@ -185,7 +173,6 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
     const auto width = descriptor.storage_dimensions.width;
     const auto height = descriptor.storage_dimensions.height;
     std::array<double, 3U> totals{};
-    std::array<double, 3U> clipped_totals{};
     std::array<std::uint32_t, 3U> counts{};
     for (int dy = -1; dy <= 1; ++dy) {
         const auto candidate_y = static_cast<std::int64_t>(raw_y) + dy;
@@ -206,7 +193,6 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
             const auto index = static_cast<std::size_t>(channel);
             const auto normalized = normalized_sample(frame, x, y);
             totals[index] += normalized;
-            clipped_totals[index] += sensor_clip_evidence(normalized);
             ++counts[index];
         }
     }
@@ -220,12 +206,8 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
                 "Bayer reconstruction found no same-colour neighbour"
             );
         }
-        result.values[channel] = static_cast<float>(
-            totals[channel] / static_cast<double>(counts[channel])
-        );
-        result.sensor_clip_coverage[channel] = static_cast<float>(
-            clipped_totals[channel] / static_cast<double>(counts[channel])
-        );
+        result.values[channel] =
+            static_cast<float>(totals[channel] / static_cast<double>(counts[channel]));
     }
     return result;
 }
@@ -255,7 +237,7 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     CameraRgbSample result = bilinear;
     result.values[1U] = *green;
     const auto reconstruct_colour_difference = [&](const RawCfaColor target_colour,
-                                                    const std::size_t target_channel) {
+                                                   const std::size_t target_channel) {
         if (center_colour == target_colour) {
             result.values[target_channel] = normalized_sample(frame, raw_x, raw_y);
             return;
@@ -275,7 +257,7 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
                 const auto candidate_x = static_cast<std::int64_t>(raw_x) + dx;
                 if (candidate_x < 0
                     || candidate_x
-                        >= static_cast<std::int64_t>(descriptor.storage_dimensions.width)) {
+                           >= static_cast<std::int64_t>(descriptor.storage_dimensions.width)) {
                     continue;
                 }
                 const auto x = static_cast<std::uint32_t>(candidate_x);
@@ -288,10 +270,10 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
                     continue;
                 }
                 const double weight = dx == 0 || dy == 0 ? 1.0 : 0.7071067811865476;
-                weighted_sum += weight * (
-                    static_cast<double>(normalized_sample(frame, x, y))
-                    + static_cast<double>(*green) - static_cast<double>(*neighbour_green)
-                );
+                weighted_sum +=
+                    weight
+                    * (static_cast<double>(normalized_sample(frame, x, y))
+                       + static_cast<double>(*green) - static_cast<double>(*neighbour_green));
                 total_weight += weight;
             }
         }
@@ -304,10 +286,8 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     return result;
 }
 
-BayerAreaSamplingGrid make_bayer_area_sampling_grid(
-    const RawFrame& frame,
-    const Dimensions target_dimensions
-) {
+BayerAreaSamplingGrid
+make_bayer_area_sampling_grid(const RawFrame& frame, const Dimensions target_dimensions) {
     if (target_dimensions.width == 0U || target_dimensions.height == 0U
         || target_dimensions.width > frame.descriptor.active_dimensions.width
         || target_dimensions.height > frame.descriptor.active_dimensions.height) {
@@ -320,9 +300,9 @@ BayerAreaSamplingGrid make_bayer_area_sampling_grid(
     return BayerAreaSamplingGrid{
         .target_dimensions = target_dimensions,
         .scale_x = static_cast<double>(frame.descriptor.active_dimensions.width)
-            / static_cast<double>(target_dimensions.width),
+                   / static_cast<double>(target_dimensions.width),
         .scale_y = static_cast<double>(frame.descriptor.active_dimensions.height)
-            / static_cast<double>(target_dimensions.height),
+                   / static_cast<double>(target_dimensions.height),
     };
 }
 
@@ -338,8 +318,8 @@ CameraRgbSample area_camera_rgb_sample_at(
     // read past the owned sensor plane in a worker thread.
     if (grid.target_dimensions.width == 0U || grid.target_dimensions.height == 0U
         || target_x >= grid.target_dimensions.width || target_y >= grid.target_dimensions.height
-        || !std::isfinite(grid.scale_x) || !std::isfinite(grid.scale_y)
-        || grid.scale_x <= 0.0 || grid.scale_y <= 0.0) {
+        || !std::isfinite(grid.scale_x) || !std::isfinite(grid.scale_y) || grid.scale_x <= 0.0
+        || grid.scale_y <= 0.0) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
@@ -349,10 +329,10 @@ CameraRgbSample area_camera_rgb_sample_at(
 
     const double active_left = static_cast<double>(descriptor.active_margins.left);
     const double active_top = static_cast<double>(descriptor.active_margins.top);
-    const double active_right = active_left
-        + static_cast<double>(descriptor.active_dimensions.width);
-    const double active_bottom = active_top
-        + static_cast<double>(descriptor.active_dimensions.height);
+    const double active_right =
+        active_left + static_cast<double>(descriptor.active_dimensions.width);
+    const double active_bottom =
+        active_top + static_cast<double>(descriptor.active_dimensions.height);
     const auto active_right_exclusive = static_cast<std::uint32_t>(
         static_cast<std::uint64_t>(descriptor.active_margins.left)
         + descriptor.active_dimensions.width
@@ -361,26 +341,16 @@ CameraRgbSample area_camera_rgb_sample_at(
         static_cast<std::uint64_t>(descriptor.active_margins.top)
         + descriptor.active_dimensions.height
     );
-    const double unclamped_source_top = active_top
-        + static_cast<double>(target_y) * grid.scale_y;
-    const double unclamped_source_bottom = active_top
-        + static_cast<double>(target_y + 1U) * grid.scale_y;
-    const double unclamped_source_left = active_left
-        + static_cast<double>(target_x) * grid.scale_x;
-    const double unclamped_source_right = active_left
-        + static_cast<double>(target_x + 1U) * grid.scale_x;
+    const double unclamped_source_top = active_top + static_cast<double>(target_y) * grid.scale_y;
+    const double unclamped_source_bottom =
+        active_top + static_cast<double>(target_y + 1U) * grid.scale_y;
+    const double unclamped_source_left = active_left + static_cast<double>(target_x) * grid.scale_x;
+    const double unclamped_source_right =
+        active_left + static_cast<double>(target_x + 1U) * grid.scale_x;
     const double source_top = std::clamp(unclamped_source_top, active_top, active_bottom);
-    const double source_bottom = std::clamp(
-        unclamped_source_bottom,
-        active_top,
-        active_bottom
-    );
+    const double source_bottom = std::clamp(unclamped_source_bottom, active_top, active_bottom);
     const double source_left = std::clamp(unclamped_source_left, active_left, active_right);
-    const double source_right = std::clamp(
-        unclamped_source_right,
-        active_left,
-        active_right
-    );
+    const double source_right = std::clamp(unclamped_source_right, active_left, active_right);
     if (source_left >= source_right || source_top >= source_bottom) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
@@ -392,19 +362,14 @@ CameraRgbSample area_camera_rgb_sample_at(
     // edge, and the previous implementation then dereferenced one sample beyond the final row or
     // column.  The active rectangle is validated to sit inside storage by RawFrame::valid().
     const auto first_source_y = static_cast<std::uint32_t>(std::floor(source_top));
-    const auto last_source_y = std::min(
-        active_bottom_exclusive,
-        static_cast<std::uint32_t>(std::ceil(source_bottom))
-    );
+    const auto last_source_y =
+        std::min(active_bottom_exclusive, static_cast<std::uint32_t>(std::ceil(source_bottom)));
     const auto first_source_x = static_cast<std::uint32_t>(std::floor(source_left));
-    const auto last_source_x = std::min(
-        active_right_exclusive,
-        static_cast<std::uint32_t>(std::ceil(source_right))
-    );
+    const auto last_source_x =
+        std::min(active_right_exclusive, static_cast<std::uint32_t>(std::ceil(source_right)));
 
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
-    std::array<double, 3U> clipped_weights{};
     for (std::uint32_t raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const double overlap_y = std::max(
             0.0,
@@ -426,7 +391,6 @@ CameraRgbSample area_camera_rgb_sample_at(
             const auto normalized = normalized_sample(frame, raw_x, raw_y);
             totals[index] += normalized * weight;
             weights[index] += weight;
-            clipped_weights[index] += sensor_clip_evidence(normalized) * weight;
         }
     }
 
@@ -444,9 +408,6 @@ CameraRgbSample area_camera_rgb_sample_at(
             return bilinear_camera_rgb_sample_at(frame, center_x, center_y);
         }
         result.values[channel] = static_cast<float>(totals[channel] / weights[channel]);
-        result.sensor_clip_coverage[channel] = static_cast<float>(
-            clipped_weights[channel] / weights[channel]
-        );
     }
     return result;
 }

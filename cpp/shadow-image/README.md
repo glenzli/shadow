@@ -201,8 +201,9 @@ DNG technology notice: This product includes DNG technology under license by Ado
 
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
-`metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, clipping, and the continuous
-camera-opponent highlight-chroma blend mirrored by the CPU region developer;
+`metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, and source-clipping projection
+mirrored by the CPU region developer; RAW reconstruction preserves measured camera colour, while
+any highlight rendering policy remains an explicit later stage;
 `metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;
 `metal_raw_reconstruction_msl.hpp` owns balanced/high-quality detail and CFA-area previews; and
 `metal_dcp_color_msl.hpp` owns DCP post-processing. Host execution is split by transaction:
@@ -425,8 +426,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   `SHADOW_TEST_EDGE_AWARE_METAL_BENCHMARK`, `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK`,
   `SHADOW_TEST_FUSED_RAW_SENSOR_BENCHMARK`, and
   `SHADOW_TEST_FUSED_SENSOR_CLIPPING_BENCHMARK` timings.
-- `tests/fused_raw_highlight_treatment_contract_test.cpp` owns continuous clipped-highlight chroma
-  blending, explicit disablement, saturated-colour preservation, and CPU/Metal policy agreement.
+- `tests/fused_raw_highlight_treatment_contract_test.cpp` owns measured clipped-highlight source
+  preservation, explicit policy provenance, saturated-colour preservation, and CPU/Metal parity.
 - `tests/fused_raw_input_validation_contract_test.cpp` owns typed rejection of unsupported
   orientation, transforms, highlight modes, and degenerate Bayer storage.
 - `tests/fused_raw_contract_test_support.hpp` owns only the synthetic RAW frame shared by those

@@ -155,68 +155,6 @@ required_denoise_halo(const detail::PreparedRawBayerDenoise& denoise) noexcept {
     return output;
 }
 
-[[nodiscard]] std::array<double, 3U> blend_sensor_highlight_chroma(
-    const detail::CameraRgbSample& camera,
-    const std::array<double, 3U>& camera_neutral
-) noexcept {
-    const std::array<double, 3U> original{
-        static_cast<double>(camera.values[0]),
-        static_cast<double>(camera.values[1]),
-        static_cast<double>(camera.values[2]),
-    };
-    std::array<double, 3U> balanced{};
-    double common_clip = std::numeric_limits<double>::infinity();
-    for (std::size_t channel = 0U; channel < 3U; ++channel) {
-        balanced[channel] = original[channel] / camera_neutral[channel];
-        common_clip = std::min(common_clip, 1.0 / camera_neutral[channel]);
-    }
-    if (*std::max_element(balanced.cbegin(), balanced.cend()) <= common_clip) {
-        return original;
-    }
-
-    const std::array<double, 3U> clipped{
-        std::min(balanced[0], common_clip),
-        std::min(balanced[1], common_clip),
-        std::min(balanced[2], common_clip),
-    };
-    constexpr double square_root_three = 1.7320508075688772;
-    constexpr double half_square_root_three = 0.8660254037844386;
-    const auto opponent = [](const std::array<double, 3U>& value) {
-        return std::array<double, 3U>{
-            value[0] + value[1] + value[2],
-            square_root_three * (value[0] - value[1]),
-            -value[0] - value[1] + 2.0 * value[2],
-        };
-    };
-    auto original_opponent = opponent(balanced);
-    const auto clipped_opponent = opponent(clipped);
-    const double original_chroma = original_opponent[1] * original_opponent[1]
-                                   + original_opponent[2] * original_opponent[2];
-    const double clipped_chroma = clipped_opponent[1] * clipped_opponent[1]
-                                  + clipped_opponent[2] * clipped_opponent[2];
-    if (original_chroma <= std::numeric_limits<double>::epsilon()) {
-        return original;
-    }
-
-    const double chroma_ratio = std::clamp(std::sqrt(clipped_chroma / original_chroma), 0.0, 1.0);
-    original_opponent[1] *= chroma_ratio;
-    original_opponent[2] *= chroma_ratio;
-    const std::array<double, 3U> recovered_balanced{
-        (original_opponent[0] + half_square_root_three * original_opponent[1]
-         - 0.5 * original_opponent[2])
-            / 3.0,
-        (original_opponent[0] - half_square_root_three * original_opponent[1]
-         - 0.5 * original_opponent[2])
-            / 3.0,
-        (original_opponent[0] + original_opponent[2]) / 3.0,
-    };
-    std::array<double, 3U> recovered{};
-    for (std::size_t channel = 0U; channel < recovered.size(); ++channel) {
-        recovered[channel] = std::max(0.0, recovered_balanced[channel] * camera_neutral[channel]);
-    }
-    return recovered;
-}
-
 } // namespace
 
 Dimensions oriented_raw_dimensions(
@@ -417,13 +355,13 @@ PreparedRawFrameRegion prepare_raw_frame_region(
 void write_raw_frame_transformed_pixel(
     const detail::CameraRgbSample& camera,
     const RawFrameLinearTransform& transform,
-    const bool neutralize_clipped_highlights,
     float* destination
 ) noexcept {
-    const std::array<double, 3U> camera_values =
-        neutralize_clipped_highlights
-            ? blend_sensor_highlight_chroma(camera, transform.camera_neutral)
-            : std::array<double, 3U>{camera.values[0], camera.values[1], camera.values[2]};
+    const std::array<double, 3U> camera_values{
+        camera.values[0],
+        camera.values[1],
+        camera.values[2],
+    };
     std::array<double, 3U> scene_linear{};
     for (std::size_t output = 0U; output < 3U; ++output) {
         for (std::size_t input = 0U; input < 3U; ++input) {
@@ -452,6 +390,10 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
             "resident RAW region requires a valid transform and highlight policy"
         );
     }
+
+    // This policy remains part of the prepared recipe/receipt contract. Reconstruction itself
+    // preserves measured camera RGB for both supported intents; later rendering may make an
+    // explicit, display-facing highlight decision without mutating the decoded source.
     const Dimensions reconstruction = frame.descriptor.active_dimensions;
     const Dimensions output_dimensions =
         oriented_raw_dimensions(reconstruction, frame.descriptor.orientation);
@@ -497,7 +439,6 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
                     write_raw_frame_transformed_pixel(
                         camera,
                         transform,
-                        highlight_recovery == RawHighlightRecoveryIntent::provider_default,
                         output.samples.data() + output_index
                     );
                 }

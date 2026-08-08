@@ -2,8 +2,8 @@
 
 namespace shadow::image::detail {
 
-// Shared Metal ABI, Bayer sampling, sensor-clipping projection, and highlight recovery. More
-// specialised kernel fragments build on this contract and are composed by
+// Shared Metal ABI, Bayer sampling, and sensor-clipping projection. More specialised kernel
+// fragments build on this contract and are composed by
 // metal_raw_development_msl.hpp into one library.
 inline constexpr char metal_raw_common_source[] = R"METAL(
 #include <metal_stdlib>
@@ -23,14 +23,12 @@ struct RawDevelopmentParameters {
     int orientation;
     uint output_row_offset;
     uint output_tile_height;
-    uint neutralize_sensor_highlights;
     uint project_sensor_clipping;
     uint reconstruction_quality;
     uint cfa_channels[4];
     float black_levels[4];
     float white_minus_black[4];
     float camera_to_linear_srgb[9];
-    float camera_neutral[3];
 };
 
 inline uint cfa_site(uint x, uint y) {
@@ -47,10 +45,6 @@ inline float normalized_sample(
     const uint sample_index = y * parameters.storage_width + x;
     return (float(samples[sample_index]) - parameters.black_levels[site])
         / parameters.white_minus_black[site];
-}
-
-inline float sensor_clip_evidence(const float normalized) {
-    return clamp((normalized - 0.999f) * 1000.0f, 0.0f, 1.0f);
 }
 
 inline uint clipping_target_bin_begin(
@@ -155,7 +149,6 @@ inline uchar sensor_clipping_flags(
 
 struct CameraRgbSample {
     float3 values;
-    float3 sensor_clip_coverage;
 };
 
 inline CameraRgbSample camera_rgb_at(
@@ -165,7 +158,6 @@ inline CameraRgbSample camera_rgb_at(
     uint raw_y
 ) {
     float totals[3] = {0.0f, 0.0f, 0.0f};
-    float clipped_totals[3] = {0.0f, 0.0f, 0.0f};
     uint counts[3] = {0u, 0u, 0u};
     for (int dy = -1; dy <= 1; ++dy) {
         const int candidate_y = int(raw_y) + dy;
@@ -182,7 +174,6 @@ inline CameraRgbSample camera_rgb_at(
             const uint channel = parameters.cfa_channels[cfa_site(x, y)];
             const float normalized = normalized_sample(samples, parameters, x, y);
             totals[channel] += normalized;
-            clipped_totals[channel] += sensor_clip_evidence(normalized);
             counts[channel] += 1u;
         }
     }
@@ -191,58 +182,8 @@ inline CameraRgbSample camera_rgb_at(
             totals[0] / float(counts[0]),
             totals[1] / float(counts[1]),
             totals[2] / float(counts[2])
-        ),
-        float3(
-            clipped_totals[0] / float(counts[0]),
-            clipped_totals[1] / float(counts[1]),
-            clipped_totals[2] / float(counts[2])
         )
     };
-}
-
-inline float3 recover_sensor_clipped_camera_neutral(
-    const CameraRgbSample camera,
-    constant RawDevelopmentParameters& parameters
-) {
-    const float3 neutral = float3(
-        parameters.camera_neutral[0],
-        parameters.camera_neutral[1],
-        parameters.camera_neutral[2]
-    );
-    const float3 balanced = camera.values / neutral;
-    const float common_clip = min(1.0f / neutral.x, min(1.0f / neutral.y, 1.0f / neutral.z));
-    if (max(balanced.x, max(balanced.y, balanced.z)) <= common_clip) {
-        return camera.values;
-    }
-    const float3 clipped = min(balanced, float3(common_clip));
-    const float3 original_opponent = float3(
-        balanced.x + balanced.y + balanced.z,
-        1.7320508075688772f * (balanced.x - balanced.y),
-        -balanced.x - balanced.y + 2.0f * balanced.z
-    );
-    const float3 clipped_opponent = float3(
-        clipped.x + clipped.y + clipped.z,
-        1.7320508075688772f * (clipped.x - clipped.y),
-        -clipped.x - clipped.y + 2.0f * clipped.z
-    );
-    const float original_chroma = dot(original_opponent.yz, original_opponent.yz);
-    if (original_chroma <= 1.0e-12f) {
-        return camera.values;
-    }
-    const float chroma_ratio = clamp(
-        sqrt(dot(clipped_opponent.yz, clipped_opponent.yz) / original_chroma),
-        0.0f,
-        1.0f
-    );
-    const float2 recovered_chroma = original_opponent.yz * chroma_ratio;
-    const float3 recovered_balanced = float3(
-        (original_opponent.x + 0.8660254037844386f * recovered_chroma.x
-         - 0.5f * recovered_chroma.y) / 3.0f,
-        (original_opponent.x - 0.8660254037844386f * recovered_chroma.x
-         - 0.5f * recovered_chroma.y) / 3.0f,
-        (original_opponent.x + recovered_chroma.y) / 3.0f
-    );
-    return max(recovered_balanced * neutral, float3(0.0f));
 }
 
 )METAL";
