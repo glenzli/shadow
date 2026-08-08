@@ -7,7 +7,10 @@
 //! identities through full BLAKE3 digests instead of embedding their unbounded
 //! diagnostic representations.
 
-const GRID_PROXY_IDENTITY_VERSION: &str = "v2";
+// This version names the implementation which materializes the grid raster, not just its request
+// parameters. Bump it whenever a source-development change can alter generated proxy pixels:
+// older catalog entries otherwise have no prepared RAW receipt available to invalidate themselves.
+const GRID_PROXY_IDENTITY_VERSION: &str = "v3";
 
 pub(super) fn grid_proxy_variant_key(
     max_edge: u32,

@@ -10,7 +10,7 @@ fn complete_upstream_identities_are_digest_bound_and_persistable() {
     assert_eq!(
         identity,
         format!(
-            "shadow-photo-router:grid-jpeg-2048-q90-444-v2;raw-plan-b3={};\
+            "shadow-photo-router:grid-jpeg-2048-q90-444-v3;raw-plan-b3={};\
              isolated-graph-b3={}",
             blake3::hash(raw_plan.as_bytes()).to_hex(),
             blake3::hash(helper_graph.as_bytes()).to_hex()
