@@ -70,22 +70,6 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
-                visible: photoInspector.review.selectedPhotoId.length > 0
-                    && photoInspector.review.galleryPresentation
-                        === ReviewWorkspace.SinglePhotoFilmstrip
-                color: photoInspector.review.border
-            }
-
-            ReviewComparisonSlots {
-                Layout.fillWidth: true
-                visible: photoInspector.review.galleryPresentation
-                    === ReviewWorkspace.SinglePhotoFilmstrip
-                review: photoInspector.review
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
                 color: photoInspector.review.border
             }
 

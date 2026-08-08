@@ -285,7 +285,7 @@ Rectangle {
 
                     ShadowIcon {
                         visible: gradeNodeRow.modelData.shared
-                        source: "qrc:/icons/shared-link.svg"
+                        source: "qrc:/icons/shared-node.svg"
                         color: gradeNodeRow.selected ? pane.accent : pane.textMuted
                         size: 14
                     }

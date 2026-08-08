@@ -632,6 +632,9 @@ qt_add_resources(
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
     FILES
         icons/add-folder.svg
+        icons/album-add.svg
+        icons/album-remove.svg
+        icons/back-to-library.svg
         icons/before-after.svg
         icons/brush.svg
         icons/candidate.svg
@@ -659,6 +662,7 @@ qt_add_resources(
         icons/flip-horizontal.svg
         icons/flip-vertical.svg
         icons/filter.svg
+        icons/filter-off.svg
         icons/filmstrip.svg
         icons/history.svg
         icons/heart.svg
@@ -687,16 +691,22 @@ qt_add_resources(
         icons/pick.svg
         icons/redo.svg
         icons/reject.svg
+        icons/refresh.svg
         icons/reset-all.svg
         icons/retouch.svg
         icons/review-grid.svg
         icons/scopes.svg
         icons/settings.svg
         icons/shared-link.svg
+        icons/shared-node.svg
+        icons/source-missing.svg
+        icons/source-stack.svg
         icons/slot-left.svg
         icons/slot-right.svg
         icons/star.svg
         icons/star-filled.svg
+        icons/storage.svg
+        icons/swap.svg
         icons/tag.svg
         icons/tie.svg
         icons/trash.svg
@@ -916,7 +926,6 @@ qt_add_qml_module(
         qml/ReviewSharedGradePicker.qml
         qml/ReviewPhotoCard.qml
         qml/LibraryMissingPhotoDialogs.qml
-        qml/ReviewComparisonSlots.qml
         qml/ReviewPhotoContextMenu.qml
         qml/ReviewExifSection.qml
         qml/ReviewPhotoInspector.qml

@@ -6989,24 +6989,6 @@ Technical detail: %1</source>
     </message>
 </context>
 <context>
-    <name>ReviewComparisonSlots</name>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="31"/>
-        <source>Compare photos</source>
-        <translation>比较照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="32"/>
-        <source>Open a two-photo comparison without changing either photo</source>
-        <translation>打开双照片比较，不更改任一照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonSlots.qml" line="39"/>
-        <source>The adjacent photo is selected initially; both panes can then move independently.</source>
-        <translation>初始选择相邻照片；随后两侧可独立切换。</translation>
-    </message>
-</context>
-<context>
     <name>ReviewController</name>
     <message>
         <location filename="../src/review_source_health_coordinator.cpp" line="682"/>
@@ -7795,6 +7777,16 @@ Technical detail: %1</source>
 </context>
 <context>
     <name>ReviewWorkspace</name>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
+        <source>Compare the two selected photos</source>
+        <translation>比较两张已选照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="233"/>
+        <source>Compare the selected photo with the next photo</source>
+        <translation>将已选照片与下一张照片比较</translation>
+    </message>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="494"/>
         <source>Capture month</source>
@@ -8631,19 +8623,14 @@ Technical detail: %1</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="95"/>
-        <source>Compare the two selected photos</source>
-        <translation>比较这两张所选照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="96"/>
-        <source>Candidates %L1</source>
-        <translation>候选 %L1</translation>
-    </message>
-    <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="99"/>
         <source>Open the candidate arena</source>
         <translation>打开候选竞技场</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="235"/>
+        <source>Create a Manual Album first</source>
+        <translation>请先创建手动相册</translation>
     </message>
     <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="100"/>
@@ -8699,11 +8686,6 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="243"/>
-        <source>Open selected photo in Precision</source>
-        <translation>在精修中打开所选照片</translation>
     </message>
     <message>
         <location filename="../qml/ReviewGallerySurface.qml" line="186"/>
@@ -8955,11 +8937,6 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ReviewComparisonView.qml" line="62"/>
         <source>Switch either pane independently. Comparing photos does not change ratings or selections.</source>
         <translation>两侧可独立切换。比较照片不会更改评分或选择。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="70"/>
-        <source>Swap</source>
-        <translation>交换</translation>
     </message>
     <message>
         <location filename="../qml/ReviewComparisonView.qml" line="71"/>

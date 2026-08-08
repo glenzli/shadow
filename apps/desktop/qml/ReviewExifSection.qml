@@ -60,7 +60,7 @@ ColumnLayout {
 
         ShadowIcon {
             visible: !exifSection.review.selectedIsRemote
-            source: "qrc:/icons/library-manage.svg"
+            source: "qrc:/icons/storage.svg"
             color: exifSection.review.textSecondary
             size: 13
         }

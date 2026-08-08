@@ -131,7 +131,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             buttonSize: 24
             iconSize: 14
-            source: "qrc:/icons/clear.svg"
+            source: "qrc:/icons/filter-off.svg"
             selected: !filterBar.anyFilterActive
             toolTipText: qsTranslate("Main", "Clear all Library filters")
             accessibleName: toolTipText

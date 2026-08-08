@@ -65,10 +65,10 @@ Rectangle {
                 }
             }
 
-            ShadowButton {
-                compact: true
-                text: qsTr("Swap")
+            ShadowIconButton {
+                source: "qrc:/icons/swap.svg"
                 toolTipText: qsTr("Swap the left and right photos")
+                accessibleName: toolTipText
                 onClicked: comparisonView.review.comparison.swapPanes()
             }
 

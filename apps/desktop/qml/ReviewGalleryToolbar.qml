@@ -89,27 +89,41 @@ Rectangle {
 
         Item { Layout.fillWidth: true }
 
-        ShadowIconButton {
-            visible: toolbar.workspace.selectedPhotoCount === 2
-            source: "qrc:/icons/compare-side-by-side.svg"
-            variant: ShadowIconButton.Tinted
-            toolTipText: qsTr("Compare the two selected photos")
-            accessibleName: toolTipText
-            enabled: !toolbar.workspace.culling.arenaActive
-            onClicked: toolbar.workspace.compareSelectedPhotos()
-        }
-
-        ShadowButton {
+        Item {
             visible: toolbar.workspace.culling.candidateCount > 0
-            compact: true
-            variant: ShadowButton.Tinted
-            text: qsTr("Candidates %L1").arg(
-                toolbar.workspace.culling.candidateCount)
-            toolTipText: toolbar.workspace.culling.canStartArena
-                ? qsTr("Open the candidate arena")
-                : qsTr("Add at least two photos to start the candidate arena")
-            enabled: toolbar.workspace.culling.canStartArena
-            onClicked: toolbar.workspace.culling.startArena()
+            implicitWidth: 32
+            implicitHeight: 28
+
+            ShadowIconButton {
+                id: candidateArenaButton
+                anchors.centerIn: parent
+                source: "qrc:/icons/candidate.svg"
+                variant: ShadowIconButton.Tinted
+                enabled: toolbar.workspace.culling.canStartArena
+                toolTipText: enabled
+                    ? qsTr("Open the candidate arena")
+                    : qsTr("Add at least two photos to start the candidate arena")
+                accessibleName: toolTipText
+                onClicked: toolbar.workspace.culling.startArena()
+            }
+
+            Rectangle {
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                width: Math.max(13, candidateCountLabel.implicitWidth + 5)
+                height: 13
+                radius: height / 2
+                color: candidateArenaButton.enabled ? Theme.accent : Theme.textDisabled
+
+                Label {
+                    id: candidateCountLabel
+                    anchors.centerIn: parent
+                    text: toolbar.workspace.culling.candidateCount
+                    color: Theme.accentSelectionText
+                    font.pixelSize: 8
+                    font.weight: Font.Bold
+                }
+            }
         }
 
         ShadowIconButton {
@@ -202,7 +216,7 @@ Rectangle {
 
         ShadowIconButton {
             id: applySharedGradeButton
-            source: "qrc:/icons/shared-link.svg"
+            source: "qrc:/icons/shared-node.svg"
             toolTipText: qsTr("Apply a shared Grade Node to selection")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
@@ -212,9 +226,35 @@ Rectangle {
         }
 
         ShadowIconButton {
+            id: comparePhotosButton
+            source: "qrc:/icons/compare.svg"
+            toolTipText: toolbar.workspace.selectedPhotoCount === 2
+                ? qsTr("Compare the two selected photos")
+                : qsTr("Compare the selected photo with the next photo")
+            accessibleName: toolTipText
+            enabled: toolbar.workspace.selectedPhotoCount > 0
+                && toolbar.workspace.selectedRepresentationId.length > 0
+                && toolbar.workspace.selectedVisualSource.length > 0
+                && !toolbar.workspace.controller.comparisonBusy
+                && !toolbar.workspace.controller.decisionBusy
+                && !toolbar.workspace.controller.scanning
+                && !toolbar.workspace.controller.refreshing
+                && !toolbar.workspace.controller.busy
+                && !toolbar.workspace.controller.loadingMore
+            onClicked: {
+                if (toolbar.workspace.selectedPhotoCount === 2)
+                    toolbar.workspace.compareSelectedPhotos()
+                else
+                    toolbar.workspace.comparison.startQuickComparison()
+            }
+        }
+
+        ShadowIconButton {
             id: addToManualAlbumButton
-            source: "qrc:/icons/add-folder.svg"
-            toolTipText: qsTr("Add selected photos to a Manual Album")
+            source: "qrc:/icons/album-add.svg"
+            toolTipText: toolbar.workspace.manualLibraryAlbums.length > 0
+                ? qsTr("Add selected photos to a Manual Album")
+                : qsTr("Create a Manual Album first")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
                 && !toolbar.workspace.selectionContainsRemote()
@@ -226,7 +266,7 @@ Rectangle {
 
         ShadowIconButton {
             visible: toolbar.workspace.currentLibraryAlbumIsManual
-            source: "qrc:/icons/clear.svg"
+            source: "qrc:/icons/album-remove.svg"
             toolTipText: qsTr("Remove selected photos from this Manual Album")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
@@ -247,13 +287,5 @@ Rectangle {
                 toolbar.workspace.batchSelectionTargets())
         }
 
-        ShadowIconButton {
-            source: "qrc:/icons/edit.svg"
-            variant: ShadowIconButton.Tinted
-            toolTipText: qsTr("Open selected photo in Precision")
-            accessibleName: toolTipText
-            enabled: toolbar.workspace.canOpenSelectedPhoto
-            onClicked: toolbar.workspace.openSelectedPhoto()
-        }
     }
 }

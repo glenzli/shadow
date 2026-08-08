@@ -172,7 +172,7 @@ Popup {
             visible: root.hasWorkspace
                 && root.workspace.selectedPhotoCount === 2
             text: qsTr("Compare selected photos")
-            iconSource: "qrc:/icons/compare-side-by-side.svg"
+            iconSource: "qrc:/icons/compare.svg"
             actionEnabled: root.hasWorkspace
                 && !root.workspace.culling.arenaActive
             onActivated: {
@@ -328,7 +328,7 @@ Popup {
 
         MenuRow {
             text: qsTr("Add to Album")
-            iconSource: "qrc:/icons/add-folder.svg"
+            iconSource: "qrc:/icons/album-add.svg"
             actionEnabled: root.hasWorkspace
                 && !root.workspace.selectionContainsRemote()
                 && root.workspace.manualLibraryAlbums.length > 0
@@ -368,7 +368,7 @@ Popup {
 
         MenuRow {
             text: qsTr("Apply Shared Node")
-            iconSource: "qrc:/icons/shared-link.svg"
+            iconSource: "qrc:/icons/shared-node.svg"
             actionEnabled: root.hasWorkspace
                 && !root.workspace.selectionContainsRemote()
                 && root.workspace.sharedNodeQuickList().length > 0
@@ -391,7 +391,7 @@ Popup {
                     required property var modelData
                     indent: 12
                     text: String(modelData.label)
-                    iconSource: "qrc:/icons/shared-link.svg"
+                    iconSource: "qrc:/icons/shared-node.svg"
                     actionEnabled: root.hasWorkspace
                         && !root.workspace.selectionContainsRemote()
                         && root.workspace.selectedPhotoCount > 0
@@ -411,7 +411,7 @@ Popup {
                     && root.workspace.hasMoreSharedNodes()
                 indent: 12
                 text: qsTr("More shared nodes…")
-                iconSource: "qrc:/icons/shared-link.svg"
+                iconSource: "qrc:/icons/shared-node.svg"
                 actionEnabled: root.hasWorkspace
                     && !root.workspace.selectionContainsRemote()
                     && root.workspace.selectedPhotoCount > 0

@@ -403,7 +403,7 @@ ColumnLayout {
 
         ShadowIconButton {
             visible: !sourceHealth.controller.librarySourceHealthBusy
-            source: "qrc:/icons/history.svg"
+            source: "qrc:/icons/refresh.svg"
             variant: ShadowIconButton.Quiet
             toolTipText: qsTr("REFRESH SOURCE HEALTH")
             accessibleName: toolTipText
@@ -684,7 +684,7 @@ ColumnLayout {
                             visible: sourceRow.hasConfirmedMissingPhotos
                                 && sourceHealth.controller.missingSourceLocationScanId
                                     !== sourceRow.modelData.scanSessionId
-                            source: "qrc:/icons/metadata.svg"
+                            source: "qrc:/icons/source-missing.svg"
                             variant: ShadowIconButton.Quiet
                             toolTipText: qsTr("REVIEW NOT-SEEN LOCATIONS")
                             accessibleName: toolTipText
@@ -828,7 +828,7 @@ ColumnLayout {
                             ShadowIconButton {
                                 Layout.alignment: Qt.AlignLeft
                                 visible: sourceHealth.controller.missingSourceLocationsHasMore
-                                source: "qrc:/icons/redo.svg"
+                                source: "qrc:/icons/chevron-down.svg"
                                 variant: ShadowIconButton.Secondary
                                 toolTipText: qsTr("LOAD MORE LOCATIONS")
                                 accessibleName: toolTipText

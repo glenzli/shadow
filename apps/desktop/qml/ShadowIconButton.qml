@@ -37,8 +37,10 @@ Button {
 
     readonly property color resolvedSurfaceColor: {
         if (!enabled)
-            return isGhostStyle
-                ? Theme.buttonDisabledGhostSurface : Theme.buttonDisabledSurface
+            // Toolbar actions communicate their unavailable state through the
+            // muted glyph itself. A disabled Ghost action must not become a
+            // button-shaped grey tile, which reads as a different control.
+            return isGhostStyle ? Theme.transparent : Theme.buttonDisabledSurface
         if (selected)
             return down ? selectedPressedSurfaceColor
                 : hovered ? selectedHoverSurfaceColor : selectedSurfaceColor
@@ -102,7 +104,10 @@ Button {
     rightPadding: 0
     topPadding: 0
     bottomPadding: 0
-    hoverEnabled: enabled
+    // Disabled commands still explain why they are unavailable. Hover never
+    // changes their disabled surface, but it lets the contextual tooltip be
+    // read instead of turning a muted icon into a dead end.
+    hoverEnabled: true
     focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
     Accessible.name: accessibleName
     Accessible.description: toolTipText === accessibleName ? "" : toolTipText
@@ -138,6 +143,10 @@ Button {
     contentItem: Item {
         implicitWidth: control.iconSize
         implicitHeight: control.iconSize
+        // Color alone is too subtle for a disabled icon in a dense toolbar.
+        // Reduce the glyph's opacity as well, while the Ghost surface stays
+        // transparent, so unavailable commands read as inactive at a glance.
+        opacity: control.enabled ? 1.0 : 0.36
 
         ShadowIcon {
             anchors.centerIn: parent
@@ -151,7 +160,7 @@ Button {
         id: toolTip
 
         parent: control
-        visible: control.enabled && control.hovered && !control.down
+        visible: control.hovered && !control.down
             && control.toolTipText.length > 0
         delay: 450
         timeout: 4000

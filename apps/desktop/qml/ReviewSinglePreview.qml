@@ -90,7 +90,7 @@ Item {
             spacing: 6
 
             ShadowIcon {
-                source: "qrc:/icons/shared-link.svg"
+                source: "qrc:/icons/source-missing.svg"
                 color: Theme.warningText
                 size: 13
             }
@@ -280,7 +280,7 @@ Item {
 
                     ShadowIcon {
                         anchors.centerIn: parent
-                        source: "qrc:/icons/shared-link.svg"
+                        source: "qrc:/icons/source-missing.svg"
                         color: Theme.warningText
                         size: 12
                     }

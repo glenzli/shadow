@@ -192,7 +192,7 @@ ToolBar {
             ShadowIconButton {
                 visible: titleBar.workspaceIndex === 1
                 anchors.verticalCenter: parent.verticalCenter
-                source: "qrc:/icons/clear.svg"
+                source: "qrc:/icons/back-to-library.svg"
                 text: qsTr("Return to Review")
                 toolTipText: text
                 accessibleName: text

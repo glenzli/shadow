@@ -29,7 +29,7 @@ Popup {
         { key: "general", title: qsTr("General"), subtitle: qsTr("Appearance & language"), icon: "qrc:/icons/settings.svg" },
         { key: "library", title: qsTr("Library"), subtitle: qsTr("Thumbnails & metadata"), icon: "qrc:/icons/review-grid.svg" },
         { key: "ai", title: qsTr("AI & Models"), subtitle: qsTr("Local processing policy"), icon: "qrc:/icons/mask.svg" },
-        { key: "storage", title: qsTr("Storage & Cache"), subtitle: qsTr("Limits & maintenance"), icon: "qrc:/icons/add-folder.svg" },
+        { key: "storage", title: qsTr("Storage & Cache"), subtitle: qsTr("Limits & maintenance"), icon: "qrc:/icons/storage.svg" },
         { key: "maps", title: qsTr("Maps & Location"), subtitle: qsTr("Offline city data & Google"), icon: "qrc:/icons/map.svg" }
     ]
 

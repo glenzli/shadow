@@ -621,6 +621,8 @@ Item {
         }
 
         ReviewPhotoInspector {
+            visible: !review.comparison.compareMode
+            Layout.preferredWidth: visible ? 278 : 0
             review: review
             metadataPresentation: metadataPresentation
             onOpenMetadataRequested: metadataWindow.present()

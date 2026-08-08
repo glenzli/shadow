@@ -334,7 +334,7 @@ Item {
                         spacing: 2
 
                         ShadowIcon {
-                            source: "qrc:/icons/shared-link.svg"
+                            source: "qrc:/icons/source-stack.svg"
                             color: Theme.textSecondary
                             size: 12
                         }
@@ -353,7 +353,7 @@ Item {
                     ShadowIcon {
                         objectName: "cardCaptionMissingSourceIndicator"
                         visible: !card.sourceAvailable
-                        source: "qrc:/icons/shared-link.svg"
+                        source: "qrc:/icons/source-missing.svg"
                         color: Theme.warningText
                         size: 13
                         Accessible.name: qsTr("Original file not found")
@@ -414,7 +414,8 @@ Item {
                 if (mouse.button !== Qt.LeftButton)
                     return
                 card.workspace.selectPhoto(card, 0)
-                card.workspace.openSelectedPhoto()
+                card.workspace.galleryPresentation
+                    = ReviewWorkspace.SinglePhotoFilmstrip
             }
         }
     }
