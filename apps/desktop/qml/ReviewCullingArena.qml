@@ -142,6 +142,8 @@ Rectangle {
                 Label {
                     text: arena.review.culling.arenaComplete
                         ? qsTr("The draft is ranked in preference tiers. No photo metadata has changed.")
+                        : arena.review.culling.comparisonPhase === "placement"
+                        ? qsTr("The leader remains ahead. Place this challenger among the lower tiers.")
                         : qsTr("%L1 of %L2 candidates placed · %L3 comparisons")
                             .arg(arena.review.culling.rankedCandidateCount)
                             .arg(arena.review.culling.totalArenaCandidateCount)
@@ -179,7 +181,8 @@ Rectangle {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1
                 snapshot: arena.review.culling.currentLeft
-                sideLabel: qsTr("LEFT")
+                sideLabel: arena.review.culling.comparisonPhase === "champion"
+                    ? qsTr("CURRENT LEADER") : qsTr("REFERENCE TIER")
             }
 
             ArenaPhotoPane {
@@ -188,7 +191,7 @@ Rectangle {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1
                 snapshot: arena.review.culling.currentRight
-                sideLabel: qsTr("RIGHT")
+                sideLabel: qsTr("CHALLENGER")
             }
         }
 
@@ -197,34 +200,38 @@ Rectangle {
             visible: !arena.review.culling.arenaComplete
             spacing: 8
 
-            ShadowButton {
+            ShadowIconButton {
                 objectName: "cullingArenaChooseLeftButton"
-                variant: ShadowButton.Primary
-                text: qsTr("Left is better")
+                variant: ShadowIconButton.Primary
+                source: "qrc:/icons/slot-left.svg"
                 toolTipText: qsTr("Choose the left photo (Left Arrow)")
+                accessibleName: toolTipText
                 onClicked: arena.review.culling.chooseLeft()
             }
 
-            ShadowButton {
+            ShadowIconButton {
                 objectName: "cullingArenaChooseEqualButton"
-                variant: ShadowButton.Tinted
-                text: qsTr("Equally good")
+                variant: ShadowIconButton.Tinted
+                source: "qrc:/icons/tie.svg"
                 toolTipText: qsTr("Place both photos in the same preference tier")
+                accessibleName: toolTipText
                 onClicked: arena.review.culling.chooseEqual()
             }
 
-            ShadowButton {
+            ShadowIconButton {
                 objectName: "cullingArenaChooseRightButton"
-                variant: ShadowButton.Primary
-                text: qsTr("Right is better")
+                variant: ShadowIconButton.Primary
+                source: "qrc:/icons/slot-right.svg"
                 toolTipText: qsTr("Choose the right photo (Right Arrow)")
+                accessibleName: toolTipText
                 onClicked: arena.review.culling.chooseRight()
             }
 
-            ShadowButton {
+            ShadowIconButton {
                 objectName: "cullingArenaSkipButton"
-                text: qsTr("Skip")
+                source: "qrc:/icons/skip.svg"
                 toolTipText: qsTr("Leave this photo unresolved")
+                accessibleName: toolTipText
                 onClicked: arena.review.culling.skipCurrent()
             }
         }

@@ -130,7 +130,7 @@ Item {
         ShadowIconButton {
             buttonSize: root.controlSize
             iconSize: 16
-            source: "qrc:/icons/compare.svg"
+            source: "qrc:/icons/candidate.svg"
             selected: root.review.culling.containsCandidate(
                 root.review.selectedVisualSnapshot())
             selectedSurfaceColor: Theme.accentSurface

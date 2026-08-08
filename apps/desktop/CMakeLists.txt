@@ -634,6 +634,7 @@ qt_add_resources(
         icons/add-folder.svg
         icons/before-after.svg
         icons/brush.svg
+        icons/candidate.svg
         icons/chevron-down.svg
         icons/check.svg
         icons/clear.svg
@@ -697,9 +698,11 @@ qt_add_resources(
         icons/star.svg
         icons/star-filled.svg
         icons/tag.svg
+        icons/tie.svg
         icons/trash.svg
         icons/unflag.svg
         icons/undo.svg
+        icons/skip.svg
         icons/zebra.svg
         icons/zoom.svg
 )

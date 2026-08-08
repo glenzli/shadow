@@ -89,6 +89,16 @@ Rectangle {
 
         Item { Layout.fillWidth: true }
 
+        ShadowIconButton {
+            visible: toolbar.workspace.selectedPhotoCount === 2
+            source: "qrc:/icons/compare-side-by-side.svg"
+            variant: ShadowIconButton.Tinted
+            toolTipText: qsTr("Compare the two selected photos")
+            accessibleName: toolTipText
+            enabled: !toolbar.workspace.culling.arenaActive
+            onClicked: toolbar.workspace.compareSelectedPhotos()
+        }
+
         ShadowButton {
             visible: toolbar.workspace.culling.candidateCount > 0
             compact: true

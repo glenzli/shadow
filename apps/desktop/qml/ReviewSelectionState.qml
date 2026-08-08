@@ -242,6 +242,23 @@ QtObject {
         })
     }
 
+    // A two-photo comparison needs both immutable visual projections. Store
+    // those projections at selection time rather than trying to recover a
+    // recycled grid delegate later.
+    function selectedVisualSnapshots() {
+        const snapshots = []
+        const keys = Object.keys(selectedPhotoTargets)
+        for (let index = 0; index < keys.length; ++index) {
+            const snapshot = snapshotForCard(selectedPhotoTargets[keys[index]])
+            if (snapshot !== null
+                    && String(snapshot.photoId || "").length > 0
+                    && String(snapshot.representationId || "").length > 0
+                    && String(snapshot.visualSource || "").length > 0)
+                snapshots.push(snapshot)
+        }
+        return snapshots
+    }
+
     function updatePrimaryPhoto(card) {
         const identityChanged = selectedPhotoId !== card.photoId
             || selectedRepresentationId !== card.representationId
@@ -337,13 +354,7 @@ QtObject {
                 return
             }
         }
-        updated[key] = {
-            "photoId": String(card.photoId),
-            "representationId": String(card.representationId),
-            "sourcePath": String(card.sourcePath),
-            "title": String(card.title),
-            "isRemote": Boolean(card.isRemote)
-        }
+        updated[key] = snapshotForCard(card)
         selectedPhotoTargets = updated
         selectionAnchorPhotoId = card.photoId
         selectionAnchorRepresentationId = card.representationId

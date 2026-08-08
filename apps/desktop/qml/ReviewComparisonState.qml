@@ -149,6 +149,22 @@ QtObject {
         clearLocalComparisonStatus()
     }
 
+    // This is intentionally separate from the adjacent-photo convenience
+    // action. The caller supplies two immutable selection snapshots, so the
+    // two panes begin exactly with the photos the user selected.
+    function startSelectedComparison(leftValue, rightValue) {
+        const left = normalizedSnapshot(leftValue)
+        const right = normalizedSnapshot(rightValue)
+        if (!snapshotReady(left) || !snapshotReady(right)
+                || sameIdentity(left, right))
+            return false
+        leftComparisonSnapshot = left
+        rightComparisonSnapshot = right
+        compareMode = true
+        clearLocalComparisonStatus()
+        return true
+    }
+
     function enterComparison() {
         if (comparisonReady) {
             compareMode = true

@@ -655,7 +655,12 @@
         shadow-review-culling-arena-test culling_arena_icons
         PREFIX "/icons"
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
-        FILES icons/clear.svg
+        FILES
+            icons/clear.svg
+            icons/skip.svg
+            icons/slot-left.svg
+            icons/slot-right.svg
+            icons/tie.svg
     )
     if(MSVC)
         target_compile_options(

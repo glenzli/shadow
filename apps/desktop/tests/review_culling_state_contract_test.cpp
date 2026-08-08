@@ -123,13 +123,20 @@ int main(int argc, char* argv[]) {
     }
 
     (void)invoke(culling.get(), "chooseRight"); // B > A
+    if (!require(
+            current_id(culling.get(), "currentLeft") == QStringLiteral("photo-b")
+                && current_id(culling.get(), "currentRight") == QStringLiteral("photo-c"),
+            "each new candidate first challenges the current leader"
+        )) {
+        return EXIT_FAILURE;
+    }
     (void)invoke(culling.get(), "chooseEqual"); // C = B
     (void)invoke(culling.get(), "chooseLeft");  // B/C > D
     (void)invoke(culling.get(), "chooseRight"); // D > A
     if (!require(
             culling->property("arenaComplete").toBool()
                 && culling->property("comparisonCount").toInt() == 4,
-            "binary insertion completes a four-photo tiered ranking"
+            "champion-first insertion completes a four-photo tiered ranking"
         )
         || !require(
             tier_id(culling.get(), 0, 0) == QStringLiteral("photo-b")

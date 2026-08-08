@@ -641,13 +641,15 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`tests/review_import_coordinator/`](tests/review_import_coordinator/) contracts cover progress
   projection, refresh pacing, cancellation, terminal failure, diagnostics, and lifetime.
 - [`qml/ReviewSelectionState.qml`](qml/ReviewSelectionState.qml) owns identity-keyed multi-selection,
-  the off-screen-safe Shift anchor, and the primary presentation snapshot. Detailed EXIF and
+  the off-screen-safe Shift anchor, immutable visual snapshots for an exact two-photo comparison,
+  and the primary presentation snapshot. Detailed EXIF and
   technical facts come from an independent exact `{photo, representation}` request, so delegate
   recycling and Library pagination cannot replace the selected representation.
 - [`qml/ReviewComparisonState.qml`](qml/ReviewComparisonState.qml) and
   [`qml/ReviewComparisonView.qml`](qml/ReviewComparisonView.qml) own ordinary non-mutating 1:1
-  comparison. Entry freezes the selected photo and one adjacent visible result as independent
-  left/right snapshots; either side can then navigate the current sorted and filtered Library
+  comparison. Entry either freezes the selected photo and one adjacent visible result, or starts
+  from exactly two selected photos, as independent left/right snapshots; either side can then
+  navigate the current sorted and filtered Library
   result without moving the other. Swapping, navigating, entering, or leaving never writes a
   decision or preference event, and the surface consumes the same repeatable cached visuals as
   Library browsing rather than opening the exact-evidence backend lifecycle.
@@ -655,9 +657,11 @@ Review presentation keeps the workspace as the composition and compatibility sur
   guided pairwise schedule, equal-preference tiers, unresolved skips, and exact one-step undo.
   [`qml/ReviewCullingArena.qml`](qml/ReviewCullingArena.qml) owns its focused 1:1 presentation and
   result tiers. Candidates enter explicitly from the photo toolbar or context menu; the arena uses
-  binary insertion to avoid asking every possible pair. Completing a session changes no photo
-  metadata. Selecting a result returns to Library, where the existing Like, flag, and rating tools
-  remain the explicit final keep action.
+  champion-first insertion: each new entrant first challenges the current top-tier leader, while
+  a losing challenger is placed among lower tiers with bounded follow-up comparisons. This keeps
+  the visible winner-stays rhythm without asking every possible pair. Completing a session changes
+  no photo metadata. Selecting a result returns to Library, where the existing Like, flag, and
+  rating tools remain the explicit final keep action.
 - [`src/review_comparison_coordinator.cpp`](src/review_comparison_coordinator.cpp) owns the complete
   Compare lifecycle after cross-workflow admission: exact presentation preparation, decoded-frame
   verification, cancellation, serialized record/forget workers, receipt validation, session-local

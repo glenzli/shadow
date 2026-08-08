@@ -215,6 +215,22 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    if (!require(
+            invoke(
+                comparison.get(), "startSelectedComparison",
+                FakeReviewSelection::snapshot(QStringLiteral("photo-d")),
+                FakeReviewSelection::snapshot(QStringLiteral("photo-b"))
+            )
+                && comparison->property("compareMode").toBool()
+                && snapshot_id(comparison.get(), "leftComparisonSnapshot")
+                    == QStringLiteral("photo-d")
+                && snapshot_id(comparison.get(), "rightComparisonSnapshot")
+                    == QStringLiteral("photo-b"),
+            "an explicit two-photo selection opens those exact photos"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }
 

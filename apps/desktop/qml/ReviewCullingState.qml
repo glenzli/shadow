@@ -21,6 +21,10 @@ QtObject {
     property int searchLow: 0
     property int searchHigh: -1
     property int searchMid: -1
+    // Every entrant first challenges the current top-tier leader. Only a
+    // losing challenger enters the lower-tier placement pass, preserving the
+    // winner-stays rhythm while still producing a complete ordered draft.
+    property string comparisonPhase: ""
     property int comparisonCount: 0
     property var history: []
     property bool arenaActive: false
@@ -158,6 +162,7 @@ QtObject {
         searchLow = 0
         searchHigh = -1
         searchMid = -1
+        comparisonPhase = ""
         comparisonCount = 0
         history = []
         arenaActive = false
@@ -184,13 +189,16 @@ QtObject {
             currentLeft = null
             currentRight = null
             searchMid = -1
+            comparisonPhase = ""
             arenaComplete = true
             return
         }
         currentRight = arenaCandidates[nextCandidateIndex]
         searchLow = 0
         searchHigh = tiers.length - 1
-        prepareComparison()
+        searchMid = 0
+        currentLeft = tiers[0][0]
+        comparisonPhase = "champion"
     }
 
     function prepareComparison() {
@@ -202,6 +210,7 @@ QtObject {
             beginCandidateInsertion()
             return
         }
+        comparisonPhase = "placement"
         searchMid = Math.floor((searchLow + searchHigh) / 2)
         currentLeft = tiers[searchMid][0]
     }
@@ -216,6 +225,7 @@ QtObject {
             "searchLow": searchLow,
             "searchHigh": searchHigh,
             "searchMid": searchMid,
+            "comparisonPhase": comparisonPhase,
             "comparisonCount": comparisonCount,
             "arenaComplete": arenaComplete
         }])
@@ -226,6 +236,12 @@ QtObject {
             return
         pushHistory()
         comparisonCount += 1
+        if (comparisonPhase === "champion") {
+            searchLow = 1
+            searchHigh = tiers.length - 1
+            prepareComparison()
+            return
+        }
         searchLow = searchMid + 1
         prepareComparison()
     }
@@ -235,6 +251,14 @@ QtObject {
             return
         pushHistory()
         comparisonCount += 1
+        if (comparisonPhase === "champion") {
+            const nextTiers = cloneTiers(tiers)
+            nextTiers.splice(0, 0, [currentRight])
+            tiers = nextTiers
+            nextCandidateIndex += 1
+            beginCandidateInsertion()
+            return
+        }
         searchHigh = searchMid - 1
         prepareComparison()
     }
@@ -273,6 +297,7 @@ QtObject {
         searchLow = previous.searchLow
         searchHigh = previous.searchHigh
         searchMid = previous.searchMid
+        comparisonPhase = previous.comparisonPhase
         comparisonCount = previous.comparisonCount
         arenaComplete = previous.arenaComplete
         return true

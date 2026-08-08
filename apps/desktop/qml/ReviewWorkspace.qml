@@ -288,6 +288,16 @@ Item {
         return selectionState.selectedSnapshot()
     }
 
+    function compareSelectedPhotos() {
+        if (selectedPhotoCount !== 2 || comparison.compareMode
+                || culling.arenaActive)
+            return false
+        const snapshots = selectionState.selectedVisualSnapshots()
+        if (snapshots.length !== 2)
+            return false
+        return comparison.startSelectedComparison(snapshots[0], snapshots[1])
+    }
+
     function toggleSelectedCandidate() {
         return cullingState.toggleSelectedCandidate()
     }

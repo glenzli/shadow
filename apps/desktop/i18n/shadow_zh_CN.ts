@@ -7681,11 +7681,16 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoContextMenu.qml" line="174"/>
+        <source>Compare selected photos</source>
+        <translation>比较所选照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="195"/>
         <source>Remove from Candidates</source>
         <translation>从候选中移除</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="175"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="196"/>
         <source>Add to Candidates</source>
         <translation>加入候选</translation>
     </message>
@@ -8626,6 +8631,11 @@ Technical detail: %1</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="95"/>
+        <source>Compare the two selected photos</source>
+        <translation>比较这两张所选照片</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="96"/>
         <source>Candidates %L1</source>
         <translation>候选 %L1</translation>
@@ -9229,6 +9239,11 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>候选草稿已按偏好分层排序，照片元数据未发生更改。</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="147"/>
+        <source>The leader remains ahead. Place this challenger among the lower tiers.</source>
+        <translation>当前领先照片保持领先，请在较低层级中定位这张挑战者照片。</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewCullingArena.qml" line="145"/>
         <source>%L1 of %L2 candidates placed · %L3 comparisons</source>
         <translation>已排列 %L1 / %L2 张候选 · 已比较 %L3 次</translation>
@@ -9244,52 +9259,37 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>离开候选竞技场</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="182"/>
-        <source>LEFT</source>
-        <translation>左侧</translation>
+        <location filename="../qml/ReviewCullingArena.qml" line="184"/>
+        <source>CURRENT LEADER</source>
+        <translation>当前领先</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="191"/>
-        <source>RIGHT</source>
-        <translation>右侧</translation>
+        <location filename="../qml/ReviewCullingArena.qml" line="185"/>
+        <source>REFERENCE TIER</source>
+        <translation>参考层级</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="203"/>
-        <source>Left is better</source>
-        <translation>左侧更好</translation>
+        <location filename="../qml/ReviewCullingArena.qml" line="194"/>
+        <source>CHALLENGER</source>
+        <translation>挑战者</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="204"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="207"/>
         <source>Choose the left photo (Left Arrow)</source>
         <translation>选择左侧照片（左方向键）</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="211"/>
-        <source>Equally good</source>
-        <translation>同样好</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="212"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="216"/>
         <source>Place both photos in the same preference tier</source>
         <translation>将两张照片放在同一偏好层级</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="219"/>
-        <source>Right is better</source>
-        <translation>右侧更好</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="220"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="225"/>
         <source>Choose the right photo (Right Arrow)</source>
         <translation>选择右侧照片（右方向键）</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="226"/>
-        <source>Skip</source>
-        <translation>跳过</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="227"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="234"/>
         <source>Leave this photo unresolved</source>
         <translation>暂不决定这张照片</translation>
     </message>

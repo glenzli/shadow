@@ -169,11 +169,31 @@ Popup {
         }
 
         MenuRow {
+            visible: root.hasWorkspace
+                && root.workspace.selectedPhotoCount === 2
+            text: qsTr("Compare selected photos")
+            iconSource: "qrc:/icons/compare-side-by-side.svg"
+            actionEnabled: root.hasWorkspace
+                && !root.workspace.culling.arenaActive
+            onActivated: {
+                if (!root.hasWorkspace)
+                    return
+                root.workspace.compareSelectedPhotos()
+                root.close()
+            }
+        }
+
+        Divider {
+            visible: root.hasWorkspace
+                && root.workspace.selectedPhotoCount === 2
+        }
+
+        MenuRow {
             text: root.hasWorkspace
                 && root.workspace.culling.containsCandidate(root.photoSnapshot)
                 ? qsTr("Remove from Candidates")
                 : qsTr("Add to Candidates")
-            iconSource: "qrc:/icons/compare.svg"
+            iconSource: "qrc:/icons/candidate.svg"
             actionEnabled: root.hasWorkspace
                 && root.photoSnapshot !== null
                 && String(root.photoSnapshot.visualSource || "").length > 0
