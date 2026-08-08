@@ -60,7 +60,8 @@ void ordinary_raw_rebinds_without_a_second_decode() {
     expect(
         telemetry.bind_count == 2U && telemetry.ordinary_raw_bind_count == 2U
             && telemetry.ordinary_raw_cpu_development_count == 2U
-            && telemetry.ordinary_raw_metal_development_count == 0U,
+            && telemetry.ordinary_raw_metal_development_count == 0U
+            && telemetry.ordinary_raw_fused_dcp_bind_count == 0U,
         "ordinary RAW rebind telemetry records the retained source and its actual backend"
     );
     expect(

@@ -5,6 +5,7 @@
 #include "raw_foundation_source.hpp"
 #include "raw_frame_development_plan.hpp"
 #include "raw_frame_source_preparation.hpp"
+#include "metal_raw_development.hpp"
 
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
@@ -104,6 +105,7 @@ struct RawPreviewRebindingSource::Impl final {
     std::atomic<std::uint64_t> ordinary_raw_bind_count{0U};
     std::atomic<std::uint64_t> ordinary_raw_metal_development_count{0U};
     std::atomic<std::uint64_t> ordinary_raw_cpu_development_count{0U};
+    std::atomic<std::uint64_t> ordinary_raw_fused_dcp_bind_count{0U};
     std::atomic<std::uint64_t> foundation_camera_rgb_bind_count{0U};
     std::atomic<std::uint64_t> foundation_amount_bind_count{0U};
     std::atomic<std::uint64_t> dcp_metal_execution_count{0U};
@@ -142,6 +144,8 @@ RawPreviewRebindingTelemetry RawPreviewRebindingSource::telemetry() const noexce
             impl_->ordinary_raw_metal_development_count.load(std::memory_order_relaxed),
         .ordinary_raw_cpu_development_count =
             impl_->ordinary_raw_cpu_development_count.load(std::memory_order_relaxed),
+        .ordinary_raw_fused_dcp_bind_count =
+            impl_->ordinary_raw_fused_dcp_bind_count.load(std::memory_order_relaxed),
         .foundation_camera_rgb_bind_count =
             impl_->foundation_camera_rgb_bind_count.load(std::memory_order_relaxed),
         .foundation_amount_bind_count =
@@ -206,24 +210,56 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 "ordinary RAW preview cannot bind an AI foundation amount"
             );
         }
-        FusedRawFrameDevelopment developed = develop_bayer_linear_srgb_f32_fused_with_backend(
-            ordinary->denoised_frame,
-            rebound_development.linear_transform(),
-            rebound_development.preview_max_edge(),
-            rebound_development.requested_backend(),
-            effective_plan.highlight_recovery,
-            effective_plan.quality
-        );
+        const DcpColorTransform* dcp = rebound_development.camera_profile();
+        const bool dcp_requested = dcp != nullptr && dcp->has_post_matrix_stages();
+        // The initial RAW source development already folds DCP input rendering into its Metal
+        // tile transaction. Do the same for a white-balance rebind: otherwise a bounded Metal
+        // reconstruction is copied to the host, uploaded once more for DCP, then copied back
+        // before the ordinary warm-preview upload. Declining this optional continuation keeps
+        // the exact existing backend selector and staged DCP fallback intact.
+        std::optional<FusedRawFrameDevelopment> developed;
+        bool fused_dcp_applied = false;
+        if (dcp_requested
+            && rebound_development.requested_backend() != RawDevelopmentBackendMode::cpu) {
+            auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
+                ordinary->denoised_frame,
+                rebound_development.linear_transform(),
+                rebound_development.preview_max_edge(),
+                effective_plan.highlight_recovery,
+                effective_plan.quality,
+                detail::MetalRawDevelopmentContinuations{
+                    .dcp_color_transform = dcp,
+                }
+            );
+            if (fused_attempt.development.has_value() && fused_attempt.dcp_applied) {
+                developed = std::move(fused_attempt.development);
+                fused_dcp_applied = true;
+            }
+        }
+        if (!developed.has_value()) {
+            developed = develop_bayer_linear_srgb_f32_fused_with_backend(
+                ordinary->denoised_frame,
+                rebound_development.linear_transform(),
+                rebound_development.preview_max_edge(),
+                rebound_development.requested_backend(),
+                effective_plan.highlight_recovery,
+                effective_plan.quality
+            );
+        }
         impl_->ordinary_raw_bind_count.fetch_add(1U, std::memory_order_relaxed);
-        if (developed.backend == RawDevelopmentBackend::metal) {
+        if (developed->backend == RawDevelopmentBackend::metal) {
             impl_->ordinary_raw_metal_development_count.fetch_add(1U, std::memory_order_relaxed);
         } else {
             impl_->ordinary_raw_cpu_development_count.fetch_add(1U, std::memory_order_relaxed);
         }
-        DcpColorExecutionBackend dcp_backend = DcpColorExecutionBackend::cpu;
-        const DcpColorTransform* dcp = rebound_development.camera_profile();
-        if (dcp != nullptr && dcp->has_post_matrix_stages()) {
-            dcp_backend = apply_dcp_color_rendering_stages(developed.scene_linear, *dcp);
+        DcpColorExecutionBackend dcp_backend = fused_dcp_applied
+            ? DcpColorExecutionBackend::metal
+            : DcpColorExecutionBackend::cpu;
+        if (fused_dcp_applied) {
+            impl_->ordinary_raw_fused_dcp_bind_count.fetch_add(1U, std::memory_order_relaxed);
+            impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
+        } else if (dcp_requested) {
+            dcp_backend = apply_dcp_color_rendering_stages(developed->scene_linear, *dcp);
             if (dcp_backend == DcpColorExecutionBackend::metal) {
                 impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
             } else {
@@ -232,9 +268,9 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         }
         RawDevelopmentReceipt receipt = finalize_raw_frame_development_receipt(
             rebound_development,
-            developed.scene_linear.dimensions,
-            developed.demosaic_receipt,
-            developed.backend,
+            developed->scene_linear.dimensions,
+            developed->demosaic_receipt,
+            developed->backend,
             ordinary->neural_denoise,
             ordinary->conventional_denoise,
             dcp_backend
@@ -254,12 +290,12 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         );
         pipeline = finalize_raw_frame_pipeline_receipt(
             std::move(pipeline),
-            developed.backend,
+            developed->backend,
             effective_plan.highlight_recovery,
             ordinary->combined_denoise_identity
         );
         return DevelopedSourceReference{
-            .source = std::move(developed.scene_linear),
+            .source = std::move(developed->scene_linear),
             .raw_development_receipt = std::move(receipt),
             .pipeline_receipt = std::move(pipeline),
             .sensor_clipping_mask = impl_->sensor_clipping,

@@ -30,6 +30,10 @@ struct RawPreviewRebindingTelemetry final {
     std::uint64_t ordinary_raw_bind_count = 0U;
     std::uint64_t ordinary_raw_metal_development_count = 0U;
     std::uint64_t ordinary_raw_cpu_development_count = 0U;
+    // A DCP input-rendering profile can stay inside the same Metal command sequence as Bayer
+    // reconstruction. This counter separates that no-intermediate-readback route from a
+    // compatible staged DCP execution; neither is persisted Recipe state.
+    std::uint64_t ordinary_raw_fused_dcp_bind_count = 0U;
     std::uint64_t foundation_camera_rgb_bind_count = 0U;
     std::uint64_t foundation_amount_bind_count = 0U;
     std::uint64_t dcp_metal_execution_count = 0U;
