@@ -7756,6 +7756,24 @@ Technical detail: %1</source>
     </message>
 </context>
 <context>
+    <name>ReviewDailyCollection</name>
+    <message>
+        <location filename="../qml/ReviewDailyCollection.qml" line="24"/>
+        <source>DAILY</source>
+        <translation>日常</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewDailyCollection.qml" line="64"/>
+        <source>Daily</source>
+        <translation>日常</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewDailyCollection.qml" line="76"/>
+        <source>%L1</source>
+        <translation>%L1</translation>
+    </message>
+</context>
+<context>
     <name>ReviewTravelCollections</name>
     <message>
         <location filename="../qml/ReviewTravelCollections.qml" line="24"/>

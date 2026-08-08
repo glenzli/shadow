@@ -127,6 +127,10 @@ class ReviewController final : public QObject {
             filtersChanged
     )
     Q_PROPERTY(
+        bool dailyFilterEnabled READ dailyFilterEnabled WRITE setDailyFilterEnabled NOTIFY
+            filtersChanged
+    )
+    Q_PROPERTY(
         QStringList filterKeywordIdsAll READ filterKeywordIdsAll WRITE setFilterKeywordIdsAll NOTIFY
             filtersChanged
     )
@@ -153,6 +157,7 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(QVariantList travelGroups READ travelGroups NOTIFY travelCollectionsChanged)
     Q_PROPERTY(qulonglong travelPhotoCount READ travelPhotoCount NOTIFY travelCollectionsChanged)
+    Q_PROPERTY(qulonglong dailyPhotoCount READ dailyPhotoCount NOTIFY travelCollectionsChanged)
     Q_PROPERTY(
         bool travelCollectionsBusy READ travelCollectionsBusy NOTIFY travelCollectionsChanged
     )
@@ -347,6 +352,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterCountryKey() const;
     [[nodiscard]] QString filterLocalityKey() const;
     [[nodiscard]] bool travelFilterEnabled() const noexcept;
+    [[nodiscard]] bool dailyFilterEnabled() const noexcept;
     [[nodiscard]] QStringList filterKeywordIdsAll() const;
     [[nodiscard]] QStringList filterExcludedKeywordIdsAny() const;
     [[nodiscard]] QVariantList libraryCaptureMonthFacets() const;
@@ -358,6 +364,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] QVariantList livingPlaceCandidates() const;
     [[nodiscard]] QVariantList travelGroups() const;
     [[nodiscard]] qulonglong travelPhotoCount() const noexcept;
+    [[nodiscard]] qulonglong dailyPhotoCount() const noexcept;
     [[nodiscard]] bool travelCollectionsBusy() const noexcept;
     [[nodiscard]] QString travelCollectionsErrorText() const;
     [[nodiscard]] bool libraryPlaceResolutionRunning() const noexcept;
@@ -431,6 +438,7 @@ class ReviewController final : public QObject {
     void setFilterCountryKey(const QString& country_key);
     void setFilterLocalityKey(const QString& locality_key);
     void setTravelFilterEnabled(bool enabled);
+    void setDailyFilterEnabled(bool enabled);
     void setTravelLivingPlaces(const QVariantList& living_places);
     void setFilterKeywordIdsAll(const QStringList& keyword_ids);
     void setFilterExcludedKeywordIdsAny(const QStringList& keyword_ids);

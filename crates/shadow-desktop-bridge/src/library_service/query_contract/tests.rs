@@ -113,6 +113,7 @@ fn structured_place_filter_keys_round_trip_without_using_display_labels() {
             start_month: "2020-03".into(),
             end_month: String::new(),
         }],
+        include_living_place_rules: true,
         ..neutral_ffi_filter()
     };
     let typed = library_filter_from_ffi(&filter).expect("parse structured place keys");
@@ -130,6 +131,7 @@ fn structured_place_filter_keys_round_trip_without_using_display_labels() {
         Some("2020-03")
     );
     assert_eq!(typed.living_place_rules[0].end_month, None);
+    assert!(typed.include_living_place_rules);
     let projected = ffi_library_filter(typed);
     assert_eq!(projected.country_key, "CN");
     assert_eq!(projected.locality_key, "cn\u{1f}shanghai\u{1f}shanghai");
@@ -139,6 +141,7 @@ fn structured_place_filter_keys_round_trip_without_using_display_labels() {
     );
     assert_eq!(projected.living_place_rules[0].start_month, "2020-03");
     assert!(projected.living_place_rules[0].end_month.is_empty());
+    assert!(projected.include_living_place_rules);
 }
 
 #[test]
@@ -189,6 +192,7 @@ fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
         country_key: String::new(),
         locality_key: String::new(),
         living_place_rules: Vec::new(),
+        include_living_place_rules: false,
         has_aperture_minimum: false,
         aperture_minimum_milli: 0,
         has_aperture_maximum: false,

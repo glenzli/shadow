@@ -109,7 +109,8 @@ bool ReviewController::remoteLibraryPresentationEligible() const {
            && filtered_model_.chineseLunarMonthType() == QStringLiteral("all")
            && filtered_model_.cameraKey().isEmpty() && filtered_model_.lensKey().isEmpty()
            && filtered_model_.countryKey().isEmpty() && filtered_model_.localityKey().isEmpty()
-           && !filtered_model_.travelFilterEnabled() && filtered_model_.keywordIdsAll().isEmpty()
+           && !filtered_model_.travelFilterEnabled() && !filtered_model_.dailyFilterEnabled()
+           && filtered_model_.keywordIdsAll().isEmpty()
            && filtered_model_.excludedKeywordIdsAny().isEmpty();
 }
 

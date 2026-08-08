@@ -46,6 +46,7 @@ struct BackendLibraryPhotoFilter final {
     QString country_key;
     QString locality_key;
     QVector<BackendLibraryLivingPlaceRule> living_place_rules;
+    bool include_living_place_rules = false;
     bool has_aperture_minimum = false;
     std::uint32_t aperture_minimum_milli = 0;
     bool has_aperture_maximum = false;

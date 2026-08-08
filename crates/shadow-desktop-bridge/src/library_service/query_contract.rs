@@ -72,6 +72,7 @@ pub(super) fn library_filter_from_ffi(
                 end_month: optional_filter_text(&rule.end_month),
             })
             .collect(),
+        include_living_place_rules: filter.include_living_place_rules,
         aperture,
         liked: filter.has_liked.then_some(filter.liked),
         color_label: optional_filter_text(&filter.color_label),
@@ -180,6 +181,7 @@ pub(super) fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryP
                 end_month: rule.end_month.unwrap_or_default(),
             })
             .collect(),
+        include_living_place_rules: filter.include_living_place_rules,
         has_aperture_minimum,
         aperture_minimum_milli,
         has_aperture_maximum,

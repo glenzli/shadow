@@ -177,6 +177,7 @@ Item {
         || controller.filterCountryKey.length > 0
         || controller.filterLocalityKey.length > 0
         || controller.travelFilterEnabled
+        || controller.dailyFilterEnabled
     readonly property bool hasLibraryKeywordFilter:
         controller.filterKeywordIdsAll.length > 0
         || controller.filterExcludedKeywordIdsAny.length > 0
@@ -420,6 +421,13 @@ Item {
             controller.filterLocalityKey = String(localityKey)
     }
 
+    function applyDailyCollection() {
+        if (!personalProfile.hasLivingPlaces)
+            return
+        controller.clearFilters()
+        controller.dailyFilterEnabled = true
+    }
+
     function isTravelCollectionActive(countryKey, localityKey) {
         if (!personalProfile.hasLivingPlaces || controller.libraryAlbumId.length > 0)
             return false
@@ -432,6 +440,29 @@ Item {
             && controller.filterChineseLunarMonthType === "all"
             && controller.filterCameraKey.length === 0
             && controller.filterLensKey.length === 0
+            && controller.filterFlag === "all"
+            && controller.filterMinimumRating === 0
+            && controller.filterColorLabel === "all"
+            && controller.filterEditState === "all"
+            && controller.filterLiked === "all"
+            && controller.filterExcludedFlag === "all"
+            && controller.filterExcludedColorLabel === "all"
+            && controller.filterKeywordIdsAll.length === 0
+            && controller.filterExcludedKeywordIdsAny.length === 0
+    }
+
+    function isDailyCollectionActive() {
+        if (!personalProfile.hasLivingPlaces || controller.libraryAlbumId.length > 0)
+            return false
+        return controller.dailyFilterEnabled
+            && controller.filterCaptureMonth.length === 0
+            && controller.filterChineseLunarMonth === 0
+            && controller.filterChineseLunarDay === 0
+            && controller.filterChineseLunarMonthType === "all"
+            && controller.filterCameraKey.length === 0
+            && controller.filterLensKey.length === 0
+            && controller.filterCountryKey.length === 0
+            && controller.filterLocalityKey.length === 0
             && controller.filterFlag === "all"
             && controller.filterMinimumRating === 0
             && controller.filterColorLabel === "all"

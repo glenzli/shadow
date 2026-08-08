@@ -140,15 +140,17 @@ pub(super) fn library_photo_query_parts(
         values.push(Value::Text(normalize_query_key(locality_key)));
     }
     if !filter.living_place_rules.is_empty() {
-        // Travel is meaningful only for photos whose location has resolved to
-        // a stable locality. A time-bounded home also treats an unknown
-        // capture day conservatively: without a date we cannot prove travel.
+        // Generated living-place collections are meaningful only for photos
+        // whose location has resolved to a stable locality. A time-bounded
+        // home treats an unknown capture day as an ordinary-life match, which
+        // keeps the Daily and Travel predicates exact complements.
         clauses.push("COALESCE(place.locality_key, '') <> ''".to_owned());
+        let mut ordinary_life_matches = Vec::new();
         for rule in &filter.living_place_rules {
             let locality_key = normalize_query_key(&rule.locality_key);
             match (rule.start_month.as_deref(), rule.end_month.as_deref()) {
                 (None, None) => {
-                    clauses.push("place.locality_key <> ?".to_owned());
+                    ordinary_life_matches.push("place.locality_key = ?".to_owned());
                     values.push(Value::Text(locality_key));
                 }
                 (start_month, end_month) => {
@@ -166,14 +168,20 @@ pub(super) fn library_photo_query_parts(
                         interval_clauses.push("f.capture_day < ?");
                         interval_values.push(Value::Text(next_first_day));
                     }
-                    clauses.push(format!(
-                        "NOT (place.locality_key = ? AND (COALESCE(f.capture_day, '') = '' OR ({})))",
+                    ordinary_life_matches.push(format!(
+                        "(place.locality_key = ? AND (COALESCE(f.capture_day, '') = '' OR ({})))",
                         interval_clauses.join(" AND ")
                     ));
                     values.push(Value::Text(locality_key));
                     values.extend(interval_values);
                 }
             }
+        }
+        let ordinary_life_predicate = ordinary_life_matches.join(" OR ");
+        if filter.include_living_place_rules {
+            clauses.push(format!("({ordinary_life_predicate})"));
+        } else {
+            clauses.push(format!("NOT ({ordinary_life_predicate})"));
         }
     }
     if let Some(range) = filter.aperture {

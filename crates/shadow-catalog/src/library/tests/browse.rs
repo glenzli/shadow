@@ -696,4 +696,26 @@ fn living_place_periods_exclude_only_ordinary_life_from_travel() {
     assert_eq!(travel_countries.items.len(), 1);
     assert_eq!(travel_countries.items[0].key, "cn");
     assert_eq!(travel_countries.items[0].photo_count, 1);
+
+    let daily = LibraryPhotoFilter {
+        living_place_rules: travel.living_place_rules.clone(),
+        include_living_place_rules: true,
+        ..LibraryPhotoFilter::default()
+    };
+    assert_eq!(
+        catalog
+            .library_photo_count(&daily)
+            .expect("time-aware Daily count"),
+        3
+    );
+    assert_eq!(
+        catalog
+            .library_photo_count(&travel)
+            .expect("time-aware Travel count remains complementary")
+            + catalog
+                .library_photo_count(&daily)
+                .expect("time-aware Daily count remains complementary"),
+        4,
+        "all resolved-place photos must belong to exactly one generated collection"
+    );
 }

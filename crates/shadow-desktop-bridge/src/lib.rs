@@ -472,6 +472,7 @@ mod ffi {
         country_key: String,
         locality_key: String,
         living_place_rules: Vec<FfiLibraryLivingPlaceRule>,
+        include_living_place_rules: bool,
         has_aperture_minimum: bool,
         aperture_minimum_milli: u32,
         has_aperture_maximum: bool,

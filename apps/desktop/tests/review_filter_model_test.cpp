@@ -143,6 +143,12 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     require(filtered.travelFilterEnabled(), "Travel is an explicit generated server filter");
     require(filtered.hasActiveServerFilter(), "metadata facets must request a fresh page");
 
+    filtered.setDailyFilterEnabled(true);
+    require(
+        filtered.dailyFilterEnabled() && !filtered.travelFilterEnabled(),
+        "Daily must replace the complementary Travel predicate"
+    );
+
     filtered.setCaptureMonth(QStringLiteral("2026-13"));
     filtered.setChineseLunarMonth(99);
     filtered.setChineseLunarDay(-1);
@@ -159,9 +165,10 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     filtered.clearFilters();
     require(
         !filtered.hasActiveServerFilter() && !filtered.travelFilterEnabled()
+            && !filtered.dailyFilterEnabled()
             && filtered.chineseLunarMonth() == 0 && filtered.chineseLunarDay() == 0
             && filtered.chineseLunarMonthType() == QStringLiteral("all"),
-        "clearing must include metadata and Travel facets"
+        "clearing must include metadata, Daily, and Travel facets"
     );
 }
 

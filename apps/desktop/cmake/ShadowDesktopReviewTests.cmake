@@ -1021,6 +1021,52 @@
     )
 
     add_executable(
+        shadow-review-daily-collection-test
+        tests/review_daily_collection_test.cpp
+    )
+    target_compile_features(shadow-review-daily-collection-test PRIVATE cxx_std_20)
+    target_link_libraries(
+        shadow-review-daily-collection-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-review-daily-collection-test
+        URI Shadow.DailyCollectionContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ReviewDailyCollection.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-review-daily-collection-test
+        shadow-review-daily-collection-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/location-pin.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-daily-collection-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-daily-collection-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-daily-collection
+        COMMAND shadow-review-daily-collection-test
+    )
+    set_tests_properties(
+        shadow-desktop-review-daily-collection
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-review-travel-collections-test
         tests/review_travel_collections_test.cpp
     )

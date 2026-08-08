@@ -90,6 +90,7 @@ ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     filter.country_key = source.country_key.toStdString();
     filter.locality_key = source.locality_key.toStdString();
     filter.living_place_rules = ffi_living_place_rules(source.living_place_rules);
+    filter.include_living_place_rules = source.include_living_place_rules;
     filter.has_aperture_minimum = source.has_aperture_minimum;
     filter.aperture_minimum_milli = source.aperture_minimum_milli;
     filter.has_aperture_maximum = source.has_aperture_maximum;
@@ -142,6 +143,7 @@ library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
         .country_key = qstring(source.country_key),
         .locality_key = qstring(source.locality_key),
         .living_place_rules = living_place_rules(source.living_place_rules),
+        .include_living_place_rules = source.include_living_place_rules,
         .has_aperture_minimum = source.has_aperture_minimum,
         .aperture_minimum_milli = source.aperture_minimum_milli,
         .has_aperture_maximum = source.has_aperture_maximum,

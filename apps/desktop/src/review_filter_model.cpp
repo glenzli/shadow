@@ -106,6 +106,10 @@ bool ReviewFilterModel::travelFilterEnabled() const noexcept {
     return travel_filter_enabled_;
 }
 
+bool ReviewFilterModel::dailyFilterEnabled() const noexcept {
+    return daily_filter_enabled_;
+}
+
 QStringList ReviewFilterModel::keywordIdsAll() const {
     return keyword_ids_all_;
 }
@@ -121,7 +125,8 @@ bool ReviewFilterModel::hasActiveServerFilter() const {
            || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
            || chinese_lunar_month_type_ != QStringLiteral("all")
            || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
-           || !locality_key_.isEmpty() || travel_filter_enabled_ || !keyword_ids_all_.isEmpty()
+           || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
+           || !keyword_ids_all_.isEmpty()
            || !excluded_keyword_ids_any_.isEmpty();
 }
 
@@ -276,10 +281,25 @@ void ReviewFilterModel::setLocalityKey(const QString& locality_key) {
 }
 
 void ReviewFilterModel::setTravelFilterEnabled(const bool enabled) {
-    if (travel_filter_enabled_ == enabled) {
+    if (travel_filter_enabled_ == enabled && (!enabled || !daily_filter_enabled_)) {
         return;
     }
     travel_filter_enabled_ = enabled;
+    if (enabled) {
+        daily_filter_enabled_ = false;
+    }
+    refreshRowsFilter();
+    emit filtersChanged();
+}
+
+void ReviewFilterModel::setDailyFilterEnabled(const bool enabled) {
+    if (daily_filter_enabled_ == enabled && (!enabled || !travel_filter_enabled_)) {
+        return;
+    }
+    daily_filter_enabled_ = enabled;
+    if (enabled) {
+        travel_filter_enabled_ = false;
+    }
     refreshRowsFilter();
     emit filtersChanged();
 }
@@ -313,7 +333,8 @@ void ReviewFilterModel::clearFilters() {
         || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
         || chinese_lunar_month_type_ != QStringLiteral("all")
         || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
-        || !locality_key_.isEmpty() || travel_filter_enabled_ || !keyword_ids_all_.isEmpty()
+        || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
+        || !keyword_ids_all_.isEmpty()
         || !excluded_keyword_ids_any_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
@@ -331,6 +352,7 @@ void ReviewFilterModel::clearFilters() {
     country_key_.clear();
     locality_key_.clear();
     travel_filter_enabled_ = false;
+    daily_filter_enabled_ = false;
     keyword_ids_all_.clear();
     excluded_keyword_ids_any_.clear();
     if (!changed) {
@@ -353,7 +375,7 @@ bool ReviewFilterModel::filterAcceptsRow(
         && (!capture_month_.isEmpty() || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
             || chinese_lunar_month_type_ != QStringLiteral("all") || !camera_key_.isEmpty()
             || !lens_key_.isEmpty() || !country_key_.isEmpty() || !locality_key_.isEmpty()
-            || travel_filter_enabled_ || !keyword_ids_all_.isEmpty()
+            || travel_filter_enabled_ || daily_filter_enabled_ || !keyword_ids_all_.isEmpty()
             || !excluded_keyword_ids_any_.isEmpty())) {
         return false;
     }

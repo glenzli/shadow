@@ -59,6 +59,10 @@ qulonglong ReviewTravelCollectionCoordinator::photoCount() const noexcept {
     return static_cast<qulonglong>(photo_count_);
 }
 
+qulonglong ReviewTravelCollectionCoordinator::dailyPhotoCount() const noexcept {
+    return static_cast<qulonglong>(daily_photo_count_);
+}
+
 bool ReviewTravelCollectionCoordinator::busy() const noexcept {
     return task_running_;
 }
@@ -96,6 +100,11 @@ ReviewTravelCollectionCoordinator::TaskResult ReviewTravelCollectionCoordinator:
         if (result.living_place_rules.isEmpty()) {
             return result;
         }
+
+        BackendLibraryPhotoFilter daily_filter;
+        daily_filter.living_place_rules = result.living_place_rules;
+        daily_filter.include_living_place_rules = true;
+        result.daily_photo_count = operations.count(daily_filter);
 
         BackendLibraryPhotoFilter travel_filter;
         travel_filter.living_place_rules = result.living_place_rules;
@@ -168,6 +177,7 @@ void ReviewTravelCollectionCoordinator::finishTask() {
         place_candidates_ = std::move(result.place_candidates);
         groups_ = std::move(result.groups);
         photo_count_ = result.photo_count;
+        daily_photo_count_ = result.daily_photo_count;
         error_text_ = std::move(result.error);
     }
     if (refresh_pending_ || !accepted) {

@@ -758,12 +758,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   Its [`tests/review_library_facet_coordinator/`](tests/review_library_facet_coordinator/)
   contracts cover the shared filter/bound, projection, stale replacement, failure, and lifetime.
 - [`src/review_travel_collection_coordinator.*`](src/review_travel_collection_coordinator.hpp)
-  independently derives the private Travel navigation projection from all configured living-place
-  periods. A photo in one of those cities is ordinary life only when its capture month falls in
-  that rule; other resolved places are grouped by country then destination, while unresolved
-  locations and unknown dates in a time-bounded home are never guessed. It does not mutate photo
-  metadata. [`qml/ReviewTravelCollections.qml`](qml/ReviewTravelCollections.qml) applies the exact
-  generated Travel predicate when the user selects that hierarchy.
+  independently derives the private Daily and Travel navigation projection from all configured
+  living-place periods. A photo in one of those cities is ordinary life only when its capture
+  month falls in that rule; unknown dates are treated as ordinary life so the two generated
+  collections remain complementary. Other resolved places are grouped by country then destination.
+  It does not mutate photo metadata. [`qml/ReviewDailyCollection.qml`](qml/ReviewDailyCollection.qml)
+  applies the exact ordinary-life predicate, while
+  [`qml/ReviewTravelCollections.qml`](qml/ReviewTravelCollections.qml) applies its complementary
+  Travel hierarchy.
 - [`src/review_library_keyword_coordinator.*`](src/review_library_keyword_coordinator.hpp) owns
   hierarchical taxonomy refresh, selected-photo assignment projection, serialized batch
   mutations, stale-selection rejection, localized outcomes, and destruction wait.

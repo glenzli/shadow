@@ -211,6 +211,10 @@ void ReviewController::setTravelFilterEnabled(const bool enabled) {
     filtered_model_.setTravelFilterEnabled(enabled && !travel_living_place_rules_.isEmpty());
 }
 
+void ReviewController::setDailyFilterEnabled(const bool enabled) {
+    filtered_model_.setDailyFilterEnabled(enabled && !travel_living_place_rules_.isEmpty());
+}
+
 void ReviewController::setTravelLivingPlaces(const QVariantList& living_places) {
     static const QRegularExpression month_pattern(QStringLiteral("^[0-9]{4}-(0[1-9]|1[0-2])$"));
     QVector<BackendLibraryLivingPlaceRule> normalized;
@@ -239,7 +243,8 @@ void ReviewController::setTravelLivingPlaces(const QVariantList& living_places) 
     travel_living_place_rules_ = std::move(normalized);
     if (travel_living_place_rules_.isEmpty()) {
         filtered_model_.setTravelFilterEnabled(false);
-    } else if (filtered_model_.travelFilterEnabled()) {
+        filtered_model_.setDailyFilterEnabled(false);
+    } else if (filtered_model_.travelFilterEnabled() || filtered_model_.dailyFilterEnabled()) {
         requestLibraryReset();
     }
     refreshTravelCollections();
@@ -336,8 +341,9 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     filter.lens_key = filtered_model_.lensKey();
     filter.country_key = filtered_model_.countryKey();
     filter.locality_key = filtered_model_.localityKey();
-    if (filtered_model_.travelFilterEnabled()) {
+    if (filtered_model_.travelFilterEnabled() || filtered_model_.dailyFilterEnabled()) {
         filter.living_place_rules = travel_living_place_rules_;
+        filter.include_living_place_rules = filtered_model_.dailyFilterEnabled();
     }
     filter.album_id = album_coordinator_.albumId();
     filter.keyword_ids_all = filtered_model_.keywordIdsAll();

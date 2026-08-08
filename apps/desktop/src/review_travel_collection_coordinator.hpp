@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <functional>
 
-/// Owns the profile-driven Travel smart-collection projection.
+/// Owns the profile-driven Daily and Travel smart-collection projection.
 ///
 /// One worker reads an unfiltered living-place candidate list and, when life
 /// periods exist, derives a time-aware Travel count plus country/city hierarchy.
@@ -36,6 +36,7 @@ class ReviewTravelCollectionCoordinator final : public QObject {
     [[nodiscard]] QVariantList placeCandidates() const;
     [[nodiscard]] QVariantList groups() const;
     [[nodiscard]] qulonglong photoCount() const noexcept;
+    [[nodiscard]] qulonglong dailyPhotoCount() const noexcept;
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] QString errorText() const;
 
@@ -55,6 +56,7 @@ class ReviewTravelCollectionCoordinator final : public QObject {
         BackendLibraryFacetPage place_candidates;
         QVector<CountryGroup> groups;
         std::uint64_t photo_count = 0;
+        std::uint64_t daily_photo_count = 0;
         QString error;
         QVector<BackendLibraryLivingPlaceRule> living_place_rules;
         quint64 library_generation = 0;
@@ -81,6 +83,7 @@ class ReviewTravelCollectionCoordinator final : public QObject {
     BackendLibraryFacetPage place_candidates_;
     QVector<CountryGroup> groups_;
     std::uint64_t photo_count_ = 0;
+    std::uint64_t daily_photo_count_ = 0;
     QString error_text_;
     QFutureWatcher<TaskResult> watcher_;
 };

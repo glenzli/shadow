@@ -922,6 +922,7 @@ qt_add_qml_module(
         qml/ReviewPhotoAffinity.qml
         qml/ReviewRemoteSourceIndicator.qml
         qml/ReviewSystemCollections.qml
+        qml/ReviewDailyCollection.qml
         qml/ReviewTravelCollections.qml
         qml/ReviewSharedGradePicker.qml
         qml/ReviewPhotoCard.qml

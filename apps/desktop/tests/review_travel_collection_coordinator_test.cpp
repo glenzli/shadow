@@ -29,6 +29,7 @@ BackendLibraryFacetPage page(std::initializer_list<BackendLibraryFacet> items) {
 int main(int argc, char* argv[]) {
     QCoreApplication application(argc, argv);
     bool saw_rules = false;
+    bool saw_daily_rules = false;
     ReviewTravelCollectionCoordinator coordinator({
         .page =
             [&saw_rules](
@@ -47,7 +48,8 @@ int main(int argc, char* argv[]) {
                          3},
                     });
                 }
-                saw_rules = filter.living_place_rules.size() == 2
+                saw_rules = !filter.include_living_place_rules
+                            && filter.living_place_rules.size() == 2
                             && filter.living_place_rules[0].locality_key
                                    == QStringLiteral("cn\u001fshanghai\u001fshanghai")
                             && filter.living_place_rules[0].start_month == QStringLiteral("2020-01")
@@ -67,7 +69,11 @@ int main(int argc, char* argv[]) {
                 return BackendLibraryFacetPage{};
             },
         .count =
-            [&saw_rules](const BackendLibraryPhotoFilter& filter) {
+            [&saw_rules, &saw_daily_rules](const BackendLibraryPhotoFilter& filter) {
+                if (filter.include_living_place_rules) {
+                    saw_daily_rules = filter.living_place_rules.size() == 2;
+                    return std::uint64_t{5};
+                }
                 saw_rules = filter.living_place_rules.size() == 2;
                 return std::uint64_t{3};
             },
@@ -101,7 +107,9 @@ int main(int argc, char* argv[]) {
     if (!require(!coordinator.busy(), "the projection reaches a terminal state")
         || !require(coordinator.errorText().isEmpty(), "the projection succeeds")
         || !require(saw_rules, "every Travel query carries all living-place periods")
+        || !require(saw_daily_rules, "the Daily count carries all living-place periods inclusively")
         || !require(coordinator.photoCount() == 3, "Travel count is projected")
+        || !require(coordinator.dailyPhotoCount() == 5, "Daily count is projected")
         || !require(
             coordinator.placeCandidates().size() == 2,
             "living-place candidates stay unfiltered"

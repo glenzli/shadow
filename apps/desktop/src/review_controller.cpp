@@ -244,6 +244,10 @@ bool ReviewController::travelFilterEnabled() const noexcept {
     return filtered_model_.travelFilterEnabled();
 }
 
+bool ReviewController::dailyFilterEnabled() const noexcept {
+    return filtered_model_.dailyFilterEnabled();
+}
+
 QStringList ReviewController::filterKeywordIdsAll() const {
     return filtered_model_.keywordIdsAll();
 }
@@ -286,6 +290,10 @@ QVariantList ReviewController::travelGroups() const {
 
 qulonglong ReviewController::travelPhotoCount() const noexcept {
     return travel_collection_coordinator_.photoCount();
+}
+
+qulonglong ReviewController::dailyPhotoCount() const noexcept {
+    return travel_collection_coordinator_.dailyPhotoCount();
 }
 
 bool ReviewController::travelCollectionsBusy() const noexcept {
