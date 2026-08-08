@@ -117,6 +117,21 @@ promotes its app with:
 ./scripts/promote_debug_build.sh /absolute/path/to/Shadow.app validation-label
 ```
 
+For a normal, complete **canonical debug** refresh, use the narrower release pipeline instead:
+
+```sh
+./scripts/build_and_promote_debug.sh
+```
+
+It runs the localization gate, configures the complete desktop bundle with the local GeoNames and
+RawNIND assets, builds only `Shadow.app` and `Shadow Server.app`, runs their offscreen startup
+checks, and atomically promotes the result. It intentionally does not build every desktop contract
+test executable; use `cargo xtask desktop-build` or `cargo xtask desktop-check` for full integration.
+Run `./scripts/build_and_promote_debug.sh --check` to show the resolved build directory and asset
+inputs without building. A first machine setup supplies `SHADOW_GEONAMES_CITY_INDEX_PATH` and
+`SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR`; later runs use the dedicated local asset cache or the
+previous canonical bundle read-only as a bootstrap input.
+
 Promotion keeps immutable revision-stamped releases under the sibling `.shadow-local-build`
 directory and atomically advances `current-debug`, so users never need to find an agent's temporary
 build path and a running app is never modified in place. The canonical debug contract includes the

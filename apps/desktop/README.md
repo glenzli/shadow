@@ -983,6 +983,13 @@ allows Google precision lookup. Canonical `run_debug.sh` promotion requires both
 GeoNames attribution notice, so the normal developer entry cannot silently regress to an empty
 location provider.
 
+For the everyday complete debug refresh, prefer
+`scripts/build_and_promote_debug.sh`. It records this index and the frozen RawNIND provider as
+explicit external bundle inputs, builds only the launchable desktop targets, runs both application
+startup smokes, and then atomically advances `current-debug`. The full `desktop-build` command is
+deliberately broader: it also builds the desktop contract executables and remains the integration
+or CI command.
+
 The development preset keeps assertions and debug-friendly native code. Use the
 optimized preset for interactive photo editing and performance measurements:
 
