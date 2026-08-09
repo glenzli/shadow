@@ -11,7 +11,8 @@ constexpr int CROP_PREVIEW_THROTTLE_MS = 16;
 [[nodiscard]] bool authored_geometry_is_identity(const BackendPhotoGeometry& geometry) noexcept {
     return geometry.crop_left == 0.0 && geometry.crop_top == 0.0 && geometry.crop_right == 1.0
            && geometry.crop_bottom == 1.0 && geometry.quarter_turn == 0
-           && geometry.straighten_degrees == 0.0 && !geometry.flip_horizontal
+           && geometry.straighten_degrees == 0.0 && geometry.perspective_vertical == 0.0
+           && geometry.perspective_horizontal == 0.0 && !geometry.flip_horizontal
            && !geometry.flip_vertical;
 }
 
@@ -28,6 +29,8 @@ QVariantMap EditController::photoGeometry() const {
         {QStringLiteral("cropBottom"), geometry.crop_bottom},
         {QStringLiteral("quarterTurn"), static_cast<int>(geometry.quarter_turn)},
         {QStringLiteral("straightenDegrees"), geometry.straighten_degrees},
+        {QStringLiteral("perspectiveVertical"), geometry.perspective_vertical},
+        {QStringLiteral("perspectiveHorizontal"), geometry.perspective_horizontal},
         {QStringLiteral("flipHorizontal"), geometry.flip_horizontal},
         {QStringLiteral("flipVertical"), geometry.flip_vertical},
         {QStringLiteral("identity"), authored_geometry_is_identity(geometry)},
@@ -223,6 +226,21 @@ void EditController::setPhotoStraightenDegrees(const double degrees) {
     grade_stack_.geometry.straighten_degrees = degrees;
     setFullResolutionState(false, false, 0);
     parameterEdited(QStringLiteral("geometry/straighten"), before);
+}
+
+void EditController::setPhotoPerspective(const double vertical, const double horizontal) {
+    if (!active_ || interactionLocked() || !grade_stack_.geometry.present
+        || !std::isfinite(vertical) || !std::isfinite(horizontal)
+        || vertical < -1.0 || vertical > 1.0 || horizontal < -1.0 || horizontal > 1.0
+        || (grade_stack_.geometry.perspective_vertical == vertical
+            && grade_stack_.geometry.perspective_horizontal == horizontal)) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.geometry.perspective_vertical = vertical;
+    grade_stack_.geometry.perspective_horizontal = horizontal;
+    setFullResolutionState(false, false, 0);
+    parameterEdited(QStringLiteral("geometry/perspective"), before);
 }
 
 void EditController::resetPhotoGeometry() {

@@ -19,6 +19,27 @@ fn photo_geometry_rejects_degenerate_crop_and_unsupported_straighten() {
         PhotoGeometry::identity().with_straighten_degrees(45.1),
         Err(RecipeValidationError::InvalidPhotoStraightenDegrees(45.1))
     );
+    assert_eq!(
+        PhotoGeometry::identity().with_perspective(1.01, 0.0),
+        Err(RecipeValidationError::InvalidPhotoPerspective {
+            axis: "vertical",
+            value: 1.01,
+        })
+    );
+}
+
+#[test]
+fn perspective_is_durable_and_part_of_canvas_identity() {
+    let geometry = PhotoGeometry::identity()
+        .with_perspective(0.35, -0.2)
+        .expect("bounded perspective");
+
+    assert!(!geometry.is_identity());
+    assert_eq!(geometry.perspective_vertical(), 0.35);
+    assert_eq!(geometry.perspective_horizontal(), -0.2);
+    let encoded = serde_json::to_string(&geometry).expect("encode perspective");
+    let decoded: PhotoGeometry = serde_json::from_str(&encoded).expect("decode perspective");
+    assert_eq!(decoded, geometry);
 }
 
 #[test]

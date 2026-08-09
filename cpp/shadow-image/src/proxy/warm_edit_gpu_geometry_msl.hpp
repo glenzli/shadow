@@ -28,8 +28,8 @@ struct WarmPhotoGeometryParameters {
     uint reserved_1;
     float straighten_cosine;
     float straighten_sine;
-    float reserved_2;
-    float reserved_3;
+    float perspective_vertical;
+    float perspective_horizontal;
 };
 
 struct WarmPhotoLiquifyParameters {
@@ -191,16 +191,55 @@ inline WarmGeometryLookup warm_geometry_lookup(
         - float(parameters.output_canvas_width) * 0.5f;
     const float output_y = float(parameters.output_origin_y + position.y) + 0.5f
         - float(parameters.output_canvas_height) * 0.5f;
-    const float oriented_x = fma(
+    float oriented_x = fma(
         parameters.straighten_cosine,
         output_x,
         parameters.straighten_sine * output_y
     ) + oriented_width * 0.5f;
-    const float oriented_y = fma(
+    float oriented_y = fma(
         -parameters.straighten_sine,
         output_x,
         parameters.straighten_cosine * output_y
     ) + oriented_height * 0.5f;
+
+    if (parameters.perspective_vertical != 0.0f
+        || parameters.perspective_horizontal != 0.0f) {
+        float2 perspective = float2(
+            oriented_x / oriented_width * 2.0f - 1.0f,
+            oriented_y / oriented_height * 2.0f - 1.0f
+        );
+    const float vertical_reduced = 1.0f
+        - 0.5f * abs(parameters.perspective_vertical);
+    const float vertical_top = parameters.perspective_vertical >= 0.0f
+        ? vertical_reduced : 1.0f;
+    const float vertical_bottom = parameters.perspective_vertical >= 0.0f
+        ? 1.0f : vertical_reduced;
+    const float vertical_sum = vertical_top + vertical_bottom;
+    const float vertical_c = (vertical_top - vertical_bottom) / vertical_sum;
+    const float vertical_k = 2.0f * vertical_top * vertical_bottom / vertical_sum;
+    const float vertical_denominator = 1.0f + vertical_c * perspective.y;
+    perspective = float2(
+        vertical_k * perspective.x / vertical_denominator,
+        (perspective.y + vertical_c) / vertical_denominator
+    );
+    const float horizontal_reduced = 1.0f
+        - 0.5f * abs(parameters.perspective_horizontal);
+    const float horizontal_left = parameters.perspective_horizontal >= 0.0f
+        ? horizontal_reduced : 1.0f;
+    const float horizontal_right = parameters.perspective_horizontal >= 0.0f
+        ? 1.0f : horizontal_reduced;
+    const float horizontal_sum = horizontal_left + horizontal_right;
+    const float horizontal_c = (horizontal_left - horizontal_right) / horizontal_sum;
+    const float horizontal_k =
+        2.0f * horizontal_left * horizontal_right / horizontal_sum;
+    const float horizontal_denominator = 1.0f + horizontal_c * perspective.x;
+    perspective = float2(
+        (perspective.x + horizontal_c) / horizontal_denominator,
+        horizontal_k * perspective.y / horizontal_denominator
+    );
+        oriented_x = (perspective.x + 1.0f) * 0.5f * oriented_width;
+        oriented_y = (perspective.y + 1.0f) * 0.5f * oriented_height;
+    }
 
     float crop_x = 0.0f;
     float crop_y = 0.0f;

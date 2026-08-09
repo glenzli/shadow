@@ -24,10 +24,38 @@ std::optional<QPointF> EditLiquifyCoordinates::originalPointForOutput(
     );
     const double output_dx = output.x() - 0.5;
     const double output_dy = output.y() - 0.5;
-    const double oriented_x =
+    double oriented_x =
         0.5 + retained_scale * (cosine * output_dx + sine * output_dy * oriented_height_over_width);
-    const double oriented_y =
+    double oriented_y =
         0.5 + retained_scale * (-sine * output_dx * output_aspect_ratio + cosine * output_dy);
+
+    const auto edge_scales = [](const double amount) {
+        const double reduced = 1.0 - 0.5 * std::abs(amount);
+        return amount >= 0.0 ? QPointF{reduced, 1.0} : QPointF{1.0, reduced};
+    };
+    if (geometry.perspective_vertical != 0.0 || geometry.perspective_horizontal != 0.0) {
+        double perspective_x = oriented_x * 2.0 - 1.0;
+        double perspective_y = oriented_y * 2.0 - 1.0;
+    const QPointF vertical_scales = edge_scales(geometry.perspective_vertical);
+    const double vertical_sum = vertical_scales.x() + vertical_scales.y();
+    const double vertical_c = (vertical_scales.x() - vertical_scales.y()) / vertical_sum;
+    const double vertical_k =
+        2.0 * vertical_scales.x() * vertical_scales.y() / vertical_sum;
+    const double vertical_denominator = 1.0 + vertical_c * perspective_y;
+    perspective_x = vertical_k * perspective_x / vertical_denominator;
+    perspective_y = (perspective_y + vertical_c) / vertical_denominator;
+    const QPointF horizontal_scales = edge_scales(geometry.perspective_horizontal);
+    const double horizontal_sum = horizontal_scales.x() + horizontal_scales.y();
+    const double horizontal_c =
+        (horizontal_scales.x() - horizontal_scales.y()) / horizontal_sum;
+    const double horizontal_k =
+        2.0 * horizontal_scales.x() * horizontal_scales.y() / horizontal_sum;
+    const double horizontal_denominator = 1.0 + horizontal_c * perspective_x;
+    perspective_y = horizontal_k * perspective_y / horizontal_denominator;
+    perspective_x = (perspective_x + horizontal_c) / horizontal_denominator;
+        oriented_x = (perspective_x + 1.0) * 0.5;
+        oriented_y = (perspective_y + 1.0) * 0.5;
+    }
 
     double crop_x = oriented_x;
     double crop_y = oriented_y;

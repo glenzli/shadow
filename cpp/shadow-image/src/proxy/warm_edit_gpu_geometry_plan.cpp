@@ -355,6 +355,10 @@ bool WarmGpuGeometryPlan::valid() const noexcept {
            && value.output_height <= value.output_canvas_height - value.output_origin_y
            && value.quarter_turn <= 3U && value.flip_horizontal <= 1U && value.flip_vertical <= 1U
            && std::isfinite(value.straighten_cosine) && std::isfinite(value.straighten_sine)
+           && std::isfinite(value.perspective_vertical)
+           && value.perspective_vertical >= -1.0F && value.perspective_vertical <= 1.0F
+           && std::isfinite(value.perspective_horizontal)
+           && value.perspective_horizontal >= -1.0F && value.perspective_horizontal <= 1.0F
            && output_pixels <= input_pixels
            && output_dimensions == Dimensions{value.output_width, value.output_height}
            && std::isfinite(output_level_zero_to_raster_scale_x)
@@ -501,6 +505,10 @@ WarmGpuGeometryPreparation prepare_warm_gpu_geometry_plan(
                 .flip_vertical = context.geometry.flip_vertical ? 1U : 0U,
                 .straighten_cosine = static_cast<float>(std::cos(radians)),
                 .straighten_sine = static_cast<float>(std::sin(radians)),
+                .perspective_vertical =
+                    static_cast<float>(context.geometry.perspective_vertical),
+                .perspective_horizontal =
+                    static_cast<float>(context.geometry.perspective_horizontal),
             },
         .liquify_parameters = liquify.parameters,
         .liquify_words = std::move(liquify.words),

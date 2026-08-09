@@ -229,6 +229,8 @@ void require(const bool condition, const std::string& message) {
         .crop_bottom = 0.92,
         .quarter_turn = 3,
         .straighten_degrees = -1.5,
+        .perspective_vertical = 0.35,
+        .perspective_horizontal = -0.2,
         .flip_horizontal = true,
         .flip_vertical = true,
     };

@@ -72,8 +72,8 @@ struct WarmPhotoGeometryParameters final {
     std::uint32_t reserved_1 = 0U;
     float straighten_cosine = 1.0F;
     float straighten_sine = 0.0F;
-    float reserved_2 = 0.0F;
-    float reserved_3 = 0.0F;
+    float perspective_vertical = 0.0F;
+    float perspective_horizontal = 0.0F;
 };
 
 // Liquify is lowered beside Canvas as one immutable packed side table:

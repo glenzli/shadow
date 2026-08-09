@@ -110,6 +110,28 @@ fn straighten_keeps_the_output_center_at_the_crop_center() {
 }
 
 #[test]
+fn perspective_projects_prompts_through_the_same_interior_homography() {
+    let vertical = PhotoGeometry::identity()
+        .with_perspective(1.0, 0.0)
+        .unwrap();
+    let top_left = map_output_prompt_to_original(
+        foreground(0.0, 0.0),
+        vertical,
+        RasterExtent::new(400, 200).unwrap(),
+    );
+    let bottom_left = map_output_prompt_to_original(
+        foreground(0.0, 1.0),
+        vertical,
+        RasterExtent::new(400, 200).unwrap(),
+    );
+
+    assert_close(top_left.x.get(), 0.25);
+    assert_close(top_left.y.get(), 0.0);
+    assert_close(bottom_left.x.get(), 0.0);
+    assert_close(bottom_left.y.get(), 1.0);
+}
+
+#[test]
 fn identity_projection_preserves_gray8_pixel_centers() {
     let extent = RasterExtent::new(2, 2).unwrap();
     let projected = project_gray8_mask_to_output(

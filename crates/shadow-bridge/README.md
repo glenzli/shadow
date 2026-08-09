@@ -17,7 +17,8 @@ that same private wire representation:
   negotiation results, and source-development provenance receipts.
 - [`src/adjustment/mod.rs`](src/adjustment/mod.rs) is the stable public adjustment index and
   cross-operation plan composition boundary. Its children are the semantic owners:
-  [`geometry.rs`](src/adjustment/geometry.rs) for the final canvas;
+  [`geometry.rs`](src/adjustment/geometry.rs) for final crop, orientation, straighten, and bounded
+  perspective Canvas state;
   [`local_mask.rs`](src/adjustment/local_mask.rs) for spatial intent and bounded immutable
   managed-raster admission, and [`retouch.rs`](src/adjustment/retouch.rs) for local repair intent;
   [`oklab_lightness_curve.rs`](src/adjustment/oklab_lightness_curve.rs),

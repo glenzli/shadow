@@ -88,6 +88,20 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    BackendPhotoGeometry perspective;
+    perspective.perspective_vertical = 1.0;
+    if (!require_point(
+            EditLiquifyCoordinates::originalPointForOutput(
+                QPointF{0.0, 0.0},
+                1.0,
+                perspective
+            ),
+            QPointF{0.25, 0.0},
+            "perspective maps Liquify gestures through the rendered interior trapezoid"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     BackendPhotoGeometry invalid;
     invalid.quarter_turn = 4;
     if (EditLiquifyCoordinates::originalPointForOutput(QPointF{0.5, 0.5}, 1.0, invalid).has_value()

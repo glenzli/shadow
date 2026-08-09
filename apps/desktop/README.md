@@ -265,7 +265,8 @@ Its implementation follows the same navigation:
 - [`src/edit_point_color_model.hpp`](src/edit_point_color_model.hpp) owns the canonical
   primary-plus-additional Point Color representation shared by adjustment and stack synchronization.
 - [`src/edit_geometry_controller.cpp`](src/edit_geometry_controller.cpp) owns crop-tool state,
-  crop bounds and aspect ratios, straighten, rotation, flips, and geometry reset.
+  crop bounds and aspect ratios, straighten, bounded vertical/horizontal perspective, rotation,
+  flips, and geometry reset.
 - [`src/edit_grade_node_controller.cpp`](src/edit_grade_node_controller.cpp) owns Grade Node list
   presentation, selection, visibility/bypass state, collection actions, sharing, and node-level
   resets. Foundation, Grade, and fixed photo-node rows use the same eye affordance for this
@@ -320,8 +321,9 @@ Its implementation follows the same navigation:
   authoritative lifecycle as Reconstruct when a live texture is unavailable or the prior Push is
   still awaiting replacement. Provisional Recipe state becomes durable only on release.
   [`src/edit_liquify_coordinates.cpp`](src/edit_liquify_coordinates.cpp) owns the exact post-
-  Canvas-to-original coordinate inversion. `EditController` remains only their stable QObject/QML
-  facade rather than absorbing the gesture semantics.
+  Canvas-to-original coordinate inversion, including the Canvas projective transform.
+  `EditController` remains only their stable QObject/QML facade rather than absorbing the gesture
+  semantics.
 - [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
   presentation, point normalization and editing, gesture integration, history, and preview timing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo

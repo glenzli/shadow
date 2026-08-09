@@ -37,6 +37,8 @@ void complete_canvas_and_bounded_tiles_share_one_mapping_contract() {
         .crop_bottom = 0.85,
         .quarter_turn = image::PhotoQuarterTurn::clockwise_90,
         .straighten_degrees = 7.0,
+        .perspective_vertical = 0.35,
+        .perspective_horizontal = -0.2,
         .flip_horizontal = true,
     };
     const auto layout = image::photo_geometry_layout(dimensions, geometry);
@@ -65,6 +67,8 @@ void complete_canvas_and_bounded_tiles_share_one_mapping_contract() {
             && complete.plan->output_dimensions == layout.output_dimensions
             && complete.plan->parameters.output_canvas_width == layout.output_dimensions.width
             && complete.plan->parameters.quarter_turn == 1U
+            && complete.plan->parameters.perspective_vertical == 0.35F
+            && complete.plan->parameters.perspective_horizontal == -0.2F
             && complete.plan->output_level_zero_to_raster_scale_x == 0.25
             && complete.plan->output_level_zero_to_raster_scale_y == 0.5,
         "complete transposed geometry lowers the authoritative canvas and native scales"

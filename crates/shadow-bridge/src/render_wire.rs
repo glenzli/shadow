@@ -124,6 +124,8 @@ const fn ffi_photo_geometry(geometry: AdjustmentGeometry) -> ffi::FfiPhotoGeomet
             AdjustmentQuarterTurn::Clockwise270 => 3,
         },
         straighten_degrees: geometry.straighten_degrees,
+        perspective_vertical: geometry.perspective_vertical,
+        perspective_horizontal: geometry.perspective_horizontal,
         flip_horizontal: geometry.flip_horizontal,
         flip_vertical: geometry.flip_vertical,
     }

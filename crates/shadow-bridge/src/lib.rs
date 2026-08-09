@@ -561,6 +561,8 @@ mod ffi {
         crop_bottom: f64,
         quarter_turn: u8,
         straighten_degrees: f64,
+        perspective_vertical: f64,
+        perspective_horizontal: f64,
         flip_horizontal: bool,
         flip_vertical: bool,
     }

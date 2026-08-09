@@ -48,6 +48,8 @@ void expect(const bool condition, const std::string_view message) {
         .crop_bottom = 0.89,
         .quarter_turn = image::PhotoQuarterTurn::clockwise_90,
         .straighten_degrees = 6.5,
+        .perspective_vertical = 0.3,
+        .perspective_horizontal = -0.25,
         .flip_horizontal = true,
     };
 }
@@ -146,7 +148,7 @@ void resident_geometry_matches_the_cpu_oracle() {
     expect(
         gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
             && gpu.output.has_value() && gpu.output->analyzed_linear.has_value(),
-        "crop, quarter-turn, mirror and straighten stay in the resident Metal transaction"
+        "crop, quarter-turn, mirror, straighten and perspective stay in the resident Metal transaction"
     );
     if (!gpu.output || !gpu.output->analyzed_linear) {
         return;

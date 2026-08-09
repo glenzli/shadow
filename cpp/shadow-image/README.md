@@ -460,9 +460,11 @@ New production code should include the narrow semantic owner directly:
 
 - `working_rgb.hpp` owns the in-process float raster, scene/display reference, and named working
   color-space contract.
-- `photo_geometry.hpp` owns crop/orientation state, the shared integer layout, coordinate mapping,
-  and geometry application. `src/edit/photo_geometry_sampling.hpp` is the narrow internal inverse
-  mapping shared by RGB geometry and scalar selection coverage.
+- `photo_geometry.hpp` owns crop/orientation/straighten/perspective state, the shared integer
+  layout, coordinate mapping, and geometry application. Perspective uses one bounded exact
+  homography from the final rectangle into real source pixels, preserving lines without an
+  output-stage desaturation, fill, or fabricated corner policy. `src/edit/photo_geometry_sampling.hpp`
+  is the narrow internal inverse mapping shared by RGB geometry and scalar selection coverage.
 - `photo_liquify.hpp` / `src/edit/photo_liquify.cpp` own validated ordered Push/Reconstruct
   preparation and inverse coordinate-field replay. Reconstruct attenuates earlier deformation
   toward identity rather than synthesizing a reverse push; these owners do not own Canvas order,
@@ -632,9 +634,10 @@ robust donor statistic, initializes the correction field, runs a screened-Poisso
 and feathers the result without leaving Metal. Mixed ordered Heal and Clone therefore remain in
 the same command transaction as surrounding pixel-local and neighborhood stages.
 `src/proxy/warm_edit_gpu_geometry_plan.*` seals the authoritative `PhotoGeometryLayout`, complete
-output canvas, bounded source tile, and output tile into one portable sampling contract. Its
-paired `warm_edit_gpu_geometry_encoder.*` performs crop, quarter-turn, mirror, fine straighten,
-and bilinear resampling after every source-coordinate edit but before display conversion.
+  output canvas, bounded source tile, and output tile into one portable sampling contract. Its
+  paired `warm_edit_gpu_geometry_encoder.*` performs crop, quarter-turn, mirror, fine straighten,
+  bounded perspective, and bilinear resampling after every source-coordinate edit but before
+  display conversion.
 Geometry output never exceeds the resident source allocation, so previews and full-detail tiles
 reuse the existing two synchronized RGB slots without another upload or host round trip.
 `src/proxy/warm_edit_gpu_layer_plan.*` is the portable layer-composition admission and lowering
@@ -663,8 +666,8 @@ retouch seam contract crosses irregular full-detail tiles on real Metal.
 The geometry child owns node and layer CPU parity, transposed native-scale propagation, encoded
 display parity, and the opt-in `SHADOW_TEST_WARM_GEOMETRY_BENCHMARK`; its portable plan contract
 proves complete and bounded-tile coordinate lowering, while the focused geometry seam contract
-proves crop, quarter-turn, mirror, and straighten remain byte-identical across irregular node and
-layer tiles on real Metal.
+proves crop, quarter-turn, mirror, straighten, and perspective remain byte-identical across
+irregular node and layer tiles on real Metal.
 Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal benchmarks, while
 the detail-tile seam contract proves both one guided mask and a composed Selective Tone,
 capture-sharpening, and full-resolution Texture/Clarity/Local Contrast plan remain invariant across

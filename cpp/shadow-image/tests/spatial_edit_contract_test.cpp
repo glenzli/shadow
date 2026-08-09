@@ -849,6 +849,30 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
     for (const float sample : auto_cropped.samples) {
         expect_close(sample, 0.8F, "fine straighten auto-crop never leaves an empty output corner");
     }
+
+    const image::PhotoGeometry perspective{
+        .perspective_vertical = 1.0,
+        .perspective_horizontal = -0.75,
+    };
+    const auto perspective_layout = image::photo_geometry_layout(
+        image::Dimensions{64U, 48U},
+        perspective
+    );
+    expect(
+        perspective_layout.output_dimensions == image::Dimensions{64U, 48U},
+        "perspective preserves the final Canvas extent"
+    );
+    const auto perspective_output = image::apply_photo_geometry(
+        rgb_raster(64U, 48U, filled_samples),
+        perspective
+    );
+    for (const float sample : perspective_output.samples) {
+        expect_close(
+            sample,
+            0.8F,
+            "perspective samples only real source pixels and never fabricates empty corners"
+        );
+    }
 }
 
 } // namespace

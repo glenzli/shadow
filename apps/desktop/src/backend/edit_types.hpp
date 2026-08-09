@@ -263,6 +263,8 @@ struct BackendPhotoGeometry final {
     double crop_bottom = 1.0;
     std::uint8_t quarter_turn = 0;
     double straighten_degrees = 0.0;
+    double perspective_vertical = 0.0;
+    double perspective_horizontal = 0.0;
     bool flip_horizontal = false;
     bool flip_vertical = false;
 

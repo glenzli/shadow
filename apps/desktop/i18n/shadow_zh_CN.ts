@@ -1142,7 +1142,7 @@
         <translation>%1 超出支持的预览范围</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.hpp" line="948"/>
+        <location filename="../src/edit_controller.hpp" line="949"/>
         <source>Open a photo from Review to begin editing</source>
         <translation>请从选片中打开一张照片开始编辑</translation>
     </message>
@@ -6685,21 +6685,41 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGeometryTools.qml" line="115"/>
+        <source>PERSPECTIVE</source>
+        <translation>透视矫正</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="116"/>
+        <source>Correct converging vertical or horizontal lines with one photo-local projective transform.</source>
+        <translation>通过照片专属的投影变换矫正汇聚的垂直线或水平线。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="123"/>
+        <source>Vertical</source>
+        <translation>垂直</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="148"/>
+        <source>Horizontal</source>
+        <translation>水平</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="171"/>
         <source>ASPECT</source>
         <translation>比例</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="116"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="172"/>
         <source>Freeform by default. A selected ratio constrains the canvas handles without becoming separate Recipe state.</source>
         <translation>默认自由裁剪。选择比例后只会约束画布控制点，不会产生独立的配方状态。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="127"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="183"/>
         <source>Free</source>
         <translation>自由</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="162"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="218"/>
         <source>Drag the frame, edges, or corners directly on the photo.</source>
         <translation>直接在照片上拖动画框、边缘或角点。</translation>
     </message>

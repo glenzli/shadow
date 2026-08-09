@@ -471,6 +471,8 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         .crop_bottom = source.geometry.crop_bottom,
         .quarter_turn = source.geometry.quarter_turn,
         .straighten_degrees = source.geometry.straighten_degrees,
+        .perspective_vertical = source.geometry.perspective_vertical,
+        .perspective_horizontal = source.geometry.perspective_horizontal,
         .flip_horizontal = source.geometry.flip_horizontal,
         .flip_vertical = source.geometry.flip_vertical,
     };
@@ -586,6 +588,8 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         .crop_bottom = source.geometry.crop_bottom,
         .quarter_turn = source.geometry.quarter_turn,
         .straighten_degrees = source.geometry.straighten_degrees,
+        .perspective_vertical = source.geometry.perspective_vertical,
+        .perspective_horizontal = source.geometry.perspective_horizontal,
         .flip_horizontal = source.geometry.flip_horizontal,
         .flip_vertical = source.geometry.flip_vertical,
     };

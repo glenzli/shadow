@@ -369,6 +369,8 @@ const fn identity_ffi_geometry() -> ffi::FfiPhotoGeometry {
         crop_bottom: 1.0,
         quarter_turn: 0,
         straighten_degrees: 0.0,
+        perspective_vertical: 0.0,
+        perspective_horizontal: 0.0,
         flip_horizontal: false,
         flip_vertical: false,
     }

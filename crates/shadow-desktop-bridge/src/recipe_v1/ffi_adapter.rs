@@ -367,6 +367,12 @@ fn photo_geometry_from_ffi(geometry: &ffi::FfiPhotoGeometry) -> AnyResult<PhotoG
         geometry.flip_vertical,
     )
     .and_then(|value| value.with_straighten_degrees(geometry.straighten_degrees))
+    .and_then(|value| {
+        value.with_perspective(
+            geometry.perspective_vertical,
+            geometry.perspective_horizontal,
+        )
+    })
     .map_err(Into::into)
 }
 
@@ -393,6 +399,8 @@ fn ffi_photo_canvas(canvas: PhotoCanvasNode) -> ffi::FfiPhotoGeometry {
             PhotoQuarterTurn::Clockwise270 => 3,
         },
         straighten_degrees: geometry.straighten_degrees(),
+        perspective_vertical: geometry.perspective_vertical(),
+        perspective_horizontal: geometry.perspective_horizontal(),
         flip_horizontal: geometry.flip_horizontal(),
         flip_vertical: geometry.flip_vertical(),
     }
@@ -411,6 +419,8 @@ pub(super) fn adjustment_geometry(geometry: PhotoGeometry) -> AdjustmentGeometry
             PhotoQuarterTurn::Clockwise270 => AdjustmentQuarterTurn::Clockwise270,
         },
         straighten_degrees: geometry.straighten_degrees(),
+        perspective_vertical: geometry.perspective_vertical(),
+        perspective_horizontal: geometry.perspective_horizontal(),
         flip_horizontal: geometry.flip_horizontal(),
         flip_vertical: geometry.flip_vertical(),
     }

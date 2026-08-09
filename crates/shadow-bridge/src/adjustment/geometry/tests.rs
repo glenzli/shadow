@@ -61,3 +61,30 @@ fn straighten_auto_crop_matches_the_native_canvas_rounding_contract() {
         }
     );
 }
+
+#[test]
+fn perspective_keeps_the_authored_canvas_extent_and_validates_bounds() {
+    let geometry = AdjustmentGeometry {
+        perspective_vertical: 0.5,
+        perspective_horizontal: -0.25,
+        ..AdjustmentGeometry::identity()
+    };
+    assert_eq!(
+        geometry
+            .output_dimensions(ImageDimensions {
+                width: 64,
+                height: 48,
+            })
+            .expect("valid perspective"),
+        ImageDimensions {
+            width: 64,
+            height: 48,
+        }
+    );
+
+    let invalid = AdjustmentGeometry {
+        perspective_vertical: 1.01,
+        ..AdjustmentGeometry::identity()
+    };
+    assert!(invalid.validate().is_err());
+}

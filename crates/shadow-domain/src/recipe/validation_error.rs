@@ -132,6 +132,8 @@ pub enum RecipeValidationError {
     DegeneratePhotoCrop,
     #[error("photo straighten angle {0}° is outside the supported -45°..45° range")]
     InvalidPhotoStraightenDegrees(f64),
+    #[error("photo {axis} perspective {value} is outside the supported -1..1 range")]
+    InvalidPhotoPerspective { axis: &'static str, value: f64 },
     #[error("a persisted liquify node must contain at least one gesture")]
     EmptyLiquifyNode,
     #[error("liquify push gesture contains {0} points; at least two are required")]

@@ -138,6 +138,14 @@ void validate_photo_geometry(const PhotoGeometry& geometry) {
         || geometry.straighten_degrees < -45.0 || geometry.straighten_degrees > 45.0) {
         invalid_geometry("straighten angle must be finite and in [-45, 45] degrees");
     }
+    for (const double value : {
+             geometry.perspective_vertical,
+             geometry.perspective_horizontal,
+         }) {
+        if (!std::isfinite(value) || value < -1.0 || value > 1.0) {
+            invalid_geometry("perspective values must be finite and in [-1, 1]");
+        }
+    }
     switch (geometry.quarter_turn) {
     case PhotoQuarterTurn::zero:
     case PhotoQuarterTurn::clockwise_90:

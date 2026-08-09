@@ -626,6 +626,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void
     setPhotoCropBounds(double crop_left, double crop_top, double crop_right, double crop_bottom);
     Q_INVOKABLE void setPhotoStraightenDegrees(double degrees);
+    Q_INVOKABLE void setPhotoPerspective(double vertical, double horizontal);
     Q_INVOKABLE void setCropToolActive(bool active);
     Q_INVOKABLE void resetPhotoGeometry();
     Q_INVOKABLE void resetSelectedAdjustmentSection(const QString& section_key);

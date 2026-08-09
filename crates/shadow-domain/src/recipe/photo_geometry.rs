@@ -1,4 +1,4 @@
-//! Photo-local crop, orientation, mirror, straighten, and final-canvas node contracts.
+//! Photo-local crop, orientation, mirror, straighten, perspective, and final-canvas contracts.
 
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +36,10 @@ pub struct PhotoGeometry {
     quarter_turn: PhotoQuarterTurn,
     #[serde(default = "default_finite_zero")]
     straighten_degrees: FiniteF64,
+    #[serde(default = "default_finite_zero")]
+    perspective_vertical: FiniteF64,
+    #[serde(default = "default_finite_zero")]
+    perspective_horizontal: FiniteF64,
     flip_horizontal: bool,
     flip_vertical: bool,
 }
@@ -172,6 +176,8 @@ impl PhotoGeometry {
             crop_bottom: UnitInterval::ONE,
             quarter_turn: PhotoQuarterTurn::Zero,
             straighten_degrees: default_finite_zero(),
+            perspective_vertical: default_finite_zero(),
+            perspective_horizontal: default_finite_zero(),
             flip_horizontal: false,
             flip_vertical: false,
         }
@@ -205,6 +211,8 @@ impl PhotoGeometry {
             crop_bottom,
             quarter_turn,
             straighten_degrees: default_finite_zero(),
+            perspective_vertical: default_finite_zero(),
+            perspective_horizontal: default_finite_zero(),
             flip_horizontal,
             flip_vertical,
         })
@@ -225,6 +233,29 @@ impl PhotoGeometry {
             ));
         }
         self.straighten_degrees = degrees;
+        Ok(self)
+    }
+
+    /// Applies bounded symmetric keystone correction in the oriented photo
+    /// coordinate system. The renderer maps the output rectangle into an
+    /// interior trapezoid, so correction never introduces synthetic corners.
+    pub fn with_perspective(
+        mut self,
+        vertical: f64,
+        horizontal: f64,
+    ) -> Result<Self, RecipeValidationError> {
+        let vertical = FiniteF64::new(vertical)?;
+        let horizontal = FiniteF64::new(horizontal)?;
+        for (axis, value) in [
+            ("vertical", vertical.get()),
+            ("horizontal", horizontal.get()),
+        ] {
+            if !(-1.0..=1.0).contains(&value) {
+                return Err(RecipeValidationError::InvalidPhotoPerspective { axis, value });
+            }
+        }
+        self.perspective_vertical = vertical;
+        self.perspective_horizontal = horizontal;
         Ok(self)
     }
 
@@ -252,6 +283,14 @@ impl PhotoGeometry {
         self.straighten_degrees.get()
     }
 
+    pub const fn perspective_vertical(self) -> f64 {
+        self.perspective_vertical.get()
+    }
+
+    pub const fn perspective_horizontal(self) -> f64 {
+        self.perspective_horizontal.get()
+    }
+
     pub const fn flip_horizontal(self) -> bool {
         self.flip_horizontal
     }
@@ -268,6 +307,8 @@ impl PhotoGeometry {
             && self.crop_bottom.get() == 1.0
             && matches!(self.quarter_turn, PhotoQuarterTurn::Zero)
             && self.straighten_degrees.get() == 0.0
+            && self.perspective_vertical.get() == 0.0
+            && self.perspective_horizontal.get() == 0.0
             && !self.flip_horizontal
             && !self.flip_vertical
     }
@@ -284,6 +325,12 @@ impl PhotoGeometry {
         )?;
         normalized
             .with_straighten_degrees(self.straighten_degrees.get())
+            .and_then(|value| {
+                value.with_perspective(
+                    self.perspective_vertical.get(),
+                    self.perspective_horizontal.get(),
+                )
+            })
             .map(|_| ())
     }
 }

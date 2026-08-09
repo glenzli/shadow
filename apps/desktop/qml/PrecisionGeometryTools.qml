@@ -112,6 +112,62 @@ ColumnLayout {
 
         ShadowSubsectionLabel {
             Layout.topMargin: 6
+            text: qsTr("PERSPECTIVE")
+            toolTipText: qsTr("Correct converging vertical or horizontal lines with one photo-local projective transform.")
+        }
+
+        ShadowSlider {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Vertical")
+            from: -1
+            to: 1
+            neutralValue: 0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: Number(
+                geometry.inspector.editor.photoGeometry.perspectiveVertical || 0)
+            enabled: geometry.inspector.previewFrameReady
+                && !geometry.inspector.editor.stateBusy
+            onGestureStarted: geometry.inspector.editor.beginParameterEdit(
+                "geometry/perspective")
+            onEdited: value => geometry.inspector.editor.setPhotoPerspective(
+                value,
+                Number(geometry.inspector.editor.photoGeometry.perspectiveHorizontal || 0))
+            onGestureFinished: geometry.inspector.editor.endParameterEdit(
+                "geometry/perspective")
+        }
+
+        ShadowSlider {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Horizontal")
+            from: -1
+            to: 1
+            neutralValue: 0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: Number(
+                geometry.inspector.editor.photoGeometry.perspectiveHorizontal || 0)
+            enabled: geometry.inspector.previewFrameReady
+                && !geometry.inspector.editor.stateBusy
+            onGestureStarted: geometry.inspector.editor.beginParameterEdit(
+                "geometry/perspective")
+            onEdited: value => geometry.inspector.editor.setPhotoPerspective(
+                Number(geometry.inspector.editor.photoGeometry.perspectiveVertical || 0),
+                value)
+            onGestureFinished: geometry.inspector.editor.endParameterEdit(
+                "geometry/perspective")
+        }
+
+        ShadowSubsectionLabel {
+            Layout.topMargin: 6
             text: qsTr("ASPECT")
             toolTipText: qsTr("Freeform by default. A selected ratio constrains the canvas handles without becoming separate Recipe state.")
         }

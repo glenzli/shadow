@@ -32,6 +32,10 @@ struct PhotoGeometry final {
     // empty corners it would otherwise create, while retaining this crop's
     // aspect ratio.
     double straighten_degrees = 0.0;
+    // Symmetric keystone correction in oriented-photo coordinates. Values
+    // are normalized to [-1, 1]; zero is the exact no-perspective identity.
+    double perspective_vertical = 0.0;
+    double perspective_horizontal = 0.0;
     bool flip_horizontal = false;
     bool flip_vertical = false;
 

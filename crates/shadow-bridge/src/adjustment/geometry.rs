@@ -29,6 +29,8 @@ pub struct AdjustmentGeometry {
     pub crop_bottom: f64,
     pub quarter_turn: AdjustmentQuarterTurn,
     pub straighten_degrees: f64,
+    pub perspective_vertical: f64,
+    pub perspective_horizontal: f64,
     pub flip_horizontal: bool,
     pub flip_vertical: bool,
 }
@@ -49,6 +51,8 @@ impl AdjustmentGeometry {
             crop_bottom: 1.0,
             quarter_turn: AdjustmentQuarterTurn::Zero,
             straighten_degrees: 0.0,
+            perspective_vertical: 0.0,
+            perspective_horizontal: 0.0,
             flip_horizontal: false,
             flip_vertical: false,
         }
@@ -63,6 +67,8 @@ impl AdjustmentGeometry {
             && self.crop_bottom == 1.0
             && matches!(self.quarter_turn, AdjustmentQuarterTurn::Zero)
             && self.straighten_degrees == 0.0
+            && self.perspective_vertical == 0.0
+            && self.perspective_horizontal == 0.0
             && !self.flip_horizontal
             && !self.flip_vertical
     }
@@ -92,6 +98,14 @@ impl AdjustmentGeometry {
         {
             return Err(BridgeError::InvalidEditRequest(
                 "photo geometry straighten angle must be in -45..=45 degrees",
+            ));
+        }
+        if [self.perspective_vertical, self.perspective_horizontal]
+            .into_iter()
+            .any(|value| !value.is_finite() || !(-1.0..=1.0).contains(&value))
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "photo geometry perspective values must be finite and in -1..=1",
             ));
         }
         Ok(())

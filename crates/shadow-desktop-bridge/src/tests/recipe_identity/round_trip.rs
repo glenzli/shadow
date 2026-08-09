@@ -75,6 +75,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
             crop_bottom: 1.0,
             quarter_turn: 0,
             straighten_degrees: 0.0,
+            perspective_vertical: 0.0,
+            perspective_horizontal: 0.0,
             flip_horizontal: false,
             flip_vertical: false,
         },
@@ -134,7 +136,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
-            present: false,
+            present: true,
             enabled: true,
             crop_left: 0.0,
             crop_top: 0.0,
@@ -142,6 +144,8 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
             crop_bottom: 1.0,
             quarter_turn: 0,
             straighten_degrees: 0.0,
+            perspective_vertical: 0.35,
+            perspective_horizontal: -0.2,
             flip_horizontal: false,
             flip_vertical: false,
         },
@@ -178,6 +182,9 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     assert_eq!(outgoing.foundation.raw_white_balance_mode, 1);
     assert_eq!(outgoing.foundation.temperature_kelvin, 6_200);
     assert_eq!(outgoing.foundation.tint, -8);
+    assert!(outgoing.geometry.present);
+    assert_eq!(outgoing.geometry.perspective_vertical, 0.35);
+    assert_eq!(outgoing.geometry.perspective_horizontal, -0.2);
 }
 
 #[test]

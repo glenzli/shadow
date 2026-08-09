@@ -42,10 +42,22 @@ pub(crate) fn map_output_prompt_to_original(
     let sine = angle.sin();
     let horizontal_offset = point.x.get().mul_add(output_width, -output_width * 0.5);
     let vertical_offset = point.y.get().mul_add(output_height, -output_height * 0.5);
-    let oriented_x =
+    let mut oriented_x =
         cosine.mul_add(horizontal_offset, sine * vertical_offset) + oriented_width * 0.5;
-    let oriented_y =
+    let mut oriented_y =
         (-sine).mul_add(horizontal_offset, cosine * vertical_offset) + oriented_height * 0.5;
+    if geometry.perspective_vertical() != 0.0 || geometry.perspective_horizontal() != 0.0 {
+        let perspective = apply_perspective(
+            (
+                oriented_x / oriented_width * 2.0 - 1.0,
+                oriented_y / oriented_height * 2.0 - 1.0,
+            ),
+            geometry.perspective_vertical(),
+            geometry.perspective_horizontal(),
+        );
+        oriented_x = (perspective.0 + 1.0) * 0.5 * oriented_width;
+        oriented_y = (perspective.1 + 1.0) * 0.5 * oriented_height;
+    }
 
     let (mut crop_x, mut crop_y) = match geometry.quarter_turn() {
         PhotoQuarterTurn::Zero => (oriented_x, oriented_y),
@@ -174,6 +186,40 @@ fn auto_crop_extent(width: f64, height: f64, straighten_degrees: f64) -> (f64, f
     (
         (width * scale).floor().max(1.0),
         (height * scale).floor().max(1.0),
+    )
+}
+
+fn apply_perspective(mut coordinate: (f64, f64), vertical: f64, horizontal: f64) -> (f64, f64) {
+    if vertical == 0.0 && horizontal == 0.0 {
+        return coordinate;
+    }
+    let edge_scales = |amount: f64| {
+        let reduced = 1.0 - 0.5 * amount.abs();
+        if amount >= 0.0 {
+            (reduced, 1.0)
+        } else {
+            (1.0, reduced)
+        }
+    };
+
+    let vertical_scales = edge_scales(vertical);
+    let vertical_sum = vertical_scales.0 + vertical_scales.1;
+    let vertical_c = (vertical_scales.0 - vertical_scales.1) / vertical_sum;
+    let vertical_k = 2.0 * vertical_scales.0 * vertical_scales.1 / vertical_sum;
+    let vertical_denominator = 1.0 + vertical_c * coordinate.1;
+    coordinate = (
+        vertical_k * coordinate.0 / vertical_denominator,
+        (coordinate.1 + vertical_c) / vertical_denominator,
+    );
+
+    let horizontal_scales = edge_scales(horizontal);
+    let horizontal_sum = horizontal_scales.0 + horizontal_scales.1;
+    let horizontal_c = (horizontal_scales.0 - horizontal_scales.1) / horizontal_sum;
+    let horizontal_k = 2.0 * horizontal_scales.0 * horizontal_scales.1 / horizontal_sum;
+    let horizontal_denominator = 1.0 + horizontal_c * coordinate.0;
+    (
+        (coordinate.0 + horizontal_c) / horizontal_denominator,
+        horizontal_k * coordinate.1 / horizontal_denominator,
     )
 }
 

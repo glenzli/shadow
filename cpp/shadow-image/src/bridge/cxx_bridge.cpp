@@ -248,6 +248,8 @@ edit_preview_mask_coverage(const std::optional<image::EditPreviewMaskCoverage>& 
         .crop_bottom = value.crop_bottom,
         .quarter_turn = quarter_turn,
         .straighten_degrees = value.straighten_degrees,
+        .perspective_vertical = value.perspective_vertical,
+        .perspective_horizontal = value.perspective_horizontal,
         .flip_horizontal = value.flip_horizontal,
         .flip_vertical = value.flip_vertical,
     };
