@@ -726,6 +726,13 @@ qt_add_resources(
 )
 
 if(APPLE)
+    set(SHADOW_APP_ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/assets/app-icon.icns")
+    set_source_files_properties(
+        "${SHADOW_APP_ICON_FILE}"
+        PROPERTIES MACOSX_PACKAGE_LOCATION Resources
+    )
+    target_sources(shadow-desktop PRIVATE "${SHADOW_APP_ICON_FILE}")
+
     target_sources(
         shadow-desktop
         PRIVATE
@@ -1168,6 +1175,7 @@ set_target_properties(
     PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "Shadow"
         MACOSX_BUNDLE_GUI_IDENTIFIER "dev.shadow.photo"
+        MACOSX_BUNDLE_ICON_FILE "app-icon.icns"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "1"
         OUTPUT_NAME "Shadow"
