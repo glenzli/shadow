@@ -52,6 +52,16 @@ fn creates_current_catalog_shape() {
         )
         .expect("read logical-photo companion group table");
     assert_eq!(logical_photo_group_table, 1);
+    let photo_relationship_tables: i64 = catalog
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema
+             WHERE type = 'table' AND name IN ('photo_groups', 'photo_group_members')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read distinct-photo relationship tables");
+    assert_eq!(photo_relationship_tables, 2);
 }
 
 #[test]

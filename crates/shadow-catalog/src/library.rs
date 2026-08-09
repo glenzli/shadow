@@ -10,7 +10,8 @@
 //! [`lifecycle`] for non-destructive removal from active Library projections,
 //! [`keywords`] for hierarchical semantic organization, [`facts`] for indexed metadata,
 //! [`place_resolution`] for coordinate-bound country and city facts, and [`sources`] for scan
-//! roots, exact content identity, and relocation. [`query_projection`] keeps every Library
+//! roots, exact content identity, and relocation. [`relationships`] owns ordered groups of
+//! distinct photos without merging their identities. [`query_projection`] keeps every Library
 //! presentation on one filter contract.
 //!
 //! Fallible `Catalog` methods in this subsystem uniformly propagate
@@ -31,6 +32,7 @@ mod metadata_overrides;
 mod model;
 mod place_resolution;
 mod query_projection;
+mod relationships;
 mod rows;
 mod sources;
 
@@ -58,6 +60,10 @@ pub use model::{
     library_equipment_key,
 };
 pub use place_resolution::MAX_LIBRARY_PLACE_RESOLUTION_CANDIDATES;
+pub use relationships::{
+    CreatePhotoGroup, MAX_PHOTO_GROUP_MEMBERS, PhotoGroupKind, PhotoGroupMember, PhotoGroupOrigin,
+    PhotoGroupRecord,
+};
 pub(crate) use rows::{platform_from_text, representation_kind_from_text};
 pub(crate) use sources::{
     attach_location_to_identity_match, attach_location_to_library_source, find_identity_match,

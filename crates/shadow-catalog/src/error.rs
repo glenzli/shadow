@@ -1,6 +1,6 @@
 //! Unified public failure contract for catalog persistence and validation.
 
-use shadow_domain::{KeywordId, PhotoFlag, PhotoId, PhotoVariantId, RepresentationId};
+use shadow_domain::{GroupId, KeywordId, PhotoFlag, PhotoId, PhotoVariantId, RepresentationId};
 use thiserror::Error;
 
 use crate::{export_queue, recipe::RecipeRefExpectation};
@@ -10,7 +10,7 @@ pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error(
-        "development catalog reset required: found schema revision {found:?}; Shadow currently supports only Catalog revision 20260809.1"
+        "development catalog reset required: found schema revision {found:?}; Shadow currently supports only Catalog revision 20260809.2"
     )]
     DevelopmentCatalogResetRequired { found: Option<i64> },
     #[error("import session {0} does not exist")]
@@ -78,6 +78,10 @@ pub enum CatalogError {
         expected: PhotoVariantId,
         actual: PhotoVariantId,
     },
+    #[error("photo group {0} does not exist")]
+    PhotoGroupNotFound(GroupId),
+    #[error("invalid photo group: {0}")]
+    InvalidPhotoGroup(String),
     #[error("album {0} does not exist")]
     AlbumNotFound(shadow_domain::CollectionId),
     #[error("Library keyword {0} does not exist")]

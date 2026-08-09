@@ -20,6 +20,7 @@ mod library_keywords;
 mod library_lifecycle;
 mod library_metadata_overrides;
 mod library_place_resolution;
+mod library_relationships;
 mod review_projection;
 mod source_health;
 mod source_identity;
@@ -38,6 +39,7 @@ pub(super) use library_keywords::LibraryKeywordsMessage;
 pub(super) use library_lifecycle::LibraryLifecycleMessage;
 pub(super) use library_metadata_overrides::LibraryMetadataOverridesMessage;
 pub(super) use library_place_resolution::LibraryPlaceResolutionMessage;
+pub(super) use library_relationships::LibraryRelationshipsMessage;
 pub(super) use review_projection::ReviewProjectionMessage;
 pub(super) use source_health::SourceHealthMessage;
 pub(super) use source_identity::SourceIdentityMessage;
@@ -55,6 +57,7 @@ pub(super) enum Message {
     LibraryCollections(LibraryCollectionsMessage),
     LibraryBrowse(LibraryBrowseMessage),
     LibraryPlaceResolution(LibraryPlaceResolutionMessage),
+    LibraryRelationships(LibraryRelationshipsMessage),
     DecodeSnapshot(DecodeSnapshotMessage),
     CachedArtifact(CachedArtifactMessage),
     TechnicalObservation(TechnicalObservationMessage),

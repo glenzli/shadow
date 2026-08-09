@@ -6,7 +6,8 @@
 //! Start with [`catalog`] for connection lifecycle, [`asset_registration`] for idempotent
 //! source registration, [`schema`] for the on-disk shape, [`writer`] for serialized
 //! mutation dispatch, [`import_journal`] for durable scans and logical-photo companion grouping,
-//! and [`library`] for photo-first browsing plus coordinate-bound place resolution. The
+//! and [`library`] for photo-first browsing, distinct-photo relationships, and coordinate-bound
+//! place resolution. The
 //! responsibility-named repository modules below own feature reads and transactions.
 
 mod asset_registration;
@@ -67,23 +68,26 @@ pub use import_journal::{
     SourceScanReconciliation,
 };
 pub use library::{
-    AlbumKind, AlbumRecord, ContentIdentity, ContentIdentityScope, LibraryApertureRange,
-    LibraryCoordinates, LibraryDateRange, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage,
-    LibraryFacetValue, LibraryKeywordAssignmentOrigin, LibraryKeywordDeletionReceipt,
-    LibraryKeywordMutationReceipt, LibraryKeywordRecord, LibraryLivingPlaceRule, LibraryMapCluster,
-    LibraryMapGrid, LibraryMapSnapshot, LibraryMapViewport, LibraryMetadataOverride,
-    LibraryMetadataOverrideAction, LibraryMetadataOverrideOrigin, LibraryPhotoCursor,
-    LibraryPhotoCursorValue, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoKeyword,
-    LibraryPhotoOrder, LibraryPhotoPage, LibraryPhotoRecord, LibraryPlaceResolution,
-    LibraryPlaceResolutionCandidate, LibrarySourceHealth, LibrarySourceRecord,
-    MAX_LIBRARY_FACET_PAGE_SIZE, MAX_LIBRARY_KEYWORD_FILTERS, MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS,
+    AlbumKind, AlbumRecord, ContentIdentity, ContentIdentityScope, CreatePhotoGroup,
+    LibraryApertureRange, LibraryCoordinates, LibraryDateRange, LibraryFacetCursor,
+    LibraryFacetKind, LibraryFacetPage, LibraryFacetValue, LibraryKeywordAssignmentOrigin,
+    LibraryKeywordDeletionReceipt, LibraryKeywordMutationReceipt, LibraryKeywordRecord,
+    LibraryLivingPlaceRule, LibraryMapCluster, LibraryMapGrid, LibraryMapSnapshot,
+    LibraryMapViewport, LibraryMetadataOverride, LibraryMetadataOverrideAction,
+    LibraryMetadataOverrideOrigin, LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFacts,
+    LibraryPhotoFilter, LibraryPhotoKeyword, LibraryPhotoOrder, LibraryPhotoPage,
+    LibraryPhotoRecord, LibraryPlaceResolution, LibraryPlaceResolutionCandidate,
+    LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE,
+    MAX_LIBRARY_KEYWORD_FILTERS, MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS,
     MAX_LIBRARY_LIVING_PLACE_RULES, MAX_LIBRARY_MAP_CELLS, MAX_LIBRARY_MAP_GRID_AXIS,
-    MAX_LIBRARY_PAGE_SIZE, MAX_LIBRARY_PLACE_RESOLUTION_CANDIDATES, MissingSourceLocationCursor,
-    MissingSourceLocationPage, MissingSourceLocationRecord, MissingSourceRelinkTarget,
-    PhotoLibraryMetadataOverrides, PhotoLibraryState, RecordLibraryPlaceResolution,
-    RecordLibraryPlaceResolutionStatus, RecordRepresentationContentIdentity,
-    RecordRepresentationContentIdentityStatus, RelinkMatch, SetPhotoLibraryMetadataOverrides,
-    SetPhotoLibraryState, SmartAlbumQueryV1, library_equipment_key,
+    MAX_LIBRARY_PAGE_SIZE, MAX_LIBRARY_PLACE_RESOLUTION_CANDIDATES, MAX_PHOTO_GROUP_MEMBERS,
+    MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceLocationRecord,
+    MissingSourceRelinkTarget, PhotoGroupKind, PhotoGroupMember, PhotoGroupOrigin,
+    PhotoGroupRecord, PhotoLibraryMetadataOverrides, PhotoLibraryState,
+    RecordLibraryPlaceResolution, RecordLibraryPlaceResolutionStatus,
+    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RelinkMatch,
+    SetPhotoLibraryMetadataOverrides, SetPhotoLibraryState, SmartAlbumQueryV1,
+    library_equipment_key,
 };
 pub use recipe::{
     ActivatePhotoVariant, CommitRecipe, CreatePhotoVariant, MAX_RECIPE_HISTORY_PAGE_SIZE,

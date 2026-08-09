@@ -11,9 +11,9 @@ use crate::{CatalogError, export_queue};
 
 /// The only on-disk Catalog revision supported by this development build.
 /// Encoded as YYYYMMDDNN, where NN is the contract's daily sequence.
-pub(crate) const SCHEMA_VERSION: i64 = 2_026_080_901;
+pub(crate) const SCHEMA_VERSION: i64 = 2_026_080_902;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-20260809.1-photo-variants";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-20260809.2-photo-relationships";
 
 const SCHEMA_CORE: &str = r"
 CREATE TABLE photos (
@@ -54,6 +54,32 @@ CREATE INDEX locations_representation_id_idx ON locations(representation_id);
 CREATE INDEX locations_status_idx ON locations(status);
 CREATE INDEX locations_status_sort_name_idx
     ON locations(status, sort_name_key, id);
+";
+
+const SCHEMA_PHOTO_RELATIONSHIPS: &str = r"
+CREATE TABLE photo_groups (
+    id            BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
+    kind          TEXT NOT NULL CHECK (kind IN ('burst', 'bracket', 'panorama', 'similar')),
+    origin        TEXT NOT NULL CHECK (origin IN ('user', 'camera_metadata', 'visual_similarity')),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE photo_group_members (
+    group_id  BLOB NOT NULL CHECK (length(group_id) = 16),
+    photo_id  BLOB NOT NULL CHECK (length(photo_id) = 16),
+    position  INTEGER NOT NULL CHECK (position >= 0),
+    is_anchor INTEGER NOT NULL CHECK (is_anchor IN (0, 1)),
+    PRIMARY KEY (group_id, photo_id),
+    UNIQUE (group_id, position),
+    FOREIGN KEY (group_id) REFERENCES photo_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE UNIQUE INDEX photo_group_one_anchor_idx
+    ON photo_group_members(group_id) WHERE is_anchor = 1;
+CREATE INDEX photo_group_members_photo_idx
+    ON photo_group_members(photo_id, group_id);
 ";
 
 const SCHEMA_IMPORT: &str = r"
@@ -903,8 +929,8 @@ CREATE INDEX locations_representation_status_current_idx
 
 const SCHEMA_STATE: &str = r"
 CREATE TABLE catalog_schema (
-    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026080901),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260809.1-photo-variants'),
+    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026080902),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260809.2-photo-relationships'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";
@@ -914,6 +940,7 @@ CREATE TABLE catalog_schema (
 // not a migration history.
 const SCHEMA_COMPONENTS: &[&str] = &[
     SCHEMA_CORE,
+    SCHEMA_PHOTO_RELATIONSHIPS,
     SCHEMA_IMPORT,
     SCHEMA_DECODER,
     SCHEMA_CACHE,
