@@ -354,6 +354,8 @@ qt_add_executable(
     src/desktop_backend_history.cpp
     src/desktop_backend_library.cpp
     src/desktop_backend_library_server.cpp
+    src/desktop_backend_people.cpp
+    src/desktop_backend_semantic_search.cpp
     src/desktop_backend_remote_library.cpp
     src/desktop_backend_review.cpp
     src/desktop_backend.hpp
@@ -369,6 +371,8 @@ qt_add_executable(
     src/backend/library_types.hpp
     src/backend/library_server_types.hpp
     src/backend/remote_library_types.hpp
+    src/backend/people_analysis_types.hpp
+    src/backend/semantic_search_types.hpp
     src/backend/review_types.hpp
     src/folder_scan_backend.cpp
     src/folder_scan_backend.hpp
@@ -492,6 +496,10 @@ qt_add_executable(
     src/personal_profile.hpp
     src/personal_location_search.cpp
     src/personal_location_search.hpp
+    src/people_analysis_controller.cpp
+    src/people_analysis_controller.hpp
+    src/semantic_search_controller.cpp
+    src/semantic_search_controller.hpp
     src/lut_library.cpp
     src/lut_library.hpp
     src/optics_profile_library.cpp
@@ -688,6 +696,7 @@ qt_add_resources(
         icons/overlay-show.svg
         icons/pin.svg
         icons/pick.svg
+        icons/people.svg
         icons/redo.svg
         icons/reject.svg
         icons/refresh.svg
@@ -859,6 +868,7 @@ qt_add_qml_module(
         qml/PersonalProfileDialog.qml
         qml/PersonalLocationSearchField.qml
         qml/PersonalLivingPlacesEditor.qml
+        qml/PeopleWorkspace.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionDetailLoupe.qml
         qml/PrecisionDetailLoupeState.qml
@@ -915,6 +925,7 @@ qt_add_qml_module(
         qml/ReviewDecisionToolbar.qml
         qml/ReviewGallerySurface.qml
         qml/ReviewGalleryToolbar.qml
+        qml/SemanticSearchStatusStrip.qml
         qml/ReviewAlbumList.qml
         qml/ReviewComparisonEvidence.qml
         qml/ReviewImportProgressCard.qml

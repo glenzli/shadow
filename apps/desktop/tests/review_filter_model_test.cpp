@@ -236,6 +236,47 @@ void remote_rows_participate_only_in_locally_evaluable_filters() {
     );
 }
 
+void semantic_results_compose_as_a_ranked_client_filter() {
+    ReviewModel source;
+    source.replace(
+        {
+            item("photo-a", "representation-a", "picked", 5),
+            item("photo-b", "representation-b", "picked", 4),
+            item("photo-c", "representation-c", "rejected", 3),
+        },
+        1
+    );
+    ReviewFilterModel filtered;
+    filtered.setSourceModel(&source);
+    filtered.setSemanticRepresentationOrder({
+        QStringLiteral("photo-b\u001frepresentation-b"),
+        QStringLiteral("photo-a\u001frepresentation-a"),
+    });
+    require(filtered.semanticFilterActive(), "semantic ranking must activate a client filter");
+    require(
+        !filtered.hasActiveServerFilter(),
+        "semantic ranking must not be projected as an unsupported Catalog predicate"
+    );
+    require(filtered.rowCount() == 2, "only ranked exact representations remain visible");
+    require(
+        filtered.data(filtered.index(0, 0), ReviewModel::PhotoIdRole).toString()
+            == QStringLiteral("photo-b"),
+        "the grid must follow semantic similarity order"
+    );
+    filtered.setMinimumRating(5);
+    require(
+        filtered.rowCount() == 1
+            && filtered.data(filtered.index(0, 0), ReviewModel::PhotoIdRole).toString()
+                   == QStringLiteral("photo-a"),
+        "semantic ranking must intersect with ordinary Library filters"
+    );
+    filtered.clearFilters();
+    require(
+        !filtered.semanticFilterActive() && filtered.rowCount() == 3,
+        "clearing all filters must restore source order and every row"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -243,5 +284,6 @@ int main() {
     catalog_metadata_facets_remain_typed_server_filters();
     hierarchical_keyword_filters_are_normalized_server_predicates();
     remote_rows_participate_only_in_locally_evaluable_filters();
+    semantic_results_compose_as_a_ranked_client_filter();
     return EXIT_SUCCESS;
 }

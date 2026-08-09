@@ -19,11 +19,13 @@ mod scan_service;
 mod session_history;
 mod session_library;
 mod session_library_server;
+mod session_people_analysis;
 mod session_photo_inspection;
 mod session_photo_variants;
 mod session_remote_library;
 mod session_review;
 mod session_scan;
+mod session_semantic_search;
 mod wall_clock;
 
 // Photo source admission, preview delivery, and detail viewports.
@@ -922,6 +924,47 @@ mod ffi {
         recently_protected_byte_len: u64,
         reclaimed_blob_count: u64,
         reclaimed_byte_len: u64,
+    }
+
+    /// One anonymous review proposal. The opaque group id is stable only for
+    /// the exact transient analysis inputs; it is not a named-person identity.
+    #[derive(Debug)]
+    struct FfiPeopleGroup {
+        group_id: String,
+        member_count: u32,
+    }
+
+    /// Session-only projection of local face analysis. No embeddings or face
+    /// observations cross the desktop ABI.
+    #[derive(Debug)]
+    struct FfiPeopleAnalysisReport {
+        analyzed_photos: u32,
+        detected_faces: u32,
+        embedded_faces: u32,
+        skipped_items: u32,
+        ungrouped_faces: u32,
+        truncated: bool,
+        groups: Vec<FfiPeopleGroup>,
+    }
+
+    /// One session-only semantic match. The visual handle authorizes exactly
+    /// the pixels that were embedded; neither vectors nor local paths cross
+    /// the desktop ABI.
+    #[derive(Debug)]
+    struct FfiSemanticSearchMatch {
+        photo_id: String,
+        representation_id: String,
+        cosine_similarity: f32,
+    }
+
+    /// Bounded semantic search result over the current Review prefix.
+    #[derive(Debug)]
+    struct FfiSemanticSearchReport {
+        considered_photos: u32,
+        embedded_photos: u32,
+        skipped_items: u32,
+        truncated: bool,
+        matches: Vec<FfiSemanticSearchMatch>,
     }
 
     #[derive(Debug)]
@@ -2024,6 +2067,19 @@ mod ffi {
             self: &DesktopSession,
             dry_run: bool,
         ) -> Result<FfiCacheMaintenanceSweep>;
+        fn analyze_people(
+            self: &DesktopSession,
+            infer_base_url: &str,
+            credential_file: &str,
+        ) -> Result<FfiPeopleAnalysisReport>;
+        fn search_semantics(
+            self: &DesktopSession,
+            infer_base_url: &str,
+            credential_file: &str,
+            query: &str,
+            query_revision: &str,
+            language: &str,
+        ) -> Result<FfiSemanticSearchReport>;
         fn load_review_visual(self: &DesktopSession, ticket: &str) -> Result<FfiVisualPayload>;
         fn prepare_review_comparison(
             self: &DesktopSession,

@@ -3846,22 +3846,27 @@ R %2 · G %3 · B %4</translation>
         <translation>打开高级图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="59"/>
+        <location filename="../qml/Main.qml" line="60"/>
         <source>Shadow · Review</source>
         <translation>Shadow · 选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="61"/>
+        <location filename="../qml/Main.qml" line="62"/>
         <source>Shadow · Precision</source>
         <translation>Shadow · 精修</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="61"/>
+        <location filename="../qml/Main.qml" line="64"/>
         <source>Shadow · Library</source>
         <translation>Shadow · 图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="171"/>
+        <location filename="../qml/Main.qml" line="64"/>
+        <source>Shadow · People</source>
+        <translation>Shadow · 人物</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="174"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
@@ -3906,43 +3911,49 @@ R %2 · G %3 · B %4</translation>
         <translation>筛选已拒绝照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="26"/>
+        <location filename="../qml/MainStatusBar.qml" line="27"/>
         <source>Loading full-resolution image…</source>
         <translation>正在加载全分辨率图像…</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="27"/>
+        <location filename="../qml/MainStatusBar.qml" line="28"/>
         <source>Parsing full-resolution RAW…</source>
         <translation>正在解析全分辨率 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="102"/>
+        <location filename="../qml/MainTitleBar.qml" line="103"/>
         <source>REVIEW</source>
         <translation>选片</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="101"/>
-        <location filename="../qml/MainTitleBar.qml" line="115"/>
+        <location filename="../qml/MainStatusBar.qml" line="106"/>
+        <location filename="../qml/MainTitleBar.qml" line="116"/>
         <source>PRECISION</source>
         <translation>精修</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="145"/>
+        <location filename="../qml/MainStatusBar.qml" line="108"/>
+        <location filename="../qml/MainTitleBar.qml" line="131"/>
+        <source>PEOPLE</source>
+        <translation>人物</translation>
+    </message>
+    <message>
+        <location filename="../qml/MainTitleBar.qml" line="159"/>
         <source>SAVED</source>
         <translation>已保存</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="164"/>
+        <location filename="../qml/MainTitleBar.qml" line="178"/>
         <source>Undo</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="173"/>
+        <location filename="../qml/MainTitleBar.qml" line="187"/>
         <source>Redo</source>
         <translation>重做</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="196"/>
+        <location filename="../qml/MainTitleBar.qml" line="210"/>
         <source>Return to Review</source>
         <translation>返回选片</translation>
     </message>
@@ -3953,22 +3964,22 @@ R %2 · G %3 · B %4</translation>
         <translation>清除图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="146"/>
+        <location filename="../qml/MainTitleBar.qml" line="160"/>
         <source>SAVE FAILED</source>
         <translation>保存失败</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="147"/>
+        <location filename="../qml/MainTitleBar.qml" line="161"/>
         <source>SAVING</source>
         <translation>正在保存</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="147"/>
+        <location filename="../qml/MainTitleBar.qml" line="161"/>
         <source>DRAFT</source>
         <translation>草稿</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="185"/>
+        <location filename="../qml/MainTitleBar.qml" line="199"/>
         <source>History</source>
         <translation>历史</translation>
     </message>
@@ -4003,7 +4014,7 @@ R %2 · G %3 · B %4</translation>
         <translation>筛选 %1 颜色标签</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="65"/>
+        <location filename="../qml/MainStatusBar.qml" line="68"/>
         <source>%L1 / %L2 photos</source>
         <translation>%L1 / %L2 张照片</translation>
     </message>
@@ -4023,12 +4034,12 @@ R %2 · G %3 · B %4</translation>
         <translation>关</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="102"/>
+        <location filename="../qml/MainStatusBar.qml" line="109"/>
         <source>LIBRARY</source>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="208"/>
+        <location filename="../qml/MainTitleBar.qml" line="222"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
@@ -4498,6 +4509,119 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>PeopleAnalysisController</name>
+    <message>
+        <location filename="../src/people_analysis_controller.cpp" line="36"/>
+        <source>Ready to organize people locally.</source>
+        <translation>已准备好在本机整理人物。</translation>
+    </message>
+    <message>
+        <location filename="../src/people_analysis_controller.cpp" line="38"/>
+        <source>Finding faces and preparing anonymous groups…</source>
+        <translation>正在查找人脸并准备匿名分组…</translation>
+    </message>
+    <message>
+        <location filename="../src/people_analysis_controller.cpp" line="40"/>
+        <source>Local people analysis finished.</source>
+        <translation>本机人物分析已完成。</translation>
+    </message>
+    <message>
+        <location filename="../src/people_analysis_controller.cpp" line="42"/>
+        <source>Local people analysis could not finish.</source>
+        <translation>本机人物分析未能完成。</translation>
+    </message>
+    <message>
+        <location filename="../src/people_analysis_controller.cpp" line="51"/>
+        <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
+        <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
+    </message>
+</context>
+<context>
+    <name>PeopleWorkspace</name>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="64"/>
+        <source>People</source>
+        <translation>人物</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="72"/>
+        <source>Find recurring people with local face analysis. Groups remain anonymous and disappear when Shadow closes.</source>
+        <translation>使用本机人脸分析查找重复出现的人物。分组保持匿名，并会在 Shadow 关闭后消失。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="104"/>
+        <source>Session preview</source>
+        <translation>会话预览</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="111"/>
+        <source>Processing stays on this device. Face vectors and groups are not saved to the Library.</source>
+        <translation>处理仅在此设备上进行。人脸向量和分组不会保存到图库。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="127"/>
+        <source>Analyze Again</source>
+        <translation>重新分析</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="127"/>
+        <source>Start Analysis</source>
+        <translation>开始分析</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="136"/>
+        <source>Clear Session Results</source>
+        <translation>清除会话结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="184"/>
+        <source>Photos analyzed</source>
+        <translation>已分析照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="188"/>
+        <source>Faces found</source>
+        <translation>已发现人脸</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="192"/>
+        <source>Faces compared</source>
+        <translation>已比对人脸</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="196"/>
+        <source>Anonymous groups</source>
+        <translation>匿名分组</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="236"/>
+        <source>This preview reached its safety limit. A later background workflow can continue incrementally.</source>
+        <translation>此预览已达到安全上限。后续后台流程可以继续增量分析。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="246"/>
+        <source>No recurring people were grouped in the current Library preview.</source>
+        <translation>当前图库预览中没有可归组的重复人物。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="297"/>
+        <source>Person %1</source>
+        <translation>人物 %1</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../qml/PeopleWorkspace.qml" line="307"/>
+        <source>%n photos</source>
+        <translation>
+            <numerusform>%n 张照片</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="324"/>
+        <source>%1 ungrouped faces · %2 skipped items</source>
+        <translation>%1 张未分组人脸 · %2 个跳过项</translation>
+    </message>
+</context>
+<context>
     <name>PersonalLivingPlacesEditor</name>
     <message>
         <location filename="../qml/PersonalLivingPlacesEditor.qml" line="151"/>
@@ -4823,34 +4947,34 @@ R %2 · G %3 · B %4</translation>
         <translation>节点已隐藏 · AI 结果当前不应用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="542"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="541"/>
         <source>Hide AI RAW Denoise node</source>
         <translation>隐藏 AI RAW 降噪节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="543"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="542"/>
         <source>Show AI RAW Denoise node</source>
         <translation>显示 AI RAW 降噪节点</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="118"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="323"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="322"/>
         <source>Hide %1</source>
         <translation>隐藏%1</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="119"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="324"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="323"/>
         <source>Show %1</source>
         <translation>显示%1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="433"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="432"/>
         <source>Hide Basic Adjustments</source>
         <translation>隐藏基础调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="434"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="433"/>
         <source>Show Basic Adjustments</source>
         <translation>显示基础调整</translation>
     </message>
@@ -4866,7 +4990,7 @@ R %2 · G %3 · B %4</translation>
         <translation>关闭 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="497"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="496"/>
         <source>AI RAW Denoise</source>
         <translation>AI RAW 降噪</translation>
     </message>
@@ -4876,12 +5000,12 @@ R %2 · G %3 · B %4</translation>
         <translation>关</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="510"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="509"/>
         <source>PROCESSING</source>
         <translation>处理中</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="512"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="511"/>
         <source>SOURCE · %L1%</source>
         <translation>源影像 · %L1%</translation>
     </message>
@@ -4936,37 +5060,37 @@ R %2 · G %3 · B %4</translation>
         <translation>空 · 绘制后创建</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="277"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="276"/>
         <source>SHARED · V%1 · ENABLED</source>
         <translation>共享 · V%1 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="277"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="276"/>
         <source>SHARED · V%1 · BYPASSED</source>
         <translation>共享 · V%1 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="277"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="276"/>
         <source>LOCAL · ENABLED</source>
         <translation>本地 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="277"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="276"/>
         <source>LOCAL · BYPASSED</source>
         <translation>本地 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="277"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="276"/>
         <source> · NODE MASK</source>
         <translation> · 节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="297"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="296"/>
         <source>Edit this node mask</source>
         <translation>编辑此节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="297"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="296"/>
         <source>Add a mask to this node</source>
         <translation>为此节点添加蒙版</translation>
     </message>
@@ -4983,7 +5107,7 @@ R %2 · G %3 · B %4</translation>
         <translation>照片 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="646"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="645"/>
         <source>Read from bottom source to top output. Fixed-order photo nodes appear only after you add them.</source>
         <translation>从底部源图读到顶部输出。固定顺序的照片节点只在主动添加后显示。</translation>
     </message>
@@ -5023,12 +5147,12 @@ R %2 · G %3 · B %4</translation>
         <translation>仅运行一次，之后保留可随时撤销的缓存基础影像</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="624"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="623"/>
         <source>Remove AI RAW Denoise</source>
         <translation>移除 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="625"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="624"/>
         <source>Remove Crop &amp; Geometry</source>
         <translation>移除裁剪与几何</translation>
     </message>
@@ -5245,52 +5369,52 @@ R %2 · G %3 · B %4</translation>
         <translation>上下并排</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="396"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="395"/>
         <source>Basic Adjustments</source>
         <translation>基础调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="407"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="406"/>
         <source>SOURCE · ENABLED</source>
         <translation>源图 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="408"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="407"/>
         <source>SOURCE · BYPASSED</source>
         <translation>源图 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="516"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="515"/>
         <source>SOURCE · NOT GENERATED</source>
         <translation>源图 · 尚未生成</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="508"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="507"/>
         <source>NODE · HIDDEN</source>
         <translation>节点 · 已隐藏</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="515"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="514"/>
         <source>SOURCE · AI OFF</source>
         <translation>源图 · AI 已关闭</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="575"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="574"/>
         <source>Duplicate selected Grade Node</source>
         <translation>创建所选调色节点的副本</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="583"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="582"/>
         <source>Delete selected Grade Node</source>
         <translation>删除所选调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="592"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="591"/>
         <source>Move selected Grade Node up</source>
         <translation>上移选中的调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="600"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="599"/>
         <source>Move selected Grade Node down</source>
         <translation>下移选中的调色节点</translation>
     </message>
@@ -7097,17 +7221,17 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/main.cpp" line="62"/>
+        <location filename="../src/main.cpp" line="63"/>
         <source>Could not remove %1.</source>
         <translation>无法移除 %1。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="69"/>
+        <location filename="../src/main.cpp" line="86"/>
         <source>Could not remove the local preview cache.</source>
         <translation>无法移除本地预览缓存。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="86"/>
+        <location filename="../src/main.cpp" line="105"/>
         <source>This local catalog belongs to an incompatible development build. Shadow does not migrate development schemas.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.</source>
@@ -7116,7 +7240,7 @@ Resetting removes the local photo index, edit history, and preview cache. Your o
 重置将移除本地照片索引、编辑历史与预览缓存；不会修改原始照片、LUT 资料库或界面偏好。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="92"/>
+        <location filename="../src/main.cpp" line="111"/>
         <source>Shadow could not open its local development catalog. You can reset it and start again with a fresh catalog v1.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.
@@ -7129,12 +7253,12 @@ Technical detail: %1</source>
 技术详情：%1</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="102"/>
+        <location filename="../src/main.cpp" line="121"/>
         <source>Reset local development catalog?</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="220"/>
+        <location filename="../src/main.cpp" line="239"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -7783,52 +7907,52 @@ Technical detail: %1</source>
         <translation>找不到原片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="85"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="87"/>
         <source>REMOTE PREVIEW UNAVAILABLE</source>
         <translation>远程预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="78"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="85"/>
         <source>PRIVATE RAW PREVIEW UNAVAILABLE</source>
         <translation>私有 RAW 预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="225"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="226"/>
         <source>SERVER OFFLINE</source>
         <translation>服务器离线</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="220"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="232"/>
         <source>PREVIEW PENDING</source>
         <translation>预览等待中</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="220"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="232"/>
         <source>NO VISUAL</source>
         <translation>无图像</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="249"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="261"/>
         <source>DOWNLOADING RAW</source>
         <translation>正在下载 RAW</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="296"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="308"/>
         <source>%L1 × %L2</source>
         <translation>%L1 × %L2</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="329"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="343"/>
         <source>RAW and JPEG representations</source>
         <translation>RAW 和 JPEG 表示</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="349"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="363"/>
         <source>%L1 source locations</source>
         <translation>%L1 个来源位置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="359"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="373"/>
         <source>Original file not found</source>
         <translation>原片未找到</translation>
     </message>
@@ -7957,516 +8081,561 @@ Technical detail: %1</source>
 <context>
     <name>ReviewWorkspace</name>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="42"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="147"/>
+        <source>Clear semantic filter</source>
+        <translation>清除语义筛选</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="113"/>
+        <source>Describe a photo…</source>
+        <translation>描述你想找的照片…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="137"/>
+        <source>Search by description</source>
+        <translation>按描述搜索</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="133"/>
+        <source>Matching locally…</source>
+        <translation>正在本地匹配…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="207"/>
+        <source>Highly related %1</source>
+        <translation>高度相关 %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="209"/>
+        <source>Show only the strongest semantic matches</source>
+        <translation>仅显示关联最强的语义匹配</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="223"/>
+        <source>Possibly related %1</source>
+        <translation>可能相关 %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="225"/>
+        <source>Show the broader semantic matches</source>
+        <translation>显示范围更宽的语义匹配</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="233"/>
+        <source>%1 weak hidden</source>
+        <translation>已隐藏 %1 个弱相关结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="40"/>
         <source>%1 · %L2 photos</source>
         <translation>%1 · %L2 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="222"/>
         <source>Compare the two selected photos</source>
         <translation>比较两张已选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="233"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="223"/>
         <source>Compare the selected photo with the next photo</source>
         <translation>将已选照片与下一张照片比较</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="494"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="496"/>
         <source>Capture month</source>
         <translation>拍摄月份</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="459"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="461"/>
         <source>Edit state</source>
         <translation>编辑状态</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="112"/>
+        <location filename="../qml/ReviewExifSection.qml" line="126"/>
         <source>LOCATION</source>
         <translation>位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="446"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="448"/>
         <source>Like state</source>
         <translation>喜欢状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="484"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="486"/>
         <source>METADATA</source>
         <translation>元数据</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="432"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="434"/>
         <source>Minimum rating</source>
         <translation>最低评分</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="355"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="357"/>
         <source>REVIEW STATE</source>
         <translation>筛选状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="309"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="311"/>
         <source>Advanced Library Filters</source>
         <translation>高级图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="327"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="329"/>
         <source>All active conditions must match. “Must not be” adds an explicit exclusion.</source>
         <translation>所有启用的条件都必须匹配。“不得为”会添加明确的排除条件。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="36"/>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="48"/>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="54"/>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="71"/>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="76"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="50"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="56"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="73"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="78"/>
         <source>Any</source>
         <translation>任意</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="63"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="65"/>
         <source>Any rating</source>
         <translation>任意星级</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="64"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="66"/>
         <source>1 star or more</source>
         <translation>1 星及以上</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="65"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="67"/>
         <source>2 stars or more</source>
         <translation>2 星及以上</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="66"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="68"/>
         <source>3 stars or more</source>
         <translation>3 星及以上</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="67"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="69"/>
         <source>4 stars or more</source>
         <translation>4 星及以上</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="68"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="70"/>
         <source>5 stars</source>
         <translation>5 星</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="362"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="364"/>
         <source>Must be</source>
         <translation>必须为</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="370"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="372"/>
         <source>Must not be</source>
         <translation>不得为</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="376"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="378"/>
         <source>FLAGS</source>
         <translation>标记</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="384"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="386"/>
         <source>Flag must be</source>
         <translation>标记必须为</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="394"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="396"/>
         <source>Flag must not be</source>
         <translation>标记不得为</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="49"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="51"/>
         <source>Unflagged</source>
         <translation>未标记</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="50"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="52"/>
         <source>Flagged</source>
         <translation>已标记</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="51"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="53"/>
         <source>Rejected</source>
         <translation>已拒绝</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="399"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="401"/>
         <source>COLORS</source>
         <translation>色标</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="407"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="409"/>
         <source>Color label must be</source>
         <translation>色标必须为</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="418"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="420"/>
         <source>Color label must not be</source>
         <translation>色标不得为</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="55"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="57"/>
         <source>No color label</source>
         <translation>无色标</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="56"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="58"/>
         <source>Red</source>
         <translation>红色</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="57"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="59"/>
         <source>Yellow</source>
         <translation>黄色</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="58"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="60"/>
         <source>Green</source>
         <translation>绿色</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="59"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="61"/>
         <source>Blue</source>
         <translation>蓝色</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="60"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="62"/>
         <source>Purple</source>
         <translation>紫色</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="423"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="425"/>
         <source>RATING</source>
         <translation>星级</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="437"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="439"/>
         <source>LIKE</source>
         <translation>喜欢状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="73"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="75"/>
         <source>Not liked</source>
         <translation>未喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="450"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="452"/>
         <source>EDIT</source>
         <translation>编辑状态</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="77"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="79"/>
         <source>Edited</source>
         <translation>已编辑</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="78"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="80"/>
         <source>Not edited</source>
         <translation>未编辑</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="487"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="489"/>
         <source>GREGORIAN DATE</source>
         <translation>公历日期</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="499"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="501"/>
         <source>CHINESE LUNAR DATE</source>
         <translation>中国农历</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="528"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="530"/>
         <source>LUNAR MONTH TYPE</source>
         <translation>农历月份类型</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="81"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="83"/>
         <source>Any lunar month</source>
         <translation>任意农历月份</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="82"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="84"/>
         <source>1st lunar month</source>
         <translation>正月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="83"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="85"/>
         <source>2nd lunar month</source>
         <translation>二月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="84"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="86"/>
         <source>3rd lunar month</source>
         <translation>三月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="85"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="87"/>
         <source>4th lunar month</source>
         <translation>四月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="86"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="88"/>
         <source>5th lunar month</source>
         <translation>五月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="87"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="89"/>
         <source>6th lunar month</source>
         <translation>六月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="88"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="90"/>
         <source>7th lunar month</source>
         <translation>七月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="89"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="91"/>
         <source>8th lunar month</source>
         <translation>八月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="90"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="92"/>
         <source>9th lunar month</source>
         <translation>九月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="91"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="93"/>
         <source>10th lunar month</source>
         <translation>十月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="92"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="94"/>
         <source>11th lunar month</source>
         <translation>冬月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="93"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="95"/>
         <source>12th lunar month</source>
         <translation>腊月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="96"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="98"/>
         <source>Any lunar day</source>
         <translation>任意农历日期</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="97"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="99"/>
         <source>Lunar day 1</source>
         <translation>初一</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="98"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="100"/>
         <source>Lunar day 2</source>
         <translation>初二</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="99"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="101"/>
         <source>Lunar day 3</source>
         <translation>初三</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="100"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="102"/>
         <source>Lunar day 4</source>
         <translation>初四</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="101"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="103"/>
         <source>Lunar day 5</source>
         <translation>初五</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="102"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="104"/>
         <source>Lunar day 6</source>
         <translation>初六</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="103"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="105"/>
         <source>Lunar day 7</source>
         <translation>初七</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="104"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="106"/>
         <source>Lunar day 8</source>
         <translation>初八</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="105"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="107"/>
         <source>Lunar day 9</source>
         <translation>初九</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="106"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="108"/>
         <source>Lunar day 10</source>
         <translation>初十</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="107"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="109"/>
         <source>Lunar day 11</source>
         <translation>十一</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="108"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="110"/>
         <source>Lunar day 12</source>
         <translation>十二</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="109"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="111"/>
         <source>Lunar day 13</source>
         <translation>十三</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="110"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="112"/>
         <source>Lunar day 14</source>
         <translation>十四</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="111"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="113"/>
         <source>Lunar day 15</source>
         <translation>十五</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="112"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="114"/>
         <source>Lunar day 16</source>
         <translation>十六</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="113"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="115"/>
         <source>Lunar day 17</source>
         <translation>十七</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="114"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="116"/>
         <source>Lunar day 18</source>
         <translation>十八</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="115"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="117"/>
         <source>Lunar day 19</source>
         <translation>十九</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="116"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="118"/>
         <source>Lunar day 20</source>
         <translation>二十</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="117"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="119"/>
         <source>Lunar day 21</source>
         <translation>廿一</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="118"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="120"/>
         <source>Lunar day 22</source>
         <translation>廿二</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="119"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="121"/>
         <source>Lunar day 23</source>
         <translation>廿三</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="120"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="122"/>
         <source>Lunar day 24</source>
         <translation>廿四</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="121"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="123"/>
         <source>Lunar day 25</source>
         <translation>廿五</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="122"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="124"/>
         <source>Lunar day 26</source>
         <translation>廿六</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="123"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="125"/>
         <source>Lunar day 27</source>
         <translation>廿七</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="124"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="126"/>
         <source>Lunar day 28</source>
         <translation>廿八</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="125"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="127"/>
         <source>Lunar day 29</source>
         <translation>廿九</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="126"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="128"/>
         <source>Lunar day 30</source>
         <translation>三十</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="129"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="131"/>
         <source>Any month type</source>
         <translation>任意月份类型</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="130"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="132"/>
         <source>Regular months</source>
         <translation>平月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="131"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="133"/>
         <source>Leap months</source>
         <translation>闰月</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="511"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="513"/>
         <source>Chinese lunar month</source>
         <translation>农历月份</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="522"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="524"/>
         <source>Chinese lunar day</source>
         <translation>农历日期</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="536"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="538"/>
         <source>Chinese lunar month type</source>
         <translation>农历月份类型</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="319"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="321"/>
         <source>Close advanced filters</source>
         <translation>关闭高级筛选</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="565"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="567"/>
         <source>COUNTRY</source>
         <translation>国家/地区</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="572"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="574"/>
         <source>Country</source>
         <translation>国家/地区</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="577"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="579"/>
         <source>CITY</source>
         <translation>城市</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="584"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="586"/>
         <source>City</source>
         <translation>城市</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="598"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="600"/>
         <source>Clear all</source>
         <translation>清除全部</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="606"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="608"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
@@ -8552,12 +8721,12 @@ Technical detail: %1</source>
         <translation>本次会话中有 %L1 条有效记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="133"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="123"/>
         <source>Browse as a photo grid</source>
         <translation>以照片网格浏览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="143"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="133"/>
         <source>Review one photo with a filmstrip</source>
         <translation>以胶片带逐张选片</translation>
     </message>
@@ -8746,7 +8915,7 @@ Technical detail: %1</source>
         <translation>导入时间筛选可用后，最近导入会显示在这里。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="72"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="74"/>
         <location filename="../qml/ReviewSystemCollections.qml" line="76"/>
         <source>Liked</source>
         <translation>喜欢</translation>
@@ -8782,118 +8951,118 @@ Technical detail: %1</source>
         <translation>条件</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="51"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="50"/>
         <source>ALL PHOTOS</source>
         <translation>全部照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="59"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="58"/>
         <source>%L1 visible</source>
         <translation>显示 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="67"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="66"/>
         <source>Manage photo sources</source>
         <translation>管理照片来源</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="85"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="75"/>
         <source>Assign and filter Library keywords</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="257"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="247"/>
         <source>Create a Manual Album first</source>
         <translation>请先创建手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="104"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="94"/>
         <source>Open the candidate duel</source>
         <translation>打开精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="105"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="95"/>
         <source>Add at least two photos to start the candidate duel</source>
         <translation>至少加入两张照片才能开始精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="153"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="143"/>
         <source>Browse geotagged photos on a map</source>
         <translation>在地图上浏览带地理位置的照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="162"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="152"/>
         <source>SCALE</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="180"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="170"/>
         <source>Thumbnail scale</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="190"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="180"/>
         <source>Restore default thumbnail scale</source>
         <translation>恢复默认缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="203"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="193"/>
         <source>Open photo metadata</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="211"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="201"/>
         <source>%L1 selected</source>
         <translation>已选择 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="220"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="210"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="256"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="246"/>
         <source>Add selected photos to a Manual Album</source>
         <translation>将所选照片添加到手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="270"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="260"/>
         <source>Remove selected photos from this Manual Album</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="282"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="272"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="186"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="184"/>
         <source>Searching the folder for supported photos…
 New RAW files will appear here as they are catalogued.</source>
         <translation>正在文件夹中搜索支持的照片…
 新的 RAW 文件会在收录后显示于此。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="188"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="186"/>
         <source>Import stopped, and no RAW files are currently visible.
 Already catalogued files remain safely stored.</source>
         <translation>导入已停止，目前没有可见的 RAW 文件。
 已收录的文件仍安全存储。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="189"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="187"/>
         <source>Add a folder to the local Library.
 Shadow will show embedded previews immediately, then replace them with locally generated proxies.</source>
         <translation>向本地图库添加文件夹。
 Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="248"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="246"/>
         <source>Finding the first photos</source>
         <translation>正在查找首批照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="249"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="247"/>
         <source>Loading local Library</source>
         <translation>正在加载本地图库</translation>
     </message>
@@ -8919,7 +9088,7 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>未选择任何内容</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="23"/>
+        <location filename="../qml/ReviewExifSection.qml" line="31"/>
         <source>EXIF</source>
         <translation>EXIF</translation>
     </message>
@@ -8929,13 +9098,13 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>拍摄时间</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="548"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="550"/>
         <location filename="../qml/ReviewMetadataPresentation.qml" line="109"/>
         <source>Camera</source>
         <translation>相机</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="560"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="562"/>
         <location filename="../qml/ReviewMetadataPresentation.qml" line="111"/>
         <source>Lens</source>
         <translation>镜头</translation>
@@ -9016,84 +9185,84 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>DNG 版本</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="90"/>
+        <location filename="../qml/ReviewExifSection.qml" line="104"/>
         <source>Metadata is being prepared</source>
         <translation>正在准备元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="86"/>
+        <location filename="../qml/ReviewExifSection.qml" line="100"/>
         <source>Could not load metadata for this photo</source>
         <translation>无法载入这张照片的元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="102"/>
+        <location filename="../qml/ReviewExifSection.qml" line="116"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="111"/>
+        <location filename="../qml/ReviewExifSection.qml" line="125"/>
         <source>CAPTURED</source>
         <translation>拍摄时间</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="541"/>
-        <location filename="../qml/ReviewExifSection.qml" line="113"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="543"/>
+        <location filename="../qml/ReviewExifSection.qml" line="127"/>
         <source>CAMERA</source>
         <translation>相机</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="553"/>
-        <location filename="../qml/ReviewExifSection.qml" line="114"/>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="555"/>
+        <location filename="../qml/ReviewExifSection.qml" line="128"/>
         <source>LENS</source>
         <translation>镜头</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="115"/>
+        <location filename="../qml/ReviewExifSection.qml" line="129"/>
         <source>SHUTTER</source>
         <translation>快门</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="116"/>
+        <location filename="../qml/ReviewExifSection.qml" line="130"/>
         <source>APERTURE</source>
         <translation>光圈</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="117"/>
+        <location filename="../qml/ReviewExifSection.qml" line="131"/>
         <source>SENSITIVITY</source>
         <translation>感光度</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="118"/>
+        <location filename="../qml/ReviewExifSection.qml" line="132"/>
         <source>FOCAL LENGTH</source>
         <translation>焦距</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="119"/>
+        <location filename="../qml/ReviewExifSection.qml" line="133"/>
         <source>PREVIEW</source>
         <translation>预览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="120"/>
+        <location filename="../qml/ReviewExifSection.qml" line="134"/>
         <source>35 MM EQUIV.</source>
         <translation>35 毫米等效</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="121"/>
+        <location filename="../qml/ReviewExifSection.qml" line="135"/>
         <source>RAW SIZE</source>
         <translation>RAW 尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="122"/>
+        <location filename="../qml/ReviewExifSection.qml" line="136"/>
         <source>BIT DEPTH</source>
         <translation>位深</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="123"/>
+        <location filename="../qml/ReviewExifSection.qml" line="137"/>
         <source>CFA</source>
         <translation>CFA</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="124"/>
+        <location filename="../qml/ReviewExifSection.qml" line="138"/>
         <source>DNG</source>
         <translation>DNG</translation>
     </message>
@@ -9160,12 +9329,12 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>正在加载照片…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="35"/>
+        <location filename="../qml/ReviewExifSection.qml" line="43"/>
         <source>View all photo metadata</source>
         <translation>查看全部照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="92"/>
+        <location filename="../qml/ReviewExifSection.qml" line="106"/>
         <source>No metadata is available for this photo</source>
         <translation>这张照片没有可用的元数据</translation>
     </message>
@@ -9280,32 +9449,32 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="485"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="500"/>
         <source>Downloading the original RAW from the remote Library…</source>
         <translation>正在从远程图库下载原始 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="491"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="506"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="508"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="523"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="510"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="525"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="512"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="527"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="514"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="529"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>
@@ -9340,42 +9509,42 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>代理图细节</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="75"/>
+        <location filename="../qml/ReviewExifSection.qml" line="89"/>
         <source>Local Library</source>
         <translation>本地图库</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="22"/>
+        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="25"/>
         <source>Network Library source</source>
         <translation>网络图库来源</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="21"/>
+        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="24"/>
         <source>Remote original cached locally</source>
         <translation>远程原片已缓存到本机</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="21"/>
+        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="22"/>
         <source>Server offline</source>
         <translation>服务器离线</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="50"/>
+        <location filename="../qml/ReviewExifSection.qml" line="58"/>
         <source>SOURCE</source>
         <translation>来源</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="74"/>
+        <location filename="../qml/ReviewExifSection.qml" line="88"/>
         <source>Server Library</source>
         <translation>服务器图库</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="72"/>
+        <location filename="../qml/ReviewExifSection.qml" line="86"/>
         <source>Server Library · cached locally</source>
         <translation>服务器图库 · 已缓存到本机</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewExifSection.qml" line="72"/>
+        <location filename="../qml/ReviewExifSection.qml" line="82"/>
         <source>Server Library · offline</source>
         <translation>服务器图库 · 离线</translation>
     </message>
@@ -9498,6 +9667,34 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ReviewCullingArena.qml" line="383"/>
         <source>Clear candidates</source>
         <translation>清空候选</translation>
+    </message>
+</context>
+<context>
+    <name>SemanticSearchController</name>
+    <message>
+        <location filename="../src/semantic_search_controller.cpp" line="49"/>
+        <source>Describe a photo to search the current Library preview.</source>
+        <translation>输入照片描述，搜索当前图库预览。</translation>
+    </message>
+    <message>
+        <location filename="../src/semantic_search_controller.cpp" line="51"/>
+        <source>Comparing your description with local photos…</source>
+        <translation>正在将描述与本地照片进行比较…</translation>
+    </message>
+    <message>
+        <location filename="../src/semantic_search_controller.cpp" line="53"/>
+        <source>Semantic search finished.</source>
+        <translation>语义搜索已完成。</translation>
+    </message>
+    <message>
+        <location filename="../src/semantic_search_controller.cpp" line="55"/>
+        <source>Semantic search could not finish.</source>
+        <translation>语义搜索未能完成。</translation>
+    </message>
+    <message>
+        <location filename="../src/semantic_search_controller.cpp" line="66"/>
+        <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
+        <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
     </message>
 </context>
 <context>

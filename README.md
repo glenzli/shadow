@@ -72,6 +72,7 @@ The first executable slices are intentionally small:
 folder scan → live durable registration/progress → first-page visibility → cancel/stable reopen
 RAW/DNG → metadata → embedded preview or bounded JPEG proxy → content cache
 cached JPEG visual → bounded display-luma → version-bound technical observation → Review detail
+current Review JPEGs → local YuNet detection → local SFace embeddings → transient anonymous-person groups
 two exact cached visuals → verified Compare RGBA frames → explicit outcome → append-only feedback / forget fact
 Review flag/rating → expected-head CAS → immutable decision event → current projection / inverse-event undo
 EXIF/GPS observation → non-destructive user override → indexed effective metadata → Library query / GPX match
@@ -102,6 +103,7 @@ cargo run --package shadow-cli -- backup ./catalogs/demo.sqlite ./backups/demo-2
 cargo run --package shadow-cli -- verify-backup ./backups/demo-20260725.sqlite
 cargo run --package shadow-cli -- inspect-raw /path/to/input.dng
 cargo run --package shadow-cli -- inspect-store ./catalogs/demo.sqlite ./catalogs/cache /path/to/input.dng
+cargo run --package shadow-cli -- people-cluster ./catalogs/demo.sqlite ./catalogs/cache http://127.0.0.1:8787 /path/to/owner-only-infer-token
 cargo run --package shadow-cli -- library-serve ./catalogs/server.sqlite ./catalogs/server-cache /path/to/raw ./catalogs/server-state 0.0.0.0:37641 ./catalogs/share-token "Studio Mac"
 cargo run --package shadow-cli -- library-sync 192.168.1.10:37641 ./catalogs/share-token ./catalogs/remote-mirror ./catalogs/remote-previews
 cargo run --package shadow-cli -- library-materialize 192.168.1.10:37641 ./catalogs/share-token ./catalogs/remote-mirror ./catalogs/remote-originals ./catalogs/local.sqlite <remote-photo-id> <remote-representation-id>

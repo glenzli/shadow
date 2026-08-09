@@ -16,6 +16,7 @@ Item {
     required property var mapProviderPreferences
     required property var googleMapTilesService
     required property var personalProfile
+    required property var semanticSearchController
 
     ReviewSelectionState {
         id: selectionState
@@ -211,6 +212,7 @@ Item {
         || controller.filterExcludedColorLabel !== "all"
         || hasLibraryFacetFilter
         || hasLibraryKeywordFilter
+        || semanticSearchController.hasResults
     readonly property var manualLibraryAlbums: {
         const albums = controller.libraryAlbums
         const manualAlbums = []

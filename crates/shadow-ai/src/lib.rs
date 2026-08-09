@@ -11,6 +11,7 @@ mod derived_raster;
 mod feedback;
 mod generated;
 mod manifest;
+mod people;
 mod preference;
 mod providers;
 mod raw_foundation;
@@ -19,6 +20,7 @@ mod remote;
 mod resource;
 mod runtime;
 mod score;
+mod semantic;
 mod technical;
 mod value;
 mod wire_v1;
@@ -64,12 +66,20 @@ pub use manifest::{
     ModelFormat, ModelManifest, ModelManifestError, NumericRange, Quantization, TensorContract,
     TensorLayout, TensorSemantics,
 };
+pub use people::{
+    ANONYMOUS_PEOPLE_GROUPING_REVISION, AnonymousPeopleGroupingError, AnonymousPeopleGroupingPlan,
+    AnonymousPersonGroup, AnonymousPersonGroupingPolicy, FaceBoundingBox, FaceEmbedding,
+    FaceLandmarks, FaceOccurrenceEvidence, FaceOccurrenceId, FaceOccurrenceReference, FacePoint,
+    MAX_FACE_OCCURRENCES, SFACE_EMBEDDING_DIMENSIONS, propose_anonymous_people,
+};
 pub use preference::{
     FeatureSchema, FeatureVector, LinearPreferenceHead, PreferenceExample, PreferenceModelError,
     TrainingHyperparameters, TrainingUpdate,
 };
 pub use providers::{
-    AppleVisionFeaturePrintProvider, RAWNIND_FOUNDATION_ADAPTER_REVISION,
+    AppleVisionFeaturePrintProvider, DetectedFace, DetectedFaceBatch, EmbeddedFace,
+    FaceAnalysisProvider, FaceEmbeddingEligibility, ImageEmbeddingEvidence, InferRuntimeClient,
+    InferRuntimeClientError, InferRuntimeCredential, RAWNIND_FOUNDATION_ADAPTER_REVISION,
     RAWNIND_FOUNDATION_ARTIFACT_SET_BLAKE3, RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256,
     RAWNIND_FOUNDATION_IMPLEMENTATION_REVISION, RAWNIND_FOUNDATION_MODEL_ID,
     RAWNIND_FOUNDATION_MODEL_RECEIPT_PREFIX, RAWNIND_FOUNDATION_MODEL_REVISION,
@@ -82,8 +92,10 @@ pub use providers::{
     SAM2_COREML_MAX_PROMPT_POINTS, SAM2_COREML_MODEL_ID, SAM2_COREML_MODEL_RECEIPT_PREFIX,
     SAM2_COREML_PROVIDER_ID, SAM2_COREML_RECEIPT_PREFIX, Sam2CoreMlModelVerificationError,
     Sam2CoreMlProviderConfigurationError, Sam2CoreMlResidentSession, Sam2CoreMlSidecarProvider,
-    VerifiedRawNindFoundationInstallation, VerifiedSam2CoreMlInstallation, plan_rawnind_foundation,
-    verify_rawnind_foundation_installation, verify_sam2_coreml_installation,
+    SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence,
+    VerifiedRawNindFoundationInstallation, VerifiedSam2CoreMlInstallation, VisionProvenance,
+    VisionTokenizerProvenance, plan_rawnind_foundation, verify_rawnind_foundation_installation,
+    verify_sam2_coreml_installation,
 };
 pub use raw_foundation::{
     MAX_RAW_FOUNDATION_IMPLEMENTATION_REVISION_BYTES, RAW_FOUNDATION_ENCODING_VERSION,
@@ -125,6 +137,13 @@ pub use score::{
     CandidateAssessment, CandidateRank, CandidateSignals, DefectGate, PersonalPreferenceSignal,
     ScoreContribution, ScoredSignal, SelectionPolicy, SelectionWeights, VisibilityDisposition,
     rank_group,
+};
+pub use semantic::{
+    MAX_LANGUAGE_TAG_BYTES, MAX_SEMANTIC_EMBEDDING_DIMENSIONS, MAX_SEMANTIC_ID_BYTES,
+    MAX_SEMANTIC_KEYWORD_SUGGESTIONS, MAX_SEMANTIC_LABEL_BYTES, MAX_SHORT_CAPTION_BYTES,
+    SEMANTIC_EMBEDDING_CONTRACT_VERSION, SEMANTIC_IMAGE_ANALYSIS_SCHEMA_VERSION,
+    SemanticContractError, SemanticEmbedding, SemanticEmbeddingSpace, SemanticEvidenceKind,
+    SemanticImageAnalysis, SemanticKeywordKind, SemanticKeywordSuggestion, SemanticShortCaption,
 };
 pub use technical::{
     DISPLAY_LUMA_CONTRACT_VERSION, DisplayLumaPlane, LUMA_HISTOGRAM_BIN_COUNT, LumaHistogram,

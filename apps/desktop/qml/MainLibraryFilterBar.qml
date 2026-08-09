@@ -8,6 +8,7 @@ Rectangle {
     id: filterBar
 
     required property var controller
+    required property var semanticSearchController
     signal advancedFilterRequested()
 
     readonly property bool anyFilterActive:
@@ -26,6 +27,7 @@ Rectangle {
         || filterBar.controller.filterLensKey.length > 0
         || filterBar.controller.filterKeywordIdsAll.length > 0
         || filterBar.controller.filterExcludedKeywordIdsAny.length > 0
+        || filterBar.semanticSearchController.hasResults
 
     function colorLabelName(label) {
         switch (String(label).toLowerCase()) {
@@ -133,6 +135,7 @@ Rectangle {
             iconSize: 14
             source: "qrc:/icons/filter-off.svg"
             selected: !filterBar.anyFilterActive
+            enabled: !filterBar.semanticSearchController.busy
             toolTipText: qsTranslate("Main", "Clear all Library filters")
             accessibleName: toolTipText
             onClicked: filterBar.controller.clearFilters()

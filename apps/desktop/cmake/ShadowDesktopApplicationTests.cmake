@@ -4,6 +4,114 @@
         NAME shadow-desktop-qml-startup
         COMMAND $<TARGET_FILE:shadow-desktop>
     )
+
+    add_executable(
+        shadow-people-analysis-controller-test
+        tests/people_analysis_controller_test.cpp
+        src/people_analysis_controller.cpp
+        src/people_analysis_controller.hpp
+    )
+    target_compile_features(shadow-people-analysis-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-people-analysis-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-people-analysis-controller-test
+        PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-people-analysis-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-people-analysis-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-people-analysis-controller
+        COMMAND shadow-people-analysis-controller-test
+    )
+
+    add_executable(
+        shadow-semantic-search-controller-test
+        tests/semantic_search_controller_test.cpp
+        src/semantic_search_controller.cpp
+        src/semantic_search_controller.hpp
+    )
+    target_compile_features(shadow-semantic-search-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-semantic-search-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-semantic-search-controller-test
+        PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-semantic-search-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-semantic-search-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-semantic-search-controller
+        COMMAND shadow-semantic-search-controller-test
+    )
+
+    add_executable(
+        shadow-people-workspace-contract-test
+        tests/people_workspace_contract_test.cpp
+    )
+    target_compile_features(shadow-people-workspace-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(
+        shadow-people-workspace-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Svg
+    )
+    qt_add_qml_module(
+        shadow-people-workspace-contract-test
+        URI Shadow.PeopleWorkspaceContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PeopleWorkspace.qml
+            qml/ShadowButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-people-workspace-contract-test people-workspace-contract-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES
+            icons/people.svg
+            icons/storage.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-people-workspace-contract-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-people-workspace-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-people-workspace-contract
+        COMMAND shadow-people-workspace-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-people-workspace-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
     add_test(
         NAME shadow-server-manager-qml-startup
         COMMAND $<TARGET_FILE:shadow-server-manager>

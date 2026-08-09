@@ -10,7 +10,9 @@ mod display_jpeg_fixture;
 mod import;
 mod library_metadata;
 mod native_path;
+mod people_analysis;
 mod performance;
+mod semantic_search;
 mod technical_observation;
 mod work_scheduler;
 
@@ -58,9 +60,18 @@ pub use library_metadata::{
     GpxTrackPoint, load_gpx_track, match_photos_to_gpx,
 };
 pub use native_path::{NativePathError, native_location, native_path_from_location};
+pub use people_analysis::{
+    DEFAULT_PEOPLE_MAXIMUM_COSINE_DISTANCE, PeopleAnalysisError, PeopleAnalysisPolicy,
+    PeopleAnalysisReport, PeopleAnalysisSkipped, analyze_review_people,
+};
 pub use performance::{
     DecodePerformance, DurationStats, IMPORT_ENGINE_PERFORMANCE_SCHEMA_VERSION,
     ImportEnginePerformance, ScanPerformance, TechnicalPerformance,
+};
+pub use semantic_search::{
+    DEFAULT_SEMANTIC_SEARCH_MAXIMUM_PHOTOS, MAX_SEMANTIC_SEARCH_PHOTOS, SemanticSearchError,
+    SemanticSearchMatch, SemanticSearchPolicy, SemanticSearchReport, SemanticSearchSkipped,
+    search_review_semantics,
 };
 pub use technical_observation::{
     TECHNICAL_ANALYSIS_MAX_EDGE, TechnicalObservationActor, TechnicalObservationError,

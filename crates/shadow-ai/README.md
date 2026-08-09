@@ -105,6 +105,12 @@ and gates, not implemented inference.
   fractions, and two explicitly defined sharpness proxies. These measurements
   describe the supplied display proxy only; they are not RAW exposure readings,
   aesthetic scores, or automatic Pick/Reject decisions.
+- Provider-neutral semantic-image contracts now admit bounded, redacted,
+  L2-normalized image/text embeddings only inside one exact versioned space.
+  A separate structured-analysis proposal carries at most 64 canonical scene,
+  object, activity, or attribute suggestions plus one bounded language-tagged
+  short caption. It deliberately has no confidence-to-commit path and cannot
+  create an `AiAccepted` Library keyword without a later user action.
   The application does not currently compare sharpness across photos. Matching
   proxy scale and exact preprocessing revision is a minimum precondition, not
   proof of comparability; upstream resizing or sharpening changes their meaning.
@@ -119,6 +125,25 @@ and gates, not implemented inference.
   cooperatively cancels by terminating the child, and retries one complete
   request after a transport failure. Model download and redistribution remain
   outside Shadow.
+- A fail-closed loopback client for infer-runtime's experimental YuNet and
+  SFace routes. It accepts only path-free literal loopback-IP HTTP URLs,
+  disables redirects, loads a regular owner-only credential file, validates
+  the exact `input_pixels_no_exif_transform` coordinate contract, and rejects
+  malformed model provenance or biometric responses. SFace vectors are fixed
+  at 128 finite L2-normalized values in one exact embedding space; their Debug
+  output is redacted and they have no serialization implementation.
+- The same loopback client now exposes infer-runtime's experimental `SigLIP 2`
+  image/text routes through a separate semantic owner. It requires normalized
+  display orientation for JPEG/PNG inputs, sends explicit interactive or
+  background priority, admits only finite normalized 768-dimensional cosine
+  vectors, requires tokenizer provenance for text, and compares results only
+  inside one exact versioned embedding space. The client does not own a photo
+  index, retry checkpoint, or Catalog publication.
+- Deterministic anonymous-person candidate grouping over request-local SFace
+  evidence. It uses conservative complete-link grouping, never compares
+  different embedding spaces, never groups two co-occurring faces from the
+  same photo, and emits only occurrence references. The result is an anonymous
+  review proposal, not a named identity or recognition claim.
 
 Unaccepted model-derived data remains rebuildable. Human decisions, feedback
 events, and accepted edit versions are durable application facts today. An
@@ -170,17 +195,28 @@ soft mask into the managed raster store before the Recipe references it.
 Cancellation, stale-result rejection, reversible invert/opacity/feather
 settings, and explicit apply/cancel boundaries remain application-owned.
 
+The first people-analysis slice is operator-facing rather than a desktop
+feature. `shadow-core` pages the Catalog's current Review visuals, verifies each
+content-addressed JPEG, calls infer-runtime's YuNet detection and SFace
+embedding endpoints, and rechecks the exact selected artifact before admitting
+the result. It currently returns an in-memory anonymous grouping report through
+`shadow-cli people-cluster`; embeddings, face observations, and clusters are
+not persisted or synchronized. This deliberately postpones durable biometric
+retention/deletion policy and user merge/split/name facts instead of silently
+putting vectors into the ordinary Catalog.
+
 ## Deliberately not implemented
 
 - No linked ONNX Runtime/Vision/CUDA/Metal/DirectML/Windows ML inference
-  adapter. Core ML inference is isolated in the packaged SAM provider; the
-  Apple Vision module remains an availability-tested boundary only.
-- No DINO, CLIP, face/eye, depth, inpaint, diffusion, VLM, or LLM model.
+  adapter. ONNX YuNet/SFace execution is delegated to the separately managed
+  local infer-runtime; Core ML inference is isolated in the packaged SAM
+  provider, and the Apple Vision module remains an availability-tested boundary only.
+- No DINO, CLIP, depth, inpaint, diffusion, VLM, or LLM model inside Shadow.
 - No fabricated quality score, embedding, mask, recipe, or generated patch.
 - No bundled/downloaded model package and no promise that an arbitrary SAM
   conversion is compatible. Admission requires the exact pinned artifact set.
-- No model downloader, remote API call, Python runtime, or direct Catalog access
-  from this crate.
+- No model downloader, cloud API call, Python runtime, or direct Catalog access
+  from this crate. The infer-runtime adapter is restricted to loopback HTTP.
 - No cross-photo quality rank derived from the current display-proxy metrics.
 - No fixed hardware-name assumptions for M1 Pro or RTX 4070 Ti.
 
@@ -188,6 +224,8 @@ settings, and explicit apply/cancel boundaries remain application-owned.
 
 - [`src/contract.rs`](src/contract.rs) owns provider-neutral task intent and
   result evidence.
+- [`src/semantic.rs`](src/semantic.rs) owns image/text embedding-space safety,
+  bounded keyword suggestions, and short-caption proposal validation.
 - [`src/runtime/`](src/runtime/) owns route identity, admission, leases,
   progress/cancellation, runtime-issued provenance, and terminal receipts.
 - [`src/manifest.rs`](src/manifest.rs) owns local artifact sets;
@@ -196,7 +234,16 @@ settings, and explicit apply/cancel boundaries remain application-owned.
   receipts, and [`src/remote/admission.rs`](src/remote/admission.rs) owns the
   exact request/grant gate.
 - [`src/culling.rs`](src/culling.rs) owns similarity-only grouping evidence;
-  [`src/providers/`](src/providers/) owns platform availability boundaries.
+  [`src/people.rs`](src/people.rs) owns anonymous-person grouping and sensitive
+  SFace value admission; [`src/providers/infer_runtime.rs`](src/providers/infer_runtime.rs)
+  owns shared loopback transport and face routes, while
+  [`src/providers/infer_runtime/semantic.rs`](src/providers/infer_runtime/semantic.rs)
+  owns `SigLIP 2` image/text request and response admission;
+  [`src/providers/`](src/providers/) owns the remaining platform availability
+  boundaries.
+- [`../shadow-core/src/people_analysis.rs`](../shadow-core/src/people_analysis.rs)
+  owns Catalog/cache selection, source-revision binding, stale-result rejection,
+  and the bounded transient people-analysis workflow.
 - [`src/generated.rs`](src/generated.rs) owns typed generated outputs and
   [`src/derived_raster.rs`](src/derived_raster.rs) owns the managed-store
   promotion transaction boundary.

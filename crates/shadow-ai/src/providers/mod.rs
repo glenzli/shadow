@@ -7,11 +7,18 @@
 //! route; this crate links neither the native framework nor model weights.
 
 mod apple_vision;
+mod infer_runtime;
 mod local_process;
 mod rawnind_foundation_sidecar;
 mod sam2_coreml_sidecar;
 
 pub use apple_vision::AppleVisionFeaturePrintProvider;
+pub use infer_runtime::{
+    DetectedFace, DetectedFaceBatch, EmbeddedFace, FaceAnalysisProvider, FaceEmbeddingEligibility,
+    ImageEmbeddingEvidence, InferRuntimeClient, InferRuntimeClientError, InferRuntimeCredential,
+    SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance,
+    VisionTokenizerProvenance,
+};
 pub(crate) use rawnind_foundation_sidecar::descriptor_from_planned_verification;
 pub use rawnind_foundation_sidecar::{
     RAWNIND_FOUNDATION_ADAPTER_REVISION, RAWNIND_FOUNDATION_ARTIFACT_SET_BLAKE3,

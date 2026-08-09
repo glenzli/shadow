@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QSortFilterProxyModel>
+#include <QHash>
 #include <QStringList>
 
 /// A client-side Lightroom-style library filter over the locally loaded page.
@@ -46,6 +47,7 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] QStringList keywordIdsAll() const;
     [[nodiscard]] QStringList excludedKeywordIdsAny() const;
     [[nodiscard]] bool hasActiveServerFilter() const;
+    [[nodiscard]] bool semanticFilterActive() const noexcept;
 
     void setFlagFilter(const QString& filter);
     void setMinimumRating(int rating);
@@ -69,14 +71,21 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     void setDailyFilterEnabled(bool enabled);
     void setKeywordIdsAll(const QStringList& keyword_ids);
     void setExcludedKeywordIdsAny(const QStringList& keyword_ids);
+    /// Restricts the loaded Review model to exact semantic matches and orders
+    /// them from strongest to weakest. Keys use the controller-owned
+    /// `{photo, representation}` identity grammar.
+    void setSemanticRepresentationOrder(const QStringList& ranked_keys);
     Q_INVOKABLE void clearFilters();
 
   signals:
     void filtersChanged();
+    void semanticFilterChanged();
 
   protected:
     [[nodiscard]] bool
     filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override;
+    [[nodiscard]] bool
+    lessThan(const QModelIndex& source_left, const QModelIndex& source_right) const override;
 
   private:
     [[nodiscard]] static QString normalizeFlagFilter(const QString& filter);
@@ -108,4 +117,5 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     bool daily_filter_enabled_ = false;
     QStringList keyword_ids_all_;
     QStringList excluded_keyword_ids_any_;
+    QHash<QString, qsizetype> semantic_rank_by_key_;
 };

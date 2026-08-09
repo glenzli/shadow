@@ -104,6 +104,11 @@ QVariantList ReviewController::selectionRangeTargets(
 void ReviewController::clearFilters() {
     filtered_model_.clearFilters();
     album_coordinator_.clearAlbumSelection();
+    emit allFiltersCleared();
+}
+
+void ReviewController::setSemanticRepresentationOrder(const QStringList& ranked_keys) {
+    filtered_model_.setSemanticRepresentationOrder(ranked_keys);
 }
 
 void ReviewController::refreshVisibleLibrary() {

@@ -56,10 +56,18 @@ Rectangle {
         onExportRequested: targets => gallery.exportRequested(targets)
     }
 
+    SemanticSearchStatusStrip {
+        id: semanticSearchStatus
+        anchors.top: reviewToolBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        workspace: gallery.workspace
+    }
+
     ListView {
         id: justifiedGrid
         objectName: "reviewJustifiedGrid"
-        anchors.top: reviewToolBar.bottom
+        anchors.top: semanticSearchStatus.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -146,7 +154,7 @@ Rectangle {
 
     ReviewSinglePreview {
         id: singlePhotoPreview
-        anchors.top: reviewToolBar.bottom
+        anchors.top: semanticSearchStatus.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -160,7 +168,7 @@ Rectangle {
 
     Loader {
         id: mapLoader
-        anchors.top: reviewToolBar.bottom
+        anchors.top: semanticSearchStatus.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

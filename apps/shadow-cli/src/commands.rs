@@ -1,9 +1,15 @@
-use super::{backup, catalog, decode, remote_library, scan};
+use super::{backup, catalog, decode, people, remote_library, scan, semantic};
 use anyhow::{Result, bail};
 use shadow_domain::ImportSessionId;
 
 pub(super) fn run(arguments: impl IntoIterator<Item = String>) -> Result<()> {
     let arguments = arguments.into_iter().collect::<Vec<_>>();
+    if people::run_if_requested(&arguments)? {
+        return Ok(());
+    }
+    if semantic::run_if_requested(&arguments)? {
+        return Ok(());
+    }
     match arguments.as_slice() {
         [command, catalog_path] if command == "init" => {
             catalog::initialize(catalog_path)?;
@@ -101,6 +107,6 @@ pub(super) fn run(arguments: impl IntoIterator<Item = String>) -> Result<()> {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli cache-read <catalog.sqlite> <cache-root> <path>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli backup <catalog.sqlite> <backup.sqlite>\n  shadow-cli verify-backup <backup.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>\n  shadow-cli library-serve <catalog.sqlite> <preview-cache> <folder> <server-state> <bind-address> <token-file> <display-name>\n  shadow-cli library-sync <server-address> <token-file> <mirror-root> <preview-cache>\n  shadow-cli library-materialize <server-address> <token-file> <mirror-root> <original-cache> <local-catalog.sqlite> <remote-photo-id> <remote-representation-id>"
+        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli cache-read <catalog.sqlite> <cache-root> <path>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli backup <catalog.sqlite> <backup.sqlite>\n  shadow-cli verify-backup <backup.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>\n  shadow-cli people-cluster <catalog.sqlite> <cache-root> <infer-base-url> <token-file>\n  shadow-cli semantic-search <catalog.sqlite> <cache-root> <infer-base-url> <token-file> <query> [language]\n  shadow-cli library-serve <catalog.sqlite> <preview-cache> <folder> <server-state> <bind-address> <token-file> <display-name>\n  shadow-cli library-sync <server-address> <token-file> <mirror-root> <preview-cache>\n  shadow-cli library-materialize <server-address> <token-file> <mirror-root> <original-cache> <local-catalog.sqlite> <remote-photo-id> <remote-representation-id>"
     );
 }

@@ -52,8 +52,26 @@ Application startup is split from environment-driven automation:
   registration.
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
+- [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
+  session-only anonymous-people analysis lifecycle: worker admission, safe failure presentation,
+  in-memory summary projection, rerun, localization, and clear-on-request/destruction. It delegates
+  model execution through `DesktopBackend`; no embeddings or face geometry enter Qt.
+- [`src/semantic_search_controller.*`](src/semantic_search_controller.hpp) owns manual,
+  session-only natural-language search admission, safe failure presentation, and the bounded
+  high/possible relevance projection; weak relative matches stay hidden.
+  [`src/review_filter_model.*`](src/review_filter_model.hpp) composes that ranking with existing
+  Review filters and restores source order when it is cleared; vectors, prompts, paths, and model
+  provenance never enter the Qt model.
 - [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace routing, theme
   projection, and the stable application-shell entry points used by child workspaces.
+- [`qml/PeopleWorkspace.qml`](qml/PeopleWorkspace.qml) owns the manually triggered People preview,
+  local-only disclosure, analysis summary, anonymous cards, and session-clear interaction. It does
+  not imply persistence, naming, merge/split facts, or automatic background analysis.
+- [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns the compact gallery mode and
+  batch controls inside Review.
+  [`qml/SemanticSearchStatusStrip.qml`](qml/SemanticSearchStatusStrip.qml) owns the integrated
+  natural-language filter field, keeps its asynchronous waiting state and high/possible relevance
+  groups visible, and clears back to the ordinary filtered grid without another workspace.
 - [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
   workspace navigation, edit save/undo state, settings entry, and the History Drawer trigger. It
   preserves the `Main` translation context; [`qml/HistoryDrawer.qml`](qml/HistoryDrawer.qml) owns

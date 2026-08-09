@@ -21,6 +21,7 @@ ToolBar {
 
     signal reviewRequested()
     signal precisionRequested()
+    signal peopleRequested()
     signal historyRequested()
 
     objectName: "titleToolBar"
@@ -117,6 +118,19 @@ ToolBar {
                 enabled: titleBar.editor.active || titleBar.editor.busy
                     || titleBar.canOpenSelectedPhoto
                 onClicked: titleBar.precisionRequested()
+            }
+
+            ShadowTabButton {
+                height: parent.height
+                active: titleBar.workspaceIndex === 3
+                iconSource: "qrc:/icons/people.svg"
+                iconSize: 18
+                minimumTabWidth: 46
+                underlineInset: 22
+                underlineBottomMargin: -titleBar.bottomPadding
+                text: qsTr("PEOPLE")
+                toolTipText: text
+                onClicked: titleBar.peopleRequested()
             }
         }
 

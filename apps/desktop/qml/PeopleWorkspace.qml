@@ -1,0 +1,337 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+Item {
+    id: people
+
+    required property var controller
+    readonly property int renderedGroupCount: peopleGroupRepeater.count
+
+    function requestStartAnalysis() {
+        if (!controller.busy)
+            controller.startAnalysis()
+    }
+
+    function requestClearSession() {
+        if (!controller.busy && controller.hasResults)
+            controller.clearSessionResults()
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.window
+    }
+
+    ScrollView {
+        anchors.fill: parent
+        clip: true
+        contentWidth: availableWidth
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+        ColumnLayout {
+            width: Math.min(980, parent.width - 64)
+            x: Math.round((parent.width - width) / 2)
+            spacing: 18
+
+            Item { Layout.preferredHeight: 30 }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Rectangle {
+                    Layout.preferredWidth: 44
+                    Layout.preferredHeight: 44
+                    radius: 10
+                    color: Theme.accentSurface
+
+                    ShadowIcon {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/people.svg"
+                        color: Theme.accent
+                        size: 22
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 3
+
+                    Label {
+                        text: qsTr("People")
+                        color: Theme.textPrimary
+                        font.pixelSize: 22
+                        font.weight: Font.DemiBold
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Find recurring people with local face analysis. Groups remain anonymous and disappear when Shadow closes.")
+                        color: Theme.textMuted
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: privacyContent.implicitHeight + 28
+                radius: 10
+                color: Theme.panel
+                border.color: Theme.border
+
+                RowLayout {
+                    id: privacyContent
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 12
+
+                    ShadowIcon {
+                        source: "qrc:/icons/storage.svg"
+                        color: Theme.textMuted
+                        size: 18
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Label {
+                            text: qsTr("Session preview")
+                            color: Theme.textPrimary
+                            font.weight: Font.DemiBold
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Processing stays on this device. Face vectors and groups are not saved to the Library.")
+                            color: Theme.textMuted
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                ShadowButton {
+                    objectName: "peopleStartButton"
+                    text: people.controller.hasResults
+                        ? qsTr("Analyze Again") : qsTr("Start Analysis")
+                    variant: ShadowButton.Primary
+                    enabled: !people.controller.busy
+                    onClicked: people.requestStartAnalysis()
+                }
+
+                ShadowButton {
+                    objectName: "peopleClearButton"
+                    visible: people.controller.hasResults
+                    text: qsTr("Clear Session Results")
+                    enabled: !people.controller.busy
+                    onClicked: people.requestClearSession()
+                }
+
+                BusyIndicator {
+                    visible: people.controller.busy
+                    running: visible
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: people.controller.statusText
+                    color: people.controller.errorText.length > 0
+                        ? Theme.errorText : Theme.textMuted
+                    elide: Text.ElideRight
+                }
+            }
+
+            Rectangle {
+                visible: people.controller.errorText.length > 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: errorLabel.implicitHeight + 24
+                radius: 8
+                color: Theme.dangerSurface
+
+                Label {
+                    id: errorLabel
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    text: people.controller.errorText
+                    color: Theme.errorText
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            GridLayout {
+                visible: people.controller.hasResults
+                Layout.fillWidth: true
+                columns: width >= 760 ? 4 : width >= 520 ? 2 : 1
+                columnSpacing: 10
+                rowSpacing: 10
+
+                Repeater {
+                    model: [
+                        {
+                            label: qsTr("Photos analyzed"),
+                            value: people.controller.analyzedPhotos
+                        },
+                        {
+                            label: qsTr("Faces found"),
+                            value: people.controller.detectedFaces
+                        },
+                        {
+                            label: qsTr("Faces compared"),
+                            value: people.controller.embeddedFaces
+                        },
+                        {
+                            label: qsTr("Anonymous groups"),
+                            value: people.controller.groups.length
+                        }
+                    ]
+
+                    delegate: Rectangle {
+                        id: statisticCard
+
+                        required property var modelData
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 72
+                        radius: 9
+                        color: Theme.panel
+                        border.color: Theme.border
+
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: 3
+
+                            Label {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: Number(statisticCard.modelData.value).toLocaleString()
+                                color: Theme.textPrimary
+                                font.pixelSize: 20
+                                font.weight: Font.DemiBold
+                            }
+
+                            Label {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: String(statisticCard.modelData.label)
+                                color: Theme.textMuted
+                                font.pixelSize: 10
+                            }
+                        }
+                    }
+                }
+            }
+
+            Label {
+                visible: people.controller.truncated
+                Layout.fillWidth: true
+                text: qsTr("This preview reached its safety limit. A later background workflow can continue incrementally.")
+                color: Theme.warningText
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                visible: people.controller.hasResults
+                    && people.controller.groups.length === 0
+                Layout.fillWidth: true
+                Layout.topMargin: 30
+                text: qsTr("No recurring people were grouped in the current Library preview.")
+                color: Theme.textMuted
+                font.pixelSize: 14
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+            }
+
+            GridLayout {
+                visible: people.controller.groups.length > 0
+                Layout.fillWidth: true
+                columns: width >= 820 ? 4 : width >= 560 ? 3 : 2
+                columnSpacing: 14
+                rowSpacing: 14
+
+                Repeater {
+                    id: peopleGroupRepeater
+                    model: people.controller.groups
+
+                    delegate: Rectangle {
+                        required property var modelData
+
+                        objectName: "peopleGroupCard"
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 170
+                        radius: 12
+                        color: Theme.panelRaised
+                        border.color: Theme.border
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 9
+
+                            Rectangle {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.preferredWidth: 76
+                                Layout.preferredHeight: 76
+                                radius: 38
+                                color: Theme.accentSurface
+
+                                ShadowIcon {
+                                    anchors.centerIn: parent
+                                    source: "qrc:/icons/people.svg"
+                                    color: Theme.accent
+                                    size: 34
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Person %1").arg(
+                                    peopleGroup.modelData.displayIndex)
+                                color: Theme.textPrimary
+                                font.pixelSize: 14
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("%n photos", "", peopleGroup.modelData.photoCount)
+                                color: Theme.textMuted
+                                font.pixelSize: 11
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                        }
+
+                        id: peopleGroup
+                    }
+                }
+            }
+
+            Label {
+                visible: people.controller.hasResults
+                    && (people.controller.ungroupedFaces > 0
+                        || people.controller.skippedItems > 0)
+                Layout.fillWidth: true
+                text: qsTr("%1 ungrouped faces · %2 skipped items")
+                    .arg(people.controller.ungroupedFaces)
+                    .arg(people.controller.skippedItems)
+                color: Theme.textMuted
+                font.pixelSize: 10
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Item { Layout.preferredHeight: 30 }
+        }
+    }
+}

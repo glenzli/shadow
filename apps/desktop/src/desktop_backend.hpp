@@ -5,6 +5,8 @@
 #include "backend/history_types.hpp"
 #include "backend/library_server_types.hpp"
 #include "backend/library_types.hpp"
+#include "backend/people_analysis_types.hpp"
+#include "backend/semantic_search_types.hpp"
 #include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
 #include "folder_scan_backend.hpp"
@@ -217,6 +219,19 @@ class DesktopBackend final {
     /// Executes only the already user-confirmed conservative sweep. It never
     /// deletes unknown entries, live Catalog blobs, or recent writes.
     [[nodiscard]] BackendCacheMaintenanceSweep runCacheMaintenanceSweep() const;
+    /// Executes bounded local face analysis and returns only anonymous group
+    /// counts. The report is rebuildable session state, never Catalog state.
+    [[nodiscard]] BackendPeopleAnalysisReport
+    analyzePeople(const QString& infer_base_url, const QString& credential_file) const;
+    /// Executes bounded SigLIP text-to-image ranking over the current Review
+    /// prefix. Results and exact visual tickets are session-only.
+    [[nodiscard]] BackendSemanticSearchReport searchSemantics(
+        const QString& infer_base_url,
+        const QString& credential_file,
+        const QString& query,
+        const QString& query_revision,
+        const QString& language
+    ) const;
     [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,

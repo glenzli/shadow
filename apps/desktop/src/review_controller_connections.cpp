@@ -18,6 +18,10 @@ void ReviewController::initializeCoordinatorWiring() {
         emit itemCountChanged();
         emit filtersChanged();
     });
+    connect(&filtered_model_, &ReviewFilterModel::semanticFilterChanged, this, [this]() {
+        emit itemCountChanged();
+        emit filtersChanged();
+    });
     const auto notify_filtered_count = [this]() { emit filtersChanged(); };
     connect(&filtered_model_, &QAbstractItemModel::modelReset, this, notify_filtered_count);
     connect(

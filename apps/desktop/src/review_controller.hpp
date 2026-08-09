@@ -442,6 +442,7 @@ class ReviewController final : public QObject {
     void setTravelLivingPlaces(const QVariantList& living_places);
     void setFilterKeywordIdsAll(const QStringList& keyword_ids);
     void setFilterExcludedKeywordIdsAny(const QStringList& keyword_ids);
+    void setSemanticRepresentationOrder(const QStringList& ranked_keys);
     void setLibraryAlbumId(const QString& album_id);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
@@ -607,6 +608,7 @@ class ReviewController final : public QObject {
     void likedChanged(const QString& photoId, bool liked);
     void sourceAvailabilityChanged(const QString& photoId, bool available);
     void filtersChanged();
+    void allFiltersCleared();
     void libraryOrderChanged();
     void libraryAlbumChanged();
     void libraryAlbumsChanged();

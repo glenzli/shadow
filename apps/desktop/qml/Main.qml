@@ -14,6 +14,8 @@ ApplicationWindow {
     required property var editPreviewPresentation
     required property var exportController
     required property var cacheMaintenanceController
+    required property var peopleAnalysisController
+    required property var semanticSearchController
     required property var aiPreferences
     required property var cachePreferences
     required property var historyController
@@ -58,7 +60,9 @@ ApplicationWindow {
     readonly property string descriptiveTitle: workspaceIndex === 0
         ? qsTr("Shadow · Review")
         : workspaceIndex === 1
-            ? qsTr("Shadow · Precision") : qsTr("Shadow · Library")
+            ? qsTr("Shadow · Precision")
+            : workspaceIndex === 3
+                ? qsTr("Shadow · People") : qsTr("Shadow · Library")
     // macOS would otherwise draw a second native title beside our integrated
     // navigation. Mission Control and the Dock still receive the app identity.
     title: Qt.platform.os === "osx" ? "" : descriptiveTitle
@@ -209,6 +213,10 @@ ApplicationWindow {
         leavePrecision(2)
     }
 
+    function showPeople() {
+        leavePrecision(3)
+    }
+
     function chooseLibraryFolder() {
         libraryFolderDialog.open()
     }
@@ -257,6 +265,7 @@ ApplicationWindow {
         historyOpen: historyDrawer.opened
         onReviewRequested: window.showReview()
         onPrecisionRequested: window.showPrecision()
+        onPeopleRequested: window.showPeople()
         onHistoryRequested: {
             if (historyDrawer.opened) {
                 historyDrawer.close()
@@ -284,6 +293,7 @@ ApplicationWindow {
             mapProviderPreferences: window.mapProviderPreferences
             googleMapTilesService: window.googleMapTilesService
             personalProfile: window.personalProfile
+            semanticSearchController: window.semanticSearchController
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {
@@ -345,12 +355,20 @@ ApplicationWindow {
             controller: window.controller
             onChooseFolderRequested: window.chooseLibraryFolder()
         }
+
+        PeopleWorkspace {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            controller: window.peopleAnalysisController
+        }
     }
 
     footer: MainStatusBar {
         workspaceIndex: window.workspaceIndex
         controller: window.controller
         editor: window.editor
+        peopleAnalysisController: window.peopleAnalysisController
+        semanticSearchController: window.semanticSearchController
         reviewWorkspace: reviewWorkspace
         precisionWorkspace: precisionWorkspace
     }

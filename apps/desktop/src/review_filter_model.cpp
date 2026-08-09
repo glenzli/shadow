@@ -6,6 +6,8 @@
 #include <QSet>
 
 #include <algorithm>
+#include <limits>
+#include <utility>
 
 namespace {
 
@@ -34,6 +36,11 @@ namespace {
 [[nodiscard]] bool is_chinese_lunar_month_type(const QString& value) {
     return value == QStringLiteral("all") || value == QStringLiteral("regular")
            || value == QStringLiteral("leap");
+}
+
+[[nodiscard]] QString semantic_key(const QAbstractItemModel& model, const QModelIndex& row) {
+    return model.data(row, ReviewModel::PhotoIdRole).toString() + QChar{0x001f}
+           + model.data(row, ReviewModel::RepresentationIdRole).toString();
 }
 
 } // namespace
@@ -128,6 +135,10 @@ bool ReviewFilterModel::hasActiveServerFilter() const {
            || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
            || !keyword_ids_all_.isEmpty()
            || !excluded_keyword_ids_any_.isEmpty();
+}
+
+bool ReviewFilterModel::semanticFilterActive() const noexcept {
+    return !semantic_rank_by_key_.isEmpty();
 }
 
 void ReviewFilterModel::setFlagFilter(const QString& filter) {
@@ -324,6 +335,24 @@ void ReviewFilterModel::setExcludedKeywordIdsAny(const QStringList& keyword_ids)
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setSemanticRepresentationOrder(const QStringList& ranked_keys) {
+    QHash<QString, qsizetype> next;
+    next.reserve(ranked_keys.size());
+    for (const QString& key : ranked_keys) {
+        if (!key.isEmpty() && !next.contains(key)) {
+            next.insert(key, next.size());
+        }
+    }
+    if (semantic_rank_by_key_ == next) {
+        return;
+    }
+    semantic_rank_by_key_ = std::move(next);
+    beginFilterChange();
+    endFilterChange(QSortFilterProxyModel::Direction::Rows);
+    sort(semantic_rank_by_key_.isEmpty() ? -1 : 0);
+    emit semanticFilterChanged();
+}
+
 void ReviewFilterModel::clearFilters() {
     const bool changed =
         flag_filter_ != QStringLiteral("all") || minimum_rating_ != 0
@@ -335,7 +364,18 @@ void ReviewFilterModel::clearFilters() {
         || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
         || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
         || !keyword_ids_all_.isEmpty()
-        || !excluded_keyword_ids_any_.isEmpty();
+        || !excluded_keyword_ids_any_.isEmpty() || !semantic_rank_by_key_.isEmpty();
+    const bool server_filters_changed =
+        flag_filter_ != QStringLiteral("all") || minimum_rating_ != 0
+        || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
+        || liked_filter_ != QStringLiteral("all") || excluded_flag_filter_ != QStringLiteral("all")
+        || excluded_color_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
+        || chinese_lunar_month_type_ != QStringLiteral("all")
+        || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
+        || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
+        || !keyword_ids_all_.isEmpty() || !excluded_keyword_ids_any_.isEmpty();
+    const bool semantic_filter_changed = !semantic_rank_by_key_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
@@ -355,11 +395,18 @@ void ReviewFilterModel::clearFilters() {
     daily_filter_enabled_ = false;
     keyword_ids_all_.clear();
     excluded_keyword_ids_any_.clear();
+    semantic_rank_by_key_.clear();
     if (!changed) {
         return;
     }
     refreshRowsFilter();
-    emit filtersChanged();
+    sort(-1);
+    if (server_filters_changed) {
+        emit filtersChanged();
+    }
+    if (semantic_filter_changed) {
+        emit semanticFilterChanged();
+    }
 }
 
 bool ReviewFilterModel::filterAcceptsRow(
@@ -368,6 +415,10 @@ bool ReviewFilterModel::filterAcceptsRow(
 ) const {
     const QModelIndex row = sourceModel()->index(source_row, 0, source_parent);
     if (!row.isValid()) {
+        return false;
+    }
+    if (!semantic_rank_by_key_.isEmpty()
+        && !semantic_rank_by_key_.contains(semantic_key(*sourceModel(), row))) {
         return false;
     }
     const bool remote = sourceModel()->data(row, ReviewModel::IsRemoteRole).toBool();
@@ -407,6 +458,24 @@ bool ReviewFilterModel::filterAcceptsRow(
     return liked_filter_ == QStringLiteral("all")
            || (liked_filter_ == QStringLiteral("liked") && liked)
            || (liked_filter_ == QStringLiteral("unliked") && !liked);
+}
+
+bool ReviewFilterModel::lessThan(
+    const QModelIndex& source_left,
+    const QModelIndex& source_right
+) const {
+    if (semantic_rank_by_key_.isEmpty()) {
+        return QSortFilterProxyModel::lessThan(source_left, source_right);
+    }
+    const qsizetype left_rank = semantic_rank_by_key_.value(
+        semantic_key(*sourceModel(), source_left),
+        std::numeric_limits<qsizetype>::max()
+    );
+    const qsizetype right_rank = semantic_rank_by_key_.value(
+        semantic_key(*sourceModel(), source_right),
+        std::numeric_limits<qsizetype>::max()
+    );
+    return left_rank < right_rank;
 }
 
 QString ReviewFilterModel::normalizeFlagFilter(const QString& filter) {

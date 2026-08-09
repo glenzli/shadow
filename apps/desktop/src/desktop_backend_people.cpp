@@ -1,0 +1,29 @@
+#include "backend/desktop_backend_private.hpp"
+#include "backend/rust_qt_projection.hpp"
+
+#include <utility>
+
+BackendPeopleAnalysisReport
+DesktopBackend::analyzePeople(const QString& infer_base_url, const QString& credential_file) const {
+    const auto source =
+        impl_->session->analyze_people(infer_base_url.toStdString(), credential_file.toStdString());
+    QVector<BackendPeopleGroup> groups;
+    groups.reserve(
+        desktop_backend_projection::checked_qt_vector_size(source.groups.size(), "people groups")
+    );
+    for (const auto& group : source.groups) {
+        groups.push_back({
+            .group_id = desktop_backend_projection::qstring(group.group_id),
+            .member_count = group.member_count,
+        });
+    }
+    return {
+        .analyzed_photos = source.analyzed_photos,
+        .detected_faces = source.detected_faces,
+        .embedded_faces = source.embedded_faces,
+        .skipped_items = source.skipped_items,
+        .ungrouped_faces = source.ungrouped_faces,
+        .truncated = source.truncated,
+        .groups = std::move(groups),
+    };
+}

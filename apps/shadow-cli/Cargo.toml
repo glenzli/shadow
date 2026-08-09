@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+shadow-ai.workspace = true
 shadow-bridge.workspace = true
 shadow-cache.workspace = true
 shadow-catalog.workspace = true
@@ -15,6 +16,7 @@ shadow-core.workspace = true
 shadow-domain.workspace = true
 shadow-desktop-bridge.workspace = true
 shadow-library-sharing.workspace = true
+serde_json.workspace = true
 uuid.workspace = true
 
 [lints]
