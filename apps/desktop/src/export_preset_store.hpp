@@ -21,6 +21,11 @@ public:
         const QString& name,
         const QVariantMap& options
     );
+    [[nodiscard]] QString update(
+        const QString& preset_id,
+        const QString& name,
+        const QVariantMap& options
+    );
     [[nodiscard]] bool remove(const QString& preset_id);
     [[nodiscard]] bool retranslateBuiltins();
 

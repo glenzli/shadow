@@ -461,6 +461,8 @@ qt_add_executable(
     src/export_controller.hpp
     src/export_preset_store.cpp
     src/export_preset_store.hpp
+    src/export_watermark_store.cpp
+    src/export_watermark_store.hpp
     src/export_task_runner.cpp
     src/export_task_runner.hpp
     src/default_library_reverse_geocoder.cpp
@@ -810,7 +812,9 @@ qt_add_qml_module(
         qml/EditScopeToolbar.qml
         qml/ExportDialog.qml
         qml/ExportPresetMenus.qml
+        qml/ExportPresetSidebar.qml
         qml/ExportSettingsPane.qml
+        qml/ExportWatermarkPane.qml
         qml/HistoryDrawer.qml
         qml/LibraryAlbumCreateDialog.qml
         qml/LibraryAlbumDeleteDialog.qml

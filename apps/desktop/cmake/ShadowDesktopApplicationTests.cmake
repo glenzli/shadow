@@ -251,6 +251,40 @@
     )
 
     add_executable(
+        shadow-export-watermark-store-test
+        tests/export_watermark_store_test.cpp
+        src/export_watermark_store.cpp
+        src/export_watermark_store.hpp
+    )
+    target_compile_features(
+        shadow-export-watermark-store-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-export-watermark-store-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-export-watermark-store-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-export-watermark-store-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-export-watermark-store-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-export-watermark-store
+        COMMAND shadow-export-watermark-store-test
+    )
+
+    add_executable(
         shadow-folder-scan-backend-contract-test
         tests/folder_scan_backend_contract_test.cpp
         src/folder_scan_backend.cpp

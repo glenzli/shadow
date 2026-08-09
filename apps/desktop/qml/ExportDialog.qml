@@ -14,8 +14,8 @@ Popup {
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
-    width: Math.min(540, parent.width - 40)
-    height: Math.min(720, parent.height - 40)
+    width: Math.min(900, parent.width - 40)
+    height: Math.min(760, parent.height - 40)
     padding: 0
     modal: true
     dim: true
@@ -24,7 +24,7 @@ Popup {
 
     function present(exportTargets) {
         targets = exportTargets || [];
-        exportSettings.resetFromFirstPreset();
+        presetSidebar.resetSelection();
         open();
     }
 
@@ -91,11 +91,32 @@ Popup {
             color: Theme.border
         }
 
-        ExportSettingsPane {
-            id: exportSettings
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            exportController: dialog.exportController
+            spacing: 0
+
+            ExportPresetSidebar {
+                id: presetSidebar
+                Layout.preferredWidth: 220
+                Layout.fillHeight: true
+                exportController: dialog.exportController
+                optionProvider: function() { return exportSettings.options() }
+                onPresetActivated: preset => exportSettings.applyPreset(preset)
+            }
+
+            Rectangle {
+                Layout.preferredWidth: 1
+                Layout.fillHeight: true
+                color: Theme.border
+            }
+
+            ExportSettingsPane {
+                id: exportSettings
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                exportController: dialog.exportController
+            }
         }
 
         Rectangle {

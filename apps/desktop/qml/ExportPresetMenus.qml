@@ -12,6 +12,7 @@ Item {
 
     required property var exportController
     property var pendingOptions: ({})
+    property var pendingPreset: null
     property var pendingRemoval: null
 
     signal presetSaved(string presetId)
@@ -19,8 +20,20 @@ Item {
 
     function openSave(options) {
         pendingOptions = options || {}
+        pendingPreset = null
         presetNameField.text = ""
         presetNamePopup.open()
+        presetNameField.forceActiveFocus()
+    }
+
+    function openEdit(preset, options) {
+        if (preset === null || String(preset.id || "").startsWith("builtin-"))
+            return
+        pendingOptions = options || {}
+        pendingPreset = preset
+        presetNameField.text = String(preset.name || "")
+        presetNamePopup.open()
+        presetNameField.selectAll()
         presetNameField.forceActiveFocus()
     }
 
@@ -63,7 +76,9 @@ Item {
             spacing: 12
 
             Label {
-                text: qsTr("SAVE EXPORT PRESET")
+                text: menus.pendingPreset === null
+                      ? qsTr("SAVE EXPORT PRESET")
+                      : qsTr("EDIT EXPORT PRESET")
                 color: Theme.textPrimary
                 font.pixelSize: 11
                 font.weight: Font.DemiBold
@@ -96,14 +111,21 @@ Item {
                     onClicked: presetNamePopup.close()
                 }
                 ShadowButton {
-                    text: qsTr("SAVE")
+                    text: menus.pendingPreset === null ? qsTr("SAVE") : qsTr("UPDATE")
                     variant: ShadowButton.Primary
                     enabled: presetNameField.text.trim().length > 0
                     onClicked: {
-                        const presetId = menus.exportController.savePreset(
-                            presetNameField.text, menus.pendingOptions);
+                        const presetId = menus.pendingPreset === null
+                            ? menus.exportController.savePreset(
+                                  presetNameField.text, menus.pendingOptions)
+                            : menus.exportController.updatePreset(
+                                  String(menus.pendingPreset.id),
+                                  presetNameField.text,
+                                  menus.pendingOptions);
                         presetNamePopup.close();
-                        menus.presetSaved(presetId);
+                        menus.pendingPreset = null;
+                        if (presetId.length > 0)
+                            menus.presetSaved(presetId);
                     }
                 }
             }

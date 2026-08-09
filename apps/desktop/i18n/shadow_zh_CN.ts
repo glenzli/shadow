@@ -1751,97 +1751,97 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>ExportController</name>
     <message>
-        <location filename="../src/export_controller.cpp" line="186"/>
+        <location filename="../src/export_controller.cpp" line="194"/>
         <source>Checking unfinished exports…</source>
         <translation>正在检查未完成的导出…</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="238"/>
+        <location filename="../src/export_controller.cpp" line="246"/>
         <source>Choose an export folder</source>
         <translation>选择导出文件夹</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="263"/>
+        <location filename="../src/export_controller.cpp" line="271"/>
         <source>Select at least one photo to export</source>
         <translation>请至少选择一张要导出的照片</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="309"/>
+        <location filename="../src/export_controller.cpp" line="317"/>
         <source>Queueing %1 photos…</source>
         <translation>正在将 %1 张照片加入队列…</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="359"/>
+        <location filename="../src/export_controller.cpp" line="367"/>
         <source>Cancelling after the current photo…</source>
         <translation>将在当前照片完成后取消…</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="397"/>
+        <location filename="../src/export_controller.cpp" line="450"/>
         <source>No unfinished exports</source>
         <translation>没有未完成的导出</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="402"/>
+        <location filename="../src/export_controller.cpp" line="455"/>
         <source>Resuming exports paused</source>
         <translation>正在恢复已暂停的导出</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="408"/>
+        <location filename="../src/export_controller.cpp" line="461"/>
         <source>Resumed %1 photos · %2 need attention</source>
         <translation>已恢复 %1 张照片 · %2 张需要处理</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="416"/>
+        <location filename="../src/export_controller.cpp" line="469"/>
         <source>Resumed %1 exports</source>
         <translation>已恢复 %1 个导出任务</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="424"/>
+        <location filename="../src/export_controller.cpp" line="477"/>
         <source>Resumed %1 exports · %2 failed</source>
         <translation>已恢复 %1 个导出任务 · %2 个失败</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="432"/>
+        <location filename="../src/export_controller.cpp" line="485"/>
         <source>Export cancelled · %1 exported · %2 failed</source>
         <translation>导出已取消 · 已导出 %1 张 · %2 张失败</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="440"/>
+        <location filename="../src/export_controller.cpp" line="493"/>
         <source>Exported %1 photos · %2 need attention</source>
         <translation>已导出 %1 张照片 · %2 张需要处理</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="448"/>
+        <location filename="../src/export_controller.cpp" line="501"/>
         <source>Exported %1 photos</source>
         <translation>已导出 %1 张照片</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="456"/>
+        <location filename="../src/export_controller.cpp" line="509"/>
         <source>Exported %1 photos · %2 failed</source>
         <translation>已导出 %1 张照片 · %2 张失败</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="497"/>
+        <location filename="../src/export_controller.cpp" line="550"/>
         <source>Exporting %1 of %2 · %3</source>
         <translation>正在导出第 %1 / %2 张 · %3</translation>
     </message>
     <message>
-        <location filename="../src/export_preset_store.cpp" line="18"/>
+        <location filename="../src/export_preset_store.cpp" line="22"/>
         <source>Full-size JPEG</source>
         <translation>全尺寸 JPEG</translation>
     </message>
     <message>
-        <location filename="../src/export_preset_store.cpp" line="24"/>
+        <location filename="../src/export_preset_store.cpp" line="28"/>
         <source>Web JPEG</source>
         <translation>网页 JPEG</translation>
     </message>
     <message>
-        <location filename="../src/export_preset_store.cpp" line="30"/>
+        <location filename="../src/export_preset_store.cpp" line="34"/>
         <source>Full-size PNG</source>
         <translation>全尺寸 PNG</translation>
     </message>
     <message>
-        <location filename="../src/export_preset_store.cpp" line="36"/>
+        <location filename="../src/export_preset_store.cpp" line="40"/>
         <source>Print TIFF</source>
         <translation>打印 TIFF</translation>
     </message>
@@ -1854,60 +1854,72 @@ R %2 · G %3 · B %4</translation>
         <translation>选择导出文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="110"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="361"/>
         <source>Choose a PNG watermark</source>
         <translation>选择 PNG 水印</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="111"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="362"/>
         <source>PNG images (*.png)</source>
         <translation>PNG 图像 (*.png)</translation>
     </message>
     <message>
-        <location filename="../qml/ExportPresetMenus.qml" line="66"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="80"/>
         <source>SAVE EXPORT PRESET</source>
         <translation>保存导出预设</translation>
     </message>
     <message>
-        <location filename="../qml/ExportPresetMenus.qml" line="76"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="81"/>
+        <source>EDIT EXPORT PRESET</source>
+        <translation>编辑导出预设</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportPresetMenus.qml" line="91"/>
         <source>Preset name</source>
         <translation>预设名称</translation>
     </message>
     <message>
-        <location filename="../qml/ExportDialog.qml" line="220"/>
-        <location filename="../qml/ExportPresetMenus.qml" line="94"/>
-        <location filename="../qml/ExportPresetMenus.qml" line="166"/>
+        <location filename="../qml/ExportDialog.qml" line="241"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="109"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="188"/>
         <source>CANCEL</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/ExportPresetMenus.qml" line="99"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="114"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="338"/>
         <source>SAVE</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../qml/ExportPresetMenus.qml" line="135"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="114"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="338"/>
+        <source>UPDATE</source>
+        <translation>更新</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportPresetMenus.qml" line="157"/>
         <source>REMOVE PRESET</source>
         <translation>删除导出预设</translation>
     </message>
     <message>
-        <location filename="../qml/ExportPresetMenus.qml" line="144"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="166"/>
         <source>Remove “%1”?</source>
         <translation>删除“%1”？</translation>
     </message>
     <message>
-        <location filename="../qml/ExportPresetMenus.qml" line="155"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="177"/>
         <source>Only this local preset will be removed. Exported files and other presets are unchanged.</source>
         <translation>仅删除此本地预设；已导出的文件和其他预设不会改变。</translation>
     </message>
     <message>
-        <location filename="../qml/ExportPresetMenus.qml" line="171"/>
+        <location filename="../qml/ExportPresetMenus.qml" line="193"/>
         <source>REMOVE</source>
         <translation>删除</translation>
     </message>
     <message>
         <location filename="../qml/ExportDialog.qml" line="59"/>
-        <location filename="../qml/ExportDialog.qml" line="232"/>
+        <location filename="../qml/ExportDialog.qml" line="253"/>
         <source>EXPORT</source>
         <translation>导出</translation>
     </message>
@@ -1927,134 +1939,180 @@ R %2 · G %3 · B %4</translation>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="142"/>
-        <source>PRESET</source>
-        <translation>预设</translation>
+        <location filename="../qml/ExportPresetSidebar.qml" line="72"/>
+        <source>EXPORT PRESETS</source>
+        <translation>导出预设</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="179"/>
+        <location filename="../qml/ExportPresetSidebar.qml" line="123"/>
+        <source>%1 · %L2 px</source>
+        <translation>%1 · %L2 px</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportPresetSidebar.qml" line="124"/>
+        <source>%1 · original size</source>
+        <translation>%1 · 原始尺寸</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportPresetSidebar.qml" line="158"/>
         <source>Save current settings as a preset</source>
         <translation>将当前设置保存为预设</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="187"/>
+        <location filename="../qml/ExportPresetSidebar.qml" line="165"/>
+        <source>Update selected preset</source>
+        <translation>更新所选预设</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportPresetSidebar.qml" line="173"/>
         <source>Remove selected export preset</source>
         <translation>删除所选导出预设</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="199"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="89"/>
         <source>FILE</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="231"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="121"/>
         <source>Long edge</source>
         <translation>长边</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="238"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="128"/>
         <source>Original size</source>
         <translation>原始尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="328"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="218"/>
         <source>Quality</source>
         <translation>画质</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="264"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="154"/>
         <source>Color space</source>
         <translation>色彩空间</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="295"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="185"/>
         <source>Resolution</source>
         <translation>分辨率</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="356"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="246"/>
         <source>Filename suffix</source>
         <translation>文件名后缀</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="363"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="253"/>
         <source>Optional, e.g. _web</source>
         <translation>可选，例如 _web</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="388"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="278"/>
         <source>METADATA</source>
         <translation>元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="398"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="288"/>
         <source>Include</source>
         <translation>包含</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="406"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="296"/>
         <source>No metadata</source>
         <translation>不包含元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="406"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="296"/>
         <source>Copyright only</source>
         <translation>仅版权信息</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="430"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="320"/>
         <source>Creator</source>
         <translation>创作者</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="455"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="345"/>
         <source>Copyright</source>
         <translation>版权声明</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="438"/>
-        <location filename="../qml/ExportSettingsPane.qml" line="463"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="328"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="353"/>
         <source>Optional</source>
         <translation>可选</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="487"/>
-        <source>PNG WATERMARK</source>
-        <translation>PNG 水印</translation>
-    </message>
-    <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="498"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="190"/>
         <source>CHOOSE PNG</source>
         <translation>选择 PNG</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="504"/>
-        <source>Remove watermark</source>
-        <translation>移除水印</translation>
+        <location filename="../qml/ExportWatermarkPane.qml" line="96"/>
+        <source>WATERMARK</source>
+        <translation>水印</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="545"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="111"/>
+        <source>No watermark</source>
+        <translation>无水印</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportWatermarkPane.qml" line="134"/>
+        <source>DONE</source>
+        <translation>完成</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportWatermarkPane.qml" line="134"/>
+        <source>MANAGE</source>
+        <translation>管理</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportWatermarkPane.qml" line="170"/>
+        <source>Watermark name</source>
+        <translation>水印名称</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportWatermarkPane.qml" line="196"/>
+        <source>Remove watermark image</source>
+        <translation>移除水印图像</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportWatermarkPane.qml" line="243"/>
         <source>Opacity</source>
         <translation>不透明度</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="563"/>
-        <location filename="../qml/ExportSettingsPane.qml" line="591"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="260"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="288"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="316"/>
         <source>%1%</source>
         <translation>%1%</translation>
     </message>
     <message>
-        <location filename="../qml/ExportSettingsPane.qml" line="573"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="271"/>
         <source>Scale</source>
         <translation>缩放</translation>
     </message>
     <message>
-        <location filename="../qml/ExportDialog.qml" line="125"/>
+        <location filename="../qml/ExportWatermarkPane.qml" line="299"/>
+        <source>Inset</source>
+        <translation>边距</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportWatermarkPane.qml" line="327"/>
+        <source>DELETE</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportDialog.qml" line="146"/>
         <source>FAILED ITEMS · %1</source>
         <translation>失败项目 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/ExportDialog.qml" line="232"/>
+        <location filename="../qml/ExportDialog.qml" line="253"/>
         <source>EXPORTING…</source>
         <translation>正在导出…</translation>
     </message>

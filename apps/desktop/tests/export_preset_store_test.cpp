@@ -107,6 +107,33 @@ int main(int argc, char** argv) {
         store.save(QStringLiteral("   "), {}).isEmpty(),
         "blank preset names are rejected"
     );
+    check(
+        store.update(
+            custom_id,
+            QStringLiteral("Client delivery"),
+            options
+        ) == custom_id,
+        "a custom preset can be explicitly renamed and updated by identity"
+    );
+    check(
+        preset_by_id(store.presets(), custom_id)
+                .value(QStringLiteral("name"))
+                .toString()
+            == QStringLiteral("Client delivery"),
+        "explicit editing persists the new user-authored name"
+    );
+    check(
+        store.update(
+            QStringLiteral("builtin-full-jpeg"),
+            QStringLiteral("Changed built-in"),
+            options
+        ).isEmpty(),
+        "built-in presets are immutable"
+    );
+    check(
+        !store.remove(QStringLiteral("builtin-full-jpeg")),
+        "built-in presets cannot be removed"
+    );
 
     {
         ExportPresetStore reopened(settings_path);
@@ -115,7 +142,7 @@ int main(int argc, char** argv) {
             preset_by_id(reopened.presets(), custom_id)
                     .value(QStringLiteral("maxEdge"))
                     .toInt()
-                == 2048,
+                == 1440,
             "reopened preset retains updated options"
         );
         check(reopened.remove(custom_id), "existing custom preset is removed");

@@ -4,6 +4,7 @@
 #include "backend/export_settings_codec.hpp"
 #include "desktop_backend.hpp"
 #include "export_preset_store.hpp"
+#include "export_watermark_store.hpp"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -96,6 +97,9 @@ ExportController::ExportController(
       export_backend_(shared_export_backend(backend)),
       preset_store_(
           std::make_unique<ExportPresetStore>(isolated_settings_file)
+      ),
+      watermark_store_(
+          std::make_unique<ExportWatermarkStore>(isolated_settings_file)
       ) {
     connect(
         &watcher_,
@@ -154,6 +158,10 @@ QStringList ExportController::errors() const {
 
 QVariantList ExportController::presets() const {
     return preset_store_->presets();
+}
+
+QVariantList ExportController::watermarks() const {
+    return watermark_store_->watermarks();
 }
 
 bool ExportController::eventFilter(
@@ -374,9 +382,54 @@ QString ExportController::savePreset(
     return id;
 }
 
+QString ExportController::updatePreset(
+    const QString& preset_id,
+    const QString& name,
+    const QVariantMap& options
+) {
+    const QString id = preset_store_->update(preset_id, name, options);
+    if (!id.isEmpty()) {
+        emit presetsChanged();
+    }
+    return id;
+}
+
 void ExportController::removePreset(const QString& preset_id) {
     if (preset_store_->remove(preset_id)) {
         emit presetsChanged();
+    }
+}
+
+QString ExportController::saveWatermark(
+    const QString& name,
+    const QVariantMap& definition
+) {
+    const QString id = watermark_store_->save(name, definition);
+    if (!id.isEmpty()) {
+        emit watermarksChanged();
+    }
+    return id;
+}
+
+QString ExportController::updateWatermark(
+    const QString& watermark_id,
+    const QString& name,
+    const QVariantMap& definition
+) {
+    const QString id = watermark_store_->update(
+        watermark_id,
+        name,
+        definition
+    );
+    if (!id.isEmpty()) {
+        emit watermarksChanged();
+    }
+    return id;
+}
+
+void ExportController::removeWatermark(const QString& watermark_id) {
+    if (watermark_store_->remove(watermark_id)) {
+        emit watermarksChanged();
     }
 }
 

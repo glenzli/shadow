@@ -591,13 +591,18 @@ Library management uses the same page-composition boundary:
 `ExportController` remains the stable QObject/QML facade, while the durable workflow is split by
 admission, background execution, preset persistence, and backend publication:
 
-- [`qml/ExportDialog.qml`](qml/ExportDialog.qml) owns modal export lifecycle, destination
-  admission, progress, failures, and completion.
+- [`qml/ExportDialog.qml`](qml/ExportDialog.qml) owns modal export lifecycle, the two-pane preset
+  library/output-settings composition, destination admission, progress, failures, and completion.
+- [`qml/ExportPresetSidebar.qml`](qml/ExportPresetSidebar.qml) owns Lightroom-style preset
+  selection plus create/edit/remove entry points. [`qml/ExportPresetMenus.qml`](qml/ExportPresetMenus.qml)
+  owns the naming, identity-preserving edit, and removal transactions; built-in presets remain
+  immutable.
 - [`qml/ExportSettingsPane.qml`](qml/ExportSettingsPane.qml) owns the editable Output Recipe draft:
   JPEG/PNG/TIFF format, non-upscaling long edge, quality, tagged sRGB or Display P3 conversion,
-  print-resolution metadata, explicit strip-or-copyright metadata policy, filename suffix, and PNG
-  watermark. [`qml/ExportPresetMenus.qml`](qml/ExportPresetMenus.qml) owns preset naming and removal
-  transactions.
+  print-resolution metadata, explicit strip-or-copyright metadata policy, and filename suffix.
+  [`qml/ExportWatermarkPane.qml`](qml/ExportWatermarkPane.qml) owns the independent watermark
+  management section and current watermark snapshot: reusable named PNG definitions, placement,
+  opacity, scale, and inset.
 
 - [`src/export_controller.cpp`](src/export_controller.cpp) owns selection-to-destination planning,
   task-center presentation, cancellation requests, and the stable QML facade. Its localized status
@@ -605,7 +610,10 @@ admission, background execution, preset persistence, and backend publication:
 - [`src/export_task_runner.cpp`](src/export_task_runner.cpp) owns the durable background drain:
   recovery, queue claims, cancellation, item execution, progress receipts, and terminal results.
 - [`src/export_preset_store.cpp`](src/export_preset_store.cpp) owns preset identity, normalization,
-  settings persistence, and runtime retranslation of built-in names while preserving user names.
+  settings persistence, identity-preserving custom edits, and runtime retranslation of built-in
+  names while preserving user names. [`src/export_watermark_store.cpp`](src/export_watermark_store.cpp)
+  owns the local reusable watermark-definition library. An Output Recipe still freezes the exact
+  selected watermark rendering values, so a later library edit cannot mutate a queued export.
 - [`src/backend/export_settings_codec.cpp`](src/backend/export_settings_codec.cpp) owns the output
   field names, defaults, clamps, validation, preset projection, and immutable dated Output Recipe
   JSON shared by the controller and executor. It reads legacy numeric schema 1 queue items, rejects

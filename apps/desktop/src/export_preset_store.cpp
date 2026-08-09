@@ -13,6 +13,10 @@ namespace {
 
 constexpr auto export_presets_settings_key = "export/presets_json";
 
+[[nodiscard]] bool is_builtin(const QString& preset_id) {
+    return preset_id.startsWith(QStringLiteral("builtin-"));
+}
+
 [[nodiscard]] QString translated_builtin_name(const QString& preset_id) {
     if (preset_id == QStringLiteral("builtin-full-jpeg")) {
         return QCoreApplication::translate(
@@ -116,6 +120,9 @@ QString ExportPresetStore::save(
                 normalized_name,
                 Qt::CaseInsensitive
             ) == 0) {
+            if (is_builtin(preset.value(QStringLiteral("id")).toString())) {
+                return {};
+            }
             id = preset.value(QStringLiteral("id")).toString();
             break;
         }
@@ -147,7 +154,50 @@ QString ExportPresetStore::save(
     return id;
 }
 
+QString ExportPresetStore::update(
+    const QString& preset_id,
+    const QString& name,
+    const QVariantMap& options
+) {
+    const QString normalized_name = name.trimmed();
+    if (preset_id.isEmpty() || is_builtin(preset_id)
+        || normalized_name.isEmpty()) {
+        return {};
+    }
+    const bool name_conflicts = std::any_of(
+        presets_.cbegin(),
+        presets_.cend(),
+        [&preset_id, &normalized_name](const QVariant& value) {
+            const QVariantMap preset = value.toMap();
+            return preset.value(QStringLiteral("id")).toString() != preset_id
+                && preset.value(QStringLiteral("name")).toString().compare(
+                       normalized_name,
+                       Qt::CaseInsensitive
+                   ) == 0;
+        }
+    );
+    if (name_conflicts) {
+        return {};
+    }
+    for (QVariant& value : presets_) {
+        if (value.toMap().value(QStringLiteral("id")).toString() != preset_id) {
+            continue;
+        }
+        value = ExportSettingsCodec::normalizedPreset(
+            preset_id,
+            normalized_name,
+            options
+        );
+        persist();
+        return preset_id;
+    }
+    return {};
+}
+
 bool ExportPresetStore::remove(const QString& preset_id) {
+    if (is_builtin(preset_id)) {
+        return false;
+    }
     const auto before = presets_.size();
     presets_.erase(
         std::remove_if(
