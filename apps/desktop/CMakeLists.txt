@@ -822,7 +822,6 @@ qt_add_qml_module(
         qml/LibraryAlbumManageDialog.qml
         qml/LibraryAlbumMembershipDialog.qml
         qml/LibraryAdvancedFilterPopup.qml
-        qml/LibraryFacetPopup.qml
         qml/LibraryPlaceResolutionStatus.qml
         qml/LibraryImportPane.qml
         qml/LibraryKeywordDialogs.qml

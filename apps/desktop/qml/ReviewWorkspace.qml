@@ -248,11 +248,6 @@ Item {
         onRetryRequested: review.controller.retryPhotoInspection()
     }
 
-    LibraryFacetPopup {
-        id: libraryFacetPopup
-        controller: review.controller
-    }
-
     LibraryAlbumDialogs {
         id: albumDialogs
         anchors.fill: parent
@@ -664,7 +659,6 @@ Item {
             workspace: review
             onOpenLibraryManagementRequested:
                 review.openLibraryManagementRequested()
-            onOpenFacetBrowserRequested: libraryFacetPopup.open()
             onOpenMetadataRequested: metadataWindow.present()
             onSharedGradeRequested: anchorItem =>
                 sharedGradePicker.presentFrom(anchorItem)

@@ -12,7 +12,6 @@ Rectangle {
 
     required property var workspace
     signal openLibraryManagementRequested()
-    signal openFacetBrowserRequested()
     signal openMetadataRequested()
     signal sharedGradeRequested(var anchorItem)
     signal exportRequested(var targets)
@@ -51,7 +50,6 @@ Rectangle {
         workspace: gallery.workspace
         onOpenLibraryManagementRequested:
             gallery.openLibraryManagementRequested()
-        onOpenFacetBrowserRequested: gallery.openFacetBrowserRequested()
         onOpenMetadataRequested: gallery.openMetadataRequested()
         onSharedGradeRequested: anchorItem =>
             gallery.sharedGradeRequested(anchorItem)

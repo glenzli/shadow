@@ -12,7 +12,6 @@ Rectangle {
 
     required property var workspace
     signal openLibraryManagementRequested()
-    signal openFacetBrowserRequested()
     signal openMetadataRequested()
     signal sharedGradeRequested(var anchorItem)
     signal exportRequested(var targets)
@@ -67,15 +66,6 @@ Rectangle {
             toolTipText: qsTr("Manage photo sources")
             accessibleName: toolTipText
             onClicked: toolbar.openLibraryManagementRequested()
-        }
-
-        ShadowIconButton {
-            checkable: true
-            checked: toolbar.workspace.hasLibraryFacetFilter
-            source: "qrc:/icons/filter.svg"
-            toolTipText: qsTr("Browse Library facets")
-            accessibleName: toolTipText
-            onClicked: toolbar.openFacetBrowserRequested()
         }
 
         ShadowIconButton {

@@ -2759,89 +2759,6 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
-    <name>LibraryFacetPopup</name>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="67"/>
-        <source>Clear %1 filter</source>
-        <translation>清除 %1 筛选</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="111"/>
-        <source>%L1</source>
-        <translation>%L1</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="148"/>
-        <source>Browse Library</source>
-        <translation>浏览图库</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="156"/>
-        <source>Updating…</source>
-        <translation>正在更新…</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="164"/>
-        <source>Use metadata facets to narrow the whole Library. The most common values are shown first.</source>
-        <translation>使用元数据分面筛选整个图库；常用值优先显示。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="190"/>
-        <source>COUNTRIES</source>
-        <translation>国家/地区</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="193"/>
-        <source>No countries match the current Library view.</source>
-        <translation>当前图库视图中没有匹配的国家或地区。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="199"/>
-        <source>CITIES</source>
-        <translation>城市</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="202"/>
-        <source>No cities match the current Library view.</source>
-        <translation>当前图库视图中没有匹配的城市。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="208"/>
-        <source>DATES</source>
-        <translation>日期</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="211"/>
-        <source>No capture dates match the current Library view.</source>
-        <translation>当前图库视图没有匹配的拍摄日期。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="217"/>
-        <source>CAMERAS</source>
-        <translation>相机</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="220"/>
-        <source>No cameras match the current Library view.</source>
-        <translation>当前图库视图没有匹配的相机。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="226"/>
-        <source>LENSES</source>
-        <translation>镜头</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="229"/>
-        <source>No lenses match the current Library view.</source>
-        <translation>当前图库视图没有匹配的镜头。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryFacetPopup.qml" line="241"/>
-        <source>Clear all</source>
-        <translation>全部清除</translation>
-    </message>
-</context>
-<context>
     <name>LibraryGpxImportDialog</name>
     <message>
         <location filename="../qml/LibraryGpxImportDialog.qml" line="17"/>
@@ -8040,6 +7957,11 @@ Technical detail: %1</source>
 <context>
     <name>ReviewWorkspace</name>
     <message>
+        <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="42"/>
+        <source>%1 · %L2 photos</source>
+        <translation>%1 · %L2 张照片</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
         <source>Compare the two selected photos</source>
         <translation>比较两张已选照片</translation>
@@ -8873,11 +8795,6 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="67"/>
         <source>Manage photo sources</source>
         <translation>管理照片来源</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="76"/>
-        <source>Browse Library facets</source>
-        <translation>浏览图库分面</translation>
     </message>
     <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="85"/>

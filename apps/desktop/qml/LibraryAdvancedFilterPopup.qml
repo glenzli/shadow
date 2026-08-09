@@ -37,7 +37,9 @@ Popup {
         ]
         for (let index = 0; index < values.length; ++index) {
             options.push({
-                "text": String(values[index].label),
+                "text": qsTr("%1 · %L2 photos")
+                    .arg(String(values[index].label))
+                    .arg(Number(values[index].photoCount)),
                 "value": String(values[index].key)
             })
         }
