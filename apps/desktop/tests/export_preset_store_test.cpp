@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
     const QString settings_path =
         settings_root.filePath(QStringLiteral("presets.ini"));
     ExportPresetStore store(settings_path);
-    check(store.presets().size() == 3, "a fresh store exposes three built-ins");
+    check(store.presets().size() == 4, "a fresh store exposes four built-ins");
     check(
         preset_by_id(
             store.presets(),
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
         options
     );
     check(!custom_id.isEmpty(), "a named custom preset receives an identity");
-    check(store.presets().size() == 4, "custom preset is appended once");
+    check(store.presets().size() == 5, "custom preset is appended once");
     check(
         preset_by_id(store.presets(), custom_id)
                 .value(QStringLiteral("name"))
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
         }
     );
     check(updated_id == custom_id, "case-insensitive name updates the preset");
-    check(store.presets().size() == 4, "updating does not duplicate the preset");
+    check(store.presets().size() == 5, "updating does not duplicate the preset");
     check(
         preset_by_id(store.presets(), custom_id)
                 .value(QStringLiteral("format"))
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
 
     {
         ExportPresetStore reopened(settings_path);
-        check(reopened.presets().size() == 4, "custom preset survives reopen");
+        check(reopened.presets().size() == 5, "custom preset survives reopen");
         check(
             preset_by_id(reopened.presets(), custom_id)
                     .value(QStringLiteral("maxEdge"))
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
     }
     {
         ExportPresetStore reopened(settings_path);
-        check(reopened.presets().size() == 3, "removal survives reopen");
+        check(reopened.presets().size() == 4, "removal survives reopen");
     }
 
     const QString translated_path =

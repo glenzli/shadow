@@ -5,6 +5,7 @@ find_package(
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
 find_package(Iconv REQUIRED)
+find_package(TIFF REQUIRED)
 # Keep the final executable on the same reentrant LibRaw selected by the C++ kernel and Rust bridge.
 pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET "libraw_r>=0.22.0")
 if(NOT "raw_r" IN_LIST LibRaw_LIBRARIES OR "raw" IN_LIST LibRaw_LIBRARIES)
@@ -223,6 +224,8 @@ add_library(
     OBJECT
     src/backend/export_backend.cpp
     src/backend/export_backend.hpp
+    src/backend/export_raster_encoder.cpp
+    src/backend/export_raster_encoder.hpp
     src/backend/export_settings_codec.cpp
     src/backend/export_settings_codec.hpp
 )
@@ -241,6 +244,7 @@ target_link_libraries(
         PkgConfig::LittleCms
         ${CMAKE_DL_LIBS}
         JPEG::JPEG
+        TIFF::TIFF
         Iconv::Iconv
         Qt6::Core
         Qt6::Gui

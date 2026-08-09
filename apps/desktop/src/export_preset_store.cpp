@@ -32,6 +32,12 @@ constexpr auto export_presets_settings_key = "export/presets_json";
             "Full-size PNG"
         );
     }
+    if (preset_id == QStringLiteral("builtin-print-tiff")) {
+        return QCoreApplication::translate(
+            "ExportController",
+            "Print TIFF"
+        );
+    }
     return {};
 }
 
@@ -48,9 +54,44 @@ ExportPresetStore::ExportPresetStore(const QString& isolated_settings_file)
         ->value(QString::fromLatin1(export_presets_settings_key))
         .toByteArray();
     const auto parsed = QJsonDocument::fromJson(stored);
-    presets_ = parsed.isArray()
-        ? parsed.toVariant().toList()
-        : defaultPresets();
+    bool migrated = false;
+    if (parsed.isArray()) {
+        const QVariantList stored_presets = parsed.toVariant().toList();
+        for (const QVariant& value : stored_presets) {
+            const QVariantMap stored = value.toMap();
+            const QVariantMap normalized = ExportSettingsCodec::normalizedPreset(
+                stored.value(QStringLiteral("id")).toString(),
+                stored.value(QStringLiteral("name")).toString(),
+                stored
+            );
+            presets_.push_back(normalized);
+            migrated = migrated || normalized != stored;
+        }
+        for (const QVariant& default_value : defaultPresets()) {
+            const QVariantMap default_preset = default_value.toMap();
+            const QString default_id =
+                default_preset.value(QStringLiteral("id")).toString();
+            const bool present = std::any_of(
+                presets_.cbegin(),
+                presets_.cend(),
+                [&default_id](const QVariant& candidate) {
+                    return candidate.toMap()
+                               .value(QStringLiteral("id"))
+                               .toString()
+                        == default_id;
+                }
+            );
+            if (!present) {
+                presets_.push_back(default_preset);
+                migrated = true;
+            }
+        }
+    } else {
+        presets_ = defaultPresets();
+    }
+    if (migrated) {
+        persist();
+    }
     (void)retranslateBuiltins();
 }
 
@@ -184,6 +225,17 @@ QVariantList ExportPresetStore::defaultPresets() {
                 {QStringLiteral("format"), QStringLiteral("png")},
                 {QStringLiteral("maxEdge"), 0},
                 {QStringLiteral("quality"), 100},
+            }
+        ),
+        ExportSettingsCodec::normalizedPreset(
+            QStringLiteral("builtin-print-tiff"),
+            translated_builtin_name(QStringLiteral("builtin-print-tiff")),
+            {
+                {QStringLiteral("format"), QStringLiteral("tiff")},
+                {QStringLiteral("maxEdge"), 0},
+                {QStringLiteral("quality"), 100},
+                {QStringLiteral("colorSpace"), QStringLiteral("srgb")},
+                {QStringLiteral("resolutionDpi"), 300},
             }
         ),
     };

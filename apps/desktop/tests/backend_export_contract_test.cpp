@@ -83,6 +83,15 @@ int main(int argc, char* argv[]) {
     if (!require(defaults.format == QStringLiteral("jpeg"), "default format is JPEG")
         || !require(defaults.max_edge == 0U, "default export keeps full size")
         || !require(defaults.jpeg_quality == 90U, "default JPEG quality is 90")
+        || !require(defaults.color_space == QStringLiteral("srgb"),
+                    "default output color space is sRGB")
+        || !require(defaults.resolution_dpi == 300U,
+                    "default print resolution is 300 DPI")
+        || !require(defaults.metadata_policy == QStringLiteral("none"),
+                    "default output strips metadata")
+        || !require(defaults.creator.isEmpty(), "default creator is empty")
+        || !require(defaults.copyright_notice.isEmpty(),
+                    "default copyright notice is empty")
         || !require(defaults.filename_suffix.isEmpty(), "default suffix is empty")
         || !require(defaults.watermark_path.isEmpty(), "default watermark is absent")
         || !require(defaults.watermark_opacity == 0.72, "default watermark opacity is stable")
@@ -102,6 +111,17 @@ int main(int argc, char* argv[]) {
             {QStringLiteral("format"), QStringLiteral("PNG")},
             {QStringLiteral("maxEdge"), 20'000},
             {QStringLiteral("quality"), 0},
+            {QStringLiteral("colorSpace"), QStringLiteral("DISPLAY-P3")},
+            {QStringLiteral("resolutionDpi"), 9'999},
+            {
+                QStringLiteral("metadataPolicy"),
+                QStringLiteral("COPYRIGHT-ONLY")
+            },
+            {QStringLiteral("creator"), QStringLiteral("  Photographer  ")},
+            {
+                QStringLiteral("copyrightNotice"),
+                QStringLiteral("  © Shadow  ")
+            },
             {QStringLiteral("filenameSuffix"), QStringLiteral("-proof")},
             {
                 QStringLiteral("watermarkPath"),
@@ -115,6 +135,17 @@ int main(int argc, char* argv[]) {
     if (!require(normalized.format == QStringLiteral("png"), "format is normalized")
         || !require(normalized.max_edge == 16'384U, "maximum edge is clamped")
         || !require(normalized.jpeg_quality == 1U, "quality is clamped")
+        || !require(normalized.color_space == QStringLiteral("display-p3"),
+                    "output color space is normalized")
+        || !require(normalized.resolution_dpi == 2'400U,
+                    "print resolution is clamped")
+        || !require(normalized.metadata_policy
+                        == QStringLiteral("copyright-only"),
+                    "metadata policy is normalized")
+        || !require(normalized.creator == QStringLiteral("Photographer"),
+                    "creator is trimmed")
+        || !require(normalized.copyright_notice == QStringLiteral("© Shadow"),
+                    "copyright notice is trimmed")
         || !require(
             normalized.filename_suffix == QStringLiteral("-proof"),
             "filename suffix remains a destination-planning field"
@@ -142,13 +173,26 @@ int main(int argc, char* argv[]) {
     const BackendExportOptions decoded =
         ExportSettingsCodec::fromDurableJson(durable_json);
     if (!require(durable_document.isObject(), "durable settings are one JSON object")
-        || !require(durable_values.value(QStringLiteral("schema")).toInt() == 1,
-                    "durable settings retain schema 1")
+        || !require(
+            durable_values.value(QStringLiteral("schema")).toString()
+                == QStringLiteral("shadow-output-recipe-20260809.1"),
+            "durable settings use the dated output recipe schema"
+        )
         || !require(!durable_values.contains(QStringLiteral("filenameSuffix")),
                     "destination suffix is not frozen into item encoder settings")
         || !require(decoded.format == normalized.format, "format round-trips")
         || !require(decoded.max_edge == normalized.max_edge, "maximum edge round-trips")
         || !require(decoded.jpeg_quality == normalized.jpeg_quality, "quality round-trips")
+        || !require(decoded.color_space == normalized.color_space,
+                    "output color space round-trips")
+        || !require(decoded.resolution_dpi == normalized.resolution_dpi,
+                    "print resolution round-trips")
+        || !require(decoded.metadata_policy == normalized.metadata_policy,
+                    "metadata policy round-trips")
+        || !require(decoded.creator == normalized.creator,
+                    "creator round-trips")
+        || !require(decoded.copyright_notice == normalized.copyright_notice,
+                    "copyright notice round-trips")
         || !require(decoded.filename_suffix.isEmpty(), "durable decode has no UI suffix")
         || !require(decoded.watermark_path == normalized.watermark_path,
                     "watermark path round-trips")
@@ -170,14 +214,39 @@ int main(int argc, char* argv[]) {
                         ExportSettingsCodec::fromVariantMap({
                             {
                                 QStringLiteral("format"),
-                                QStringLiteral("tiff")
+                                QStringLiteral("gif")
                             },
                         })
                     );
                 },
-                "export format must be jpeg or png"
+                "export format must be jpeg, png, or tiff"
             ),
             "unsupported formats retain the stable validation error"
+        )
+        || !require(
+            ExportSettingsCodec::fromVariantMap({
+                {QStringLiteral("format"), QStringLiteral("tiff")},
+            }).format == QStringLiteral("tiff"),
+            "TIFF is an accepted photographic output format"
+        )
+        || !require(
+            ExportSettingsCodec::fromDurableJson(QStringLiteral(
+                R"({"schema":1,"format":"jpeg","maxEdge":0,"quality":90})"
+            )).color_space == QStringLiteral("srgb"),
+            "legacy schema 1 queue items recover with current defaults"
+        )
+        || !require(
+            throws_with(
+                [] {
+                    static_cast<void>(
+                        ExportSettingsCodec::fromDurableJson(QStringLiteral(
+                            R"({"schema":"shadow-output-recipe-20990101.1","format":"jpeg"})"
+                        ))
+                    );
+                },
+                "unsupported durable output recipe schema"
+            ),
+            "unknown dated recipe schemas fail before render"
         )
         || !require(
             throws_with(
@@ -200,7 +269,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("Preset"),
         {}
     );
-    if (!require(preset.size() == 11, "preset schema retains all eleven fields")
+    if (!require(preset.size() == 16, "preset schema retains all sixteen fields")
         || !require(preset.value(QStringLiteral("format")).toString()
                         == QStringLiteral("jpeg"),
                     "preset format default is stable")
@@ -208,7 +277,13 @@ int main(int argc, char* argv[]) {
                     "preset quality default is stable")
         || !require(preset.value(QStringLiteral("watermarkOpacity")).toDouble()
                         == 0.72,
-                    "preset watermark defaults are stable")) {
+                    "preset watermark defaults are stable")
+        || !require(preset.value(QStringLiteral("resolutionDpi")).toInt()
+                        == 300,
+                    "preset print resolution default is stable")
+        || !require(preset.value(QStringLiteral("metadataPolicy")).toString()
+                        == QStringLiteral("none"),
+                    "preset privacy default is stable")) {
         return EXIT_FAILURE;
     }
 

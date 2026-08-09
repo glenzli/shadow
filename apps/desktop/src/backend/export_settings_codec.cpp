@@ -8,6 +8,12 @@
 #include <stdexcept>
 #include <string>
 
+namespace {
+
+constexpr auto output_recipe_schema = "shadow-output-recipe-20260809.1";
+
+} // namespace
+
 BackendExportOptions ExportSettingsCodec::fromVariantMap(
     const QVariantMap& values
 ) {
@@ -35,6 +41,30 @@ BackendExportOptions ExportSettingsCodec::fromVariantMap(
             100
         )
     );
+    options.color_space = values.value(
+        QStringLiteral("colorSpace"),
+        options.color_space
+    ).toString().toLower();
+    options.resolution_dpi = static_cast<std::uint16_t>(
+        std::clamp(
+            values.value(
+                QStringLiteral("resolutionDpi"),
+                static_cast<int>(options.resolution_dpi)
+            ).toInt(),
+            1,
+            2'400
+        )
+    );
+    options.metadata_policy = values.value(
+        QStringLiteral("metadataPolicy"),
+        options.metadata_policy
+    ).toString().toLower();
+    options.creator = values.value(QStringLiteral("creator"))
+                          .toString()
+                          .trimmed();
+    options.copyright_notice = values.value(QStringLiteral("copyrightNotice"))
+                                   .toString()
+                                   .trimmed();
     options.filename_suffix =
         values.value(QStringLiteral("filenameSuffix")).toString();
     options.watermark_path =
@@ -88,7 +118,15 @@ BackendExportOptions ExportSettingsCodec::fromDurableJson(
             + parse_error.errorString().toStdString()
         );
     }
-    return fromVariantMap(document.object().toVariantMap());
+    const QJsonObject object = document.object();
+    const QJsonValue schema = object.value(QStringLiteral("schema"));
+    const bool legacy_schema = schema.isDouble() && schema.toInt() == 1;
+    const bool current_schema = schema.isString()
+        && schema.toString() == QString::fromLatin1(output_recipe_schema);
+    if (!legacy_schema && !current_schema) {
+        throw std::invalid_argument("unsupported durable output recipe schema");
+    }
+    return fromVariantMap(object.toVariantMap());
 }
 
 QString ExportSettingsCodec::toDurableJson(
@@ -96,10 +134,21 @@ QString ExportSettingsCodec::toDurableJson(
 ) {
     validate(options);
     const QVariantMap values{
-        {QStringLiteral("schema"), 1},
+        {
+            QStringLiteral("schema"),
+            QString::fromLatin1(output_recipe_schema)
+        },
         {QStringLiteral("format"), options.format},
         {QStringLiteral("maxEdge"), static_cast<int>(options.max_edge)},
         {QStringLiteral("quality"), static_cast<int>(options.jpeg_quality)},
+        {QStringLiteral("colorSpace"), options.color_space},
+        {
+            QStringLiteral("resolutionDpi"),
+            static_cast<int>(options.resolution_dpi)
+        },
+        {QStringLiteral("metadataPolicy"), options.metadata_policy},
+        {QStringLiteral("creator"), options.creator},
+        {QStringLiteral("copyrightNotice"), options.copyright_notice},
         {QStringLiteral("watermarkPath"), options.watermark_path},
         {QStringLiteral("watermarkOpacity"), options.watermark_opacity},
         {QStringLiteral("watermarkScale"), options.watermark_scale},
@@ -137,6 +186,32 @@ QVariantMap ExportSettingsCodec::normalizedPreset(
                 QStringLiteral("quality"),
                 static_cast<int>(defaults.jpeg_quality)
             )
+        },
+        {
+            QStringLiteral("colorSpace"),
+            values.value(QStringLiteral("colorSpace"), defaults.color_space)
+        },
+        {
+            QStringLiteral("resolutionDpi"),
+            values.value(
+                QStringLiteral("resolutionDpi"),
+                static_cast<int>(defaults.resolution_dpi)
+            )
+        },
+        {
+            QStringLiteral("metadataPolicy"),
+            values.value(
+                QStringLiteral("metadataPolicy"),
+                defaults.metadata_policy
+            )
+        },
+        {
+            QStringLiteral("creator"),
+            values.value(QStringLiteral("creator"))
+        },
+        {
+            QStringLiteral("copyrightNotice"),
+            values.value(QStringLiteral("copyrightNotice"))
         },
         {
             QStringLiteral("filenameSuffix"),
@@ -179,10 +254,26 @@ QVariantMap ExportSettingsCodec::normalizedPreset(
 
 void ExportSettingsCodec::validate(const BackendExportOptions& options) {
     if (options.format != QStringLiteral("jpeg")
-        && options.format != QStringLiteral("png")) {
-        throw std::invalid_argument("export format must be jpeg or png");
+        && options.format != QStringLiteral("png")
+        && options.format != QStringLiteral("tiff")) {
+        throw std::invalid_argument("export format must be jpeg, png, or tiff");
     }
     if (options.jpeg_quality < 1 || options.jpeg_quality > 100) {
         throw std::invalid_argument("JPEG export quality must be in 1..=100");
+    }
+    if (options.color_space != QStringLiteral("srgb")
+        && options.color_space != QStringLiteral("display-p3")) {
+        throw std::invalid_argument(
+            "output color space must be srgb or display-p3"
+        );
+    }
+    if (options.resolution_dpi < 1 || options.resolution_dpi > 2'400) {
+        throw std::invalid_argument("output resolution must be in 1..=2400 DPI");
+    }
+    if (options.metadata_policy != QStringLiteral("none")
+        && options.metadata_policy != QStringLiteral("copyright-only")) {
+        throw std::invalid_argument(
+            "output metadata policy must be none or copyright-only"
+        );
     }
 }

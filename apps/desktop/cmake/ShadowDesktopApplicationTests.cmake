@@ -181,6 +181,40 @@
     )
 
     add_executable(
+        shadow-export-raster-encoder-contract-test
+        tests/export_raster_encoder_contract_test.cpp
+        src/backend/export_raster_encoder.cpp
+        src/backend/export_raster_encoder.hpp
+    )
+    target_compile_features(
+        shadow-export-raster-encoder-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-export-raster-encoder-contract-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-export-raster-encoder-contract-test
+        PRIVATE Qt6::Core Qt6::Gui TIFF::TIFF
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-export-raster-encoder-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-export-raster-encoder-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-export-raster-encoder-contract
+        COMMAND shadow-export-raster-encoder-contract-test
+    )
+
+    add_executable(
         shadow-export-preset-store-test
         tests/export_preset_store_test.cpp
         src/backend/export_settings_codec.cpp

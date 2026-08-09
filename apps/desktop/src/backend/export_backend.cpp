@@ -1,4 +1,5 @@
 #include "backend/export_backend.hpp"
+#include "backend/export_raster_encoder.hpp"
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
@@ -6,7 +7,6 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
-#include <QImageWriter>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainter>
@@ -73,8 +73,18 @@ public:
     const QImage& image
 ) {
     return QString::fromUtf8(QJsonDocument(QJsonObject{
-        {QStringLiteral("schema"), 1},
+        {
+            QStringLiteral("schema"),
+            QStringLiteral("shadow-output-receipt-20260809.1")
+        },
         {QStringLiteral("format"), options.format},
+        {QStringLiteral("bit_depth"), 8},
+        {QStringLiteral("color_space"), options.color_space},
+        {
+            QStringLiteral("resolution_dpi"),
+            static_cast<int>(options.resolution_dpi)
+        },
+        {QStringLiteral("metadata_policy"), options.metadata_policy},
         {QStringLiteral("width"), image.width()},
         {QStringLiteral("height"), image.height()},
         {QStringLiteral("max_edge"), static_cast<qint64>(options.max_edge)},
@@ -171,6 +181,19 @@ public:
         painter.drawImage(QPoint(std::max(0, x), std::max(0, y)), watermark);
         painter.end();
     }
+    if (options.color_space == QStringLiteral("display-p3")) {
+        image = image.convertedToColorSpace(QColorSpace::DisplayP3);
+        if (image.isNull()) {
+            throw std::runtime_error(
+                "could not convert the export raster to Display P3"
+            );
+        }
+    }
+    const int dots_per_meter = qRound(
+        static_cast<double>(options.resolution_dpi) / 0.0254
+    );
+    image.setDotsPerMeterX(dots_per_meter);
+    image.setDotsPerMeterY(dots_per_meter);
     if (QFileInfo::exists(destination_path)) {
         throw ExportOutputConflict(destination_path);
     }
@@ -185,21 +208,11 @@ public:
             + destination.errorString().toStdString()
         );
     }
-    QImageWriter writer(
-        &destination,
-        options.format == QStringLiteral("png")
-            ? QByteArrayLiteral("png") : QByteArrayLiteral("jpg")
-    );
-    if (options.format == QStringLiteral("jpeg")) {
-        writer.setQuality(options.jpeg_quality);
-        writer.setOptimizedWrite(true);
-    }
-    if (!writer.write(image)) {
+    try {
+        writeEncodedOutputRaster(destination, image, options);
+    } catch (...) {
         destination.cancelWriting();
-        throw std::runtime_error(
-            std::string("could not encode export: ")
-            + writer.errorString().toStdString()
-        );
+        throw;
     }
     const std::uint64_t byte_length =
         static_cast<std::uint64_t>(destination.size());

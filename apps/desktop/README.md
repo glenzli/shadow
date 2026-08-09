@@ -585,9 +585,11 @@ admission, background execution, preset persistence, and backend publication:
 
 - [`qml/ExportDialog.qml`](qml/ExportDialog.qml) owns modal export lifecycle, destination
   admission, progress, failures, and completion.
-- [`qml/ExportSettingsPane.qml`](qml/ExportSettingsPane.qml) owns the editable option draft and
-  exact backend projection; [`qml/ExportPresetMenus.qml`](qml/ExportPresetMenus.qml) owns preset
-  naming and removal transactions.
+- [`qml/ExportSettingsPane.qml`](qml/ExportSettingsPane.qml) owns the editable Output Recipe draft:
+  JPEG/PNG/TIFF format, non-upscaling long edge, quality, tagged sRGB or Display P3 conversion,
+  print-resolution metadata, explicit strip-or-copyright metadata policy, filename suffix, and PNG
+  watermark. [`qml/ExportPresetMenus.qml`](qml/ExportPresetMenus.qml) owns preset naming and removal
+  transactions.
 
 - [`src/export_controller.cpp`](src/export_controller.cpp) owns selection-to-destination planning,
   task-center presentation, cancellation requests, and the stable QML facade. Its localized status
@@ -596,19 +598,26 @@ admission, background execution, preset persistence, and backend publication:
   recovery, queue claims, cancellation, item execution, progress receipts, and terminal results.
 - [`src/export_preset_store.cpp`](src/export_preset_store.cpp) owns preset identity, normalization,
   settings persistence, and runtime retranslation of built-in names while preserving user names.
-- [`src/backend/export_settings_codec.cpp`](src/backend/export_settings_codec.cpp) owns the export
-  field names, defaults, clamps, validation, preset projection, and immutable settings JSON shared
-  by the controller and executor.
+- [`src/backend/export_settings_codec.cpp`](src/backend/export_settings_codec.cpp) owns the output
+  field names, defaults, clamps, validation, preset projection, and immutable dated Output Recipe
+  JSON shared by the controller and executor. It reads legacy numeric schema 1 queue items, rejects
+  unknown dated schemas, and never advertises a bit depth that the renderer did not produce.
 - [`src/backend/export_backend.cpp`](src/backend/export_backend.cpp) owns queue recovery and claims,
-  exact Recipe rendering, watermarking and encoding, write-conflict handling, atomic publication,
-  terminal completion, cancellation, and progress on the application's single Rust session.
+  exact Recipe rendering, color conversion, resolution/copyright tagging, watermarking,
+  write-conflict handling, atomic publication, terminal completion, cancellation, and progress on
+  the application's single Rust session. [`src/backend/export_raster_encoder.cpp`](src/backend/export_raster_encoder.cpp)
+  owns the final JPEG/PNG encoding and a plugin-independent, lossless-Deflate TIFF writer backed by
+  libtiff. The current export raster contract is tagged RGB8; true high-bit-depth output requires a
+  future linear high-bit-depth renderer endpoint rather than expanding this 8-bit result.
 
 `DesktopBackend` composes that export component with the shared session but does not forward its
 workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)
 links the production component and verifies its settings schema plus an empty real durable queue;
 [`tests/export_preset_store_test.cpp`](tests/export_preset_store_test.cpp) verifies preset
 normalization, persistence, stable built-in identities, runtime retranslation, and preservation of
-user-authored names.
+user-authored names; [`tests/export_raster_encoder_contract_test.cpp`](tests/export_raster_encoder_contract_test.cpp)
+reopens a generated TIFF and verifies its honest RGB8 identity, profile, lossless compression,
+resolution, and explicit copyright fields.
 
 Review presentation keeps the workspace as the composition and compatibility surface:
 

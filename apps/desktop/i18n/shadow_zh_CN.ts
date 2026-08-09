@@ -1800,6 +1800,11 @@ R %2 · G %3 · B %4</translation>
         <source>Full-size PNG</source>
         <translation>全尺寸 PNG</translation>
     </message>
+    <message>
+        <location filename="../src/export_preset_store.cpp" line="36"/>
+        <source>Print TIFF</source>
+        <translation>打印 TIFF</translation>
+    </message>
 </context>
 <context>
     <name>ExportDialog</name>
@@ -1917,6 +1922,16 @@ R %2 · G %3 · B %4</translation>
         <translation>画质</translation>
     </message>
     <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="278"/>
+        <source>Color space</source>
+        <translation>色彩空间</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="320"/>
+        <source>Resolution</source>
+        <translation>分辨率</translation>
+    </message>
+    <message>
         <location filename="../qml/ExportSettingsPane.qml" line="268"/>
         <source>Filename suffix</source>
         <translation>文件名后缀</translation>
@@ -1925,6 +1940,42 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/ExportSettingsPane.qml" line="275"/>
         <source>Optional, e.g. _web</source>
         <translation>可选，例如 _web</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="404"/>
+        <source>METADATA</source>
+        <translation>元数据</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="416"/>
+        <source>Include</source>
+        <translation>包含</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="427"/>
+        <source>No metadata</source>
+        <translation>不包含元数据</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="427"/>
+        <source>Copyright only</source>
+        <translation>仅版权信息</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="457"/>
+        <source>Creator</source>
+        <translation>创作者</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="493"/>
+        <source>Copyright</source>
+        <translation>版权声明</translation>
+    </message>
+    <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="466"/>
+        <location filename="../qml/ExportSettingsPane.qml" line="502"/>
+        <source>Optional</source>
+        <translation>可选</translation>
     </message>
     <message>
         <location filename="../qml/ExportSettingsPane.qml" line="300"/>

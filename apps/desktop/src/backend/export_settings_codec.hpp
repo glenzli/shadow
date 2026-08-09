@@ -12,6 +12,11 @@ struct BackendExportOptions final {
     QString format = QStringLiteral("jpeg");
     std::uint32_t max_edge = 0;
     std::uint8_t jpeg_quality = 90;
+    QString color_space = QStringLiteral("srgb");
+    std::uint16_t resolution_dpi = 300;
+    QString metadata_policy = QStringLiteral("none");
+    QString creator;
+    QString copyright_notice;
     QString filename_suffix;
     QString watermark_path;
     double watermark_opacity = 0.72;

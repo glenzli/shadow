@@ -15,6 +15,11 @@ Item {
     property string format: "jpeg"
     property int maxEdge: 0
     property int quality: 90
+    property string colorSpace: "srgb"
+    property int resolutionDpi: 300
+    property string metadataPolicy: "none"
+    property string creator: ""
+    property string copyrightNotice: ""
     property string filenameSuffix: ""
     property string watermarkPath: ""
     property real watermarkOpacity: 0.72
@@ -34,6 +39,11 @@ Item {
         format = String(preset.format || "jpeg")
         maxEdge = Number(preset.maxEdge || 0)
         quality = Number(preset.quality || 90)
+        colorSpace = String(preset.colorSpace || "srgb")
+        resolutionDpi = Number(preset.resolutionDpi || 300)
+        metadataPolicy = String(preset.metadataPolicy || "none")
+        creator = String(preset.creator || "")
+        copyrightNotice = String(preset.copyrightNotice || "")
         filenameSuffix = String(preset.filenameSuffix || "")
         watermarkPath = String(preset.watermarkPath || "")
         watermarkOpacity = Number(preset.watermarkOpacity !== undefined ? preset.watermarkOpacity : 0.72)
@@ -42,6 +52,9 @@ Item {
         watermarkAnchor = String(preset.watermarkAnchor || "bottom-right")
         sizeField.text = maxEdge > 0 ? String(maxEdge) : ""
         suffixField.text = filenameSuffix
+        resolutionField.text = String(resolutionDpi)
+        creatorField.text = creator
+        copyrightField.text = copyrightNotice
     }
 
     function presetAt(index) {
@@ -73,10 +86,16 @@ Item {
 
     function options() {
         const parsedEdge = Number(sizeField.text)
+        const parsedDpi = Number(resolutionField.text)
         return {
             "format": format,
             "maxEdge": Number.isFinite(parsedEdge) ? Math.max(0, Math.min(16384, Math.round(parsedEdge))) : 0,
             "quality": Math.round(quality),
+            "colorSpace": String(colorSpace),
+            "resolutionDpi": Number.isFinite(parsedDpi) ? Math.max(1, Math.min(2400, Math.round(parsedDpi))) : 300,
+            "metadataPolicy": String(metadataPolicy),
+            "creator": String(creatorField.text),
+            "copyrightNotice": String(copyrightField.text),
             "filenameSuffix": String(suffixField.text),
             "watermarkPath": String(watermarkPath),
             "watermarkOpacity": Number(watermarkOpacity),
@@ -198,6 +217,12 @@ Item {
                         active: settings.format === "png"
                         onClicked: settings.format = "png"
                     }
+                    ShadowTabButton {
+                        Layout.fillWidth: true
+                        text: "TIFF"
+                        active: settings.format === "tiff"
+                        onClicked: settings.format = "tiff"
+                    }
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -228,6 +253,69 @@ Item {
                     }
                     Label {
                         text: "px"
+                        color: Theme.textMuted
+                        font.pixelSize: 10
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.preferredWidth: 92
+                        text: qsTr("Color space")
+                        color: Theme.textSecondary
+                        font.pixelSize: 11
+                    }
+                    ComboBox {
+                        id: colorSpaceBox
+                        Layout.fillWidth: true
+                        implicitHeight: Theme.controlHeight
+                        model: ["sRGB", "Display P3"]
+                        currentIndex: settings.colorSpace === "display-p3" ? 1 : 0
+                        onActivated: settings.colorSpace = currentIndex === 1 ? "display-p3" : "srgb"
+                        contentItem: Label {
+                            leftPadding: 10
+                            rightPadding: 28
+                            verticalAlignment: Text.AlignVCenter
+                            text: colorSpaceBox.displayText
+                            color: Theme.textPrimary
+                            font.pixelSize: 11
+                        }
+                        background: Rectangle {
+                            color: Theme.control
+                            radius: Theme.compactControlRadius
+                            border.width: 1
+                            border.color: colorSpaceBox.activeFocus ? Theme.focusRing : Theme.border
+                        }
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.preferredWidth: 92
+                        text: qsTr("Resolution")
+                        color: Theme.textSecondary
+                        font.pixelSize: 11
+                    }
+                    TextField {
+                        id: resolutionField
+                        Layout.fillWidth: true
+                        text: "300"
+                        inputMethodHints: Qt.ImhDigitsOnly
+                        validator: IntValidator {
+                            bottom: 1
+                            top: 2400
+                        }
+                        color: Theme.textPrimary
+                        selectByMouse: true
+                        background: Rectangle {
+                            color: Theme.control
+                            radius: Theme.compactControlRadius
+                            border.width: 1
+                            border.color: resolutionField.activeFocus ? Theme.focusRing : Theme.border
+                        }
+                    }
+                    Label {
+                        text: "DPI"
                         color: Theme.textMuted
                         font.pixelSize: 10
                     }
@@ -282,6 +370,105 @@ Item {
                             radius: Theme.compactControlRadius
                             border.width: 1
                             border.color: suffixField.activeFocus ? Theme.focusRing : Theme.border
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.border
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 9
+                Label {
+                    text: qsTr("METADATA")
+                    color: Theme.textMuted
+                    font.pixelSize: 9
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 0.7
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.preferredWidth: 92
+                        text: qsTr("Include")
+                        color: Theme.textSecondary
+                        font.pixelSize: 11
+                    }
+                    ComboBox {
+                        id: metadataBox
+                        Layout.fillWidth: true
+                        implicitHeight: Theme.controlHeight
+                        model: [qsTr("No metadata"), qsTr("Copyright only")]
+                        currentIndex: settings.metadataPolicy === "copyright-only" ? 1 : 0
+                        onActivated: settings.metadataPolicy = currentIndex === 1 ? "copyright-only" : "none"
+                        contentItem: Label {
+                            leftPadding: 10
+                            rightPadding: 28
+                            verticalAlignment: Text.AlignVCenter
+                            text: metadataBox.displayText
+                            color: Theme.textPrimary
+                            font.pixelSize: 11
+                        }
+                        background: Rectangle {
+                            color: Theme.control
+                            radius: Theme.compactControlRadius
+                            border.width: 1
+                            border.color: metadataBox.activeFocus ? Theme.focusRing : Theme.border
+                        }
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: settings.metadataPolicy === "copyright-only"
+                    Label {
+                        Layout.preferredWidth: 92
+                        text: qsTr("Creator")
+                        color: Theme.textSecondary
+                        font.pixelSize: 11
+                    }
+                    TextField {
+                        id: creatorField
+                        Layout.fillWidth: true
+                        color: Theme.textPrimary
+                        placeholderText: qsTr("Optional")
+                        placeholderTextColor: Theme.textPlaceholder
+                        selectByMouse: true
+                        onTextChanged: settings.creator = text
+                        background: Rectangle {
+                            color: Theme.control
+                            radius: Theme.compactControlRadius
+                            border.width: 1
+                            border.color: creatorField.activeFocus ? Theme.focusRing : Theme.border
+                        }
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: settings.metadataPolicy === "copyright-only"
+                    Label {
+                        Layout.preferredWidth: 92
+                        text: qsTr("Copyright")
+                        color: Theme.textSecondary
+                        font.pixelSize: 11
+                    }
+                    TextField {
+                        id: copyrightField
+                        Layout.fillWidth: true
+                        color: Theme.textPrimary
+                        placeholderText: qsTr("Optional")
+                        placeholderTextColor: Theme.textPlaceholder
+                        selectByMouse: true
+                        onTextChanged: settings.copyrightNotice = text
+                        background: Rectangle {
+                            color: Theme.control
+                            radius: Theme.compactControlRadius
+                            border.width: 1
+                            border.color: copyrightField.activeFocus ? Theme.focusRing : Theme.border
                         }
                     }
                 }

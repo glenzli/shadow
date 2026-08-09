@@ -275,7 +275,9 @@ void ExportController::startExport(
     }
     const QString extension = export_options.format == QStringLiteral("png")
         ? QStringLiteral("png")
-        : QStringLiteral("jpg");
+        : export_options.format == QStringLiteral("tiff")
+            ? QStringLiteral("tif")
+            : QStringLiteral("jpg");
     const QString suffix = export_options.filename_suffix;
     const QDir folder(QDir(folder_path).absolutePath());
     QSet<QString> reserved_destinations;
