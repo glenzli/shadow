@@ -143,7 +143,9 @@ void EditController::finishPreviewTask() {
                 && !active_parameter_gestures_.isEmpty()) {
                 first_interactive_frame_presented_ = true;
             }
-            if (accepted && result.generation.policy == EditPreviewPolicy::Settled
+            if (accepted
+                && (result.generation.policy == EditPreviewPolicy::Settled
+                    || result.generation.policy == EditPreviewPolicy::PresentationCommit)
                 && result.preview.analysis.available) {
                 settled_render_revision_ = result.generation.current_revision;
             }
@@ -243,6 +245,24 @@ void EditController::finishPreviewTask() {
         }
     }
 
+    if (result.generation.policy == EditPreviewPolicy::PresentationCommit) {
+        if (accepted && result.terminal == EditPreviewTerminal::Completed
+            && result.error.isEmpty()) {
+            // The bridge returns only after the exact Recipe preview blob and
+            // source-checked Catalog record are durable. activeChanged now
+            // becomes the safe Library refresh notification.
+            finalizePhotoClose();
+            return;
+        }
+        if (result.terminal != EditPreviewTerminal::Cancelled) {
+            // A cache/storage failure must not trap the user on a hidden
+            // Precision page. Preserve the saved Recipe, close cleanly, and
+            // let the next Library request fall back to the last valid visual.
+            finalizePhotoClose();
+            return;
+        }
+    }
+
     if (preview_queued_) {
         preview_queued_ = false;
         // The edit that queued this render already advanced render_revision_.
@@ -270,9 +290,11 @@ void EditController::startPreviewRender() {
     }
     setPreviewRunning(EditPreviewKind::Current, true);
     preview_queued_ = false;
-    const bool interactive = !active_parameter_gestures_.isEmpty();
-    const EditPreviewPolicy policy = interactive
-        ? EditPreviewPolicy::Interactive : EditPreviewPolicy::Settled;
+    const bool interactive = !presentation_commit_requested_
+                             && !active_parameter_gestures_.isEmpty();
+    const EditPreviewPolicy policy = presentation_commit_requested_
+        ? EditPreviewPolicy::PresentationCommit
+        : (interactive ? EditPreviewPolicy::Interactive : EditPreviewPolicy::Settled);
     const std::uint32_t max_edge = EDIT_PREVIEW_EDGE;
     const std::uint8_t jpeg_quality = interactive
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;

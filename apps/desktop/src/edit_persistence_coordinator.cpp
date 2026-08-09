@@ -200,6 +200,11 @@ bool EditController::openPhoto(
 }
 
 void EditController::closePhoto() {
+    if (presentation_commit_requested_
+        && in_flight_preview_policy_ == EditPreviewPolicy::PresentationCommit
+        && current_rendering_) {
+        return;
+    }
     cancelActivePreview(true);
     if (stateTaskRunning()) {
         // A return to Library is allowed while an initial open or an autosave
@@ -240,6 +245,39 @@ void EditController::closePhoto() {
     if (!active_) {
         return;
     }
+    if (!durable_working_commit_id_.isEmpty()) {
+        requestPresentationCommit();
+        return;
+    }
+    finalizePhotoClose();
+}
+
+void EditController::requestPresentationCommit() {
+    if (!active_ || presentation_commit_requested_) {
+        return;
+    }
+    persistence_state_.requestPhotoClose();
+    presentation_commit_requested_ = true;
+    active_parameter_gestures_.clear();
+    preview_queued_ = false;
+    before_requested_ = false;
+    detail_queued_ = false;
+    resetDetailState();
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController",
+        "Updating the Library preview…"
+    )));
+    if (current_rendering_ || before_rendering_) {
+        preview_queued_ = true;
+        cancelActivePreview(true);
+        return;
+    }
+    preview_debounce_.start(0);
+}
+
+void EditController::finalizePhotoClose() {
+    presentation_commit_requested_ = false;
+    persistence_state_.clearPhotoClose();
     persistence_state_.clearPendingPhotoOpen();
     setPointColorPickerActive(false);
     setRetouchPickerActive(false);
@@ -669,7 +707,6 @@ void EditController::finishStateTask() {
         maybeStartDetailRender();
     }
     if (persistence_state_.closePhotoAfterAutosave()) {
-        persistence_state_.clearPhotoClose();
         closePhoto();
     }
     maybeFinishDeferredApplicationClose();

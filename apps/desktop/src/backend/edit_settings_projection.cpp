@@ -281,6 +281,8 @@ shadow::desktop::FfiEditPreviewPolicy ffi_edit_preview_policy(const EditPreviewP
         return shadow::desktop::FfiEditPreviewPolicy::Interactive;
     case EditPreviewPolicy::Settled:
         return shadow::desktop::FfiEditPreviewPolicy::Settled;
+    case EditPreviewPolicy::PresentationCommit:
+        return shadow::desktop::FfiEditPreviewPolicy::PresentationCommit;
     case EditPreviewPolicy::NeutralBefore:
         return shadow::desktop::FfiEditPreviewPolicy::NeutralBefore;
     }

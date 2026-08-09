@@ -335,7 +335,10 @@ Its implementation follows the same navigation:
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns current and neutral
   preview scheduling, cancellation, diagnostics, and presentation. During interaction it
   publishes the bridge's shared immutable frame owner; settled and neutral frames retain their
-  encoded proxy contract for analysis and durable publication.
+  encoded proxy contract for analysis and durable publication. Returning from Precision adds one
+  explicit presentation-commit render after the working Recipe is durable: it completes the exact
+  source-checked Recipe preview transaction off the UI thread before `activeChanged` lets `Main`
+  refresh Library. Ordinary settled frames keep their non-blocking rebuildable-cache behavior.
 - [`src/backend/edit_preview_frame.hpp`](src/backend/edit_preview_frame.hpp) is the small read-only
   RGB8/paired-R8 owner contract. [`src/backend/rust_owned_edit_preview_frame.cpp`](src/backend/rust_owned_edit_preview_frame.cpp)
   is its only Rust-Box adapter, so presentation tests do not depend on generated bridge types.

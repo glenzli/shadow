@@ -585,14 +585,23 @@ void stale_result_rules_are_kind_specific() {
     static_assert(edit_preview_kind(EditPreviewPolicy::Interactive) == EditPreviewKind::Current);
     static_assert(edit_preview_kind(EditPreviewPolicy::Settled) == EditPreviewKind::Current);
     static_assert(
+        edit_preview_kind(EditPreviewPolicy::PresentationCommit) == EditPreviewKind::Current
+    );
+    static_assert(
         edit_preview_kind(EditPreviewPolicy::NeutralBefore) == EditPreviewKind::NeutralBefore
     );
     static_assert(!edit_preview_requires_analysis(EditPreviewPolicy::Interactive));
     static_assert(edit_preview_requires_analysis(EditPreviewPolicy::Settled));
+    static_assert(edit_preview_requires_analysis(EditPreviewPolicy::PresentationCommit));
     static_assert(edit_preview_requires_analysis(EditPreviewPolicy::NeutralBefore));
     static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::Interactive));
     static_assert(edit_preview_admits_durable_cache(EditPreviewPolicy::Settled));
+    static_assert(edit_preview_admits_durable_cache(EditPreviewPolicy::PresentationCommit));
     static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::NeutralBefore));
+    static_assert(!edit_preview_requires_durable_publication(EditPreviewPolicy::Settled));
+    static_assert(
+        edit_preview_requires_durable_publication(EditPreviewPolicy::PresentationCommit)
+    );
     static_assert(!edit_preview_requires_display_diagnostics(EditPreviewPolicy::Interactive));
     static_assert(edit_preview_terminal_admits_publication(EditPreviewTerminal::Completed));
     static_assert(!edit_preview_terminal_admits_publication(EditPreviewTerminal::Cancelled));

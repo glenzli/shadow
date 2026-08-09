@@ -1246,6 +1246,7 @@ mod ffi {
     enum FfiEditPreviewPolicy {
         Interactive,
         Settled,
+        PresentationCommit,
         NeutralBefore,
     }
 

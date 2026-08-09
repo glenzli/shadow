@@ -245,6 +245,9 @@ void complete_stack_round_trip_is_lossless() {
                 == shadow::desktop::FfiEditPreviewPolicy::Interactive
             && desktop_backend_projection::ffi_edit_preview_policy(EditPreviewPolicy::Settled)
                    == shadow::desktop::FfiEditPreviewPolicy::Settled
+            && desktop_backend_projection::ffi_edit_preview_policy(
+                   EditPreviewPolicy::PresentationCommit
+               ) == shadow::desktop::FfiEditPreviewPolicy::PresentationCommit
             && desktop_backend_projection::ffi_edit_preview_policy(EditPreviewPolicy::NeutralBefore)
                    == shadow::desktop::FfiEditPreviewPolicy::NeutralBefore,
         "each explicit preview policy retains its wire identity"

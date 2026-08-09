@@ -802,6 +802,8 @@ class EditController final : public QObject {
     void clearSessionHistory();
     void recordWorkingTransition(const QString& key, const BackendGradeStack& before);
     void schedulePreview(int delay_ms);
+    void requestPresentationCommit();
+    void finalizePhotoClose();
     void maybeStartBeforePreview();
     void maybeStartDetailRender();
     void cancelDetailWarmupForRecipeEdit();
@@ -955,6 +957,10 @@ class EditController final : public QObject {
     bool full_resolution_preparing_ = false;
     bool full_resolution_ready_ = false;
     bool preview_queued_ = false;
+    // Precision may become visually hidden before its asynchronous close is
+    // complete. Keep the session alive until the exact saved Recipe preview
+    // has crossed the durable Library presentation boundary.
+    bool presentation_commit_requested_ = false;
     bool before_requested_ = false;
     bool detail_queued_ = false;
     EditPreviewPolicy in_flight_preview_policy_ = EditPreviewPolicy::Settled;

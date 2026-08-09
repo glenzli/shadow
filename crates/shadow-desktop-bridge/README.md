@@ -64,7 +64,11 @@ Metal warm session, `owned_response.rs` retains the opaque bridge owner and `res
 only the validated storage kind, texture/device handles, row stride, pixel format, resource
 identity, and optional paired mask view. Host materialization remains an explicit fallback method.
 Settled output continues to publish encoded JPEG plus analysis; the native presentation descriptor
-is transient and never enters Catalog or cache identity.
+is transient and never enters Catalog or cache identity. The desktop's explicit
+`PresentationCommit` policy uses the same settled renderer and identities, but completes the blob
+and Catalog transaction before returning so the Precision-to-Library boundary cannot observe a
+saved Recipe with an older visual. It remains worker-thread work and is not an interactive render
+mode.
 
 Recipe v1 keeps existing single Oklab-lightness and zero-minimum-chroma Oklch-hue masks on their
 byte-stable, GPU-executable representation. The domain can also persist bounded `all`/`any`/`not`

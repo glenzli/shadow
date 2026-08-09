@@ -1116,6 +1116,11 @@
         <translation>正在保存当前调整，然后关闭精修…</translation>
     </message>
     <message>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="266"/>
+        <source>Updating the Library preview…</source>
+        <translation>正在更新图库预览…</translation>
+    </message>
+    <message>
         <location filename="../src/edit_persistence_coordinator.cpp" line="338"/>
         <location filename="../src/edit_persistence_coordinator.cpp" line="346"/>
         <source>Creating Library version “%1”…</source>

@@ -17,6 +17,10 @@ enum class EditPreviewKind : std::uint8_t {
 enum class EditPreviewPolicy : std::uint8_t {
     Interactive,
     Settled,
+    // A settled frame whose exact Recipe/source presentation must be durable
+    // before the worker returns. Used only at the Precision -> Library
+    // boundary; normal settled frames remain non-blocking cache candidates.
+    PresentationCommit,
     NeutralBefore,
 };
 
@@ -63,7 +67,13 @@ edit_preview_requires_analysis(const EditPreviewPolicy policy) noexcept {
 
 [[nodiscard]] constexpr bool
 edit_preview_admits_durable_cache(const EditPreviewPolicy policy) noexcept {
-    return policy == EditPreviewPolicy::Settled;
+    return policy == EditPreviewPolicy::Settled
+           || policy == EditPreviewPolicy::PresentationCommit;
+}
+
+[[nodiscard]] constexpr bool
+edit_preview_requires_durable_publication(const EditPreviewPolicy policy) noexcept {
+    return policy == EditPreviewPolicy::PresentationCommit;
 }
 
 [[nodiscard]] constexpr bool

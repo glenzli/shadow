@@ -62,7 +62,7 @@ pub(crate) struct RecipePreviewStoreJob {
 }
 
 impl RecipePreviewStoreJob {
-    fn store(&self) -> AnyResult<()> {
+    pub(crate) fn store(&self) -> AnyResult<()> {
         store_recipe_preview(
             &self.catalog,
             &self.loader,

@@ -27,6 +27,7 @@ use crate::{
 pub(crate) enum EditPreviewPolicy {
     Interactive,
     Settled,
+    PresentationCommit,
     NeutralBefore,
 }
 
@@ -35,6 +36,7 @@ impl EditPreviewPolicy {
         match policy {
             ffi::FfiEditPreviewPolicy::Interactive => Ok(Self::Interactive),
             ffi::FfiEditPreviewPolicy::Settled => Ok(Self::Settled),
+            ffi::FfiEditPreviewPolicy::PresentationCommit => Ok(Self::PresentationCommit),
             ffi::FfiEditPreviewPolicy::NeutralBefore => Ok(Self::NeutralBefore),
             _ => bail!("unknown edit-preview policy"),
         }
@@ -49,7 +51,7 @@ impl EditPreviewPolicy {
     }
 
     const fn admits_durable_cache(self) -> bool {
-        matches!(self, Self::Settled)
+        matches!(self, Self::Settled | Self::PresentationCommit)
     }
 
     pub(super) const fn returns_sensor_diagnostics(self) -> bool {
@@ -228,7 +230,9 @@ impl DesktopSession {
                         CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
                     }
                 }
-                EditPreviewPolicy::Settled | EditPreviewPolicy::NeutralBefore => {
+                EditPreviewPolicy::Settled
+                | EditPreviewPolicy::PresentationCommit
+                | EditPreviewPolicy::NeutralBefore => {
                     match session.render_plan_with_analysis_and_mask_coverage_cancellable(
                         &recipe.plan,
                         request.jpeg_quality,
@@ -284,10 +288,11 @@ impl DesktopSession {
                 let CompletedEditPreview::Materialized(rendered) = &rendered else {
                     bail!("settled edit preview has no materialized execution receipt");
                 };
-                // The completed frame is already the authoritative on-screen
-                // result. Durable Gallery caching is rebuildable background
-                // work and must never delay publication back to Qt.
-                let _ = defer_recipe_preview_store(RecipePreviewStoreJob {
+                // Ordinary completed frames are already authoritative on
+                // screen, so their rebuildable Gallery cache work stays in
+                // the bounded background queue. PresentationCommit is the
+                // explicit exception handled below.
+                let store_job = RecipePreviewStoreJob {
                     catalog: self.catalog.clone(),
                     loader: self.loader.clone(),
                     representation_id: source.representation_id,
@@ -300,7 +305,17 @@ impl DesktopSession {
                     raw_pipeline_receipt: session.raw_pipeline_receipt().clone(),
                     edit_execution_receipt: rendered.execution.clone(),
                     source_environment_cache_identity,
-                });
+                };
+                if matches!(policy, EditPreviewPolicy::PresentationCommit) {
+                    // Returning from Precision is a presentation boundary, not
+                    // ordinary rebuildable cache maintenance. This render is
+                    // already running off the Qt thread, so complete the exact
+                    // blob + Catalog transaction before the desktop refreshes
+                    // Library and makes the new working Recipe observable.
+                    store_job.store()?;
+                } else {
+                    let _ = defer_recipe_preview_store(store_job);
+                }
             }
             match rendered {
                 CompletedEditPreview::Interactive(frame) => Ok(OwnedEditedPreview::interactive(

@@ -18,6 +18,14 @@ fn policy_controls_analysis_recipe_and_cache_admission() {
     assert!(settled.admits_durable_cache());
     assert!(settled.returns_sensor_diagnostics());
 
+    let presentation_commit =
+        EditPreviewPolicy::from_ffi(ffi::FfiEditPreviewPolicy::PresentationCommit)
+            .expect("presentation-commit policy");
+    assert!(presentation_commit.uses_working_recipe());
+    assert!(presentation_commit.requires_analysis());
+    assert!(presentation_commit.admits_durable_cache());
+    assert!(presentation_commit.returns_sensor_diagnostics());
+
     let neutral = EditPreviewPolicy::from_ffi(ffi::FfiEditPreviewPolicy::NeutralBefore)
         .expect("neutral policy");
     assert!(!neutral.uses_working_recipe());
@@ -35,6 +43,10 @@ fn policy_controls_analysis_recipe_and_cache_admission() {
     ));
     assert!(!admits_recipe_preview_cache(
         interactive,
+        PreviewTerminalClaim::Completed
+    ));
+    assert!(admits_recipe_preview_cache(
+        presentation_commit,
         PreviewTerminalClaim::Completed
     ));
 }
