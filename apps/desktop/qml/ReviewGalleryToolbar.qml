@@ -206,7 +206,7 @@ Rectangle {
 
         ShadowIconButton {
             id: applySharedGradeButton
-            source: "qrc:/icons/shared-node.svg"
+            source: "qrc:/icons/grade-node-paste.svg"
             toolTipText: qsTr("Apply a shared Grade Node to selection")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0

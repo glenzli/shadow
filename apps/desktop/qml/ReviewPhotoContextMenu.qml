@@ -368,7 +368,7 @@ Popup {
 
         MenuRow {
             text: qsTr("Apply Shared Node")
-            iconSource: "qrc:/icons/shared-node.svg"
+            iconSource: "qrc:/icons/grade-node-paste.svg"
             actionEnabled: root.hasWorkspace
                 && !root.workspace.selectionContainsRemote()
                 && root.workspace.sharedNodeQuickList().length > 0
@@ -391,7 +391,7 @@ Popup {
                     required property var modelData
                     indent: 12
                     text: String(modelData.label)
-                    iconSource: "qrc:/icons/shared-node.svg"
+                    iconSource: "qrc:/icons/grade-node.svg"
                     actionEnabled: root.hasWorkspace
                         && !root.workspace.selectionContainsRemote()
                         && root.workspace.selectedPhotoCount > 0
@@ -411,7 +411,7 @@ Popup {
                     && root.workspace.hasMoreSharedNodes()
                 indent: 12
                 text: qsTr("More shared nodes…")
-                iconSource: "qrc:/icons/shared-node.svg"
+                iconSource: "qrc:/icons/grade-node.svg"
                 actionEnabled: root.hasWorkspace
                     && !root.workspace.selectionContainsRemote()
                     && root.workspace.selectedPhotoCount > 0

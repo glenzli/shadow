@@ -164,7 +164,7 @@ Rectangle {
             }
             ShadowIconButton {
                 id: addGradeNodeButton
-                source: "qrc:/icons/node-add.svg"
+                source: "qrc:/icons/grade-node-add.svg"
                 variant: ShadowIconButton.Secondary
                 foregroundColor: pane.accent
                 enabled: pane.editor.active && !pane.editor.stateBusy
@@ -252,12 +252,11 @@ Rectangle {
                         color: gradeNodeRow.selected ? Theme.accentSurface : Theme.surfaceSubtle
                         border.width: gradeNodeRow.selected ? 1 : 0
                         border.color: Theme.accentBorder
-                        Label {
+                        ShadowIcon {
                             anchors.centerIn: parent
-                            text: String(gradeNodeRow.index + 1).padStart(2, "0")
+                            source: "qrc:/icons/grade-node.svg"
                             color: gradeNodeRow.selected ? pane.accent : pane.textMuted
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
+                            size: 14
                         }
                     }
 
@@ -285,7 +284,7 @@ Rectangle {
 
                     ShadowIcon {
                         visible: gradeNodeRow.modelData.shared
-                        source: "qrc:/icons/shared-node.svg"
+                        source: "qrc:/icons/shared-link.svg"
                         color: gradeNodeRow.selected ? pane.accent : pane.textMuted
                         size: 14
                     }

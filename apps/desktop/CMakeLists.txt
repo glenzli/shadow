@@ -657,6 +657,9 @@ qt_add_resources(
         icons/fit-view.svg
         icons/flip-horizontal.svg
         icons/flip-vertical.svg
+        icons/grade-node.svg
+        icons/grade-node-add.svg
+        icons/grade-node-paste.svg
         icons/filter.svg
         icons/filter-off.svg
         icons/filmstrip.svg
@@ -694,7 +697,6 @@ qt_add_resources(
         icons/scopes.svg
         icons/settings.svg
         icons/shared-link.svg
-        icons/shared-node.svg
         icons/source-missing.svg
         icons/source-stack.svg
         icons/slot-left.svg

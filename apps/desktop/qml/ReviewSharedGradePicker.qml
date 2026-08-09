@@ -91,7 +91,7 @@ Popup {
                     spacing: 8
 
                     ShadowIcon {
-                        source: "qrc:/icons/shared-node.svg"
+                        source: "qrc:/icons/grade-node.svg"
                         color: Theme.accent
                         size: 15
                     }
