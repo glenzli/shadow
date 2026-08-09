@@ -1,6 +1,6 @@
 #import <Metal/Metal.h>
 
-#include "edit_preview_metal_texture_factory.hpp"
+#include "platform/edit_preview_texture_factory.hpp"
 
 #include "edit_preview_presentation_context.hpp"
 

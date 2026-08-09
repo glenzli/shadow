@@ -1,6 +1,6 @@
 #include "edit_preview_provider.hpp"
 
-#include "edit_preview_metal_texture_factory.hpp"
+#include "platform/edit_preview_texture_factory.hpp"
 
 #include <QBuffer>
 #include <QColorSpace>
@@ -31,8 +31,8 @@ void release_frame_owner(void* const owner) noexcept {
     const quint64 minimum_stride =
         valid_dimensions ? static_cast<quint64>(snapshot.dimensions.width()) * 3U : 0U;
     const quint64 expected_bytes = snapshot.row_stride_bytes > 0 && valid_dimensions
-                                       ? static_cast<quint64>(snapshot.row_stride_bytes) *
-                                             static_cast<quint64>(snapshot.dimensions.height())
+                                       ? static_cast<quint64>(snapshot.row_stride_bytes)
+                                             * static_cast<quint64>(snapshot.dimensions.height())
                                        : 0U;
     std::span<const std::uint8_t> frame_pixels;
     if (snapshot.frame != nullptr) {
@@ -82,11 +82,8 @@ void release_frame_owner(void* const owner) noexcept {
     return image;
 }
 
-[[nodiscard]] QImage alpha8_image(
-    EditPreviewStore::MaskCoverageSnapshot snapshot
-) {
-    const bool valid_dimensions = snapshot.dimensions.isValid()
-        && !snapshot.dimensions.isEmpty();
+[[nodiscard]] QImage alpha8_image(EditPreviewStore::MaskCoverageSnapshot snapshot) {
+    const bool valid_dimensions = snapshot.dimensions.isValid() && !snapshot.dimensions.isEmpty();
     std::span<const std::uint8_t> frame_samples;
     if (snapshot.frame != nullptr) {
         const auto coverage = snapshot.frame->maskCoverage();
@@ -96,11 +93,10 @@ void release_frame_owner(void* const owner) noexcept {
         }
         frame_samples = coverage->samples;
     }
-    const quint64 expected_bytes =
-        valid_dimensions && snapshot.row_stride_bytes > 0
-        ? static_cast<quint64>(snapshot.row_stride_bytes)
-              * static_cast<quint64>(snapshot.dimensions.height())
-        : 0U;
+    const quint64 expected_bytes = valid_dimensions && snapshot.row_stride_bytes > 0
+                                       ? static_cast<quint64>(snapshot.row_stride_bytes)
+                                             * static_cast<quint64>(snapshot.dimensions.height())
+                                       : 0U;
     const quint64 actual_bytes = snapshot.frame ? static_cast<quint64>(frame_samples.size())
                                                 : static_cast<quint64>(snapshot.samples.size());
     if (!valid_dimensions || (snapshot.frame == nullptr && snapshot.samples.isEmpty())
@@ -206,11 +202,8 @@ EditPreviewProvider::EditPreviewProvider(
     ),
     store_(std::move(store)), presentation_context_(std::move(presentation_context)) {}
 
-QImage EditPreviewProvider::requestImage(
-    const QString& id,
-    QSize* size,
-    const QSize& requested_size
-) {
+QImage
+EditPreviewProvider::requestImage(const QString& id, QSize* size, const QSize& requested_size) {
     return resolveImage(id, size, requested_size, nullptr);
 }
 
@@ -275,28 +268,18 @@ QImage EditPreviewProvider::resolveImage(
             bool valid_selection = false;
             bool valid_preview = false;
             const MaskCoverageGeneration generation{
-                .photo = query.queryItemValue(QStringLiteral("photo")).toULongLong(
-                    &valid_photo
-                ),
+                .photo = query.queryItemValue(QStringLiteral("photo")).toULongLong(&valid_photo),
                 .recipe_revision =
-                    query.queryItemValue(QStringLiteral("recipe")).toULongLong(
-                        &valid_recipe
-                    ),
+                    query.queryItemValue(QStringLiteral("recipe")).toULongLong(&valid_recipe),
                 .target_layer_index =
-                    query.queryItemValue(QStringLiteral("target")).toUInt(
-                        &valid_target
-                    ),
+                    query.queryItemValue(QStringLiteral("target")).toUInt(&valid_target),
                 .selection_revision =
-                    query.queryItemValue(QStringLiteral("selection")).toULongLong(
-                        &valid_selection
-                    ),
+                    query.queryItemValue(QStringLiteral("selection")).toULongLong(&valid_selection),
                 .paired_preview_generation =
-                    query.queryItemValue(QStringLiteral("preview")).toULongLong(
-                        &valid_preview
-                    ),
+                    query.queryItemValue(QStringLiteral("preview")).toULongLong(&valid_preview),
             };
-            if (!valid_photo || !valid_recipe || !valid_target
-                || !valid_selection || !valid_preview) {
+            if (!valid_photo || !valid_recipe || !valid_target || !valid_selection
+                || !valid_preview) {
                 if (size != nullptr) {
                     *size = {};
                 }
@@ -330,9 +313,8 @@ QImage EditPreviewProvider::resolveImage(
             return {};
         }
         bool valid_generation = false;
-        const quint64 generation = query
-                                       .queryItemValue(QStringLiteral("generation"))
-                                       .toULongLong(&valid_generation);
+        const quint64 generation =
+            query.queryItemValue(QStringLiteral("generation")).toULongLong(&valid_generation);
         if (!valid_generation) {
             if (size != nullptr) {
                 *size = {};
@@ -358,15 +340,11 @@ QImage EditPreviewProvider::resolveImage(
         bool valid_recipe = false;
         bool valid_viewport = false;
         const EditDetailGeneration generation{
-            .photo = query.queryItemValue(QStringLiteral("photo")).toULongLong(
-                &valid_photo
-            ),
-            .recipe_revision = query
-                                   .queryItemValue(QStringLiteral("recipe"))
-                                   .toULongLong(&valid_recipe),
-            .viewport_revision = query
-                                     .queryItemValue(QStringLiteral("viewport"))
-                                     .toULongLong(&valid_viewport),
+            .photo = query.queryItemValue(QStringLiteral("photo")).toULongLong(&valid_photo),
+            .recipe_revision =
+                query.queryItemValue(QStringLiteral("recipe")).toULongLong(&valid_recipe),
+            .viewport_revision =
+                query.queryItemValue(QStringLiteral("viewport")).toULongLong(&valid_viewport),
         };
         if (ticket.isEmpty() || !valid_photo || !valid_recipe || !valid_viewport) {
             if (size != nullptr) {
@@ -398,9 +376,8 @@ QImage EditPreviewProvider::resolveImage(
         return {};
     }
     bool valid_generation = false;
-    const quint64 generation = query
-                                   .queryItemValue(QStringLiteral("generation"))
-                                   .toULongLong(&valid_generation);
+    const quint64 generation =
+        query.queryItemValue(QStringLiteral("generation")).toULongLong(&valid_generation);
     if (!valid_generation) {
         if (size != nullptr) {
             *size = {};

@@ -1,8 +1,8 @@
 #include "desktop_smoke/edit_preview_session.hpp"
 
 #include "edit_controller.hpp"
-#include "edit_preview_metal_texture_factory.hpp"
 #include "edit_preview_provider.hpp"
+#include "platform/edit_preview_texture_factory.hpp"
 #include "review_controller.hpp"
 
 #include <QAbstractItemModel>
@@ -280,12 +280,9 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         frame_poll_.start();
 
         rapid_update_timer_.setInterval(RAPID_UPDATE_INTERVAL_MS);
-        QObject::connect(
-            &rapid_update_timer_,
-            &QTimer::timeout,
-            &application_,
-            [self]() { self->issueRapidParameterUpdate(); }
-        );
+        QObject::connect(&rapid_update_timer_, &QTimer::timeout, &application_, [self]() {
+            self->issueRapidParameterUpdate();
+        });
 
         deadline_.setSingleShot(true);
         deadline_.setInterval(
@@ -431,11 +428,10 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
 
     void issueRapidParameterUpdate() {
         ++rapid_update_sample_;
-        const double progress = static_cast<double>(rapid_update_sample_)
-                                / static_cast<double>(RAPID_UPDATE_SAMPLES);
+        const double progress =
+            static_cast<double>(rapid_update_sample_) / static_cast<double>(RAPID_UPDATE_SAMPLES);
         editor_.setExposureStops(
-            rapid_initial_exposure_
-            + (rapid_target_exposure_ - rapid_initial_exposure_) * progress
+            rapid_initial_exposure_ + (rapid_target_exposure_ - rapid_initial_exposure_) * progress
         );
         if (rapid_update_sample_ < RAPID_UPDATE_SAMPLES) {
             return;
@@ -460,8 +456,7 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             fail(QStringLiteral("the rapid gesture lost its final exposure value"));
             return;
         }
-        const QVariantList final_luma =
-            editor_.histogram().value(QStringLiteral("luma")).toList();
+        const QVariantList final_luma = editor_.histogram().value(QStringLiteral("luma")).toList();
         if (initial_luma_histogram_.isEmpty() || final_luma == initial_luma_histogram_) {
             fail(QStringLiteral("the rapid gesture advanced generation without changing pixels"));
             return;

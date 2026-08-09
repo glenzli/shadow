@@ -287,17 +287,7 @@ set(
     src/backend/history_types.hpp
 )
 
-if(APPLE AND SHADOW_ENABLE_METAL)
-    set(
-        SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE
-        src/edit_preview_metal_texture_factory.mm
-    )
-else()
-    set(
-        SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE
-        src/edit_preview_metal_texture_factory_stub.cpp
-    )
-endif()
+include(cmake/ShadowDesktopPlatformSources.cmake)
 
 add_library(
     shadow-library-server-control
@@ -447,8 +437,7 @@ qt_add_executable(
     src/edit_preview_contract.hpp
     src/edit_preview_liquify_mesh.cpp
     src/edit_preview_liquify_mesh.hpp
-    src/edit_preview_metal_texture_factory.hpp
-    ${SHADOW_EDIT_PREVIEW_TEXTURE_FACTORY_SOURCE}
+    ${SHADOW_DESKTOP_PLATFORM_SOURCES}
     src/edit_preview_presentation_context.cpp
     src/edit_preview_presentation_context.hpp
     src/edit_preview_presentation_registry.cpp
@@ -733,12 +722,6 @@ if(APPLE)
     )
     target_sources(shadow-desktop PRIVATE "${SHADOW_APP_ICON_FILE}")
 
-    target_sources(
-        shadow-desktop
-        PRIVATE
-            src/mac_titlebar.hpp
-            src/mac_titlebar.mm
-    )
     target_link_libraries(
         shadow-desktop
         PRIVATE

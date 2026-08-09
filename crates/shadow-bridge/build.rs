@@ -61,150 +61,20 @@ const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/bridge/raw_foundation_wire.hpp",
 ];
 
-const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
-    "src/acceleration/image_acceleration_policy.cpp",
-    "src/decoder/decoder_error.cpp",
-    "src/decoder/decoder_metadata.cpp",
-    "src/decoder/decoder_types.cpp",
-    "src/decoder/dng_noise_profile.cpp",
-    "src/decoder/focus_observation.cpp",
-    "src/decoder/libraw_runtime.cpp",
-    "src/decoder/libraw_reference_development.cpp",
-    "src/decoder/libraw_decoder.cpp",
-    "src/decoder/raster_exif.cpp",
-    "src/decoder/raster_decoder.cpp",
-    "src/decoder/heif_decoder.cpp",
-    "src/decoder/decode_session_isolation.cpp",
-    "src/decoder/photo_decoder_router.cpp",
-    "src/color/lcms_color_management.cpp",
-    "src/color/neutral_balance.cpp",
-    "src/color/source_profile_catalog.cpp",
-    "src/color/source_rendering.cpp",
-    "src/concurrency/row_scheduler.cpp",
-    "src/edit/adjustment_graph.cpp",
-    "src/edit/adjustment_node_diagnostics.cpp",
-    "src/edit/adjustment_execution.cpp",
-    "src/edit/cube_lut.cpp",
-    "src/edit/cpu_reference.cpp",
-    "src/edit/creative_detail_grading.cpp",
-    "src/edit/edit_execution_validation.cpp",
-    "src/edit/edit_error.cpp",
-    "src/edit/finishing_effects_cpu.cpp",
-    "src/edit/guided_selective_tone.cpp",
-    "src/edit/local_mask.cpp",
-    "src/edit/local_mask_coverage.cpp",
-    "src/edit/local_mask_validation.cpp",
-    "src/edit/managed_raster_mask.cpp",
-    "src/edit/metal_adjustment_program.cpp",
-    "src/edit/oklab_color_warper.cpp",
-    "src/edit/perceptual_color.cpp",
-    "src/edit/perceptual_hue_selection.cpp",
-    "src/edit/perceptual_contrast.cpp",
-    "src/edit/photo_geometry.cpp",
-    "src/edit/photo_liquify.cpp",
-    "src/edit/photo_structural_rendering.cpp",
-    "src/edit/retouch.cpp",
-    "src/edit/retouch_heal_blending.cpp",
-    "src/edit/scalar_neighborhood_filters.cpp",
-    "src/edit/technical_detail_cpu.cpp",
-    "src/edit/tone_curve.cpp",
-    "src/edit/working_color_math.cpp",
-    "src/raw/bayer_demosaic.cpp",
-    "src/raw/bayer_sampling.cpp",
-    "src/raw/camera_profile_catalog.cpp",
-    "src/raw/dcp_color_development.cpp",
-    "src/raw/dcp_color_rendering.cpp",
-    "src/raw/dcp_parser.cpp",
-    "src/raw/fused_raw_development.cpp",
-    "src/raw/neural_raw_denoise/neural_raw_denoise.cpp",
-    "src/raw/raw_denoise.cpp",
-    "src/raw/raw_denoise_plan.cpp",
-    "src/raw/raw_foundation.cpp",
-    "src/raw/raw_foundation_source.cpp",
-    "src/raw/raw_frame_development_plan.cpp",
-    "src/raw/raw_frame_staging.cpp",
-    "src/raw/raw_frame_region_development.cpp",
-    "src/raw/raw_frame_source_preparation.cpp",
-    "src/raw/raw_frame_source_development.cpp",
-    "src/raw/raw_pipeline.cpp",
-    "src/raw/raw_preview_rebinding.cpp",
-    "src/raw/raw_white_balance.cpp",
-    "src/raw/resident_raw_source.cpp",
-    "src/raw/sensor_clipping.cpp",
-    "src/decoder/private_decoder_plugin.cpp",
-    "src/optics/lensfun_cpu_reference.cpp",
-    "src/optics/lensfun_profile_catalog.cpp",
-    "src/optics/lensfun_modifier_plan.cpp",
-    "src/optics/lensfun_region_plan.cpp",
-    "src/optics/manual_optics.cpp",
-    "src/optics/lensfun_optics.cpp",
-    "src/optics/scene_linear_region_optics.cpp",
-    "src/proxy/developed_source_raster.cpp",
-    "src/proxy/display_output.cpp",
-    "src/proxy/edited_proxy_rendering.cpp",
-    "src/proxy/edit_preview_frame.cpp",
-    "src/proxy/edit_preview_rendering.cpp",
-    "src/proxy/full_edit_detail.cpp",
-    "src/proxy/full_edit_detail_gpu_cache.cpp",
-    "src/proxy/full_edit_detail_gpu_cache_resident.cpp",
-    "src/proxy/full_edit_detail_source_preparation.cpp",
-    "src/proxy/jpeg_display_luma.cpp",
-    "src/proxy/jpeg_proxy_encoding.cpp",
-    "src/proxy/proxy_rendering.cpp",
-    "src/proxy/proxy_render_request_validation.cpp",
-    "src/proxy/warm_edit_gpu_brush_index.cpp",
-    "src/proxy/warm_edit_gpu_geometry_plan.cpp",
-    "src/proxy/warm_edit_gpu_layer_plan.cpp",
-    "src/proxy/warm_edit_gpu_mask_plan.cpp",
-    "src/proxy/warm_edit_gpu_neighbourhood_plan.cpp",
-    "src/proxy/warm_edit_gpu_retouch_plan.cpp",
-    "src/proxy/warm_edit_gpu_render_plan.cpp",
-    "src/proxy/warm_edit_preview.cpp",
-];
+const IMAGE_SOURCE_MANIFEST_DIRECTORY: &str = "cmake/source-manifests";
+const PORTABLE_SOURCE_MANIFEST: &str = "portable.txt";
+const APPLE_SOURCE_MANIFEST: &str = "apple.txt";
+const NON_APPLE_SOURCE_MANIFEST: &str = "non-apple.txt";
+const METAL_SOURCE_MANIFEST: &str = "metal.txt";
+const METAL_STUB_SOURCE_MANIFEST: &str = "metal-stubs.txt";
 
-const EMBEDDED_IMAGE_APPLE_SOURCES: &[&str] =
-    &["src/raw/neural_raw_denoise/coreml_neural_raw_denoise.mm"];
-
-const EMBEDDED_IMAGE_NON_APPLE_SOURCES: &[&str] =
-    &["src/raw/neural_raw_denoise/coreml_neural_raw_denoise_stub.cpp"];
-
-const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
-    "src/edit/metal_adjustment.mm",
-    "src/optics/metal_manual_optics.mm",
-    "src/optics/metal_scene_linear_region_optics.mm",
-    "src/raw/metal_dcp_color_encoding.mm",
-    "src/raw/metal_dcp_color_rendering.mm",
-    "src/raw/metal_resident_raw_source.mm",
-    "src/raw/metal_raw_denoise_encoding.mm",
-    "src/raw/metal_raw_denoise.mm",
-    "src/raw/metal_raw_reconstruction.mm",
-    "src/raw/metal_raw_runtime.mm",
-    "src/proxy/full_edit_detail_metal_source.mm",
-    "src/proxy/metal_display_output.mm",
-    "src/proxy/warm_edit_gpu_dispatcher.mm",
-    "src/proxy/warm_edit_gpu_geometry_encoder.mm",
-    "src/proxy/warm_edit_gpu_layer_dispatcher.mm",
-    "src/proxy/warm_edit_gpu_pipeline_context.mm",
-    "src/proxy/warm_edit_gpu_presentation_surface.mm",
-    "src/proxy/warm_edit_gpu_resident_resources.mm",
-    "src/proxy/warm_edit_gpu_retouch_encoder.mm",
-    "src/proxy/warm_edit_gpu_stage_encoder.mm",
-    "src/proxy/warm_edit_gpu_transaction.mm",
-    "src/proxy/warm_edit_gpu_transaction_encoder.mm",
-    "src/proxy/warm_edit_gpu.mm",
-];
-
-const EMBEDDED_IMAGE_STUB_SOURCES: &[&str] = &[
-    "src/edit/metal_adjustment_stub.cpp",
-    "src/optics/metal_manual_optics_stub.cpp",
-    "src/optics/metal_scene_linear_region_optics_stub.cpp",
-    "src/raw/metal_resident_raw_source_stub.cpp",
-    "src/raw/metal_raw_development_stub.cpp",
-    "src/proxy/full_edit_detail_metal_source_stub.cpp",
-    "src/proxy/metal_display_output_stub.cpp",
-    "src/proxy/warm_edit_gpu_presentation_surface_stub.cpp",
-    "src/proxy/warm_edit_gpu_stub.cpp",
-];
+struct ImageSourceManifests {
+    portable: Vec<String>,
+    apple: Vec<String>,
+    non_apple: Vec<String>,
+    metal: Vec<String>,
+    metal_stubs: Vec<String>,
+}
 
 const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "include/shadow/image/neutral_balance.hpp",
@@ -335,39 +205,91 @@ fn track_inputs(image_root: &Path, inputs: &[&str]) {
     }
 }
 
-fn verify_embedded_image_source_manifest(image_root: &Path) {
-    let cmake_path = image_root.join("CMakeLists.txt");
-    let cmake = fs::read_to_string(&cmake_path)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", cmake_path.display()));
-    let cmake_sources = cmake
-        .split_whitespace()
-        .map(|token| token.trim_matches(|character| matches!(character, '"' | '(' | ')')))
-        .filter(|token| {
-            token.starts_with("src/")
-                && Path::new(token)
-                    .extension()
-                    .and_then(|extension| extension.to_str())
-                    .is_some_and(|extension| {
-                        extension.eq_ignore_ascii_case("cpp")
-                            || extension.eq_ignore_ascii_case("mm")
-                    })
-        })
-        .map(ToOwned::to_owned)
-        .collect::<BTreeSet<_>>();
-    let cargo_sources = EMBEDDED_IMAGE_SOURCES
-        .iter()
-        .chain(EMBEDDED_IMAGE_APPLE_SOURCES)
-        .chain(EMBEDDED_IMAGE_NON_APPLE_SOURCES)
-        .chain(EMBEDDED_IMAGE_METAL_SOURCES)
-        .chain(EMBEDDED_IMAGE_STUB_SOURCES)
-        .map(|path| (*path).to_owned())
-        .collect::<BTreeSet<_>>();
-    let missing = cmake_sources.difference(&cargo_sources).collect::<Vec<_>>();
-    let extra = cargo_sources.difference(&cmake_sources).collect::<Vec<_>>();
+fn read_image_source_manifest(image_root: &Path, file_name: &str) -> Vec<String> {
+    let manifest_path = image_root
+        .join(IMAGE_SOURCE_MANIFEST_DIRECTORY)
+        .join(file_name);
+    println!("cargo:rerun-if-changed={}", manifest_path.display());
+    let manifest = fs::read_to_string(&manifest_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", manifest_path.display()));
+    let mut sources = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (line_index, raw_line) in manifest.lines().enumerate() {
+        let source = raw_line.trim();
+        if source.is_empty() || source.starts_with('#') {
+            continue;
+        }
+        let path = Path::new(source);
+        let is_normal_relative_path = path
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
+        let valid_extension = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("cpp") || extension.eq_ignore_ascii_case("mm")
+            });
+        assert!(
+            source.starts_with("src/")
+                && valid_extension
+                && !path.is_absolute()
+                && is_normal_relative_path,
+            "invalid shadow-image source path at {}:{}: {source}",
+            manifest_path.display(),
+            line_index + 1
+        );
+        assert!(
+            image_root.join(path).is_file(),
+            "shadow-image source from {} does not exist: {source}",
+            manifest_path.display()
+        );
+        assert!(
+            seen.insert(source.to_owned()),
+            "duplicate shadow-image source in {}: {source}",
+            manifest_path.display()
+        );
+        sources.push(source.to_owned());
+    }
     assert!(
-        missing.is_empty() && extra.is_empty(),
-        "direct Cargo shadow-image source manifest diverged from CMake; missing={missing:?}; extra={extra:?}"
+        !sources.is_empty(),
+        "shadow-image source manifest is empty: {}",
+        manifest_path.display()
     );
+    sources
+}
+
+fn load_image_source_manifests(image_root: &Path) -> ImageSourceManifests {
+    let manifests = ImageSourceManifests {
+        portable: read_image_source_manifest(image_root, PORTABLE_SOURCE_MANIFEST),
+        apple: read_image_source_manifest(image_root, APPLE_SOURCE_MANIFEST),
+        non_apple: read_image_source_manifest(image_root, NON_APPLE_SOURCE_MANIFEST),
+        metal: read_image_source_manifest(image_root, METAL_SOURCE_MANIFEST),
+        metal_stubs: read_image_source_manifest(image_root, METAL_STUB_SOURCE_MANIFEST),
+    };
+    let mut all_sources = BTreeSet::new();
+    for source in manifests
+        .portable
+        .iter()
+        .chain(&manifests.apple)
+        .chain(&manifests.non_apple)
+        .chain(&manifests.metal)
+        .chain(&manifests.metal_stubs)
+    {
+        assert!(
+            all_sources.insert(source),
+            "shadow-image source occurs in more than one platform manifest: {source}"
+        );
+    }
+    manifests
+}
+
+fn track_manifest_inputs(image_root: &Path, inputs: &[String]) {
+    for relative_path in inputs {
+        println!(
+            "cargo:rerun-if-changed={}",
+            image_root.join(relative_path).display()
+        );
+    }
 }
 
 #[allow(clippy::too_many_lines)] // Native source tracking stays beside the matching CXX build.
@@ -382,11 +304,7 @@ fn main() {
     let repository_root = crate_root.join("../..");
     let image_root = repository_root.join("cpp/shadow-image");
     let image_include = image_root.join("include");
-    verify_embedded_image_source_manifest(&image_root);
-    println!(
-        "cargo:rerun-if-changed={}",
-        image_root.join("CMakeLists.txt").display()
-    );
+    let image_sources = load_image_source_manifests(&image_root);
     let external_image = parse_flag("SHADOW_BRIDGE_EXTERNAL_IMAGE", false);
 
     // The Rust preprocessing identity must describe the libjpeg used by the final process in
@@ -455,27 +373,27 @@ fn main() {
         "SHADOW_ENABLE_METAL=1 is supported only for a macOS target"
     );
 
-    for relative_path in EMBEDDED_IMAGE_SOURCES {
+    for relative_path in &image_sources.portable {
         build.file(image_root.join(relative_path));
     }
     if target_os == "macos" {
-        for relative_path in EMBEDDED_IMAGE_APPLE_SOURCES {
+        for relative_path in &image_sources.apple {
             build.file(image_root.join(relative_path));
         }
         build.define("SHADOW_IMAGE_HAS_COREML", Some("1"));
     } else {
-        for relative_path in EMBEDDED_IMAGE_NON_APPLE_SOURCES {
+        for relative_path in &image_sources.non_apple {
             build.file(image_root.join(relative_path));
         }
         build.define("SHADOW_IMAGE_HAS_COREML", Some("0"));
     }
     if metal_enabled {
-        for relative_path in EMBEDDED_IMAGE_METAL_SOURCES {
+        for relative_path in &image_sources.metal {
             build.file(image_root.join(relative_path));
         }
         build.define("SHADOW_IMAGE_HAS_METAL", Some("1"));
     } else {
-        for relative_path in EMBEDDED_IMAGE_STUB_SOURCES {
+        for relative_path in &image_sources.metal_stubs {
             build.file(image_root.join(relative_path));
         }
         build.define("SHADOW_IMAGE_HAS_METAL", Some("0"));
@@ -629,10 +547,10 @@ fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     track_inputs(&image_root, BRIDGE_SOURCES);
     track_inputs(&image_root, BRIDGE_ADDITIONAL_INPUTS);
-    track_inputs(&image_root, EMBEDDED_IMAGE_SOURCES);
-    track_inputs(&image_root, EMBEDDED_IMAGE_APPLE_SOURCES);
-    track_inputs(&image_root, EMBEDDED_IMAGE_NON_APPLE_SOURCES);
-    track_inputs(&image_root, EMBEDDED_IMAGE_METAL_SOURCES);
-    track_inputs(&image_root, EMBEDDED_IMAGE_STUB_SOURCES);
+    track_manifest_inputs(&image_root, &image_sources.portable);
+    track_manifest_inputs(&image_root, &image_sources.apple);
+    track_manifest_inputs(&image_root, &image_sources.non_apple);
+    track_manifest_inputs(&image_root, &image_sources.metal);
+    track_manifest_inputs(&image_root, &image_sources.metal_stubs);
     track_inputs(&image_root, EMBEDDED_IMAGE_ADDITIONAL_INPUTS);
 }

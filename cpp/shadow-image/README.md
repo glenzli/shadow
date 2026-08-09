@@ -3,6 +3,12 @@
 `shadow-image` is Shadow's platform-neutral C++20 image kernel. Its first implemented provider
 uses LibRaw behind provider-neutral public contracts.
 
+The line-based manifests under
+[`cmake/source-manifests/`](cmake/source-manifests/) are the single compiled-source index shared
+by CMake and direct Cargo builds. Portable, Apple/Core ML, Metal, and non-Metal fallback
+translation units are selected there; adding Windows acceleration must add a distinct manifest
+and backend owner rather than duplicate the portable kernel or fork this library.
+
 ## Decoder boundary
 
 ```text

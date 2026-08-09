@@ -31,114 +31,71 @@ function(shadow_image_enable_warnings target)
     endif()
 endfunction()
 
-add_library(
-    shadow-image STATIC
-    src/acceleration/image_acceleration_policy.cpp
-    src/decoder/decoder_error.cpp
-    src/decoder/decoder_metadata.cpp
-    src/decoder/decoder_types.cpp
-    src/decoder/dng_noise_profile.cpp
-    src/decoder/focus_observation.cpp
-    src/decoder/libraw_runtime.cpp
-    src/decoder/libraw_reference_development.cpp
-    src/decoder/libraw_decoder.cpp
-    src/decoder/raster_exif.cpp
-    src/decoder/raster_decoder.cpp
-    src/decoder/heif_decoder.cpp
-    src/decoder/decode_session_isolation.cpp
-    src/decoder/photo_decoder_router.cpp
-    src/color/lcms_color_management.cpp
-    src/color/neutral_balance.cpp
-    src/color/source_profile_catalog.cpp
-    src/color/source_rendering.cpp
-    src/concurrency/row_scheduler.cpp
-    src/edit/adjustment_graph.cpp
-    src/edit/adjustment_node_diagnostics.cpp
-    src/edit/adjustment_execution.cpp
-    src/edit/cube_lut.cpp
-    src/edit/cpu_reference.cpp
-    src/edit/creative_detail_grading.cpp
-    src/edit/edit_execution_validation.cpp
-    src/edit/edit_error.cpp
-    src/edit/finishing_effects_cpu.cpp
-    src/edit/guided_selective_tone.cpp
-    src/edit/local_mask.cpp
-    src/edit/local_mask_coverage.cpp
-    src/edit/local_mask_validation.cpp
-    src/edit/managed_raster_mask.cpp
-    src/edit/metal_adjustment_program.cpp
-    src/edit/oklab_color_warper.cpp
-    src/edit/perceptual_color.cpp
-    src/edit/perceptual_hue_selection.cpp
-    src/edit/perceptual_contrast.cpp
-    src/edit/photo_geometry.cpp
-    src/edit/photo_liquify.cpp
-    src/edit/photo_structural_rendering.cpp
-    src/edit/retouch.cpp
-    src/edit/retouch_heal_blending.cpp
-    src/edit/scalar_neighborhood_filters.cpp
-    src/edit/technical_detail_cpu.cpp
-    src/edit/tone_curve.cpp
-    src/edit/working_color_math.cpp
-    src/raw/bayer_demosaic.cpp
-    src/raw/bayer_sampling.cpp
-    src/raw/camera_profile_catalog.cpp
-    src/raw/dcp_color_development.cpp
-    src/raw/dcp_color_rendering.cpp
-    src/raw/dcp_parser.cpp
-    src/raw/fused_raw_development.cpp
-    src/raw/neural_raw_denoise/neural_raw_denoise.cpp
-    src/raw/raw_denoise.cpp
-    src/raw/raw_denoise_plan.cpp
-    src/raw/raw_foundation.cpp
-    src/raw/raw_foundation_source.cpp
-    src/raw/raw_frame_development_plan.cpp
-    src/raw/raw_frame_staging.cpp
-    src/raw/raw_frame_region_development.cpp
-    src/raw/raw_frame_source_preparation.cpp
-    src/raw/raw_frame_source_development.cpp
-    src/raw/raw_pipeline.cpp
-    src/raw/raw_preview_rebinding.cpp
-    src/raw/raw_white_balance.cpp
-    src/raw/resident_raw_source.cpp
-    src/raw/sensor_clipping.cpp
-    src/decoder/private_decoder_plugin.cpp
-    src/optics/lensfun_cpu_reference.cpp
-    src/optics/lensfun_profile_catalog.cpp
-    src/optics/lensfun_modifier_plan.cpp
-    src/optics/lensfun_region_plan.cpp
-    src/optics/manual_optics.cpp
-    src/optics/lensfun_optics.cpp
-    src/optics/scene_linear_region_optics.cpp
-    src/proxy/developed_source_raster.cpp
-    src/proxy/display_output.cpp
-    src/proxy/edited_proxy_rendering.cpp
-    src/proxy/edit_preview_frame.cpp
-    src/proxy/edit_preview_rendering.cpp
-    src/proxy/full_edit_detail.cpp
-    src/proxy/full_edit_detail_gpu_cache.cpp
-    src/proxy/full_edit_detail_gpu_cache_resident.cpp
-    src/proxy/full_edit_detail_source_preparation.cpp
-    src/proxy/jpeg_display_luma.cpp
-    src/proxy/jpeg_proxy_encoding.cpp
-    src/proxy/proxy_rendering.cpp
-    src/proxy/proxy_render_request_validation.cpp
-    src/proxy/warm_edit_gpu_brush_index.cpp
-    src/proxy/warm_edit_gpu_geometry_plan.cpp
-    src/proxy/warm_edit_gpu_layer_plan.cpp
-    src/proxy/warm_edit_gpu_mask_plan.cpp
-    src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
-    src/proxy/warm_edit_gpu_retouch_plan.cpp
-    src/proxy/warm_edit_gpu_render_plan.cpp
-    src/proxy/warm_edit_preview.cpp
+set(SHADOW_IMAGE_SOURCE_MANIFEST_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/cmake/source-manifests")
+
+function(shadow_image_read_source_manifest output_variable manifest_name)
+    set(manifest_path "${SHADOW_IMAGE_SOURCE_MANIFEST_DIRECTORY}/${manifest_name}")
+    if(NOT EXISTS "${manifest_path}")
+        message(FATAL_ERROR "Missing shadow-image source manifest: ${manifest_path}")
+    endif()
+    set_property(
+        DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${manifest_path}"
+    )
+    file(STRINGS "${manifest_path}" manifest_entries)
+    set(sources)
+    foreach(entry IN LISTS manifest_entries)
+        string(STRIP "${entry}" entry)
+        if(entry STREQUAL "" OR entry MATCHES "^#")
+            continue()
+        endif()
+        if(
+            NOT entry MATCHES "^src/.+\\.(cpp|mm)$"
+            OR entry MATCHES "(^|/)\\.\\.?(/|$)"
+        )
+            message(FATAL_ERROR "Invalid source path '${entry}' in ${manifest_path}")
+        endif()
+        if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${entry}")
+            message(FATAL_ERROR "Source '${entry}' from ${manifest_path} does not exist")
+        endif()
+        list(APPEND sources "${entry}")
+    endforeach()
+    if(NOT sources)
+        message(FATAL_ERROR "Source manifest ${manifest_path} is empty")
+    endif()
+    set(${output_variable} "${sources}" PARENT_SCOPE)
+endfunction()
+
+shadow_image_read_source_manifest(SHADOW_IMAGE_PORTABLE_SOURCES portable.txt)
+shadow_image_read_source_manifest(SHADOW_IMAGE_APPLE_SOURCES apple.txt)
+shadow_image_read_source_manifest(SHADOW_IMAGE_NON_APPLE_SOURCES non-apple.txt)
+shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_SOURCES metal.txt)
+shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_STUB_SOURCES metal-stubs.txt)
+
+set(
+    SHADOW_IMAGE_ALL_MANIFEST_SOURCES
+    ${SHADOW_IMAGE_PORTABLE_SOURCES}
+    ${SHADOW_IMAGE_APPLE_SOURCES}
+    ${SHADOW_IMAGE_NON_APPLE_SOURCES}
+    ${SHADOW_IMAGE_METAL_SOURCES}
+    ${SHADOW_IMAGE_METAL_STUB_SOURCES}
 )
+list(LENGTH SHADOW_IMAGE_ALL_MANIFEST_SOURCES SHADOW_IMAGE_SOURCE_COUNT)
+list(REMOVE_DUPLICATES SHADOW_IMAGE_ALL_MANIFEST_SOURCES)
+list(LENGTH SHADOW_IMAGE_ALL_MANIFEST_SOURCES SHADOW_IMAGE_UNIQUE_SOURCE_COUNT)
+if(NOT SHADOW_IMAGE_SOURCE_COUNT EQUAL SHADOW_IMAGE_UNIQUE_SOURCE_COUNT)
+    message(FATAL_ERROR
+        "A shadow-image source occurs in more than one source manifest"
+    )
+endif()
+
+add_library(shadow-image STATIC ${SHADOW_IMAGE_PORTABLE_SOURCES})
 if(APPLE)
     find_library(SHADOW_COREML_FRAMEWORK CoreML REQUIRED)
     find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
     target_sources(
         shadow-image
         PRIVATE
-            src/raw/neural_raw_denoise/coreml_neural_raw_denoise.mm
+            ${SHADOW_IMAGE_APPLE_SOURCES}
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=1)
     target_link_libraries(
@@ -151,7 +108,7 @@ else()
     target_sources(
         shadow-image
         PRIVATE
-            src/raw/neural_raw_denoise/coreml_neural_raw_denoise_stub.cpp
+            ${SHADOW_IMAGE_NON_APPLE_SOURCES}
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=0)
 endif()
@@ -160,29 +117,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
     target_sources(
         shadow-image
         PRIVATE
-            src/edit/metal_adjustment.mm
-            src/optics/metal_manual_optics.mm
-            src/optics/metal_scene_linear_region_optics.mm
-            src/raw/metal_dcp_color_encoding.mm
-            src/raw/metal_dcp_color_rendering.mm
-            src/raw/metal_resident_raw_source.mm
-            src/raw/metal_raw_denoise_encoding.mm
-            src/raw/metal_raw_denoise.mm
-            src/raw/metal_raw_reconstruction.mm
-            src/raw/metal_raw_runtime.mm
-            src/proxy/full_edit_detail_metal_source.mm
-            src/proxy/metal_display_output.mm
-            src/proxy/warm_edit_gpu_dispatcher.mm
-            src/proxy/warm_edit_gpu_geometry_encoder.mm
-            src/proxy/warm_edit_gpu_layer_dispatcher.mm
-            src/proxy/warm_edit_gpu_pipeline_context.mm
-            src/proxy/warm_edit_gpu_presentation_surface.mm
-            src/proxy/warm_edit_gpu_resident_resources.mm
-            src/proxy/warm_edit_gpu_retouch_encoder.mm
-            src/proxy/warm_edit_gpu_stage_encoder.mm
-            src/proxy/warm_edit_gpu_transaction.mm
-            src/proxy/warm_edit_gpu_transaction_encoder.mm
-            src/proxy/warm_edit_gpu.mm
+            ${SHADOW_IMAGE_METAL_SOURCES}
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=1)
     target_link_libraries(
@@ -194,15 +129,7 @@ else()
     target_sources(
         shadow-image
         PRIVATE
-            src/edit/metal_adjustment_stub.cpp
-            src/optics/metal_manual_optics_stub.cpp
-            src/optics/metal_scene_linear_region_optics_stub.cpp
-            src/raw/metal_resident_raw_source_stub.cpp
-            src/raw/metal_raw_development_stub.cpp
-            src/proxy/full_edit_detail_metal_source_stub.cpp
-            src/proxy/metal_display_output_stub.cpp
-            src/proxy/warm_edit_gpu_presentation_surface_stub.cpp
-            src/proxy/warm_edit_gpu_stub.cpp
+            ${SHADOW_IMAGE_METAL_STUB_SOURCES}
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=0)
 endif()

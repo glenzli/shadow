@@ -1,10 +1,10 @@
 #include "edit_preview_texture_item.hpp"
 
 #include "edit_preview_liquify_mesh.hpp"
-#include "edit_preview_metal_texture_factory.hpp"
 #include "edit_preview_presentation_context.hpp"
 #include "edit_preview_presentation_registry.hpp"
 #include "edit_preview_provider.hpp"
+#include "platform/edit_preview_texture_factory.hpp"
 
 #include <QMetaObject>
 #include <QPointer>

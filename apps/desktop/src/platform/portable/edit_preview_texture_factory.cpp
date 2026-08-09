@@ -1,4 +1,4 @@
-#include "edit_preview_metal_texture_factory.hpp"
+#include "platform/edit_preview_texture_factory.hpp"
 
 #include <QColorSpace>
 #include <QImage>

@@ -1,0 +1,9 @@
+src/edit/metal_adjustment_stub.cpp
+src/optics/metal_manual_optics_stub.cpp
+src/optics/metal_scene_linear_region_optics_stub.cpp
+src/raw/metal_resident_raw_source_stub.cpp
+src/raw/metal_raw_development_stub.cpp
+src/proxy/full_edit_detail_metal_source_stub.cpp
+src/proxy/metal_display_output_stub.cpp
+src/proxy/warm_edit_gpu_presentation_surface_stub.cpp
+src/proxy/warm_edit_gpu_stub.cpp

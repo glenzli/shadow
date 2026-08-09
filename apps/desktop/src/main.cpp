@@ -25,7 +25,7 @@
 #include "ui_preferences.hpp"
 
 #if defined(Q_OS_MACOS)
-#include "mac_titlebar.hpp"
+#include "platform/macos/titlebar.hpp"
 #endif
 
 #include <QApplication>

@@ -1,4 +1,4 @@
-#include "mac_titlebar.hpp"
+#include "platform/macos/titlebar.hpp"
 
 #import <AppKit/AppKit.h>
 
@@ -14,17 +14,15 @@
 namespace {
 
 class MacTitleBarAlignment final : public QObject {
-public:
-    MacTitleBarAlignment(QWindow* window, const int title_bar_height)
-        : QObject(window), window_(window), title_bar_height_(title_bar_height) {
+  public:
+    MacTitleBarAlignment(QWindow* window, const int title_bar_height) :
+        QObject(window), window_(window), title_bar_height_(title_bar_height) {
         window_->installEventFilter(this);
-        connect(window_, &QWindow::screenChanged, this, [this] {
-            scheduleAlignment();
-        });
+        connect(window_, &QWindow::screenChanged, this, [this] { scheduleAlignment(); });
         scheduleAlignment();
     }
 
-protected:
+  protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
         if (watched == window_) {
             switch (event->type()) {
@@ -40,7 +38,7 @@ protected:
         return QObject::eventFilter(watched, event);
     }
 
-private:
+  private:
     void scheduleAlignment() {
         if (alignment_pending_) {
             return;
@@ -53,8 +51,7 @@ private:
     }
 
     void alignNativeButtons() const {
-        if (!window_ || !window_->isVisible()
-            || window_->visibility() == QWindow::FullScreen) {
+        if (!window_ || !window_->isVisible() || window_->visibility() == QWindow::FullScreen) {
             return;
         }
 
@@ -71,8 +68,7 @@ private:
             NSMidX(window_frame),
             NSMaxY(window_frame) - static_cast<CGFloat>(title_bar_height_) / 2.0
         );
-        const NSPoint target_in_window =
-            [native_window convertPointFromScreen:target_in_screen];
+        const NSPoint target_in_window = [native_window convertPointFromScreen:target_in_screen];
 
         constexpr std::array<NSWindowButton, 3> button_types = {
             NSWindowCloseButton,
@@ -86,8 +82,8 @@ private:
                 continue;
             }
 
-            const NSPoint target_in_container =
-                [container convertPoint:target_in_window fromView:nil];
+            const NSPoint target_in_container = [container convertPoint:target_in_window
+                                                               fromView:nil];
             NSRect frame = button.frame;
             frame.origin.y = target_in_container.y - NSHeight(frame) / 2.0;
             [button setFrameOrigin:frame.origin];
