@@ -1170,7 +1170,7 @@ set_target_properties(
         MACOSX_BUNDLE_GUI_IDENTIFIER "dev.shadow.photo"
         MACOSX_BUNDLE_ICON_FILE "app-icon.icns"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "1"
+        MACOSX_BUNDLE_BUNDLE_VERSION "2"
         OUTPUT_NAME "Shadow"
 )
 
