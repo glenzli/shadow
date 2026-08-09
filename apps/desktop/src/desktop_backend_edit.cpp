@@ -379,6 +379,7 @@ BackendPhotoEditState DesktopBackend::saveEditVersion(
     const QString& source_path,
     const QString& base_commit_id,
     const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
     const BackendGradeStack& grade_stack,
     const QString& version_name
 ) const {
@@ -388,6 +389,7 @@ BackendPhotoEditState DesktopBackend::saveEditVersion(
         source_path.toStdString(),
         base_commit_id.toStdString(),
         expected_working_commit_id.toStdString(),
+        expected_variant_id.toStdString(),
         ffi,
         version_name.toStdString()
     ));
@@ -398,6 +400,7 @@ BackendPhotoEditState DesktopBackend::autosaveWorkingEdit(
     const QString& source_path,
     const QString& base_commit_id,
     const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
     const BackendGradeStack& grade_stack
 ) const {
     const auto ffi = ffi_grade_stack(grade_stack);
@@ -406,7 +409,52 @@ BackendPhotoEditState DesktopBackend::autosaveWorkingEdit(
         source_path.toStdString(),
         base_commit_id.toStdString(),
         expected_working_commit_id.toStdString(),
+        expected_variant_id.toStdString(),
         ffi
+    ));
+}
+
+BackendPhotoEditState DesktopBackend::createPhotoVariant(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& name
+) const {
+    return edit_state(impl_->session->create_photo_variant(
+        photo_id.toStdString(), source_path.toStdString(), name.toStdString()
+    ));
+}
+
+BackendPhotoEditState DesktopBackend::renamePhotoVariant(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& variant_id,
+    const QString& name
+) const {
+    return edit_state(impl_->session->rename_photo_variant(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        variant_id.toStdString(),
+        name.toStdString()
+    ));
+}
+
+BackendPhotoEditState DesktopBackend::activatePhotoVariant(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& variant_id
+) const {
+    return edit_state(impl_->session->activate_photo_variant(
+        photo_id.toStdString(), source_path.toStdString(), variant_id.toStdString()
+    ));
+}
+
+BackendPhotoEditState DesktopBackend::removePhotoVariant(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& variant_id
+) const {
+    return edit_state(impl_->session->remove_photo_variant(
+        photo_id.toStdString(), source_path.toStdString(), variant_id.toStdString()
     ));
 }
 

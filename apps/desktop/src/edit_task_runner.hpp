@@ -70,6 +70,7 @@ namespace EditTaskRunner {
     const QString& source_path,
     const QString& base_commit_id,
     const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
     BackendGradeStack grade_stack,
     const QString& version_name,
     quint64 generation
@@ -81,6 +82,7 @@ namespace EditTaskRunner {
     const QString& source_path,
     const QString& base_commit_id,
     const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
     BackendGradeStack grade_stack,
     quint64 generation
 );

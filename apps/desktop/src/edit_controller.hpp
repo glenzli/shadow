@@ -59,6 +59,9 @@ class EditController final : public QObject {
     Q_PROPERTY(QString autosaveErrorText READ autosaveErrorText NOTIFY autosaveErrorTextChanged)
     Q_PROPERTY(bool versionDraft READ versionDraft NOTIFY versionDraftChanged)
     Q_PROPERTY(QString editBaseCommitId READ editBaseCommitId NOTIFY editBaseCommitIdChanged)
+    Q_PROPERTY(QString activeVariantId READ activeVariantId NOTIFY photoVariantsChanged)
+    Q_PROPERTY(QVariantList photoVariants READ photoVariants NOTIFY photoVariantsChanged)
+    Q_PROPERTY(bool variantActionsEnabled READ variantActionsEnabled NOTIFY variantActionsChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(QString photoId READ photoId NOTIFY sourceIdentityChanged)
@@ -388,6 +391,9 @@ class EditController final : public QObject {
     [[nodiscard]] QString autosaveErrorText() const;
     [[nodiscard]] bool versionDraft() const noexcept;
     [[nodiscard]] QString editBaseCommitId() const;
+    [[nodiscard]] QString activeVariantId() const;
+    [[nodiscard]] QVariantList photoVariants() const;
+    [[nodiscard]] bool variantActionsEnabled() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
     [[nodiscard]] QString photoId() const;
@@ -691,6 +697,10 @@ class EditController final : public QObject {
     Q_INVOKABLE void leaveDetailMode();
     Q_INVOKABLE void saveVersion(const QString& version_name);
     Q_INVOKABLE void loadVersionDraft(const QString& commit_id);
+    Q_INVOKABLE void createVariant(const QString& name);
+    Q_INVOKABLE void renameVariant(const QString& variant_id, const QString& name);
+    Q_INVOKABLE void activateVariant(const QString& variant_id);
+    Q_INVOKABLE void removeVariant(const QString& variant_id);
     Q_INVOKABLE void retryAutosave();
     // An autosave error must not trap the user in the current photo. These
     // methods are only used after an explicit recovery choice in the shell:
@@ -721,6 +731,8 @@ class EditController final : public QObject {
     void autosaveErrorTextChanged();
     void versionDraftChanged();
     void editBaseCommitIdChanged();
+    void photoVariantsChanged();
+    void variantActionsChanged();
     void historyChanged();
     void closeReady();
     void closeSaveFailed();
@@ -827,6 +839,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool applyAutosavedState(BackendPhotoEditState state);
     void setVersionDraft(bool draft);
     void setEditBaseCommitId(QString commit_id);
+    void setPhotoVariants(QString active_variant_id, QVector<BackendPhotoVariant> variants);
     void startStateTask(EditStateTaskKind kind, QFuture<EditStateTaskResult> future);
     [[nodiscard]] EditStateTaskResult completeStateTask();
     [[nodiscard]] bool stateTaskRunning() const noexcept;
@@ -906,8 +919,10 @@ class EditController final : public QObject {
     std::optional<NodeMaskClipboard> node_mask_clipboard_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
     BackendGradeStack committed_grade_stack_;
+    QVariantList photo_variants_;
     QString base_commit_id_;
     QString durable_working_commit_id_;
+    QString active_variant_id_;
     QString photo_id_;
     QString representation_id_;
     QString source_path_;

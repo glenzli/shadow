@@ -322,6 +322,7 @@ void EditController::finalizePhotoClose() {
         emit titleChanged();
     }
     setEditBaseCommitId({});
+    setPhotoVariants({}, {});
     setVersionDraft(false);
     active_ = false;
     emit activeChanged();
@@ -392,6 +393,7 @@ void EditController::saveVersion(const QString& version_name) {
             source_path_,
             base_commit_id_,
             durable_working_commit_id_,
+            active_variant_id_,
             grade_stack_,
             name,
             photo_generation_
@@ -754,6 +756,7 @@ void EditController::applyState(BackendPhotoEditState state) {
         durable_working_commit_id_ = state.base_commit_id;
     }
     setEditBaseCommitId(std::move(state.base_commit_id));
+    setPhotoVariants(std::move(state.active_variant_id), std::move(state.variants));
     setGradeStack(std::move(state.grade_stack));
     working_revision_ = 0;
     persistence_state_.resetAutosaveSnapshot();
@@ -770,6 +773,7 @@ void EditController::setDirty(const bool dirty) {
     }
     dirty_ = dirty;
     emit dirtyChanged();
+    emit variantActionsChanged();
     if (dirty_ && persistence_state_.autosaveRequested() && !stateTaskRunning()) {
         scheduleAutosave();
     } else if (!dirty_) {
@@ -825,6 +829,7 @@ void EditController::startAutosave() {
             source_path_,
             base_commit_id_,
             durable_working_commit_id_,
+            active_variant_id_,
             grade_stack_,
             photo_generation_
         )
@@ -853,6 +858,7 @@ bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     setEditBaseCommitId(state.base_commit_id);
     durable_working_commit_id_ = state.base_commit_id;
     committed_grade_stack_ = saved_stack;
+    setPhotoVariants(std::move(state.active_variant_id), std::move(state.variants));
     versions_.replace(std::move(state.versions));
     if (changed_after_snapshot) {
         persistence_state_.requestAutosave();
@@ -870,6 +876,7 @@ void EditController::setVersionDraft(const bool draft) {
     }
     version_draft_ = draft;
     emit versionDraftChanged();
+    emit variantActionsChanged();
 }
 
 void EditController::setEditBaseCommitId(QString commit_id) {

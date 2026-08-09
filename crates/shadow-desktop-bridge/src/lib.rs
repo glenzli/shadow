@@ -20,6 +20,7 @@ mod session_history;
 mod session_library;
 mod session_library_server;
 mod session_photo_inspection;
+mod session_photo_variants;
 mod session_remote_library;
 mod session_review;
 mod session_scan;
@@ -1540,6 +1541,18 @@ mod ffi {
     /// version returns a non-persistent draft: `working_commit_id` is then the
     /// draft's content base while the durable `working` ref remains untouched.
     #[derive(Debug)]
+    struct FfiPhotoVariant {
+        variant_id: String,
+        name: String,
+        has_head: bool,
+        head_commit_id: String,
+        is_default: bool,
+        is_active: bool,
+        created_at_ms: i64,
+        updated_at_ms: i64,
+    }
+
+    #[derive(Debug)]
     struct FfiPhotoEditState {
         photo_id: String,
         source_path: String,
@@ -1552,6 +1565,8 @@ mod ffi {
         /// the durable working head as `expected_working_commit_id` on save.
         working_commit_id: String,
         recipe_id: String,
+        active_variant_id: String,
+        variants: Vec<FfiPhotoVariant>,
         settings: FfiEditSettings,
         versions: Vec<FfiEditVersion>,
     }
@@ -2061,6 +2076,31 @@ mod ffi {
             photo_id: &str,
             source_path: &str,
         ) -> Result<FfiPhotoEditState>;
+        fn create_photo_variant(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            name: &str,
+        ) -> Result<FfiPhotoEditState>;
+        fn rename_photo_variant(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            variant_id: &str,
+            name: &str,
+        ) -> Result<FfiPhotoEditState>;
+        fn activate_photo_variant(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            variant_id: &str,
+        ) -> Result<FfiPhotoEditState>;
+        fn remove_photo_variant(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            variant_id: &str,
+        ) -> Result<FfiPhotoEditState>;
         fn optics_profile_candidates(
             self: &DesktopSession,
             photo_id: &str,
@@ -2224,6 +2264,7 @@ mod ffi {
             source_path: &str,
             base_commit_id: &str,
             expected_working_commit_id: &str,
+            expected_variant_id: &str,
             settings: &FfiEditSettings,
             version_name: &str,
         ) -> Result<FfiPhotoEditState>;
@@ -2236,6 +2277,7 @@ mod ffi {
             source_path: &str,
             base_commit_id: &str,
             expected_working_commit_id: &str,
+            expected_variant_id: &str,
             settings: &FfiEditSettings,
         ) -> Result<FfiPhotoEditState>;
         fn checkout_basic_edit_version(

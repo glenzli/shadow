@@ -99,6 +99,11 @@ Rectangle {
             }
         }
 
+        PrecisionVariantSelector {
+            editor: toolbar.editor
+            visible: toolbar.editor.active
+        }
+
         RowLayout {
             spacing: 2
 

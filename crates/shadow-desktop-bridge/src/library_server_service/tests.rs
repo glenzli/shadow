@@ -96,6 +96,6 @@ fn incompatible_rebuildable_catalog_is_recreated_before_scanning() {
         .expect("reopen rebuilt catalog")
         .query_row("SELECT identity FROM catalog_schema", [], |row| row.get(0))
         .expect("read rebuilt schema identity");
-    assert!(identity.contains("logical-photo-representations"));
+    assert_eq!(identity, "shadow-catalog-20260809.1-photo-variants");
     fs::remove_dir_all(root).expect("remove fixture");
 }

@@ -242,6 +242,10 @@ Its implementation follows the same navigation:
 
 - [`src/edit_controller.cpp`](src/edit_controller.cpp) owns the stable facade, session
   composition, property projection, and localization.
+- [`src/edit_variant_controller.cpp`](src/edit_variant_controller.cpp) owns photo Variant
+  projection and create/rename/switch/remove actions. The active Variant identity accompanies
+  every save so a stale editor cannot publish into a newly selected Variant; all Variants share
+  the photo's sources while retaining independent Recipe heads.
 - [`src/edit_history_controller.cpp`](src/edit_history_controller.cpp) owns gesture coalescing,
   undo/redo, reset/revert, Grade Stack synchronization, and dirty/autosave transitions for the
   current editing session. [`src/edit_history_restore_projection.*`](src/edit_history_restore_projection.hpp)
@@ -455,6 +459,8 @@ Precision presentation follows the same responsibility tree:
   presented frame remains the valid geometry surface during that transition.
 - [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,
   clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
+  [`qml/PrecisionVariantSelector.qml`](qml/PrecisionVariantSelector.qml) owns the compact active-
+  Variant menu and naming popup without turning the canvas toolbar into a persistence controller.
 - [`qml/PrecisionGradeNodePane.qml`](qml/PrecisionGradeNodePane.qml) owns Grade Node navigation,
   ordering, enablement, and collection actions; [`qml/PrecisionGradeNodeMenus.qml`](qml/PrecisionGradeNodeMenus.qml)
   owns sharing and node collection popup lifecycles.

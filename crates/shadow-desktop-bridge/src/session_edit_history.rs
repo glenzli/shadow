@@ -13,7 +13,7 @@ use shadow_catalog::{
 use shadow_domain::{
     EditEntityMapV1, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
-    LibraryRootV1, PhotoId, RecipeCommit, RecipeCommitId, RecipeId, VersionName,
+    LibraryRootV1, PhotoId, PhotoVariantId, RecipeCommit, RecipeCommitId, RecipeId, VersionName,
 };
 
 use super::{
@@ -66,14 +66,16 @@ impl DesktopSession {
         source_path: &str,
         base_commit_id: &str,
         expected_working_commit_id: &str,
+        expected_variant_id: &str,
         settings: &ffi::FfiEditSettings,
         version_name: &str,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        self.save_basic_edit_version_at_with_expected(
+        self.save_basic_edit_version_at_for_variant(
             photo_id,
             source_path,
             base_commit_id,
             expected_working_commit_id,
+            Some(expected_variant_id),
             settings,
             version_name,
             current_time_ms()?,
@@ -86,13 +88,15 @@ impl DesktopSession {
         source_path: &str,
         base_commit_id: &str,
         expected_working_commit_id: &str,
+        expected_variant_id: &str,
         settings: &ffi::FfiEditSettings,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        self.autosave_basic_edit_working_at(
+        self.autosave_basic_edit_working_for_variant_at(
             photo_id,
             source_path,
             base_commit_id,
             expected_working_commit_id,
+            Some(expected_variant_id),
             settings,
             current_time_ms()?,
         )
@@ -226,6 +230,7 @@ impl DesktopSession {
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn save_basic_edit_version_at_with_expected(
         &self,
@@ -237,7 +242,40 @@ impl DesktopSession {
         version_name: &str,
         created_at_ms: i64,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
+        self.save_basic_edit_version_at_for_variant(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            None,
+            settings,
+            version_name,
+            created_at_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn save_basic_edit_version_at_for_variant(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        expected_variant_id: Option<&str>,
+        settings: &ffi::FfiEditSettings,
+        version_name: &str,
+        created_at_ms: i64,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let expected_variant_id = expected_variant_id
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                value
+                    .parse::<PhotoVariantId>()
+                    .with_context(|| format!("parse expected photo Variant id {value}"))
+            })
+            .transpose()?
+            .map_or_else(|| self.active_photo_variant_id(photo_id), Ok)?;
         let version_name =
             VersionName::new(version_name).context("validate basic edit version name")?;
         let grade_stack = decode_grade_stack_draft_recipe_v1(settings)?;
@@ -320,6 +358,7 @@ impl DesktopSession {
             .commit_recipe_and_edit_repository(&CommitRecipeAndEditRepository {
                 recipe: recipe_request,
                 repository,
+                expected_active_variant_id: Some(expected_variant_id),
             })?;
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
@@ -334,14 +373,37 @@ impl DesktopSession {
         settings: &ffi::FfiEditSettings,
         created_at_ms: i64,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
+        self.autosave_basic_edit_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            None,
+            settings,
+            created_at_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn autosave_basic_edit_working_for_variant_at(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        expected_variant_id: Option<&str>,
+        settings: &ffi::FfiEditSettings,
+        created_at_ms: i64,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
         let grade_stack = decode_grade_stack_draft_recipe_v1(settings)?;
-        self.autosave_grade_stack_working_at(
+        self.autosave_grade_stack_working_for_variant_at(
             photo_id,
             source_path,
             base_commit_id,
             expected_working_commit_id,
             &grade_stack,
             created_at_ms,
+            expected_variant_id,
         )
     }
 
@@ -365,7 +427,38 @@ impl DesktopSession {
         grade_stack: &GradeStackDraft,
         created_at_ms: i64,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
+        self.autosave_grade_stack_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            grade_stack,
+            created_at_ms,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub(crate) fn autosave_grade_stack_working_for_variant_at(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        grade_stack: &GradeStackDraft,
+        created_at_ms: i64,
+        expected_variant_id: Option<&str>,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let expected_variant_id = expected_variant_id
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                value
+                    .parse::<PhotoVariantId>()
+                    .with_context(|| format!("parse expected photo Variant id {value}"))
+            })
+            .transpose()?
+            .map_or_else(|| self.active_photo_variant_id(photo_id), Ok)?;
         let base_commit_id = if base_commit_id.is_empty() {
             None
         } else {
@@ -456,7 +549,10 @@ impl DesktopSession {
                 base_record.as_ref()
             };
             let request = autosave_request(parent, expected_working)?;
-            match self.catalog.commit_recipe(&request) {
+            match self
+                .catalog
+                .commit_recipe_for_variant(&request, expected_variant_id)
+            {
                 Ok(_) => {
                     published = true;
                     break;
@@ -601,6 +697,7 @@ impl DesktopSession {
                 settings.foundation.tint = presentation.tint;
             }
         }
+        let (active_variant_id, variants) = self.ffi_photo_variants(photo_id)?;
         Ok(ffi::FfiPhotoEditState {
             photo_id: photo_id.to_string(),
             source_path: source_path.to_owned(),
@@ -608,6 +705,8 @@ impl DesktopSession {
             is_version_draft,
             working_commit_id: selected_id.map_or_else(String::new, |id| id.to_string()),
             recipe_id: recipe_id.map_or_else(String::new, |id| id.to_string()),
+            active_variant_id,
+            variants,
             settings,
             versions,
         })

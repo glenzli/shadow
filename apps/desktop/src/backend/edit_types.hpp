@@ -478,6 +478,17 @@ struct BackendEditVersion final {
     bool has_other_changes = false;
 };
 
+struct BackendPhotoVariant final {
+    QString variant_id;
+    QString name;
+    QString head_commit_id;
+    bool has_head = false;
+    bool is_default = false;
+    bool is_active = false;
+    std::int64_t created_at_ms = 0;
+    std::int64_t updated_at_ms = 0;
+};
+
 struct BackendPhotoEditState final {
     QString photo_id;
     QString source_path;
@@ -485,7 +496,9 @@ struct BackendPhotoEditState final {
     // draft this intentionally differs from the durable working ref.
     QString base_commit_id;
     QString recipe_id;
+    QString active_variant_id;
     BackendGradeStack grade_stack;
+    QVector<BackendPhotoVariant> variants;
     QVector<BackendEditVersion> versions;
     bool has_base_version = false;
     bool is_version_draft = false;

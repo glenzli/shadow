@@ -30,7 +30,7 @@ fn generated_photo_proxy_cache_identity_matches_its_encoder_request() {
         .expect("canonical preview plan identity");
     let proxy_variant_key = inspector.proxy_variant_key();
     assert!(
-        proxy_variant_key.starts_with("shadow-photo-router:grid-jpeg-2048-q90-444-v2;raw-plan-b3=")
+        proxy_variant_key.starts_with("shadow-photo-router:grid-jpeg-2048-q90-444-v3;raw-plan-b3=")
     );
     assert!(proxy_variant_key.len() <= 256);
     assert!(!proxy_variant_key.contains(&raw_plan_identity));

@@ -5,5 +5,6 @@
 //! - `checkout_roundtrip` owns non-persistent checkout and full recipe restoration.
 
 mod checkout_roundtrip;
+mod variants;
 mod version_history;
 mod working_state;

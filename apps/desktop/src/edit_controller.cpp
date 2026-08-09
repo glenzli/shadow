@@ -53,6 +53,14 @@ EditController::EditController(
     raw_foundation_controller_ = std::make_unique<EditRawFoundationController>(*this, backend_);
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
+    connect(this, &EditController::activeChanged, this, &EditController::variantActionsChanged);
+    connect(this, &EditController::stateBusyChanged, this, &EditController::variantActionsChanged);
+    connect(
+        this,
+        &EditController::autosavePendingChanged,
+        this,
+        &EditController::variantActionsChanged
+    );
     preview_debounce_.setSingleShot(true);
     detail_debounce_.setSingleShot(true);
     detail_warmup_debounce_.setSingleShot(true);
@@ -238,6 +246,18 @@ bool EditController::versionDraft() const noexcept {
 
 QString EditController::editBaseCommitId() const {
     return base_commit_id_;
+}
+
+QString EditController::activeVariantId() const {
+    return active_variant_id_;
+}
+
+QVariantList EditController::photoVariants() const {
+    return photo_variants_;
+}
+
+bool EditController::variantActionsEnabled() const noexcept {
+    return active_ && !dirty_ && !autosavePending() && !stateBusy() && !version_draft_;
 }
 
 bool EditController::canUndo() const noexcept {

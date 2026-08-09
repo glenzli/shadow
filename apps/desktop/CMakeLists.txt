@@ -391,6 +391,7 @@ qt_add_executable(
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
+    src/edit_variant_controller.cpp
     src/edit_adjustment_controller.cpp
     src/edit_adjustment_reset_controller.cpp
     src/edit_ai_mask_controller.cpp
@@ -861,6 +862,7 @@ qt_add_qml_module(
         qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml
+        qml/PrecisionVariantSelector.qml
         qml/PrecisionCanvasZoomInput.qml
         qml/PrecisionCaptureMetadata.qml
         qml/PrecisionComparisonSurface.qml

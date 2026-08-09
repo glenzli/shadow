@@ -140,6 +140,7 @@ EditStateTaskResult saveState(
     const QString& source_path,
     const QString& base_commit_id,
     const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
     const BackendGradeStack grade_stack,
     const QString& version_name,
     const quint64 generation
@@ -153,6 +154,7 @@ EditStateTaskResult saveState(
             source_path,
             base_commit_id,
             expected_working_commit_id,
+            expected_variant_id,
             grade_stack,
             version_name
         );
@@ -168,6 +170,7 @@ EditStateTaskResult autosaveState(
     const QString& source_path,
     const QString& base_commit_id,
     const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
     const BackendGradeStack grade_stack,
     const quint64 generation
 ) {
@@ -180,6 +183,7 @@ EditStateTaskResult autosaveState(
             source_path,
             base_commit_id,
             expected_working_commit_id,
+            expected_variant_id,
             grade_stack
         );
     } catch (const std::exception& error) {

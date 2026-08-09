@@ -276,6 +276,7 @@ class DesktopBackend final {
         const QString& source_path,
         const QString& base_commit_id,
         const QString& expected_working_commit_id,
+        const QString& expected_variant_id,
         const BackendGradeStack& grade_stack,
         const QString& version_name
     ) const;
@@ -288,7 +289,29 @@ class DesktopBackend final {
         const QString& source_path,
         const QString& base_commit_id,
         const QString& expected_working_commit_id,
+        const QString& expected_variant_id,
         const BackendGradeStack& grade_stack
+    ) const;
+    [[nodiscard]] BackendPhotoEditState createPhotoVariant(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& name
+    ) const;
+    [[nodiscard]] BackendPhotoEditState renamePhotoVariant(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& variant_id,
+        const QString& name
+    ) const;
+    [[nodiscard]] BackendPhotoEditState activatePhotoVariant(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& variant_id
+    ) const;
+    [[nodiscard]] BackendPhotoEditState removePhotoVariant(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& variant_id
     ) const;
     [[nodiscard]] BackendPhotoEditState loadEditVersionDraft(
         const QString& photo_id,

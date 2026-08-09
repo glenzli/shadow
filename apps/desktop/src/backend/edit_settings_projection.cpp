@@ -596,9 +596,23 @@ BackendPhotoEditState edit_state(const shadow::desktop::FfiPhotoEditState& sourc
     state.source_path = qstring(source.source_path);
     state.base_commit_id = qstring(source.working_commit_id);
     state.recipe_id = qstring(source.recipe_id);
+    state.active_variant_id = qstring(source.active_variant_id);
     state.grade_stack = grade_stack(source.settings);
     state.has_base_version = source.has_working_version;
     state.is_version_draft = source.is_version_draft;
+    state.variants.reserve(checked_qt_vector_size(source.variants.size(), "variants"));
+    for (const auto& variant : source.variants) {
+        state.variants.push_back({
+            .variant_id = qstring(variant.variant_id),
+            .name = qstring(variant.name),
+            .head_commit_id = qstring(variant.head_commit_id),
+            .has_head = variant.has_head,
+            .is_default = variant.is_default,
+            .is_active = variant.is_active,
+            .created_at_ms = variant.created_at_ms,
+            .updated_at_ms = variant.updated_at_ms,
+        });
+    }
     state.versions.reserve(checked_qt_vector_size(source.versions.size(), "versions"));
     for (const auto& version : source.versions) {
         BackendEditVersion converted;
