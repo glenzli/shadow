@@ -244,6 +244,7 @@ fn actor_routes_the_atomic_recipe_and_repository_commit() {
                     updated_at_ms: 12,
                 }],
             },
+            expected_active_variant_id: None,
         })
         .expect("commit both histories through actor");
 

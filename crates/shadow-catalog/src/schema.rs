@@ -11,9 +11,9 @@ use crate::{CatalogError, export_queue};
 
 /// The only on-disk Catalog revision supported by this development build.
 /// Encoded as YYYYMMDDNN, where NN is the contract's daily sequence.
-pub(crate) const SCHEMA_VERSION: i64 = 2_026_080_601;
+pub(crate) const SCHEMA_VERSION: i64 = 2_026_080_901;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-20260806.1-logical-photo-representations";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-20260809.1-photo-variants";
 
 const SCHEMA_CORE: &str = r"
 CREATE TABLE photos (
@@ -232,6 +232,46 @@ CREATE TABLE recipe_refs (
 ) STRICT;
 
 CREATE INDEX recipe_refs_commit_idx ON recipe_refs(commit_id);
+
+CREATE TABLE photo_variants (
+    id              BLOB NOT NULL CHECK (length(id) = 16),
+    photo_id        BLOB NOT NULL CHECK (length(photo_id) = 16),
+    name            TEXT NOT NULL CHECK (length(name) <= 256),
+    head_commit_id  BLOB CHECK (head_commit_id IS NULL OR length(head_commit_id) = 16),
+    is_default      INTEGER NOT NULL CHECK (is_default IN (0, 1)),
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE (id, photo_id),
+    UNIQUE (photo_id, name COLLATE NOCASE),
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE RESTRICT,
+    FOREIGN KEY (head_commit_id, photo_id)
+        REFERENCES recipe_commits(id, photo_id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE UNIQUE INDEX photo_variants_one_default_idx
+    ON photo_variants(photo_id) WHERE is_default = 1;
+CREATE INDEX photo_variants_photo_idx
+    ON photo_variants(photo_id, created_at_ms, id);
+
+CREATE TABLE photo_variant_state (
+    photo_id          BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
+    active_variant_id BLOB NOT NULL CHECK (length(active_variant_id) = 16),
+    updated_at_ms     INTEGER NOT NULL,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE RESTRICT,
+    FOREIGN KEY (active_variant_id, photo_id)
+        REFERENCES photo_variants(id, photo_id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE TRIGGER photos_create_default_variant
+AFTER INSERT ON photos
+BEGIN
+    INSERT INTO photo_variants(
+        id, photo_id, name, head_commit_id, is_default, created_at_ms, updated_at_ms
+    ) VALUES (NEW.id, NEW.id, '', NULL, 1, NEW.created_at_ms, NEW.created_at_ms);
+    INSERT INTO photo_variant_state(photo_id, active_variant_id, updated_at_ms)
+    VALUES (NEW.id, NEW.id, NEW.created_at_ms);
+END;
 ";
 
 const SCHEMA_FEEDBACK: &str = r"
@@ -863,8 +903,8 @@ CREATE INDEX locations_representation_status_current_idx
 
 const SCHEMA_STATE: &str = r"
 CREATE TABLE catalog_schema (
-    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026080601),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260806.1-logical-photo-representations'),
+    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026080901),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260809.1-photo-variants'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";

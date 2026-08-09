@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params, types::Type};
 use shadow_domain::{
     EditCommitId, EditObject, EditObjectEdge, EditObjectId, EditObjectKind, EditObjectPack,
     EditRepositoryCommit, EditRepositoryError, EditRepositoryRefExpectation, EditRepositoryRefKind,
+    PhotoVariantId,
 };
 
 use crate::{
@@ -67,6 +68,7 @@ pub struct EditRepositoryRefRecord {
 pub struct CommitRecipeAndEditRepository {
     pub recipe: CommitRecipe,
     pub repository: CommitEditRepository,
+    pub expected_active_variant_id: Option<PhotoVariantId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,6 +209,9 @@ impl Catalog {
         request: &CommitRecipeAndEditRepository,
     ) -> Result<CommitRecipeAndEditRepositoryResult, CatalogError> {
         let transaction = self.connection.transaction()?;
+        if let Some(expected) = request.expected_active_variant_id {
+            crate::recipe::ensure_active_variant(&transaction, request.recipe.photo_id, expected)?;
+        }
         let recipe = commit_recipe_in_transaction(&transaction, &request.recipe)?;
         let repository = commit_edit_repository_in_transaction(&transaction, &request.repository)?;
         transaction.commit()?;

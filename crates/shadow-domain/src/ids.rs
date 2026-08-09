@@ -57,6 +57,7 @@ macro_rules! entity_id {
 }
 
 entity_id!(PhotoId);
+entity_id!(PhotoVariantId);
 entity_id!(RepresentationId);
 entity_id!(LocationId);
 // Identifies a configured discovery source. A source is only an entry point

@@ -1,13 +1,14 @@
 //! Client adapters for per-photo Recipe and Library-wide edit history.
 
-use shadow_domain::{EditCommitId, EditObjectId, PhotoId, RecipeCommitId};
+use shadow_domain::{EditCommitId, EditObjectId, PhotoId, PhotoVariantId, RecipeCommitId};
 
 use crate::{
-    CatalogError, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
-    CommitRecipeAndEditRepositoryResult, EditObjectPackWrite, EditObjectRecord,
-    EditRepositoryCommitRecord, EditRepositoryHistoryCursor, EditRepositoryHistoryPage,
-    EditRepositoryRefPage, EditRepositoryRefRecord, RecipeCommitRecord, RecipeHistoryCursor,
-    RecipeHistoryPage, RecipeRefRecord, SetRecipeRef, StoreEditObjectPackResult,
+    ActivatePhotoVariant, CatalogError, CommitEditRepository, CommitRecipe,
+    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult, CreatePhotoVariant,
+    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryHistoryCursor,
+    EditRepositoryHistoryPage, EditRepositoryRefPage, EditRepositoryRefRecord, PhotoVariantRecord,
+    RecipeCommitRecord, RecipeHistoryCursor, RecipeHistoryPage, RecipeRefRecord,
+    RemovePhotoVariant, RenamePhotoVariant, SetRecipeRef, StoreEditObjectPackResult,
 };
 
 use super::super::{
@@ -30,6 +31,20 @@ impl CatalogHandle {
         self.request(|response| {
             Message::EditHistory(EditHistoryMessage::CommitRecipe(
                 Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    pub fn commit_recipe_for_variant(
+        &self,
+        request: &CommitRecipe,
+        expected_variant_id: PhotoVariantId,
+    ) -> Result<RecipeCommitRecord, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::CommitRecipeForVariant(
+                Box::new(request.clone()),
+                expected_variant_id,
                 response,
             ))
         })
@@ -111,6 +126,57 @@ impl CatalogHandle {
     pub fn set_recipe_ref(&self, request: &SetRecipeRef) -> Result<(), CatalogError> {
         self.request(|response| {
             Message::EditHistory(EditHistoryMessage::SetRecipeRef(
+                Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    pub fn photo_variants(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Vec<PhotoVariantRecord>, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::PhotoVariants(photo_id, response))
+        })
+    }
+
+    pub fn create_photo_variant(
+        &self,
+        request: &CreatePhotoVariant,
+    ) -> Result<PhotoVariantRecord, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::CreatePhotoVariant(
+                Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    pub fn rename_photo_variant(&self, request: &RenamePhotoVariant) -> Result<(), CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::RenamePhotoVariant(
+                Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    pub fn activate_photo_variant(
+        &self,
+        request: &ActivatePhotoVariant,
+    ) -> Result<(), CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::ActivatePhotoVariant(
+                Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    pub fn remove_photo_variant(&self, request: &RemovePhotoVariant) -> Result<(), CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::RemovePhotoVariant(
                 Box::new(request.clone()),
                 response,
             ))

@@ -8,8 +8,14 @@ use shadow_domain::{
 use crate::{Catalog, CatalogError, cache_artifact::digest, row_codec::read_id};
 
 mod history_browse;
+mod variants;
 pub use history_browse::{
     MAX_RECIPE_HISTORY_PAGE_SIZE, RecipeHistoryCursor, RecipeHistoryEntry, RecipeHistoryPage,
+};
+pub(crate) use variants::ensure_active_variant;
+pub use variants::{
+    ActivatePhotoVariant, CreatePhotoVariant, PhotoVariantRecord, RemovePhotoVariant,
+    RenamePhotoVariant,
 };
 
 /// The semantic role of a movable name that points at an immutable commit.
@@ -106,6 +112,19 @@ impl Catalog {
         request: &CommitRecipe,
     ) -> Result<RecipeCommitRecord, CatalogError> {
         let transaction = self.connection.transaction()?;
+        let record = commit_recipe_in_transaction(&transaction, request)?;
+        transaction.commit()?;
+        Ok(record)
+    }
+
+    /// Commits only while the photographer is still editing the expected Variant.
+    pub fn commit_recipe_for_variant(
+        &mut self,
+        request: &CommitRecipe,
+        expected_variant_id: shadow_domain::PhotoVariantId,
+    ) -> Result<RecipeCommitRecord, CatalogError> {
+        let transaction = self.connection.transaction()?;
+        variants::ensure_active_variant(&transaction, request.photo_id, expected_variant_id)?;
         let record = commit_recipe_in_transaction(&transaction, request)?;
         transaction.commit()?;
         Ok(record)
@@ -249,6 +268,14 @@ impl Catalog {
             request.commit_id,
             request.updated_at_ms,
         )?;
+        if request.kind == RecipeRefKind::Working && request.name == "working" {
+            variants::update_active_variant_head(
+                &transaction,
+                request.photo_id,
+                request.commit_id,
+                request.updated_at_ms,
+            )?;
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -261,6 +288,12 @@ impl Catalog {
     /// migrations must use an explicit migration instead.
     pub fn discard_recipe_history(&mut self, photo_id: PhotoId) -> Result<usize, CatalogError> {
         let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "UPDATE photo_variants
+             SET head_commit_id = NULL, updated_at_ms = MAX(updated_at_ms, ?2)
+             WHERE photo_id = ?1",
+            params![photo_id.as_bytes().as_slice(), 0_i64],
+        )?;
         transaction.execute(
             "DELETE FROM recipe_refs WHERE photo_id = ?1",
             [photo_id.as_bytes().as_slice()],
@@ -346,6 +379,14 @@ pub(crate) fn commit_recipe_in_transaction(
             request.commit.id(),
             request.commit.created_at_ms(),
         )?;
+        if target.kind == RecipeRefKind::Working && target.name == "working" {
+            variants::update_active_variant_head(
+                transaction,
+                request.photo_id,
+                request.commit.id(),
+                request.commit.created_at_ms(),
+            )?;
+        }
     }
     Ok(RecipeCommitRecord {
         photo_id: request.photo_id,

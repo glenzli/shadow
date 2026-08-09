@@ -1,6 +1,6 @@
 //! Unified public failure contract for catalog persistence and validation.
 
-use shadow_domain::{KeywordId, PhotoFlag, PhotoId, RepresentationId};
+use shadow_domain::{KeywordId, PhotoFlag, PhotoId, PhotoVariantId, RepresentationId};
 use thiserror::Error;
 
 use crate::{export_queue, recipe::RecipeRefExpectation};
@@ -10,7 +10,7 @@ pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error(
-        "development catalog reset required: found schema revision {found:?}; Shadow currently supports only Catalog revision 20260806.1"
+        "development catalog reset required: found schema revision {found:?}; Shadow currently supports only Catalog revision 20260809.1"
     )]
     DevelopmentCatalogResetRequired { found: Option<i64> },
     #[error("import session {0} does not exist")]
@@ -62,6 +62,22 @@ pub enum CatalogError {
     RepresentationNotFound(RepresentationId),
     #[error("photo {0} does not exist")]
     PhotoNotFound(PhotoId),
+    #[error("photo Variant {0} does not exist")]
+    PhotoVariantNotFound(PhotoVariantId),
+    #[error("invalid photo Variant: {0}")]
+    InvalidPhotoVariant(String),
+    #[error("the active photo Variant cannot be removed")]
+    CannotRemoveActivePhotoVariant,
+    #[error("the original photo Variant cannot be removed")]
+    CannotRemoveDefaultPhotoVariant,
+    #[error(
+        "active Variant for photo {photo_id} changed: expected {expected}, current is {actual}"
+    )]
+    PhotoVariantExpectationMismatch {
+        photo_id: PhotoId,
+        expected: PhotoVariantId,
+        actual: PhotoVariantId,
+    },
     #[error("album {0} does not exist")]
     AlbumNotFound(shadow_domain::CollectionId),
     #[error("Library keyword {0} does not exist")]

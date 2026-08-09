@@ -2,19 +2,25 @@
 
 use std::sync::mpsc::SyncSender;
 
-use shadow_domain::{EditCommitId, EditObjectId, PhotoId, RecipeCommitId};
+use shadow_domain::{EditCommitId, EditObjectId, PhotoId, PhotoVariantId, RecipeCommitId};
 
 use crate::{
-    CatalogError, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
-    CommitRecipeAndEditRepositoryResult, EditObjectPackWrite, EditObjectRecord,
-    EditRepositoryCommitRecord, EditRepositoryHistoryCursor, EditRepositoryHistoryPage,
-    EditRepositoryRefPage, EditRepositoryRefRecord, RecipeCommitRecord, RecipeHistoryCursor,
-    RecipeHistoryPage, RecipeRefRecord, SetRecipeRef, StoreEditObjectPackResult,
+    ActivatePhotoVariant, CatalogError, CommitEditRepository, CommitRecipe,
+    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult, CreatePhotoVariant,
+    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryHistoryCursor,
+    EditRepositoryHistoryPage, EditRepositoryRefPage, EditRepositoryRefRecord, PhotoVariantRecord,
+    RecipeCommitRecord, RecipeHistoryCursor, RecipeHistoryPage, RecipeRefRecord,
+    RemovePhotoVariant, RenamePhotoVariant, SetRecipeRef, StoreEditObjectPackResult,
 };
 
 pub(in crate::writer) enum EditHistoryMessage {
     CommitRecipe(
         Box<CommitRecipe>,
+        SyncSender<Result<RecipeCommitRecord, CatalogError>>,
+    ),
+    CommitRecipeForVariant(
+        Box<CommitRecipe>,
+        PhotoVariantId,
         SyncSender<Result<RecipeCommitRecord, CatalogError>>,
     ),
     RecipeCommits(
@@ -38,6 +44,26 @@ pub(in crate::writer) enum EditHistoryMessage {
         SyncSender<Result<Option<RecipeRefRecord>, CatalogError>>,
     ),
     SetRecipeRef(Box<SetRecipeRef>, SyncSender<Result<(), CatalogError>>),
+    PhotoVariants(
+        PhotoId,
+        SyncSender<Result<Vec<PhotoVariantRecord>, CatalogError>>,
+    ),
+    CreatePhotoVariant(
+        Box<CreatePhotoVariant>,
+        SyncSender<Result<PhotoVariantRecord, CatalogError>>,
+    ),
+    RenamePhotoVariant(
+        Box<RenamePhotoVariant>,
+        SyncSender<Result<(), CatalogError>>,
+    ),
+    ActivatePhotoVariant(
+        Box<ActivatePhotoVariant>,
+        SyncSender<Result<(), CatalogError>>,
+    ),
+    RemovePhotoVariant(
+        Box<RemovePhotoVariant>,
+        SyncSender<Result<(), CatalogError>>,
+    ),
     DiscardRecipeHistory(PhotoId, SyncSender<Result<usize, CatalogError>>),
     StoreEditObjectPack(
         Box<EditObjectPackWrite>,

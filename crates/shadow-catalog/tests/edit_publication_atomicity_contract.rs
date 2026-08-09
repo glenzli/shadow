@@ -137,6 +137,7 @@ fn stale_library_head_rolls_back_legacy_and_library_commits_together() {
                     updated_at_ms: 20,
                 }],
             },
+            expected_active_variant_id: None,
         })
         .unwrap_err();
     assert!(matches!(

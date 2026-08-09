@@ -9,6 +9,9 @@ pub(super) fn run_edit_history_message(catalog: &mut Catalog, message: EditHisto
         EditHistoryMessage::CommitRecipe(request, response) => {
             let _ = response.send(catalog.commit_recipe(request.as_ref()));
         }
+        EditHistoryMessage::CommitRecipeForVariant(request, variant_id, response) => {
+            let _ = response.send(catalog.commit_recipe_for_variant(request.as_ref(), variant_id));
+        }
         EditHistoryMessage::RecipeCommits(photo_id, response) => {
             let _ = response.send(catalog.recipe_commits(photo_id));
         }
@@ -23,6 +26,21 @@ pub(super) fn run_edit_history_message(catalog: &mut Catalog, message: EditHisto
         }
         EditHistoryMessage::SetRecipeRef(request, response) => {
             let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
+        }
+        EditHistoryMessage::PhotoVariants(photo_id, response) => {
+            let _ = response.send(catalog.photo_variants(photo_id));
+        }
+        EditHistoryMessage::CreatePhotoVariant(request, response) => {
+            let _ = response.send(catalog.create_photo_variant(request.as_ref()));
+        }
+        EditHistoryMessage::RenamePhotoVariant(request, response) => {
+            let _ = response.send(catalog.rename_photo_variant(request.as_ref()));
+        }
+        EditHistoryMessage::ActivatePhotoVariant(request, response) => {
+            let _ = response.send(catalog.activate_photo_variant(request.as_ref()));
+        }
+        EditHistoryMessage::RemovePhotoVariant(request, response) => {
+            let _ = response.send(catalog.remove_photo_variant(request.as_ref()));
         }
         EditHistoryMessage::DiscardRecipeHistory(photo_id, response) => {
             let _ = response.send(catalog.discard_recipe_history(photo_id));

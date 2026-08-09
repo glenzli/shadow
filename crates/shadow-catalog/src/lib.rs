@@ -86,9 +86,10 @@ pub use library::{
     SetPhotoLibraryState, SmartAlbumQueryV1, library_equipment_key,
 };
 pub use recipe::{
-    CommitRecipe, MAX_RECIPE_HISTORY_PAGE_SIZE, RecipeCommitRecord, RecipeHistoryCursor,
-    RecipeHistoryEntry, RecipeHistoryPage, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
-    RecipeRefTarget, SetRecipeRef,
+    ActivatePhotoVariant, CommitRecipe, CreatePhotoVariant, MAX_RECIPE_HISTORY_PAGE_SIZE,
+    PhotoVariantRecord, RecipeCommitRecord, RecipeHistoryCursor, RecipeHistoryEntry,
+    RecipeHistoryPage, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord, RecipeRefTarget,
+    RemovePhotoVariant, RenamePhotoVariant, SetRecipeRef,
 };
 pub use review::{
     PhotoInspectionRecord, PhotoRepresentationRecord, ReviewCursor, ReviewItemRecord,

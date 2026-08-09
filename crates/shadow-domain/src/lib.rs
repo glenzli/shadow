@@ -45,7 +45,8 @@ pub use edit_repository::{
 pub use ids::{
     BranchId, CollectionId, EntityId, GradeNodeId, GroupId, ImportSessionId, KeywordId, LayerId,
     LayerInstanceId, LayerRevisionId, LibrarySourceId, LocationId, MaskId, NodeId, OutputTargetId,
-    PhotoId, RecipeCommitId, RecipeId, RepresentationId, SelectionId, ShootId, StyleId, VersionId,
+    PhotoId, PhotoVariantId, RecipeCommitId, RecipeId, RepresentationId, SelectionId, ShootId,
+    StyleId, VersionId,
 };
 pub use recipe::{
     AdjustmentNode, AdjustmentScope, BlendMode, BranchName,
