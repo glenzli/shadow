@@ -101,8 +101,8 @@ Rectangle {
                 variant: ShadowIconButton.Tinted
                 enabled: toolbar.workspace.culling.canStartArena
                 toolTipText: enabled
-                    ? qsTr("Open the candidate arena")
-                    : qsTr("Add at least two photos to start the candidate arena")
+                    ? qsTr("Open the candidate duel")
+                    : qsTr("Add at least two photos to start the candidate duel")
                 accessibleName: toolTipText
                 onClicked: toolbar.workspace.culling.startArena()
             }

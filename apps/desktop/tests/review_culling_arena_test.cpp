@@ -26,6 +26,8 @@ class FakeCulling final : public QObject {
     Q_PROPERTY(int rankedCandidateCount MEMBER ranked_count NOTIFY stateChanged)
     Q_PROPERTY(int totalArenaCandidateCount MEMBER total_count CONSTANT)
     Q_PROPERTY(int comparisonCount MEMBER comparison_count NOTIFY stateChanged)
+    Q_PROPERTY(int refinementRound MEMBER refinement_round NOTIFY stateChanged)
+    Q_PROPERTY(bool canRefineRunnerUps MEMBER can_refine_runner_ups NOTIFY stateChanged)
     Q_PROPERTY(QVariantList history MEMBER history NOTIFY stateChanged)
     Q_PROPERTY(QVariantList tiers MEMBER tiers NOTIFY stateChanged)
     Q_PROPERTY(QVariantList unresolvedCandidates MEMBER unresolved NOTIFY stateChanged)
@@ -54,6 +56,7 @@ class FakeCulling final : public QObject {
     Q_INVOKABLE void undoLastChoice() { ++undo_count; }
     Q_INVOKABLE void leaveArena() { arena_active = false; emit stateChanged(); }
     Q_INVOKABLE void selectTopResult() {}
+    Q_INVOKABLE void refineRunnerUps() {}
     Q_INVOKABLE void clearCandidates() {}
 
     static QVariantMap photo(const QString& id) {
@@ -70,6 +73,8 @@ class FakeCulling final : public QObject {
     int ranked_count = 1;
     int total_count = 4;
     int comparison_count = 0;
+    int refinement_round = 0;
+    bool can_refine_runner_ups = false;
     QVariantList history;
     QVariantList tiers;
     QVariantList unresolved;

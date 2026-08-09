@@ -683,14 +683,15 @@ Review presentation keeps the workspace as the composition and compatibility sur
   decision or preference event, and the surface consumes the same repeatable cached visuals as
   Library browsing rather than opening the exact-evidence backend lifecycle.
 - [`qml/ReviewCullingState.qml`](qml/ReviewCullingState.qml) owns the temporary candidate draft,
-  guided pairwise schedule, equal-preference tiers, unresolved skips, and exact one-step undo.
+  guided pairwise schedule, equal-preference top tier, direct runner-up pool, unresolved skips, and
+  exact one-step undo.
   [`qml/ReviewCullingArena.qml`](qml/ReviewCullingArena.qml) owns its focused 1:1 presentation and
-  result tiers. Candidates enter explicitly from the photo toolbar or context menu; the arena uses
-  champion-first insertion: each new entrant first challenges the current top-tier leader, while
-  a losing challenger is placed among lower tiers with bounded follow-up comparisons. This keeps
-  the visible winner-stays rhythm without asking every possible pair. Completing a session changes
-  no photo metadata. Selecting a result returns to Library, where the existing Like, flag, and
-  rating tools remain the explicit final keep action.
+  compact results. Candidates enter explicitly from the photo toolbar or context menu; the duel
+  uses one winner-stays comparison per entrant. Only photos that lose directly to the eventual
+  winner remain in the runner-up pool, so a normal pass finds the best choice without fully sorting
+  discarded photos. The user may launch one more bounded duel from that pool when a clearer second
+  choice matters. Completing a session changes no photo metadata. Selecting a result returns to
+  Library, where the existing Like, flag, and rating tools remain the explicit final keep action.
 - [`src/review_comparison_coordinator.cpp`](src/review_comparison_coordinator.cpp) owns the complete
   Compare lifecycle after cross-workflow admission: exact presentation preparation, decoded-frame
   verification, cancellation, serialized record/forget workers, receipt validation, session-local
@@ -918,10 +919,12 @@ navigate independently within the current Library order. There is intentionally 
 no winner action, and no metadata or learning write coupled to this view.
 
 Culling is a separate temporary workflow. A user explicitly gathers candidates, enters a focused
-1:1 arena, and repeatedly chooses the better photo, declares a tie, skips a pair, or undoes the
-last choice. The scheduler incrementally builds ordered preference tiers instead of requiring all
-pair combinations. Results are advisory session state: selecting a result returns to the ordinary
-Library selection, where Like, rating, Pick, or Reject remains a separate deliberate action.
+1:1 duel, and repeatedly chooses the better photo, declares a tie, skips a pair, or undoes the last
+choice. One linear winner-stays pass identifies the top choice and retains only its direct losses as
+a compact runner-up pool. It deliberately does not fully rank eliminated photos; if needed, the user
+can refine that pool with another bounded pass. Results are advisory session state: selecting a
+result returns to the ordinary Library selection, where Like, rating, Pick, or Reject remains a
+separate deliberate action.
 
 ## Review Compare Evidence backend
 
@@ -930,7 +933,7 @@ The backend can place two already cached visuals side by side and ask for one ex
 or `CannotCompare`. Recording an outcome appends one human-feedback event in the
 `Global` learning scope. It does not mutate either photo, assign a Pick/Reject,
 or silently infer a label from merely opening or leaving the comparison. The ordinary
-comparison and candidate arena deliberately do not invoke this exact-evidence contract; it remains
+comparison and candidate duel deliberately do not invoke this exact-evidence contract; it remains
 available for a future explicit feedback-capture surface.
 
 Undo is deliberately non-destructive. It appends a forget fact targeting the

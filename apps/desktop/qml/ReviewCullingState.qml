@@ -3,9 +3,12 @@ pragma Translator: "ReviewWorkspace"
 
 import QtQuick
 
-// Owns one temporary culling draft and its pairwise ranking lifecycle. The
-// draft never mutates Library decisions; Like, rating, Pick, and album actions
-// remain explicit operations after the user leaves the arena.
+// Owns one temporary culling draft and its guided duel lifecycle. The first
+// pass finds only the top preference tier. Its second tier contains exactly
+// the photos that lost directly to the eventual winner, which is the smallest
+// evidence-backed runner-up pool that can be refined in another pass.
+// The draft never mutates Library decisions; Like, rating, Pick, and album
+// actions remain explicit operations after the user leaves the duel.
 QtObject {
     id: culling
 
@@ -13,18 +16,14 @@ QtObject {
 
     property var candidates: []
     property var arenaCandidates: []
+    property var leaders: []
+    property var runnerUps: []
     property var tiers: []
     property var unresolvedCandidates: []
     property var currentLeft: null
     property var currentRight: null
     property int nextCandidateIndex: 0
-    property int searchLow: 0
-    property int searchHigh: -1
-    property int searchMid: -1
-    // Every entrant first challenges the current top-tier leader. Only a
-    // losing challenger enters the lower-tier placement pass, preserving the
-    // winner-stays rhythm while still producing a complete ordered draft.
-    property string comparisonPhase: ""
+    property int refinementRound: 0
     property int comparisonCount: 0
     property var history: []
     property bool arenaActive: false
@@ -32,7 +31,9 @@ QtObject {
 
     readonly property int candidateCount: candidates.length
     readonly property bool canStartArena: candidateCount >= 2
-    readonly property int rankedCandidateCount: rankedCount()
+    readonly property bool canRefineRunnerUps:
+        arenaComplete && runnerUps.length >= 2
+    readonly property int rankedCandidateCount: nextCandidateIndex
     readonly property int totalArenaCandidateCount: arenaCandidates.length
 
     function normalizedSnapshot(value) {
@@ -138,97 +139,88 @@ QtObject {
         resetArena()
     }
 
-    function cloneTiers(values) {
-        const cloned = []
-        for (let index = 0; index < values.length; ++index)
-            cloned.push(values[index].slice())
-        return cloned
-    }
-
-    function rankedCount() {
-        let count = 0
-        for (let index = 0; index < tiers.length; ++index)
-            count += tiers[index].length
-        return count
+    function refreshTiers() {
+        const next = []
+        if (leaders.length > 0)
+            next.push(leaders.slice())
+        if (runnerUps.length > 0)
+            next.push(runnerUps.slice())
+        tiers = next
     }
 
     function resetArena() {
         arenaCandidates = []
+        leaders = []
+        runnerUps = []
         tiers = []
         unresolvedCandidates = []
         currentLeft = null
         currentRight = null
         nextCandidateIndex = 0
-        searchLow = 0
-        searchHigh = -1
-        searchMid = -1
-        comparisonPhase = ""
+        refinementRound = 0
         comparisonCount = 0
         history = []
         arenaActive = false
         arenaComplete = false
     }
 
-    function startArena() {
-        if (!canStartArena)
+    function startDuel(values, round) {
+        if (values.length < 2)
             return false
-        arenaCandidates = candidates.slice()
-        tiers = [[arenaCandidates[0]]]
+        arenaCandidates = values.slice()
+        leaders = [arenaCandidates[0]]
+        runnerUps = []
         unresolvedCandidates = []
         nextCandidateIndex = 1
+        refinementRound = round
         comparisonCount = 0
         history = []
         arenaActive = true
         arenaComplete = false
-        beginCandidateInsertion()
+        refreshTiers()
+        beginNextDuel()
         return true
     }
 
-    function beginCandidateInsertion() {
+    function startArena() {
+        return canStartArena ? startDuel(candidates, 0) : false
+    }
+
+    function refineRunnerUps() {
+        return canRefineRunnerUps
+            ? startDuel(runnerUps, refinementRound + 1) : false
+    }
+
+    function beginNextDuel() {
         if (nextCandidateIndex >= arenaCandidates.length) {
             currentLeft = null
             currentRight = null
-            searchMid = -1
-            comparisonPhase = ""
             arenaComplete = true
+            refreshTiers()
             return
         }
+        currentLeft = leaders[0]
         currentRight = arenaCandidates[nextCandidateIndex]
-        searchLow = 0
-        searchHigh = tiers.length - 1
-        searchMid = 0
-        currentLeft = tiers[0][0]
-        comparisonPhase = "champion"
-    }
-
-    function prepareComparison() {
-        if (searchLow > searchHigh) {
-            const nextTiers = cloneTiers(tiers)
-            nextTiers.splice(searchLow, 0, [currentRight])
-            tiers = nextTiers
-            nextCandidateIndex += 1
-            beginCandidateInsertion()
-            return
-        }
-        comparisonPhase = "placement"
-        searchMid = Math.floor((searchLow + searchHigh) / 2)
-        currentLeft = tiers[searchMid][0]
     }
 
     function pushHistory() {
         history = history.concat([{
-            "tiers": cloneTiers(tiers),
+            "leaders": leaders.slice(),
+            "runnerUps": runnerUps.slice(),
+            "tiers": tiers.map(tier => tier.slice()),
             "unresolvedCandidates": unresolvedCandidates.slice(),
             "currentLeft": currentLeft,
             "currentRight": currentRight,
             "nextCandidateIndex": nextCandidateIndex,
-            "searchLow": searchLow,
-            "searchHigh": searchHigh,
-            "searchMid": searchMid,
-            "comparisonPhase": comparisonPhase,
             "comparisonCount": comparisonCount,
             "arenaComplete": arenaComplete
         }])
+    }
+
+    function finishCurrentChoice() {
+        nextCandidateIndex += 1
+        refreshTiers()
+        beginNextDuel()
     }
 
     function chooseLeft() {
@@ -236,14 +228,8 @@ QtObject {
             return
         pushHistory()
         comparisonCount += 1
-        if (comparisonPhase === "champion") {
-            searchLow = 1
-            searchHigh = tiers.length - 1
-            prepareComparison()
-            return
-        }
-        searchLow = searchMid + 1
-        prepareComparison()
+        runnerUps = runnerUps.concat([currentRight])
+        finishCurrentChoice()
     }
 
     function chooseRight() {
@@ -251,16 +237,9 @@ QtObject {
             return
         pushHistory()
         comparisonCount += 1
-        if (comparisonPhase === "champion") {
-            const nextTiers = cloneTiers(tiers)
-            nextTiers.splice(0, 0, [currentRight])
-            tiers = nextTiers
-            nextCandidateIndex += 1
-            beginCandidateInsertion()
-            return
-        }
-        searchHigh = searchMid - 1
-        prepareComparison()
+        runnerUps = leaders.slice()
+        leaders = [currentRight]
+        finishCurrentChoice()
     }
 
     function chooseEqual() {
@@ -268,11 +247,8 @@ QtObject {
             return
         pushHistory()
         comparisonCount += 1
-        const nextTiers = cloneTiers(tiers)
-        nextTiers[searchMid] = nextTiers[searchMid].concat([currentRight])
-        tiers = nextTiers
-        nextCandidateIndex += 1
-        beginCandidateInsertion()
+        leaders = leaders.concat([currentRight])
+        finishCurrentChoice()
     }
 
     function skipCurrent() {
@@ -280,8 +256,7 @@ QtObject {
             return
         pushHistory()
         unresolvedCandidates = unresolvedCandidates.concat([currentRight])
-        nextCandidateIndex += 1
-        beginCandidateInsertion()
+        finishCurrentChoice()
     }
 
     function undoLastChoice() {
@@ -289,15 +264,13 @@ QtObject {
             return false
         const previous = history[history.length - 1]
         history = history.slice(0, history.length - 1)
-        tiers = cloneTiers(previous.tiers)
+        leaders = previous.leaders.slice()
+        runnerUps = previous.runnerUps.slice()
+        tiers = previous.tiers.map(tier => tier.slice())
         unresolvedCandidates = previous.unresolvedCandidates.slice()
         currentLeft = previous.currentLeft
         currentRight = previous.currentRight
         nextCandidateIndex = previous.nextCandidateIndex
-        searchLow = previous.searchLow
-        searchHigh = previous.searchHigh
-        searchMid = previous.searchMid
-        comparisonPhase = previous.comparisonPhase
         comparisonCount = previous.comparisonCount
         arenaComplete = previous.arenaComplete
         return true
@@ -308,9 +281,9 @@ QtObject {
     }
 
     function selectTopResult() {
-        if (tiers.length === 0 || tiers[0].length === 0)
+        if (leaders.length === 0)
             return
-        selectResult(tiers[0][0])
+        selectResult(leaders[0])
     }
 
     function selectResult(value) {

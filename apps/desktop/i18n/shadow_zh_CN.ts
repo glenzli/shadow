@@ -8837,19 +8837,19 @@ Technical detail: %1</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="104"/>
-        <source>Open the candidate arena</source>
-        <translation>打开候选竞技场</translation>
-    </message>
-    <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="257"/>
         <source>Create a Manual Album first</source>
         <translation>请先创建手动相册</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="104"/>
+        <source>Open the candidate duel</source>
+        <translation>打开精选对决</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="105"/>
-        <source>Add at least two photos to start the candidate arena</source>
-        <translation>至少加入两张照片才能开始候选竞技场</translation>
+        <source>Add at least two photos to start the candidate duel</source>
+        <translation>至少加入两张照片才能开始精选对决</translation>
     </message>
     <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="153"/>
@@ -9184,13 +9184,13 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/ReviewComparisonView.qml" line="183"/>
-        <location filename="../qml/ReviewCullingArena.qml" line="110"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="111"/>
         <source>IMAGE LOAD FAILED</source>
         <translation>图像加载失败</translation>
     </message>
     <message>
         <location filename="../qml/ReviewComparisonView.qml" line="184"/>
-        <location filename="../qml/ReviewCullingArena.qml" line="110"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="111"/>
         <source>LOADING PHOTO…</source>
         <translation>正在加载照片…</translation>
     </message>
@@ -9415,102 +9415,112 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>当前视图中没有其他可用照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="135"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="138"/>
         <source>CANDIDATE RESULTS</source>
         <translation>候选结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="135"/>
-        <source>CANDIDATE ARENA</source>
-        <translation>候选竞技场</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="144"/>
-        <source>The draft is ranked in preference tiers. No photo metadata has changed.</source>
-        <translation>候选草稿已按偏好分层排序，照片元数据未发生更改。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="146"/>
-        <source>The leader remains ahead. Place this challenger among the lower tiers.</source>
-        <translation>当前领先照片保持领先，请在较低层级中定位这张挑战者照片。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="147"/>
-        <source>%L1 of %L2 candidates placed · %L3 comparisons</source>
-        <translation>已排列 %L1 / %L2 张候选 · 已比较 %L3 次</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="159"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="163"/>
         <source>Undo</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="166"/>
-        <source>Leave the candidate arena</source>
-        <translation>离开候选竞技场</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="185"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="188"/>
         <source>CURRENT LEADER</source>
         <translation>当前领先</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="185"/>
-        <source>REFERENCE TIER</source>
-        <translation>参考层级</translation>
+        <location filename="../qml/ReviewCullingArena.qml" line="137"/>
+        <source>RUNNER-UP RESULTS</source>
+        <translation>次选结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="194"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="140"/>
+        <source>RUNNER-UP DUEL</source>
+        <translation>次选对决</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="141"/>
+        <source>CANDIDATE DUEL</source>
+        <translation>精选对决</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="150"/>
+        <source>The top choice and its direct runner-up pool are ready. No photo metadata has changed.</source>
+        <translation>最佳选择和它的直接次选池已经就绪。照片元数据未发生更改。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="151"/>
+        <source>%L1 of %L2 candidates compared · %L3 decisions</source>
+        <translation>已比较 %L1 / %L2 张候选 · 已决定 %L3 次</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="170"/>
+        <source>Leave the candidate duel</source>
+        <translation>离开精选对决</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="197"/>
         <source>CHALLENGER</source>
         <translation>挑战者</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="207"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="210"/>
         <source>Choose the left photo (Left Arrow)</source>
         <translation>选择左侧照片（左方向键）</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="216"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="219"/>
         <source>Place both photos in the same preference tier</source>
         <translation>将两张照片放在同一偏好层级</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="225"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="228"/>
         <source>Choose the right photo (Right Arrow)</source>
         <translation>选择右侧照片（右方向键）</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="233"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="236"/>
         <source>Leave this photo unresolved</source>
         <translation>暂不决定这张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="276"/>
-        <source>TIER %L1</source>
-        <translation>第 %L1 层</translation>
+        <location filename="../qml/ReviewCullingArena.qml" line="280"/>
+        <source>TOP PICKS</source>
+        <translation>最佳选择</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="335"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="280"/>
+        <source>RUNNER-UP POOL</source>
+        <translation>次选池</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="339"/>
         <source>Return to this photo in the Library</source>
         <translation>返回图库并选择此照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="347"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="351"/>
         <source>%L1 skipped candidates remain unresolved.</source>
         <translation>仍有 %L1 张已跳过的候选尚未决定。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="361"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="366"/>
+        <source>Refine runners-up</source>
+        <translation>继续筛选次选</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewCullingArena.qml" line="371"/>
         <source>Return to Library</source>
         <translation>返回图库</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="367"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="377"/>
         <source>View top result</source>
         <translation>查看最佳结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewCullingArena.qml" line="373"/>
+        <location filename="../qml/ReviewCullingArena.qml" line="383"/>
         <source>Clear candidates</source>
         <translation>清空候选</translation>
     </message>

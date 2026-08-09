@@ -5,8 +5,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// A guided 1:1 arena over one temporary candidate draft. The ranking engine
-// chooses each next pair; users only express left, right, equal, or skip.
+// A guided 1:1 duel over one temporary candidate draft. One pass finds the
+// top preference tier and the photos that lost directly to it; lower-ranked
+// photos are deliberately not forced through a complete ordering.
 Rectangle {
     id: arena
 
@@ -132,7 +133,12 @@ Rectangle {
 
                 Label {
                     text: arena.review.culling.arenaComplete
-                        ? qsTr("CANDIDATE RESULTS") : qsTr("CANDIDATE ARENA")
+                        ? arena.review.culling.refinementRound > 0
+                            ? qsTr("RUNNER-UP RESULTS")
+                            : qsTr("CANDIDATE RESULTS")
+                        : arena.review.culling.refinementRound > 0
+                            ? qsTr("RUNNER-UP DUEL")
+                            : qsTr("CANDIDATE DUEL")
                     color: Theme.textPrimary
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
@@ -141,10 +147,8 @@ Rectangle {
 
                 Label {
                     text: arena.review.culling.arenaComplete
-                        ? qsTr("The draft is ranked in preference tiers. No photo metadata has changed.")
-                        : arena.review.culling.comparisonPhase === "placement"
-                        ? qsTr("The leader remains ahead. Place this challenger among the lower tiers.")
-                        : qsTr("%L1 of %L2 candidates placed · %L3 comparisons")
+                        ? qsTr("The top choice and its direct runner-up pool are ready. No photo metadata has changed.")
+                        : qsTr("%L1 of %L2 candidates compared · %L3 decisions")
                             .arg(arena.review.culling.rankedCandidateCount)
                             .arg(arena.review.culling.totalArenaCandidateCount)
                             .arg(arena.review.culling.comparisonCount)
@@ -163,7 +167,7 @@ Rectangle {
 
             ShadowIconButton {
                 source: "qrc:/icons/clear.svg"
-                toolTipText: qsTr("Leave the candidate arena")
+                toolTipText: qsTr("Leave the candidate duel")
                 accessibleName: toolTipText
                 onClicked: arena.review.culling.leaveArena()
             }
@@ -181,8 +185,7 @@ Rectangle {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1
                 snapshot: arena.review.culling.currentLeft
-                sideLabel: arena.review.culling.comparisonPhase === "champion"
-                    ? qsTr("CURRENT LEADER") : qsTr("REFERENCE TIER")
+                sideLabel: qsTr("CURRENT LEADER")
             }
 
             ArenaPhotoPane {
@@ -273,7 +276,8 @@ Rectangle {
 
                             Label {
                                 Layout.preferredWidth: 64
-                                text: qsTr("TIER %L1").arg(resultTier.index + 1)
+                                text: resultTier.index === 0
+                                    ? qsTr("TOP PICKS") : qsTr("RUNNER-UP POOL")
                                 color: resultTier.index === 0
                                     ? Theme.accentSelectionText : Theme.textMuted
                                 font.pixelSize: Theme.fontMeta
@@ -356,6 +360,12 @@ Rectangle {
             Layout.alignment: Qt.AlignRight
             visible: arena.review.culling.arenaComplete
             spacing: 8
+
+            ShadowButton {
+                visible: arena.review.culling.canRefineRunnerUps
+                text: qsTr("Refine runners-up")
+                onClicked: arena.review.culling.refineRunnerUps()
+            }
 
             ShadowButton {
                 text: qsTr("Return to Library")

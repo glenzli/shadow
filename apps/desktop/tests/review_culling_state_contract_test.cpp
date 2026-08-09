@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
                 && culling->property("arenaActive").toBool()
                 && current_id(culling.get(), "currentLeft") == QStringLiteral("photo-a")
                 && current_id(culling.get(), "currentRight") == QStringLiteral("photo-b"),
-            "the arena starts with one guided pair"
+            "the duel starts with one guided pair"
         )) {
         return EXIT_FAILURE;
     }
@@ -132,18 +132,17 @@ int main(int argc, char* argv[]) {
     }
     (void)invoke(culling.get(), "chooseEqual"); // C = B
     (void)invoke(culling.get(), "chooseLeft");  // B/C > D
-    (void)invoke(culling.get(), "chooseRight"); // D > A
     if (!require(
             culling->property("arenaComplete").toBool()
-                && culling->property("comparisonCount").toInt() == 4,
-            "champion-first insertion completes a four-photo tiered ranking"
+                && culling->property("comparisonCount").toInt() == 3,
+            "one comparison per entrant completes the top-choice pass"
         )
         || !require(
             tier_id(culling.get(), 0, 0) == QStringLiteral("photo-b")
                 && tier_id(culling.get(), 0, 1) == QStringLiteral("photo-c")
-                && tier_id(culling.get(), 1, 0) == QStringLiteral("photo-d")
-                && tier_id(culling.get(), 2, 0) == QStringLiteral("photo-a"),
-            "better and equal choices produce ordered preference tiers"
+                && tier_id(culling.get(), 1, 0) == QStringLiteral("photo-a")
+                && tier_id(culling.get(), 1, 1) == QStringLiteral("photo-d"),
+            "results retain only the top tier and photos that lost directly to it"
         )) {
         return EXIT_FAILURE;
     }
@@ -151,18 +150,33 @@ int main(int argc, char* argv[]) {
     if (!require(
             invoke(culling.get(), "undoLastChoice")
                 && !culling->property("arenaComplete").toBool()
-                && current_id(culling.get(), "currentLeft") == QStringLiteral("photo-a")
+                && current_id(culling.get(), "currentLeft") == QStringLiteral("photo-b")
                 && current_id(culling.get(), "currentRight") == QStringLiteral("photo-d"),
-            "undo restores the exact pending pair and search boundary"
+            "undo restores the exact pending duel"
         )) {
         return EXIT_FAILURE;
     }
-    (void)invoke(culling.get(), "chooseLeft"); // A > D after reconsidering.
+    (void)invoke(culling.get(), "chooseRight"); // D > B/C after reconsidering.
     if (!require(
             culling->property("arenaComplete").toBool()
-                && tier_id(culling.get(), 1, 0) == QStringLiteral("photo-a")
-                && tier_id(culling.get(), 2, 0) == QStringLiteral("photo-d"),
-            "a replacement choice updates the final ordering"
+                && tier_id(culling.get(), 0, 0) == QStringLiteral("photo-d")
+                && tier_id(culling.get(), 1, 0) == QStringLiteral("photo-b")
+                && tier_id(culling.get(), 1, 1) == QStringLiteral("photo-c"),
+            "a new winner discards indirect losses and keeps only its direct runner-up pool"
+        )
+        || !require(
+            invoke(culling.get(), "refineRunnerUps")
+                && culling->property("refinementRound").toInt() == 1
+                && current_id(culling.get(), "currentLeft") == QStringLiteral("photo-b")
+                && current_id(culling.get(), "currentRight") == QStringLiteral("photo-c"),
+            "the runner-up pool can start one explicit follow-up duel"
+        )
+        || !require(
+            invoke(culling.get(), "chooseLeft")
+                && culling->property("arenaComplete").toBool()
+                && tier_id(culling.get(), 0, 0) == QStringLiteral("photo-b")
+                && tier_id(culling.get(), 1, 0) == QStringLiteral("photo-c"),
+            "runner-up refinement remains another bounded top-choice pass"
         )
         || !require(
             invoke(culling.get(), "selectTopResult")
