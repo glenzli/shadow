@@ -2,10 +2,13 @@ use std::{fs, path::PathBuf};
 
 use shadow_catalog::{CatalogActor, RegisterAsset};
 use shadow_core::native_location;
-use shadow_domain::{PhotoFlag, RepresentationKind};
-use shadow_library_sharing::{RemoteReviewFlag, RemoteReviewState};
+use shadow_domain::{ImageDimensions, PhotoFlag, PreviewCodec, RepresentationKind};
+use shadow_library_sharing::{
+    CachedRemotePreview, RemoteReviewFlag, RemoteReviewState,
+    protocol::{RemotePreviewManifest, RemotePreviewRole},
+};
 
-use super::RemoteLibraryService;
+use super::{RemoteLibraryService, cached_preview_path};
 
 const CONNECTION_A: &str = "019fb225-9a01-7301-a64b-c0168f92b834";
 const CONNECTION_B: &str = "019fb225-9a01-7301-a64b-c0168f92b835";
@@ -125,6 +128,55 @@ fn connection_mirrors_have_independent_persistent_roots() {
         root.join("remote-library/connections")
             .join(CONNECTION_B)
             .is_dir()
+    );
+
+    drop(service);
+    drop(catalog);
+    actor.shutdown().expect("stop catalog actor");
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn stale_mirror_preview_records_do_not_publish_missing_or_truncated_files() {
+    let root = temporary_directory("stale-preview-record");
+    let catalog_path = root.join("catalog.sqlite");
+    let actor = CatalogActor::spawn(&catalog_path).expect("open catalog actor");
+    let catalog = actor.handle();
+    let service = RemoteLibraryService::open(catalog.clone(), &catalog_path, &root.join("cache"))
+        .expect("open remote Library service");
+    let bytes = b"complete remote preview";
+    let digest = *blake3::hash(bytes).as_bytes();
+    let preview = CachedRemotePreview {
+        manifest: RemotePreviewManifest {
+            role: RemotePreviewRole::GeneratedProxy,
+            digest_blake3: digest,
+            byte_len: u64::try_from(bytes.len()).expect("fixture length"),
+            codec: PreviewCodec::Jpeg,
+            dimensions: ImageDimensions {
+                width: 2_048,
+                height: 1_365,
+            },
+        },
+    };
+
+    assert!(
+        cached_preview_path(&service.preview_store, &preview).is_none(),
+        "a mirror record alone must not authorize a nonexistent proxy path"
+    );
+    let stored = service
+        .preview_store
+        .put(bytes)
+        .expect("store complete preview fixture");
+    assert_eq!(
+        cached_preview_path(&service.preview_store, &preview),
+        Some(service.preview_store.resolve(stored.digest)),
+        "the exact cached proxy remains available while the server is offline"
+    );
+    fs::write(service.preview_store.resolve(stored.digest), b"truncated")
+        .expect("truncate proxy fixture");
+    assert!(
+        cached_preview_path(&service.preview_store, &preview).is_none(),
+        "a truncated cache object must degrade to an explicit unavailable state"
     );
 
     drop(service);

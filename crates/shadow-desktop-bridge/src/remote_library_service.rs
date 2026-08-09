@@ -316,12 +316,12 @@ impl RemoteLibraryService {
                         metadata.is_file() && metadata.len() == photo.manifest.source_byte_len
                     })
         });
-        let preview_path = photo.cached_preview.as_ref().map(|preview| {
-            self.preview_store
-                .resolve(BlobDigest::from_bytes(preview.manifest.digest_blake3))
-        });
+        let preview_path = photo
+            .cached_preview
+            .as_ref()
+            .and_then(|preview| cached_preview_path(&self.preview_store, preview));
         let (preview_role, preview_width, preview_height, preview_unavailable_reason) =
-            match (&photo.manifest.preview, &photo.cached_preview) {
+            match (&photo.manifest.preview, &preview_path) {
                 (RemotePreviewAvailability::Available(manifest), Some(_)) => (
                     preview_role_name(manifest.role),
                     manifest.dimensions.width,
@@ -391,6 +391,21 @@ impl RemoteLibraryService {
             local_source: cached_original.cloned(),
         }
     }
+}
+
+/// Resolves only a cache object that still matches the persisted preview
+/// record. Development catalog resets and manual cache cleanup may leave the
+/// remote mirror intact after its independent proxy bytes have disappeared;
+/// projecting that stale path produces a blank QML image instead of an honest
+/// offline state.
+fn cached_preview_path(
+    preview_store: &ContentAddressedStore,
+    preview: &shadow_library_sharing::CachedRemotePreview,
+) -> Option<PathBuf> {
+    let path = preview_store.resolve(BlobDigest::from_bytes(preview.manifest.digest_blake3));
+    path.metadata()
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == preview.manifest.byte_len)
+        .then_some(path)
 }
 
 #[derive(Debug, Clone)]

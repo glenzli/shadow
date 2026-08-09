@@ -40,6 +40,7 @@ Item {
     readonly property int visualWidth: Number(entry.visualWidth || 0)
     readonly property int visualHeight: Number(entry.visualHeight || 0)
     readonly property string visualSource: String(entry.visualSource || "")
+    readonly property bool visualLoadFailed: thumbnail.status === Image.Error
     readonly property bool hasMetadata: Boolean(entry.hasMetadata)
     readonly property string cameraMake: String(entry.cameraMake || "")
     readonly property string cameraModel: String(entry.cameraModel || "")
@@ -73,6 +74,8 @@ Item {
         workspace.isPhotoSelected(photoId, representationId)
 
     function remotePreviewStatusText() {
+        if (remotePreviewUnavailableReason.length === 0 && visualLoadFailed)
+            return qsTr("REMOTE PREVIEW CACHE UNAVAILABLE")
         switch (remotePreviewUnavailableReason) {
         case "decoder_capability_missing":
             return qsTr("PRIVATE RAW PREVIEW UNAVAILABLE")
@@ -196,7 +199,7 @@ Item {
         Rectangle {
             id: noVisualPlaceholder
             anchors.fill: thumbnail
-            visible: card.visualSource.length === 0
+            visible: card.visualSource.length === 0 || card.visualLoadFailed
             color: Theme.surfaceSubtle
             opacity: card.sourceAvailable ? 1.0 : 0.46
 
@@ -214,7 +217,8 @@ Item {
                 Label {
                     width: Math.min(180, card.width - 28)
                     text: card.isRemote
-                        && card.remotePreviewUnavailableReason.length > 0
+                        && (card.remotePreviewUnavailableReason.length > 0
+                            || card.visualLoadFailed)
                         ? card.remotePreviewStatusText()
                         : card.visualError.length > 0
                             ? qsTr("PREVIEW PENDING") : qsTr("NO VISUAL")

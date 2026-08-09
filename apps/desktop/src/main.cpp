@@ -65,9 +65,27 @@ namespace {
     }
 
     QDir cache_directory(cache_root);
-    if (cache_directory.exists() && !cache_directory.removeRecursively()) {
-        *error_message = QObject::tr("Could not remove the local preview cache.");
-        return false;
+    if (cache_directory.exists()) {
+        // Remote Library proxies have their own persisted mirror identity and
+        // remain valid across a local Catalog schema reset. Removing them while
+        // retaining that mirror produces offline white cards until the server
+        // next reconnects. Clear only Catalog/runtime-owned cache entries.
+        constexpr auto REMOTE_LIBRARY_PREVIEWS = "remote-library-previews";
+        const QFileInfoList entries = cache_directory.entryInfoList(
+            QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System
+        );
+        for (const QFileInfo& entry : entries) {
+            if (entry.fileName() == QString::fromLatin1(REMOTE_LIBRARY_PREVIEWS)) {
+                continue;
+            }
+            const bool removed = entry.isDir() && !entry.isSymLink()
+                                     ? QDir(entry.absoluteFilePath()).removeRecursively()
+                                     : QFile::remove(entry.absoluteFilePath());
+            if (!removed) {
+                *error_message = QObject::tr("Could not remove the local preview cache.");
+                return false;
+            }
+        }
     }
     return true;
 }
