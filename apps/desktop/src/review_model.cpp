@@ -102,6 +102,9 @@ void append_role(QList<int>& roles, const int role) {
     if (current.remote_original_cached != replacement.remote_original_cached) {
         append_role(roles, ReviewModel::RemoteOriginalCachedRole);
     }
+    if (current.remote_connection_id != replacement.remote_connection_id) {
+        append_role(roles, ReviewModel::RemoteConnectionIdRole);
+    }
     if (current.remote_server_id != replacement.remote_server_id) {
         append_role(roles, ReviewModel::RemoteServerIdRole);
     }
@@ -373,6 +376,8 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.is_remote;
     case RemoteOriginalCachedRole:
         return item.remote_original_cached;
+    case RemoteConnectionIdRole:
+        return item.remote_connection_id;
     case RemoteServerIdRole:
         return item.remote_server_id;
     case RemotePhotoIdRole:
@@ -442,6 +447,7 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {HasDevelopmentEditsRole, "hasDevelopmentEdits"},
         {IsRemoteRole, "isRemote"},
         {RemoteOriginalCachedRole, "remoteOriginalCached"},
+        {RemoteConnectionIdRole, "remoteConnectionId"},
         {RemoteServerIdRole, "remoteServerId"},
         {RemotePhotoIdRole, "remotePhotoId"},
         {RemoteRepresentationIdRole, "remoteRepresentationId"},
@@ -631,16 +637,10 @@ bool ReviewModel::replaceRemoteItems(QVector<ReviewItem> items) {
             );
         }
     );
-    return reconcileSnapshot(
-        std::move(merged),
-        generation_.load(std::memory_order_acquire)
-    );
+    return reconcileSnapshot(std::move(merged), generation_.load(std::memory_order_acquire));
 }
 
-void ReviewModel::setPresentationOrder(
-    const PresentationSortKey key,
-    const bool descending
-) {
+void ReviewModel::setPresentationOrder(const PresentationSortKey key, const bool descending) {
     if (presentation_sort_key_ == key && presentation_sort_descending_ == descending) {
         return;
     }
@@ -662,10 +662,7 @@ void ReviewModel::setPresentationOrder(
             );
         }
     );
-    (void)reconcileSnapshot(
-        std::move(ordered),
-        generation_.load(std::memory_order_acquire)
-    );
+    (void)reconcileSnapshot(std::move(ordered), generation_.load(std::memory_order_acquire));
 }
 
 bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {

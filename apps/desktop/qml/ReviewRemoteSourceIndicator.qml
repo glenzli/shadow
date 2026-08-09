@@ -3,13 +3,14 @@ pragma Translator: "ReviewWorkspace"
 
 import QtQuick
 
-// Compact remote-origin marker. Cache residency is deliberately additive:
-// the network glyph always preserves origin while the check badge reports
-// that the verified original is also resident on this device.
+// Compact remote-origin marker. The badge reports the state that matters at
+// the current presentation boundary: unavailable server access takes priority
+// over the lower-level fact that an original may once have been downloaded.
 Item {
     id: indicator
 
     property bool cached: false
+    property bool offline: false
     property real iconSize: 14
     property color iconColor: Theme.textSecondary
 
@@ -17,7 +18,9 @@ Item {
     implicitHeight: iconSize + 2
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: cached
+    Accessible.name: offline
+        ? qsTr("Server offline")
+        : cached
         ? qsTr("Remote original cached locally")
         : qsTr("Network Library source")
 
@@ -25,7 +28,7 @@ Item {
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
         source: "qrc:/icons/network.svg"
-        color: indicator.iconColor
+        color: indicator.offline ? Theme.warningText : indicator.iconColor
         size: indicator.iconSize
     }
 
@@ -35,15 +38,16 @@ Item {
         width: Math.max(8, Math.round(indicator.iconSize * 0.65))
         height: width
         radius: width / 2
-        visible: indicator.cached
-        color: Theme.successSurface
+        visible: indicator.offline || indicator.cached
+        color: indicator.offline ? Theme.warningSurface : Theme.successSurface
         border.width: 1
-        border.color: Theme.successBorder
+        border.color: indicator.offline ? Theme.warningBorder : Theme.successBorder
 
         ShadowIcon {
             anchors.centerIn: parent
-            source: "qrc:/icons/check.svg"
-            color: Theme.successText
+            source: indicator.offline
+                ? "qrc:/icons/close.svg" : "qrc:/icons/check.svg"
+            color: indicator.offline ? Theme.warningText : Theme.successText
             size: Math.max(5, parent.width - 3)
         }
     }

@@ -103,6 +103,10 @@ class FakeReviewCard final : public QObject {
     Q_PROPERTY(bool sourceAvailable MEMBER source_available CONSTANT)
     Q_PROPERTY(bool isRemote MEMBER is_remote CONSTANT)
     Q_PROPERTY(bool remoteOriginalCached MEMBER remote_original_cached CONSTANT)
+    Q_PROPERTY(QString remoteConnectionId MEMBER remote_connection_id CONSTANT)
+    Q_PROPERTY(
+        QString remotePreviewUnavailableReason MEMBER remote_preview_unavailable_reason CONSTANT
+    )
     Q_PROPERTY(QString visualRole MEMBER visual_role CONSTANT)
     Q_PROPERTY(QString visualSource MEMBER visual_source CONSTANT)
     Q_PROPERTY(int visualWidth MEMBER visual_width CONSTANT)
@@ -125,6 +129,8 @@ class FakeReviewCard final : public QObject {
     bool source_available = true;
     bool is_remote = false;
     bool remote_original_cached = false;
+    QString remote_connection_id;
+    QString remote_preview_unavailable_reason;
     QString visual_role = QStringLiteral("generated_proxy");
     QString visual_source = QStringLiteral("image://shadow/selected");
     int visual_width = 1'600;
@@ -237,14 +243,21 @@ int main(int argc, char* argv[]) {
     remote_card->representation_id = QStringLiteral("remote-representation");
     remote_card->is_remote = true;
     remote_card->remote_original_cached = true;
+    remote_card->remote_connection_id = QStringLiteral("connection-a");
+    remote_card->remote_preview_unavailable_reason = QStringLiteral("preview_cache_unavailable");
     if (!require(
             invoke(selection.get(), "updatePrimaryPhoto", remote_card.get()),
             "remote selection is invokable"
         )
         || !require(
             selection->property("selectedIsRemote").toBool()
-                && selection->property("selectedRemoteOriginalCached").toBool(),
-            "remote origin and verified local cache residency remain independent selection facts"
+                && selection->property("selectedRemoteOriginalCached").toBool()
+                && selection->property("selectedRemoteConnectionId").toString()
+                       == QStringLiteral("connection-a")
+                && selection->property("selectedRemotePreviewUnavailableReason").toString()
+                       == QStringLiteral("preview_cache_unavailable"),
+            "remote origin, connection, preview availability, and original residency remain "
+            "independent selection facts"
         )
         || !require(
             QMetaObject::invokeMethod(selection.get(), "clearPrimaryPhoto"),

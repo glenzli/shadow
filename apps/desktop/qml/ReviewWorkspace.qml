@@ -57,10 +57,30 @@ Item {
     readonly property alias selectedIsRemote: selectionState.selectedIsRemote
     readonly property alias selectedRemoteOriginalCached:
         selectionState.selectedRemoteOriginalCached
+    readonly property alias selectedRemoteConnectionId:
+        selectionState.selectedRemoteConnectionId
+    readonly property alias selectedRemotePreviewUnavailableReason:
+        selectionState.selectedRemotePreviewUnavailableReason
     readonly property alias selectedRole: selectionState.selectedRole
     readonly property alias selectedVisualSource: selectionState.selectedVisualSource
     readonly property alias selectedWidth: selectionState.selectedWidth
     readonly property alias selectedHeight: selectionState.selectedHeight
+
+    function remoteLibraryConnectionStatus(connectionId) {
+        const identity = String(connectionId || "")
+        const connections = controller.remoteLibraries || []
+        for (let index = 0; index < connections.length; ++index) {
+            if (String(connections[index].id || "") === identity)
+                return String(connections[index].statusCode || "")
+        }
+        return ""
+    }
+
+    function remoteLibraryConnectionOffline(connectionId) {
+        const status = remoteLibraryConnectionStatus(connectionId)
+        return status.length === 0 || status === "offline-ready"
+            || status === "sync-failed"
+    }
     readonly property alias selectedHasMetadata: selectionState.selectedHasMetadata
     readonly property alias selectedCameraMake: selectionState.selectedCameraMake
     readonly property alias selectedCameraModel: selectionState.selectedCameraModel

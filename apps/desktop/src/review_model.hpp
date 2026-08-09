@@ -59,6 +59,9 @@ struct ReviewItem final {
     /// The authoritative original remains remote even when a verified local
     /// cache object can satisfy editing without contacting its server.
     bool remote_original_cached = false;
+    /// Stable client connection identity. Presentation uses this to resolve
+    /// the status of the exact server that owns the remote representation.
+    QString remote_connection_id;
     QString remote_server_id;
     QString remote_photo_id;
     QString remote_representation_id;
@@ -168,6 +171,7 @@ class ReviewModel final : public QAbstractListModel {
         HasDevelopmentEditsRole,
         IsRemoteRole,
         RemoteOriginalCachedRole,
+        RemoteConnectionIdRole,
         RemoteServerIdRole,
         RemotePhotoIdRole,
         RemoteRepresentationIdRole,

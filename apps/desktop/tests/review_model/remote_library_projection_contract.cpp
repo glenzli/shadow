@@ -12,6 +12,7 @@ void remote_rows_use_local_proxy_urls_and_replace_without_resetting_local_rows()
 
     ReviewItem remote = keyed_item("remote", "Remote");
     remote.is_remote = true;
+    remote.remote_connection_id = QStringLiteral("connection-a");
     remote.remote_server_id = QStringLiteral("server-a");
     remote.remote_photo_id = QStringLiteral("photo-a");
     remote.remote_representation_id = QStringLiteral("representation-a");
@@ -31,6 +32,8 @@ void remote_rows_use_local_proxy_urls_and_replace_without_resetting_local_rows()
         model.rowCount() == 2
             && value(model, 0, ReviewModel::TitleRole).toString() == QStringLiteral("Local")
             && value(model, 1, ReviewModel::IsRemoteRole).toBool()
+            && value(model, 1, ReviewModel::RemoteConnectionIdRole).toString()
+                   == QStringLiteral("connection-a")
             && value(model, 1, ReviewModel::RemoteServerIdRole).toString()
                    == QStringLiteral("server-a")
             && value(model, 1, ReviewModel::RemotePhotoIdRole).toString()
@@ -97,8 +100,7 @@ void local_and_remote_rows_share_one_presentation_order() {
     model.setPresentationOrder(ReviewModel::PresentationSortKey::Name, false);
     require(
         value(model, 0, ReviewModel::TitleRole).toString() == QStringLiteral("Alpha.nef")
-            && value(model, 1, ReviewModel::TitleRole).toString()
-                   == QStringLiteral("Middle.nef")
+            && value(model, 1, ReviewModel::TitleRole).toString() == QStringLiteral("Middle.nef")
             && value(model, 2, ReviewModel::TitleRole).toString() == QStringLiteral("Zulu.nef"),
         "name order must use one merged local/remote sequence"
     );

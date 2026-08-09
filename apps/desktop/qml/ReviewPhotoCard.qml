@@ -33,6 +33,8 @@ Item {
         ? true : Boolean(entry.sourceAvailable)
     readonly property bool isRemote: Boolean(entry.isRemote)
     readonly property bool remoteOriginalCached: Boolean(entry.remoteOriginalCached)
+    readonly property string remoteConnectionId:
+        String(entry.remoteConnectionId || "")
     readonly property string remotePreviewUnavailableReason:
         String(entry.remotePreviewUnavailableReason || "")
     readonly property string visualRole: String(entry.visualRole || "")
@@ -41,6 +43,10 @@ Item {
     readonly property int visualHeight: Number(entry.visualHeight || 0)
     readonly property string visualSource: String(entry.visualSource || "")
     readonly property bool visualLoadFailed: thumbnail.status === Image.Error
+    readonly property bool remotePreviewUnavailable: isRemote
+        && (visualSource.length === 0 || visualLoadFailed)
+    readonly property bool remoteServerOffline: remotePreviewUnavailable
+        && workspace.remoteLibraryConnectionOffline(remoteConnectionId)
     readonly property bool hasMetadata: Boolean(entry.hasMetadata)
     readonly property string cameraMake: String(entry.cameraMake || "")
     readonly property string cameraModel: String(entry.cameraModel || "")
@@ -74,16 +80,9 @@ Item {
         workspace.isPhotoSelected(photoId, representationId)
 
     function remotePreviewStatusText() {
-        if (remotePreviewUnavailableReason.length === 0 && visualLoadFailed)
-            return qsTr("REMOTE PREVIEW CACHE UNAVAILABLE")
         switch (remotePreviewUnavailableReason) {
         case "decoder_capability_missing":
             return qsTr("PRIVATE RAW PREVIEW UNAVAILABLE")
-        case "not_prepared":
-            return qsTr("REMOTE PREVIEW NOT READY")
-        case "cache_unavailable":
-        case "preview_cache_unavailable":
-            return qsTr("REMOTE PREVIEW CACHE UNAVAILABLE")
         default:
             return qsTr("REMOTE PREVIEW UNAVAILABLE")
         }
@@ -206,8 +205,15 @@ Item {
             Column {
                 anchors.centerIn: parent
                 spacing: 8
+                ReviewRemoteSourceIndicator {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: card.remoteServerOffline
+                    offline: true
+                    iconSize: 28
+                }
                 Label {
                     anchors.horizontalCenter: parent.horizontalCenter
+                    visible: !card.remoteServerOffline
                     text: "RAW"
                     color: Theme.rawPlaceholderText
                     font.pixelSize: 20
@@ -216,7 +222,9 @@ Item {
                 }
                 Label {
                     width: Math.min(180, card.width - 28)
-                    text: card.isRemote
+                    text: card.remoteServerOffline
+                        ? qsTr("SERVER OFFLINE")
+                        : card.isRemote
                         && (card.remotePreviewUnavailableReason.length > 0
                             || card.visualLoadFailed)
                         ? card.remotePreviewStatusText()
@@ -298,7 +306,7 @@ Item {
                 Label {
                     text: card.visualWidth > 0
                         ? qsTr("%L1 × %L2").arg(card.visualWidth)
-                            .arg(card.visualHeight) : qsTr("awaiting cache")
+                            .arg(card.visualHeight) : "—"
                     color: Theme.textMuted
                     font.pixelSize: 9
                 }
@@ -319,6 +327,8 @@ Item {
                         objectName: "cardCaptionRemoteSourceIndicator"
                         visible: card.isRemote
                         cached: card.remoteOriginalCached
+                            && !card.remotePreviewUnavailable
+                        offline: card.remoteServerOffline
                         iconSize: 13
                     }
 

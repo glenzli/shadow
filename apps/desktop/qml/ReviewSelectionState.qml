@@ -31,6 +31,8 @@ QtObject {
     property bool selectedSourceAvailable: true
     property bool selectedIsRemote: false
     property bool selectedRemoteOriginalCached: false
+    property string selectedRemoteConnectionId: ""
+    property string selectedRemotePreviewUnavailableReason: ""
     property var selectedRemoteInspection: ({})
     property string selectedRole: ""
     property string selectedVisualSource: ""
@@ -186,6 +188,9 @@ QtObject {
                 ? true : Boolean(card.sourceAvailable),
             "isRemote": Boolean(card.isRemote),
             "remoteOriginalCached": Boolean(card.remoteOriginalCached),
+            "remoteConnectionId": String(card.remoteConnectionId || ""),
+            "remotePreviewUnavailableReason":
+                String(card.remotePreviewUnavailableReason || ""),
             "visualRole": String(card.visualRole || ""),
             "visualSource": String(card.visualSource || ""),
             "visualWidth": Number(card.visualWidth || 0),
@@ -223,6 +228,9 @@ QtObject {
             "sourceAvailable": selectedSourceAvailable,
             "isRemote": selectedIsRemote,
             "remoteOriginalCached": selectedRemoteOriginalCached,
+            "remoteConnectionId": selectedRemoteConnectionId,
+            "remotePreviewUnavailableReason":
+                selectedRemotePreviewUnavailableReason,
             "visualRole": selectedRole,
             "visualSource": selectedVisualSource,
             "visualWidth": selectedWidth,
@@ -277,6 +285,9 @@ QtObject {
             ? true : Boolean(card.sourceAvailable)
         selectedIsRemote = Boolean(card.isRemote)
         selectedRemoteOriginalCached = Boolean(card.remoteOriginalCached)
+        selectedRemoteConnectionId = String(card.remoteConnectionId || "")
+        selectedRemotePreviewUnavailableReason =
+            String(card.remotePreviewUnavailableReason || "")
         selectedRemoteInspection = selectedIsRemote ? {
             "available": true,
             "photoId": card.photoId,
@@ -376,6 +387,8 @@ QtObject {
         selectedSourceAvailable = true
         selectedIsRemote = false
         selectedRemoteOriginalCached = false
+        selectedRemoteConnectionId = ""
+        selectedRemotePreviewUnavailableReason = ""
         selectedRemoteInspection = ({})
         selectedRole = ""
         selectedVisualSource = ""

@@ -799,6 +799,7 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
             source.has_preview ? QUrl::fromLocalFile(source.preview_path).toString() : QString{};
         item.is_remote = true;
         item.remote_original_cached = source.has_cached_original;
+        item.remote_connection_id = connection_id;
         item.remote_server_id = source.server_id;
         item.remote_photo_id = source.remote_photo_id;
         item.remote_representation_id = source.remote_representation_id;

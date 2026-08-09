@@ -7876,14 +7876,9 @@ Technical detail: %1</source>
         <translation>私有 RAW 预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="80"/>
-        <source>REMOTE PREVIEW NOT READY</source>
-        <translation>远程预览尚未就绪</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="83"/>
-        <source>REMOTE PREVIEW CACHE UNAVAILABLE</source>
-        <translation>远程预览缓存不可用</translation>
+        <location filename="../qml/ReviewPhotoCard.qml" line="225"/>
+        <source>SERVER OFFLINE</source>
+        <translation>服务器离线</translation>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoCard.qml" line="220"/>
@@ -7904,11 +7899,6 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewPhotoCard.qml" line="296"/>
         <source>%L1 × %L2</source>
         <translation>%L1 × %L2</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="297"/>
-        <source>awaiting cache</source>
-        <translation>等待缓存</translation>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoCard.qml" line="329"/>
@@ -9448,6 +9438,11 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>远程原片已缓存到本机</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="21"/>
+        <source>Server offline</source>
+        <translation>服务器离线</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewExifSection.qml" line="50"/>
         <source>SOURCE</source>
         <translation>来源</translation>
@@ -9461,6 +9456,11 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ReviewExifSection.qml" line="72"/>
         <source>Server Library · cached locally</source>
         <translation>服务器图库 · 已缓存到本机</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewExifSection.qml" line="72"/>
+        <source>Server Library · offline</source>
+        <translation>服务器图库 · 离线</translation>
     </message>
     <message>
         <location filename="../qml/ReviewComparisonState.qml" line="33"/>
