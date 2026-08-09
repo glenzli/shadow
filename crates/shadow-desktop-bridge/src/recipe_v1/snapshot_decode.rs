@@ -422,6 +422,7 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
             } => bail!("working shared Grade Node must resolve to a pinned revision"),
         },
         label: layer.label().to_owned(),
+        opacity: layer.opacity(),
         local_mask,
         preserved_managed_raster,
         basic,

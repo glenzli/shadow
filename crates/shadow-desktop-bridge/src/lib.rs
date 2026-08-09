@@ -1059,6 +1059,8 @@ mod ffi {
         /// Flattened brush triples: x, y, begins-stroke (0 or 1).
         local_mask_brush_points: Vec<f64>,
         label: String,
+        /// Complete Grade Node strength in [0, 1].
+        opacity: f64,
         enabled: bool,
         exposure_render_op_id: String,
         contrast_render_op_id: String,

@@ -6,7 +6,7 @@ use shadow_bridge::{
 };
 use shadow_domain::{
     LayerId, LayerRevisionId, MaskDefinition, PhotoCanvasNode, PhotoFoundationNode,
-    PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke,
+    PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke, UnitInterval,
     operation::BASIC_LAYER_LABEL,
 };
 
@@ -32,6 +32,10 @@ pub(crate) struct GradeNodeDraft {
     /// Recipe before applying these settings.
     pub(crate) preserved_managed_raster: Option<PreservedManagedRasterSettings>,
     pub(crate) label: String,
+    /// Instance-local strength for the complete Grade Node. The native
+    /// executor evaluates the node graph once and blends once at the layer
+    /// boundary; it is not expanded into per-operation strengths.
+    pub(crate) opacity: UnitInterval,
     pub(crate) basic: BasicEditParameters,
     pub(crate) fine: FineEditParameters,
     pub(crate) enabled: bool,
@@ -80,6 +84,7 @@ impl GradeNodeDraft {
             local_mask: None,
             preserved_managed_raster: None,
             label: label.into(),
+            opacity: UnitInterval::ONE,
             basic: BasicEditParameters::default(),
             fine: FineEditParameters::default(),
             enabled: true,
@@ -96,6 +101,7 @@ impl GradeNodeDraft {
             local_mask: self.local_mask.clone(),
             preserved_managed_raster: self.preserved_managed_raster,
             label: self.label.clone(),
+            opacity: self.opacity,
             basic: self.basic,
             fine: self.fine.clone(),
             enabled: self.enabled,

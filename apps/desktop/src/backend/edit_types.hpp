@@ -150,6 +150,9 @@ struct BackendGradeNode final {
     // making Qt own the typed persistent mask contract.
     QVector<double> local_mask_brush_points;
     QString label;
+    // Complete Grade Node strength. The renderer evaluates the graph once and
+    // performs one layer-boundary blend, including for masked nodes.
+    double opacity = 1.0;
     QString exposure_render_op_id;
     QString contrast_render_op_id;
     QString selective_tone_render_op_id;

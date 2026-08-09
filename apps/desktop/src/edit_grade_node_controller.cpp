@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <initializer_list>
 #include <utility>
@@ -99,6 +100,7 @@ QVariantList EditController::gradeNodes() const {
         );
         item.insert(QStringLiteral("label"), display_grade_node_label(grade_node.label));
         item.insert(QStringLiteral("rawLabel"), grade_node.label);
+        item.insert(QStringLiteral("strengthPercent"), qRound(grade_node.opacity * 100.0));
         item.insert(QStringLiteral("enabled"), grade_node.enabled);
         item.insert(QStringLiteral("hasLocalMask"), grade_node.local_mask_kind != 0U);
         item.insert(QStringLiteral("localMaskKind"), static_cast<int>(grade_node.local_mask_kind));
@@ -178,6 +180,24 @@ bool EditController::canMoveGradeNodeDown() const noexcept {
 bool EditController::gradeNodeEnabled() const noexcept {
     const auto* const grade_node = selectedGradeNode();
     return grade_node != nullptr && grade_node->enabled;
+}
+
+double EditController::gradeNodeStrength() const noexcept {
+    const auto* const grade_node = selectedGradeNode();
+    return grade_node == nullptr ? 1.0 : grade_node->opacity;
+}
+
+void EditController::setGradeNodeStrength(const double strength) {
+    const auto* const grade_node = selectedGradeNode();
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
+        || !std::isfinite(strength) || strength < 0.0 || strength > 1.0
+        || grade_node->opacity == strength) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.grade_nodes[selected_grade_node_index_].opacity = strength;
+    parameterEdited(QStringLiteral("node/strength"), before);
+    emit gradeNodesChanged();
 }
 
 void EditController::setGradeNodeEnabled(const bool enabled) {

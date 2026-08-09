@@ -347,6 +347,40 @@ Rectangle {
                                 }
                             }
 
+                            ShadowAdjustmentSection {
+                                Layout.fillWidth: true
+                                visible: !inspector.editor.foundationSelected
+                                    && inspectorTabStrip.currentIndex === 0
+                                title: qsTr("NODE STRENGTH")
+                                summary: qsTr("%1%").arg(
+                                    Math.round(inspector.editor.gradeNodeStrength * 100))
+                                toolTipText: qsTr("Blend the complete Grade Node with its input. Zero bypasses the node; the adjustment graph is evaluated only once.")
+                                resetAvailable: true
+                                resetEnabled: Math.abs(inspector.editor.gradeNodeStrength - 1.0) > 0.000001
+                                onResetRequested: inspector.editor.gradeNodeStrength = 1.0
+
+                                ShadowSlider {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    label: qsTr("Strength")
+                                    from: 0
+                                    to: 1
+                                    neutralValue: 1
+                                    fillFromMinimum: true
+                                    stepSize: 0.01
+                                    decimals: 0
+                                    displayMultiplier: 100
+                                    suffix: "%"
+                                    value: inspector.editor.gradeNodeStrength
+                                    onGestureStarted: inspector.editor.beginParameterEdit(
+                                        "node/strength")
+                                    onEdited: value => inspector.editor.gradeNodeStrength = value
+                                    onGestureFinished: inspector.editor.endParameterEdit(
+                                        "node/strength")
+                                }
+                            }
+
                             PrecisionColorMixer {
                                 Layout.fillWidth: true
                                 visible: !inspector.editor.foundationSelected

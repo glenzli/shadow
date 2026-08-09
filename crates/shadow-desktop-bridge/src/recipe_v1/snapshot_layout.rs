@@ -19,7 +19,7 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, ImageDomain, LayerInstance, NodeInput, PortType,
-    ProcessingStage, UnitInterval,
+    ProcessingStage,
 };
 
 #[cfg(test)]
@@ -36,11 +36,8 @@ use super::{
 use super::basic_parameters_from_snapshot;
 
 pub(crate) fn ordered_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec<&AdjustmentNode>> {
-    if layer.scope() != AdjustmentScope::Photo
-        || layer.opacity() != UnitInterval::ONE
-        || layer.blend_mode() != BlendMode::Normal
-    {
-        bail!("Recipe render compiler does not support this layer scope, blend, or opacity");
+    if layer.scope() != AdjustmentScope::Photo || layer.blend_mode() != BlendMode::Normal {
+        bail!("Recipe render compiler does not support this layer scope or blend mode");
     }
     let graph = layer.content().graph();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);

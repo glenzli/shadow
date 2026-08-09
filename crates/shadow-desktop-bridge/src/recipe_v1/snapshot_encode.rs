@@ -43,7 +43,6 @@ use shadow_domain::{
     FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskDefinition,
     MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
     ParameterKey, ParameterValue, PhotoStructuralNodes, PortType, ProcessingStage, RecipeSnapshot,
-    UnitInterval,
 };
 
 use super::{
@@ -376,7 +375,7 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
         AdjustmentScope::Photo,
         content,
         grade_node.enabled,
-        UnitInterval::ONE,
+        grade_node.opacity,
         BlendMode::Normal,
         local_mask.as_ref().map(MaskRevision::reference),
     )

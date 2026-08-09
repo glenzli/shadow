@@ -405,32 +405,32 @@
         <translation>正在加载无损编辑历史…</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="33"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="34"/>
         <source>%1 Copy %2</source>
         <translation>%1 副本 %2</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="42"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="43"/>
         <source>%1 Copy</source>
         <translation>%1 副本</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="49"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="50"/>
         <source>Adjustment Node</source>
         <translation>调整节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="65"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="66"/>
         <source>Adjustment Node %1</source>
         <translation>调整节点 %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="198"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="218"/>
         <source>Grade Node enabled</source>
         <translation>调色节点已启用</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="199"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="219"/>
         <source>Grade Node bypassed · settings preserved</source>
         <translation>调色节点已旁路 · 设置已保留</translation>
     </message>
@@ -778,69 +778,69 @@
         <translation>正在重置此照片的开发调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="311"/>
-        <location filename="../src/edit_grade_node_controller.cpp" line="518"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="331"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="538"/>
         <location filename="../src/edit_mask_assignment_controller.cpp" line="95"/>
         <source>An edit can contain at most 16 Grade Nodes</source>
         <translation>一项编辑最多可包含 16 个调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="322"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="342"/>
         <source>Could not create Grade Node · %1</source>
         <translation>无法创建调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="332"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="352"/>
         <source>The Grade Node could not be inserted safely</source>
         <translation>无法安全插入该调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="352"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="372"/>
         <source>Added Grade Node · %1</source>
         <translation>已添加调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="370"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="390"/>
         <source>Could not duplicate Grade Node · %1</source>
         <translation>无法复制调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="393"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="413"/>
         <source>The duplicate Grade Node could not be inserted safely</source>
         <translation>无法安全插入复制的调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="406"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="426"/>
         <source>Duplicated Grade Node · %1</source>
         <translation>已复制调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="421"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="441"/>
         <source>Could not load shared Grade Nodes · %1</source>
         <translation>无法加载共享调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="435"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="455"/>
         <source>Give the shared Grade Node a name</source>
         <translation>为共享调色节点命名</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="447"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="467"/>
         <source>Could not share Grade Node · %1</source>
         <translation>无法共享调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="476"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="496"/>
         <source>Shared Grade Node · %1</source>
         <translation>共享调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="524"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="544"/>
         <source>The shared Grade Node could not be inserted safely</source>
         <translation>无法安全插入共享调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="548"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="568"/>
         <source>Applied shared Grade Node · %1</source>
         <translation>已应用共享调色节点 · %1</translation>
     </message>
@@ -904,12 +904,12 @@
         <translation>此画笔蒙版已达到点数上限</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="572"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="592"/>
         <source>Deleted Grade Node · %1</source>
         <translation>已删除调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="594"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="614"/>
         <source>Reordered Grade Node</source>
         <translation>已调整调色节点顺序</translation>
     </message>
@@ -929,17 +929,17 @@
         <translation>已重做本次会话中的上一项调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="614"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="634"/>
         <source>Reset the selected Grade Node</source>
         <translation>已重置选中的调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="629"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="649"/>
         <source>Could not clear Grade Nodes · %1</source>
         <translation>无法清空调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_grade_node_controller.cpp" line="642"/>
+        <location filename="../src/edit_grade_node_controller.cpp" line="662"/>
         <source>Cleared all Grade Nodes</source>
         <translation>已清空全部调色节点</translation>
     </message>
@@ -1106,7 +1106,7 @@
         <translation>请先启用选中的调色节点，再编辑其控件</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="261"/>
+        <location filename="../src/edit_history_controller.cpp" line="262"/>
         <source>The saved Tone Curve cannot be represented safely</source>
         <translation>无法安全表示已保存的色调曲线</translation>
     </message>
@@ -1142,7 +1142,7 @@
         <translation>%1 超出支持的预览范围</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.hpp" line="942"/>
+        <location filename="../src/edit_controller.hpp" line="948"/>
         <source>Open a photo from Review to begin editing</source>
         <translation>请从选片中打开一张照片开始编辑</translation>
     </message>
@@ -5505,6 +5505,21 @@ R %2 · G %3 · B %4</translation>
         <translation>重置所有调整…</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionInspector.qml" line="354"/>
+        <source>NODE STRENGTH</source>
+        <translation>节点强度</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="355"/>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="357"/>
+        <source>Blend the complete Grade Node with its input. Zero bypasses the node; the adjustment graph is evaluated only once.</source>
+        <translation>将完整调色节点与其输入混合。零强度会旁路节点；调整图只计算一次。</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionInspector.qml" line="209"/>
         <source>Exit this tool and keep its adjustments</source>
         <translation>退出此工具并保留调整</translation>
@@ -5683,17 +5698,17 @@ R %2 · G %3 · B %4</translation>
         <translation>目标色相（OKLCh）</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="386"/>
+        <location filename="../qml/PrecisionInspector.qml" line="420"/>
         <source>COLOR MAP</source>
         <translation>颜色映射</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="387"/>
+        <location filename="../qml/PrecisionInspector.qml" line="421"/>
         <source>OKLAB 5×5</source>
         <translation>Oklab 5×5</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="388"/>
+        <location filename="../qml/PrecisionInspector.qml" line="422"/>
         <source>Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.</source>
         <translation>在颜色混合与点颜色之后移动平滑连接的 Oklab 网格。这是独立的色度场校正，不是按色相区分的滑块。</translation>
     </message>
@@ -5878,17 +5893,17 @@ R %2 · G %3 · B %4</translation>
         <translation>去朦胧</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="418"/>
+        <location filename="../qml/PrecisionInspector.qml" line="452"/>
         <source>COLOR GRADING</source>
         <translation>颜色分级</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="476"/>
+        <location filename="../qml/PrecisionInspector.qml" line="510"/>
         <source>Blending</source>
         <translation>混合</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="482"/>
+        <location filename="../qml/PrecisionInspector.qml" line="516"/>
         <source>Balance</source>
         <translation>平衡</translation>
     </message>
@@ -6121,13 +6136,13 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/PrecisionEffectsSection.qml" line="70"/>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="218"/>
-        <location filename="../qml/PrecisionInspector.qml" line="449"/>
+        <location filename="../qml/PrecisionInspector.qml" line="483"/>
         <source>Highlights</source>
         <translation>高光</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="219"/>
-        <location filename="../qml/PrecisionInspector.qml" line="435"/>
+        <location filename="../qml/PrecisionInspector.qml" line="469"/>
         <source>Shadows</source>
         <translation>阴影</translation>
     </message>
@@ -6343,12 +6358,12 @@ R %2 · G %3 · B %4</translation>
         <translation>使用吸管从图像建立一个或多个精确的 Oklch 颜色范围。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="419"/>
+        <location filename="../qml/PrecisionInspector.qml" line="453"/>
         <source>Tint shadows, midtones, and highlights independently with perceptual color wheels.</source>
         <translation>用感知色轮分别为阴影、中间调和高光着色。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="442"/>
+        <location filename="../qml/PrecisionInspector.qml" line="476"/>
         <source>Midtones</source>
         <translation>中间调</translation>
     </message>
@@ -7004,6 +7019,7 @@ R %2 · G %3 · B %4</translation>
         <translation>在最终裁剪前以非破坏方式推动像素。液化仅属于当前照片，不能作为调色节点共享。</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionInspector.qml" line="366"/>
         <location filename="../qml/PrecisionLiquifyTools.qml" line="96"/>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="39"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="146"/>

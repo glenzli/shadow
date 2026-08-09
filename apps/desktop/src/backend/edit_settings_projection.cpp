@@ -310,6 +310,7 @@ shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
         result.local_mask_brush_points.push_back(value);
     }
     result.label = source.label.toStdString();
+    result.opacity = source.opacity;
     result.exposure_render_op_id = source.exposure_render_op_id.toStdString();
     result.contrast_render_op_id = source.contrast_render_op_id.toStdString();
     result.selective_tone_render_op_id = source.selective_tone_render_op_id.toStdString();
@@ -345,6 +346,7 @@ BackendGradeNode grade_node(const shadow::desktop::FfiGradeNode& source) {
         result.local_mask_brush_points.push_back(value);
     }
     result.label = qstring(source.label);
+    result.opacity = source.opacity;
     result.exposure_render_op_id = qstring(source.exposure_render_op_id);
     result.contrast_render_op_id = qstring(source.contrast_render_op_id);
     result.selective_tone_render_op_id = qstring(source.selective_tone_render_op_id);

@@ -736,6 +736,8 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
         local_mask,
         preserved_managed_raster,
         label: grade_node.label.clone(),
+        opacity: UnitInterval::new(grade_node.opacity)
+            .with_context(|| format!("validate Grade Node {index} opacity"))?,
         basic: basic_parameters(&grade_node.basic)?,
         fine: fine_parameters(&grade_node.fine)?,
         enabled: grade_node.enabled,
@@ -1149,6 +1151,7 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(
         local_mask_invert,
         local_mask_brush_points,
         label: grade_node.label,
+        opacity: grade_node.opacity.get(),
         enabled: grade_node.enabled,
         exposure_render_op_id: identity.exposure_render_op_id.to_string(),
         contrast_render_op_id: identity.contrast_render_op_id.to_string(),

@@ -238,7 +238,8 @@ void EditController::setGradeStack(
             && old_selected_value.enabled != new_selected->enabled);
     const bool basic_changed = selection_changed || had_old_selection != has_new_selection
                                || (had_old_selection && has_new_selection
-                                   && (old_selected_value.basic != new_selected->basic
+                                   && (old_selected_value.opacity != new_selected->opacity
+                                       || old_selected_value.basic != new_selected->basic
                                        || old_selected_value.fine != new_selected->fine));
     const bool local_mask_changed =
         selection_changed || had_old_selection != has_new_selection

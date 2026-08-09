@@ -19,6 +19,21 @@ fn unit(value: f64) -> UnitInterval {
 }
 
 #[test]
+fn grade_node_strength_round_trips_and_rejects_invalid_values() {
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].opacity = unit(0.37);
+    let mut ffi = encode_grade_stack_draft_recipe_v1(draft).expect("encode strength");
+    assert_eq!(ffi.grade_nodes[0].opacity, 0.37);
+
+    let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode strength");
+    assert_eq!(decoded.grade_nodes[0].opacity, unit(0.37));
+
+    ffi.grade_nodes[0].opacity = 1.01;
+    let error = decode_grade_stack_draft_recipe_v1(&ffi).expect_err("reject invalid strength");
+    assert!(error.to_string().contains("Grade Node 0 opacity"));
+}
+
+#[test]
 fn raw_ai_denoise_intent_round_trips_and_unknown_models_fail_closed() {
     let mut ffi =
         encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("default DTO");

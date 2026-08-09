@@ -311,6 +311,10 @@ class EditController final : public QObject {
             gradeNodeEnabledChanged
     )
     Q_PROPERTY(
+        double gradeNodeStrength READ gradeNodeStrength WRITE setGradeNodeStrength NOTIFY
+            parametersChanged
+    )
+    Q_PROPERTY(
         double exposureStops READ exposureStops WRITE setExposureStops NOTIFY parametersChanged
     )
     Q_PROPERTY(
@@ -486,6 +490,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool canMoveGradeNodeUp() const noexcept;
     [[nodiscard]] bool canMoveGradeNodeDown() const noexcept;
     [[nodiscard]] bool gradeNodeEnabled() const noexcept;
+    [[nodiscard]] double gradeNodeStrength() const noexcept;
     [[nodiscard]] double exposureStops() const noexcept;
     [[nodiscard]] double contrastFactor() const noexcept;
     [[nodiscard]] double whiteBalanceTemperature() const noexcept;
@@ -511,6 +516,7 @@ class EditController final : public QObject {
     [[nodiscard]] QAbstractItemModel* versions() noexcept;
 
     void setGradeNodeEnabled(bool enabled);
+    void setGradeNodeStrength(double strength);
     void setExposureStops(double value);
     void setContrastFactor(double value);
     void setWhiteBalanceTemperature(double value);

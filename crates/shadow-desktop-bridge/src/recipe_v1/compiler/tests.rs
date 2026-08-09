@@ -2,7 +2,7 @@ use anyhow::Result as AnyResult;
 use shadow_bridge::{
     AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
     AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke, AdjustmentLocalMask,
-    AdjustmentRasterMaskEncoding,
+    AdjustmentRasterMaskEncoding, AdjustmentRenderOperation,
 };
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
@@ -10,8 +10,12 @@ use shadow_domain::{
     UnitInterval,
 };
 
-use super::{adjustment_liquify, adjustment_local_mask, adjustment_local_mask_with_resolver};
+use super::{
+    adjustment_liquify, adjustment_local_mask, adjustment_local_mask_with_resolver,
+    compile_recipe_render_plan,
+};
 use crate::recipe_v1::managed_raster_resolution::ManagedRasterMaskResolver;
+use crate::recipe_v1::{GradeStackDraft, grade_stack_recipe_v1_snapshot};
 
 struct FixtureManagedRasterResolver;
 
@@ -35,6 +39,26 @@ impl ManagedRasterMaskResolver for FixtureManagedRasterResolver {
             invert,
         })
     }
+}
+
+#[test]
+fn non_unity_grade_node_strength_uses_one_layer_blend_boundary_without_a_mask() {
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].opacity = UnitInterval::new(0.42).expect("strength");
+    let snapshot = grade_stack_recipe_v1_snapshot(&draft, None).expect("Recipe snapshot");
+    let plan = compile_recipe_render_plan(&snapshot).expect("render plan");
+
+    assert!(matches!(
+        plan.nodes.first().map(|node| &node.operation),
+        Some(AdjustmentRenderOperation::LocalMaskLayerStart {
+            opacity,
+            mask: None,
+        }) if (*opacity - 0.42).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        plan.nodes.last().map(|node| &node.operation),
+        Some(AdjustmentRenderOperation::LocalMaskLayerEnd)
+    ));
 }
 
 #[test]

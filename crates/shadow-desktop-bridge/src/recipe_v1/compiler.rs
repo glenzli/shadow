@@ -102,8 +102,10 @@ fn compile_recipe_render_plan_with_resolver(
     // grammar for both local Grade Nodes and photo-local spatial operations.
     let has_retouch =
         !snapshot.retouch_spots().is_empty() || !snapshot.retouch_strokes().is_empty();
-    let use_layer_boundaries =
-        has_retouch || snapshot.layers().iter().any(|layer| layer.mask().is_some());
+    let use_layer_boundaries = has_retouch
+        || snapshot.layers().iter().any(|layer| {
+            layer.mask().is_some() || layer.opacity() != shadow_domain::UnitInterval::ONE
+        });
     let mut compiled = Vec::new();
     let mut compiled_node_ids = HashSet::new();
     for layer in snapshot.layers() {
