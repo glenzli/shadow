@@ -78,6 +78,11 @@ Item {
     readonly property real edgeEnergy: Number(entry.edgeEnergy || 0)
     readonly property bool selected:
         workspace.isPhotoSelected(photoId, representationId)
+    readonly property bool smartCategoryUncertain: {
+        const revision = workspace.smartCategoryController.uncertaintyRevision
+        return revision >= 0 && workspace.smartCategoryController.isUncertain(
+            photoId, representationId)
+    }
 
     function remotePreviewStatusText() {
         switch (remotePreviewUnavailableReason) {
@@ -88,7 +93,10 @@ Item {
         }
     }
 
-    Component.onDestruction: cardMenu.releaseOwner(card)
+    Component.onDestruction: {
+        cardMenu.releaseOwner(card)
+        smartFeedbackPopup.releaseOwner(card)
+    }
 
     Accessible.role: Accessible.ListItem
     Accessible.name: title
@@ -403,6 +411,10 @@ Item {
             id: cardMenu
         }
 
+        ReviewSmartCategoryFeedbackPopup {
+            id: smartFeedbackPopup
+        }
+
         MouseArea {
             id: cardMouse
             anchors.fill: parent
@@ -430,6 +442,46 @@ Item {
                 card.workspace.selectPhoto(card, 0)
                 card.workspace.galleryPresentation
                     = ReviewWorkspace.SinglePhotoFilmstrip
+            }
+        }
+
+        Rectangle {
+            id: smartUncertainBadge
+            anchors.right: parent.right
+            anchors.bottom: caption.top
+            anchors.rightMargin: 9
+            anchors.bottomMargin: 8
+            width: 24
+            height: 24
+            z: 4
+            visible: card.smartCategoryUncertain
+            radius: 12
+            color: Theme.warningSurface
+            border.width: 1
+            border.color: Theme.warningBorder
+
+            Label {
+                anchors.centerIn: parent
+                text: "?"
+                color: Theme.warningText
+                font.pixelSize: 13
+                font.weight: Font.Bold
+            }
+
+            ToolTip.visible: uncertainMouse.containsMouse
+            ToolTip.text: qsTr("Smart category needs review")
+
+            MouseArea {
+                id: uncertainMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    card.workspace.selectPhoto(card, 0)
+                    smartFeedbackPopup.openFor(
+                        smartUncertainBadge, card.workspace,
+                        card.photoId, card.representationId, card.title)
+                }
             }
         }
     }

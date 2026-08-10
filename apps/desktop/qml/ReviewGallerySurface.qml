@@ -5,8 +5,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Owns the grid/single-photo presentation, incremental paging, comparison
-// overlay, empty/busy states, and the toolbar that controls this surface.
+// Owns the grouped grid/single-photo presentation, incremental paging,
+// comparison overlay, empty/busy states, and its controlling toolbar.
 Rectangle {
     id: gallery
 
@@ -56,18 +56,45 @@ Rectangle {
         onExportRequested: targets => gallery.exportRequested(targets)
     }
 
-    SemanticSearchStatusStrip {
-        id: semanticSearchStatus
-        anchors.top: reviewToolBar.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        workspace: gallery.workspace
+    Binding {
+        target: gallery.workspace.reviewGalleryGrouping
+        property: "baseSections"
+        value: {
+            const semantic = gallery.workspace.semanticSearchController
+            if (!semantic.hasResults)
+                return []
+            const sections = []
+            if (semantic.highRepresentationKeys.length > 0) {
+                sections.push({
+                    key: "semantic-high",
+                    title: qsTr("Highly related"),
+                    subtitle: qsTr("Closest matches for “%1”").arg(
+                        semantic.activeQuery),
+                    representationKeys: semantic.highRepresentationKeys
+                })
+            }
+            if (semantic.possibleRepresentationKeys.length > 0) {
+                sections.push({
+                    key: "semantic-possible",
+                    title: qsTr("Possibly related"),
+                    subtitle: qsTr("Broader matches worth reviewing"),
+                    representationKeys: semantic.possibleRepresentationKeys
+                })
+            }
+            return sections
+        }
+    }
+
+    Binding {
+        target: gallery.workspace.justifiedReviewLayout
+        property: "sections"
+        value: gallery.workspace.reviewGalleryGrouping.sections
     }
 
     ListView {
         id: justifiedGrid
         objectName: "reviewJustifiedGrid"
-        anchors.top: semanticSearchStatus.bottom
+        anchors.top: reviewToolBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -128,16 +155,67 @@ Rectangle {
 
         delegate: Item {
             id: justifiedRow
+            required property string rowKind
             required property var items
             required property int rowHeight
+            required property string sectionKey
+            required property string sectionTitle
+            required property string sectionSubtitle
+            required property int sectionItemCount
+            required property int sectionOrdinal
 
             width: justifiedGrid.width
             // `rowHeight` is the image height. Captions are outside the
             // image geometry so every visible image retains its ratio.
-            height: rowHeight + 48
+            height: rowKind === "section"
+                ? (sectionOrdinal === 0 ? 38 : 66)
+                : rowHeight + 48
+
+            Rectangle {
+                visible: justifiedRow.rowKind === "section"
+                    && justifiedRow.sectionOrdinal > 0
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.topMargin: 14
+                height: 1
+                color: Theme.border
+            }
+
+            RowLayout {
+                visible: justifiedRow.rowKind === "section"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 4
+                spacing: 8
+
+                Label {
+                    text: justifiedRow.sectionTitle
+                    color: gallery.workspace.textPrimary
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                }
+
+                Label {
+                    text: qsTr("%L1 photos").arg(
+                        justifiedRow.sectionItemCount)
+                    color: gallery.workspace.textMuted
+                    font.pixelSize: 10
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: justifiedRow.sectionSubtitle
+                    color: gallery.workspace.textMuted
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                }
+            }
 
             Repeater {
-                model: justifiedRow.items
+                model: justifiedRow.rowKind === "photos"
+                    ? justifiedRow.items : []
 
                 delegate: ReviewPhotoCard {
                     required property var modelData
@@ -152,9 +230,19 @@ Rectangle {
         }
     }
 
+    ReviewGallerySectionNavigator {
+        anchors.right: justifiedGrid.right
+        anchors.rightMargin: 8
+        anchors.verticalCenter: justifiedGrid.verticalCenter
+        z: 3
+        view: justifiedGrid
+        sectionAnchors: gallery.workspace.justifiedReviewLayout.sectionAnchors
+        groupingActive: gallery.workspace.reviewGalleryGrouping.activeDimensionCount > 0
+    }
+
     ReviewSinglePreview {
         id: singlePhotoPreview
-        anchors.top: semanticSearchStatus.bottom
+        anchors.top: reviewToolBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -168,7 +256,7 @@ Rectangle {
 
     Loader {
         id: mapLoader
-        anchors.top: semanticSearchStatus.bottom
+        anchors.top: reviewToolBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

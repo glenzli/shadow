@@ -385,6 +385,77 @@
     )
 
     add_executable(
+        shadow-review-gallery-grouping-controller-test
+        tests/review_gallery_grouping_controller_test.cpp
+        src/review_gallery_grouping_controller.cpp
+        src/review_gallery_grouping_controller.hpp
+    )
+    target_compile_features(
+        shadow-review-gallery-grouping-controller-test PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-gallery-grouping-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-gallery-grouping-controller-test PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-gallery-grouping-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-gallery-grouping-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-gallery-grouping-controller
+        COMMAND shadow-review-gallery-grouping-controller-test
+    )
+
+    add_executable(
+        shadow-review-gallery-section-navigator-test
+        tests/review_gallery_section_navigator_test.cpp
+    )
+    target_compile_features(
+        shadow-review-gallery-section-navigator-test PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-review-gallery-section-navigator-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    qt_add_qml_module(
+        shadow-review-gallery-section-navigator-test
+        URI Shadow.ReviewGallerySectionNavigatorContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ReviewGallerySectionNavigator.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-gallery-section-navigator-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-gallery-section-navigator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-gallery-section-navigator
+        COMMAND shadow-review-gallery-section-navigator-test
+    )
+    set_tests_properties(
+        shadow-desktop-review-gallery-section-navigator
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-review-evidence-session-test
         tests/review_evidence_session_test.cpp
         src/review_evidence_session.hpp

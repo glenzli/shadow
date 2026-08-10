@@ -559,6 +559,20 @@ pub struct LibraryPhotoCursor {
     pub photo_id: PhotoId,
 }
 
+/// Structured reverse-geocoded place attached to one photo-first row.
+///
+/// The hot grid projection carries only stable presentation/filter identities,
+/// not provider provenance. Exact coordinates and resolution provenance remain
+/// owned by [`LibraryPlaceResolution`].
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryPhotoPlace {
+    pub country_key: String,
+    pub country_name: String,
+    pub locality_key: String,
+    pub locality_label: String,
+    pub display_name: String,
+}
+
 /// One logical photo in the Library grid. `location` is the most recently
 /// seen online preferred original location, not an ownership relationship.
 #[derive(Debug, Clone, PartialEq)]
@@ -577,6 +591,7 @@ pub struct LibraryPhotoRecord {
     pub location: AssetLocation,
     pub source: RepresentationFingerprint,
     pub facts: Option<LibraryPhotoFacts>,
+    pub resolved_place: Option<LibraryPhotoPlace>,
     pub state: PhotoLibraryState,
     pub decision: PhotoDecisionState,
     /// Whether a durable working development recipe exists for this photo.

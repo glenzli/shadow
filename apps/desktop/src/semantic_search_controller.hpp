@@ -29,8 +29,9 @@ class SemanticSearchController final : public QObject {
     Q_PROPERTY(
         QStringList rankedRepresentationKeys READ rankedRepresentationKeys NOTIFY resultsChanged
     )
+    Q_PROPERTY(QStringList highRepresentationKeys READ highRepresentationKeys NOTIFY resultsChanged)
     Q_PROPERTY(
-        QString relevanceFilter READ relevanceFilter WRITE setRelevanceFilter NOTIFY resultsChanged
+        QStringList possibleRepresentationKeys READ possibleRepresentationKeys NOTIFY resultsChanged
     )
     Q_PROPERTY(uint highRelevanceCount READ highRelevanceCount NOTIFY resultsChanged)
     Q_PROPERTY(uint possibleRelevanceCount READ possibleRelevanceCount NOTIFY resultsChanged)
@@ -55,7 +56,8 @@ class SemanticSearchController final : public QObject {
     [[nodiscard]] QString errorText() const;
     [[nodiscard]] QVariantList matches() const;
     [[nodiscard]] QStringList rankedRepresentationKeys() const;
-    [[nodiscard]] QString relevanceFilter() const;
+    [[nodiscard]] QStringList highRepresentationKeys() const;
+    [[nodiscard]] QStringList possibleRepresentationKeys() const;
     [[nodiscard]] uint highRelevanceCount() const noexcept;
     [[nodiscard]] uint possibleRelevanceCount() const noexcept;
     [[nodiscard]] uint hiddenLowRelevanceCount() const noexcept;
@@ -66,7 +68,6 @@ class SemanticSearchController final : public QObject {
     [[nodiscard]] bool truncated() const noexcept;
 
     Q_INVOKABLE void search(const QString& query);
-    Q_INVOKABLE void setRelevanceFilter(const QString& filter);
     Q_INVOKABLE void clearSessionResults();
     Q_INVOKABLE void retranslateUi();
 
@@ -88,7 +89,6 @@ class SemanticSearchController final : public QObject {
     QFutureWatcher<SemanticSearchTaskResult> watcher_;
     BackendSemanticSearchReport report_;
     QString active_query_;
-    QString relevance_filter_ = QStringLiteral("all");
     State state_ = State::Idle;
     bool has_results_ = false;
 };

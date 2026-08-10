@@ -10,12 +10,14 @@ ApplicationWindow {
 
     required property var controller
     required property var justifiedReviewLayout
+    required property var reviewGalleryGrouping
     required property var editor
     required property var editPreviewPresentation
     required property var exportController
     required property var cacheMaintenanceController
     required property var peopleAnalysisController
     required property var semanticSearchController
+    required property var smartCategoryController
     required property var aiPreferences
     required property var cachePreferences
     required property var historyController
@@ -289,11 +291,13 @@ ApplicationWindow {
             Layout.fillHeight: true
             controller: window.controller
             justifiedReviewLayout: window.justifiedReviewLayout
+            reviewGalleryGrouping: window.reviewGalleryGrouping
             preferences: window.preferences
             mapProviderPreferences: window.mapProviderPreferences
             googleMapTilesService: window.googleMapTilesService
             personalProfile: window.personalProfile
             semanticSearchController: window.semanticSearchController
+            smartCategoryController: window.smartCategoryController
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {

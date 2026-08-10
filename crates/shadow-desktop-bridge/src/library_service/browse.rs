@@ -134,6 +134,11 @@ fn ffi_library_photo(
     let (visual_handle, visual_role, visual_width, visual_height, has_visual) =
         ffi_grid_visual(visual);
     let facts = record.facts;
+    let (resolved_country_name, resolved_locality_label, resolved_place_name) =
+        record.resolved_place.map_or_else(
+            || (String::new(), String::new(), String::new()),
+            |place| (place.country_name, place.locality_label, place.display_name),
+        );
     let has_metadata = facts.is_some();
     let (
         has_captured_at,
@@ -238,6 +243,9 @@ fn ffi_library_photo(
         latitude_e7,
         longitude_e7,
         place_name,
+        resolved_country_name,
+        resolved_locality_label,
+        resolved_place_name,
         metadata_indexed_at_ms,
         liked: record.state.liked,
         color_label: record.state.color_label,

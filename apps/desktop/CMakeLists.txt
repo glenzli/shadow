@@ -356,6 +356,7 @@ qt_add_executable(
     src/desktop_backend_library_server.cpp
     src/desktop_backend_people.cpp
     src/desktop_backend_semantic_search.cpp
+    src/desktop_backend_smart_classification.cpp
     src/desktop_backend_remote_library.cpp
     src/desktop_backend_review.cpp
     src/desktop_backend.hpp
@@ -373,6 +374,7 @@ qt_add_executable(
     src/backend/remote_library_types.hpp
     src/backend/people_analysis_types.hpp
     src/backend/semantic_search_types.hpp
+    src/backend/smart_category_types.hpp
     src/backend/review_types.hpp
     src/folder_scan_backend.cpp
     src/folder_scan_backend.hpp
@@ -477,6 +479,8 @@ qt_add_executable(
     src/geonames_library_reverse_geocoder.hpp
     src/justified_review_layout_model.cpp
     src/justified_review_layout_model.hpp
+    src/review_gallery_grouping_controller.cpp
+    src/review_gallery_grouping_controller.hpp
     src/library_server_controller_backend.cpp
     src/google_library_reverse_geocoder.cpp
     src/google_library_reverse_geocoder.hpp
@@ -500,6 +504,8 @@ qt_add_executable(
     src/people_analysis_controller.hpp
     src/semantic_search_controller.cpp
     src/semantic_search_controller.hpp
+    src/smart_category_controller.cpp
+    src/smart_category_controller.hpp
     src/lut_library.cpp
     src/lut_library.hpp
     src/optics_profile_library.cpp
@@ -925,11 +931,16 @@ qt_add_qml_module(
         qml/ReviewDecisionToolbar.qml
         qml/ReviewGallerySurface.qml
         qml/ReviewGalleryToolbar.qml
-        qml/SemanticSearchStatusStrip.qml
+        qml/ReviewGalleryGroupingControl.qml
+        qml/ReviewGallerySectionNavigator.qml
+        qml/SemanticSearchControl.qml
         qml/ReviewAlbumList.qml
         qml/ReviewComparisonEvidence.qml
         qml/ReviewImportProgressCard.qml
         qml/ReviewLibrarySidebar.qml
+        qml/ReviewSmartCategoryList.qml
+        qml/ReviewSmartCategorySettingsDialog.qml
+        qml/ReviewSmartCategoryFeedbackPopup.qml
         qml/ReviewMetadataPresentation.qml
         qml/ReviewPhotoAffinity.qml
         qml/ReviewRemoteSourceIndicator.qml

@@ -43,6 +43,8 @@ struct BackendReviewItem final {
     QString lens_make;
     QString lens_model;
     std::int64_t captured_at_unix_seconds = 0;
+    QString capture_day;
+    QString place_name;
     double iso_speed = 0.0;
     double exposure_time_seconds = 0.0;
     double aperture_f_number = 0.0;

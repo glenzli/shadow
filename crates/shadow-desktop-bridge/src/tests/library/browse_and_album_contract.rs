@@ -1,6 +1,9 @@
 //! Photo-first Library paging, filters, state, decisions, and album contracts.
 
-use shadow_catalog::{LibraryPhotoFacts, RegisterAsset, RepresentationFingerprint};
+use shadow_catalog::{
+    LibraryPhotoFacts, RecordLibraryPlaceResolution, RecordLibraryPlaceResolutionStatus,
+    RegisterAsset, RepresentationFingerprint,
+};
 use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationId, RepresentationKind};
 
 use crate::{DesktopSession, ffi, open_desktop_session};
@@ -24,6 +27,25 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     let older_path = root.join("older.nef");
     let newest = register_library_fixture(&session, &newest_path, 20_000, Some(200), 1_700_000_200);
     let older = register_library_fixture(&session, &older_path, 10_000, Some(100), 1_700_000_100);
+    assert_eq!(
+        session
+            .catalog
+            .record_library_place_resolution(&RecordLibraryPlaceResolution {
+                latitude_e7: 399_000_000,
+                longitude_e7: 1_164_000_000,
+                country_code: "CN".into(),
+                country_name: "China".into(),
+                administrative_area: "Beijing".into(),
+                locality: "Beijing".into(),
+                display_name: "Beijing, China".into(),
+                provider_id: "fixture".into(),
+                provider_version: "v1".into(),
+                locale: "en".into(),
+                resolved_at_ms: 1_700_000_300_000,
+            })
+            .expect("record resolved Library place"),
+        RecordLibraryPlaceResolutionStatus::Recorded
+    );
     let library_state = session
         .set_photo_library_state(&newest.photo_id.to_string(), true, "blue")
         .expect("persist newest Library state through the bridge");
@@ -73,6 +95,9 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     assert!(item.has_captured_at);
     assert_eq!(item.captured_at_unix_seconds, 1_700_000_200);
     assert_eq!(item.camera_model, "Nikon Z 8");
+    assert_eq!(item.resolved_country_name, "China");
+    assert_eq!(item.resolved_locality_label, "Beijing · China");
+    assert_eq!(item.resolved_place_name, "Beijing, China");
     assert!(item.liked);
     assert_eq!(item.color_label, "blue");
     assert_eq!(item.decision_head_sequence, decision.sequence);

@@ -352,6 +352,12 @@ library_review_item(const shadow::desktop::FfiLibraryPhotoItem& source) {
         .lens_make = qstring(source.lens_make),
         .lens_model = qstring(source.lens_model),
         .captured_at_unix_seconds = source.has_captured_at ? source.captured_at_unix_seconds : 0,
+        .capture_day = qstring(source.capture_day),
+        .place_name =
+            !source.resolved_locality_label.empty() ? qstring(source.resolved_locality_label)
+            : !source.resolved_place_name.empty()   ? qstring(source.resolved_place_name)
+            : !source.resolved_country_name.empty() ? qstring(source.resolved_country_name)
+                                                    : qstring(source.place_name),
         .iso_speed = source.has_iso_speed ? source.iso_speed : 0.0,
         .aperture_f_number =
             source.has_aperture ? static_cast<double>(source.aperture_milli) / 1000.0 : 0.0,

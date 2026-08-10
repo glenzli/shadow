@@ -353,6 +353,21 @@ void ReviewFilterModel::setSemanticRepresentationOrder(const QStringList& ranked
     emit semanticFilterChanged();
 }
 
+bool ReviewFilterModel::smartCategoryFilterActive() const noexcept {
+    return !smart_category_keys_.isEmpty();
+}
+
+void ReviewFilterModel::setSmartCategoryRepresentationKeys(const QStringList& member_keys) {
+    QSet<QString> next;
+    next.reserve(member_keys.size());
+    for (const QString& key : member_keys) if (!key.isEmpty()) next.insert(key);
+    if (smart_category_keys_ == next) return;
+    smart_category_keys_ = std::move(next);
+    beginFilterChange();
+    endFilterChange(QSortFilterProxyModel::Direction::Rows);
+    emit smartCategoryFilterChanged();
+}
+
 void ReviewFilterModel::clearFilters() {
     const bool changed =
         flag_filter_ != QStringLiteral("all") || minimum_rating_ != 0
@@ -364,7 +379,8 @@ void ReviewFilterModel::clearFilters() {
         || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
         || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
         || !keyword_ids_all_.isEmpty()
-        || !excluded_keyword_ids_any_.isEmpty() || !semantic_rank_by_key_.isEmpty();
+        || !excluded_keyword_ids_any_.isEmpty() || !semantic_rank_by_key_.isEmpty()
+        || !smart_category_keys_.isEmpty();
     const bool server_filters_changed =
         flag_filter_ != QStringLiteral("all") || minimum_rating_ != 0
         || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
@@ -376,6 +392,7 @@ void ReviewFilterModel::clearFilters() {
         || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
         || !keyword_ids_all_.isEmpty() || !excluded_keyword_ids_any_.isEmpty();
     const bool semantic_filter_changed = !semantic_rank_by_key_.isEmpty();
+    const bool smart_category_filter_changed = !smart_category_keys_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
@@ -396,6 +413,7 @@ void ReviewFilterModel::clearFilters() {
     keyword_ids_all_.clear();
     excluded_keyword_ids_any_.clear();
     semantic_rank_by_key_.clear();
+    smart_category_keys_.clear();
     if (!changed) {
         return;
     }
@@ -407,6 +425,7 @@ void ReviewFilterModel::clearFilters() {
     if (semantic_filter_changed) {
         emit semanticFilterChanged();
     }
+    if (smart_category_filter_changed) emit smartCategoryFilterChanged();
 }
 
 bool ReviewFilterModel::filterAcceptsRow(
@@ -419,6 +438,10 @@ bool ReviewFilterModel::filterAcceptsRow(
     }
     if (!semantic_rank_by_key_.isEmpty()
         && !semantic_rank_by_key_.contains(semantic_key(*sourceModel(), row))) {
+        return false;
+    }
+    if (!smart_category_keys_.isEmpty()
+        && !smart_category_keys_.contains(semantic_key(*sourceModel(), row))) {
         return false;
     }
     const bool remote = sourceModel()->data(row, ReviewModel::IsRemoteRole).toBool();

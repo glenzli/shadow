@@ -5,8 +5,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Presents gallery scope, layout, and batch commands. Operations that open
-// external surfaces are emitted as intent so this toolbar owns no popup state.
+// Presents gallery scope, responsive semantic search, layout, and batch
+// commands. Operations outside those toolbar-owned interactions are emitted
+// as intent.
 Rectangle {
     id: toolbar
 
@@ -75,6 +76,20 @@ Rectangle {
             toolTipText: qsTr("Assign and filter Library keywords")
             accessibleName: toolTipText
             onClicked: toolbar.workspace.openKeywordPanel()
+        }
+
+        SemanticSearchControl {
+            id: semanticSearch
+            Layout.preferredWidth: implicitWidth
+            Layout.preferredHeight: implicitHeight
+            expanded: toolbar.width >= 1180
+            workspace: toolbar.workspace
+        }
+
+        ReviewGalleryGroupingControl {
+            Layout.preferredWidth: implicitWidth
+            Layout.preferredHeight: implicitHeight
+            grouping: toolbar.workspace.reviewGalleryGrouping
         }
 
         Item { Layout.fillWidth: true }

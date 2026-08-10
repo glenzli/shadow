@@ -9,6 +9,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Change | Primary owner |
 | --- | --- |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
+| Checkpointed smart-category classification projection | [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
 | Library service composition | [`src/library_service.rs`](src/library_service.rs) |
 | Ordered Library photo paging, facets, and signed visual presentation | [`src/library_service/browse.rs`](src/library_service/browse.rs) |
 | Provider-independent Library viewport aggregation | [`src/library_service/map_browse.rs`](src/library_service/map_browse.rs) |

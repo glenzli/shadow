@@ -6,9 +6,10 @@
 #include "backend/library_server_types.hpp"
 #include "backend/library_types.hpp"
 #include "backend/people_analysis_types.hpp"
-#include "backend/semantic_search_types.hpp"
 #include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
+#include "backend/semantic_search_types.hpp"
+#include "backend/smart_category_types.hpp"
 #include "folder_scan_backend.hpp"
 
 #include <QString>
@@ -232,6 +233,25 @@ class DesktopBackend final {
         const QString& query_revision,
         const QString& language
     ) const;
+    [[nodiscard]] BackendSmartClassificationBatch classifySmartCategoriesBatch(
+        const QString& infer_base_url,
+        const QString& credential_file,
+        const QVector<BackendSmartCategoryDefinition>& definitions,
+        const QString& config_revision,
+        const QString& generation,
+        bool start_new,
+        bool clear_embeddings
+    ) const;
+    [[nodiscard]] BackendSmartClassificationSnapshot smartClassificationSnapshot() const;
+    [[nodiscard]] QStringList smartCategoryMembers(const QString& category_id) const;
+    [[nodiscard]] QVector<BackendSmartCategoryReviewItem> smartCategoryReviewQueue() const;
+    void setSmartCategoryFeedback(
+        const QString& photo_id,
+        const QString& representation_id,
+        const QString& category_id,
+        std::int8_t decision
+    ) const;
+    void pauseSmartClassification(const QString& generation) const;
     [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,

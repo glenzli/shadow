@@ -982,6 +982,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "quick-xml",
+ "rusqlite",
  "serde",
  "shadow-ai",
  "shadow-bridge",

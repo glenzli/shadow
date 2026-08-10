@@ -443,6 +443,7 @@ class ReviewController final : public QObject {
     void setFilterKeywordIdsAll(const QStringList& keyword_ids);
     void setFilterExcludedKeywordIdsAny(const QStringList& keyword_ids);
     void setSemanticRepresentationOrder(const QStringList& ranked_keys);
+    void setSmartCategoryRepresentationKeys(const QStringList& member_keys);
     void setLibraryAlbumId(const QString& album_id);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);

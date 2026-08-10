@@ -153,6 +153,10 @@ void append_role(QList<int>& roles, const int role) {
         append_role(roles, ReviewModel::LensModelRole);
     if (current.captured_at_unix_seconds != replacement.captured_at_unix_seconds)
         append_role(roles, ReviewModel::CapturedAtUnixSecondsRole);
+    if (current.capture_day != replacement.capture_day)
+        append_role(roles, ReviewModel::CaptureDayRole);
+    if (current.place_name != replacement.place_name)
+        append_role(roles, ReviewModel::PlaceNameRole);
     if (current.iso_speed != replacement.iso_speed)
         append_role(roles, ReviewModel::IsoSpeedRole);
     if (current.exposure_time_seconds != replacement.exposure_time_seconds)
@@ -312,6 +316,10 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.lens_model;
     case CapturedAtUnixSecondsRole:
         return QVariant::fromValue(item.captured_at_unix_seconds);
+    case CaptureDayRole:
+        return item.capture_day;
+    case PlaceNameRole:
+        return item.place_name;
     case IsoSpeedRole:
         return item.iso_speed;
     case ExposureTimeSecondsRole:
@@ -415,6 +423,8 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {LensMakeRole, "lensMake"},
         {LensModelRole, "lensModel"},
         {CapturedAtUnixSecondsRole, "capturedAtUnixSeconds"},
+        {CaptureDayRole, "captureDay"},
+        {PlaceNameRole, "placeName"},
         {IsoSpeedRole, "isoSpeed"},
         {ExposureTimeSecondsRole, "exposureTimeSeconds"},
         {ApertureFNumberRole, "apertureFNumber"},

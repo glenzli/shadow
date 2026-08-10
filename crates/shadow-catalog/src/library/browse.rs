@@ -79,7 +79,9 @@ impl Catalog {
                         SELECT 1 FROM representations raster_representation
                         WHERE raster_representation.photo_id = p.id
                           AND raster_representation.kind = 'original_raster'
-                    )
+                    ),
+                    place.country_key, place.country_name,
+                    place.locality_key, place.locality_label, place.display_name
              {from_sql} WHERE {where_sql}"
         );
         let mut page_values = filter_values;

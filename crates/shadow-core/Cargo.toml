@@ -9,6 +9,7 @@ authors.workspace = true
 [dependencies]
 blake3.workspace = true
 quick-xml.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 shadow-ai.workspace = true
 shadow-bridge.workspace = true

@@ -12,11 +12,13 @@ Item {
 
     required property var controller
     required property var justifiedReviewLayout
+    required property var reviewGalleryGrouping
     required property var preferences
     required property var mapProviderPreferences
     required property var googleMapTilesService
     required property var personalProfile
     required property var semanticSearchController
+    required property var smartCategoryController
 
     ReviewSelectionState {
         id: selectionState
@@ -213,6 +215,7 @@ Item {
         || hasLibraryFacetFilter
         || hasLibraryKeywordFilter
         || semanticSearchController.hasResults
+        || smartCategoryController.selectedCategoryId.length > 0
     readonly property var manualLibraryAlbums: {
         const albums = controller.libraryAlbums
         const manualAlbums = []

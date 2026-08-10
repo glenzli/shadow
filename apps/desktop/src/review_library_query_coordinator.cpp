@@ -257,6 +257,8 @@ QVector<ReviewItem> ReviewLibraryQueryCoordinator::reviewItems(QVector<BackendRe
             .lens_make = std::move(item.lens_make),
             .lens_model = std::move(item.lens_model),
             .captured_at_unix_seconds = item.captured_at_unix_seconds,
+            .capture_day = std::move(item.capture_day),
+            .place_name = std::move(item.place_name),
             .iso_speed = item.iso_speed,
             .exposure_time_seconds = item.exposure_time_seconds,
             .aperture_f_number = item.aperture_f_number,

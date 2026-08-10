@@ -3816,107 +3816,107 @@ R %2 · G %3 · B %4</translation>
         <translation>名称 · Z 到 A</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="84"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="86"/>
         <source>NAME ↓</source>
         <translation>名称 ↓</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="85"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="87"/>
         <source>NAME ↑</source>
         <translation>名称 ↑</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="87"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="89"/>
         <source>DATE ↓</source>
         <translation>日期 ↓</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="88"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="90"/>
         <source>DATE ↑</source>
         <translation>日期 ↑</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="89"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="91"/>
         <source>Sort Library photos</source>
         <translation>排序图库照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="113"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="115"/>
         <source>Open advanced Library filters</source>
         <translation>打开高级图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="60"/>
+        <location filename="../qml/Main.qml" line="61"/>
         <source>Shadow · Review</source>
         <translation>Shadow · 选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="62"/>
+        <location filename="../qml/Main.qml" line="63"/>
         <source>Shadow · Precision</source>
         <translation>Shadow · 精修</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="64"/>
+        <location filename="../qml/Main.qml" line="65"/>
         <source>Shadow · Library</source>
         <translation>Shadow · 图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="64"/>
+        <location filename="../qml/Main.qml" line="65"/>
         <source>Shadow · People</source>
         <translation>Shadow · 人物</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="174"/>
+        <location filename="../qml/Main.qml" line="175"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="33"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="35"/>
         <source>Red</source>
         <translation>红色</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="35"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="37"/>
         <source>Yellow</source>
         <translation>黄色</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="37"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="39"/>
         <source>Green</source>
         <translation>绿色</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="39"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="41"/>
         <source>Blue</source>
         <translation>蓝色</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="41"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="43"/>
         <source>Purple</source>
         <translation>紫色</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="50"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="52"/>
         <source>Filter unflagged photos</source>
         <translation>筛选未标记照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="52"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="54"/>
         <source>Filter flagged photos</source>
         <translation>筛选已标记照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="54"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="56"/>
         <source>Filter rejected photos</source>
         <translation>筛选已拒绝照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="27"/>
+        <location filename="../qml/MainStatusBar.qml" line="28"/>
         <source>Loading full-resolution image…</source>
         <translation>正在加载全分辨率图像…</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="28"/>
+        <location filename="../qml/MainStatusBar.qml" line="29"/>
         <source>Parsing full-resolution RAW…</source>
         <translation>正在解析全分辨率 RAW…</translation>
     </message>
@@ -3926,13 +3926,13 @@ R %2 · G %3 · B %4</translation>
         <translation>选片</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="106"/>
+        <location filename="../qml/MainStatusBar.qml" line="123"/>
         <location filename="../qml/MainTitleBar.qml" line="116"/>
         <source>PRECISION</source>
         <translation>精修</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="108"/>
+        <location filename="../qml/MainStatusBar.qml" line="125"/>
         <location filename="../qml/MainTitleBar.qml" line="131"/>
         <source>PEOPLE</source>
         <translation>人物</translation>
@@ -3958,8 +3958,8 @@ R %2 · G %3 · B %4</translation>
         <translation>返回选片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="56"/>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="136"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="58"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="139"/>
         <source>Clear all Library filters</source>
         <translation>清除图库筛选</translation>
     </message>
@@ -3984,37 +3984,37 @@ R %2 · G %3 · B %4</translation>
         <translation>历史</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="120"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="122"/>
         <source>FILTER</source>
         <translation>筛选</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="192"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="195"/>
         <source>Filter %L1 stars and above</source>
         <translation>筛选 %L1 星及以上</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="218"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="221"/>
         <source>Filter liked photos</source>
         <translation>筛选喜欢的照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="237"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="240"/>
         <source>Filter edited photos</source>
         <translation>筛选已编辑照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="249"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="252"/>
         <source>Filter unedited photos</source>
         <translation>筛选未编辑照片</translation>
     </message>
     <message>
-        <location filename="../qml/MainLibraryFilterBar.qml" line="271"/>
+        <location filename="../qml/MainLibraryFilterBar.qml" line="274"/>
         <source>Filter %1 color label</source>
         <translation>筛选 %1 颜色标签</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="68"/>
+        <location filename="../qml/MainStatusBar.qml" line="83"/>
         <source>%L1 / %L2 photos</source>
         <translation>%L1 / %L2 张照片</translation>
     </message>
@@ -4034,7 +4034,7 @@ R %2 · G %3 · B %4</translation>
         <translation>关</translation>
     </message>
     <message>
-        <location filename="../qml/MainStatusBar.qml" line="109"/>
+        <location filename="../qml/MainStatusBar.qml" line="126"/>
         <source>LIBRARY</source>
         <translation>图库</translation>
     </message>
@@ -4594,29 +4594,29 @@ R %2 · G %3 · B %4</translation>
         <translation>匿名分组</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="236"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="238"/>
         <source>This preview reached its safety limit. A later background workflow can continue incrementally.</source>
         <translation>此预览已达到安全上限。后续后台流程可以继续增量分析。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="246"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="248"/>
         <source>No recurring people were grouped in the current Library preview.</source>
         <translation>当前图库预览中没有可归组的重复人物。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="297"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="299"/>
         <source>Person %1</source>
         <translation>人物 %1</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/PeopleWorkspace.qml" line="307"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="309"/>
         <source>%n photos</source>
         <translation>
             <numerusform>%n 张照片</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="324"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="326"/>
         <source>%1 ungrouped faces · %2 skipped items</source>
         <translation>%1 张未分组人脸 · %2 个跳过项</translation>
     </message>
@@ -7221,17 +7221,17 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/main.cpp" line="63"/>
+        <location filename="../src/main.cpp" line="64"/>
         <source>Could not remove %1.</source>
         <translation>无法移除 %1。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="86"/>
+        <location filename="../src/main.cpp" line="87"/>
         <source>Could not remove the local preview cache.</source>
         <translation>无法移除本地预览缓存。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="105"/>
+        <location filename="../src/main.cpp" line="106"/>
         <source>This local catalog belongs to an incompatible development build. Shadow does not migrate development schemas.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.</source>
@@ -7240,7 +7240,7 @@ Resetting removes the local photo index, edit history, and preview cache. Your o
 重置将移除本地照片索引、编辑历史与预览缓存；不会修改原始照片、LUT 资料库或界面偏好。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="111"/>
+        <location filename="../src/main.cpp" line="112"/>
         <source>Shadow could not open its local development catalog. You can reset it and start again with a fresh catalog v1.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.
@@ -7253,12 +7253,12 @@ Technical detail: %1</source>
 技术详情：%1</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="121"/>
+        <location filename="../src/main.cpp" line="122"/>
         <source>Reset local development catalog?</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="239"/>
+        <location filename="../src/main.cpp" line="240"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -7733,7 +7733,7 @@ Technical detail: %1</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="663"/>
+        <location filename="../src/review_controller.hpp" line="665"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -7743,7 +7743,7 @@ Technical detail: %1</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="667"/>
+        <location filename="../src/review_controller.hpp" line="669"/>
         <location filename="../src/review_decision_coordinator.hpp" line="121"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
@@ -7901,6 +7901,7 @@ Technical detail: %1</source>
 </context>
 <context>
     <name>ReviewPhotoCard</name>
+    <message><source>Smart category needs review</source><translation>智能分类待确认</translation></message>
     <message>
         <location filename="../qml/ReviewSinglePreview.qml" line="99"/>
         <source>ORIGINAL NOT FOUND</source>
@@ -8079,51 +8080,135 @@ Technical detail: %1</source>
     </message>
 </context>
 <context>
+    <name>ReviewGalleryGroupingController</name>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="292"/>
+        <source> + </source>
+        <translation> + </translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="414"/>
+        <source> · </source>
+        <translation> · </translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="159"/>
+        <source>%1 · Week %2</source>
+        <translation>%1 · 第 %2 周</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="153"/>
+        <source>%2 %1</source>
+        <translation>%1年%2</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="30"/>
+        <source>DATE</source>
+        <translation>日期</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="45"/>
+        <source>LOCATION</source>
+        <translation>地点</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="44"/>
+        <source>Location</source>
+        <translation>地点</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="34"/>
+        <source>Month</source>
+        <translation>月</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="386"/>
+        <source>Other photos</source>
+        <translation>其他照片</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="137"/>
+        <source>Unknown date</source>
+        <translation>拍摄日期未知</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="172"/>
+        <source>Unknown location</source>
+        <translation>地点未知</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="39"/>
+        <source>Week</source>
+        <translation>周</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="29"/>
+        <source>Year</source>
+        <translation>年</translation>
+    </message>
+</context>
+<context>
     <name>ReviewWorkspace</name>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="147"/>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="230"/>
+        <source>Clear grouping</source>
+        <translation>清除分组</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="160"/>
+        <source>GROUP PHOTOS</source>
+        <translation>照片分组</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="104"/>
+        <source>Group photos</source>
+        <translation>分组显示照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="103"/>
+        <source>Grouped by %1</source>
+        <translation>按%1分组</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGallerySectionNavigator.qml" line="35"/>
+        <source>Group navigator</source>
+        <translation>分组导航</translation>
+    </message>
+    <message>
+        <location filename="../qml/SemanticSearchControl.qml" line="147"/>
         <source>Clear semantic filter</source>
         <translation>清除语义筛选</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="113"/>
+        <location filename="../qml/SemanticSearchControl.qml" line="95"/>
         <source>Describe a photo…</source>
         <translation>描述你想找的照片…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="137"/>
+        <location filename="../qml/SemanticSearchControl.qml" line="41"/>
+        <source>%1 strong · %2 possible</source>
+        <translation>%1 个强相关 · %2 个可能相关</translation>
+    </message>
+    <message>
+        <location filename="../qml/SemanticSearchControl.qml" line="44"/>
+        <source> · %1 weak hidden</source>
+        <translation> · 已隐藏 %1 个弱相关结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/SemanticSearchControl.qml" line="134"/>
         <source>Search by description</source>
         <translation>按描述搜索</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="133"/>
+        <location filename="../qml/SemanticSearchControl.qml" line="181"/>
+        <location filename="../qml/SemanticSearchControl.qml" line="182"/>
+        <source>Search photos by description</source>
+        <translation>按描述搜索照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/SemanticSearchControl.qml" line="110"/>
         <source>Matching locally…</source>
         <translation>正在本地匹配…</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="207"/>
-        <source>Highly related %1</source>
-        <translation>高度相关 %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="209"/>
-        <source>Show only the strongest semantic matches</source>
-        <translation>仅显示关联最强的语义匹配</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="223"/>
-        <source>Possibly related %1</source>
-        <translation>可能相关 %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="225"/>
-        <source>Show the broader semantic matches</source>
-        <translation>显示范围更宽的语义匹配</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="233"/>
-        <source>%1 weak hidden</source>
-        <translation>已隐藏 %1 个弱相关结果</translation>
     </message>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="40"/>
@@ -8131,12 +8216,12 @@ Technical detail: %1</source>
         <translation>%1 · %L2 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="222"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="231"/>
         <source>Compare the two selected photos</source>
         <translation>比较两张已选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="223"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
         <source>Compare the selected photo with the next photo</source>
         <translation>将已选照片与下一张照片比较</translation>
     </message>
@@ -8721,12 +8806,12 @@ Technical detail: %1</source>
         <translation>本次会话中有 %L1 条有效记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="123"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="132"/>
         <source>Browse as a photo grid</source>
         <translation>以照片网格浏览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="133"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="142"/>
         <source>Review one photo with a filmstrip</source>
         <translation>以胶片带逐张选片</translation>
     </message>
@@ -8951,118 +9036,138 @@ Technical detail: %1</source>
         <translation>条件</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="50"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="51"/>
         <source>ALL PHOTOS</source>
         <translation>全部照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="58"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="59"/>
         <source>%L1 visible</source>
         <translation>显示 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="66"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="67"/>
         <source>Manage photo sources</source>
         <translation>管理照片来源</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="75"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="76"/>
         <source>Assign and filter Library keywords</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="247"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="256"/>
         <source>Create a Manual Album first</source>
         <translation>请先创建手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="94"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="103"/>
         <source>Open the candidate duel</source>
         <translation>打开精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="95"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="104"/>
         <source>Add at least two photos to start the candidate duel</source>
         <translation>至少加入两张照片才能开始精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="143"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="152"/>
         <source>Browse geotagged photos on a map</source>
         <translation>在地图上浏览带地理位置的照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="152"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="161"/>
         <source>SCALE</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="170"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="179"/>
         <source>Thumbnail scale</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="180"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="189"/>
         <source>Restore default thumbnail scale</source>
         <translation>恢复默认缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="193"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="202"/>
         <source>Open photo metadata</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="201"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="210"/>
         <source>%L1 selected</source>
         <translation>已选择 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="210"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="219"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="246"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="255"/>
         <source>Add selected photos to a Manual Album</source>
         <translation>将所选照片添加到手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="260"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="269"/>
         <source>Remove selected photos from this Manual Album</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="272"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="281"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="184"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="70"/>
+        <source>Highly related</source>
+        <translation>强相关</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="71"/>
+        <source>Closest matches for “%1”</source>
+        <translation>与“%1”最接近的结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="79"/>
+        <source>Possibly related</source>
+        <translation>可能相关</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="80"/>
+        <source>Broader matches worth reviewing</source>
+        <translation>值得进一步查看的扩展结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="264"/>
         <source>Searching the folder for supported photos…
 New RAW files will appear here as they are catalogued.</source>
         <translation>正在文件夹中搜索支持的照片…
 新的 RAW 文件会在收录后显示于此。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="186"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="266"/>
         <source>Import stopped, and no RAW files are currently visible.
 Already catalogued files remain safely stored.</source>
         <translation>导入已停止，目前没有可见的 RAW 文件。
 已收录的文件仍安全存储。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="187"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="267"/>
         <source>Add a folder to the local Library.
 Shadow will show embedded previews immediately, then replace them with locally generated proxies.</source>
         <translation>向本地图库添加文件夹。
 Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="246"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="326"/>
         <source>Finding the first photos</source>
         <translation>正在查找首批照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="247"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="327"/>
         <source>Loading local Library</source>
         <translation>正在加载本地图库</translation>
     </message>
@@ -9370,6 +9475,7 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/LibraryMapView.qml" line="194"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="195"/>
         <source>%L1 photos</source>
         <translation>%L1 张照片</translation>
     </message>
@@ -9449,32 +9555,32 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="500"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="502"/>
         <source>Downloading the original RAW from the remote Library…</source>
         <translation>正在从远程图库下载原始 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="506"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="508"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="523"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="525"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="525"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="527"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="527"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="529"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="529"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="531"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>
@@ -9672,27 +9778,27 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>SemanticSearchController</name>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="49"/>
+        <location filename="../src/semantic_search_controller.cpp" line="117"/>
         <source>Describe a photo to search the current Library preview.</source>
         <translation>输入照片描述，搜索当前图库预览。</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="51"/>
+        <location filename="../src/semantic_search_controller.cpp" line="119"/>
         <source>Comparing your description with local photos…</source>
         <translation>正在将描述与本地照片进行比较…</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="53"/>
+        <location filename="../src/semantic_search_controller.cpp" line="121"/>
         <source>Semantic search finished.</source>
         <translation>语义搜索已完成。</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="55"/>
+        <location filename="../src/semantic_search_controller.cpp" line="123"/>
         <source>Semantic search could not finish.</source>
         <translation>语义搜索未能完成。</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="66"/>
+        <location filename="../src/semantic_search_controller.cpp" line="132"/>
         <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
         <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
     </message>
@@ -10414,5 +10520,65 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <source>Reset curve</source>
         <translation>重置曲线</translation>
     </message>
+</context>
+<context>
+    <name>ReviewSmartCategoryList</name>
+    <message><source>SMART CATEGORIES</source><translation>智能分类</translation></message>
+    <message><source>Manage smart categories</source><translation>管理智能分类</translation></message>
+    <message><source>Update smart categories</source><translation>更新智能分类</translation></message>
+    <message><source>Pause</source><translation>暂停</translation></message>
+    <message><source>Retry</source><translation>重试</translation></message>
+    <message><source>Continue</source><translation>继续</translation></message>
+    <message><source>Update</source><translation>更新</translation></message>
+    <message><source>Review uncertain</source><translation>确认不确定分类</translation></message>
+</context>
+<context>
+    <name>ReviewSmartCategoryFeedbackPopup</name>
+    <message><source>Review smart category</source><translation>确认智能分类</translation></message>
+    <message><source>Your decision is kept as the strongest local evidence.</source><translation>你的判断会作为优先级最高的本地依据。</translation></message>
+    <message><source>HIGH-VALUE REVIEW</source><translation>优先确认</translation></message>
+    <message><source>No</source><translation>不属于</translation></message>
+    <message><source>Yes</source><translation>属于</translation></message>
+    <message><source>Clear previous decision</source><translation>清除之前的判断</translation></message>
+</context>
+<context>
+    <name>ReviewSmartCategorySettingsDialog</name>
+    <message><source>Smart categories</source><translation>智能分类</translation></message>
+    <message><source>Close</source><translation>关闭</translation></message>
+    <message><source>Name</source><translation>名称</translation></message>
+    <message><source>Model description</source><translation>模型描述</translation></message>
+    <message><source>Match threshold</source><translation>匹配阈值</translation></message>
+    <message><source>Show this category</source><translation>显示此分类</translation></message>
+    <message><source>Photos may appear in more than one category. Changes are matched locally using the existing image-vector cache.</source><translation>照片可以同时出现在多个分类中。修改后会使用已有的本地图像向量缓存重新匹配。</translation></message>
+    <message><source>Reset defaults</source><translation>恢复默认分类</translation></message>
+    <message><source>Save</source><translation>保存</translation></message>
+    <message><source>Add category</source><translation>添加分类</translation></message>
+    <message><source>Rebuild analysis</source><translation>重建分析</translation></message>
+    <message><source>Recreate image vectors and all smart-category matches.</source><translation>重新生成图像向量和全部智能分类匹配。</translation></message>
+    <message><source>Rebuild</source><translation>重建</translation></message>
+</context>
+<context>
+    <name>SmartCategoryController</name>
+    <message><source>Portrait</source><translation>人像</translation></message>
+    <message><source>Landscape</source><translation>风光</translation></message>
+    <message><source>Street</source><translation>街头</translation></message>
+    <message><source>Architecture</source><translation>建筑</translation></message>
+    <message><source>Animals</source><translation>动物</translation></message>
+    <message><source>Travel</source><translation>旅行</translation></message>
+    <message><source>Food &amp; Still Life</source><translation>美食与静物</translation></message>
+    <message><source>Sports &amp; Action</source><translation>运动与动作</translation></message>
+    <message><source>Night &amp; Astro</source><translation>夜景与星空</translation></message>
+    <message><source>New photos are waiting for smart classification.</source><translation>有新照片等待智能分类。</translation></message>
+    <message><source>Corrections are waiting to update similar photos.</source><translation>纠错结果正在等待更新相似照片。</translation></message>
+    <message><source>Smart categories are ready to be built locally.</source><translation>可以开始在本地建立智能分类。</translation></message>
+    <message><source>Pausing after the current batch…</source><translation>将在当前批次完成后暂停…</translation></message>
+    <message><source>Classifying photos locally… %1 of %2</source><translation>正在本地分类照片… %1 / %2</translation></message>
+    <message><source>Smart classification is paused at %1 of %2.</source><translation>智能分类已暂停于 %1 / %2。</translation></message>
+    <message><source>Smart categories are up to date.</source><translation>智能分类已是最新状态。</translation></message>
+    <message><source>Analysis finished, but no photos meet the current thresholds.</source><translation>分析已完成，但当前阈值下没有匹配的照片。</translation></message>
+    <message><source>Smart classification was interrupted.</source><translation>智能分类已中断。</translation></message>
+    <message><source>Infer Runtime is unavailable. Start it, then try again.</source><translation>Infer Runtime 当前不可用。请启动后重试。</translation></message>
+    <message><source>The previous results are still available. Check Infer Runtime, then try again.</source><translation>之前的分类结果仍可使用。请检查 Infer Runtime 后重试。</translation></message>
+    <message><source>Enable at least one smart category.</source><translation>请至少启用一个智能分类。</translation></message>
 </context>
 </TS>

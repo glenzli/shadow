@@ -13,6 +13,7 @@ mod native_path;
 mod people_analysis;
 mod performance;
 mod semantic_search;
+mod smart_classification;
 mod technical_observation;
 mod work_scheduler;
 
@@ -72,6 +73,14 @@ pub use semantic_search::{
     DEFAULT_SEMANTIC_SEARCH_MAXIMUM_PHOTOS, MAX_SEMANTIC_SEARCH_PHOTOS, SemanticSearchError,
     SemanticSearchMatch, SemanticSearchPolicy, SemanticSearchReport, SemanticSearchSkipped,
     search_review_semantics,
+};
+pub use smart_classification::{
+    SmartCategoryCount, SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartCategoryMatch,
+    SmartCategoryReviewItem, SmartClassificationBatch, SmartClassificationError,
+    SmartClassificationPolicy, SmartClassificationRequest, SmartClassificationSnapshot,
+    SmartClassificationStatus, classify_review_smart_categories, pause_smart_classification,
+    set_smart_category_feedback, smart_category_members, smart_category_review_queue,
+    smart_classification_snapshot,
 };
 pub use technical_observation::{
     TECHNICAL_ANALYSIS_MAX_EDGE, TechnicalObservationActor, TechnicalObservationError,

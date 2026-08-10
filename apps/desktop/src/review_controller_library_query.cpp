@@ -111,6 +111,10 @@ void ReviewController::setSemanticRepresentationOrder(const QStringList& ranked_
     filtered_model_.setSemanticRepresentationOrder(ranked_keys);
 }
 
+void ReviewController::setSmartCategoryRepresentationKeys(const QStringList& member_keys) {
+    filtered_model_.setSmartCategoryRepresentationKeys(member_keys);
+}
+
 void ReviewController::refreshVisibleLibrary() {
     if (scanning() || decision_coordinator_.busy()) {
         return;

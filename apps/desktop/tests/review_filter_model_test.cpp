@@ -277,6 +277,34 @@ void semantic_results_compose_as_a_ranked_client_filter() {
     );
 }
 
+void smart_categories_filter_exact_members_without_reordering() {
+    ReviewModel source;
+    source.replace(
+        {
+            item("photo-a", "representation-a", "picked", 5),
+            item("photo-b", "representation-b", "picked", 4),
+            item("photo-c", "representation-c", "picked", 3),
+        },
+        1
+    );
+    ReviewFilterModel filtered;
+    filtered.setSourceModel(&source);
+    filtered.setSmartCategoryRepresentationKeys({
+        QStringLiteral("photo-c\u001frepresentation-c"),
+        QStringLiteral("photo-a\u001frepresentation-a"),
+    });
+    require(filtered.smartCategoryFilterActive(), "smart category selection activates filtering");
+    require(filtered.rowCount() == 2, "only exact category members remain visible");
+    require(
+        filtered.data(filtered.index(0, 0), ReviewModel::PhotoIdRole).toString()
+            == QStringLiteral("photo-a"),
+        "smart categories preserve the current gallery order"
+    );
+    filtered.clearFilters();
+    require(!filtered.smartCategoryFilterActive() && filtered.rowCount() == 3,
+            "clearing filters removes smart-category membership");
+}
+
 } // namespace
 
 int main() {
@@ -285,5 +313,6 @@ int main() {
     hierarchical_keyword_filters_are_normalized_server_predicates();
     remote_rows_participate_only_in_locally_evaluable_filters();
     semantic_results_compose_as_a_ranked_client_filter();
+    smart_categories_filter_exact_members_without_reordering();
     return EXIT_SUCCESS;
 }

@@ -76,7 +76,7 @@ pub use library::{
     LibraryMapViewport, LibraryMetadataOverride, LibraryMetadataOverrideAction,
     LibraryMetadataOverrideOrigin, LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFacts,
     LibraryPhotoFilter, LibraryPhotoKeyword, LibraryPhotoOrder, LibraryPhotoPage,
-    LibraryPhotoRecord, LibraryPlaceResolution, LibraryPlaceResolutionCandidate,
+    LibraryPhotoPlace, LibraryPhotoRecord, LibraryPlaceResolution, LibraryPlaceResolutionCandidate,
     LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE,
     MAX_LIBRARY_KEYWORD_FILTERS, MAX_LIBRARY_KEYWORD_MUTATION_PHOTOS,
     MAX_LIBRARY_LIVING_PLACE_RULES, MAX_LIBRARY_MAP_CELLS, MAX_LIBRARY_MAP_GRID_AXIS,

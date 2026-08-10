@@ -55,6 +55,11 @@ Rectangle {
             workspace: sidebar.workspace
         }
 
+        ReviewSmartCategoryList {
+            Layout.fillWidth: true
+            workspace: sidebar.workspace
+        }
+
         ReviewAlbumList {
             Layout.fillWidth: true
             workspace: sidebar.workspace

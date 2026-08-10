@@ -26,6 +26,7 @@ mod session_remote_library;
 mod session_review;
 mod session_scan;
 mod session_semantic_search;
+mod session_smart_classification;
 mod wall_clock;
 
 // Photo source admission, preview delivery, and detail viewports.
@@ -766,6 +767,9 @@ mod ffi {
         latitude_e7: i32,
         longitude_e7: i32,
         place_name: String,
+        resolved_country_name: String,
+        resolved_locality_label: String,
+        resolved_place_name: String,
         metadata_indexed_at_ms: i64,
         liked: bool,
         color_label: String,
@@ -965,6 +969,62 @@ mod ffi {
         skipped_items: u32,
         truncated: bool,
         matches: Vec<FfiSemanticSearchMatch>,
+    }
+
+    /// User-owned semantic category definition. Display names stay in Qt.
+    #[derive(Debug)]
+    struct FfiSmartCategoryDefinition {
+        id: String,
+        description: String,
+        minimum_similarity: f32,
+    }
+
+    #[derive(Debug)]
+    struct FfiSmartCategoryCount {
+        category_id: String,
+        count: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiSmartClassificationSnapshot {
+        config_revision: String,
+        generation: String,
+        status: String,
+        embedding_space: String,
+        model_build: String,
+        processed_photos: u64,
+        total_photos: u64,
+        updated_at_ms: i64,
+        has_published_results: bool,
+        published_config_revision: String,
+        published_at_ms: i64,
+        category_counts: Vec<FfiSmartCategoryCount>,
+        uncertain_photos: u64,
+        adaptation_pending: bool,
+    }
+
+    #[derive(Debug)]
+    struct FfiSmartCategoryReviewItem {
+        photo_id: String,
+        representation_id: String,
+        category_id: String,
+        adapted_similarity: f32,
+        decision_margin: f32,
+    }
+
+    /// One checkpointable smart-category page. Vectors never cross the ABI.
+    #[derive(Debug)]
+    struct FfiSmartClassificationBatch {
+        config_revision: String,
+        generation: String,
+        status: String,
+        embedding_space: String,
+        model_build: String,
+        processed_photos: u64,
+        embedded_photos: u32,
+        reused_photos: u32,
+        skipped_photos: u32,
+        total_photos: u64,
     }
 
     #[derive(Debug)]
@@ -2080,6 +2140,31 @@ mod ffi {
             query_revision: &str,
             language: &str,
         ) -> Result<FfiSemanticSearchReport>;
+        fn classify_smart_categories_batch(
+            self: &DesktopSession,
+            infer_base_url: &str,
+            credential_file: &str,
+            definitions: Vec<FfiSmartCategoryDefinition>,
+            config_revision: &str,
+            generation: &str,
+            start_new: bool,
+            clear_embeddings: bool,
+        ) -> Result<FfiSmartClassificationBatch>;
+        fn smart_classification_snapshot(
+            self: &DesktopSession,
+        ) -> Result<FfiSmartClassificationSnapshot>;
+        fn smart_category_members(self: &DesktopSession, category_id: &str) -> Result<Vec<String>>;
+        fn smart_category_review_queue(
+            self: &DesktopSession,
+        ) -> Result<Vec<FfiSmartCategoryReviewItem>>;
+        fn set_smart_category_feedback(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+            category_id: &str,
+            decision: i8,
+        ) -> Result<()>;
+        fn pause_smart_classification(self: &DesktopSession, generation: &str) -> Result<()>;
         fn load_review_visual(self: &DesktopSession, ticket: &str) -> Result<FfiVisualPayload>;
         fn prepare_review_comparison(
             self: &DesktopSession,

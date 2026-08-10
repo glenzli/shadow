@@ -2,6 +2,7 @@
 
 #include <QSortFilterProxyModel>
 #include <QHash>
+#include <QSet>
 #include <QStringList>
 
 /// A client-side Lightroom-style library filter over the locally loaded page.
@@ -48,6 +49,7 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] QStringList excludedKeywordIdsAny() const;
     [[nodiscard]] bool hasActiveServerFilter() const;
     [[nodiscard]] bool semanticFilterActive() const noexcept;
+    [[nodiscard]] bool smartCategoryFilterActive() const noexcept;
 
     void setFlagFilter(const QString& filter);
     void setMinimumRating(int rating);
@@ -75,11 +77,15 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     /// them from strongest to weakest. Keys use the controller-owned
     /// `{photo, representation}` identity grammar.
     void setSemanticRepresentationOrder(const QStringList& ranked_keys);
+    /// Restricts the loaded Review model to exact members of one published
+    /// smart category. Unlike semantic search this filter preserves grid order.
+    void setSmartCategoryRepresentationKeys(const QStringList& member_keys);
     Q_INVOKABLE void clearFilters();
 
   signals:
     void filtersChanged();
     void semanticFilterChanged();
+    void smartCategoryFilterChanged();
 
   protected:
     [[nodiscard]] bool
@@ -118,4 +124,5 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     QStringList keyword_ids_all_;
     QStringList excluded_keyword_ids_any_;
     QHash<QString, qsizetype> semantic_rank_by_key_;
+    QSet<QString> smart_category_keys_;
 };

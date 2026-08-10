@@ -22,7 +22,9 @@
 #include "personal_profile.hpp"
 #include "review_controller.hpp"
 #include "review_focus_detail_provider.hpp"
+#include "review_gallery_grouping_controller.hpp"
 #include "semantic_search_controller.hpp"
+#include "smart_category_controller.hpp"
 #include "thumbnail_provider.hpp"
 #include "ui_preferences.hpp"
 
@@ -41,6 +43,7 @@
 #include <QQuickWindow>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QTimer>
 #include <QUrl>
 #include <QVariant>
 #include <QWindow>
@@ -298,6 +301,39 @@ int main(int argc, char* argv[]) {
             );
         }
     );
+    SmartCategoryController smart_category_controller(
+        [backend, infer_base_url, infer_credential_file](
+            const QVector<BackendSmartCategoryDefinition>& definitions,
+            const QString& config_revision,
+            const QString& generation,
+            const bool start_new,
+            const bool clear_embeddings
+        ) {
+            return backend->classifySmartCategoriesBatch(
+                infer_base_url,
+                infer_credential_file,
+                definitions,
+                config_revision,
+                generation,
+                start_new,
+                clear_embeddings
+            );
+        },
+        [backend]() { return backend->smartClassificationSnapshot(); },
+        [backend](const QString& category_id) {
+            return backend->smartCategoryMembers(category_id);
+        },
+        [backend]() { return backend->smartCategoryReviewQueue(); },
+        [backend](
+            const QString& photo_id,
+            const QString& representation_id,
+            const QString& category_id,
+            const std::int8_t decision
+        ) {
+            backend->setSmartCategoryFeedback(photo_id, representation_id, category_id, decision);
+        },
+        [backend](const QString& generation) { backend->pauseSmartClassification(generation); }
+    );
     QObject::connect(
         &semantic_search_controller,
         &SemanticSearchController::resultsChanged,
@@ -314,8 +350,53 @@ int main(int argc, char* argv[]) {
         &semantic_search_controller,
         &SemanticSearchController::clearSessionResults
     );
+    QObject::connect(
+        &smart_category_controller,
+        &SmartCategoryController::selectionChanged,
+        &controller,
+        [&controller, &smart_category_controller]() {
+            controller.setSmartCategoryRepresentationKeys(
+                smart_category_controller.selectedRepresentationKeys()
+            );
+        }
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::allFiltersCleared,
+        &smart_category_controller,
+        &SmartCategoryController::clearSelection
+    );
+    QTimer smart_category_refresh_timer;
+    smart_category_refresh_timer.setSingleShot(true);
+    smart_category_refresh_timer.setInterval(700);
+    QObject::connect(
+        &smart_category_refresh_timer,
+        &QTimer::timeout,
+        &smart_category_controller,
+        [&controller, &smart_category_controller]() {
+            if (!controller.scanning() && !controller.refreshing() && controller.itemCount() > 0) {
+                smart_category_controller.ensureCurrent();
+            }
+        }
+    );
+    const auto schedule_smart_categories = [&smart_category_refresh_timer]() {
+        smart_category_refresh_timer.start();
+    };
+    QObject::connect(
+        &controller,
+        &ReviewController::scanningChanged,
+        &smart_category_controller,
+        [&controller, &smart_category_controller]() {
+            if (!controller.scanning() && controller.itemCount() > 0) {
+                smart_category_controller.refresh();
+            }
+        }
+    );
+    QTimer::singleShot(0, &smart_category_controller, schedule_smart_categories);
     JustifiedReviewLayoutModel justified_review_layout;
     justified_review_layout.setSourceModel(controller.model());
+    ReviewGalleryGroupingController review_gallery_grouping;
+    review_gallery_grouping.setSourceModel(controller.model());
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
     auto edit_preview_presentation_context = std::make_shared<EditPreviewPresentationContext>();
     EditPreviewPresentationRegistry edit_preview_presentation(
@@ -357,6 +438,12 @@ int main(int argc, char* argv[]) {
         &semantic_search_controller,
         &SemanticSearchController::retranslateUi
     );
+    QObject::connect(
+        &preferences,
+        &UiPreferences::effectiveLanguageChanged,
+        &review_gallery_grouping,
+        &ReviewGalleryGroupingController::retranslateUi
+    );
     QQmlApplicationEngine engine;
     preferences.attachEngine(engine);
 
@@ -382,6 +469,10 @@ int main(int argc, char* argv[]) {
             QStringLiteral("justifiedReviewLayout"),
             QVariant::fromValue(&justified_review_layout),
         },
+        {
+            QStringLiteral("reviewGalleryGrouping"),
+            QVariant::fromValue(&review_gallery_grouping),
+        },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
         {
             QStringLiteral("editPreviewPresentation"),
@@ -402,6 +493,10 @@ int main(int argc, char* argv[]) {
         {
             QStringLiteral("semanticSearchController"),
             QVariant::fromValue(&semantic_search_controller),
+        },
+        {
+            QStringLiteral("smartCategoryController"),
+            QVariant::fromValue(&smart_category_controller),
         },
         {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},

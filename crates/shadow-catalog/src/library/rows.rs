@@ -12,8 +12,9 @@ use crate::{
 };
 
 use super::{
-    AlbumKind, AlbumRecord, LibraryFacetValue, LibraryPhotoFacts, LibraryPhotoRecord,
-    LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationRecord, PhotoLibraryState,
+    AlbumKind, AlbumRecord, LibraryFacetValue, LibraryPhotoFacts, LibraryPhotoPlace,
+    LibraryPhotoRecord, LibrarySourceHealth, LibrarySourceRecord, MissingSourceLocationRecord,
+    PhotoLibraryState,
 };
 
 pub(super) fn read_library_photo(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryPhotoRecord> {
@@ -31,6 +32,18 @@ pub(super) fn read_library_photo(row: &rusqlite::Row<'_>) -> rusqlite::Result<Li
         .map_err(|error| invalid_data(27, error.to_string()))?;
     let representation_count: i64 = row.get(32)?;
     let source_location_count: i64 = row.get(33)?;
+    let country_key: Option<String> = row.get(36)?;
+    let resolved_place = country_key
+        .map(|country_key| -> rusqlite::Result<LibraryPhotoPlace> {
+            Ok(LibraryPhotoPlace {
+                country_key,
+                country_name: row.get(37)?,
+                locality_key: row.get(38)?,
+                locality_label: row.get(39)?,
+                display_name: row.get(40)?,
+            })
+        })
+        .transpose()?;
     Ok(LibraryPhotoRecord {
         photo_id,
         representation_id,
@@ -46,6 +59,7 @@ pub(super) fn read_library_photo(row: &rusqlite::Row<'_>) -> rusqlite::Result<Li
         location: AssetLocation::new(platform, row.get(3)?, row.get::<_, String>(4)?),
         source,
         facts: read_library_facts_from_columns(row, 7)?,
+        resolved_place,
         state: PhotoLibraryState {
             photo_id,
             liked: row.get::<_, i64>(24)? != 0,

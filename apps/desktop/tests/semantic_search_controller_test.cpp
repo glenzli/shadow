@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
                     {
                         .photo_id = QStringLiteral("photo-a"),
                         .representation_id = QStringLiteral("representation-a"),
-                        .cosine_similarity = 0.73F,
+                        .cosine_similarity = 0.77F,
                     },
                     {
                         .photo_id = QStringLiteral("photo-c"),
@@ -95,13 +95,10 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    controller.setRelevanceFilter(QStringLiteral("possible"));
-    const QStringList possible_keys = controller.rankedRepresentationKeys();
-    if (!require(
-            controller.relevanceFilter() == QStringLiteral("possible"),
-            "the possible group can be selected without rerunning inference"
-        )
-        || !require(possible_keys.size() == 1, "only possible matches remain visible")
+    const QStringList high_keys = controller.highRepresentationKeys();
+    const QStringList possible_keys = controller.possibleRepresentationKeys();
+    if (!require(high_keys.size() == 1, "the strongest section has one exact member")
+        || !require(possible_keys.size() == 1, "the possible section has one exact member")
         || !require(
             possible_keys.front()
                 == QStringLiteral("photo-a") + QChar{0x001f} + QStringLiteral("representation-a"),
@@ -110,8 +107,10 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    controller.setRelevanceFilter(QStringLiteral("all"));
-    if (!require(controller.shownResultCount() == 2, "all restores both visible tiers")) {
+    if (!require(
+            controller.shownResultCount() == 2,
+            "both visible sections remain in the gallery"
+        )) {
         return EXIT_FAILURE;
     }
 
@@ -121,9 +120,10 @@ int main(int argc, char* argv[]) {
             controller.rankedRepresentationKeys().isEmpty(),
             "clear releases the Review filter"
         )
+        || !require(controller.highRepresentationKeys().isEmpty(), "clear removes section members")
         || !require(
-            controller.relevanceFilter() == QStringLiteral("all"),
-            "clear resets the relevance group"
+            controller.possibleRepresentationKeys().isEmpty(),
+            "clear removes broader members"
         )) {
         return EXIT_FAILURE;
     }

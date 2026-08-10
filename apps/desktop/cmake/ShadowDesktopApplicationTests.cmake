@@ -66,6 +66,36 @@
     )
 
     add_executable(
+        shadow-smart-category-controller-test
+        tests/smart_category_controller_test.cpp
+        src/smart_category_controller.cpp
+        src/smart_category_controller.hpp
+    )
+    target_compile_features(shadow-smart-category-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-smart-category-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-smart-category-controller-test
+        PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-smart-category-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-smart-category-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-smart-category-controller
+        COMMAND shadow-smart-category-controller-test
+    )
+
+    add_executable(
         shadow-people-workspace-contract-test
         tests/people_workspace_contract_test.cpp
     )

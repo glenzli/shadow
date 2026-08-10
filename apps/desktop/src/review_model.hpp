@@ -87,6 +87,11 @@ struct ReviewItem final {
     QString lens_make;
     QString lens_model;
     std::int64_t captured_at_unix_seconds = 0;
+    /// Stable UTC-derived calendar day from Catalog (`YYYY-MM-DD`).
+    QString capture_day;
+    /// Camera/effective metadata place label. Structured country/locality
+    /// dimensions can be added later without parsing this presentation value.
+    QString place_name;
     double iso_speed = 0.0;
     double exposure_time_seconds = 0.0;
     double aperture_f_number = 0.0;
@@ -139,6 +144,8 @@ class ReviewModel final : public QAbstractListModel {
         LensMakeRole,
         LensModelRole,
         CapturedAtUnixSecondsRole,
+        CaptureDayRole,
+        PlaceNameRole,
         IsoSpeedRole,
         ExposureTimeSecondsRole,
         ApertureFNumberRole,

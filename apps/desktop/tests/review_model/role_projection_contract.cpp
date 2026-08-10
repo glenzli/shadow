@@ -15,6 +15,8 @@ void role_names_and_types_are_stable() {
     item.liked = true;
     item.color_label = QStringLiteral("blue");
     item.library_state_updated_at_ms = 1'724'000'000'123;
+    item.capture_day = QStringLiteral("2024-08-18");
+    item.place_name = QStringLiteral("Beijing");
     item.has_technical_observation = true;
     item.technical_input_width = 512;
     item.technical_input_height = 341;
@@ -46,6 +48,8 @@ void role_names_and_types_are_stable() {
         ExpectedRole{ReviewModel::LikedRole, "liked"},
         ExpectedRole{ReviewModel::ColorLabelRole, "colorLabel"},
         ExpectedRole{ReviewModel::LibraryStateUpdatedAtMsRole, "libraryStateUpdatedAtMs"},
+        ExpectedRole{ReviewModel::CaptureDayRole, "captureDay"},
+        ExpectedRole{ReviewModel::PlaceNameRole, "placeName"},
         ExpectedRole{ReviewModel::HasTechnicalObservationRole, "hasTechnicalObservation"},
         ExpectedRole{ReviewModel::TechnicalInputWidthRole, "technicalInputWidth"},
         ExpectedRole{ReviewModel::TechnicalInputHeightRole, "technicalInputHeight"},
@@ -106,6 +110,11 @@ void role_names_and_types_are_stable() {
             && value(model, 0, ReviewModel::LibraryStateUpdatedAtMsRole).toLongLong()
                    == 1'724'000'000'123,
         "Catalog-backed Library organization state must retain its QML types"
+    );
+    require(
+        value(model, 0, ReviewModel::CaptureDayRole).toString() == QStringLiteral("2024-08-18")
+            && value(model, 0, ReviewModel::PlaceNameRole).toString() == QStringLiteral("Beijing"),
+        "gallery grouping metadata must retain exact Catalog presentation values"
     );
     require(
         value(model, 0, ReviewModel::HasTechnicalObservationRole).typeId() == QMetaType::Bool,

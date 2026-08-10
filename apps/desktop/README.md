@@ -62,6 +62,20 @@ Application startup is split from environment-driven automation:
   [`src/review_filter_model.*`](src/review_filter_model.hpp) composes that ranking with existing
   Review filters and restores source order when it is cleared; vectors, prompts, paths, and model
   provenance never enter the Qt model.
+- [`src/smart_category_controller.*`](src/smart_category_controller.hpp) owns configurable,
+  overlapping smart-category definitions, checkpointed background classification, atomic
+  membership publication, and category selection. It consumes the rebuildable SigLIP sidecar
+  through `DesktopBackend`; vectors never enter Qt or the Catalog.
+- [`src/justified_review_layout_model.*`](src/justified_review_layout_model.hpp) owns virtualized
+  aspect-preserving photo rows plus ordered presentation sections. Section descriptors contain
+  display labels and exact photo-representation membership only; filter and grouping-rule
+  compilation stay upstream, and unassigned filtered photos are never silently discarded.
+  [`src/review_gallery_grouping_controller.*`](src/review_gallery_grouping_controller.hpp) is that
+  upstream grouping owner. It composes an optional semantic-relevance outer section with selected
+  stable dimensions, currently mutually exclusive year/month/week and an independent resolved
+  locality label with country/display-name fallback. The dimension registry is
+  presentation-generic so separate country/locality choices and People can be added as providers
+  without moving grouping policy into layout or QML.
 - [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace routing, theme
   projection, and the stable application-shell entry points used by child workspaces.
 - [`qml/PeopleWorkspace.qml`](qml/PeopleWorkspace.qml) owns the manually triggered People preview,
@@ -69,9 +83,15 @@ Application startup is split from environment-driven automation:
   not imply persistence, naming, merge/split facts, or automatic background analysis.
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns the compact gallery mode and
   batch controls inside Review.
-  [`qml/SemanticSearchStatusStrip.qml`](qml/SemanticSearchStatusStrip.qml) owns the integrated
-  natural-language filter field, keeps its asynchronous waiting state and high/possible relevance
-  groups visible, and clears back to the ordinary filtered grid without another workspace.
+  [`qml/SemanticSearchControl.qml`](qml/SemanticSearchControl.qml) owns the integrated
+  natural-language field, its asynchronous waiting/error state, and the responsive handoff from a
+  wide toolbar field to an anchored compact popup.
+  [`qml/ReviewGalleryGroupingControl.qml`](qml/ReviewGalleryGroupingControl.qml) renders the
+  grouping controller's open dimension registry as one anchored menu and communicates active
+  composite grouping without owning any photo-membership rules.
+  [`qml/ReviewGallerySectionNavigator.qml`](qml/ReviewGallerySectionNavigator.qml) owns the
+  transient scroll reveal, sampled index labels, drag preview, and concrete section jump gesture;
+  it consumes layout row anchors and never reconstructs date, place, or future People semantics.
 - [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
   workspace navigation, edit save/undo state, settings entry, and the History Drawer trigger. It
   preserves the `Main` translation context; [`qml/HistoryDrawer.qml`](qml/HistoryDrawer.qml) owns
@@ -543,13 +563,17 @@ Precision presentation follows the same responsibility tree:
 
 Review presentation keeps the workspace focused on selection and orchestration:
 
-- [`qml/ReviewGallerySurface.qml`](qml/ReviewGallerySurface.qml) owns grid and single-photo
+- [`qml/ReviewGallerySurface.qml`](qml/ReviewGallerySurface.qml) owns grouped grid and single-photo
   presentation, incremental paging, comparison, empty/busy states, and the sole selected-photo
-  decision-toolbar placement. [`qml/ReviewDecisionToolbar.qml`](qml/ReviewDecisionToolbar.qml)
+  decision-toolbar placement. Its generic ordered section descriptors partition the already
+  filtered gallery without owning filter criteria. Semantic relevance is an optional outer group;
+  user-selected date/place dimensions can subdivide it into combined groups through the separate
+  grouping controller.
+  [`qml/ReviewDecisionToolbar.qml`](qml/ReviewDecisionToolbar.qml)
   owns that floating pick/reject/rating/Like/color interaction contract across grid and single-photo
   presentation; the application status bar does not duplicate it.
-- [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns gallery layout and batch
-  command presentation while emitting external popup/navigation intents.
+- [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns gallery layout, responsive
+  semantic search, and batch command presentation while emitting external popup/navigation intents.
 - [`qml/ReviewLibrarySidebar.qml`](qml/ReviewLibrarySidebar.qml) is the Library-side navigation
   index. [`qml/ReviewSystemCollections.qml`](qml/ReviewSystemCollections.qml) owns built-in
   collection selection, [`qml/ReviewAlbumList.qml`](qml/ReviewAlbumList.qml) owns album loading

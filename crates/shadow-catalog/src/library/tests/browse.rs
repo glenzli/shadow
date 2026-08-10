@@ -663,6 +663,13 @@ fn country_and_city_facets_compose_with_the_photo_query_contract() {
         .library_photo_page(&shanghai, LibraryPhotoOrder::default(), None, 16)
         .expect("Shanghai photo page");
     assert_eq!(page.items.len(), 3);
+    assert!(page.items.iter().all(|item| {
+        let place = item.resolved_place.as_ref().expect("resolved photo place");
+        place.country_key == "cn"
+            && place.country_name == "China"
+            && place.locality_label == "Shanghai · China"
+            && !place.locality_key.is_empty()
+    }));
 }
 
 #[test]
