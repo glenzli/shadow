@@ -127,7 +127,7 @@ and gates, not implemented inference.
   outside Shadow.
 - A fail-closed loopback client for infer-runtime's experimental YuNet and
   SFace routes. It accepts only path-free literal loopback-IP HTTP URLs,
-  disables redirects, loads a regular owner-only credential file, validates
+  disables proxies and redirects, loads a regular owner-only credential file, validates
   the exact `input_pixels_no_exif_transform` coordinate contract, and rejects
   malformed model provenance or biometric responses. SFace vectors are fixed
   at 128 finite L2-normalized values in one exact embedding space; their Debug
@@ -139,6 +139,15 @@ and gates, not implemented inference.
   vectors, requires tokenizer provenance for text, and compares results only
   inside one exact versioned embedding space. The client does not own a photo
   index, retry checkpoint, or Catalog publication.
+- [`infer_runtime/discovery.rs`](src/providers/infer_runtime/discovery.rs) owns
+  Consumer endpoint selection independently from those typed routes. An
+  explicit Shadow override wins, otherwise it validates the owner-only
+  `infra.discovery.registration@20260810.1` manifest, exact
+  `infer-runtime.consumer@0.1.0-candidate.2` offer, lease, generation, and
+  canonical numeric-loopback endpoint. A connection failure re-runs discovery;
+  `http://127.0.0.1:8787` remains only as the final migration fallback. Remove
+  that fallback after the publisher release has restarted and soaked with the
+  offer present and every registered Consumer has completed this migration.
 - Deterministic anonymous-person candidate grouping over request-local SFace
   evidence. It uses conservative complete-link grouping, never compares
   different embedding spaces, never groups two co-occurring faces from the
@@ -237,6 +246,8 @@ putting vectors into the ordinary Catalog.
   [`src/people.rs`](src/people.rs) owns anonymous-person grouping and sensitive
   SFace value admission; [`src/providers/infer_runtime.rs`](src/providers/infer_runtime.rs)
   owns shared loopback transport and face routes, while
+  [`src/providers/infer_runtime/discovery.rs`](src/providers/infer_runtime/discovery.rs)
+  owns Consumer endpoint discovery and migration fallback policy, and
   [`src/providers/infer_runtime/semantic.rs`](src/providers/infer_runtime/semantic.rs)
   owns `SigLIP 2` image/text request and response admission;
   [`src/providers/`](src/providers/) owns the remaining platform availability

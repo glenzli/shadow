@@ -4,12 +4,12 @@
 //! base URL is restricted to the local machine so biometric image bytes cannot
 //! be redirected to a remote service.
 
+mod discovery;
 mod semantic;
 
 use std::{
     fmt, fs,
     io::{self, Read},
-    net::IpAddr,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::{FaceBoundingBox, FaceEmbedding, FaceLandmarks};
+use discovery::{DiscoveryEndpoint, InferRuntimeDiscoveryResolver};
 
 pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,
@@ -190,8 +191,14 @@ pub trait FaceAnalysisProvider {
 #[derive(Debug, Clone)]
 pub struct InferRuntimeClient {
     client: Client,
-    base_url: Url,
+    endpoint: InferRuntimeEndpoint,
     credential: InferRuntimeCredential,
+}
+
+#[derive(Debug, Clone)]
+enum InferRuntimeEndpoint {
+    Fixed(Url),
+    Discovery(Arc<InferRuntimeDiscoveryResolver>),
 }
 
 impl InferRuntimeClient {
@@ -206,15 +213,47 @@ impl InferRuntimeClient {
         credential: InferRuntimeCredential,
     ) -> Result<Self, InferRuntimeClientError> {
         let base_url = validate_loopback_base_url(base_url)?;
+        Self::with_endpoint(InferRuntimeEndpoint::Fixed(base_url), credential)
+    }
+
+    /// Creates a local-only client using the Consumer endpoint selection
+    /// order: explicit override, Infra Discovery, then the temporary fixed
+    /// loopback fallback.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an invalid explicit override or HTTP client construction
+    /// failure. Discovery failures remain contained and select the migration
+    /// fallback instead of changing credential or typed-request behavior.
+    pub fn discover(
+        explicit_base_url: Option<&str>,
+        credential: InferRuntimeCredential,
+    ) -> Result<Self, InferRuntimeClientError> {
+        if let Some(base_url) = explicit_base_url.filter(|value| !value.is_empty()) {
+            return Self::new(base_url, credential);
+        }
+        Self::with_endpoint(
+            InferRuntimeEndpoint::Discovery(Arc::new(
+                InferRuntimeDiscoveryResolver::from_environment(),
+            )),
+            credential,
+        )
+    }
+
+    fn with_endpoint(
+        endpoint: InferRuntimeEndpoint,
+        credential: InferRuntimeCredential,
+    ) -> Result<Self, InferRuntimeClientError> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_mins(1))
+            .no_proxy()
             .redirect(Policy::none())
             .build()
             .map_err(InferRuntimeClientError::ClientBuild)?;
         Ok(Self {
             client,
-            base_url,
+            endpoint,
             credential,
         })
     }
@@ -231,8 +270,35 @@ impl InferRuntimeClient {
         Self::new(base_url, InferRuntimeCredential::load(credential_path)?)
     }
 
-    fn endpoint(&self, path: &str) -> Result<Url, InferRuntimeClientError> {
-        self.base_url
+    /// Loads the existing owner-only credential and resolves the endpoint via
+    /// explicit override, Infra Discovery, then the migration fallback.
+    ///
+    /// # Errors
+    ///
+    /// Returns credential, explicit endpoint, or client construction failures.
+    pub fn from_credential_file_with_discovery(
+        explicit_base_url: Option<&str>,
+        credential_path: &Path,
+    ) -> Result<Self, InferRuntimeClientError> {
+        Self::discover(
+            explicit_base_url,
+            InferRuntimeCredential::load(credential_path)?,
+        )
+    }
+
+    fn resolve_endpoint(&self) -> DiscoveryEndpoint {
+        match &self.endpoint {
+            InferRuntimeEndpoint::Fixed(base_url) => DiscoveryEndpoint::explicit(base_url.clone()),
+            InferRuntimeEndpoint::Discovery(resolver) => resolver.resolve(),
+        }
+    }
+
+    fn endpoint_url(
+        endpoint: &DiscoveryEndpoint,
+        path: &str,
+    ) -> Result<Url, InferRuntimeClientError> {
+        endpoint
+            .base_url
             .join(path)
             .map_err(|_| InferRuntimeClientError::InvalidBaseUrl)
     }
@@ -246,13 +312,14 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         source_revision: &str,
     ) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
         validate_request(image, media_type, source_revision)?;
-        let form = image_form("vision.detect_faces", image, media_type, source_revision)?;
-        let response: RawFaceDetectionResponse = Self::send_json(
-            self.client
-                .post(self.endpoint(DETECT_FACES_PATH)?)
+        let response: RawFaceDetectionResponse = self.send_json(DETECT_FACES_PATH, |endpoint| {
+            let form = image_form("vision.detect_faces", image, media_type, source_revision)?;
+            Ok(self
+                .client
+                .post(endpoint)
                 .bearer_auth(self.credential.expose())
-                .multipart(form),
-        )?;
+                .multipart(form))
+        })?;
         response.validate(source_revision)
     }
 
@@ -273,22 +340,49 @@ impl FaceAnalysisProvider for InferRuntimeClient {
                 "face landmarks must be finite",
             ));
         }
-        let form = image_form("vision.embed_face", image, media_type, source_revision)?.text(
-            "landmarks",
-            serde_json::to_string(&landmarks).map_err(InferRuntimeClientError::SerializeRequest)?,
-        );
-        let response: RawFaceEmbeddingResponse = Self::send_json(
-            self.client
-                .post(self.endpoint(EMBED_FACE_PATH)?)
+        let landmarks_json =
+            serde_json::to_string(&landmarks).map_err(InferRuntimeClientError::SerializeRequest)?;
+        let response: RawFaceEmbeddingResponse = self.send_json(EMBED_FACE_PATH, |endpoint| {
+            let form = image_form("vision.embed_face", image, media_type, source_revision)?
+                .text("landmarks", landmarks_json.clone());
+            Ok(self
+                .client
+                .post(endpoint)
                 .bearer_auth(self.credential.expose())
-                .multipart(form),
-        )?;
+                .multipart(form))
+        })?;
         response.validate(source_revision)
     }
 }
 
 impl InferRuntimeClient {
     fn send_json<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        mut build_request: impl FnMut(Url) -> Result<RequestBuilder, InferRuntimeClientError>,
+    ) -> Result<T, InferRuntimeClientError> {
+        let first_endpoint = self.resolve_endpoint();
+        let request = build_request(Self::endpoint_url(&first_endpoint, path)?)?;
+        let first_result = Self::send_json_once(request);
+        let should_rediscover = matches!(
+            &first_result,
+            Err(InferRuntimeClientError::Request(error)) if error.is_connect()
+        );
+        if !should_rediscover {
+            return first_result;
+        }
+        let InferRuntimeEndpoint::Discovery(resolver) = &self.endpoint else {
+            return first_result;
+        };
+        let retry_endpoint = resolver.resolve_after_connection_failure(&first_endpoint);
+        if retry_endpoint == first_endpoint {
+            return first_result;
+        }
+        let retry = build_request(Self::endpoint_url(&retry_endpoint, path)?)?;
+        Self::send_json_once(retry)
+    }
+
+    fn send_json_once<T: DeserializeOwned>(
         request: RequestBuilder,
     ) -> Result<T, InferRuntimeClientError> {
         let mut response = request.send().map_err(InferRuntimeClientError::Request)?;
@@ -327,22 +421,16 @@ impl InferRuntimeClient {
 }
 
 fn validate_loopback_base_url(value: &str) -> Result<Url, InferRuntimeClientError> {
-    let mut url = Url::parse(value).map_err(|_| InferRuntimeClientError::InvalidBaseUrl)?;
-    let loopback = url.host_str().is_some_and(|host| {
-        host.trim_matches(['[', ']'])
-            .parse::<IpAddr>()
-            .is_ok_and(|address| address.is_loopback())
-    });
-    if url.scheme() != "http"
-        || !loopback
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || !matches!(url.path(), "" | "/")
-    {
+    let invalid = || InferRuntimeClientError::InvalidBaseUrl;
+    let address = value
+        .strip_prefix("http://")
+        .ok_or_else(invalid)?
+        .parse::<std::net::SocketAddr>()
+        .map_err(|_| invalid())?;
+    if !address.ip().is_loopback() || address.port() == 0 || format!("http://{address}") != value {
         return Err(InferRuntimeClientError::InvalidBaseUrl);
     }
+    let mut url = Url::parse(value).map_err(|_| InferRuntimeClientError::InvalidBaseUrl)?;
     url.set_path("/");
     Ok(url)
 }

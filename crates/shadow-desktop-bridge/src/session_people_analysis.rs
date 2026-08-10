@@ -14,9 +14,11 @@ impl DesktopSession {
         infer_base_url: &str,
         credential_file: &str,
     ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
-        let provider =
-            InferRuntimeClient::from_credential_file(infer_base_url, Path::new(credential_file))
-                .context("configure local people-analysis provider")?;
+        let provider = InferRuntimeClient::from_credential_file_with_discovery(
+            (!infer_base_url.is_empty()).then_some(infer_base_url),
+            Path::new(credential_file),
+        )
+        .context("configure local people-analysis provider")?;
         let report = analyze_review_people(
             &self.catalog,
             &self.cache_root,

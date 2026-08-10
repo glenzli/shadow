@@ -17,9 +17,11 @@ impl DesktopSession {
         query_revision: &str,
         language: &str,
     ) -> AnyResult<ffi::FfiSemanticSearchReport> {
-        let provider =
-            InferRuntimeClient::from_credential_file(infer_base_url, Path::new(credential_file))
-                .context("configure local semantic-search provider")?;
+        let provider = InferRuntimeClient::from_credential_file_with_discovery(
+            (!infer_base_url.is_empty()).then_some(infer_base_url),
+            Path::new(credential_file),
+        )
+        .context("configure local semantic-search provider")?;
         let report = search_review_semantics(
             &self.catalog,
             &self.cache_root,

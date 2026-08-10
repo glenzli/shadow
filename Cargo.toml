@@ -51,7 +51,7 @@ shadow-desktop-bridge = { path = "crates/shadow-desktop-bridge" }
 shadow-domain = { path = "crates/shadow-domain" }
 shadow-library-sharing = { path = "crates/shadow-library-sharing" }
 thiserror = "2.0.18"
-time = { version = "0.3.47", features = ["parsing"] }
+time = { version = "0.3.47", features = ["formatting", "parsing"] }
 tracing = "0.1.44"
 uuid = { version = "1.23.2", features = ["serde", "std", "v7"] }
 

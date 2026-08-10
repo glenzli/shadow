@@ -32,7 +32,21 @@ fn client_rejects_non_loopback_and_path_bearing_urls() {
     let credential = InferRuntimeCredential::parse(&"a".repeat(64)).expect("credential");
     assert!(InferRuntimeClient::new("https://example.com", credential.clone()).is_err());
     assert!(InferRuntimeClient::new("http://localhost:8787", credential.clone()).is_err());
+    assert!(InferRuntimeClient::new("http://127.0.0.1:8787/", credential.clone()).is_err());
     assert!(InferRuntimeClient::new("http://127.0.0.1:8787/other", credential).is_err());
+}
+
+#[test]
+fn explicit_override_takes_priority_without_discovery() {
+    let credential = InferRuntimeCredential::parse(&"a".repeat(64)).expect("credential");
+    let client = InferRuntimeClient::discover(Some("http://127.0.0.1:9876"), credential)
+        .expect("explicit override client");
+
+    assert!(matches!(
+        client.endpoint,
+        InferRuntimeEndpoint::Fixed(ref endpoint)
+            if endpoint.as_str() == "http://127.0.0.1:9876/"
+    ));
 }
 
 #[test]

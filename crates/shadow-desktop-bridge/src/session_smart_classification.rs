@@ -25,9 +25,11 @@ impl DesktopSession {
         start_new: bool,
         clear_embeddings: bool,
     ) -> AnyResult<ffi::FfiSmartClassificationBatch> {
-        let provider =
-            InferRuntimeClient::from_credential_file(infer_base_url, Path::new(credential_file))
-                .context("configure local smart-category provider")?;
+        let provider = InferRuntimeClient::from_credential_file_with_discovery(
+            (!infer_base_url.is_empty()).then_some(infer_base_url),
+            Path::new(credential_file),
+        )
+        .context("configure local smart-category provider")?;
         let definitions = definitions
             .into_iter()
             .map(|definition| SmartCategoryDefinition {

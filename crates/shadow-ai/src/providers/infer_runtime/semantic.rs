@@ -94,16 +94,18 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
         priority: SemanticRequestPriority,
     ) -> Result<ImageEmbeddingEvidence, InferRuntimeClientError> {
         validate_request(image, media_type, source_revision)?;
-        let form: multipart::Form =
-            image_form("vision.embed_image", image, media_type, source_revision)?
-                .text("image_orientation", NORMALIZED_DISPLAY_ORIENTATION)
-                .text("infer.priority", priority.as_str());
-        let response: RawImageEmbeddingResponse = Self::send_json(
-            self.client
-                .post(self.endpoint(IMAGE_EMBEDDING_PATH)?)
-                .bearer_auth(self.credential.expose())
-                .multipart(form),
-        )?;
+        let response: RawImageEmbeddingResponse =
+            self.send_json(IMAGE_EMBEDDING_PATH, |endpoint| {
+                let form: multipart::Form =
+                    image_form("vision.embed_image", image, media_type, source_revision)?
+                        .text("image_orientation", NORMALIZED_DISPLAY_ORIENTATION)
+                        .text("infer.priority", priority.as_str());
+                Ok(self
+                    .client
+                    .post(endpoint)
+                    .bearer_auth(self.credential.expose())
+                    .multipart(form))
+            })?;
         response.validate(source_revision)
     }
 
@@ -122,12 +124,14 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
             language,
             metadata: BTreeMap::from([("infer.priority", priority.as_str())]),
         };
-        let response: RawTextEmbeddingResponse = Self::send_json(
-            self.client
-                .post(self.endpoint(TEXT_EMBEDDING_PATH)?)
-                .bearer_auth(self.credential.expose())
-                .json(&request),
-        )?;
+        let response: RawTextEmbeddingResponse =
+            self.send_json(TEXT_EMBEDDING_PATH, |endpoint| {
+                Ok(self
+                    .client
+                    .post(endpoint)
+                    .bearer_auth(self.credential.expose())
+                    .json(&request))
+            })?;
         response.validate(query_revision, language)
     }
 }

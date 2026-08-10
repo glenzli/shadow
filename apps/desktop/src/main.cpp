@@ -268,9 +268,6 @@ int main(int argc, char* argv[]) {
     ExportController export_controller(backend, isolated_settings_file);
     CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
     QString infer_base_url = qEnvironmentVariable("SHADOW_INFER_BASE_URL");
-    if (infer_base_url.isEmpty()) {
-        infer_base_url = QStringLiteral("http://127.0.0.1:8787");
-    }
     QString infer_credential_file = qEnvironmentVariable("SHADOW_INFER_CREDENTIAL_FILE");
     if (infer_credential_file.isEmpty()) {
         // Infer Runtime provisions App credentials beside, rather than inside,
