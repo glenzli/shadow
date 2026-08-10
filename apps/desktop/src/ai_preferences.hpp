@@ -25,6 +25,26 @@ class AiPreferences final : public QObject {
             setSubjectMaskExecutionAllowed NOTIFY subjectMaskExecutionAllowedChanged
     )
     Q_PROPERTY(
+        bool imageUnderstandingExecutionAllowed READ imageUnderstandingExecutionAllowed WRITE
+            setImageUnderstandingExecutionAllowed NOTIFY imageUnderstandingExecutionAllowedChanged
+    )
+    Q_PROPERTY(
+        bool imageUnderstandingBackgroundEnabled READ imageUnderstandingBackgroundEnabled WRITE
+            setImageUnderstandingBackgroundEnabled NOTIFY imageUnderstandingBackgroundEnabledChanged
+    )
+    Q_PROPERTY(
+        QString imageUnderstandingScanScope READ imageUnderstandingScanScope WRITE
+            setImageUnderstandingScanScope NOTIFY imageUnderstandingScanScopeChanged
+    )
+    Q_PROPERTY(
+        int imageUnderstandingMinimumRating READ imageUnderstandingMinimumRating WRITE
+            setImageUnderstandingMinimumRating NOTIFY imageUnderstandingMinimumRatingChanged
+    )
+    Q_PROPERTY(
+        bool imageUnderstandingAutoApplyKeywords READ imageUnderstandingAutoApplyKeywords WRITE
+            setImageUnderstandingAutoApplyKeywords NOTIFY imageUnderstandingAutoApplyKeywordsChanged
+    )
+    Q_PROPERTY(
         int rawDenoiseDefaultAmount READ rawDenoiseDefaultAmount WRITE setRawDenoiseDefaultAmount
             NOTIFY rawDenoiseDefaultAmountChanged
     )
@@ -44,17 +64,32 @@ class AiPreferences final : public QObject {
 
     [[nodiscard]] bool rawDenoiseExecutionAllowed() const noexcept;
     [[nodiscard]] bool subjectMaskExecutionAllowed() const noexcept;
+    [[nodiscard]] bool imageUnderstandingExecutionAllowed() const noexcept;
+    [[nodiscard]] bool imageUnderstandingBackgroundEnabled() const noexcept;
+    [[nodiscard]] QString imageUnderstandingScanScope() const;
+    [[nodiscard]] int imageUnderstandingMinimumRating() const noexcept;
+    [[nodiscard]] bool imageUnderstandingAutoApplyKeywords() const noexcept;
     [[nodiscard]] int rawDenoiseDefaultAmount() const noexcept;
     [[nodiscard]] QString modelStoragePath() const;
     [[nodiscard]] QUrl modelStorageUrl() const;
 
     void setRawDenoiseExecutionAllowed(bool allowed);
     void setSubjectMaskExecutionAllowed(bool allowed);
+    void setImageUnderstandingExecutionAllowed(bool allowed);
+    void setImageUnderstandingBackgroundEnabled(bool enabled);
+    void setImageUnderstandingScanScope(const QString& scope);
+    void setImageUnderstandingMinimumRating(int rating);
+    void setImageUnderstandingAutoApplyKeywords(bool enabled);
     void setRawDenoiseDefaultAmount(int amount_percent);
 
   signals:
     void rawDenoiseExecutionAllowedChanged();
     void subjectMaskExecutionAllowedChanged();
+    void imageUnderstandingExecutionAllowedChanged();
+    void imageUnderstandingBackgroundEnabledChanged();
+    void imageUnderstandingScanScopeChanged();
+    void imageUnderstandingMinimumRatingChanged();
+    void imageUnderstandingAutoApplyKeywordsChanged();
     void rawDenoiseDefaultAmountChanged();
 
   private:
@@ -64,5 +99,10 @@ class AiPreferences final : public QObject {
     QString model_storage_path_;
     bool raw_denoise_execution_allowed_ = true;
     bool subject_mask_execution_allowed_ = true;
+    bool image_understanding_execution_allowed_ = true;
+    bool image_understanding_background_enabled_ = false;
+    QString image_understanding_scan_scope_ = QStringLiteral("liked");
+    int image_understanding_minimum_rating_ = 5;
+    bool image_understanding_auto_apply_keywords_ = false;
     int raw_denoise_default_amount_ = 100;
 };

@@ -11,6 +11,7 @@
 #include "export_controller.hpp"
 #include "geonames_library_reverse_geocoder.hpp"
 #include "history_coordinator.hpp"
+#include "image_understanding_controller.hpp"
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
@@ -48,6 +49,8 @@
 #include <QVariant>
 #include <QWindow>
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 
 namespace {
@@ -331,6 +334,93 @@ int main(int argc, char* argv[]) {
         },
         [backend](const QString& generation) { backend->pauseSmartClassification(generation); }
     );
+    ImageUnderstandingController image_understanding_controller(
+        &ai_preferences,
+        [backend, infer_base_url, infer_credential_file](
+            const QString& scan_scope,
+            const int minimum_rating,
+            const QString& generation,
+            const bool start_new,
+            const bool auto_apply_keywords
+        ) {
+            return backend->processImageUnderstandingBatch(
+                infer_base_url,
+                infer_credential_file,
+                scan_scope,
+                static_cast<std::uint8_t>(std::clamp(minimum_rating, 1, 5)),
+                generation,
+                start_new,
+                auto_apply_keywords
+            );
+        },
+        [backend]() { return backend->imageUnderstandingSnapshot(); },
+        [backend](const QString& generation) {
+            return backend->pauseImageUnderstanding(generation);
+        },
+        [backend, infer_base_url, infer_credential_file](
+            const QString& photo_id,
+            const QString& representation_id,
+            const QString& taxonomy_revision,
+            const QVector<BackendClassificationReviewCategory>& categories
+        ) {
+            return backend->reviewSmartClassificationWithModel(
+                infer_base_url,
+                infer_credential_file,
+                photo_id,
+                representation_id,
+                taxonomy_revision,
+                categories
+            );
+        },
+        [backend](
+            const QString& photo_id,
+            const QString& representation_id,
+            const QString& source_revision
+        ) {
+            return backend->acceptAdvancedClassificationReview(
+                photo_id,
+                representation_id,
+                source_revision
+            );
+        },
+        [backend](
+            const QString& photo_id,
+            const QString& representation_id,
+            const QString& source_revision
+        ) {
+            backend->dismissAdvancedClassificationReview(
+                photo_id,
+                representation_id,
+                source_revision
+            );
+        },
+        [backend](const QString& photo_id, const QString& representation_id) {
+            return backend->imageUnderstandingProposal(photo_id, representation_id);
+        },
+        [backend](
+            const QString& photo_id,
+            const QString& representation_id,
+            const QString& source_revision
+        ) {
+            backend->applyImageUnderstandingKeywords(
+                photo_id,
+                representation_id,
+                source_revision
+            );
+        },
+        [&smart_category_controller]() {
+            return smart_category_controller.enabledReviewCategories();
+        },
+        [&smart_category_controller]() {
+            return smart_category_controller.reviewTaxonomyRevision();
+        }
+    );
+    QObject::connect(
+        &image_understanding_controller,
+        &ImageUnderstandingController::advancedReviewAccepted,
+        &smart_category_controller,
+        &SmartCategoryController::reloadAfterExternalFeedback
+    );
     QObject::connect(
         &semantic_search_controller,
         &SemanticSearchController::resultsChanged,
@@ -389,6 +479,15 @@ int main(int argc, char* argv[]) {
             }
         }
     );
+    QObject::connect(
+        &controller,
+        &ReviewController::scanningChanged,
+        &image_understanding_controller,
+        [&controller, &image_understanding_controller]() {
+            if (!controller.scanning() && controller.itemCount() > 0)
+                image_understanding_controller.notifyLibraryChanged();
+        }
+    );
     QTimer::singleShot(0, &smart_category_controller, schedule_smart_categories);
     JustifiedReviewLayoutModel justified_review_layout;
     justified_review_layout.setSourceModel(controller.model());
@@ -434,6 +533,12 @@ int main(int argc, char* argv[]) {
         &UiPreferences::effectiveLanguageChanged,
         &semantic_search_controller,
         &SemanticSearchController::retranslateUi
+    );
+    QObject::connect(
+        &preferences,
+        &UiPreferences::effectiveLanguageChanged,
+        &image_understanding_controller,
+        &ImageUnderstandingController::retranslateUi
     );
     QObject::connect(
         &preferences,
@@ -494,6 +599,10 @@ int main(int argc, char* argv[]) {
         {
             QStringLiteral("smartCategoryController"),
             QVariant::fromValue(&smart_category_controller),
+        },
+        {
+            QStringLiteral("imageUnderstandingController"),
+            QVariant::fromValue(&image_understanding_controller),
         },
         {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},

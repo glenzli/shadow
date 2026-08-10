@@ -23,6 +23,17 @@ Popup {
         }
         return false
     }
+    readonly property bool advancedStateMatches: hasWorkspace
+        && workspace.imageUnderstandingController.advancedReviewPhotoId === photoId
+        && workspace.imageUnderstandingController.advancedReviewRepresentationId
+            === representationId
+    readonly property string advancedDisposition: advancedStateMatches
+        ? workspace.imageUnderstandingController.advancedReviewDisposition : ""
+    readonly property bool photoProposalMatches: hasWorkspace
+        && workspace.imageUnderstandingController.photoProposalAvailable
+        && workspace.imageUnderstandingController.photoProposalPhotoId === photoId
+        && workspace.imageUnderstandingController.photoProposalRepresentationId
+            === representationId
 
     width: 388
     padding: 10
@@ -52,6 +63,8 @@ Popup {
             })
         }
         ++modelRevision
+        workspace.imageUnderstandingController.loadPhotoProposal(
+            photoId, representationId)
         parent = Overlay.overlay
         const point = item.mapToItem(Overlay.overlay, item.width, 0)
         x = Math.max(8, Math.min(point.x - width,
@@ -76,13 +89,21 @@ Popup {
     function saveCorrections() {
         if (!hasWorkspace)
             return
+        let changed = false
         for (let index = 0; index < categoryModel.count; ++index) {
             const option = categoryModel.get(index)
             if (Boolean(option.chosen) === Boolean(option.originalChosen))
                 continue
+            changed = true
             workspace.smartCategoryController.recordFeedback(
                 photoId, representationId, String(option.categoryId),
                 Boolean(option.chosen) ? 1 : -1)
+        }
+        if (changed && advancedStateMatches
+                && advancedDisposition !== "accepted"
+                && advancedDisposition !== "dismissed"
+                && advancedDisposition !== "") {
+            workspace.imageUnderstandingController.dismissAdvancedReview()
         }
         close()
     }
@@ -213,6 +234,214 @@ Popup {
             color: Theme.textMuted
             font.pixelSize: Theme.fontMeta
             wrapMode: Text.WordWrap
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: proposalContent.implicitHeight + 18
+            radius: Theme.compactControlRadius
+            color: Theme.surfaceSubtle
+            border.width: 1
+            border.color: Theme.border
+
+            ColumnLayout {
+                id: proposalContent
+                anchors.fill: parent
+                anchors.margins: 9
+                spacing: 5
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Local photo description")
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontMeta
+                    font.weight: Font.DemiBold
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.photoProposalMatches
+                    text: root.photoProposalMatches
+                        ? root.workspace.imageUnderstandingController.photoDescription : ""
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.photoProposalMatches
+                    text: root.photoProposalMatches
+                        ? qsTr("Suggested keywords: %1").arg(
+                            root.workspace.imageUnderstandingController
+                                .photoKeywords.join(" · ")) : ""
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: !root.photoProposalMatches
+                    text: qsTr("This photo has no local description yet. It will be analyzed when it enters the configured background range.")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root.photoProposalMatches
+                        && root.workspace.imageUnderstandingController
+                            .photoProposalDisposition === "suggested"
+
+                    Item { Layout.fillWidth: true }
+
+                    ShadowButton {
+                        compact: true
+                        text: qsTr("Add suggested keywords")
+                        onClicked:
+                            root.workspace.imageUnderstandingController
+                                .acceptPhotoKeywords()
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: advancedContent.implicitHeight + 18
+            radius: Theme.compactControlRadius
+            color: Theme.surfaceSubtle
+            border.width: 1
+            border.color: Theme.border
+
+            ColumnLayout {
+                id: advancedContent
+                anchors.fill: parent
+                anchors.margins: 9
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 7
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 1
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Advanced local review")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontMeta
+                            font.weight: Font.DemiBold
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Ask the larger local model to choose only from your enabled categories.")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontMeta
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    ShadowButton {
+                        compact: true
+                        visible: !root.advancedStateMatches
+                            || (!root.workspace.imageUnderstandingController.advancedReviewBusy
+                                && root.advancedDisposition.length === 0)
+                        enabled: root.hasWorkspace
+                            && !root.workspace.imageUnderstandingController.advancedReviewBusy
+                        text: qsTr("Ask model")
+                        onClicked:
+                            root.workspace.imageUnderstandingController
+                                .requestAdvancedReview(
+                                    root.photoId, root.representationId)
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root.advancedStateMatches
+                        && root.workspace.imageUnderstandingController.advancedReviewBusy
+                    spacing: 7
+
+                    BusyIndicator {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        running: visible
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Reviewing this photo locally…")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontMeta
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root.advancedDisposition === "matched"
+                    spacing: 7
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Suggested category: %1")
+                            .arg(root.workspace.imageUnderstandingController
+                                .advancedReviewCategoryName)
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontMeta
+                        font.weight: Font.DemiBold
+                    }
+
+                    ShadowButton {
+                        compact: true
+                        variant: ShadowButton.Primary
+                        text: qsTr("Accept suggestion")
+                        onClicked: {
+                            root.workspace.imageUnderstandingController
+                                .acceptAdvancedReview()
+                            if (root.workspace.imageUnderstandingController
+                                    .advancedReviewDisposition === "accepted")
+                                root.close()
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.advancedDisposition === "none"
+                    text: qsTr("The model found no suitable category. You can still correct the choices above.")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.advancedDisposition === "uncertain"
+                    text: qsTr("The model is also uncertain. No category was changed.")
+                    color: Theme.warningText
+                    font.pixelSize: Theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.advancedStateMatches
+                        && root.workspace.imageUnderstandingController
+                            .advancedReviewError.length > 0
+                    text: root.advancedStateMatches
+                        ? root.workspace.imageUnderstandingController
+                            .advancedReviewError : ""
+                    color: Theme.dangerText
+                    font.pixelSize: Theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+            }
         }
 
         RowLayout {

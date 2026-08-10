@@ -10,7 +10,22 @@ namespace {
 
 constexpr auto raw_denoise_allowed_key = "ai/raw_denoise_execution_allowed";
 constexpr auto subject_mask_allowed_key = "ai/subject_mask_execution_allowed";
+constexpr auto image_understanding_allowed_key = "ai/image_understanding_execution_allowed";
+constexpr auto image_understanding_background_key = "ai/image_understanding_background_enabled";
+constexpr auto image_understanding_scope_key = "ai/image_understanding_scan_scope";
+constexpr auto image_understanding_minimum_rating_key = "ai/image_understanding_minimum_rating";
+constexpr auto image_understanding_auto_keywords_key = "ai/image_understanding_auto_apply_keywords";
 constexpr auto raw_denoise_default_amount_key = "ai/raw_denoise_default_amount";
+
+[[nodiscard]] QString normalized_image_understanding_scope(const QString& value) {
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("all") || normalized == QStringLiteral("liked")
+        || normalized == QStringLiteral("minimum_rating")
+        || normalized == QStringLiteral("liked_or_minimum_rating")) {
+        return normalized;
+    }
+    return QStringLiteral("liked");
+}
 
 } // namespace
 
@@ -37,6 +52,45 @@ AiPreferences::AiPreferences(
         settings_
             ->value(QString::fromLatin1(subject_mask_allowed_key), subject_mask_execution_allowed_)
             .toBool();
+    image_understanding_execution_allowed_ =
+        settings_
+            ->value(
+                QString::fromLatin1(image_understanding_allowed_key),
+                image_understanding_execution_allowed_
+            )
+            .toBool();
+    image_understanding_background_enabled_ =
+        settings_
+            ->value(
+                QString::fromLatin1(image_understanding_background_key),
+                image_understanding_background_enabled_
+            )
+            .toBool();
+    image_understanding_scan_scope_ = normalized_image_understanding_scope(
+        settings_
+            ->value(
+                QString::fromLatin1(image_understanding_scope_key),
+                image_understanding_scan_scope_
+            )
+            .toString()
+    );
+    image_understanding_minimum_rating_ = std::clamp(
+        settings_
+            ->value(
+                QString::fromLatin1(image_understanding_minimum_rating_key),
+                image_understanding_minimum_rating_
+            )
+            .toInt(),
+        1,
+        5
+    );
+    image_understanding_auto_apply_keywords_ =
+        settings_
+            ->value(
+                QString::fromLatin1(image_understanding_auto_keywords_key),
+                image_understanding_auto_apply_keywords_
+            )
+            .toBool();
     raw_denoise_default_amount_ = std::clamp(
         settings_
             ->value(
@@ -57,6 +111,26 @@ bool AiPreferences::rawDenoiseExecutionAllowed() const noexcept {
 
 bool AiPreferences::subjectMaskExecutionAllowed() const noexcept {
     return subject_mask_execution_allowed_;
+}
+
+bool AiPreferences::imageUnderstandingExecutionAllowed() const noexcept {
+    return image_understanding_execution_allowed_;
+}
+
+bool AiPreferences::imageUnderstandingBackgroundEnabled() const noexcept {
+    return image_understanding_background_enabled_;
+}
+
+QString AiPreferences::imageUnderstandingScanScope() const {
+    return image_understanding_scan_scope_;
+}
+
+int AiPreferences::imageUnderstandingMinimumRating() const noexcept {
+    return image_understanding_minimum_rating_;
+}
+
+bool AiPreferences::imageUnderstandingAutoApplyKeywords() const noexcept {
+    return image_understanding_auto_apply_keywords_;
 }
 
 int AiPreferences::rawDenoiseDefaultAmount() const noexcept {
@@ -87,6 +161,53 @@ void AiPreferences::setSubjectMaskExecutionAllowed(const bool allowed) {
     subject_mask_execution_allowed_ = allowed;
     persist(subject_mask_allowed_key, allowed);
     emit subjectMaskExecutionAllowedChanged();
+}
+
+void AiPreferences::setImageUnderstandingExecutionAllowed(const bool allowed) {
+    if (image_understanding_execution_allowed_ == allowed) {
+        return;
+    }
+    image_understanding_execution_allowed_ = allowed;
+    persist(image_understanding_allowed_key, allowed);
+    emit imageUnderstandingExecutionAllowedChanged();
+}
+
+void AiPreferences::setImageUnderstandingBackgroundEnabled(const bool enabled) {
+    if (image_understanding_background_enabled_ == enabled) {
+        return;
+    }
+    image_understanding_background_enabled_ = enabled;
+    persist(image_understanding_background_key, enabled);
+    emit imageUnderstandingBackgroundEnabledChanged();
+}
+
+void AiPreferences::setImageUnderstandingScanScope(const QString& scope) {
+    const QString normalized = normalized_image_understanding_scope(scope);
+    if (image_understanding_scan_scope_ == normalized) {
+        return;
+    }
+    image_understanding_scan_scope_ = normalized;
+    persist(image_understanding_scope_key, normalized);
+    emit imageUnderstandingScanScopeChanged();
+}
+
+void AiPreferences::setImageUnderstandingMinimumRating(const int rating) {
+    const int normalized = std::clamp(rating, 1, 5);
+    if (image_understanding_minimum_rating_ == normalized) {
+        return;
+    }
+    image_understanding_minimum_rating_ = normalized;
+    persist(image_understanding_minimum_rating_key, normalized);
+    emit imageUnderstandingMinimumRatingChanged();
+}
+
+void AiPreferences::setImageUnderstandingAutoApplyKeywords(const bool enabled) {
+    if (image_understanding_auto_apply_keywords_ == enabled) {
+        return;
+    }
+    image_understanding_auto_apply_keywords_ = enabled;
+    persist(image_understanding_auto_keywords_key, enabled);
+    emit imageUnderstandingAutoApplyKeywordsChanged();
 }
 
 void AiPreferences::setRawDenoiseDefaultAmount(const int amount_percent) {

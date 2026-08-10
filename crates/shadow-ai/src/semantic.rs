@@ -172,6 +172,9 @@ impl SemanticEmbedding {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SemanticKeywordKind {
+    /// Open-ended model concept whose narrower ontology is intentionally
+    /// unknown to the Consumer.
+    Concept,
     Scene,
     Object,
     Activity,

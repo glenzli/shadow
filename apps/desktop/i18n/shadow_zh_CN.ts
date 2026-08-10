@@ -9833,6 +9833,20 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
 </context>
 <context>
+    <name>ImageUnderstandingController</name>
+    <message><source>Local photo understanding is disabled.</source><translation>本地照片理解已关闭。</translation></message>
+    <message><source>Eligible photos are waiting for local analysis.</source><translation>符合条件的照片正在等待本地分析。</translation></message>
+    <message><source>Background photo understanding is off.</source><translation>后台照片理解未开启。</translation></message>
+    <message><source>Pausing after the current photo…</source><translation>将在当前照片处理完成后暂停…</translation></message>
+    <message><source>Understanding photos locally… %1 of %2</source><translation>正在本地理解照片… %1 / %2</translation></message>
+    <message><source>Photo understanding is paused at %1 of %2.</source><translation>照片理解已暂停于 %1 / %2。</translation></message>
+    <message><source>Eligible photos are up to date.</source><translation>符合条件的照片已全部更新。</translation></message>
+    <message><source>Photo understanding was interrupted.</source><translation>照片理解已中断。</translation></message>
+    <message><source>Infer Runtime is unavailable. Start it, then resume.</source><translation>Infer Runtime 当前不可用。请启动后继续。</translation></message>
+    <message><source>The checkpoint is safe. Resume after the local model is available.</source><translation>进度检查点已安全保存。本地模型可用后可继续。</translation></message>
+    <message><source>The advanced local review could not finish. Check Infer Runtime and try again.</source><translation>高级本地复核未能完成。请检查 Infer Runtime 后重试。</translation></message>
+</context>
+<context>
     <name>SettingsAiPane</name>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="39"/>
@@ -9878,6 +9892,74 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/SettingsAiPane.qml" line="118"/>
         <source>Subject selection uses the local SAM 2.1 provider when installed. Photo pixels and prompts are not uploaded by this feature.</source>
         <translation>主体选择会在安装后使用本地 SAM 2.1 提供程序。此功能不会上传照片像素或提示内容。</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="127"/>
+        <source>Photo understanding</source>
+        <translation>照片理解</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="136"/>
+        <source>Allow local descriptions, keywords, and category review</source>
+        <translation>允许本地生成描述、关键词和分类复核建议</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="145"/>
+        <source>A heavier local vision model is used only for explicit review or eligible background photos. Its output remains a suggestion until the configured acceptance policy applies.</source>
+        <translation>较重的本地视觉模型只用于主动复核或符合后台范围的照片。在设定的采纳策略生效前，其输出始终只是建议。</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="155"/>
+        <source>Analyze eligible photos in the background</source>
+        <translation>在后台分析符合条件的照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="170"/>
+        <source>Background range</source>
+        <translation>后台扫描范围</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="186"/>
+        <source>Liked photos</source>
+        <translation>喜欢的照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="187"/>
+        <source>By star rating</source>
+        <translation>按星级</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="190"/>
+        <source>Liked or highly rated</source>
+        <translation>喜欢或高星级</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="192"/>
+        <source>All photos</source>
+        <translation>全部照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="218"/>
+        <source>Minimum rating</source>
+        <translation>最低星级</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="238"/>
+        <source>A full Library can take a long time. Shadow processes it in small resumable batches and yields to interactive work.</source>
+        <translation>扫描整个图库可能需要较长时间。Shadow 会使用可恢复的小批次处理，并优先让出资源给交互任务。</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="250"/>
+        <source>Automatically apply AI keyword suggestions</source>
+        <translation>自动应用 AI 关键词建议</translation>
+    </message>
+    <message><source>Pause</source><translation>暂停</translation></message>
+    <message><source>Resume</source><translation>继续</translation></message>
+    <message><source>Scan again</source><translation>重新扫描</translation></message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="259"/>
+        <source>AI-owned keyword assignments may be refreshed when the model or image changes. Manually created and imported assignments are never removed.</source>
+        <translation>模型或照片变化时，可以刷新由 AI 管理的关键词关联；手动创建和导入的关联绝不会被移除。</translation>
     </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="127"/>
@@ -10545,6 +10627,18 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message><source>NEEDS REVIEW</source><translation>待确认</translation></message>
     <message><source>CURRENT</source><translation>当前分类</translation></message>
     <message><source>Your corrections are saved locally and help classify similar photos.</source><translation>你的纠错会保存在本地，并帮助分类相似照片。</translation></message>
+    <message><source>Local photo description</source><translation>本地照片描述</translation></message>
+    <message><source>Suggested keywords: %1</source><translation>建议关键词：%1</translation></message>
+    <message><source>This photo has no local description yet. It will be analyzed when it enters the configured background range.</source><translation>这张照片还没有本地描述；进入设定的后台范围后会自动分析。</translation></message>
+    <message><source>Add suggested keywords</source><translation>添加建议关键词</translation></message>
+    <message><source>Advanced local review</source><translation>高级本地复核</translation></message>
+    <message><source>Ask the larger local model to choose only from your enabled categories.</source><translation>让更强的本地模型仅从你启用的分类中选择。</translation></message>
+    <message><source>Ask model</source><translation>询问模型</translation></message>
+    <message><source>Reviewing this photo locally…</source><translation>正在本地复核这张照片…</translation></message>
+    <message><source>Suggested category: %1</source><translation>建议分类：%1</translation></message>
+    <message><source>Accept suggestion</source><translation>接受建议</translation></message>
+    <message><source>The model found no suitable category. You can still correct the choices above.</source><translation>模型没有找到合适的分类。你仍可以在上方手动纠正。</translation></message>
+    <message><source>The model is also uncertain. No category was changed.</source><translation>模型也无法确定，因此没有修改任何分类。</translation></message>
     <message><source>Cancel</source><translation>取消</translation></message>
     <message><source>Save corrections</source><translation>保存纠错</translation></message>
 </context>

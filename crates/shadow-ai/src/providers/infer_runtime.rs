@@ -5,6 +5,7 @@
 //! be redirected to a remote service.
 
 mod discovery;
+mod image_understanding;
 mod semantic;
 
 use std::{
@@ -26,6 +27,12 @@ use thiserror::Error;
 use crate::{FaceBoundingBox, FaceEmbedding, FaceLandmarks};
 use discovery::{DiscoveryEndpoint, InferRuntimeDiscoveryResolver};
 
+pub use image_understanding::{
+    ClassificationReviewCategory, ClassificationReviewDisposition, ClassificationReviewEvidence,
+    ClassificationReviewProvider, ClassificationReviewRequest, ClassificationReviewSuggestion,
+    ImageUnderstandingEvidence, ImageUnderstandingProvenance, ImageUnderstandingProvider,
+    ImageUnderstandingQuality,
+};
 pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,
     TextEmbeddingEvidence,
@@ -690,6 +697,8 @@ pub enum InferRuntimeClientError {
     InvalidQueryRevision,
     #[error("infer-runtime language must be a BCP-47-shaped ASCII tag of at most 35 bytes")]
     InvalidLanguage,
+    #[error("infer-runtime classification taxonomy or category set is invalid")]
+    InvalidClassificationCategories,
     #[error("cannot serialize infer-runtime request: {0}")]
     SerializeRequest(serde_json::Error),
     #[error("infer-runtime request failed: {0}")]

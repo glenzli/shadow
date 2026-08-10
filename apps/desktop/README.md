@@ -66,6 +66,11 @@ Application startup is split from environment-driven automation:
   overlapping smart-category definitions, checkpointed background classification, atomic
   membership publication, and category selection. It consumes the rebuildable SigLIP sidecar
   through `DesktopBackend`; vectors never enter Qt or the Catalog.
+- [`src/image_understanding_controller.*`](src/image_understanding_controller.hpp) owns the
+  policy-gated Qwen background queue, resumable checkpoints, description and keyword proposal
+  projection, and explicit closed-set classification review. It keeps model output as assistant
+  evidence until automatic keyword policy or a user action accepts it; accepted classification
+  suggestions re-enter the existing smart-category feedback and adaptation contract.
 - [`src/justified_review_layout_model.*`](src/justified_review_layout_model.hpp) owns virtualized
   aspect-preserving photo rows plus ordered presentation sections. Section descriptors contain
   display labels and exact photo-representation membership only; filter and grouping-rule
@@ -124,8 +129,9 @@ Application startup is split from environment-driven automation:
   keeps only field grouping and preference orchestration.
 - [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
   and EXIF-field presentation preferences. [`src/ai_preferences.*`](src/ai_preferences.hpp) owns
-  admission policy for new local AI work plus the default strength of newly authored RAW-denoise
-  nodes; model discovery and verification remain with the model runtimes.
+  admission policy for new local AI work, background image-understanding eligibility and keyword
+  acceptance policy, plus the default strength of newly authored RAW-denoise nodes; model discovery,
+  queue checkpoints, proposals, and verification remain with their model/workflow owners.
   [`src/personal_profile.*`](src/personal_profile.hpp) is deliberately separate from application
   settings: it owns the device-local nickname, normalized avatar, and a bounded set of
   provider-independent living-place rules with optional inclusive month ranges.
@@ -249,7 +255,9 @@ Application startup is split from environment-driven automation:
 [`src/backend/review_types.hpp`](src/backend/review_types.hpp),
 [`src/backend/library_types.hpp`](src/backend/library_types.hpp),
 [`src/backend/edit_types.hpp`](src/backend/edit_types.hpp), and
-[`src/backend/cache_types.hpp`](src/backend/cache_types.hpp), while remote sharing DTOs live in
+[`src/backend/cache_types.hpp`](src/backend/cache_types.hpp). Qwen queue, proposal, and review DTOs
+live in [`src/backend/image_understanding_types.hpp`](src/backend/image_understanding_types.hpp),
+while remote sharing DTOs live in
 [`src/backend/remote_library_types.hpp`](src/backend/remote_library_types.hpp); follow the domain header before
 changing a wire shape.
 

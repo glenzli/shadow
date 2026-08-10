@@ -306,9 +306,11 @@ impl Catalog {
                      source_label = excluded.source_label,
                      confidence_milli = excluded.confidence_milli,
                      assigned_at_ms = excluded.assigned_at_ms
-                 WHERE library_photo_keywords.origin <> excluded.origin
-                    OR library_photo_keywords.source_label <> excluded.source_label
-                    OR library_photo_keywords.confidence_milli IS NOT excluded.confidence_milli",
+                 WHERE (library_photo_keywords.origin <> excluded.origin
+                        OR library_photo_keywords.source_label <> excluded.source_label
+                        OR library_photo_keywords.confidence_milli IS NOT excluded.confidence_milli)
+                   AND (excluded.origin <> 'ai_accepted'
+                        OR library_photo_keywords.origin = 'ai_accepted')",
                 params![
                     keyword_id.as_bytes().as_slice(),
                     photo_id.as_bytes().as_slice(),

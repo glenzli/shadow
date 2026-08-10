@@ -96,6 +96,38 @@
     )
 
     add_executable(
+        shadow-image-understanding-controller-test
+        tests/image_understanding_controller_test.cpp
+        src/image_understanding_controller.cpp
+        src/image_understanding_controller.hpp
+        src/ai_preferences.cpp
+        src/ai_preferences.hpp
+    )
+    target_compile_features(shadow-image-understanding-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-image-understanding-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-image-understanding-controller-test
+        PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-image-understanding-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-image-understanding-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-image-understanding-controller
+        COMMAND shadow-image-understanding-controller-test
+    )
+
+    add_executable(
         shadow-people-workspace-contract-test
         tests/people_workspace_contract_test.cpp
     )

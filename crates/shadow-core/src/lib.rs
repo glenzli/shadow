@@ -7,6 +7,7 @@ mod derived_raster_store;
 mod derived_raster_workflow;
 #[cfg(test)]
 mod display_jpeg_fixture;
+mod image_understanding;
 mod import;
 mod library_metadata;
 mod native_path;
@@ -41,6 +42,21 @@ pub use derived_raster_workflow::{
     CurrentDerivedRasterPromotionFailure, DerivedRasterStageError, DerivedRasterStageOutcome,
     DerivedRasterStageReceipt, StagedDerivedRasterProposal, execute_and_stage_derived_raster,
     execute_and_stage_derived_raster_with_progress, promote_staged_derived_raster_if_current,
+};
+pub use image_understanding::{
+    AdvancedClassificationReviewError, AdvancedClassificationReviewRequest,
+    ClassificationReviewProposal, ClassificationReviewProposalDisposition,
+    DEFAULT_IMAGE_UNDERSTANDING_BATCH_SIZE, IMAGE_UNDERSTANDING_SCAN_POLICY_VERSION,
+    ImageUnderstandingBatch, ImageUnderstandingKeywordAcceptance,
+    ImageUnderstandingKeywordApplication, ImageUnderstandingPolicyError,
+    ImageUnderstandingProposal, ImageUnderstandingProposalDisposition, ImageUnderstandingRequest,
+    ImageUnderstandingRunSnapshot, ImageUnderstandingRunStatus, ImageUnderstandingScanPolicy,
+    ImageUnderstandingScanScope, ImageUnderstandingStoreError, ImageUnderstandingWorkflowError,
+    MAX_IMAGE_UNDERSTANDING_BATCH_SIZE, accept_advanced_classification_review,
+    advanced_classification_review, apply_image_understanding_keywords,
+    dismiss_advanced_classification_review, image_understanding_proposal,
+    image_understanding_snapshot, pause_image_understanding, process_image_understanding_batch,
+    review_smart_classification_with_model,
 };
 pub use import::{
     CatalogRelinkConfirmation, ConfirmedRelink, PendingStrongRelink, ProfiledScanReport,

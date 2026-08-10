@@ -25,6 +25,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Desktop-session Review and cache-maintenance CXX delegation | [`src/session_review.rs`](src/session_review.rs), [`src/session_cache_maintenance.rs`](src/session_cache_maintenance.rs) |
 | Desktop-session transient anonymous-person analysis and biometric-free CXX summary projection; empty endpoint input delegates to the shared Infer Runtime Consumer resolver | [`src/session_people_analysis.rs`](src/session_people_analysis.rs) |
 | Desktop-session bounded SigLIP text-to-image ranking, smart-category batching, and vector-free CXX projection; explicit endpoint input remains the diagnostic override | [`src/session_semantic_search.rs`](src/session_semantic_search.rs), [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
+| Desktop-session resumable Qwen image-understanding batches, rebuildable description/keyword proposals, and closed-set classification review with explicit acceptance or dismissal | [`src/session_image_understanding.rs`](src/session_image_understanding.rs) |
 | Canonical wall-clock conversion and digest encoding | [`src/wall_clock.rs`](src/wall_clock.rs), [`src/digest_hex.rs`](src/digest_hex.rs) |
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
 | Folder-owned source relinking from scan evidence, an unavailable Library card, or a configured source: verified attachment, replacement-root adoption, unresolved counts, and safe obsolete-source retirement | [`src/relink_service.rs`](src/relink_service.rs) |

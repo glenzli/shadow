@@ -18,6 +18,7 @@ ApplicationWindow {
     required property var peopleAnalysisController
     required property var semanticSearchController
     required property var smartCategoryController
+    required property var imageUnderstandingController
     required property var aiPreferences
     required property var cachePreferences
     required property var historyController
@@ -116,6 +117,7 @@ ApplicationWindow {
         id: applicationSettingsDialog
         preferences: window.preferences
         aiPreferences: window.aiPreferences
+        imageUnderstandingController: window.imageUnderstandingController
         cachePreferences: window.cachePreferences
         cacheMaintenanceController: window.cacheMaintenanceController
         mapProviderPreferences: window.mapProviderPreferences
@@ -298,6 +300,7 @@ ApplicationWindow {
             personalProfile: window.personalProfile
             semanticSearchController: window.semanticSearchController
             smartCategoryController: window.smartCategoryController
+            imageUnderstandingController: window.imageUnderstandingController
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {

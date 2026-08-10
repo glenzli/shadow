@@ -27,9 +27,22 @@ int main(int argc, char* argv[]) {
         AiPreferences preferences(application_data, settings_path);
         preferences.setRawDenoiseExecutionAllowed(false);
         preferences.setSubjectMaskExecutionAllowed(false);
+        preferences.setImageUnderstandingExecutionAllowed(false);
+        preferences.setImageUnderstandingBackgroundEnabled(true);
+        preferences.setImageUnderstandingScanScope(QStringLiteral("liked_or_minimum_rating"));
+        preferences.setImageUnderstandingMinimumRating(4);
+        preferences.setImageUnderstandingAutoApplyKeywords(true);
         preferences.setRawDenoiseDefaultAmount(68);
         if (!expect(!preferences.rawDenoiseExecutionAllowed())
             || !expect(!preferences.subjectMaskExecutionAllowed())
+            || !expect(!preferences.imageUnderstandingExecutionAllowed())
+            || !expect(preferences.imageUnderstandingBackgroundEnabled())
+            || !expect(
+                preferences.imageUnderstandingScanScope()
+                == QStringLiteral("liked_or_minimum_rating")
+            )
+            || !expect(preferences.imageUnderstandingMinimumRating() == 4)
+            || !expect(preferences.imageUnderstandingAutoApplyKeywords())
             || !expect(preferences.rawDenoiseDefaultAmount() == 68)
             || !expect(preferences.modelStoragePath().endsWith(QStringLiteral("models")))
             || !expect(QDir(preferences.modelStoragePath()).exists())
@@ -40,8 +53,15 @@ int main(int argc, char* argv[]) {
 
     AiPreferences reopened(application_data, settings_path);
     reopened.setRawDenoiseDefaultAmount(500);
+    reopened.setImageUnderstandingMinimumRating(500);
+    reopened.setImageUnderstandingScanScope(QStringLiteral("invalid"));
     return expect(!reopened.rawDenoiseExecutionAllowed())
                    && expect(!reopened.subjectMaskExecutionAllowed())
+                   && expect(!reopened.imageUnderstandingExecutionAllowed())
+                   && expect(reopened.imageUnderstandingBackgroundEnabled())
+                   && expect(reopened.imageUnderstandingScanScope() == QStringLiteral("liked"))
+                   && expect(reopened.imageUnderstandingMinimumRating() == 5)
+                   && expect(reopened.imageUnderstandingAutoApplyKeywords())
                    && expect(reopened.rawDenoiseDefaultAmount() == 100)
                ? EXIT_SUCCESS
                : EXIT_FAILURE;

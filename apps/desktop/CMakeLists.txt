@@ -352,6 +352,7 @@ qt_add_executable(
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
     src/desktop_backend_history.cpp
+    src/desktop_backend_image_understanding.cpp
     src/desktop_backend_library.cpp
     src/desktop_backend_library_server.cpp
     src/desktop_backend_people.cpp
@@ -369,6 +370,7 @@ qt_add_executable(
     src/backend/review_projection.hpp
     src/backend/cache_types.hpp
     src/backend/edit_types.hpp
+    src/backend/image_understanding_types.hpp
     src/backend/library_types.hpp
     src/backend/library_server_types.hpp
     src/backend/remote_library_types.hpp
@@ -491,6 +493,8 @@ qt_add_executable(
     src/history_coordinator.hpp
     src/history_model.cpp
     src/history_model.hpp
+    src/image_understanding_controller.cpp
+    src/image_understanding_controller.hpp
     src/main.cpp
     src/ai_preferences.cpp
     src/ai_preferences.hpp

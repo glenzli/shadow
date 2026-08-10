@@ -19,6 +19,7 @@ Item {
     required property var personalProfile
     required property var semanticSearchController
     required property var smartCategoryController
+    required property var imageUnderstandingController
 
     ReviewSelectionState {
         id: selectionState

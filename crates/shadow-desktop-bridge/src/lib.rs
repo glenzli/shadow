@@ -17,6 +17,7 @@ mod remote_library_service;
 mod review_service;
 mod scan_service;
 mod session_history;
+mod session_image_understanding;
 mod session_library;
 mod session_library_server;
 mod session_people_analysis;
@@ -1025,6 +1026,64 @@ mod ffi {
         reused_photos: u32,
         skipped_photos: u32,
         total_photos: u64,
+    }
+
+    /// One bounded page from the durable Qwen background queue.
+    #[derive(Debug)]
+    struct FfiImageUnderstandingBatch {
+        generation: String,
+        status: String,
+        processed_photos: u64,
+        total_photos: u64,
+        analyzed_photos: u32,
+        reused_photos: u32,
+        skipped_photos: u32,
+    }
+
+    #[derive(Debug)]
+    struct FfiImageUnderstandingSnapshot {
+        available: bool,
+        policy_revision: String,
+        generation: String,
+        status: String,
+        processed_photos: u64,
+        total_photos: u64,
+        updated_at_ms: i64,
+    }
+
+    #[derive(Debug)]
+    struct FfiImageUnderstandingProposal {
+        available: bool,
+        photo_id: String,
+        representation_id: String,
+        source_revision: String,
+        description: String,
+        language: String,
+        keywords: Vec<String>,
+        disposition: String,
+        model_profile: String,
+        model_build: String,
+    }
+
+    #[derive(Debug)]
+    struct FfiClassificationReviewCategory {
+        id: String,
+        name: String,
+        description: String,
+    }
+
+    #[derive(Debug)]
+    struct FfiClassificationReviewProposal {
+        available: bool,
+        photo_id: String,
+        representation_id: String,
+        source_revision: String,
+        taxonomy_revision: String,
+        disposition: String,
+        category_id: String,
+        proposal_status: String,
+        model_profile: String,
+        model_build: String,
     }
 
     #[derive(Debug)]
@@ -2165,6 +2224,60 @@ mod ffi {
             decision: i8,
         ) -> Result<()>;
         fn pause_smart_classification(self: &DesktopSession, generation: &str) -> Result<()>;
+        fn process_image_understanding_batch(
+            self: &DesktopSession,
+            infer_base_url: &str,
+            credential_file: &str,
+            scan_scope: &str,
+            minimum_rating: u8,
+            generation: &str,
+            start_new: bool,
+            auto_apply_keywords: bool,
+        ) -> Result<FfiImageUnderstandingBatch>;
+        fn image_understanding_snapshot(
+            self: &DesktopSession,
+        ) -> Result<FfiImageUnderstandingSnapshot>;
+        fn pause_image_understanding(
+            self: &DesktopSession,
+            generation: &str,
+        ) -> Result<FfiImageUnderstandingSnapshot>;
+        fn image_understanding_proposal(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+        ) -> Result<FfiImageUnderstandingProposal>;
+        fn apply_image_understanding_keywords(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+            source_revision: &str,
+        ) -> Result<()>;
+        fn review_smart_classification_with_model(
+            self: &DesktopSession,
+            infer_base_url: &str,
+            credential_file: &str,
+            photo_id: &str,
+            representation_id: &str,
+            taxonomy_revision: &str,
+            categories: Vec<FfiClassificationReviewCategory>,
+        ) -> Result<FfiClassificationReviewProposal>;
+        fn advanced_classification_review(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+        ) -> Result<FfiClassificationReviewProposal>;
+        fn accept_advanced_classification_review(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+            source_revision: &str,
+        ) -> Result<String>;
+        fn dismiss_advanced_classification_review(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+            source_revision: &str,
+        ) -> Result<()>;
         fn load_review_visual(self: &DesktopSession, ticket: &str) -> Result<FfiVisualPayload>;
         fn prepare_review_comparison(
             self: &DesktopSession,

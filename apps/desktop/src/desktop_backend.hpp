@@ -3,6 +3,7 @@
 #include "backend/cache_types.hpp"
 #include "backend/edit_types.hpp"
 #include "backend/history_types.hpp"
+#include "backend/image_understanding_types.hpp"
 #include "backend/library_server_types.hpp"
 #include "backend/library_types.hpp"
 #include "backend/people_analysis_types.hpp"
@@ -252,6 +253,49 @@ class DesktopBackend final {
         std::int8_t decision
     ) const;
     void pauseSmartClassification(const QString& generation) const;
+    [[nodiscard]] BackendImageUnderstandingBatch processImageUnderstandingBatch(
+        const QString& infer_base_url,
+        const QString& credential_file,
+        const QString& scan_scope,
+        std::uint8_t minimum_rating,
+        const QString& generation,
+        bool start_new,
+        bool auto_apply_keywords
+    ) const;
+    [[nodiscard]] BackendImageUnderstandingSnapshot imageUnderstandingSnapshot() const;
+    [[nodiscard]] BackendImageUnderstandingSnapshot
+    pauseImageUnderstanding(const QString& generation) const;
+    [[nodiscard]] BackendImageUnderstandingProposal imageUnderstandingProposal(
+        const QString& photo_id,
+        const QString& representation_id
+    ) const;
+    void applyImageUnderstandingKeywords(
+        const QString& photo_id,
+        const QString& representation_id,
+        const QString& source_revision
+    ) const;
+    [[nodiscard]] BackendClassificationReviewProposal reviewSmartClassificationWithModel(
+        const QString& infer_base_url,
+        const QString& credential_file,
+        const QString& photo_id,
+        const QString& representation_id,
+        const QString& taxonomy_revision,
+        const QVector<BackendClassificationReviewCategory>& categories
+    ) const;
+    [[nodiscard]] BackendClassificationReviewProposal advancedClassificationReview(
+        const QString& photo_id,
+        const QString& representation_id
+    ) const;
+    [[nodiscard]] QString acceptAdvancedClassificationReview(
+        const QString& photo_id,
+        const QString& representation_id,
+        const QString& source_revision
+    ) const;
+    void dismissAdvancedClassificationReview(
+        const QString& photo_id,
+        const QString& representation_id,
+        const QString& source_revision
+    ) const;
     [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,

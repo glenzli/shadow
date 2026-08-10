@@ -985,6 +985,7 @@ dependencies = [
  "quick-xml",
  "rusqlite",
  "serde",
+ "serde_json",
  "shadow-ai",
  "shadow-bridge",
  "shadow-cache",

@@ -31,7 +31,7 @@ pub enum SemanticRequestPriority {
 }
 
 impl SemanticRequestPriority {
-    const fn as_str(self) -> &'static str {
+    pub(super) const fn as_str(self) -> &'static str {
         match self {
             Self::Interactive => "interactive",
             Self::Background => "background",

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "backend/image_understanding_types.hpp"
 #include "backend/smart_category_types.hpp"
 
 #include <QFutureWatcher>
@@ -90,6 +91,8 @@ class SmartCategoryController final : public QObject {
     [[nodiscard]] qulonglong uncertainCount() const noexcept;
     [[nodiscard]] bool reviewingUncertain() const noexcept;
     [[nodiscard]] int uncertaintyRevision() const noexcept;
+    [[nodiscard]] QVector<BackendClassificationReviewCategory> enabledReviewCategories() const;
+    [[nodiscard]] QString reviewTaxonomyRevision() const;
 
     Q_INVOKABLE void ensureCurrent();
     Q_INVOKABLE void refresh();
@@ -118,6 +121,7 @@ class SmartCategoryController final : public QObject {
     Q_INVOKABLE void addCategory(const QString& name, const QString& description);
     Q_INVOKABLE void resetDefaults();
     Q_INVOKABLE void retranslateUi();
+    void reloadAfterExternalFeedback();
 
   signals:
     void categoriesChanged();

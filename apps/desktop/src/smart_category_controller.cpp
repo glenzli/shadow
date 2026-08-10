@@ -250,6 +250,21 @@ int SmartCategoryController::uncertaintyRevision() const noexcept {
     return uncertainty_revision_;
 }
 
+QVector<BackendClassificationReviewCategory>
+SmartCategoryController::enabledReviewCategories() const {
+    QVector<BackendClassificationReviewCategory> result;
+    for (const Category& category : categories_) {
+        if (category.enabled) {
+            result.push_back({category.id, category.name, category.description});
+        }
+    }
+    return result;
+}
+
+QString SmartCategoryController::reviewTaxonomyRevision() const {
+    return configurationRevision();
+}
+
 void SmartCategoryController::ensureCurrent() {
     if (state_ == State::Idle || state_ == State::NeedsUpdate)
         refresh();
@@ -442,6 +457,11 @@ void SmartCategoryController::resetDefaults() {
 void SmartCategoryController::retranslateUi() {
     emit categoriesChanged();
     emit stateChanged();
+}
+
+void SmartCategoryController::reloadAfterExternalFeedback() {
+    restoreSnapshot();
+    feedback_refresh_timer_.start();
 }
 
 QString SmartCategoryController::configurationRevision() const {

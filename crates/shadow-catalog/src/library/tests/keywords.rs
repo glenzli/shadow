@@ -182,6 +182,17 @@ fn accepted_ai_assignment_requires_provenance_and_manual_writes_are_idempotent()
         .expect("repeat manual assignment");
     assert_eq!(first.changed_photo_count, 1);
     assert_eq!(repeated.changed_photo_count, 0);
+    let ai_attempt = catalog
+        .assign_library_keyword_to_photos(
+            keyword.id,
+            &[photo],
+            LibraryKeywordAssignmentOrigin::AiAccepted,
+            "qwen3-vl-4b-local-v1",
+            None,
+            23,
+        )
+        .expect("preserve manual assignment");
+    assert_eq!(ai_attempt.changed_photo_count, 0);
     assert_eq!(
         catalog
             .library_keywords_for_photo(photo)
