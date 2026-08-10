@@ -29,6 +29,7 @@ Popup {
     property bool nodesExpanded: false
     readonly property bool hasWorkspace:
         workspace !== null && workspace !== undefined
+    signal smartCategoryCorrectionRequested()
 
     width: 258
     padding: 6
@@ -321,6 +322,19 @@ Popup {
                         root.close()
                     }
                 }
+            }
+        }
+
+        Divider {}
+
+        MenuRow {
+            text: qsTr("Correct smart categories…")
+            iconSource: "qrc:/icons/tag.svg"
+            actionEnabled: root.hasWorkspace
+                && root.workspace.smartCategoryController.hasPublishedResults
+            onActivated: {
+                root.close()
+                root.smartCategoryCorrectionRequested()
             }
         }
 

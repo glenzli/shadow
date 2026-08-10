@@ -409,6 +409,11 @@ Item {
 
         ReviewPhotoContextMenu {
             id: cardMenu
+            onSmartCategoryCorrectionRequested: {
+                smartFeedbackPopup.openFor(
+                    card, card.workspace, card.photoId,
+                    card.representationId, card.title)
+            }
         }
 
         ReviewSmartCategoryFeedbackPopup {
@@ -445,44 +450,40 @@ Item {
             }
         }
 
-        Rectangle {
-            id: smartUncertainBadge
+        ShadowIconButton {
+            id: smartCorrectionButton
             anchors.right: parent.right
             anchors.bottom: caption.top
             anchors.rightMargin: 9
             anchors.bottomMargin: 8
-            width: 24
-            height: 24
+            buttonSize: 26
+            iconSize: 14
             z: 4
-            visible: card.smartCategoryUncertain
-            radius: 12
-            color: Theme.warningSurface
-            border.width: 1
-            border.color: Theme.warningBorder
-
-            Label {
-                anchors.centerIn: parent
-                text: "?"
-                color: Theme.warningText
-                font.pixelSize: 13
-                font.weight: Font.Bold
+            visible: card.workspace.smartCategoryController.hasPublishedResults
+                && (card.smartCategoryUncertain
+                    || cardMouse.containsMouse || card.selected
+                    || smartCorrectionButton.hovered)
+            opacity: visible ? 1.0 : 0.0
+            source: "qrc:/icons/tag.svg"
+            variant: ShadowIconButton.Secondary
+            selected: card.smartCategoryUncertain
+            selectedSurfaceColor: Theme.warningSurface
+            selectedHoverSurfaceColor: Theme.warningSurface
+            selectedPressedSurfaceColor: Theme.warningSurface
+            selectedOutlineColor: Theme.warningBorder
+            selectedIconColor: Theme.warningText
+            toolTipText: card.smartCategoryUncertain
+                ? qsTr("Smart category needs review")
+                : qsTr("Correct smart categories")
+            accessibleName: toolTipText
+            onClicked: {
+                card.workspace.selectPhoto(card, 0)
+                smartFeedbackPopup.openFor(
+                    smartCorrectionButton, card.workspace,
+                    card.photoId, card.representationId, card.title)
             }
 
-            ToolTip.visible: uncertainMouse.containsMouse
-            ToolTip.text: qsTr("Smart category needs review")
-
-            MouseArea {
-                id: uncertainMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    card.workspace.selectPhoto(card, 0)
-                    smartFeedbackPopup.openFor(
-                        smartUncertainBadge, card.workspace,
-                        card.photoId, card.representationId, card.title)
-                }
-            }
+            Behavior on opacity { NumberAnimation { duration: 100 } }
         }
     }
 

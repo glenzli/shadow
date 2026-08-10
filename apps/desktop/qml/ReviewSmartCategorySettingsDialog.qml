@@ -44,6 +44,7 @@ Popup {
     }
 
     contentItem: ColumnLayout {
+        clip: true
         spacing: 0
         RowLayout {
             Layout.fillWidth: true
@@ -77,6 +78,7 @@ Popup {
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 0
             spacing: 0
             ListView {
                 id: settingsList
@@ -122,7 +124,13 @@ Popup {
                     }
                 }
             }
-            Rectangle { Layout.fillHeight: true; Layout.preferredWidth: 1; color: Theme.border }
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.minimumHeight: 0
+                Layout.preferredWidth: 1
+                Layout.bottomMargin: 1
+                color: Theme.border
+            }
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true

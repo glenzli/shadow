@@ -7902,6 +7902,7 @@ Technical detail: %1</source>
 <context>
     <name>ReviewPhotoCard</name>
     <message><source>Smart category needs review</source><translation>智能分类待确认</translation></message>
+    <message><source>Correct smart categories</source><translation>纠正智能分类</translation></message>
     <message>
         <location filename="../qml/ReviewSinglePreview.qml" line="99"/>
         <source>ORIGINAL NOT FOUND</source>
@@ -8029,6 +8030,10 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewPhotoContextMenu.qml" line="313"/>
         <source>%1 star</source>
         <translation>%1 星</translation>
+    </message>
+    <message>
+        <source>Correct smart categories…</source>
+        <translation>纠正智能分类…</translation>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoContextMenu.qml" line="330"/>
@@ -10534,12 +10539,14 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 </context>
 <context>
     <name>ReviewSmartCategoryFeedbackPopup</name>
-    <message><source>Review smart category</source><translation>确认智能分类</translation></message>
-    <message><source>Your decision is kept as the strongest local evidence.</source><translation>你的判断会作为优先级最高的本地依据。</translation></message>
-    <message><source>HIGH-VALUE REVIEW</source><translation>优先确认</translation></message>
-    <message><source>No</source><translation>不属于</translation></message>
-    <message><source>Yes</source><translation>属于</translation></message>
-    <message><source>Clear previous decision</source><translation>清除之前的判断</translation></message>
+    <message><source>Correct smart categories</source><translation>纠正智能分类</translation></message>
+    <message><source>Select every category that correctly describes this photo.</source><translation>请选择所有符合这张照片的分类。</translation></message>
+    <message><source>%1 belongs to this photo</source><translation>%1 适用于这张照片</translation></message>
+    <message><source>NEEDS REVIEW</source><translation>待确认</translation></message>
+    <message><source>CURRENT</source><translation>当前分类</translation></message>
+    <message><source>Your corrections are saved locally and help classify similar photos.</source><translation>你的纠错会保存在本地，并帮助分类相似照片。</translation></message>
+    <message><source>Cancel</source><translation>取消</translation></message>
+    <message><source>Save corrections</source><translation>保存纠错</translation></message>
 </context>
 <context>
     <name>ReviewSmartCategorySettingsDialog</name>

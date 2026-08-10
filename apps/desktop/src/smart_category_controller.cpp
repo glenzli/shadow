@@ -335,19 +335,27 @@ QVariantList SmartCategoryController::feedbackCategories(
     const QString& photo_id,
     const QString& representation_id
 ) const {
-    const QStringList uncertain =
-        uncertainty_categories_by_key_.value(representationKey(photo_id, representation_id));
+    const QString key = representationKey(photo_id, representation_id);
+    const QStringList uncertain = uncertainty_categories_by_key_.value(key);
     QVariantList result;
     result.reserve(categories_.size());
     const auto append = [&](const bool uncertain_only) {
         for (const Category& category : categories_) {
             if (!category.enabled || uncertain.contains(category.id) != uncertain_only)
                 continue;
+            bool matched = false;
+            try {
+                matched = members_loader_(category.id).contains(key);
+            } catch (const std::exception& error) {
+                qWarning().noquote()
+                    << "Could not load smart-category correction membership:" << error.what();
+            }
             result.push_back(
                 QVariantMap{
                     {"id", category.id},
                     {"name", category.name},
                     {"uncertain", uncertain_only},
+                    {"matched", matched},
                 }
             );
         }

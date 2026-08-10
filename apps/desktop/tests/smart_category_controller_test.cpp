@@ -148,6 +148,30 @@ int main(int argc, char** argv) {
         controller.isUncertain(QStringLiteral("photo-b"), QStringLiteral("representation-b")),
         "visible cards can query uncertainty without copying the vector index"
     );
+    const QVariantList feedback_categories = controller.feedbackCategories(
+        QStringLiteral("photo-b"),
+        QStringLiteral("representation-b")
+    );
+    bool found_matched_portrait = false;
+    bool found_unmatched_travel = false;
+    for (const QVariant& value : feedback_categories) {
+        const QVariantMap category = value.toMap();
+        const QString category_id = category.value(QStringLiteral("id")).toString();
+        if (category_id == QStringLiteral("portrait")) {
+            found_matched_portrait = category.value(QStringLiteral("matched")).toBool()
+                                     && category.value(QStringLiteral("uncertain")).toBool();
+        } else if (category_id == QStringLiteral("travel")) {
+            found_unmatched_travel = !category.value(QStringLiteral("matched")).toBool();
+        }
+    }
+    require(
+        found_matched_portrait,
+        "correction choices expose the photo's current uncertain membership"
+    );
+    require(
+        found_unmatched_travel,
+        "correction choices expose categories that may be selected as replacements"
+    );
     controller.selectUncertain();
     require(
         controller.selectedRepresentationKeys().size() == 1,

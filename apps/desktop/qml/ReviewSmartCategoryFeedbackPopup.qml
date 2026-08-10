@@ -11,11 +11,20 @@ Popup {
     property string photoId: ""
     property string representationId: ""
     property string photoTitle: ""
-    property var categoryOptions: []
+    property int modelRevision: 0
     readonly property bool hasWorkspace:
         workspace !== null && workspace !== undefined
+    readonly property bool hasChanges: {
+        const revision = modelRevision
+        for (let index = 0; index < categoryModel.count; ++index) {
+            const option = categoryModel.get(index)
+            if (Boolean(option.chosen) !== Boolean(option.originalChosen))
+                return revision >= 0
+        }
+        return false
+    }
 
-    width: 354
+    width: 388
     padding: 10
     modal: false
     focus: true
@@ -28,8 +37,21 @@ Popup {
         photoId = String(photoIdValue)
         representationId = String(representationIdValue)
         photoTitle = String(titleValue)
-        categoryOptions = workspace.smartCategoryController.feedbackCategories(
+        categoryModel.clear()
+        const options = workspace.smartCategoryController.feedbackCategories(
             photoId, representationId)
+        for (let index = 0; index < options.length; ++index) {
+            const option = options[index]
+            const matched = Boolean(option.matched)
+            categoryModel.append({
+                "categoryId": String(option.id),
+                "categoryName": String(option.name),
+                "uncertain": Boolean(option.uncertain),
+                "originalChosen": matched,
+                "chosen": matched
+            })
+        }
+        ++modelRevision
         parent = Overlay.overlay
         const point = item.mapToItem(Overlay.overlay, item.width, 0)
         x = Math.max(8, Math.min(point.x - width,
@@ -47,15 +69,26 @@ Popup {
         photoId = ""
         representationId = ""
         photoTitle = ""
-        categoryOptions = []
+        categoryModel.clear()
+        ++modelRevision
     }
 
-    function decide(categoryId, decision) {
+    function saveCorrections() {
         if (!hasWorkspace)
             return
-        workspace.smartCategoryController.recordFeedback(
-            photoId, representationId, String(categoryId), decision)
+        for (let index = 0; index < categoryModel.count; ++index) {
+            const option = categoryModel.get(index)
+            if (Boolean(option.chosen) === Boolean(option.originalChosen))
+                continue
+            workspace.smartCategoryController.recordFeedback(
+                photoId, representationId, String(option.categoryId),
+                Boolean(option.chosen) ? 1 : -1)
+        }
         close()
+    }
+
+    ListModel {
+        id: categoryModel
     }
 
     background: Rectangle {
@@ -77,7 +110,7 @@ Popup {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Review smart category")
+                text: qsTr("Correct smart categories")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
@@ -91,7 +124,7 @@ Popup {
             }
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Your decision is kept as the strongest local evidence.")
+                text: qsTr("Select every category that correctly describes this photo.")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
@@ -107,67 +140,98 @@ Popup {
         ListView {
             id: categoryList
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(contentHeight, 300)
+            Layout.preferredHeight: Math.min(contentHeight, 320)
             clip: true
             spacing: 2
-            model: root.categoryOptions
+            model: categoryModel
 
             delegate: Rectangle {
                 id: categoryRow
-                required property var modelData
+                required property int index
+                required property string categoryId
+                required property string categoryName
+                required property bool uncertain
+                required property bool originalChosen
+                required property bool chosen
                 width: categoryList.width
-                height: 42
+                height: 44
                 radius: Theme.compactControlRadius
-                color: Boolean(modelData.uncertain)
+                color: categoryRow.uncertain
                     ? Theme.warningSurface : Theme.transparent
-                border.width: Boolean(modelData.uncertain) ? 1 : 0
+                border.width: categoryRow.uncertain ? 1 : 0
                 border.color: Theme.warningBorder
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 9
-                    anchors.rightMargin: 6
-                    spacing: 6
+                    anchors.rightMargin: 9
+                    spacing: 8
 
-                    ColumnLayout {
+                    ShadowCheckBox {
                         Layout.fillWidth: true
-                        spacing: 0
-                        Label {
-                            Layout.fillWidth: true
-                            text: String(categoryRow.modelData.name)
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fontSection
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            visible: Boolean(categoryRow.modelData.uncertain)
-                            text: qsTr("HIGH-VALUE REVIEW")
-                            color: Theme.warningText
-                            font.pixelSize: 8
-                            font.weight: Font.DemiBold
-                            font.letterSpacing: 0.7
+                        compact: true
+                        text: categoryRow.categoryName
+                        checked: categoryRow.chosen
+                        accessibleName: qsTr("%1 belongs to this photo")
+                            .arg(categoryRow.categoryName)
+                        onToggled: {
+                            if (checked === categoryRow.chosen)
+                                return
+                            categoryModel.setProperty(
+                                categoryRow.index, "chosen", checked)
+                            ++root.modelRevision
                         }
                     }
 
-                    ShadowButton {
-                        text: qsTr("No")
-                        variant: ShadowButton.Ghost
-                        onClicked: root.decide(categoryRow.modelData.id, -1)
+                    Label {
+                        visible: categoryRow.uncertain
+                        text: qsTr("NEEDS REVIEW")
+                        color: Theme.warningText
+                        font.pixelSize: 8
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.6
                     }
-                    ShadowButton {
-                        text: qsTr("Yes")
-                        variant: ShadowButton.Secondary
-                        onClicked: root.decide(categoryRow.modelData.id, 1)
-                    }
-                    ShadowIconButton {
-                        source: "qrc:/icons/undo.svg"
-                        buttonSize: 28
-                        iconSize: 13
-                        toolTipText: qsTr("Clear previous decision")
-                        accessibleName: toolTipText
-                        onClicked: root.decide(categoryRow.modelData.id, 0)
+
+                    Label {
+                        visible: !categoryRow.uncertain
+                            && categoryRow.originalChosen
+                        text: qsTr("CURRENT")
+                        color: Theme.textMuted
+                        font.pixelSize: 8
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.6
                     }
                 }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.rightMargin: 4
+            text: qsTr("Your corrections are saved locally and help classify similar photos.")
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontMeta
+            wrapMode: Text.WordWrap
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Item { Layout.fillWidth: true }
+
+            ShadowButton {
+                text: qsTr("Cancel")
+                variant: ShadowButton.Ghost
+                onClicked: root.close()
+            }
+
+            ShadowButton {
+                text: qsTr("Save corrections")
+                variant: ShadowButton.Primary
+                enabled: root.hasChanges
+                onClicked: root.saveCorrections()
             }
         }
     }
