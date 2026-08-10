@@ -23,6 +23,7 @@
 - Cache keys omit source environment, requested plan, Recipe identity, provider contract, or representation fingerprint.
 - One facade accumulates persistence, orchestration, rendering, and presentation policy that should have separate lifecycles.
 - Rust/C++/Qt declarations compile in one build graph while another manifest or packaged module omits the same contract.
+- A product or component README accumulates feature status, current call chains, operator procedures, or exhaustive implementation inventories instead of routing to a stable owner.
 
 ## Verification Expectations
 
@@ -35,7 +36,7 @@
 ## Review Method
 
 1. Read this file and `DEV_SKELETON.md` for durable intent.
-2. Use `README.md` and the nearest code-owned index to find the semantic owner.
+2. Use `docs/README.md`, the repository map, and the nearest code-owned index to find the semantic owner.
 3. Inspect the actual diff, source, tests, schemas, and build registrations.
 4. Lead with concrete findings and exact file references.
 5. Treat these skeletons as preferences and constraints, never as factual proof of current implementation.

@@ -25,8 +25,10 @@ Treat the source tree, module declarations, crate READMEs, and module-level docu
 Shadow's canonical architecture index. Do not create a separate exhaustive knowledge base that
 duplicates them.
 
-- Start at the root [`README.md`](README.md) to choose a subsystem, then use the nearest crate or
-  application README and its entry module to find the semantic owner.
+- Start at [`docs/README.md`](docs/README.md), use the
+  [repository map](docs/architecture/README.md) to choose a subsystem, then use the nearest crate
+  or application README and its entry module to find the semantic owner. The root
+  [`README.md`](README.md) remains the product-facing entry.
 - Keep `lib.rs`, `main.rs`, CXX/Qt facades, and top-level QML controllers readable as indexes and
   composition boundaries. Put new state machines, persistence policies, protocols, and feature
   behavior in responsibility-named child modules.
