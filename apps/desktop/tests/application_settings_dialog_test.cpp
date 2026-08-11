@@ -85,10 +85,10 @@ int main(int argc, char* argv[]) {
     QObject maps;
     set(maps, "secureStorageAvailable", true);
     set(maps, "googleApiKeyStored", false);
-    set(maps, "googleMapTilesAllowed", false);
+    set(maps, "libraryMapProvider", QStringLiteral("none"));
     set(maps, "googlePlacesAllowed", false);
     set(maps, "googleReverseGeocodingAllowed", false);
-    set(maps, "googleMapType", QStringLiteral("roadmap"));
+    set(maps, "mapStyle", QStringLiteral("roadmap"));
     set(maps, "statusCode", QString{});
 
     QObject editor;

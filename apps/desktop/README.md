@@ -149,9 +149,9 @@ Application startup is split from environment-driven automation:
   may enforce that target only through the Catalog-proven unused-preview sweep: live, unknown,
   recently protected, and AI RAW foundation data may keep actual use above the requested target.
 - [`src/map_provider_preferences.*`](src/map_provider_preferences.hpp) owns optional external
-  map-service permissions, the derived Library basemap readiness/style, and the native-only Google
-  credential lifecycle. With no permitted service it publishes an explicit `none` provider instead
-  of silently selecting an unavailable basemap.
+  map-service permissions, the explicitly selected Library map provider, the shared road/satellite
+  style, and the native-only Google/AMap credential lifecycle. With no eligible selection it
+  publishes an explicit `none` provider instead of silently choosing an unavailable map.
   [`src/secure_secret_store.*`](src/secure_secret_store.hpp) is the narrow local credential
   boundary: production stores each credential family in a user-private Shadow file and isolated
   smoke sessions use volatile memory. It never calls a platform credential prompt.
@@ -189,15 +189,14 @@ Application startup is split from environment-driven automation:
   listener lifetime, so launching the normal Shadow photo application cannot auto-start a competing
   server. Provider discovery, scanning, listener threads, and root/original-download enforcement
   stay in `shadow-desktop-bridge`; the server process does not initialize the photo-editing backend.
-- [`src/map/google_map_tiles_service.*`](src/map/google_map_tiles_service.hpp) owns the opt-in
-  Google Map Tiles session, visible-only request queue, bounded policy-aware memory cache,
-  `ETag` revalidation, backoff, cancellation, and viewport copyright lifecycle. It never installs
-  a disk cache or starts before both a stored key and explicit tile permission are present.
-  [`src/map/google_map_tiles_protocol.*`](src/map/google_map_tiles_protocol.hpp) owns the wire,
-  error, and HTTP cache contracts; [`src/map/google_map_tile_geometry.*`](src/map/google_map_tile_geometry.hpp)
-  owns Web Mercator visible-tile projection; and
-  [`src/map/google_map_tile_layer.*`](src/map/google_map_tile_layer.hpp) paints those decoded
-  tiles without taking gesture or photo-marker ownership.
+- [`src/map/library_web_map_controller.*`](src/map/library_web_map_controller.hpp) owns the unified
+  Google/AMap interactive map document, provider credential injection, WGS84/GCJ-02 boundary,
+  marker state, viewport events, placement events, and WebView failure lifecycle. Credentials are
+  injected directly into the private document and have no QML-readable property. The official
+  provider SDK owns basemap attribution and networking; Shadow has no parallel Google Tile session,
+  native tile cache, or raster-layer implementation. This responsibility was extracted rather than
+  added to `LibraryMapView.qml` because provider document/runtime policy is a native cross-language
+  boundary, while the view remains a product interaction composer.
 - [`src/geonames_city_index.*`](src/geonames_city_index.hpp) owns the bounded, latitude-sorted
   offline country/administrative-area/city data contract, nearest-city query, and bounded
   token-based name search ranked by fit and population. The compact index
@@ -205,9 +204,16 @@ Application startup is split from environment-driven automation:
   from GeoNames `cities500`, country, and first-level administrative exports; it is loaded on first
   use off the UI thread and retained for later coordinates. [`src/geonames_library_reverse_geocoder.*`](src/geonames_library_reverse_geocoder.hpp)
   projects those matches into the provider-neutral place result, while
-  [`src/library_reverse_geocoder_router.*`](src/library_reverse_geocoder_router.hpp) keeps offline
-  city lookup as the default and chooses Google only after explicit user authorization. An online
-  failure falls back to the local city index; [`src/default_library_reverse_geocoder.*`](src/default_library_reverse_geocoder.hpp)
+  [`src/library_reverse_geocoder_router.*`](src/library_reverse_geocoder_router.hpp) owns ordered,
+  candidate-aware provider routing. Production admits AMap for supported mainland-China
+  coordinates and Google elsewhere only after the corresponding explicit authorization, and keeps
+  the local city index as the terminal fallback; an online failure continues to the next eligible
+  provider. [`src/amap_library_reverse_geocoder.*`](src/amap_library_reverse_geocoder.hpp) owns the
+  authorized AMap request, [`src/amap_web_service_protocol.*`](src/amap_web_service_protocol.hpp)
+  owns its bounded response contract, and
+  [`src/amap_coordinate_transform.*`](src/amap_coordinate_transform.hpp) isolates WGS84/GCJ-02
+  conversion at that provider boundary so Catalog coordinates remain WGS84.
+  [`src/default_library_reverse_geocoder.*`](src/default_library_reverse_geocoder.hpp)
   is the narrow production composition boundary. [`src/google_library_reverse_geocoder.*`](src/google_library_reverse_geocoder.hpp)
   separately owns the authorized Google Geocoding API request, bounded response parsing,
   cancellation, and safe diagnostics. It reuses the Shadow-local Maps Platform key and never
@@ -863,20 +869,24 @@ Review presentation keeps the workspace as the composition and compatibility sur
   confirmation; and [`qml/LibraryKeywordPopup.qml`](qml/LibraryKeywordPopup.qml) is the bounded
   Review entry surface. The Library management view composes the same panel so organization and
   retrieval cannot drift into separate keyword semantics.
-- [`qml/LibraryMapView.qml`](qml/LibraryMapView.qml) owns the on-demand map composition, gestures,
-  coordinates, location placement, and photo-cluster interaction. One transparent Qt Location
-  item-overlay map remains the only interaction/coordinate owner; Shadow's Google raster layer is
-  the optional basemap beneath the same markers.
+- [`qml/LibraryMapView.qml`](qml/LibraryMapView.qml) owns the on-demand map composition, external
+  search/placement controls, and photo-selection routing.
+  [`qml/LibraryWebMapSurface.qml`](qml/LibraryWebMapSurface.qml) is the thin Qt WebView host; the
+  WebView exclusively owns the visible map rectangle, including basemap, markers, clustering,
+  attribution, gestures, and map clicks, so native WebKit content is never overlapped by QML.
+  [`src/amap_place_search_service.*`](src/amap_place_search_service.hpp) and
+  [`qml/LibraryMapPlaceSearch.qml`](qml/LibraryMapPlaceSearch.qml) separately own authorized AMap
+  Web Service search, cancellation, coordinate-boundary conversion, and map recentering; they do
+  not own map rendering.
   [`qml/LibraryMapProviderOverlay.qml`](qml/LibraryMapProviderOverlay.qml) separately owns provider
-  readiness guidance, visible-photo/busy projection, Google attribution, and localized provider
-  errors. The local Catalog, not the tile service,
+  setup guidance and is visible only when the WebView is hidden. The local Catalog, not a provider,
   applies the current Library filter and aggregates effective GPS coordinates through
   [`src/review_library_map_coordinator.cpp`](src/review_library_map_coordinator.cpp); viewport
   requests are bounded, coalesced, stale-safe, and never perform geocoding. Shadow intentionally
-  embeds no provider API key. A user-supplied key plus explicit Google 2D tile permission activates
-  the session-based basemap while the
-  Library map is visible. Google tiles remain memory-only and obey response cache directives;
-  dynamic viewport copyright is shown beside a distinct `Google Maps` attribution. Country,
+  embeds no provider API key. A user-supplied Google Maps JavaScript API key or AMap JS API key plus
+  security code activates only the explicitly selected provider while the Library map is visible.
+  On macOS Qt WebView uses the system WebKit implementation; Windows may use WebView2 behind the
+  same QML/controller contract. Country,
   administrative-area, and nearest-city enrichment is local by default and never depends on map
   loading. Google precision lookup and place search remain separate opt-in contracts; provider
   results do not alter the basemap.

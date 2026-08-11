@@ -4,12 +4,19 @@
 
 #include <functional>
 #include <memory>
+#include <vector>
 
-/// Routes to the offline provider by default. When the user explicitly allows
-/// Google reverse geocoding, the online provider is preferred and an online
-/// failure falls back to the local city index.
-[[nodiscard]] std::unique_ptr<LibraryReverseGeocoder> makeLibraryReverseGeocoderRouter(
-    std::unique_ptr<LibraryReverseGeocoder> offline,
-    std::unique_ptr<LibraryReverseGeocoder> online,
-    std::function<bool()> prefer_online
-);
+/// One ordered reverse-geocoding route.
+///
+/// `accepts` owns provider-selection policy such as explicit authorization or
+/// geographic coverage. The provider owns only its request lifecycle.
+struct LibraryReverseGeocoderRoute final {
+    std::unique_ptr<LibraryReverseGeocoder> provider;
+    std::function<bool(const BackendLibraryPlaceResolutionCandidate&)> accepts;
+};
+
+/// Tries eligible, available providers in order until one resolves the place.
+/// This keeps provider policy out of individual network/offline implementations
+/// and permits any number of precise providers before the local fallback.
+[[nodiscard]] std::unique_ptr<LibraryReverseGeocoder>
+makeLibraryReverseGeocoderRouter(std::vector<LibraryReverseGeocoderRoute> routes);

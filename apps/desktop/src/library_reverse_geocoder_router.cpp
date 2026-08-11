@@ -6,20 +6,21 @@
 #include <optional>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace {
 
 class LibraryReverseGeocoderRouter final : public LibraryReverseGeocoder {
   public:
-    LibraryReverseGeocoderRouter(
-        std::unique_ptr<LibraryReverseGeocoder> offline,
-        std::unique_ptr<LibraryReverseGeocoder> online,
-        std::function<bool()> prefer_online
-    ) :
-        offline_(std::move(offline)), online_(std::move(online)),
-        prefer_online_(std::move(prefer_online)) {
-        if (!offline_ || !online_ || !prefer_online_) {
-            throw std::invalid_argument("reverse-geocoder router dependencies are required");
+    explicit LibraryReverseGeocoderRouter(std::vector<LibraryReverseGeocoderRoute> routes) :
+        routes_(std::move(routes)) {
+        if (routes_.empty()) {
+            throw std::invalid_argument("at least one reverse-geocoder route is required");
+        }
+        for (const LibraryReverseGeocoderRoute& route : routes_) {
+            if (!route.provider || !route.accepts) {
+                throw std::invalid_argument("reverse-geocoder route dependencies are required");
+            }
         }
     }
 
@@ -28,7 +29,12 @@ class LibraryReverseGeocoderRouter final : public LibraryReverseGeocoder {
     }
 
     [[nodiscard]] bool available() const noexcept override {
-        return offline_->available() || online_->available();
+        for (const LibraryReverseGeocoderRoute& route : routes_) {
+            if (route.provider->available()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void reverseGeocode(
@@ -38,68 +44,64 @@ class LibraryReverseGeocoderRouter final : public LibraryReverseGeocoder {
         cancel();
         completion_ = std::move(completion);
         const std::uint64_t request_generation = ++generation_;
-        if (prefer_online_() && online_->available()) {
-            beginOnline(candidate, request_generation);
-            return;
-        }
-        if (offline_->available()) {
-            beginOffline(candidate, request_generation);
-            return;
-        }
-        if (online_->available()) {
-            beginOnline(candidate, request_generation);
-            return;
-        }
-        finish(
-            request_generation,
-            std::nullopt,
-            QCoreApplication::translate(
-                "LibraryReverseGeocoderRouter",
-                "No location lookup provider is available."
-            )
-        );
+        beginRoute(candidate, 0, request_generation, {});
     }
 
     void cancel() noexcept override {
         ++generation_;
         completion_ = {};
-        offline_->cancel();
-        online_->cancel();
+        for (LibraryReverseGeocoderRoute& route : routes_) {
+            route.provider->cancel();
+        }
     }
 
   private:
-    void beginOnline(
+    void beginRoute(
         const BackendLibraryPlaceResolutionCandidate& candidate,
-        const std::uint64_t request_generation
+        std::size_t route_index,
+        const std::uint64_t request_generation,
+        QString previous_error
     ) {
-        online_->reverseGeocode(
+        while (route_index < routes_.size()
+               && (!routes_[route_index].accepts(candidate)
+                   || !routes_[route_index].provider->available())) {
+            ++route_index;
+        }
+        if (route_index >= routes_.size()) {
+            finish(
+                request_generation,
+                std::nullopt,
+                previous_error.isEmpty() ? QCoreApplication::translate(
+                                               "LibraryReverseGeocoderRouter",
+                                               "No location lookup provider is available."
+                                           )
+                                         : std::move(previous_error)
+            );
+            return;
+        }
+        routes_[route_index].provider->reverseGeocode(
             candidate,
-            [this, candidate, request_generation](
-                std::optional<BackendLibraryPlaceResolutionResult> result,
-                QString error
-            ) {
+            [this,
+             candidate,
+             route_index,
+             request_generation,
+             previous_error = std::move(
+                 previous_error
+             )](std::optional<BackendLibraryPlaceResolutionResult> result, QString error) {
                 if (request_generation != generation_) {
                     return;
                 }
-                if (result || !offline_->available()) {
+                if (result) {
                     finish(request_generation, std::move(result), std::move(error));
                     return;
                 }
-                beginOffline(candidate, request_generation);
+                beginRoute(
+                    candidate,
+                    route_index + 1,
+                    request_generation,
+                    error.isEmpty() ? previous_error : std::move(error)
+                );
             }
-        );
-    }
-
-    void beginOffline(
-        const BackendLibraryPlaceResolutionCandidate& candidate,
-        const std::uint64_t request_generation
-    ) {
-        offline_->reverseGeocode(
-            candidate,
-            [this, request_generation](
-                std::optional<BackendLibraryPlaceResolutionResult> result,
-                QString error
-            ) { finish(request_generation, std::move(result), std::move(error)); }
         );
     }
 
@@ -118,23 +120,14 @@ class LibraryReverseGeocoderRouter final : public LibraryReverseGeocoder {
         }
     }
 
-    std::unique_ptr<LibraryReverseGeocoder> offline_;
-    std::unique_ptr<LibraryReverseGeocoder> online_;
-    std::function<bool()> prefer_online_;
+    std::vector<LibraryReverseGeocoderRoute> routes_;
     Completion completion_;
     std::uint64_t generation_ = 0;
 };
 
 } // namespace
 
-std::unique_ptr<LibraryReverseGeocoder> makeLibraryReverseGeocoderRouter(
-    std::unique_ptr<LibraryReverseGeocoder> offline,
-    std::unique_ptr<LibraryReverseGeocoder> online,
-    std::function<bool()> prefer_online
-) {
-    return std::make_unique<LibraryReverseGeocoderRouter>(
-        std::move(offline),
-        std::move(online),
-        std::move(prefer_online)
-    );
+std::unique_ptr<LibraryReverseGeocoder>
+makeLibraryReverseGeocoderRouter(std::vector<LibraryReverseGeocoderRoute> routes) {
+    return std::make_unique<LibraryReverseGeocoderRouter>(std::move(routes));
 }

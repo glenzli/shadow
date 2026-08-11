@@ -1,4 +1,5 @@
 #include "ai_preferences.hpp"
+#include "amap_place_search_service.hpp"
 #include "cache_maintenance_controller.hpp"
 #include "cache_preferences.hpp"
 #include "desktop_backend.hpp"
@@ -15,7 +16,7 @@
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
-#include "map/google_map_tiles_service.hpp"
+#include "map/library_web_map_controller.hpp"
 #include "map_provider_preferences.hpp"
 #include "optics_profile_library.hpp"
 #include "people_analysis_controller.hpp"
@@ -48,6 +49,7 @@
 #include <QUrl>
 #include <QVariant>
 #include <QWindow>
+#include <QtWebView/QtWebView>
 
 #include <algorithm>
 #include <cstdint>
@@ -165,6 +167,7 @@ offer_development_catalog_reset(const std::exception& error) {
 
 int main(int argc, char* argv[]) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+    QtWebView::initialize();
     QApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
@@ -211,9 +214,8 @@ int main(int argc, char* argv[]) {
     );
     PersonalProfile personal_profile(application_data, isolated_settings_file);
     PersonalLocationSearch personal_location_search(defaultGeoNamesCityIndexPath());
-    shadow::desktop::maps::GoogleMapTilesService google_map_tiles_service(
-        &map_provider_preferences
-    );
+    LibraryWebMapController library_web_map_controller(&map_provider_preferences);
+    AmapPlaceSearchService amap_place_search_service(&map_provider_preferences);
     LutLibrary lut_library(
         isolated_settings_file,
         QDir(application_data).filePath(QStringLiteral("lut-store"))
@@ -618,8 +620,12 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&map_provider_preferences),
         },
         {
-            QStringLiteral("googleMapTilesService"),
-            QVariant::fromValue(&google_map_tiles_service),
+            QStringLiteral("libraryWebMapController"),
+            QVariant::fromValue(&library_web_map_controller),
+        },
+        {
+            QStringLiteral("amapPlaceSearchService"),
+            QVariant::fromValue(&amap_place_search_service),
         },
         {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},
         {

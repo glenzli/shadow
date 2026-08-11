@@ -27,43 +27,20 @@ class FakeLibraryMapController final : public QObject {
     }
 };
 
-class FakeGoogleMapTilesService final : public QObject {
-    Q_OBJECT
-    Q_PROPERTY(bool busy READ busy CONSTANT)
-    Q_PROPERTY(QString copyrightText READ copyrightText CONSTANT)
-
-  public:
-    [[nodiscard]] bool busy() const noexcept {
-        return false;
-    }
-
-    [[nodiscard]] QString copyrightText() const {
-        return QStringLiteral("Google test attribution");
-    }
-};
-
 class FakeLibraryMapWorkspace final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QObject* controller READ controller CONSTANT)
-    Q_PROPERTY(QObject* googleMapTilesService READ googleMapTilesService CONSTANT)
 
   public:
-    FakeLibraryMapWorkspace(
-        FakeLibraryMapController* const controller,
-        FakeGoogleMapTilesService* const google_map_tiles_service
-    ) : controller_(controller), google_map_tiles_service_(google_map_tiles_service) {}
+    explicit FakeLibraryMapWorkspace(FakeLibraryMapController* const controller) :
+        controller_(controller) {}
 
     [[nodiscard]] QObject* controller() const noexcept {
         return controller_;
     }
 
-    [[nodiscard]] QObject* googleMapTilesService() const noexcept {
-        return google_map_tiles_service_;
-    }
-
   private:
     FakeLibraryMapController* controller_ = nullptr;
-    FakeGoogleMapTilesService* google_map_tiles_service_ = nullptr;
 };
 
 class ConfigureRequestObserver final : public QObject {
@@ -106,13 +83,12 @@ int main(int argc, char* argv[]) {
     );
 
     FakeLibraryMapController controller;
-    FakeGoogleMapTilesService google_map_tiles_service;
-    FakeLibraryMapWorkspace workspace{&controller, &google_map_tiles_service};
+    FakeLibraryMapWorkspace workspace{&controller};
     std::unique_ptr<QObject> overlay{component.createWithInitialProperties({
         {QStringLiteral("workspace"), QVariant::fromValue(&workspace)},
-        {QStringLiteral("googleProviderSelected"), false},
-        {QStringLiteral("googleProviderAvailable"), false},
-        {QStringLiteral("googleStatusMessage"), QString{}},
+        {QStringLiteral("providerSelected"), false},
+        {QStringLiteral("providerAvailable"), false},
+        {QStringLiteral("providerName"), QString{}},
         {QStringLiteral("width"), 900.0},
         {QStringLiteral("height"), 600.0},
     })};
@@ -154,12 +130,13 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    overlay->setProperty("googleProviderAvailable", true);
-    overlay->setProperty("googleProviderSelected", true);
+    overlay->setProperty("providerAvailable", true);
+    overlay->setProperty("providerSelected", true);
+    overlay->setProperty("providerName", QStringLiteral("Google Maps"));
     drainBindings();
     return require(
                !setup_panel->property("visible").toBool(),
-               "the setup guidance leaves the map after Google tiles become available"
+               "the setup guidance leaves the map after the WebView provider becomes available"
            )
                ? EXIT_SUCCESS
                : EXIT_FAILURE;

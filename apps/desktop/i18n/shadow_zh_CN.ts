@@ -2,69 +2,162 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN" sourcelanguage="en">
 <context>
+    <name>AmapLibraryReverseGeocoder</name>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="203"/>
+        <source>AMap authorization changed before the request completed.</source>
+        <translation>请求完成前，高德授权状态已发生变化。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="26"/>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="53"/>
+        <source>AMap rejected the Web Service key or its API permission.</source>
+        <translation>高德拒绝了 Web 服务 Key 或其 API 权限。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="232"/>
+        <source>AMap returned an oversized reverse-geocoding response.</source>
+        <translation>高德返回的逆地理编码响应过大。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="64"/>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="245"/>
+        <source>AMap returned no usable address for these coordinates.</source>
+        <translation>高德没有为这些坐标返回可用地址。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="117"/>
+        <source>AMap reverse geocoding is not authorized in Map &amp; Location Services.</source>
+        <translation>尚未在“地图与位置服务”中允许高德逆地理编码。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="32"/>
+        <source>AMap reverse geocoding is rate limited.</source>
+        <translation>高德逆地理编码请求频率已受限。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="38"/>
+        <source>AMap reverse geocoding is temporarily unavailable.</source>
+        <translation>高德逆地理编码暂时不可用。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="59"/>
+        <source>AMap reverse-geocoding quota is exhausted.</source>
+        <translation>高德逆地理编码配额已用尽。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="43"/>
+        <source>Could not reach AMap reverse geocoding.</source>
+        <translation>无法连接高德逆地理编码服务。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="140"/>
+        <source>The stored AMap Web Service key is unavailable.</source>
+        <translation>已存储的高德 Web 服务 Key 当前不可用。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_library_reverse_geocoder.cpp" line="129"/>
+        <source>These coordinates are outside the enabled AMap domestic service area.</source>
+        <translation>这些坐标不在已启用的高德境内服务范围内。</translation>
+    </message>
+</context>
+<context>
+    <name>AmapPlaceSearchService</name>
+    <message>
+        <location filename="../src/amap_place_search_service.cpp" line="218"/>
+        <source>AMap could not complete this place search.</source>
+        <translation>高德无法完成此次地点搜索。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_place_search_service.cpp" line="206"/>
+        <source>AMap place search is temporarily unavailable.</source>
+        <translation>高德地点搜索暂时不可用。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_place_search_service.cpp" line="205"/>
+        <source>AMap rejected the Web Service key or its API permission.</source>
+        <translation>高德拒绝了 Web 服务 Key 或其 API 权限。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_place_search_service.cpp" line="211"/>
+        <source>AMap returned an oversized place-search response.</source>
+        <translation>高德返回的地点搜索响应过大。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_place_search_service.cpp" line="119"/>
+        <source>Allow AMap place search in Map &amp; Location Services.</source>
+        <translation>请在“地图与位置服务”中允许高德地点搜索。</translation>
+    </message>
+    <message>
+        <location filename="../src/amap_place_search_service.cpp" line="125"/>
+        <source>The stored AMap Web Service key is unavailable.</source>
+        <translation>已存储的高德 Web 服务 Key 当前不可用。</translation>
+    </message>
+</context>
+<context>
     <name>ApplicationSettingsDialog</name>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="29"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="30"/>
         <source>General</source>
         <translation>通用</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="29"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="30"/>
         <source>Appearance &amp; language</source>
         <translation>外观与语言</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="30"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
         <source>Library</source>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="30"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
         <source>Thumbnails &amp; metadata</source>
         <translation>缩略图与元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
         <source>AI &amp; Models</source>
         <translation>AI 与模型</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
         <source>Local processing policy</source>
         <translation>本地处理策略</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
         <source>Storage &amp; Cache</source>
         <translation>存储与缓存</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
         <source>Limits &amp; maintenance</source>
         <translation>上限与维护</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
         <source>Maps &amp; Location</source>
         <translation>地图与位置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
         <source>Offline city data &amp; Google</source>
         <translation>离线城市数据与 Google</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="104"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="105"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="113"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="114"/>
         <source>Application, local AI, storage, and service preferences</source>
         <translation>应用、本地 AI、存储和服务偏好设置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="128"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="129"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
@@ -2676,6 +2769,64 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>ImageUnderstandingController</name>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="129"/>
+        <source>Local photo understanding is disabled.</source>
+        <translation>本地照片理解已关闭。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="131"/>
+        <source>Eligible photos are waiting for local analysis.</source>
+        <translation>符合条件的照片正在等待本地分析。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="132"/>
+        <source>Background photo understanding is off.</source>
+        <translation>后台照片理解未开启。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="134"/>
+        <source>Pausing after the current photo…</source>
+        <translation>将在当前照片处理完成后暂停…</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="135"/>
+        <source>Understanding photos locally… %1 of %2</source>
+        <translation>正在本地理解照片… %1 / %2</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="139"/>
+        <source>Photo understanding is paused at %1 of %2.</source>
+        <translation>照片理解已暂停于 %1 / %2。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="143"/>
+        <source>Eligible photos are up to date.</source>
+        <translation>符合条件的照片已全部更新。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="145"/>
+        <source>Photo understanding was interrupted.</source>
+        <translation>照片理解已中断。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="154"/>
+        <source>Infer Runtime is unavailable. Start it, then resume.</source>
+        <translation>Infer Runtime 当前不可用。请启动后继续。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="155"/>
+        <source>The checkpoint is safe. Resume after the local model is available.</source>
+        <translation>进度检查点已安全保存。本地模型可用后可继续。</translation>
+    </message>
+    <message>
+        <location filename="../src/image_understanding_controller.cpp" line="185"/>
+        <source>The advanced local review could not finish. Check Infer Runtime and try again.</source>
+        <translation>高级本地复核未能完成。请检查 Infer Runtime 后重试。</translation>
+    </message>
+</context>
+<context>
     <name>LibraryCaptureTimeBatchDialog</name>
     <message>
         <location filename="../qml/LibraryCaptureTimeBatchDialog.qml" line="21"/>
@@ -3212,7 +3363,7 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>LibraryReverseGeocoderRouter</name>
     <message>
-        <location filename="../src/library_reverse_geocoder_router.cpp" line="56"/>
+        <location filename="../src/library_reverse_geocoder_router.cpp" line="74"/>
         <source>No location lookup provider is available.</source>
         <translation>没有可用的位置查询服务。</translation>
     </message>
@@ -3846,27 +3997,27 @@ R %2 · G %3 · B %4</translation>
         <translation>打开高级图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="61"/>
+        <location filename="../qml/Main.qml" line="65"/>
         <source>Shadow · Review</source>
         <translation>Shadow · 选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="63"/>
+        <location filename="../qml/Main.qml" line="67"/>
         <source>Shadow · Precision</source>
         <translation>Shadow · 精修</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="65"/>
+        <location filename="../qml/Main.qml" line="69"/>
         <source>Shadow · Library</source>
         <translation>Shadow · 图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="65"/>
+        <location filename="../qml/Main.qml" line="69"/>
         <source>Shadow · People</source>
         <translation>Shadow · 人物</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="175"/>
+        <location filename="../qml/Main.qml" line="180"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
@@ -4082,160 +4233,297 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>MapProviderSettingsPane</name>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="31"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="39"/>
         <source>API key removed. Google service permissions are off.</source>
         <translation>API 密钥已移除，Google 服务权限已关闭。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="33"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="41"/>
         <source>Enter a valid API key without spaces.</source>
         <translation>请输入不含空格的有效 API 密钥。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="35"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="43"/>
         <source>The stored API key is invalid. Replace or remove it.</source>
         <translation>已存储的 API 密钥无效，请替换或移除。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="37"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="45"/>
         <source>Save an API key before allowing Google services.</source>
         <translation>请先保存 API 密钥，再允许使用 Google 服务。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="68"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="63"/>
+        <source>Save AMap JS API credentials before choosing AMap for the Library map.</source>
+        <translation>请先保存高德 JS API 凭据，再将高德选为图库地图。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="94"/>
         <source>Map &amp; Location Services</source>
         <translation>地图与位置服务</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="76"/>
-        <source>City-level location names work offline. Add your own Google Maps Platform key only for a basemap or more precise place services.</source>
-        <translation>城市级位置名称可离线使用。仅在需要底图或更精确的地点服务时，才需添加你自己的 Google Maps Platform 密钥。</translation>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="102"/>
+        <source>City-level location names work offline. Add your own AMap or Google credentials only for a basemap, place search, or more precise place names.</source>
+        <translation>城市级位置名称可离线使用。仅在需要底图、地点搜索或更精确的地名时，才需添加你自己的高德或 Google 凭据。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="89"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="115"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="101"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="122"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="298"/>
+        <source>Stored for the official AMap interactive WebView renderer. The credentials are not written to the catalog or backups.</source>
+        <translation>已用于高德官方交互式 WebView 地图。凭据不会写入图库或备份。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="310"/>
+        <source>Use AMap for the Library map</source>
+        <translation>图库地图使用高德地图</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="330"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="351"/>
         <source>Google Maps Platform API key</source>
         <translation>Google Maps Platform API 密钥</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="120"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="422"/>
+        <source>Use Google Maps for the Library map</source>
+        <translation>图库地图使用 Google 地图</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="505"/>
+        <source>Google and AMap share one Qt WebView map surface. The selected provider loads its official JavaScript map only while the Library map is open; Shadow does not maintain a separate tile cache.</source>
+        <translation>Google 与高德共用同一个 Qt WebView 地图界面。仅在打开图库地图时加载所选服务商的官方 JavaScript 地图；Shadow 不维护单独的图块缓存。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="514"/>
+        <source>For Google, enable the Maps JavaScript API rather than the Map Tiles API. Use a dedicated restricted key, quotas, and budget alerts.</source>
+        <translation>使用 Google 时，请启用 Maps JavaScript API，而不是 Map Tiles API。建议使用独立且受限的密钥，并设置配额与预算提醒。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="162"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="349"/>
         <source>A key is stored — enter a replacement</source>
         <translation>已存储密钥 — 输入新密钥以替换</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="121"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="350"/>
         <source>Paste your API key</source>
         <translation>粘贴 API 密钥</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="134"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="176"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="267"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="363"/>
         <source>Replace</source>
         <translation>替换</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="134"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="176"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="267"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="363"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="147"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="189"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="284"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="376"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="29"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="37"/>
         <source>API key saved on this Mac.</source>
         <translation>API 密钥已保存在这台 Mac 上。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="39"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="65"/>
         <source>Shadow&apos;s local credential file is unavailable.</source>
         <translation>Shadow 的本地凭据文件不可用。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="41"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="67"/>
         <source>Shadow could not update its local credential file.</source>
         <translation>Shadow 无法更新本地凭据文件。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="159"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="388"/>
         <source>Stored in a user-private Shadow file on this Mac. It is not written to the catalog or backups.</source>
         <translation>保存在这台 Mac 上仅当前用户可访问的 Shadow 文件中，不会写入图库或备份。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="160"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="389"/>
         <source>No Google API key is stored.</source>
         <translation>未存储 Google API 密钥。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="175"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="404"/>
         <source>Allowed services</source>
         <translation>允许使用的服务</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="183"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="412"/>
         <source>Saving a key does not contact Google. Shadow may call only the services you allow, and only while the corresponding permission remains enabled.</source>
         <translation>保存密钥不会联系 Google。Shadow 仅会调用你允许的服务，并且只会在相应权限保持启用期间调用。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="193"/>
-        <source>Google 2D map tiles</source>
-        <translation>Google 2D 地图瓦片</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="202"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="431"/>
         <source>Place search and autocomplete</source>
         <translation>地点搜索与自动补全</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="211"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="440"/>
         <source>Use Google for more precise place names</source>
         <translation>使用 Google 获取更精确的地名</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="219"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="448"/>
         <source>Country, region, and nearest-city lookup uses GeoNames data (CC BY 4.0) offline by default. This option may send photo coordinates to Google and falls back to offline city data if the request fails.</source>
         <translation>国家、地区和最近城市默认使用 GeoNames 数据（CC BY 4.0）离线查询。启用后可能会将照片坐标发送给 Google；请求失败时会回退到离线城市数据。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="228"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="457"/>
         <source>No Google sign-in is required. The key&apos;s Google Cloud project must have billing and the Geocoding API enabled.</source>
         <translation>无需登录 Google。该密钥所属的 Google Cloud 项目必须启用结算和 Geocoding API。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="248"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="477"/>
         <source>Map style</source>
         <translation>地图样式</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="258"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="487"/>
         <source>Road</source>
         <translation>道路</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="267"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="496"/>
         <source>Satellite</source>
         <translation>卫星</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="276"/>
-        <source>Terrain</source>
-        <translation>地形</translation>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="127"/>
+        <source>AMap</source>
+        <translation>高德地图</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="285"/>
-        <source>Google tiles are requested only for the visible map, kept in a bounded memory cache according to Google&apos;s HTTP directives, and never stored for offline use.</source>
-        <translation>Google 瓦片仅按当前可见地图请求，依据 Google 的 HTTP 指令保存在有界内存缓存中，且绝不会为离线使用而存储。</translation>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="53"/>
+        <source>AMap JS API credentials removed.</source>
+        <translation>高德 JS API 凭据已移除。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="294"/>
-        <source>Use a dedicated key restricted to the required APIs. Your Google project must have billing enabled; set quotas and budget alerts before use.</source>
-        <translation>请使用仅限所需 API 的专用密钥。你的 Google 项目必须启用结算；使用前请设置配额和预算提醒。</translation>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="51"/>
+        <source>AMap JS API credentials saved on this Mac.</source>
+        <translation>高德 JS API 凭据已保存在这台 Mac 上。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="247"/>
+        <source>AMap JS API key</source>
+        <translation>高德 JS API Key</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="259"/>
+        <source>AMap JS API security code</source>
+        <translation>高德 JS API 安全密钥</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="164"/>
+        <source>AMap Web Service key</source>
+        <translation>高德 Web 服务 Key</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="49"/>
+        <source>AMap Web Service key removed. AMap place services are off.</source>
+        <translation>高德 Web 服务 Key 已移除，高德地点服务已关闭。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="47"/>
+        <source>AMap Web Service key saved on this Mac.</source>
+        <translation>高德 Web 服务 Key 已保存在这台 Mac 上。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="201"/>
+        <source>AMap place search</source>
+        <translation>高德地点搜索</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="245"/>
+        <source>Credentials are stored — enter replacements</source>
+        <translation>凭据已存储 — 输入新凭据以替换</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="55"/>
+        <source>Enter a valid AMap Web Service key without spaces.</source>
+        <translation>请输入不含空格的有效高德 Web 服务 Key。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="57"/>
+        <source>The stored AMap Web Service key is invalid. Replace or remove it.</source>
+        <translation>已存储的高德 Web 服务 Key 无效，请替换或移除。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="59"/>
+        <source>Enter both the AMap JS API key and security code without spaces.</source>
+        <translation>请同时输入不含空格的高德 JS API Key 和安全密钥。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="323"/>
+        <source>Google Maps Platform</source>
+        <translation>Google Maps Platform</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="246"/>
+        <source>JS API key</source>
+        <translation>JS API Key</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="226"/>
+        <source>JS API key and security code</source>
+        <translation>JS API Key 与安全密钥</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="299"/>
+        <source>No AMap JS API credentials are stored.</source>
+        <translation>未存储高德 JS API 凭据。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="163"/>
+        <source>Paste the AMap Web Service key</source>
+        <translation>粘贴高德 Web 服务 Key</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="61"/>
+        <source>Save an AMap Web Service key before allowing AMap place services.</source>
+        <translation>请先保存高德 Web 服务 Key，再允许使用高德地点服务。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="218"/>
+        <source>These options may send a search phrase or photo coordinates to AMap. Failed requests fall back to Shadow&apos;s offline city data.</source>
+        <translation>这些选项可能会将搜索文字或照片坐标发送给高德。请求失败时会回退到 Shadow 的离线城市数据。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="210"/>
+        <source>Use AMap for precise place names in mainland China</source>
+        <translation>使用高德获取中国大陆的精确地名</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="135"/>
+        <source>Use the Web Service key for place search and precise location names in mainland China. Shadow converts coordinates only at the AMap boundary; Catalog GPS data remains WGS84.</source>
+        <translation>使用 Web 服务 Key 搜索地点并获取中国大陆的精确地名。Shadow 仅在请求高德时转换坐标，图库中的 GPS 数据仍保持 WGS84。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="143"/>
+        <source>Web Service key</source>
+        <translation>Web 服务 Key</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="258"/>
+        <source>securityJsCode</source>
+        <translation>securityJsCode</translation>
     </message>
 </context>
 <context>
@@ -7221,17 +7509,17 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/main.cpp" line="64"/>
+        <location filename="../src/main.cpp" line="72"/>
         <source>Could not remove %1.</source>
         <translation>无法移除 %1。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="87"/>
+        <location filename="../src/main.cpp" line="95"/>
         <source>Could not remove the local preview cache.</source>
         <translation>无法移除本地预览缓存。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="106"/>
+        <location filename="../src/main.cpp" line="114"/>
         <source>This local catalog belongs to an incompatible development build. Shadow does not migrate development schemas.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.</source>
@@ -7240,7 +7528,7 @@ Resetting removes the local photo index, edit history, and preview cache. Your o
 重置将移除本地照片索引、编辑历史与预览缓存；不会修改原始照片、LUT 资料库或界面偏好。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="112"/>
+        <location filename="../src/main.cpp" line="120"/>
         <source>Shadow could not open its local development catalog. You can reset it and start again with a fresh catalog v1.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.
@@ -7253,12 +7541,12 @@ Technical detail: %1</source>
 技术详情：%1</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="122"/>
+        <location filename="../src/main.cpp" line="130"/>
         <source>Reset local development catalog?</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="240"/>
+        <location filename="../src/main.cpp" line="248"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -7471,17 +7759,17 @@ Technical detail: %1</source>
         <translation>无法获取导入进度 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="366"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="368"/>
         <source>Live Library refresh delayed · import is still safe and continuing · %1</source>
         <translation>实时图库刷新延迟 · 导入仍在安全继续 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="371"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="373"/>
         <source>Library refresh failed · visible photos retained · %1</source>
         <translation>资料库刷新失败 · 保留当前可见照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="485"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="487"/>
         <source>Could not count Library photos · %1</source>
         <translation>无法统计资料库照片 · %1</translation>
     </message>
@@ -7733,7 +8021,7 @@ Technical detail: %1</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="665"/>
+        <location filename="../src/review_controller.hpp" line="666"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -7743,7 +8031,7 @@ Technical detail: %1</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="669"/>
+        <location filename="../src/review_controller.hpp" line="670"/>
         <location filename="../src/review_decision_coordinator.hpp" line="121"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
@@ -7882,6 +8170,76 @@ Technical detail: %1</source>
     </message>
 </context>
 <context>
+    <name>ReviewGalleryGroupingController</name>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="326"/>
+        <source> + </source>
+        <translation> + </translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="472"/>
+        <source> · </source>
+        <translation> · </translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="198"/>
+        <source>%1 · Week %2</source>
+        <translation>%1 · 第 %2 周</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="187"/>
+        <source>%2 %1</source>
+        <translation>%1年%2</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="32"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="37"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="42"/>
+        <source>DATE</source>
+        <translation>日期</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="47"/>
+        <source>LOCATION</source>
+        <translation>地点</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="46"/>
+        <source>Location</source>
+        <translation>地点</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="36"/>
+        <source>Month</source>
+        <translation>月</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="436"/>
+        <source>Other photos</source>
+        <translation>其他照片</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="175"/>
+        <source>Unknown date</source>
+        <translation>拍摄日期未知</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="211"/>
+        <source>Unknown location</source>
+        <translation>地点未知</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="41"/>
+        <source>Week</source>
+        <translation>周</translation>
+    </message>
+    <message>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="31"/>
+        <source>Year</source>
+        <translation>年</translation>
+    </message>
+</context>
+<context>
     <name>ReviewLibraryPlaceResolutionCoordinator</name>
     <message>
         <location filename="../src/review_library_place_resolution_coordinator.cpp" line="181"/>
@@ -7901,60 +8259,68 @@ Technical detail: %1</source>
 </context>
 <context>
     <name>ReviewPhotoCard</name>
-    <message><source>Smart category needs review</source><translation>智能分类待确认</translation></message>
-    <message><source>Correct smart categories</source><translation>纠正智能分类</translation></message>
+    <message>
+        <location filename="../qml/ReviewPhotoCard.qml" line="476"/>
+        <source>Smart category needs review</source>
+        <translation>智能分类待确认</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoCard.qml" line="477"/>
+        <source>Correct smart categories</source>
+        <translation>纠正智能分类</translation>
+    </message>
     <message>
         <location filename="../qml/ReviewSinglePreview.qml" line="99"/>
         <source>ORIGINAL NOT FOUND</source>
         <translation>找不到原片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="87"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="92"/>
         <source>REMOTE PREVIEW UNAVAILABLE</source>
         <translation>远程预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="85"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="90"/>
         <source>PRIVATE RAW PREVIEW UNAVAILABLE</source>
         <translation>私有 RAW 预览不可用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="226"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="234"/>
         <source>SERVER OFFLINE</source>
         <translation>服务器离线</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="232"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="240"/>
         <source>PREVIEW PENDING</source>
         <translation>预览等待中</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="232"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="240"/>
         <source>NO VISUAL</source>
         <translation>无图像</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="261"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="269"/>
         <source>DOWNLOADING RAW</source>
         <translation>正在下载 RAW</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="308"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="316"/>
         <source>%L1 × %L2</source>
         <translation>%L1 × %L2</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="343"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="351"/>
         <source>RAW and JPEG representations</source>
         <translation>RAW 和 JPEG 表示</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="363"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="371"/>
         <source>%L1 source locations</source>
         <translation>%L1 个来源位置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoCard.qml" line="373"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="381"/>
         <source>Original file not found</source>
         <translation>原片未找到</translation>
     </message>
@@ -7962,96 +8328,97 @@ Technical detail: %1</source>
 <context>
     <name>ReviewPhotoContextMenu</name>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="159"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="160"/>
         <source>Open in Precision</source>
         <translation>在精修中打开</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="174"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="175"/>
         <source>Compare selected photos</source>
         <translation>比较所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="194"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="195"/>
         <source>Remove from Candidates</source>
         <translation>从候选中移除</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="195"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="196"/>
         <source>Add to Candidates</source>
         <translation>加入候选</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="213"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="214"/>
         <source>Add or locate folder…</source>
         <translation>添加或定位文件夹…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="229"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="230"/>
         <source>Remove from Library…</source>
         <translation>从图库移除…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="247"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="248"/>
         <source>Remove Like</source>
         <translation>取消喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="247"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="248"/>
         <source>Like</source>
         <translation>喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="264"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="265"/>
         <source>Clear pick flag</source>
         <translation>清除入选标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="264"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="265"/>
         <source>Pick</source>
         <translation>入选</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="279"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="280"/>
         <source>Clear reject flag</source>
         <translation>清除淘汰标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="279"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="280"/>
         <source>Reject</source>
         <translation>淘汰</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="293"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="294"/>
         <source>Rating</source>
         <translation>星级</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="313"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="314"/>
         <source>%1 star</source>
         <translation>%1 星</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="331"/>
         <source>Correct smart categories…</source>
         <translation>纠正智能分类…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="330"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="344"/>
         <source>Add to Album</source>
         <translation>添加到相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="370"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="384"/>
         <source>Apply Shared Node</source>
         <translation>应用共享调整节点</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="413"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="427"/>
         <source>More shared nodes…</source>
         <translation>更多共享节点…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="430"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="444"/>
         <source>Export photo</source>
         <translation>导出照片</translation>
     </message>
@@ -8062,6 +8429,220 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewSinglePreview.qml" line="66"/>
         <source>Select a photo to begin review</source>
         <translation>选择一张照片开始选片</translation>
+    </message>
+</context>
+<context>
+    <name>ReviewSmartCategoryFeedbackPopup</name>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="134"/>
+        <source>Correct smart categories</source>
+        <translation>纠正智能分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="148"/>
+        <source>Select every category that correctly describes this photo.</source>
+        <translation>请选择所有符合这张照片的分类。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="196"/>
+        <source>%1 belongs to this photo</source>
+        <translation>%1 适用于这张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="209"/>
+        <source>NEEDS REVIEW</source>
+        <translation>待确认</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="219"/>
+        <source>CURRENT</source>
+        <translation>当前分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="233"/>
+        <source>Your corrections are saved locally and help classify similar photos.</source>
+        <translation>你的纠错会保存在本地，并帮助分类相似照片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="255"/>
+        <source>Local photo description</source>
+        <translation>本地照片描述</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="275"/>
+        <source>Suggested keywords: %1</source>
+        <translation>建议关键词：%1</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="286"/>
+        <source>This photo has no local description yet. It will be analyzed when it enters the configured background range.</source>
+        <translation>这张照片还没有本地描述；进入设定的后台范围后会自动分析。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="302"/>
+        <source>Add suggested keywords</source>
+        <translation>添加建议关键词</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="335"/>
+        <source>Advanced local review</source>
+        <translation>高级本地复核</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="343"/>
+        <source>Ask the larger local model to choose only from your enabled categories.</source>
+        <translation>让更强的本地模型仅从你启用的分类中选择。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="357"/>
+        <source>Ask model</source>
+        <translation>询问模型</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="379"/>
+        <source>Reviewing this photo locally…</source>
+        <translation>正在本地复核这张照片…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="392"/>
+        <source>Suggested category: %1</source>
+        <translation>建议分类：%1</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="403"/>
+        <source>Accept suggestion</source>
+        <translation>接受建议</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="417"/>
+        <source>The model found no suitable category. You can still correct the choices above.</source>
+        <translation>模型没有找到合适的分类。你仍可以在上方手动纠正。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="426"/>
+        <source>The model is also uncertain. No category was changed.</source>
+        <translation>模型也无法确定，因此没有修改任何分类。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="454"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="460"/>
+        <source>Save corrections</source>
+        <translation>保存纠错</translation>
+    </message>
+</context>
+<context>
+    <name>ReviewSmartCategoryList</name>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="25"/>
+        <source>SMART CATEGORIES</source>
+        <translation>智能分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="50"/>
+        <source>Manage smart categories</source>
+        <translation>管理智能分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="42"/>
+        <source>Update smart categories</source>
+        <translation>更新智能分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="214"/>
+        <source>Pause</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="215"/>
+        <source>Retry</source>
+        <translation>重试</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="216"/>
+        <source>Continue</source>
+        <translation>继续</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="217"/>
+        <source>Update</source>
+        <translation>更新</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="101"/>
+        <source>Review uncertain</source>
+        <translation>确认不确定分类</translation>
+    </message>
+</context>
+<context>
+    <name>ReviewSmartCategorySettingsDialog</name>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="54"/>
+        <source>Smart categories</source>
+        <translation>智能分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="71"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="139"/>
+        <source>Name</source>
+        <translation>名称</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="145"/>
+        <source>Model description</source>
+        <translation>模型描述</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="155"/>
+        <source>Match threshold</source>
+        <translation>匹配阈值</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="166"/>
+        <source>Show this category</source>
+        <translation>显示此分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="171"/>
+        <source>Photos may appear in more than one category. Changes are matched locally using the existing image-vector cache.</source>
+        <translation>照片可以同时出现在多个分类中。修改后会使用已有的本地图像向量缓存重新匹配。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="232"/>
+        <source>Reset defaults</source>
+        <translation>恢复默认分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="238"/>
+        <source>Save</source>
+        <translation>保存</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="63"/>
+        <source>Add category</source>
+        <translation>添加分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="189"/>
+        <source>Rebuild analysis</source>
+        <translation>重建分析</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="196"/>
+        <source>Recreate image vectors and all smart-category matches.</source>
+        <translation>重新生成图像向量和全部智能分类匹配。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategorySettingsDialog.qml" line="203"/>
+        <source>Rebuild</source>
+        <translation>重建</translation>
     </message>
 </context>
 <context>
@@ -8085,97 +8666,39 @@ Technical detail: %1</source>
     </message>
 </context>
 <context>
-    <name>ReviewGalleryGroupingController</name>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="292"/>
-        <source> + </source>
-        <translation> + </translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="414"/>
-        <source> · </source>
-        <translation> · </translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="159"/>
-        <source>%1 · Week %2</source>
-        <translation>%1 · 第 %2 周</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="153"/>
-        <source>%2 %1</source>
-        <translation>%1年%2</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="30"/>
-        <source>DATE</source>
-        <translation>日期</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="45"/>
-        <source>LOCATION</source>
-        <translation>地点</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="44"/>
-        <source>Location</source>
-        <translation>地点</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="34"/>
-        <source>Month</source>
-        <translation>月</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="386"/>
-        <source>Other photos</source>
-        <translation>其他照片</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="137"/>
-        <source>Unknown date</source>
-        <translation>拍摄日期未知</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="172"/>
-        <source>Unknown location</source>
-        <translation>地点未知</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="39"/>
-        <source>Week</source>
-        <translation>周</translation>
-    </message>
-    <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="29"/>
-        <source>Year</source>
-        <translation>年</translation>
-    </message>
-</context>
-<context>
     <name>ReviewWorkspace</name>
     <message>
-        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="230"/>
+        <location filename="../qml/LibraryMapPlaceSearch.qml" line="76"/>
+        <source>Clear place search</source>
+        <translation>清除地点搜索</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapPlaceSearch.qml" line="56"/>
+        <source>Search places with AMap</source>
+        <translation>使用高德搜索地点</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="351"/>
         <source>Clear grouping</source>
         <translation>清除分组</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="160"/>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="221"/>
         <source>GROUP PHOTOS</source>
         <translation>照片分组</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="104"/>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="169"/>
         <source>Group photos</source>
         <translation>分组显示照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="103"/>
+        <location filename="../qml/ReviewGalleryGroupingControl.qml" line="168"/>
         <source>Grouped by %1</source>
         <translation>按%1分组</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySectionNavigator.qml" line="35"/>
+        <location filename="../qml/ReviewGallerySectionNavigator.qml" line="37"/>
         <source>Group navigator</source>
         <translation>分组导航</translation>
     </message>
@@ -8221,12 +8744,12 @@ Technical detail: %1</source>
         <translation>%1 · %L2 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="231"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="237"/>
         <source>Compare the two selected photos</source>
         <translation>比较两张已选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="238"/>
         <source>Compare the selected photo with the next photo</source>
         <translation>将已选照片与下一张照片比较</translation>
     </message>
@@ -8811,12 +9334,12 @@ Technical detail: %1</source>
         <translation>本次会话中有 %L1 条有效记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="132"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="138"/>
         <source>Browse as a photo grid</source>
         <translation>以照片网格浏览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="142"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="148"/>
         <source>Review one photo with a filmstrip</source>
         <translation>以胶片带逐张选片</translation>
     </message>
@@ -9061,67 +9584,67 @@ Technical detail: %1</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="256"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="262"/>
         <source>Create a Manual Album first</source>
         <translation>请先创建手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="103"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="109"/>
         <source>Open the candidate duel</source>
         <translation>打开精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="104"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="110"/>
         <source>Add at least two photos to start the candidate duel</source>
         <translation>至少加入两张照片才能开始精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="152"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="158"/>
         <source>Browse geotagged photos on a map</source>
         <translation>在地图上浏览带地理位置的照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="161"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="167"/>
         <source>SCALE</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="179"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="185"/>
         <source>Thumbnail scale</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="189"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="195"/>
         <source>Restore default thumbnail scale</source>
         <translation>恢复默认缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="202"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="208"/>
         <source>Open photo metadata</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="210"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="216"/>
         <source>%L1 selected</source>
         <translation>已选择 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="219"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="225"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="255"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="261"/>
         <source>Add selected photos to a Manual Album</source>
         <translation>将所选照片添加到手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="269"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="275"/>
         <source>Remove selected photos from this Manual Album</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="281"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="287"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
     </message>
@@ -9146,33 +9669,33 @@ Technical detail: %1</source>
         <translation>值得进一步查看的扩展结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="264"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="280"/>
         <source>Searching the folder for supported photos…
 New RAW files will appear here as they are catalogued.</source>
         <translation>正在文件夹中搜索支持的照片…
 新的 RAW 文件会在收录后显示于此。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="266"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="282"/>
         <source>Import stopped, and no RAW files are currently visible.
 Already catalogued files remain safely stored.</source>
         <translation>导入已停止，目前没有可见的 RAW 文件。
 已收录的文件仍安全存储。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="267"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="283"/>
         <source>Add a folder to the local Library.
 Shadow will show embedded previews immediately, then replace them with locally generated proxies.</source>
         <translation>向本地图库添加文件夹。
 Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="326"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="342"/>
         <source>Finding the first photos</source>
         <translation>正在查找首批照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="327"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="343"/>
         <source>Loading local Library</source>
         <translation>正在加载本地图库</translation>
     </message>
@@ -9449,143 +9972,112 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>这张照片没有可用的元数据</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="78"/>
-        <source>Allow Google 2D map tiles in Map &amp; Location Services.</source>
-        <translation>请在“地图与位置服务”中允许使用 Google 2D 地图瓦片。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="81"/>
-        <source>Google Maps authorization failed. Check the API key and its API restrictions.</source>
-        <translation>Google Maps 授权失败。请检查 API 密钥及其 API 限制。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="83"/>
-        <source>The Google map tile quota has been reached.</source>
-        <translation>Google 地图瓦片配额已用尽。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="85"/>
-        <source>Google Maps is limiting requests. Shadow will retry gradually.</source>
-        <translation>Google Maps 正在限制请求频率。Shadow 将逐步重试。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="88"/>
-        <source>Google Maps is temporarily unavailable.</source>
-        <translation>Google Maps 暂时不可用。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="98"/>
-        <source>Google Maps returned an unsupported response.</source>
-        <translation>Google Maps 返回了不受支持的响应。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="194"/>
-        <location filename="../qml/ReviewGallerySurface.qml" line="195"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="201"/>
         <source>%L1 photos</source>
         <translation>%L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="37"/>
+        <location filename="../qml/LibraryMapView.qml" line="80"/>
         <source>Basemap unavailable</source>
         <translation>底图不可用</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="45"/>
+        <location filename="../qml/LibraryMapView.qml" line="90"/>
+        <source>The map service is unavailable. Check the provider credentials and network connection.</source>
+        <translation>地图服务不可用。请检查服务商凭据与网络连接。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapView.qml" line="95"/>
         <source>%L1 photos in view</source>
         <translation>视野内 %L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="84"/>
-        <source>Configure a map service</source>
-        <translation>配置地图服务</translation>
+        <location filename="../qml/LibraryMapView.qml" line="130"/>
+        <source>Select a photo and configure a map before setting its location</source>
+        <translation>请先选择照片并配置地图，再设置拍摄位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="93"/>
-        <source>To display the basemap, add a Google Maps Platform API key and allow Google 2D map tiles.</source>
-        <translation>要显示地图底图，请添加 Google Maps Platform API 密钥并允许使用 Google 2D 地图瓦片。</translation>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="45"/>
+        <source>Complete the %1 map configuration</source>
+        <translation>完成 %1 地图配置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="105"/>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="46"/>
+        <source>Choose a map service</source>
+        <translation>选择地图服务</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="55"/>
+        <source>The Library map uses one interactive WebView surface. Add AMap JS API credentials or a Google Maps JavaScript API key, then choose that provider.</source>
+        <translation>图库地图使用统一的交互式 WebView 界面。请添加高德 JS API 凭据或 Google Maps JavaScript API 密钥，然后选择对应的服务商。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="67"/>
         <source>Open map settings</source>
         <translation>打开地图设置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="258"/>
+        <location filename="../qml/LibraryMapView.qml" line="129"/>
         <source>Set the selected photo location on the map</source>
         <translation>在地图上设置所选照片的位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="258"/>
-        <source>Select a photo before setting its location</source>
-        <translation>请先选择照片，再设置其位置</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="285"/>
-        <source>SET PHOTO LOCATION</source>
-        <translation>设置照片位置</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="295"/>
+        <location filename="../qml/LibraryMapView.qml" line="188"/>
         <source>Cancel map location placement</source>
         <translation>取消地图位置设置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="311"/>
-        <source>Click elsewhere to move the pin, then confirm.</source>
-        <translation>点击其他位置移动图钉，然后确认。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryMapView.qml" line="311"/>
+        <location filename="../qml/LibraryMapView.qml" line="162"/>
         <source>Click the map where this photo was taken.</source>
         <translation>点击地图中拍摄此照片的位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="344"/>
+        <location filename="../qml/LibraryMapView.qml" line="180"/>
         <source>Save this photo location</source>
         <translation>保存此照片位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="353"/>
+        <location filename="../qml/LibraryMapView.qml" line="197"/>
         <source>Could not save the map location: %1</source>
         <translation>无法保存地图位置：%1</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="365"/>
+        <location filename="../qml/LibraryMapView.qml" line="92"/>
         <source>Map locations could not be loaded.</source>
         <translation>无法加载地图中的照片位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="365"/>
+        <location filename="../qml/LibraryMapView.qml" line="94"/>
         <source>No geotagged photos in this map area.</source>
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="502"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="507"/>
         <source>Downloading the original RAW from the remote Library…</source>
         <translation>正在从远程图库下载原始 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="508"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="513"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="525"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="530"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="527"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="532"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="529"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="534"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="531"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="536"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>
@@ -9833,73 +10325,59 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
 </context>
 <context>
-    <name>ImageUnderstandingController</name>
-    <message><source>Local photo understanding is disabled.</source><translation>本地照片理解已关闭。</translation></message>
-    <message><source>Eligible photos are waiting for local analysis.</source><translation>符合条件的照片正在等待本地分析。</translation></message>
-    <message><source>Background photo understanding is off.</source><translation>后台照片理解未开启。</translation></message>
-    <message><source>Pausing after the current photo…</source><translation>将在当前照片处理完成后暂停…</translation></message>
-    <message><source>Understanding photos locally… %1 of %2</source><translation>正在本地理解照片… %1 / %2</translation></message>
-    <message><source>Photo understanding is paused at %1 of %2.</source><translation>照片理解已暂停于 %1 / %2。</translation></message>
-    <message><source>Eligible photos are up to date.</source><translation>符合条件的照片已全部更新。</translation></message>
-    <message><source>Photo understanding was interrupted.</source><translation>照片理解已中断。</translation></message>
-    <message><source>Infer Runtime is unavailable. Start it, then resume.</source><translation>Infer Runtime 当前不可用。请启动后继续。</translation></message>
-    <message><source>The checkpoint is safe. Resume after the local model is available.</source><translation>进度检查点已安全保存。本地模型可用后可继续。</translation></message>
-    <message><source>The advanced local review could not finish. Check Infer Runtime and try again.</source><translation>高级本地复核未能完成。请检查 Infer Runtime 后重试。</translation></message>
-</context>
-<context>
     <name>SettingsAiPane</name>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="39"/>
+        <location filename="../qml/SettingsAiPane.qml" line="40"/>
         <source>AI &amp; Models</source>
         <translation>AI 与模型</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="47"/>
+        <location filename="../qml/SettingsAiPane.qml" line="48"/>
         <source>Shadow runs supported AI models locally. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.</source>
         <translation>Shadow 在本机运行受支持的 AI 模型。这些权限控制新的模型任务；关闭权限不会移除或使照片已有的生成结果失效。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="57"/>
+        <location filename="../qml/SettingsAiPane.qml" line="58"/>
         <source>Allow AI RAW Denoise processing</source>
         <translation>允许执行 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="64"/>
+        <location filename="../qml/SettingsAiPane.qml" line="65"/>
         <source>The node remains non-destructive. A cached full-strength foundation can still be shown, hidden, or blended when new execution is disabled.</source>
         <translation>该节点仍为非破坏性节点。禁止新的模型执行后，已缓存的完整强度基础影像仍可显示、隐藏或混合。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="73"/>
+        <location filename="../qml/SettingsAiPane.qml" line="74"/>
         <source>Default strength</source>
         <translation>默认强度</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="88"/>
+        <location filename="../qml/SettingsAiPane.qml" line="89"/>
         <source>This applies only when a new AI RAW Denoise node is added. Existing photos keep their authored strength.</source>
         <translation>此项仅在添加新的 AI RAW 降噪节点时生效。现有照片保留其已设定的强度。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="98"/>
+        <location filename="../qml/SettingsAiPane.qml" line="99"/>
         <source>Current photo: local RAW denoise model is ready.</source>
         <translation>当前照片：本地 RAW 降噪模型结果已就绪。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="111"/>
+        <location filename="../qml/SettingsAiPane.qml" line="112"/>
         <source>Allow AI subject selection</source>
         <translation>允许执行 AI 主体选择</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="118"/>
+        <location filename="../qml/SettingsAiPane.qml" line="119"/>
         <source>Subject selection uses the local SAM 2.1 provider when installed. Photo pixels and prompts are not uploaded by this feature.</source>
         <translation>主体选择会在安装后使用本地 SAM 2.1 提供程序。此功能不会上传照片像素或提示内容。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="127"/>
+        <location filename="../qml/SettingsAiPane.qml" line="128"/>
         <source>Photo understanding</source>
         <translation>照片理解</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="136"/>
+        <location filename="../qml/SettingsAiPane.qml" line="137"/>
         <source>Allow local descriptions, keywords, and category review</source>
         <translation>允许本地生成描述、关键词和分类复核建议</translation>
     </message>
@@ -9909,65 +10387,77 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>较重的本地视觉模型只用于主动复核或符合后台范围的照片。在设定的采纳策略生效前，其输出始终只是建议。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="155"/>
+        <location filename="../qml/SettingsAiPane.qml" line="252"/>
         <source>Analyze eligible photos in the background</source>
         <translation>在后台分析符合条件的照片</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="170"/>
+        <location filename="../qml/SettingsAiPane.qml" line="265"/>
         <source>Background range</source>
         <translation>后台扫描范围</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="186"/>
+        <location filename="../qml/SettingsAiPane.qml" line="278"/>
         <source>Liked photos</source>
         <translation>喜欢的照片</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="187"/>
+        <location filename="../qml/SettingsAiPane.qml" line="279"/>
         <source>By star rating</source>
         <translation>按星级</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="190"/>
+        <location filename="../qml/SettingsAiPane.qml" line="282"/>
         <source>Liked or highly rated</source>
         <translation>喜欢或高星级</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="192"/>
+        <location filename="../qml/SettingsAiPane.qml" line="284"/>
         <source>All photos</source>
         <translation>全部照片</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="218"/>
+        <location filename="../qml/SettingsAiPane.qml" line="309"/>
         <source>Minimum rating</source>
         <translation>最低星级</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="238"/>
+        <location filename="../qml/SettingsAiPane.qml" line="326"/>
         <source>A full Library can take a long time. Shadow processes it in small resumable batches and yields to interactive work.</source>
         <translation>扫描整个图库可能需要较长时间。Shadow 会使用可恢复的小批次处理，并优先让出资源给交互任务。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="250"/>
+        <location filename="../qml/SettingsAiPane.qml" line="336"/>
         <source>Automatically apply AI keyword suggestions</source>
         <translation>自动应用 AI 关键词建议</translation>
     </message>
-    <message><source>Pause</source><translation>暂停</translation></message>
-    <message><source>Resume</source><translation>继续</translation></message>
-    <message><source>Scan again</source><translation>重新扫描</translation></message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="259"/>
+        <location filename="../qml/SettingsAiPane.qml" line="226"/>
+        <source>Pause</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="233"/>
+        <source>Resume</source>
+        <translation>继续</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="241"/>
+        <source>Scan again</source>
+        <translation>重新扫描</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="345"/>
         <source>AI-owned keyword assignments may be refreshed when the model or image changes. Manually created and imported assignments are never removed.</source>
         <translation>模型或照片变化时，可以刷新由 AI 管理的关键词关联；手动创建和导入的关联绝不会被移除。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="127"/>
+        <location filename="../qml/SettingsAiPane.qml" line="354"/>
         <source>Model storage</source>
         <translation>模型存储</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="146"/>
+        <location filename="../qml/SettingsAiPane.qml" line="373"/>
         <source>Show Model Folder</source>
         <translation>显示模型文件夹</translation>
     </message>
@@ -10586,6 +11076,114 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
 </context>
 <context>
+    <name>SmartCategoryController</name>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="89"/>
+        <source>Portrait</source>
+        <translation>人像</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="94"/>
+        <source>Landscape</source>
+        <translation>风光</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="99"/>
+        <source>Street</source>
+        <translation>街头</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="104"/>
+        <source>Architecture</source>
+        <translation>建筑</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="109"/>
+        <source>Animals</source>
+        <translation>动物</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="114"/>
+        <source>Travel</source>
+        <translation>旅行</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="119"/>
+        <source>Food &amp; Still Life</source>
+        <translation>美食与静物</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="124"/>
+        <source>Sports &amp; Action</source>
+        <translation>运动与动作</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="129"/>
+        <source>Night &amp; Astro</source>
+        <translation>夜景与星空</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="200"/>
+        <source>New photos are waiting for smart classification.</source>
+        <translation>有新照片等待智能分类。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="199"/>
+        <source>Corrections are waiting to update similar photos.</source>
+        <translation>纠错结果正在等待更新相似照片。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="201"/>
+        <source>Smart categories are ready to be built locally.</source>
+        <translation>可以开始在本地建立智能分类。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="203"/>
+        <source>Pausing after the current batch…</source>
+        <translation>将在当前批次完成后暂停…</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="204"/>
+        <source>Classifying photos locally… %1 of %2</source>
+        <translation>正在本地分类照片… %1 / %2</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="208"/>
+        <source>Smart classification is paused at %1 of %2.</source>
+        <translation>智能分类已暂停于 %1 / %2。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="212"/>
+        <source>Smart categories are up to date.</source>
+        <translation>智能分类已是最新状态。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="213"/>
+        <source>Analysis finished, but no photos meet the current thresholds.</source>
+        <translation>分析已完成，但当前阈值下没有匹配的照片。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="215"/>
+        <source>Smart classification was interrupted.</source>
+        <translation>智能分类已中断。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="226"/>
+        <source>Infer Runtime is unavailable. Start it, then try again.</source>
+        <translation>Infer Runtime 当前不可用。请启动后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="228"/>
+        <source>The previous results are still available. Check Infer Runtime, then try again.</source>
+        <translation>之前的分类结果仍可使用。请检查 Infer Runtime 后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="554"/>
+        <source>Enable at least one smart category.</source>
+        <translation>请至少启用一个智能分类。</translation>
+    </message>
+</context>
+<context>
     <name>ToneCurveEditor</name>
     <message>
         <location filename="../qml/ToneCurveEditor.qml" line="428"/>
@@ -10607,79 +11205,5 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <source>Reset curve</source>
         <translation>重置曲线</translation>
     </message>
-</context>
-<context>
-    <name>ReviewSmartCategoryList</name>
-    <message><source>SMART CATEGORIES</source><translation>智能分类</translation></message>
-    <message><source>Manage smart categories</source><translation>管理智能分类</translation></message>
-    <message><source>Update smart categories</source><translation>更新智能分类</translation></message>
-    <message><source>Pause</source><translation>暂停</translation></message>
-    <message><source>Retry</source><translation>重试</translation></message>
-    <message><source>Continue</source><translation>继续</translation></message>
-    <message><source>Update</source><translation>更新</translation></message>
-    <message><source>Review uncertain</source><translation>确认不确定分类</translation></message>
-</context>
-<context>
-    <name>ReviewSmartCategoryFeedbackPopup</name>
-    <message><source>Correct smart categories</source><translation>纠正智能分类</translation></message>
-    <message><source>Select every category that correctly describes this photo.</source><translation>请选择所有符合这张照片的分类。</translation></message>
-    <message><source>%1 belongs to this photo</source><translation>%1 适用于这张照片</translation></message>
-    <message><source>NEEDS REVIEW</source><translation>待确认</translation></message>
-    <message><source>CURRENT</source><translation>当前分类</translation></message>
-    <message><source>Your corrections are saved locally and help classify similar photos.</source><translation>你的纠错会保存在本地，并帮助分类相似照片。</translation></message>
-    <message><source>Local photo description</source><translation>本地照片描述</translation></message>
-    <message><source>Suggested keywords: %1</source><translation>建议关键词：%1</translation></message>
-    <message><source>This photo has no local description yet. It will be analyzed when it enters the configured background range.</source><translation>这张照片还没有本地描述；进入设定的后台范围后会自动分析。</translation></message>
-    <message><source>Add suggested keywords</source><translation>添加建议关键词</translation></message>
-    <message><source>Advanced local review</source><translation>高级本地复核</translation></message>
-    <message><source>Ask the larger local model to choose only from your enabled categories.</source><translation>让更强的本地模型仅从你启用的分类中选择。</translation></message>
-    <message><source>Ask model</source><translation>询问模型</translation></message>
-    <message><source>Reviewing this photo locally…</source><translation>正在本地复核这张照片…</translation></message>
-    <message><source>Suggested category: %1</source><translation>建议分类：%1</translation></message>
-    <message><source>Accept suggestion</source><translation>接受建议</translation></message>
-    <message><source>The model found no suitable category. You can still correct the choices above.</source><translation>模型没有找到合适的分类。你仍可以在上方手动纠正。</translation></message>
-    <message><source>The model is also uncertain. No category was changed.</source><translation>模型也无法确定，因此没有修改任何分类。</translation></message>
-    <message><source>Cancel</source><translation>取消</translation></message>
-    <message><source>Save corrections</source><translation>保存纠错</translation></message>
-</context>
-<context>
-    <name>ReviewSmartCategorySettingsDialog</name>
-    <message><source>Smart categories</source><translation>智能分类</translation></message>
-    <message><source>Close</source><translation>关闭</translation></message>
-    <message><source>Name</source><translation>名称</translation></message>
-    <message><source>Model description</source><translation>模型描述</translation></message>
-    <message><source>Match threshold</source><translation>匹配阈值</translation></message>
-    <message><source>Show this category</source><translation>显示此分类</translation></message>
-    <message><source>Photos may appear in more than one category. Changes are matched locally using the existing image-vector cache.</source><translation>照片可以同时出现在多个分类中。修改后会使用已有的本地图像向量缓存重新匹配。</translation></message>
-    <message><source>Reset defaults</source><translation>恢复默认分类</translation></message>
-    <message><source>Save</source><translation>保存</translation></message>
-    <message><source>Add category</source><translation>添加分类</translation></message>
-    <message><source>Rebuild analysis</source><translation>重建分析</translation></message>
-    <message><source>Recreate image vectors and all smart-category matches.</source><translation>重新生成图像向量和全部智能分类匹配。</translation></message>
-    <message><source>Rebuild</source><translation>重建</translation></message>
-</context>
-<context>
-    <name>SmartCategoryController</name>
-    <message><source>Portrait</source><translation>人像</translation></message>
-    <message><source>Landscape</source><translation>风光</translation></message>
-    <message><source>Street</source><translation>街头</translation></message>
-    <message><source>Architecture</source><translation>建筑</translation></message>
-    <message><source>Animals</source><translation>动物</translation></message>
-    <message><source>Travel</source><translation>旅行</translation></message>
-    <message><source>Food &amp; Still Life</source><translation>美食与静物</translation></message>
-    <message><source>Sports &amp; Action</source><translation>运动与动作</translation></message>
-    <message><source>Night &amp; Astro</source><translation>夜景与星空</translation></message>
-    <message><source>New photos are waiting for smart classification.</source><translation>有新照片等待智能分类。</translation></message>
-    <message><source>Corrections are waiting to update similar photos.</source><translation>纠错结果正在等待更新相似照片。</translation></message>
-    <message><source>Smart categories are ready to be built locally.</source><translation>可以开始在本地建立智能分类。</translation></message>
-    <message><source>Pausing after the current batch…</source><translation>将在当前批次完成后暂停…</translation></message>
-    <message><source>Classifying photos locally… %1 of %2</source><translation>正在本地分类照片… %1 / %2</translation></message>
-    <message><source>Smart classification is paused at %1 of %2.</source><translation>智能分类已暂停于 %1 / %2。</translation></message>
-    <message><source>Smart categories are up to date.</source><translation>智能分类已是最新状态。</translation></message>
-    <message><source>Analysis finished, but no photos meet the current thresholds.</source><translation>分析已完成，但当前阈值下没有匹配的照片。</translation></message>
-    <message><source>Smart classification was interrupted.</source><translation>智能分类已中断。</translation></message>
-    <message><source>Infer Runtime is unavailable. Start it, then try again.</source><translation>Infer Runtime 当前不可用。请启动后重试。</translation></message>
-    <message><source>The previous results are still available. Check Infer Runtime, then try again.</source><translation>之前的分类结果仍可使用。请检查 Infer Runtime 后重试。</translation></message>
-    <message><source>Enable at least one smart category.</source><translation>请至少启用一个智能分类。</translation></message>
 </context>
 </TS>

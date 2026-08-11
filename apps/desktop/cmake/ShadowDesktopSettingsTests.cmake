@@ -159,120 +159,163 @@
     )
 
     add_executable(
-        shadow-google-map-tiles-protocol-test
-        tests/google_map_tiles_protocol_test.cpp
-        src/map/google_map_tiles_protocol.cpp
-        src/map/google_map_tiles_protocol.hpp
+        shadow-amap-coordinate-transform-test
+        tests/amap_coordinate_transform_test.cpp
+        src/amap_coordinate_transform.cpp
+        src/amap_coordinate_transform.hpp
     )
-    target_compile_features(
-        shadow-google-map-tiles-protocol-test
-        PRIVATE cxx_std_20
-    )
+    target_compile_features(shadow-amap-coordinate-transform-test PRIVATE cxx_std_20)
     target_include_directories(
-        shadow-google-map-tiles-protocol-test
+        shadow-amap-coordinate-transform-test
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
-    target_link_libraries(
-        shadow-google-map-tiles-protocol-test
-        PRIVATE Qt6::Core
-    )
+    target_link_libraries(shadow-amap-coordinate-transform-test PRIVATE Qt6::Core)
     if(MSVC)
-        target_compile_options(
-            shadow-google-map-tiles-protocol-test
-            PRIVATE /W4 /permissive-
-        )
+        target_compile_options(shadow-amap-coordinate-transform-test PRIVATE /W4 /permissive-)
     else()
         target_compile_options(
-            shadow-google-map-tiles-protocol-test
+            shadow-amap-coordinate-transform-test
             PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
         )
     endif()
     add_test(
-        NAME shadow-desktop-google-map-tiles-protocol
-        COMMAND shadow-google-map-tiles-protocol-test
+        NAME shadow-desktop-amap-coordinate-transform
+        COMMAND shadow-amap-coordinate-transform-test
     )
 
     add_executable(
-        shadow-google-map-tile-geometry-test
-        tests/google_map_tile_geometry_test.cpp
-        src/map/google_map_tile_geometry.cpp
-        src/map/google_map_tile_geometry.hpp
-        src/map/google_map_tiles_protocol.cpp
-        src/map/google_map_tiles_protocol.hpp
+        shadow-amap-web-service-protocol-test
+        tests/amap_web_service_protocol_test.cpp
+        src/amap_web_service_protocol.cpp
+        src/amap_web_service_protocol.hpp
     )
-    target_compile_features(
-        shadow-google-map-tile-geometry-test
-        PRIVATE cxx_std_20
-    )
+    target_compile_features(shadow-amap-web-service-protocol-test PRIVATE cxx_std_20)
     target_include_directories(
-        shadow-google-map-tile-geometry-test
+        shadow-amap-web-service-protocol-test
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
-    target_link_libraries(
-        shadow-google-map-tile-geometry-test
-        PRIVATE Qt6::Core
-    )
+    target_link_libraries(shadow-amap-web-service-protocol-test PRIVATE Qt6::Core)
     if(MSVC)
-        target_compile_options(
-            shadow-google-map-tile-geometry-test
-            PRIVATE /W4 /permissive-
-        )
+        target_compile_options(shadow-amap-web-service-protocol-test PRIVATE /W4 /permissive-)
     else()
         target_compile_options(
-            shadow-google-map-tile-geometry-test
+            shadow-amap-web-service-protocol-test
             PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
         )
     endif()
     add_test(
-        NAME shadow-desktop-google-map-tile-geometry
-        COMMAND shadow-google-map-tile-geometry-test
+        NAME shadow-desktop-amap-web-service-protocol
+        COMMAND shadow-amap-web-service-protocol-test
     )
 
     add_executable(
-        shadow-google-map-tiles-service-test
-        tests/google_map_tiles_service_test.cpp
+        shadow-amap-library-reverse-geocoder-test
+        tests/amap_library_reverse_geocoder_test.cpp
+        src/amap_coordinate_transform.cpp
+        src/amap_coordinate_transform.hpp
+        src/amap_web_service_protocol.cpp
+        src/amap_web_service_protocol.hpp
+        src/amap_library_reverse_geocoder.cpp
+        src/amap_library_reverse_geocoder.hpp
+        src/library_reverse_geocoder.hpp
         src/map_provider_preferences.cpp
         src/map_provider_preferences.hpp
         src/secure_secret_store.hpp
-        src/map/google_map_tile_geometry.cpp
-        src/map/google_map_tile_geometry.hpp
-        src/map/google_map_tile_layer.cpp
-        src/map/google_map_tile_layer.hpp
-        src/map/google_map_tiles_protocol.cpp
-        src/map/google_map_tiles_protocol.hpp
-        src/map/google_map_tiles_service.cpp
-        src/map/google_map_tiles_service.hpp
     )
-    target_compile_features(
-        shadow-google-map-tiles-service-test
-        PRIVATE cxx_std_20
-    )
+    target_compile_features(shadow-amap-library-reverse-geocoder-test PRIVATE cxx_std_20)
     target_include_directories(
-        shadow-google-map-tiles-service-test
+        shadow-amap-library-reverse-geocoder-test
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     target_link_libraries(
-        shadow-google-map-tiles-service-test
-        PRIVATE Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick
+        shadow-amap-library-reverse-geocoder-test
+        PRIVATE Qt6::Core Qt6::Network
     )
     if(MSVC)
         target_compile_options(
-            shadow-google-map-tiles-service-test
-            PRIVATE /W4 /permissive-
+            shadow-amap-library-reverse-geocoder-test PRIVATE /W4 /permissive-
         )
     else()
         target_compile_options(
-            shadow-google-map-tiles-service-test
+            shadow-amap-library-reverse-geocoder-test
             PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
         )
     endif()
     add_test(
-        NAME shadow-desktop-google-map-tiles-service
-        COMMAND shadow-google-map-tiles-service-test
+        NAME shadow-desktop-amap-library-reverse-geocoder
+        COMMAND shadow-amap-library-reverse-geocoder-test
     )
-    set_tests_properties(
-        shadow-desktop-google-map-tiles-service
-        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+
+    add_executable(
+        shadow-amap-place-search-service-test
+        tests/amap_place_search_service_test.cpp
+        src/amap_coordinate_transform.cpp
+        src/amap_coordinate_transform.hpp
+        src/amap_web_service_protocol.cpp
+        src/amap_web_service_protocol.hpp
+        src/amap_place_search_service.cpp
+        src/amap_place_search_service.hpp
+        src/map_provider_preferences.cpp
+        src/map_provider_preferences.hpp
+        src/secure_secret_store.hpp
+    )
+    target_compile_features(shadow-amap-place-search-service-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-amap-place-search-service-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-amap-place-search-service-test
+        PRIVATE Qt6::Core Qt6::Network
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-amap-place-search-service-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-amap-place-search-service-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-amap-place-search-service
+        COMMAND shadow-amap-place-search-service-test
+    )
+
+    add_executable(
+        shadow-library-web-map-controller-test
+        tests/library_web_map_controller_test.cpp
+        src/amap_coordinate_transform.cpp
+        src/amap_coordinate_transform.hpp
+        src/map/library_web_map_controller.cpp
+        src/map/library_web_map_controller.hpp
+        src/map_provider_preferences.cpp
+        src/map_provider_preferences.hpp
+        src/secure_secret_store.hpp
+    )
+    target_compile_features(shadow-library-web-map-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-library-web-map-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-library-web-map-controller-test
+        PRIVATE Qt6::Core Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-web-map-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-web-map-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-web-map-controller
+        COMMAND shadow-library-web-map-controller-test
     )
 
     add_executable(
@@ -670,6 +713,59 @@
     )
     set_tests_properties(
         shadow-desktop-library-map-provider-overlay
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-library-map-place-search-test
+        tests/library_map_place_search_test.cpp
+    )
+    target_compile_features(shadow-library-map-place-search-test PRIVATE cxx_std_20)
+    target_link_libraries(
+        shadow-library-map-place-search-test
+        PRIVATE
+            Qt6::Gui
+            Qt6::Qml
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::Test
+    )
+    qt_add_qml_module(
+        shadow-library-map-place-search-test
+        URI Shadow.LibraryMapPlaceSearchContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/LibraryMapPlaceSearch.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-library-map-place-search-test
+        shadow-library-map-place-search-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-map-place-search-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-map-place-search-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-map-place-search
+        COMMAND shadow-library-map-place-search-test
+    )
+    set_tests_properties(
+        shadow-desktop-library-map-place-search
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

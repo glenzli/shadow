@@ -26,7 +26,8 @@ ApplicationWindow {
     required property var personalProfile
     required property var personalLocationSearch
     required property var mapProviderPreferences
-    required property var googleMapTilesService
+    required property var libraryWebMapController
+    required property var amapPlaceSearchService
     required property var lutLibrary
     required property var opticsProfileLibrary
     required property string initialSettingsSection
@@ -296,7 +297,8 @@ ApplicationWindow {
             reviewGalleryGrouping: window.reviewGalleryGrouping
             preferences: window.preferences
             mapProviderPreferences: window.mapProviderPreferences
-            googleMapTilesService: window.googleMapTilesService
+            libraryWebMapController: window.libraryWebMapController
+            amapPlaceSearchService: window.amapPlaceSearchService
             personalProfile: window.personalProfile
             semanticSearchController: window.semanticSearchController
             smartCategoryController: window.smartCategoryController

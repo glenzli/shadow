@@ -9,7 +9,7 @@ Popup {
     required property var preferences
     required property real hostWidth
     required property real hostHeight
-    readonly property bool googleBasemapReady: settingsPane.googleBasemapReady
+    readonly property bool libraryMapReady: settingsPane.libraryMapReady
 
     parent: Overlay.overlay
     modal: true

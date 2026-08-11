@@ -15,7 +15,8 @@ Item {
     required property var reviewGalleryGrouping
     required property var preferences
     required property var mapProviderPreferences
-    required property var googleMapTilesService
+    required property var libraryWebMapController
+    required property var amapPlaceSearchService
     required property var personalProfile
     required property var semanticSearchController
     required property var smartCategoryController

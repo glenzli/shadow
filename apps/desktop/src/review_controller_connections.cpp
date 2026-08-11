@@ -170,6 +170,18 @@ void ReviewController::initializeCoordinatorWiring() {
         synchronize_place_provider
     );
     connect(
+        map_provider_preferences_,
+        &MapProviderPreferences::amapWebServiceKeyStoredChanged,
+        this,
+        synchronize_place_provider
+    );
+    connect(
+        map_provider_preferences_,
+        &MapProviderPreferences::amapReverseGeocodingAllowedChanged,
+        this,
+        synchronize_place_provider
+    );
+    connect(
         &keyword_coordinator_,
         &ReviewLibraryKeywordCoordinator::keywordsChanged,
         this,

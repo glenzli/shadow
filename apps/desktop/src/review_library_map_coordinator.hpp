@@ -10,8 +10,8 @@
 
 /// Owns coalesced, generation-safe spatial overlay queries for the Library map.
 ///
-/// Tile retrieval remains a Qt Location/provider concern. This coordinator only
-/// asks the local catalog for bounded clusters and never blocks the UI thread.
+/// Provider rendering remains a Web-map concern. This coordinator only asks
+/// the local catalog for bounded WGS84 clusters and never blocks the UI thread.
 class ReviewLibraryMapCoordinator final : public QObject {
     Q_OBJECT
 

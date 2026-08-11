@@ -1,6 +1,6 @@
 find_package(
     Qt6 6.11.1 REQUIRED
-    COMPONENTS Core Concurrent LinguistTools Location Network Positioning Quick QuickControls2 Svg Widgets
+    COMPONENTS Core Concurrent LinguistTools Network Quick QuickControls2 Svg WebView Widgets
 )
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
@@ -498,6 +498,14 @@ qt_add_executable(
     src/export_task_runner.hpp
     src/default_library_reverse_geocoder.cpp
     src/default_library_reverse_geocoder.hpp
+    src/amap_coordinate_transform.cpp
+    src/amap_coordinate_transform.hpp
+    src/amap_web_service_protocol.cpp
+    src/amap_web_service_protocol.hpp
+    src/amap_library_reverse_geocoder.cpp
+    src/amap_library_reverse_geocoder.hpp
+    src/amap_place_search_service.cpp
+    src/amap_place_search_service.hpp
     src/geonames_city_index.cpp
     src/geonames_city_index.hpp
     src/geonames_library_reverse_geocoder.cpp
@@ -545,14 +553,8 @@ qt_add_executable(
     src/lut_preview_provider.hpp
     src/map_provider_preferences.cpp
     src/map_provider_preferences.hpp
-    src/map/google_map_tile_geometry.cpp
-    src/map/google_map_tile_geometry.hpp
-    src/map/google_map_tile_layer.cpp
-    src/map/google_map_tile_layer.hpp
-    src/map/google_map_tiles_protocol.cpp
-    src/map/google_map_tiles_protocol.hpp
-    src/map/google_map_tiles_service.cpp
-    src/map/google_map_tiles_service.hpp
+    src/map/library_web_map_controller.cpp
+    src/map/library_web_map_controller.hpp
     src/review_comparison_coordinator.cpp
     src/review_comparison_coordinator.hpp
     src/review_controller.cpp
@@ -875,6 +877,8 @@ qt_add_qml_module(
         qml/LibraryCaptureTimeBatchDialog.qml
         qml/LibraryMetadataEditor.qml
         qml/LibraryMapLocationPlacementState.qml
+        qml/LibraryWebMapSurface.qml
+        qml/LibraryMapPlaceSearch.qml
         qml/LibraryMapProviderOverlay.qml
         qml/LibraryMapView.qml
         qml/LibraryRemoteConnectionsPane.qml
@@ -1047,12 +1051,11 @@ target_link_libraries(
         JPEG::JPEG
         Iconv::Iconv
         Qt6::Concurrent
-        Qt6::Location
         Qt6::Network
-        Qt6::Positioning
         Qt6::Quick
         Qt6::QuickControls2
         Qt6::Svg
+        Qt6::WebView
         Qt6::Widgets
 )
 add_dependencies(shadow-desktop shadow-image-decode-helper)

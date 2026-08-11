@@ -9,18 +9,26 @@ Item {
 
     required property var preferences
     property bool showDoneButton: false
-    readonly property bool googleBasemapReady:
-        preferences.googleApiKeyStored && preferences.googleMapTilesAllowed
+    readonly property bool libraryMapReady:
+        preferences.libraryMapProvider !== "none"
+    readonly property bool amapServiceReady:
+        preferences.amapWebServiceKeyStored
     signal doneRequested()
 
     function prepare() {
         googleApiKeyField.clear()
+        amapWebKeyField.clear()
+        amapJsKeyField.clear()
+        amapSecurityCodeField.clear()
         preferences.clearStatus()
-        googleApiKeyField.forceActiveFocus()
+        amapWebKeyField.forceActiveFocus()
     }
 
     function discardSecretDraft() {
         googleApiKeyField.clear()
+        amapWebKeyField.clear()
+        amapJsKeyField.clear()
+        amapSecurityCodeField.clear()
     }
 
     function statusMessage() {
@@ -35,6 +43,24 @@ Item {
             return qsTr("The stored API key is invalid. Replace or remove it.")
         case "api-key-required":
             return qsTr("Save an API key before allowing Google services.")
+        case "amap-web-key-saved":
+            return qsTr("AMap Web Service key saved on this Mac.")
+        case "amap-web-key-removed":
+            return qsTr("AMap Web Service key removed. AMap place services are off.")
+        case "amap-js-credentials-saved":
+            return qsTr("AMap JS API credentials saved on this Mac.")
+        case "amap-js-credentials-removed":
+            return qsTr("AMap JS API credentials removed.")
+        case "invalid-amap-web-key":
+            return qsTr("Enter a valid AMap Web Service key without spaces.")
+        case "invalid-stored-amap-web-key":
+            return qsTr("The stored AMap Web Service key is invalid. Replace or remove it.")
+        case "invalid-amap-js-credentials":
+            return qsTr("Enter both the AMap JS API key and security code without spaces.")
+        case "amap-web-key-required":
+            return qsTr("Save an AMap Web Service key before allowing AMap place services.")
+        case "amap-js-credentials-required":
+            return qsTr("Save AMap JS API credentials before choosing AMap for the Library map.")
         case "secure-storage-unavailable":
             return qsTr("Shadow's local credential file is unavailable.")
         case "secret-store-failed":
@@ -73,7 +99,7 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("City-level location names work offline. Add your own Google Maps Platform key only for a basemap or more precise place services.")
+                        text: qsTr("City-level location names work offline. Add your own AMap or Google credentials only for a basemap, place search, or more precise place names.")
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontMeta
                         wrapMode: Text.WordWrap
@@ -95,6 +121,209 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
                 color: Theme.border
+            }
+
+            Label {
+                text: qsTr("AMap")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontBody
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Use the Web Service key for place search and precise location names in mainland China. Shadow converts coordinates only at the AMap boundary; Catalog GPS data remains WGS84.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+                lineHeight: 1.2
+            }
+
+            Label {
+                text: qsTr("Web Service key")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontBody
+                font.weight: Font.DemiBold
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                TextField {
+                    id: amapWebKeyField
+                    objectName: "amapWebServiceKeyField"
+                    Layout.fillWidth: true
+                    enabled: root.preferences.secureStorageAvailable
+                    echoMode: TextInput.Password
+                    passwordCharacter: "•"
+                    selectByMouse: true
+                    placeholderText: root.preferences.amapWebServiceKeyStored
+                        ? qsTr("A key is stored — enter a replacement")
+                        : qsTr("Paste the AMap Web Service key")
+                    Accessible.name: qsTr("AMap Web Service key")
+                    onAccepted: {
+                        if (amapWebKeySaveButton.enabled)
+                            amapWebKeySaveButton.clicked()
+                    }
+                }
+
+                ShadowButton {
+                    id: amapWebKeySaveButton
+                    objectName: "amapWebServiceKeySaveButton"
+                    compact: true
+                    variant: ShadowButton.Primary
+                    text: root.preferences.amapWebServiceKeyStored ? qsTr("Replace") : qsTr("Save")
+                    enabled: root.preferences.secureStorageAvailable
+                        && amapWebKeyField.text.trim().length > 0
+                    onClicked: {
+                        if (root.preferences.storeAmapWebServiceKey(amapWebKeyField.text))
+                            amapWebKeyField.clear()
+                    }
+                }
+
+                ShadowButton {
+                    objectName: "amapWebServiceKeyRemoveButton"
+                    compact: true
+                    variant: ShadowButton.Ghost
+                    text: qsTr("Remove")
+                    visible: root.preferences.amapWebServiceKeyStored
+                    onClicked: {
+                        if (root.preferences.removeAmapWebServiceKey())
+                            amapWebKeyField.clear()
+                    }
+                }
+            }
+
+            ShadowSwitch {
+                objectName: "amapPlacesPermissionSwitch"
+                Layout.fillWidth: true
+                text: qsTr("AMap place search")
+                enabled: root.preferences.amapWebServiceKeyStored
+                checked: root.preferences.amapPlacesAllowed
+                onToggled: root.preferences.amapPlacesAllowed = checked
+            }
+
+            ShadowSwitch {
+                objectName: "amapReverseGeocodingPermissionSwitch"
+                Layout.fillWidth: true
+                text: qsTr("Use AMap for precise place names in mainland China")
+                enabled: root.preferences.amapWebServiceKeyStored
+                checked: root.preferences.amapReverseGeocodingAllowed
+                onToggled: root.preferences.amapReverseGeocodingAllowed = checked
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("These options may send a search phrase or photo coordinates to AMap. Failed requests fall back to Shadow's offline city data.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+                lineHeight: 1.2
+            }
+
+            Label {
+                text: qsTr("JS API key and security code")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontBody
+                font.weight: Font.DemiBold
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                TextField {
+                    id: amapJsKeyField
+                    objectName: "amapJsApiKeyField"
+                    Layout.fillWidth: true
+                    enabled: root.preferences.secureStorageAvailable
+                    echoMode: TextInput.Password
+                    passwordCharacter: "•"
+                    selectByMouse: true
+                    placeholderText: root.preferences.amapJsCredentialsStored
+                        ? qsTr("Credentials are stored — enter replacements")
+                        : qsTr("JS API key")
+                    Accessible.name: qsTr("AMap JS API key")
+                }
+
+                TextField {
+                    id: amapSecurityCodeField
+                    objectName: "amapSecurityJsCodeField"
+                    Layout.fillWidth: true
+                    enabled: root.preferences.secureStorageAvailable
+                    echoMode: TextInput.Password
+                    passwordCharacter: "•"
+                    selectByMouse: true
+                    placeholderText: qsTr("securityJsCode")
+                    Accessible.name: qsTr("AMap JS API security code")
+                }
+
+                ShadowButton {
+                    id: amapJsCredentialsSaveButton
+                    objectName: "amapJsCredentialsSaveButton"
+                    compact: true
+                    variant: ShadowButton.Primary
+                    text: root.preferences.amapJsCredentialsStored ? qsTr("Replace") : qsTr("Save")
+                    enabled: root.preferences.secureStorageAvailable
+                        && amapJsKeyField.text.trim().length > 0
+                        && amapSecurityCodeField.text.trim().length > 0
+                    onClicked: {
+                        if (root.preferences.storeAmapJsCredentials(
+                                amapJsKeyField.text, amapSecurityCodeField.text)) {
+                            amapJsKeyField.clear()
+                            amapSecurityCodeField.clear()
+                        }
+                    }
+                }
+
+                ShadowButton {
+                    objectName: "amapJsCredentialsRemoveButton"
+                    compact: true
+                    variant: ShadowButton.Ghost
+                    text: qsTr("Remove")
+                    visible: root.preferences.amapJsCredentialsStored
+                    onClicked: {
+                        if (root.preferences.removeAmapJsCredentials()) {
+                            amapJsKeyField.clear()
+                            amapSecurityCodeField.clear()
+                        }
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: root.preferences.amapJsCredentialsStored
+                    ? qsTr("Stored for the official AMap interactive WebView renderer. The credentials are not written to the catalog or backups.")
+                    : qsTr("No AMap JS API credentials are stored.")
+                color: root.preferences.amapJsCredentialsStored
+                    ? Theme.successText : Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+                lineHeight: 1.2
+            }
+
+            ShadowSwitch {
+                objectName: "amapLibraryMapSwitch"
+                Layout.fillWidth: true
+                text: qsTr("Use AMap for the Library map")
+                enabled: root.preferences.amapJsCredentialsStored
+                checked: root.preferences.libraryMapProvider === "amap"
+                onToggled: root.preferences.libraryMapProvider = checked ? "amap" : "none"
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.border
+            }
+
+            Label {
+                text: qsTr("Google Maps Platform")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontBody
+                font.weight: Font.DemiBold
             }
 
             Label {
@@ -188,12 +417,12 @@ Item {
             }
 
             ShadowSwitch {
-                objectName: "googleMapTilesPermissionSwitch"
+                objectName: "googleLibraryMapSwitch"
                 Layout.fillWidth: true
-                text: qsTr("Google 2D map tiles")
+                text: qsTr("Use Google Maps for the Library map")
                 enabled: root.preferences.googleApiKeyStored
-                checked: root.preferences.googleMapTilesAllowed
-                onToggled: root.preferences.googleMapTilesAllowed = checked
+                checked: root.preferences.libraryMapProvider === "google"
+                onToggled: root.preferences.libraryMapProvider = checked ? "google" : "none"
             }
 
             ShadowSwitch {
@@ -239,9 +468,9 @@ Item {
             }
 
             RowLayout {
-                objectName: "googleMapStyleControls"
+                objectName: "libraryMapStyleControls"
                 Layout.fillWidth: true
-                visible: root.googleBasemapReady
+                visible: root.libraryMapReady
                 spacing: 4
 
                 Label {
@@ -254,27 +483,18 @@ Item {
                     objectName: "googleRoadmapStyleButton"
                     compact: true
                     variant: ShadowButton.Ghost
-                    selected: root.preferences.googleMapType === "roadmap"
+                    selected: root.preferences.mapStyle === "roadmap"
                     text: qsTr("Road")
-                    onClicked: root.preferences.googleMapType = "roadmap"
+                    onClicked: root.preferences.mapStyle = "roadmap"
                 }
 
                 ShadowButton {
                     objectName: "googleSatelliteStyleButton"
                     compact: true
                     variant: ShadowButton.Ghost
-                    selected: root.preferences.googleMapType === "satellite"
+                    selected: root.preferences.mapStyle === "satellite"
                     text: qsTr("Satellite")
-                    onClicked: root.preferences.googleMapType = "satellite"
-                }
-
-                ShadowButton {
-                    objectName: "googleTerrainStyleButton"
-                    compact: true
-                    variant: ShadowButton.Ghost
-                    selected: root.preferences.googleMapType === "terrain"
-                    text: qsTr("Terrain")
-                    onClicked: root.preferences.googleMapType = "terrain"
+                    onClicked: root.preferences.mapStyle = "satellite"
                 }
 
                 Item { Layout.fillWidth: true }
@@ -282,7 +502,7 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Google tiles are requested only for the visible map, kept in a bounded memory cache according to Google's HTTP directives, and never stored for offline use.")
+                text: qsTr("Google and AMap share one Qt WebView map surface. The selected provider loads its official JavaScript map only while the Library map is open; Shadow does not maintain a separate tile cache.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
@@ -291,7 +511,7 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Use a dedicated key restricted to the required APIs. Your Google project must have billing enabled; set quotas and budget alerts before use.")
+                text: qsTr("For Google, enable the Maps JavaScript API rather than the Map Tiles API. Use a dedicated restricted key, quotas, and budget alerts.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
@@ -304,6 +524,10 @@ Item {
                 text: root.statusMessage()
                 color: root.preferences.statusCode === "api-key-saved"
                     || root.preferences.statusCode === "api-key-removed"
+                    || root.preferences.statusCode === "amap-web-key-saved"
+                    || root.preferences.statusCode === "amap-web-key-removed"
+                    || root.preferences.statusCode === "amap-js-credentials-saved"
+                    || root.preferences.statusCode === "amap-js-credentials-removed"
                     ? Theme.successText : Theme.errorText
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
