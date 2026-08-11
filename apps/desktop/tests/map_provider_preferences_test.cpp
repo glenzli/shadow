@@ -148,9 +148,10 @@ int main() {
             )
             || !require(
                 preferences.storeGoogleApiKey(api_key) && preferences.googleApiKeyStored()
+                    && preferences.libraryMapProvider() == QStringLiteral("google")
                     && preferences.statusCode() == QStringLiteral("api-key-saved")
                     && state->write_count == 1,
-                "a valid key is stored behind the native secret boundary"
+                "a first valid basemap key is stored and selected atomically"
             )
             || !require(
                 preferences.storeAmapWebServiceKey(amap_web_key)
@@ -161,8 +162,9 @@ int main() {
             || !require(
                 preferences.storeAmapJsCredentials(amap_js_key, amap_security_code)
                     && preferences.amapJsCredentialsStored()
+                    && preferences.libraryMapProvider() == QStringLiteral("google")
                     && preferences.statusCode() == QStringLiteral("amap-js-credentials-saved"),
-                "AMap JS key and security code are stored as one credential pair"
+                "adding another basemap credential preserves the explicit provider"
             )) {
             return EXIT_FAILURE;
         }
@@ -175,8 +177,7 @@ int main() {
         preferences.setMapStyle(QStringLiteral("satellite"));
         if (!require(
                 preferences.googlePlacesAllowed() && preferences.googleReverseGeocodingAllowed()
-                    && preferences.amapPlacesAllowed()
-                    && preferences.amapReverseGeocodingAllowed()
+                    && preferences.amapPlacesAllowed() && preferences.amapReverseGeocodingAllowed()
                     && preferences.libraryMapProvider() == QStringLiteral("google")
                     && preferences.mapStyle() == QStringLiteral("satellite"),
                 "a stored key plus explicit provider selection admits the Google Web map"
@@ -232,25 +233,21 @@ int main() {
         if (!require(
                 reopened.googleApiKeyStored() && reopened.googlePlacesAllowed()
                     && reopened.googleReverseGeocodingAllowed()
-                    && reopened.amapWebServiceKeyStored()
-                    && reopened.amapJsCredentialsStored() && reopened.amapPlacesAllowed()
-                    && reopened.amapReverseGeocodingAllowed()
+                    && reopened.amapWebServiceKeyStored() && reopened.amapJsCredentialsStored()
+                    && reopened.amapPlacesAllowed() && reopened.amapReverseGeocodingAllowed()
                     && reopened.libraryMapProvider() == QStringLiteral("google")
                     && reopened.mapStyle() == QStringLiteral("satellite"),
                 "stored-key presence, permissions, provider, and style survive reconstruction"
             )
             || !require(
                 reopened.removeAmapWebServiceKey() && !reopened.amapWebServiceKeyStored()
-                    && !reopened.amapPlacesAllowed()
-                    && !reopened.amapReverseGeocodingAllowed()
-                    && reopened.amapJsCredentialsStored()
-                    && reopened.googleApiKeyStored(),
+                    && !reopened.amapPlacesAllowed() && !reopened.amapReverseGeocodingAllowed()
+                    && reopened.amapJsCredentialsStored() && reopened.googleApiKeyStored(),
                 "removing the AMap Web key revokes only AMap Web-service permissions"
             )
             || !require(
                 reopened.removeGoogleApiKey() && !reopened.googleApiKeyStored()
-                    && !reopened.googlePlacesAllowed()
-                    && !reopened.googleReverseGeocodingAllowed()
+                    && !reopened.googlePlacesAllowed() && !reopened.googleReverseGeocodingAllowed()
                     && reopened.libraryMapProvider() == QStringLiteral("none")
                     && state->remove_count == 2,
                 "removing a key revokes permissions and leaves no active basemap"
@@ -265,10 +262,53 @@ int main() {
         reopened.setLibraryMapProvider(QStringLiteral("google"));
         reopened.setAmapPlacesAllowed(true);
         if (!require(
-            !reopened.googlePlacesAllowed() && !reopened.amapPlacesAllowed()
+                !reopened.googlePlacesAllowed() && !reopened.amapPlacesAllowed()
                     && reopened.libraryMapProvider() == QStringLiteral("none")
                     && reopened.statusCode() == QStringLiteral("amap-web-key-required"),
-                "provider services cannot be enabled without their stored key"
+                "unavailable services stay disabled without reopening an explicitly disabled map"
+            )) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    {
+        const QString recovery_settings_path = root.filePath(QStringLiteral("amap-recovery.ini"));
+        auto recovery_state = std::make_shared<FakeSecretState>();
+        recovery_state->read_status = SecretStoreStatus::Success;
+        recovery_state->values.insert(
+            QStringLiteral("amap-js-api-credentials"),
+            amap_js_key + QChar{0x001f} + amap_security_code
+        );
+        MapProviderPreferences recovered(recovery_settings_path, fakeStore(recovery_state));
+        QSettings recovered_settings(recovery_settings_path, QSettings::IniFormat);
+        if (!require(
+                recovered.amapJsCredentialsStored()
+                    && recovered.libraryMapProvider() == QStringLiteral("amap")
+                    && recovered_settings.value(QStringLiteral("maps/library/provider"))
+                           == QStringLiteral("amap"),
+                "the sole available basemap provider is recovered and persisted at startup"
+            )) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    {
+        const QString disabled_settings_path =
+            root.filePath(QStringLiteral("explicitly-disabled.ini"));
+        QSettings disabled_settings(disabled_settings_path, QSettings::IniFormat);
+        disabled_settings.setValue(QStringLiteral("maps/library/provider"), QStringLiteral("none"));
+        disabled_settings.sync();
+        auto disabled_state = std::make_shared<FakeSecretState>();
+        disabled_state->read_status = SecretStoreStatus::Success;
+        disabled_state->values.insert(
+            QStringLiteral("amap-js-api-credentials"),
+            amap_js_key + QChar{0x001f} + amap_security_code
+        );
+        MapProviderPreferences disabled(disabled_settings_path, fakeStore(disabled_state));
+        if (!require(
+                disabled.amapJsCredentialsStored()
+                    && disabled.libraryMapProvider() == QStringLiteral("none"),
+                "an explicitly disabled basemap stays disabled across reconstruction"
             )) {
             return EXIT_FAILURE;
         }

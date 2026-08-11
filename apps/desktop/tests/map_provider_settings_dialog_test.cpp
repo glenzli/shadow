@@ -88,12 +88,14 @@ class FakeMapProviderPreferences final : public QObject {
 
     void setLibraryMapProvider(const QString& provider) {
         if ((provider == QStringLiteral("google") && !key_stored_)
-            || (provider == QStringLiteral("amap") && !amap_js_credentials_stored_)) return;
-        const QString normalized = provider == QStringLiteral("google")
-                                           || provider == QStringLiteral("amap")
-                                       ? provider
-                                       : QStringLiteral("none");
-        if (library_map_provider_ == normalized) return;
+            || (provider == QStringLiteral("amap") && !amap_js_credentials_stored_))
+            return;
+        const QString normalized =
+            provider == QStringLiteral("google") || provider == QStringLiteral("amap")
+                ? provider
+                : QStringLiteral("none");
+        if (library_map_provider_ == normalized)
+            return;
         library_map_provider_ = normalized;
         emit libraryMapProviderChanged();
     }
@@ -127,6 +129,9 @@ class FakeMapProviderPreferences final : public QObject {
         key_stored_ = true;
         status_code_ = QStringLiteral("api-key-saved");
         emit googleApiKeyStoredChanged();
+        if (library_map_provider_ == QStringLiteral("none")) {
+            setLibraryMapProvider(QStringLiteral("google"));
+        }
         emit statusChanged();
         return true;
     }
@@ -171,14 +176,16 @@ class FakeMapProviderPreferences final : public QObject {
         return true;
     }
 
-    Q_INVOKABLE bool
-    storeAmapJsCredentials(const QString& api_key, const QString& security_code) {
+    Q_INVOKABLE bool storeAmapJsCredentials(const QString& api_key, const QString& security_code) {
         ++amap_js_save_count;
         saved_amap_js_key = api_key;
         saved_amap_security_code = security_code;
         amap_js_credentials_stored_ = true;
         status_code_ = QStringLiteral("amap-js-credentials-saved");
         emit amapJsCredentialsStoredChanged();
+        if (library_map_provider_ == QStringLiteral("none")) {
+            setLibraryMapProvider(QStringLiteral("amap"));
+        }
         emit statusChanged();
         return true;
     }
@@ -302,14 +309,12 @@ int main(int argc, char* argv[]) {
         dialog->findChild<QObject*>(QStringLiteral("amapPlacesPermissionSwitch"));
     QObject* const amap_reverse =
         dialog->findChild<QObject*>(QStringLiteral("amapReverseGeocodingPermissionSwitch"));
-    QObject* const amap_js_field =
-        dialog->findChild<QObject*>(QStringLiteral("amapJsApiKeyField"));
+    QObject* const amap_js_field = dialog->findChild<QObject*>(QStringLiteral("amapJsApiKeyField"));
     QObject* const amap_security_field =
         dialog->findChild<QObject*>(QStringLiteral("amapSecurityJsCodeField"));
     QObject* const amap_js_save =
         dialog->findChild<QObject*>(QStringLiteral("amapJsCredentialsSaveButton"));
-    QObject* const amap_map =
-        dialog->findChild<QObject*>(QStringLiteral("amapLibraryMapSwitch"));
+    QObject* const amap_map = dialog->findChild<QObject*>(QStringLiteral("amapLibraryMapSwitch"));
     if (!require(
             field != nullptr && save != nullptr && remove != nullptr && google_map != nullptr
                 && places != nullptr && reverse != nullptr && map_style_controls != nullptr
@@ -321,8 +326,7 @@ int main(int argc, char* argv[]) {
             "the packaged dialog exposes AMap and Google controls without an obsolete OSM selector"
         )
         || !require(
-            !google_map->property("enabled").toBool()
-                && !places->property("enabled").toBool()
+            !google_map->property("enabled").toBool() && !places->property("enabled").toBool()
                 && !reverse->property("enabled").toBool(),
             "Google service permissions stay disabled before a key is stored"
         )
@@ -386,8 +390,16 @@ int main(int argc, char* argv[]) {
                 && preferences.saved_amap_security_code == amap_security
                 && amap_js_field->property("text").toString().isEmpty()
                 && amap_security_field->property("text").toString().isEmpty()
-                && amap_map->property("enabled").toBool(),
-            "AMap JS key and security code are accepted and cleared as one pair"
+                && amap_map->property("enabled").toBool() && amap_map->property("checked").toBool()
+                && preferences.libraryMapProvider() == QStringLiteral("amap")
+                && dialog->property("libraryMapReady").toBool(),
+            "AMap JS credentials atomically activate the first usable basemap"
+        )
+        || !require(
+            click(amap_map) && preferences.libraryMapProvider() == QStringLiteral("none")
+                && !amap_map->property("checked").toBool()
+                && !dialog->property("libraryMapReady").toBool(),
+            "clicking the AMap switch persists the provider identity instead of transient state"
         )) {
         return EXIT_FAILURE;
     }
@@ -401,17 +413,18 @@ int main(int argc, char* argv[]) {
             "saving delegates the entered secret once and immediately clears the field"
         )
         || !require(
-            google_map->property("enabled").toBool()
-                && places->property("enabled").toBool()
-                && reverse->property("enabled").toBool()
-                && !dialog->property("libraryMapReady").toBool(),
-            "stored-key projection unlocks each explicit service permission"
-        )
-        || !require(
-            (preferences.setLibraryMapProvider(QStringLiteral("google")), drainBindings(), true)
+            google_map->property("enabled").toBool() && places->property("enabled").toBool()
+                && reverse->property("enabled").toBool() && google_map->property("checked").toBool()
                 && preferences.libraryMapProvider() == QStringLiteral("google")
                 && dialog->property("libraryMapReady").toBool(),
-            "choosing Google activates the shared WebView map and style controls"
+            "storing the first available Google key activates its WebView provider"
+        )
+        || !require(
+            click(google_map) && preferences.libraryMapProvider() == QStringLiteral("none")
+                && click(google_map) && preferences.libraryMapProvider() == QStringLiteral("google")
+                && google_map->property("checked").toBool()
+                && dialog->property("libraryMapReady").toBool(),
+            "the Google switch reliably disables and restores the shared WebView map"
         )
         || !require(
             click(satellite_style) && preferences.mapStyle() == QStringLiteral("satellite"),

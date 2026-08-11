@@ -310,7 +310,8 @@ Item {
                 text: qsTr("Use AMap for the Library map")
                 enabled: root.preferences.amapJsCredentialsStored
                 checked: root.preferences.libraryMapProvider === "amap"
-                onToggled: root.preferences.libraryMapProvider = checked ? "amap" : "none"
+                onClicked: root.preferences.libraryMapProvider =
+                    root.preferences.libraryMapProvider === "amap" ? "none" : "amap"
             }
 
             Rectangle {
@@ -422,7 +423,8 @@ Item {
                 text: qsTr("Use Google Maps for the Library map")
                 enabled: root.preferences.googleApiKeyStored
                 checked: root.preferences.libraryMapProvider === "google"
-                onToggled: root.preferences.libraryMapProvider = checked ? "google" : "none"
+                onClicked: root.preferences.libraryMapProvider =
+                    root.preferences.libraryMapProvider === "google" ? "none" : "google"
             }
 
             ShadowSwitch {

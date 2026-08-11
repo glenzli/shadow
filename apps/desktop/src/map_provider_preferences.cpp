@@ -52,22 +52,31 @@ MapProviderPreferences::MapProviderPreferences(
     google_reverse_geocoding_allowed_(
         settings_->value(QString::fromLatin1(google_reverse_geocoding_key), false).toBool()
     ),
-    amap_places_allowed_(
-        settings_->value(QString::fromLatin1(amap_places_key), false).toBool()
-    ),
+    amap_places_allowed_(settings_->value(QString::fromLatin1(amap_places_key), false).toBool()),
     amap_reverse_geocoding_allowed_(
         settings_->value(QString::fromLatin1(amap_reverse_geocoding_key), false).toBool()
     ),
-    library_map_provider_(normalizedLibraryMapProvider(settings_->value(
-        QString::fromLatin1(library_map_provider_key),
-        settings_->value(QString::fromLatin1(legacy_google_map_tiles_key), false).toBool()
-            ? QStringLiteral("google")
-            : QStringLiteral("none")
-    ).toString())),
-    map_style_(normalizedMapStyle(settings_->value(
-        QString::fromLatin1(library_map_style_key),
-        settings_->value(QString::fromLatin1(legacy_google_map_type_key), QStringLiteral("roadmap"))
-    ).toString())) {
+    library_map_provider_(normalizedLibraryMapProvider(
+        settings_
+            ->value(
+                QString::fromLatin1(library_map_provider_key),
+                settings_->value(QString::fromLatin1(legacy_google_map_tiles_key), false).toBool()
+                    ? QStringLiteral("google")
+                    : QStringLiteral("none")
+            )
+            .toString()
+    )),
+    map_style_(normalizedMapStyle(settings_
+                                      ->value(
+                                          QString::fromLatin1(library_map_style_key),
+                                          settings_->value(
+                                              QString::fromLatin1(legacy_google_map_type_key),
+                                              QStringLiteral("roadmap")
+                                          )
+                                      )
+                                      .toString())) {
+    library_map_provider_preference_present_ =
+        settings_->contains(QString::fromLatin1(library_map_provider_key));
     // The pre-release native Google Tile route is intentionally retired. Migrate
     // its one useful choice into the provider-neutral WebView settings and do
     // not retain dormant tile/session preferences.
@@ -78,8 +87,10 @@ MapProviderPreferences::MapProviderPreferences(
         settings_->remove(QString::fromLatin1(legacy_google_map_tiles_key));
         settings_->remove(QString::fromLatin1(legacy_google_map_type_key));
         settings_->sync();
+        library_map_provider_preference_present_ = true;
     }
     loadCredentialState();
+    recoverSoleAvailableLibraryMapProvider();
 }
 
 MapProviderPreferences::~MapProviderPreferences() = default;
@@ -142,16 +153,19 @@ void MapProviderPreferences::setLibraryMapProvider(const QString& provider) {
         setStatus(QStringLiteral("amap-js-credentials-required"));
         return;
     }
-    if (library_map_provider_ == normalized) return;
+    if (library_map_provider_ == normalized)
+        return;
     library_map_provider_ = normalized;
     settings_->setValue(QString::fromLatin1(library_map_provider_key), library_map_provider_);
     settings_->sync();
+    library_map_provider_preference_present_ = true;
     emit libraryMapProviderChanged();
 }
 
 void MapProviderPreferences::setMapStyle(const QString& map_style) {
     const QString normalized = normalizedMapStyle(map_style);
-    if (map_style_ == normalized) return;
+    if (map_style_ == normalized)
+        return;
     map_style_ = normalized;
     settings_->setValue(QString::fromLatin1(library_map_style_key), map_style_);
     settings_->sync();
@@ -247,9 +261,13 @@ bool MapProviderPreferences::storeGoogleApiKey(const QString& api_key) {
         );
         return false;
     }
-    if (!google_api_key_stored_) {
+    const bool credential_was_stored = google_api_key_stored_;
+    if (!credential_was_stored) {
         google_api_key_stored_ = true;
         emit googleApiKeyStoredChanged();
+    }
+    if (!credential_was_stored && library_map_provider_ == QStringLiteral("none")) {
+        setLibraryMapProvider(QStringLiteral("google"));
     }
     setStatus(QStringLiteral("api-key-saved"));
     return true;
@@ -350,8 +368,7 @@ bool MapProviderPreferences::storeAmapJsCredentials(
 ) {
     const QString normalized_key = api_key.trimmed();
     const QString normalized_security_code = security_code.trimmed();
-    if (!validAmapCredential(normalized_key)
-        || !validAmapCredential(normalized_security_code)) {
+    if (!validAmapCredential(normalized_key) || !validAmapCredential(normalized_security_code)) {
         setStatus(QStringLiteral("invalid-amap-js-credentials"));
         return false;
     }
@@ -373,9 +390,13 @@ bool MapProviderPreferences::storeAmapJsCredentials(
         );
         return false;
     }
-    if (!amap_js_credentials_stored_) {
+    const bool credentials_were_stored = amap_js_credentials_stored_;
+    if (!credentials_were_stored) {
         amap_js_credentials_stored_ = true;
         emit amapJsCredentialsStoredChanged();
+    }
+    if (!credentials_were_stored && library_map_provider_ == QStringLiteral("none")) {
+        setLibraryMapProvider(QStringLiteral("amap"));
     }
     setStatus(QStringLiteral("amap-js-credentials-saved"));
     return true;
@@ -562,6 +583,19 @@ void MapProviderPreferences::loadCredentialState() {
     if (amap_js.status == SecretStoreStatus::Failure) {
         setStatus(QStringLiteral("secret-store-failed"), amap_js.diagnostic);
     }
+}
+
+void MapProviderPreferences::recoverSoleAvailableLibraryMapProvider() {
+    if (library_map_provider_preference_present_
+        || library_map_provider_ != QStringLiteral("none")) {
+        return;
+    }
+    if (google_api_key_stored_ == amap_js_credentials_stored_) {
+        return;
+    }
+    setLibraryMapProvider(
+        google_api_key_stored_ ? QStringLiteral("google") : QStringLiteral("amap")
+    );
 }
 
 void MapProviderPreferences::disableGooglePermissions(const bool persist) {

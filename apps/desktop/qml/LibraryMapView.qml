@@ -214,6 +214,8 @@ Rectangle {
             LibraryWebMapSurface {
                 anchors.fill: parent
                 controller: root.workspace.libraryWebMapController
+                presentationAllowed: root.visible
+                    && root.workspace.nativeWebMapAllowed
             }
 
             LibraryMapProviderOverlay {

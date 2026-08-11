@@ -7,28 +7,40 @@ Item {
     id: root
 
     required property var controller
+    required property bool presentationAllowed
+    readonly property bool webViewMaterialized: webViewLoader.item !== null
 
-    WebView {
-        id: webView
-        objectName: "libraryWebMap"
+    Loader {
+        id: webViewLoader
         anchors.fill: parent
-        visible: root.controller.active && root.controller.providerAvailable
+        active: root.presentationAllowed && root.controller.active
+            && root.controller.providerAvailable
 
-        onLoadingChanged: loadRequest => {
-            root.controller.handleLoadStatus(
-                Number(loadRequest.status), String(loadRequest.errorString || ""))
+        sourceComponent: WebView {
+            id: webView
+            objectName: "libraryWebMap"
+            anchors.fill: parent
+
+            onLoadingChanged: loadRequest => {
+                root.controller.handleLoadStatus(
+                    Number(loadRequest.status),
+                    String(loadRequest.errorString || ""))
+            }
+
+            Component.onCompleted: root.controller.attachWebView(webView)
+            Component.onDestruction: root.controller.detachWebView(webView)
         }
-
-        Component.onCompleted: root.controller.attachWebView(webView)
-        Component.onDestruction: root.controller.detachWebView(webView)
     }
 
     Timer {
         interval: 90
         repeat: true
-        running: webView.visible && root.controller.providerAvailable
+        running: root.webViewMaterialized
         onTriggered: {
-            webView.runJavaScript(
+            const activeWebView = webViewLoader.item
+            if (!activeWebView)
+                return
+            activeWebView.runJavaScript(
                 "JSON.stringify(window.shadowMapDrainEvents ? window.shadowMapDrainEvents() : [])",
                 result => root.controller.consumeEvents(String(result || "[]")))
         }

@@ -303,6 +303,15 @@ ApplicationWindow {
             semanticSearchController: window.semanticSearchController
             smartCategoryController: window.smartCategoryController
             imageUnderstandingController: window.imageUnderstandingController
+            // Qt WebView is a native child view on macOS rather than a scene-
+            // graph item. It must not remain materialized beneath a QML modal,
+            // because the native layer would cover the modal regardless of its
+            // QML z-order.
+            nativeWebMapAllowed: window.workspaceIndex === 0
+                && !applicationSettingsDialog.opened
+                && !personalProfileDialog.opened
+                && !exportDialog.opened
+                && !historyDrawer.opened
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {

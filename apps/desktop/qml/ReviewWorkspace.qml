@@ -21,6 +21,7 @@ Item {
     required property var semanticSearchController
     required property var smartCategoryController
     required property var imageUnderstandingController
+    property bool nativeWebMapAllowed: true
 
     ReviewSelectionState {
         id: selectionState

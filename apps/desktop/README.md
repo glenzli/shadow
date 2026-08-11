@@ -194,7 +194,11 @@ Application startup is split from environment-driven automation:
   marker state, viewport events, placement events, and WebView failure lifecycle. Credentials are
   injected directly into the private document and have no QML-readable property. The official
   provider SDK owns basemap attribution and networking; Shadow has no parallel Google Tile session,
-  native tile cache, or raster-layer implementation. This responsibility was extracted rather than
+  native tile cache, or raster-layer implementation. On macOS the WebView is a native child view,
+  so [`qml/LibraryWebMapSurface.qml`](qml/LibraryWebMapSurface.qml) materializes it only while an
+  eligible provider is visible and no application modal owns the foreground; leaving Review or
+  opening a modal destroys the native view before it can cover another QML surface. This
+  responsibility was extracted rather than
   added to `LibraryMapView.qml` because provider document/runtime policy is a native cross-language
   boundary, while the view remains a product interaction composer.
 - [`src/geonames_city_index.*`](src/geonames_city_index.hpp) owns the bounded, latitude-sorted

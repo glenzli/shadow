@@ -98,8 +98,7 @@ class MapProviderPreferences final : public QObject {
     Q_INVOKABLE bool removeGoogleApiKey();
     Q_INVOKABLE bool storeAmapWebServiceKey(const QString& api_key);
     Q_INVOKABLE bool removeAmapWebServiceKey();
-    Q_INVOKABLE bool
-    storeAmapJsCredentials(const QString& api_key, const QString& security_code);
+    Q_INVOKABLE bool storeAmapJsCredentials(const QString& api_key, const QString& security_code);
     Q_INVOKABLE bool removeAmapJsCredentials();
     Q_INVOKABLE void clearStatus();
 
@@ -125,6 +124,7 @@ class MapProviderPreferences final : public QObject {
     [[nodiscard]] static bool validGoogleApiKey(const QString& api_key);
     [[nodiscard]] static bool validAmapCredential(const QString& credential);
     void loadCredentialState();
+    void recoverSoleAvailableLibraryMapProvider();
     void disableGooglePermissions(bool persist);
     void disableAmapPermissions(bool persist);
     void persistPermission(const char* key, bool allowed);
@@ -143,4 +143,5 @@ class MapProviderPreferences final : public QObject {
     QString map_style_ = QStringLiteral("roadmap");
     QString status_code_;
     QString diagnostic_text_;
+    bool library_map_provider_preference_present_ = false;
 };
