@@ -4283,55 +4283,55 @@ R %2 · G %3 · B %4</translation>
         <translation>图库地图使用高德地图</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="330"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="351"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="331"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="352"/>
         <source>Google Maps Platform API key</source>
         <translation>Google Maps Platform API 密钥</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="422"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="423"/>
         <source>Use Google Maps for the Library map</source>
         <translation>图库地图使用 Google 地图</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="505"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="507"/>
         <source>Google and AMap share one Qt WebView map surface. The selected provider loads its official JavaScript map only while the Library map is open; Shadow does not maintain a separate tile cache.</source>
         <translation>Google 与高德共用同一个 Qt WebView 地图界面。仅在打开图库地图时加载所选服务商的官方 JavaScript 地图；Shadow 不维护单独的图块缓存。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="514"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="516"/>
         <source>For Google, enable the Maps JavaScript API rather than the Map Tiles API. Use a dedicated restricted key, quotas, and budget alerts.</source>
         <translation>使用 Google 时，请启用 Maps JavaScript API，而不是 Map Tiles API。建议使用独立且受限的密钥，并设置配额与预算提醒。</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="162"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="349"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="350"/>
         <source>A key is stored — enter a replacement</source>
         <translation>已存储密钥 — 输入新密钥以替换</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="350"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="351"/>
         <source>Paste your API key</source>
         <translation>粘贴 API 密钥</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="176"/>
         <location filename="../qml/MapProviderSettingsPane.qml" line="267"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="363"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="364"/>
         <source>Replace</source>
         <translation>替换</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="176"/>
         <location filename="../qml/MapProviderSettingsPane.qml" line="267"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="363"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="364"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="189"/>
         <location filename="../qml/MapProviderSettingsPane.qml" line="284"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="376"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="377"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
@@ -4351,57 +4351,57 @@ R %2 · G %3 · B %4</translation>
         <translation>Shadow 无法更新本地凭据文件。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="388"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="389"/>
         <source>Stored in a user-private Shadow file on this Mac. It is not written to the catalog or backups.</source>
         <translation>保存在这台 Mac 上仅当前用户可访问的 Shadow 文件中，不会写入图库或备份。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="389"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="390"/>
         <source>No Google API key is stored.</source>
         <translation>未存储 Google API 密钥。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="404"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="405"/>
         <source>Allowed services</source>
         <translation>允许使用的服务</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="412"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="413"/>
         <source>Saving a key does not contact Google. Shadow may call only the services you allow, and only while the corresponding permission remains enabled.</source>
         <translation>保存密钥不会联系 Google。Shadow 仅会调用你允许的服务，并且只会在相应权限保持启用期间调用。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="431"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="433"/>
         <source>Place search and autocomplete</source>
         <translation>地点搜索与自动补全</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="440"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="442"/>
         <source>Use Google for more precise place names</source>
         <translation>使用 Google 获取更精确的地名</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="448"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="450"/>
         <source>Country, region, and nearest-city lookup uses GeoNames data (CC BY 4.0) offline by default. This option may send photo coordinates to Google and falls back to offline city data if the request fails.</source>
         <translation>国家、地区和最近城市默认使用 GeoNames 数据（CC BY 4.0）离线查询。启用后可能会将照片坐标发送给 Google；请求失败时会回退到离线城市数据。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="457"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="459"/>
         <source>No Google sign-in is required. The key&apos;s Google Cloud project must have billing and the Geocoding API enabled.</source>
         <translation>无需登录 Google。该密钥所属的 Google Cloud 项目必须启用结算和 Geocoding API。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="477"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="479"/>
         <source>Map style</source>
         <translation>地图样式</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="487"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="489"/>
         <source>Road</source>
         <translation>道路</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="496"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="498"/>
         <source>Satellite</source>
         <translation>卫星</translation>
     </message>
@@ -4471,7 +4471,7 @@ R %2 · G %3 · B %4</translation>
         <translation>请同时输入不含空格的高德 JS API Key 和安全密钥。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="323"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="324"/>
         <source>Google Maps Platform</source>
         <translation>Google Maps Platform</translation>
     </message>
@@ -8552,22 +8552,22 @@ Technical detail: %1</source>
         <translation>更新智能分类</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSmartCategoryList.qml" line="214"/>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="218"/>
         <source>Pause</source>
         <translation>暂停</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSmartCategoryList.qml" line="215"/>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="219"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSmartCategoryList.qml" line="216"/>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="220"/>
         <source>Continue</source>
         <translation>继续</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSmartCategoryList.qml" line="217"/>
+        <location filename="../qml/ReviewSmartCategoryList.qml" line="221"/>
         <source>Update</source>
         <translation>更新</translation>
     </message>
@@ -8648,19 +8648,19 @@ Technical detail: %1</source>
 <context>
     <name>ReviewTravelCollections</name>
     <message>
-        <location filename="../qml/ReviewTravelCollections.qml" line="24"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="25"/>
         <source>TRAVEL</source>
         <translation>旅行</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewTravelCollections.qml" line="64"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="65"/>
         <source>Travel</source>
         <translation>旅行</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewTravelCollections.qml" line="76"/>
-        <location filename="../qml/ReviewTravelCollections.qml" line="139"/>
-        <location filename="../qml/ReviewTravelCollections.qml" line="189"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="77"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="140"/>
+        <location filename="../qml/ReviewTravelCollections.qml" line="190"/>
         <source>%L1</source>
         <translation>%L1</translation>
     </message>
@@ -8744,12 +8744,12 @@ Technical detail: %1</source>
         <translation>%1 · %L2 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="237"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="248"/>
         <source>Compare the two selected photos</source>
         <translation>比较两张已选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="238"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="249"/>
         <source>Compare the selected photo with the next photo</source>
         <translation>将已选照片与下一张照片比较</translation>
     </message>
@@ -9279,6 +9279,7 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="41"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="272"/>
         <source>All Photos</source>
         <translation>所有照片</translation>
     </message>
@@ -9334,12 +9335,12 @@ Technical detail: %1</source>
         <translation>本次会话中有 %L1 条有效记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="138"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="149"/>
         <source>Browse as a photo grid</source>
         <translation>以照片网格浏览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="148"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="159"/>
         <source>Review one photo with a filmstrip</source>
         <translation>以胶片带逐张选片</translation>
     </message>
@@ -9530,6 +9531,7 @@ Technical detail: %1</source>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="74"/>
         <location filename="../qml/ReviewSystemCollections.qml" line="76"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="265"/>
         <source>Liked</source>
         <translation>喜欢</translation>
     </message>
@@ -9540,6 +9542,7 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="84"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="267"/>
         <source>5 Stars</source>
         <translation>5 星</translation>
     </message>
@@ -9564,87 +9567,92 @@ Technical detail: %1</source>
         <translation>条件</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="51"/>
-        <source>ALL PHOTOS</source>
-        <translation>全部照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="59"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="70"/>
         <source>%L1 visible</source>
         <translation>显示 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="67"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="78"/>
         <source>Manage photo sources</source>
         <translation>管理照片来源</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="76"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="87"/>
         <source>Assign and filter Library keywords</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="262"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="273"/>
         <source>Create a Manual Album first</source>
         <translation>请先创建手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="109"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="120"/>
         <source>Open the candidate duel</source>
         <translation>打开精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="110"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="55"/>
+        <source>Hide Library scope selector</source>
+        <translation>收起图库范围选择器</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="56"/>
+        <source>Show Library scope selector</source>
+        <translation>展开图库范围选择器</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="121"/>
         <source>Add at least two photos to start the candidate duel</source>
         <translation>至少加入两张照片才能开始精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="158"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="169"/>
         <source>Browse geotagged photos on a map</source>
         <translation>在地图上浏览带地理位置的照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="167"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="178"/>
         <source>SCALE</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="185"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="196"/>
         <source>Thumbnail scale</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="195"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="206"/>
         <source>Restore default thumbnail scale</source>
         <translation>恢复默认缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="208"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="219"/>
         <source>Open photo metadata</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="216"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="227"/>
         <source>%L1 selected</source>
         <translation>已选择 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="225"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="236"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="261"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="272"/>
         <source>Add selected photos to a Manual Album</source>
         <translation>将所选照片添加到手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="275"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="286"/>
         <source>Remove selected photos from this Manual Album</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="287"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="298"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
     </message>
@@ -10052,32 +10060,57 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="507"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="231"/>
+        <source>Daily</source>
+        <translation>日常</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="251"/>
+        <source>Travel</source>
+        <translation>旅行</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="254"/>
+        <source>Review uncertain</source>
+        <translation>确认不确定分类</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="269"/>
+        <source>Search Results</source>
+        <translation>搜索结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="271"/>
+        <source>Filtered Photos</source>
+        <translation>筛选结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="572"/>
         <source>Downloading the original RAW from the remote Library…</source>
         <translation>正在从远程图库下载原始 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="513"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="578"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="530"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="595"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="532"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="597"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="534"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="599"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="536"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="601"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>

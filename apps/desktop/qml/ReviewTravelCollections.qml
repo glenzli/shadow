@@ -15,6 +15,7 @@ ColumnLayout {
 
     function activateAllTravel() {
         workspace.applyTravelCollection("", "")
+        workspace.commitLibraryScopeSelection()
     }
 
     Label {
@@ -197,8 +198,12 @@ ColumnLayout {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: travel.workspace.applyTravelCollection(
-                            countryGroup.countryKey, destinationRow.destinationKey)
+                        onClicked: {
+                            travel.workspace.applyTravelCollection(
+                                countryGroup.countryKey,
+                                destinationRow.destinationKey)
+                            travel.workspace.commitLibraryScopeSelection()
+                        }
                     }
                 }
             }

@@ -163,7 +163,12 @@ Item {
         Map
     }
     property int galleryPresentation: ReviewWorkspace.JustifiedGrid
+    property bool mapLibrarySidebarExpanded: false
     property string precisionOpenStatus: ""
+
+    readonly property bool librarySidebarVisible:
+        galleryPresentation !== ReviewWorkspace.Map
+        || mapLibrarySidebarExpanded
 
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
         && !comparison.compareMode
@@ -219,6 +224,53 @@ Item {
         || hasLibraryKeywordFilter
         || semanticSearchController.hasResults
         || smartCategoryController.selectedCategoryId.length > 0
+    readonly property string currentLibraryScopeName: {
+        if (currentLibraryAlbumName.length > 0)
+            return currentLibraryAlbumName
+        if (isDailyCollectionActive())
+            return qsTr("Daily")
+        if (controller.travelFilterEnabled) {
+            const countryKey = String(controller.filterCountryKey)
+            const localityKey = String(controller.filterLocalityKey)
+            const groups = controller.travelGroups
+            for (let groupIndex = 0; groupIndex < groups.length; ++groupIndex) {
+                const group = groups[groupIndex]
+                if (String(group.key) !== countryKey)
+                    continue
+                if (localityKey.length === 0)
+                    return String(group.label)
+                const destinations = group.destinations || []
+                for (let destinationIndex = 0;
+                     destinationIndex < destinations.length;
+                     ++destinationIndex) {
+                    const destination = destinations[destinationIndex]
+                    if (String(destination.key) === localityKey)
+                        return String(destination.label)
+                }
+            }
+            return qsTr("Travel")
+        }
+        if (smartCategoryController.reviewingUncertain)
+            return qsTr("Review uncertain")
+        const selectedCategoryId = String(
+            smartCategoryController.selectedCategoryId)
+        if (selectedCategoryId.length > 0) {
+            const categories = smartCategoryController.categories
+            for (let index = 0; index < categories.length; ++index) {
+                if (String(categories[index].id) === selectedCategoryId)
+                    return String(categories[index].name)
+            }
+        }
+        if (isSystemCollectionActive("liked"))
+            return qsTr("Liked")
+        if (isSystemCollectionActive("five-star"))
+            return qsTr("5 Stars")
+        if (semanticSearchController.hasResults)
+            return qsTr("Search Results")
+        if (hasActiveLibraryFilter)
+            return qsTr("Filtered Photos")
+        return qsTr("All Photos")
+    }
     readonly property var manualLibraryAlbums: {
         const albums = controller.libraryAlbums
         const manualAlbums = []
@@ -290,6 +342,11 @@ Item {
 
     Component.onCompleted: {
         justifiedReviewLayout.targetRowHeight = preferences.libraryThumbnailScale
+    }
+
+    onGalleryPresentationChanged: {
+        if (galleryPresentation === ReviewWorkspace.Map)
+            mapLibrarySidebarExpanded = false
     }
 
     function selectionKey(photoId, representationId) {
@@ -409,6 +466,7 @@ Item {
             controller.filterLiked = "liked"
         else if (kind === "five-star")
             controller.filterMinimumRating = 5
+        commitLibraryScopeSelection()
     }
 
     function isSystemCollectionActive(kind) {
@@ -449,6 +507,12 @@ Item {
             return
         controller.clearFilters()
         controller.dailyFilterEnabled = true
+        commitLibraryScopeSelection()
+    }
+
+    function commitLibraryScopeSelection() {
+        if (galleryPresentation === ReviewWorkspace.Map)
+            mapLibrarySidebarExpanded = false
     }
 
     function isTravelCollectionActive(countryKey, localityKey) {
@@ -656,6 +720,10 @@ Item {
         spacing: 0
 
         ReviewLibrarySidebar {
+            id: librarySidebar
+            objectName: "reviewLibrarySidebar"
+            visible: review.librarySidebarVisible
+            Layout.preferredWidth: visible ? 210 : 0
             workspace: review
             albumDialogs: albumDialogs
         }

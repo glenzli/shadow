@@ -116,7 +116,10 @@ ColumnLayout {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: smartCategories.controller.selectUncertain()
+            onClicked: {
+                smartCategories.controller.selectUncertain()
+                smartCategories.workspace.commitLibraryScopeSelection()
+            }
         }
     }
 
@@ -185,6 +188,7 @@ ColumnLayout {
                     else
                         smartCategories.controller.selectCategory(
                             String(categoryRow.modelData.id))
+                    smartCategories.workspace.commitLibraryScopeSelection()
                 }
             }
         }

@@ -142,9 +142,11 @@ ColumnLayout {
                 z: 0
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked:
+                onClicked: {
                     albums.workspace.controller.libraryAlbumId =
                         albumRow.albumId
+                    albums.workspace.commitLibraryScopeSelection()
+                }
             }
         }
     }

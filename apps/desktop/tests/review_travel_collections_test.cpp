@@ -83,9 +83,13 @@ class FakeTravelWorkspace final : public QObject {
         applied_country = country;
         applied_locality = locality;
     }
+    Q_INVOKABLE void commitLibraryScopeSelection() {
+        ++committed_scope_selections;
+    }
 
     QString applied_country;
     QString applied_locality;
+    int committed_scope_selections = 0;
 
   private:
     QObject* controller_;
@@ -136,12 +140,17 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     QCoreApplication::processEvents();
-    return require(
-               workspace.applied_country.isEmpty() && workspace.applied_locality.isEmpty(),
-               "the root Travel entry must request the complete generated collection"
-           )
-               ? EXIT_SUCCESS
-               : EXIT_FAILURE;
+    if (!require(
+            workspace.applied_country.isEmpty() && workspace.applied_locality.isEmpty(),
+            "the root Travel entry must request the complete generated collection"
+        )
+        || !require(
+            workspace.committed_scope_selections == 1,
+            "choosing the Travel scope must commit selection so map navigation can collapse"
+        )) {
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
 
 #include "review_travel_collections_test.moc"

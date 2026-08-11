@@ -45,10 +45,21 @@ Rectangle {
         anchors.rightMargin: 12
         spacing: 8
 
+        ShadowIconButton {
+            objectName: "mapLibraryScopeButton"
+            visible: toolbar.workspace.galleryPresentation
+                === ReviewWorkspace.Map
+            source: "qrc:/icons/back-to-library.svg"
+            selected: toolbar.workspace.mapLibrarySidebarExpanded
+            toolTipText: selected
+                ? qsTr("Hide Library scope selector")
+                : qsTr("Show Library scope selector")
+            accessibleName: toolTipText
+            onClicked: toolbar.workspace.mapLibrarySidebarExpanded = !selected
+        }
+
         Label {
-            text: toolbar.workspace.currentLibraryAlbumName.length > 0
-                ? toolbar.workspace.currentLibraryAlbumName.toUpperCase()
-                : qsTr("ALL PHOTOS")
+            text: toolbar.workspace.currentLibraryScopeName.toUpperCase()
             color: toolbar.workspace.textMuted
             font.pixelSize: 9
             font.weight: Font.DemiBold
