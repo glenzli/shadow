@@ -66,8 +66,10 @@ impl LocationStatus {
     }
 }
 
-/// A platform-local path. `native_path` is lossless for the source platform;
-/// `display_path` is only for UI and logs and must never be used as identity.
+/// A platform-local path. Unix and macOS store the original path bytes in
+/// `native_path`; Windows stores the original little-endian UTF-16 code units.
+/// `display_path` is only for UI and logs and must never be used as identity or
+/// to reopen the filesystem object.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AssetLocation {
     pub platform: Platform,

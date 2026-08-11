@@ -9,6 +9,7 @@ use shadow_bridge::{
 };
 use shadow_catalog::ReviewItemRecord;
 use shadow_domain::PhotoId;
+use shadow_native_path::native_path_from_location;
 
 use super::{
     DesktopSession, ffi,
@@ -18,23 +19,8 @@ use super::{
     },
 };
 
-#[cfg(unix)]
 pub(crate) fn catalog_native_path(source: &ReviewItemRecord) -> AnyResult<PathBuf> {
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
-
-    match source.location.platform {
-        shadow_domain::Platform::MacOs | shadow_domain::Platform::OtherUnix => Ok(PathBuf::from(
-            OsString::from_vec(source.location.native_path.clone()),
-        )),
-        shadow_domain::Platform::Windows => {
-            bail!("a Windows-native source path cannot be decoded by the Mac desktop service")
-        }
-    }
-}
-
-#[cfg(not(unix))]
-pub(crate) fn catalog_native_path(_source: &ReviewItemRecord) -> AnyResult<PathBuf> {
-    bail!("the first desktop edit service currently decodes native paths only on macOS")
+    native_path_from_location(&source.location).context("decode catalog source native path")
 }
 
 /// A child crash or timeout is durable negative evidence for this exact source

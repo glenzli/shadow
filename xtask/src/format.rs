@@ -7,6 +7,8 @@ use std::{
     process::{Command, Output},
 };
 
+const CLANG_FORMAT_OVERRIDE: &str = "SHADOW_CLANG_FORMAT";
+
 pub(super) fn run(arguments: impl Iterator<Item = OsString>) -> io::Result<()> {
     let root = repository_root()?;
     let mut check = false;
@@ -152,15 +154,50 @@ fn run_clang_format(root: &Path, check: bool, paths: BTreeSet<PathBuf>) -> io::R
         println!("format: no changed native sources");
         return Ok(());
     }
-    let mut command = Command::new("xcrun");
-    command.current_dir(root).arg("clang-format");
+    let paths = paths.into_iter().collect::<Vec<_>>();
+    if let Some(executable) = env::var_os(CLANG_FORMAT_OVERRIDE) {
+        if executable.is_empty() {
+            return Err(invalid_argument(format!(
+                "{CLANG_FORMAT_OVERRIDE} must name a clang-format executable"
+            )));
+        }
+        let mut command = Command::new(executable);
+        configure_clang_format(&mut command, root, check, &paths);
+        return run_status(command, "clang-format");
+    }
+
+    let mut command = Command::new("clang-format");
+    configure_clang_format(&mut command, root, check, &paths);
+    match run_status(command, "clang-format") {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        result => return result,
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = Command::new("xcrun");
+        command.arg("clang-format");
+        configure_clang_format(&mut command, root, check, &paths);
+        return run_status(command, "xcrun clang-format");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!(
+            "clang-format was not found on PATH; set {CLANG_FORMAT_OVERRIDE} to its executable"
+        ),
+    ))
+}
+
+fn configure_clang_format(command: &mut Command, root: &Path, check: bool, paths: &[PathBuf]) {
+    command.current_dir(root);
     if check {
         command.args(["--dry-run", "--Werror"]);
     } else {
         command.arg("-i");
     }
     command.args(paths);
-    run_status(command, "clang-format")
 }
 
 fn run_status(mut command: Command, label: &str) -> io::Result<()> {

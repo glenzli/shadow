@@ -2,8 +2,9 @@ use std::{fs, path::PathBuf};
 
 use shadow_catalog::{Catalog, ImportPhotoGrouping, RegisterAsset};
 use shadow_domain::{AssetLocation, Platform, RepresentationKind};
+use shadow_native_path::{current_platform, native_location};
 
-use super::{CatalogSharePolicy, CatalogShareSource};
+use super::{CatalogSharePolicy, CatalogShareSource, native_path};
 use crate::{
     LibraryShareSource,
     protocol::{CapabilityAvailability, RemoteOriginalIdentity},
@@ -67,6 +68,18 @@ fn explicit_roots_and_original_permission_bound_the_manifest() {
             .is_err()
     );
     fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn a_foreign_platform_location_is_never_reopened_as_host_bytes() {
+    let foreign = match current_platform() {
+        Platform::Windows => Platform::MacOs,
+        Platform::MacOs | Platform::OtherUnix => Platform::Windows,
+    };
+    let location = AssetLocation::new(foreign, b"foreign-native-path".to_vec(), "foreign");
+
+    let error = native_path(&location).expect_err("reject foreign native path");
+    assert_eq!(error.code, crate::protocol::RemoteErrorCode::Unavailable);
 }
 
 #[test]
@@ -176,11 +189,7 @@ fn shared_root_symlink_cannot_admit_an_outside_photo() {
 fn registration(path: &std::path::Path, byte_len: u64) -> RegisterAsset {
     RegisterAsset {
         kind: RepresentationKind::OriginalRaw,
-        location: AssetLocation::new(
-            current_platform(),
-            path.to_string_lossy().as_bytes().to_vec(),
-            path.to_string_lossy(),
-        ),
+        location: native_location(path),
         byte_len,
         modified_at_ms: Some(1),
         now_ms: 1,
@@ -204,26 +213,7 @@ fn registration_from_file(path: &std::path::Path, kind: RepresentationKind) -> R
 }
 
 fn location(path: &std::path::Path) -> AssetLocation {
-    AssetLocation::new(
-        current_platform(),
-        path.to_string_lossy().as_bytes().to_vec(),
-        path.to_string_lossy(),
-    )
-}
-
-#[cfg(target_os = "macos")]
-const fn current_platform() -> Platform {
-    Platform::MacOs
-}
-
-#[cfg(target_os = "windows")]
-const fn current_platform() -> Platform {
-    Platform::Windows
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-const fn current_platform() -> Platform {
-    Platform::OtherUnix
+    native_location(path)
 }
 
 fn temporary_directory(label: &str) -> PathBuf {

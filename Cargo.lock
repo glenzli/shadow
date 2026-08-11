@@ -991,6 +991,7 @@ dependencies = [
  "shadow-cache",
  "shadow-catalog",
  "shadow-domain",
+ "shadow-native-path",
  "thiserror",
  "time",
 ]
@@ -1013,6 +1014,7 @@ dependencies = [
  "shadow-core",
  "shadow-domain",
  "shadow-library-sharing",
+ "shadow-native-path",
  "thiserror",
  "uuid",
 ]
@@ -1038,8 +1040,17 @@ dependencies = [
  "shadow-cache",
  "shadow-catalog",
  "shadow-domain",
+ "shadow-native-path",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "shadow-native-path"
+version = "0.1.0"
+dependencies = [
+ "shadow-domain",
+ "thiserror",
 ]
 
 [[package]]

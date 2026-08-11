@@ -52,7 +52,9 @@ cargo xtask desktop-build
 
 `cargo xtask format` delegates Rust to `rustfmt.toml` and tracked native sources to
 `.clang-format`. Pass explicit native files for a narrow edit, `--check` for non-mutating
-verification, or `--all` only when intentionally normalizing all tracked native sources.
+verification, or `--all` only when intentionally normalizing all tracked native sources. Native
+formatting uses `clang-format` from `PATH`, with `xcrun clang-format` as a macOS-only fallback. Set
+`SHADOW_CLANG_FORMAT` to an explicit executable when the toolchain is not on `PATH`.
 
 Repository instructions require build output outside the source tree. Agents and concurrent tasks
 must use task-private external Cargo and CMake directories; see [AGENTS.md](../../AGENTS.md) for the

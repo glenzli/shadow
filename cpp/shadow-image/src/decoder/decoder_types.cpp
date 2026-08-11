@@ -1,5 +1,6 @@
 #include <shadow/image/decoder_types.hpp>
 
+#include <algorithm>
 #include <ranges>
 
 namespace shadow::image {

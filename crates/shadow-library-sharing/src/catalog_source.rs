@@ -16,6 +16,7 @@ use shadow_catalog::{
     RepresentationFingerprint, ReviewCursor,
 };
 use shadow_domain::{DecodeSupport, PhotoId, RepresentationId};
+use shadow_native_path::native_path_from_location;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -605,22 +606,9 @@ const fn nonzero_i64(value: i64) -> Option<i64> {
     if value == 0 { None } else { Some(value) }
 }
 
-// The non-Unix branch validates UTF-8, while Unix can always reconstruct its native bytes.
-#[allow(clippy::unnecessary_wraps)]
 fn native_path(location: &shadow_domain::AssetLocation) -> Result<PathBuf, RemoteError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStringExt;
-        Ok(PathBuf::from(std::ffi::OsString::from_vec(
-            location.native_path.clone(),
-        )))
-    }
-    #[cfg(not(unix))]
-    {
-        String::from_utf8(location.native_path.clone())
-            .map(PathBuf::from)
-            .map_err(|_| remote_error(RemoteErrorCode::Unavailable, "native path is invalid"))
-    }
+    native_path_from_location(location)
+        .map_err(|error| remote_error(RemoteErrorCode::Unavailable, error.to_string()))
 }
 
 fn source_fingerprint(path: &Path) -> io::Result<RepresentationFingerprint> {

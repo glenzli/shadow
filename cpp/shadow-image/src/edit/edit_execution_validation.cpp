@@ -6,6 +6,7 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>

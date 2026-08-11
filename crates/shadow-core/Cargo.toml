@@ -17,6 +17,7 @@ shadow-bridge.workspace = true
 shadow-cache.workspace = true
 shadow-catalog.workspace = true
 shadow-domain.workspace = true
+shadow-native-path = { path = "../shadow-native-path" }
 thiserror.workspace = true
 time.workspace = true
 

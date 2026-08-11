@@ -257,11 +257,8 @@ impl RelinkService {
             modified_at_ms: metadata.modified().ok().and_then(system_time_ms),
             now_ms,
         };
-        let source = RelinkSource::from_registration(
-            candidate_path,
-            &request,
-            WeakRelinkMetadata::from_path(Path::new(&request.location.display_path)),
-        );
+        let weak_metadata = WeakRelinkMetadata::from_path(&candidate_path);
+        let source = RelinkSource::from_registration(candidate_path, &request, weak_metadata);
         let pending = PendingStrongRelink::explicitly_selected(
             source,
             relink_candidate_from_missing_location(missing),

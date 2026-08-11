@@ -6,6 +6,7 @@ below, then follow its local README, module declarations, native facade, or QML 
 | Area | Stable entry | Responsibility |
 | --- | --- | --- |
 | Domain contracts | [`shadow-domain`](../../crates/shadow-domain/src/lib.rs) | Pure identities, edit graphs, Recipes, review state, and persisted contract types |
+| Native filesystem paths | [`shadow-native-path`](../../crates/shadow-native-path/README.md) | Lossless `AssetLocation` encoding, platform checks, and host-path reconstruction |
 | Catalog | [`shadow-catalog`](../../crates/shadow-catalog/src/lib.rs) | SQLite ownership, repositories, immutable ledgers, and projections |
 | Cache | [`shadow-cache`](../../crates/shadow-cache/README.md) | Content-addressed storage, verification, quarantine, and cache records |
 | Core workflows | [`shadow-core`](../../crates/shadow-core/src/lib.rs) | Scanning, source inspection, cache orchestration, and bounded workers |
