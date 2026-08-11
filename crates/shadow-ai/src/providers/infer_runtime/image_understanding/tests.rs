@@ -144,26 +144,8 @@ fn classification_request_is_bounded_and_has_unique_ids() {
 #[test]
 fn image_understanding_vocabulary_follows_the_selected_consumer_contract() {
     assert_eq!(
-        classification_intent(InferRuntimeConsumerVersion::Candidate2),
-        "vision.review_classification"
-    );
-    assert_eq!(
         classification_intent(InferRuntimeConsumerVersion::Candidate3),
         "vision.classify_closed_set"
-    );
-    assert_eq!(
-        capability_metadata(
-            InferRuntimeConsumerVersion::Candidate2,
-            ImageUnderstandingQuality::Basic,
-        ),
-        ("infer.quality_floor", "basic")
-    );
-    assert_eq!(
-        capability_metadata(
-            InferRuntimeConsumerVersion::Candidate2,
-            ImageUnderstandingQuality::General,
-        ),
-        ("infer.quality_floor", "general")
     );
     assert_eq!(
         capability_metadata(

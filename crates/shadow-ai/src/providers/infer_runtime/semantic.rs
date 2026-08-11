@@ -142,14 +142,12 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
 
 const fn image_embedding_intent(version: InferRuntimeConsumerVersion) -> &'static str {
     match version {
-        InferRuntimeConsumerVersion::Candidate2 => "vision.embed_image",
         InferRuntimeConsumerVersion::Candidate3 => "semantic.embed_image",
     }
 }
 
 const fn text_embedding_intent(version: InferRuntimeConsumerVersion) -> &'static str {
     match version {
-        InferRuntimeConsumerVersion::Candidate2 => "vision.embed_text",
         InferRuntimeConsumerVersion::Candidate3 => "semantic.embed_text",
     }
 }

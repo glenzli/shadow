@@ -1,9 +1,11 @@
 //! Consumer endpoint discovery for the local Infer Runtime data plane.
 //!
-//! This owner validates Infra Discovery filesystem and lease facts, selects
-//! one exact Consumer offer, and retains only the endpoint generation needed
-//! to invalidate a failed connection. Credentials and Intent policy remain in
-//! Infer Runtime's authenticated HTTP contract.
+//! This owner validates Infra Discovery filesystem and registration facts,
+//! selects one exact Consumer offer, and retains only the endpoint generation
+//! needed to invalidate a failed connection. A registration declares a
+//! persistent candidate; only a real connection attempt establishes liveness.
+//! Credentials and Intent policy remain in Infer Runtime's authenticated HTTP
+//! contract.
 
 use std::{
     collections::HashSet,
@@ -17,16 +19,14 @@ use std::{
 use reqwest::Url;
 use serde::Deserialize;
 use thiserror::Error;
-use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
 use super::validate_loopback_base_url;
 
 const DISCOVERY_SCHEMA: &str = "infra.discovery.registration";
-const DISCOVERY_SCHEMA_VERSION: &str = "20260810.1";
+const DISCOVERY_SCHEMA_VERSION: &str = "20260812.1";
 const SERVICE_KIND: &str = "infer-runtime";
 const SERVICE_INSTANCE_ID: &str = "local";
 const CONSUMER_PROTOCOL: &str = "infer-runtime.consumer";
-const CONSUMER_PROTOCOL_VERSION_CANDIDATE_2: &str = "0.1.0-candidate.2";
 const CONSUMER_PROTOCOL_VERSION_CANDIDATE_3: &str = "0.1.0-candidate.3";
 const CONSUMER_BINDING: &str = "infer-runtime.http-loopback";
 const FALLBACK_ENDPOINT: &str = "http://127.0.0.1:8787";
@@ -36,16 +36,14 @@ const MAX_PROTOCOL_VERSIONS: usize = 16;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) enum InferRuntimeConsumerVersion {
-    Candidate2,
     Candidate3,
 }
 
 impl InferRuntimeConsumerVersion {
-    const PREFERENCE_ORDER: [Self; 2] = [Self::Candidate3, Self::Candidate2];
+    const SUPPORTED: [Self; 1] = [Self::Candidate3];
 
     pub(super) const fn as_str(self) -> &'static str {
         match self {
-            Self::Candidate2 => CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
             Self::Candidate3 => CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
         }
     }
@@ -62,9 +60,9 @@ impl DiscoveryEndpoint {
     pub(super) fn explicit(base_url: Url) -> Self {
         Self {
             base_url,
-            // An explicit URL has no authenticated version offer. Preserve the
-            // pre-migration vocabulary instead of guessing a newer contract.
-            consumer_version: InferRuntimeConsumerVersion::Candidate2,
+            // Explicit endpoints must speak Shadow's sole supported Consumer
+            // vocabulary even though no discovery offer authenticated it.
+            consumer_version: InferRuntimeConsumerVersion::Candidate3,
             source: DiscoveryEndpointSource::Explicit,
         }
     }
@@ -76,9 +74,8 @@ enum DiscoveryEndpointSource {
     Discovered {
         instance_id: String,
         generation: String,
-        expires_at: OffsetDateTime,
     },
-    CompatibilityFallback,
+    FixedFallback,
 }
 
 #[derive(Debug)]
@@ -122,14 +119,10 @@ impl InferRuntimeDiscoveryResolver {
     }
 
     pub(super) fn resolve(&self) -> DiscoveryEndpoint {
-        self.resolve_at(OffsetDateTime::now_utc())
-    }
-
-    fn resolve_at(&self, now: OffsetDateTime) -> DiscoveryEndpoint {
         let endpoint = self
             .runtime_root
             .as_deref()
-            .and_then(|root| discover_endpoint(root, now).ok())
+            .and_then(|root| discover_endpoint(root).ok())
             .unwrap_or_else(|| self.fallback());
         *self
             .cached
@@ -142,11 +135,10 @@ impl InferRuntimeDiscoveryResolver {
         &self,
         failed: &DiscoveryEndpoint,
     ) -> DiscoveryEndpoint {
-        let now = OffsetDateTime::now_utc();
         let rediscovered = self
             .runtime_root
             .as_deref()
-            .and_then(|root| discover_endpoint(root, now).ok());
+            .and_then(|root| discover_endpoint(root).ok());
         let endpoint = match rediscovered {
             Some(candidate) if candidate != *failed => candidate,
             Some(_) | None => self.fallback(),
@@ -161,10 +153,10 @@ impl InferRuntimeDiscoveryResolver {
     fn fallback(&self) -> DiscoveryEndpoint {
         DiscoveryEndpoint {
             base_url: self.fallback.clone(),
-            // The fixed endpoint predates candidate.3 discovery. It remains a
-            // candidate.2 compatibility path until the fallback is removed.
-            consumer_version: InferRuntimeConsumerVersion::Candidate2,
-            source: DiscoveryEndpointSource::CompatibilityFallback,
+            // The fixed endpoint is transport fallback only; it no longer
+            // enables an older Consumer vocabulary.
+            consumer_version: InferRuntimeConsumerVersion::Candidate3,
+            source: DiscoveryEndpointSource::FixedFallback,
         }
     }
 }
@@ -175,7 +167,6 @@ struct Registration {
     schema: String,
     schema_version: String,
     service: Service,
-    lease: Lease,
     offers: Vec<Offer>,
 }
 
@@ -189,13 +180,6 @@ struct Service {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Lease {
-    renewed_at: String,
-    expires_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Offer {
     protocol: String,
     protocol_versions: Vec<String>,
@@ -203,10 +187,7 @@ struct Offer {
     endpoint: String,
 }
 
-fn discover_endpoint(
-    runtime_root: &Path,
-    now: OffsetDateTime,
-) -> Result<DiscoveryEndpoint, InferRuntimeDiscoveryError> {
+fn discover_endpoint(runtime_root: &Path) -> Result<DiscoveryEndpoint, InferRuntimeDiscoveryError> {
     let registrations = runtime_root.join("registrations");
     validate_private_directory(runtime_root)?;
     validate_private_directory(&registrations)?;
@@ -214,8 +195,8 @@ fn discover_endpoint(
     validate_private_directory(&runtime_root.join("sockets"))?;
     let manifest = registrations.join(format!("{SERVICE_KIND}--{SERVICE_INSTANCE_ID}.json"));
     let registration = read_private_registration(&manifest)?;
-    validate_registration(&registration, now)?;
-    let (consumer_version, offer) = InferRuntimeConsumerVersion::PREFERENCE_ORDER
+    validate_registration(&registration)?;
+    let (consumer_version, offer) = InferRuntimeConsumerVersion::SUPPORTED
         .iter()
         .find_map(|version| {
             registration
@@ -234,14 +215,12 @@ fn discover_endpoint(
         .ok_or(InferRuntimeDiscoveryError::NoCompatibleOffer)?;
     let base_url = validate_loopback_base_url(&offer.endpoint)
         .map_err(|_| InferRuntimeDiscoveryError::InvalidEndpoint)?;
-    let expires_at = parse_time(&registration.lease.expires_at)?;
     Ok(DiscoveryEndpoint {
         base_url,
         consumer_version,
         source: DiscoveryEndpointSource::Discovered {
             instance_id: registration.service.instance_id.clone(),
             generation: registration.service.generation.clone(),
-            expires_at,
         },
     })
 }
@@ -267,10 +246,7 @@ fn read_private_registration(path: &Path) -> Result<Registration, InferRuntimeDi
     serde_json::from_slice(&bytes).map_err(InferRuntimeDiscoveryError::InvalidJson)
 }
 
-fn validate_registration(
-    registration: &Registration,
-    now: OffsetDateTime,
-) -> Result<(), InferRuntimeDiscoveryError> {
+fn validate_registration(registration: &Registration) -> Result<(), InferRuntimeDiscoveryError> {
     if registration.schema != DISCOVERY_SCHEMA
         || registration.schema_version != DISCOVERY_SCHEMA_VERSION
         || registration.service.kind != SERVICE_KIND
@@ -281,16 +257,6 @@ fn validate_registration(
         || registration.offers.len() > MAX_OFFERS
     {
         return Err(InferRuntimeDiscoveryError::InvalidRegistration);
-    }
-    let renewed_at = parse_time(&registration.lease.renewed_at)?;
-    let expires_at = parse_time(&registration.lease.expires_at)?;
-    if renewed_at >= expires_at
-        || expires_at - renewed_at > Duration::seconds(120)
-        || renewed_at > now + Duration::seconds(15)
-        || expires_at > now + Duration::seconds(120)
-        || expires_at <= now
-    {
-        return Err(InferRuntimeDiscoveryError::InvalidLease);
     }
     for offer in &registration.offers {
         if !valid_contract_id(&offer.protocol)
@@ -317,13 +283,6 @@ fn validate_registration(
         }
     }
     Ok(())
-}
-
-fn parse_time(value: &str) -> Result<OffsetDateTime, InferRuntimeDiscoveryError> {
-    if value.len() > 40 {
-        return Err(InferRuntimeDiscoveryError::InvalidLease);
-    }
-    OffsetDateTime::parse(value, &Rfc3339).map_err(|_| InferRuntimeDiscoveryError::InvalidLease)
 }
 
 fn valid_file_token(value: &str, maximum: usize) -> bool {
@@ -595,8 +554,6 @@ enum InferRuntimeDiscoveryError {
     InvalidJson(serde_json::Error),
     #[error("Infra Discovery registration shape is invalid")]
     InvalidRegistration,
-    #[error("Infra Discovery lease is invalid or expired")]
-    InvalidLease,
     #[error("Infer Runtime has no compatible Consumer offer")]
     NoCompatibleOffer,
     #[error("Infer Runtime Consumer endpoint is invalid")]

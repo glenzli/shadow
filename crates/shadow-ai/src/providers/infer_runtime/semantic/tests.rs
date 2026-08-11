@@ -118,14 +118,6 @@ fn text_request_is_bounded_before_transport() {
 #[test]
 fn semantic_intents_follow_the_selected_consumer_contract() {
     assert_eq!(
-        image_embedding_intent(InferRuntimeConsumerVersion::Candidate2),
-        "vision.embed_image"
-    );
-    assert_eq!(
-        text_embedding_intent(InferRuntimeConsumerVersion::Candidate2),
-        "vision.embed_text"
-    );
-    assert_eq!(
         image_embedding_intent(InferRuntimeConsumerVersion::Candidate3),
         "semantic.embed_image"
     );

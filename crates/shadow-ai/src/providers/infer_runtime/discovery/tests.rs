@@ -7,8 +7,6 @@ use std::{
     },
 };
 
-use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
-
 use super::*;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(1);
@@ -40,40 +38,18 @@ impl DiscoveryFixture {
             .join("infer-runtime--local.json")
     }
 
-    fn write_registration(
-        &self,
-        now: OffsetDateTime,
-        generation: &str,
-        endpoint: &str,
-        version: &str,
-    ) {
-        self.write_registration_versions(now, generation, endpoint, &[version]);
+    fn write_registration(&self, generation: &str, endpoint: &str, version: &str) {
+        self.write_registration_versions(generation, endpoint, &[version]);
     }
 
-    fn write_registration_versions(
-        &self,
-        now: OffsetDateTime,
-        generation: &str,
-        endpoint: &str,
-        versions: &[&str],
-    ) {
-        let renewed_at = (now - Duration::seconds(5))
-            .format(&Rfc3339)
-            .expect("renewed time");
-        let expires_at = (now + Duration::seconds(40))
-            .format(&Rfc3339)
-            .expect("expiration time");
+    fn write_registration_versions(&self, generation: &str, endpoint: &str, versions: &[&str]) {
         let document = serde_json::json!({
             "schema": "infra.discovery.registration",
-            "schema_version": "20260810.1",
+            "schema_version": "20260812.1",
             "service": {
                 "kind": "infer-runtime",
                 "instance_id": "local",
                 "generation": generation
-            },
-            "lease": {
-                "renewed_at": renewed_at,
-                "expires_at": expires_at
             },
             "offers": [{
                 "protocol": "infer-runtime.status",
@@ -103,21 +79,19 @@ impl Drop for DiscoveryFixture {
 }
 
 #[test]
-fn selects_the_exact_live_consumer_offer() {
+fn selects_the_exact_consumer_offer() {
     let fixture = DiscoveryFixture::new();
-    let now = OffsetDateTime::now_utc();
     fixture.write_registration(
-        now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
 
-    let endpoint = discover_endpoint(&fixture.root, now).expect("discover endpoint");
+    let endpoint = discover_endpoint(&fixture.root).expect("discover endpoint");
     assert_eq!(endpoint.base_url.as_str(), "http://127.0.0.1:9123/");
     assert_eq!(
         endpoint.consumer_version,
-        InferRuntimeConsumerVersion::Candidate2
+        InferRuntimeConsumerVersion::Candidate3
     );
     assert!(matches!(
         endpoint.source,
@@ -130,20 +104,15 @@ fn selects_the_exact_live_consumer_offer() {
 }
 
 #[test]
-fn prefers_candidate_3_when_the_offer_supports_both_migration_versions() {
+fn selects_candidate_3_when_the_offer_also_lists_an_unsupported_older_version() {
     let fixture = DiscoveryFixture::new();
-    let now = OffsetDateTime::now_utc();
     fixture.write_registration_versions(
-        now,
         "generation-a",
         "http://127.0.0.1:9123",
-        &[
-            CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
-            CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
-        ],
+        &["0.1.0-candidate.2", CONSUMER_PROTOCOL_VERSION_CANDIDATE_3],
     );
 
-    let endpoint = discover_endpoint(&fixture.root, now).expect("discover endpoint");
+    let endpoint = discover_endpoint(&fixture.root).expect("discover endpoint");
     assert_eq!(
         endpoint.consumer_version,
         InferRuntimeConsumerVersion::Candidate3
@@ -151,25 +120,23 @@ fn prefers_candidate_3_when_the_offer_supports_both_migration_versions() {
 }
 
 #[test]
-fn resolver_tracks_generation_changes_and_lease_expiration() {
+fn resolver_keeps_registration_as_a_candidate_and_tracks_generation_changes() {
     let fixture = DiscoveryFixture::new();
-    let now = OffsetDateTime::now_utc();
     fixture.write_registration(
-        now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
     let resolver = InferRuntimeDiscoveryResolver::from_root(fixture.root.clone());
-    let first = resolver.resolve_at(now);
+    let first = resolver.resolve();
+    assert_eq!(resolver.resolve(), first);
 
     fixture.write_registration(
-        now,
         "generation-b",
         "http://127.0.0.1:9456",
         CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
-    let second = resolver.resolve_at(now);
+    let second = resolver.resolve();
     assert_ne!(first, second);
     assert_eq!(second.base_url.as_str(), "http://127.0.0.1:9456/");
     assert_eq!(
@@ -177,29 +144,21 @@ fn resolver_tracks_generation_changes_and_lease_expiration() {
         InferRuntimeConsumerVersion::Candidate3
     );
 
-    let expired = resolver.resolve_at(now + Duration::seconds(121));
-    assert_eq!(expired.base_url.as_str(), "http://127.0.0.1:8787/");
-    assert!(matches!(
-        expired.source,
-        DiscoveryEndpointSource::CompatibilityFallback
-    ));
+    assert_eq!(resolver.resolve(), second);
 }
 
 #[test]
 fn connection_failure_rechecks_generation_before_using_fallback() {
     let fixture = DiscoveryFixture::new();
-    let now = OffsetDateTime::now_utc();
     fixture.write_registration(
-        now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
     let resolver = InferRuntimeDiscoveryResolver::from_root(fixture.root.clone());
-    let failed = resolver.resolve_at(now);
+    let failed = resolver.resolve();
 
     fixture.write_registration(
-        OffsetDateTime::now_utc(),
         "generation-b",
         "http://127.0.0.1:9456",
         CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
@@ -210,21 +169,19 @@ fn connection_failure_rechecks_generation_before_using_fallback() {
     let unchanged = resolver.resolve_after_connection_failure(&rediscovered);
     assert!(matches!(
         unchanged.source,
-        DiscoveryEndpointSource::CompatibilityFallback
+        DiscoveryEndpointSource::FixedFallback
     ));
 }
 
 #[test]
 fn typed_client_connection_failure_invokes_rediscovery() {
     let fixture = DiscoveryFixture::new();
-    let now = OffsetDateTime::now_utc();
     let discovered = "http://127.0.0.1:1";
     let fallback = "http://127.0.0.1:2";
     fixture.write_registration(
-        now,
         "generation-a",
         discovered,
-        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
     let resolver = Arc::new(InferRuntimeDiscoveryResolver::from_root_with_fallback(
         fixture.root.clone(),
@@ -251,7 +208,7 @@ fn typed_client_connection_failure_invokes_rediscovery() {
             .cached_endpoint()
             .expect("rediscovery updates the cached selection")
             .source,
-        DiscoveryEndpointSource::CompatibilityFallback
+        DiscoveryEndpointSource::FixedFallback
     ));
 }
 
@@ -259,36 +216,90 @@ fn typed_client_connection_failure_invokes_rediscovery() {
 fn unavailable_or_incompatible_discovery_uses_the_migration_fallback() {
     let fixture = DiscoveryFixture::new();
     let resolver = InferRuntimeDiscoveryResolver::from_root(fixture.root.clone());
-    let now = OffsetDateTime::now_utc();
+    let unavailable = resolver.resolve();
     assert!(matches!(
-        resolver.resolve_at(now).source,
-        DiscoveryEndpointSource::CompatibilityFallback
+        unavailable.source,
+        DiscoveryEndpointSource::FixedFallback
     ));
+    assert_eq!(
+        unavailable.consumer_version,
+        InferRuntimeConsumerVersion::Candidate3
+    );
 
+    fixture.write_registration("generation-a", "http://127.0.0.1:9123", "0.1.0-candidate.2");
+    let incompatible = resolver.resolve();
+    assert!(matches!(
+        incompatible.source,
+        DiscoveryEndpointSource::FixedFallback
+    ));
+    assert_eq!(
+        incompatible.consumer_version,
+        InferRuntimeConsumerVersion::Candidate3
+    );
+}
+
+#[test]
+fn explicit_endpoint_uses_candidate_3_vocabulary() {
+    let endpoint = DiscoveryEndpoint::explicit(
+        validate_loopback_base_url("http://127.0.0.1:9876").expect("explicit endpoint"),
+    );
+    assert_eq!(
+        endpoint.consumer_version,
+        InferRuntimeConsumerVersion::Candidate3
+    );
+}
+
+#[test]
+fn rejects_the_previous_schema_and_the_removed_lease_field() {
+    let fixture = DiscoveryFixture::new();
     fixture.write_registration(
-        now,
         "generation-a",
         "http://127.0.0.1:9123",
-        "0.1.0-candidate.1",
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
+    let mut registration: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture.manifest()).expect("read registration"))
+            .expect("parse registration");
+
+    registration["schema_version"] = serde_json::json!("20260810.1");
+    fs::write(
+        fixture.manifest(),
+        serde_json::to_vec_pretty(&registration).expect("previous registration JSON"),
+    )
+    .expect("write previous registration");
+    set_mode(&fixture.manifest(), 0o600);
     assert!(matches!(
-        resolver.resolve_at(now).source,
-        DiscoveryEndpointSource::CompatibilityFallback
+        discover_endpoint(&fixture.root),
+        Err(InferRuntimeDiscoveryError::InvalidRegistration)
+    ));
+
+    registration["schema_version"] = serde_json::json!("20260812.1");
+    registration["lease"] = serde_json::json!({
+        "renewed_at": "2026-08-12T00:00:00Z",
+        "expires_at": "2026-08-12T00:01:00Z"
+    });
+    fs::write(
+        fixture.manifest(),
+        serde_json::to_vec_pretty(&registration).expect("lease-bearing registration JSON"),
+    )
+    .expect("write lease-bearing registration");
+    set_mode(&fixture.manifest(), 0o600);
+    assert!(matches!(
+        discover_endpoint(&fixture.root),
+        Err(InferRuntimeDiscoveryError::InvalidJson(_))
     ));
 }
 
 #[test]
 fn rejects_noncanonical_endpoint_and_duplicate_or_unknown_fields() {
     let fixture = DiscoveryFixture::new();
-    let now = OffsetDateTime::now_utc();
     fixture.write_registration(
-        now,
         "generation-a",
         "http://localhost:8787",
-        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
     assert!(matches!(
-        discover_endpoint(&fixture.root, now),
+        discover_endpoint(&fixture.root),
         Err(InferRuntimeDiscoveryError::InvalidEndpoint)
     ));
 
@@ -301,7 +312,7 @@ fn rejects_noncanonical_endpoint_and_duplicate_or_unknown_fields() {
     fs::write(fixture.manifest(), duplicate).expect("write duplicate field");
     set_mode(&fixture.manifest(), 0o600);
     assert!(matches!(
-        discover_endpoint(&fixture.root, now),
+        discover_endpoint(&fixture.root),
         Err(InferRuntimeDiscoveryError::InvalidJson(_))
     ));
 }
@@ -310,16 +321,14 @@ fn rejects_noncanonical_endpoint_and_duplicate_or_unknown_fields() {
 #[test]
 fn rejects_registration_that_is_not_owner_only() {
     let fixture = DiscoveryFixture::new();
-    let now = OffsetDateTime::now_utc();
     fixture.write_registration(
-        now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
     set_mode(&fixture.manifest(), 0o644);
     assert!(matches!(
-        discover_endpoint(&fixture.root, now),
+        discover_endpoint(&fixture.root),
         Err(InferRuntimeDiscoveryError::UnsafeObject(_))
     ));
 }

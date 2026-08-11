@@ -44,8 +44,6 @@ pub enum ImageUnderstandingQuality {
 impl ImageUnderstandingQuality {
     const fn capability_floor(self, version: InferRuntimeConsumerVersion) -> &'static str {
         match (version, self) {
-            (InferRuntimeConsumerVersion::Candidate2, Self::Basic) => "basic",
-            (InferRuntimeConsumerVersion::Candidate2, Self::General) => "general",
             (InferRuntimeConsumerVersion::Candidate3, Self::Basic) => "foundational",
             (InferRuntimeConsumerVersion::Candidate3, Self::General) => "capable",
         }
@@ -260,7 +258,6 @@ const fn capability_metadata(
     quality: ImageUnderstandingQuality,
 ) -> (&'static str, &'static str) {
     let key = match version {
-        InferRuntimeConsumerVersion::Candidate2 => "infer.quality_floor",
         InferRuntimeConsumerVersion::Candidate3 => "infer.capability_floor",
     };
     (key, quality.capability_floor(version))
@@ -268,7 +265,6 @@ const fn capability_metadata(
 
 const fn classification_intent(version: InferRuntimeConsumerVersion) -> &'static str {
     match version {
-        InferRuntimeConsumerVersion::Candidate2 => "vision.review_classification",
         InferRuntimeConsumerVersion::Candidate3 => "vision.classify_closed_set",
     }
 }
