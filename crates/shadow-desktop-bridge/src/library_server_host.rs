@@ -4,8 +4,6 @@
 //! server operator needs only the managed listener lifecycle and its private storage root, so this
 //! owner keeps that process boundary independent while reusing the exact same server service.
 
-use std::path::Path;
-
 use anyhow::{Context, Error, Result};
 
 use crate::session_library_server::{project_snapshot, start_request};
@@ -16,16 +14,18 @@ pub(crate) struct LibraryServerHost {
     service: LibraryServerService,
 }
 
-pub(crate) fn open_library_server_host(storage_root: &str) -> Result<Box<LibraryServerHost>> {
-    let storage_root = Path::new(storage_root);
-    std::fs::create_dir_all(storage_root).with_context(|| {
+pub(crate) fn open_library_server_host_ffi(
+    storage_root: &ffi::FfiNativePath,
+) -> Result<Box<LibraryServerHost>> {
+    let storage_root = crate::native_path_ffi::path_from_ffi(storage_root)?;
+    std::fs::create_dir_all(&storage_root).with_context(|| {
         format!(
             "create standalone Library server storage {}",
             storage_root.display()
         )
     })?;
     Ok(Box::new(LibraryServerHost {
-        service: LibraryServerService::new(LibraryServerStorage::for_root(storage_root)),
+        service: LibraryServerService::new(LibraryServerStorage::for_root(&storage_root)),
     }))
 }
 

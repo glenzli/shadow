@@ -1,4 +1,5 @@
 #include "backend/desktop_backend_private.hpp"
+#include "backend/native_path_input.hpp"
 #include "photo_inspection_projection.hpp"
 
 #include <memory>
@@ -6,8 +7,8 @@
 
 DesktopBackend::DesktopBackend(const QString& catalog_path, const QString& cache_root)
     : impl_(std::make_unique<Impl>(shadow::desktop::open_desktop_session(
-          catalog_path.toStdString(),
-          cache_root.toStdString()
+          native_path_input::path(catalog_path),
+          native_path_input::path(cache_root)
       ))) {}
 
 DesktopBackend::~DesktopBackend() = default;
@@ -15,7 +16,6 @@ DesktopBackend::~DesktopBackend() = default;
 void DesktopBackend::beginFolderScan(const std::uint64_t scan_id) const {
     impl_->folder_scan_backend.beginFolderScan(scan_id);
 }
-
 BackendScanReport DesktopBackend::scanFolder(
     const QString& folder_path,
     const std::uint64_t scan_id

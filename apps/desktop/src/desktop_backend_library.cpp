@@ -1,4 +1,5 @@
 #include "backend/desktop_backend_private.hpp"
+#include "backend/native_path_input.hpp"
 #include "backend/review_projection.hpp"
 #include "backend/rust_qt_projection.hpp"
 
@@ -18,7 +19,6 @@ using desktop_backend_projection::qstring;
     }
     return result;
 }
-
 [[nodiscard]] QStringList string_list(const rust::Vec<rust::String>& source) {
     QStringList result;
     result.reserve(checked_qt_vector_size(source.size(), "library_string_list"));
@@ -665,7 +665,7 @@ BackendVerifiedSourceRelinkReceipt DesktopBackend::relinkMissingSourceLocation(
     return verified_source_relink_receipt(impl_->session->relink_missing_source_location(
         scan_session_id.toStdString(),
         location_id.toStdString(),
-        candidate_path.toStdString()
+        native_path_input::path(candidate_path)
     ));
 }
 
@@ -675,7 +675,7 @@ BackendVerifiedSourceRelinkReceipt DesktopBackend::relinkLibrarySourceLocation(
 ) const {
     return verified_source_relink_receipt(impl_->session->relink_library_source_location(
         location_id.toStdString(),
-        candidate_path.toStdString()
+        native_path_input::path(candidate_path)
     ));
 }
 
@@ -685,7 +685,7 @@ BackendLibrarySourceRecoveryReceipt DesktopBackend::recoverLibrarySource(
 ) const {
     const auto receipt = impl_->session->recover_library_source(
         source_id.toStdString(),
-        replacement_folder.toStdString()
+        native_path_input::path(replacement_folder)
     );
     return {
         .library_root_path = qstring(receipt.library_root_path),
@@ -889,7 +889,7 @@ BackendGpxImportPreview DesktopBackend::previewLibraryGpxImport(
     const std::uint32_t maximum_gap_seconds
 ) const {
     return gpx_import_preview(impl_->session->preview_library_gpx_import(
-        gpx_path.toStdString(),
+        native_path_input::path(gpx_path),
         ffi_batch_photo_targets(targets),
         camera_clock_offset_seconds,
         maximum_gap_seconds

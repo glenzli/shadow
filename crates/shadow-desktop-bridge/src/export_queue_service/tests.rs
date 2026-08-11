@@ -17,14 +17,51 @@ fn export_target_requires_complete_absolute_identity() {
     let valid = ffi::FfiDurableExportTarget {
         photo_id: "photo-id".into(),
         source_path: "/source/raw.nef".into(),
-        output_path: output_path.display().to_string(),
+        output_path: crate::native_path_ffi::location_to_ffi(&shadow_native_path::native_location(
+            &output_path,
+        ))
+        .expect("project absolute output path"),
     };
     validate_export_target(&valid).expect("absolute target is valid");
 
     let invalid = ffi::FfiDurableExportTarget {
         photo_id: "photo-id".into(),
         source_path: "/source/raw.nef".into(),
-        output_path: "relative.jpg".into(),
+        output_path: crate::native_path_ffi::location_to_ffi(&shadow_native_path::native_location(
+            std::path::Path::new("relative.jpg"),
+        ))
+        .expect("project relative output path"),
     };
     assert!(validate_export_target(&invalid).is_err());
+
+    let (platform, unix_bytes, windows_units) = match shadow_native_path::current_platform() {
+        shadow_domain::Platform::Windows => (
+            ffi::FfiNativePathPlatform::OtherUnix,
+            vec![b'/', b't', b'm', b'p', b'/', b'o', b'u', b't'],
+            Vec::new(),
+        ),
+        shadow_domain::Platform::MacOs | shadow_domain::Platform::OtherUnix => (
+            ffi::FfiNativePathPlatform::Windows,
+            Vec::new(),
+            vec![
+                b'C'.into(),
+                b':'.into(),
+                b'\\'.into(),
+                b'o'.into(),
+                b'u'.into(),
+                b't'.into(),
+            ],
+        ),
+    };
+    let foreign = ffi::FfiDurableExportTarget {
+        photo_id: "photo-id".into(),
+        source_path: "/source/raw.nef".into(),
+        output_path: ffi::FfiNativePath {
+            platform,
+            unix_bytes,
+            windows_units,
+            display_path: "/display/is/not/reopen-identity.jpg".into(),
+        },
+    };
+    assert!(validate_export_target(&foreign).is_err());
 }

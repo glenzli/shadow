@@ -11,6 +11,7 @@ mod history_service;
 mod library_server_host;
 mod library_server_service;
 mod library_service;
+mod native_path_ffi;
 mod photo_inspection_service;
 mod relink_service;
 mod remote_library_service;
@@ -90,13 +91,32 @@ use crate::{cache_maintenance_service::CacheMaintenanceService, library_service:
 use detail_tile_cache::EditDetailSessionCache;
 use edit_preview::{OwnedEditedPreview, WarmEditPreviewSessionCache};
 use history_service::HistoryService;
-use library_server_host::{LibraryServerHost, open_library_server_host};
+use library_server_host::{LibraryServerHost, open_library_server_host_ffi};
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
+    /// Filesystem path supplied by the native desktop shell.
+    ///
+    /// Only the payload selected by `platform` may be populated. `display_path`
+    /// is descriptive and is never used to reopen the filesystem object.
+    #[derive(Debug)]
+    struct FfiNativePath {
+        platform: FfiNativePathPlatform,
+        unix_bytes: Vec<u8>,
+        windows_units: Vec<u16>,
+        display_path: String,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiNativePathPlatform {
+        MacOs,
+        Windows,
+        OtherUnix,
+    }
+
     /// The explicit human outcome for one Review-side comparison.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum FfiPairwiseOutcome {
@@ -1840,7 +1860,7 @@ mod ffi {
     struct FfiDurableExportTarget {
         photo_id: String,
         source_path: String,
-        output_path: String,
+        output_path: FfiNativePath,
     }
 
     /// Opaque durable job identity returned immediately after its immutable
@@ -1860,7 +1880,7 @@ mod ffi {
         job_id: String,
         photo_id: String,
         source_path: String,
-        output_path: String,
+        output_path: FfiNativePath,
         settings_json: String,
     }
 
@@ -1923,11 +1943,15 @@ mod ffi {
 
         fn new_basic_grade_node(label: &str) -> Result<FfiGradeNode>;
 
-        fn open_desktop_session(
-            catalog_path: &str,
-            cache_root: &str,
+        #[cxx_name = "open_desktop_session"]
+        fn open_desktop_session_ffi(
+            catalog_path: &FfiNativePath,
+            cache_root: &FfiNativePath,
         ) -> Result<Box<DesktopSession>>;
-        fn open_library_server_host(storage_root: &str) -> Result<Box<LibraryServerHost>>;
+        #[cxx_name = "open_library_server_host"]
+        fn open_library_server_host_ffi(
+            storage_root: &FfiNativePath,
+        ) -> Result<Box<LibraryServerHost>>;
         fn snapshot(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn start(
             self: &LibraryServerHost,
@@ -1936,9 +1960,10 @@ mod ffi {
         fn stop(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn reset_cache(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn begin_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<()>;
-        fn scan_folder(
+        #[cxx_name = "scan_folder"]
+        fn scan_folder_ffi(
             self: &DesktopSession,
-            folder_path: &str,
+            folder_path: &FfiNativePath,
             scan_id: u64,
         ) -> Result<FfiScanReport>;
         fn scan_progress(self: &DesktopSession, scan_id: u64) -> Result<FfiScanProgress>;
@@ -2038,21 +2063,24 @@ mod ffi {
             after_location_id: &str,
             limit: u32,
         ) -> Result<FfiMissingSourceLocationPage>;
-        fn relink_missing_source_location(
+        #[cxx_name = "relink_missing_source_location"]
+        fn relink_missing_source_location_ffi(
             self: &DesktopSession,
             scan_session_id: &str,
             location_id: &str,
-            candidate_path: &str,
+            candidate_path: &FfiNativePath,
         ) -> Result<FfiVerifiedSourceRelinkReceipt>;
-        fn relink_library_source_location(
+        #[cxx_name = "relink_library_source_location"]
+        fn relink_library_source_location_ffi(
             self: &DesktopSession,
             location_id: &str,
-            candidate_path: &str,
+            candidate_path: &FfiNativePath,
         ) -> Result<FfiVerifiedSourceRelinkReceipt>;
-        fn recover_library_source(
+        #[cxx_name = "recover_library_source"]
+        fn recover_library_source_ffi(
             self: &DesktopSession,
             source_id: &str,
-            replacement_folder: &str,
+            replacement_folder: &FfiNativePath,
         ) -> Result<FfiLibrarySourceRecoveryReceipt>;
         fn reconcile_missing_source_photos(
             self: &DesktopSession,
@@ -2168,9 +2196,10 @@ mod ffi {
             self: &DesktopSession,
             preview_id: &str,
         ) -> Result<FfiLibraryMetadataBatchReceipt>;
-        fn preview_library_gpx_import(
+        #[cxx_name = "preview_library_gpx_import"]
+        fn preview_library_gpx_import_ffi(
             self: &DesktopSession,
-            gpx_path: &str,
+            gpx_path: &FfiNativePath,
             targets: Vec<FfiBatchPhotoTarget>,
             camera_clock_offset_seconds: i64,
             maximum_gap_seconds: u32,
@@ -2589,9 +2618,25 @@ struct DesktopSession {
     history: HistoryService,
 }
 
+fn open_desktop_session_ffi(
+    catalog_path: &ffi::FfiNativePath,
+    cache_root: &ffi::FfiNativePath,
+) -> AnyResult<Box<DesktopSession>> {
+    let catalog_path = native_path_ffi::path_from_ffi(catalog_path)?;
+    let cache_root = native_path_ffi::path_from_ffi(cache_root)?;
+    open_desktop_session_at(&catalog_path, &cache_root)
+}
+
+#[cfg(test)]
 fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<DesktopSession>> {
-    let catalog_path = Path::new(catalog_path);
-    let cache_root = PathBuf::from(cache_root);
+    open_desktop_session_at(Path::new(catalog_path), Path::new(cache_root))
+}
+
+fn open_desktop_session_at(
+    catalog_path: &Path,
+    cache_root: &Path,
+) -> AnyResult<Box<DesktopSession>> {
+    let cache_root = cache_root.to_path_buf();
     ensure_parent(catalog_path)?;
     // `anyhow::Context` deliberately displays only its outermost context via
     // `Display`.  That made the desktop FFI surface merely "open catalog …"

@@ -34,6 +34,31 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "windows-native-dev",
+      "displayName": "Shadow Windows native development",
+      "generator": "Ninja",
+      "binaryDir": "${sourceParentDir}/.shadow-local-build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "ON",
+        "SHADOW_BUILD_RAW_PROBE": "ON",
+        "SHADOW_ENABLE_METAL": "OFF",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_INSTALLED_DIR": "${sourceParentDir}/.shadow-local-vcpkg/${presetName}"
+      }
+    },
+    {
+      "name": "windows-desktop-dev",
+      "inherits": "windows-native-dev",
+      "displayName": "Shadow Windows desktop development",
+      "cacheVariables": {
+        "SHADOW_BUILD_DESKTOP": "ON",
+        "SHADOW_VCPKG_ICONV_PREFIX": "${sourceParentDir}/.shadow-local-vcpkg/${presetName}/x64-windows/usr/local"
+      }
     }
   ],
   "buildPresets": [
@@ -48,12 +73,27 @@
     {
       "name": "desktop-release",
       "configurePreset": "desktop-release"
+    },
+    {
+      "name": "windows-native-dev",
+      "configurePreset": "windows-native-dev"
+    },
+    {
+      "name": "windows-desktop-dev",
+      "configurePreset": "windows-desktop-dev"
     }
   ],
   "testPresets": [
     {
       "name": "native-dev",
       "configurePreset": "native-dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-native-dev",
+      "configurePreset": "windows-native-dev",
       "output": {
         "outputOnFailure": true
       }

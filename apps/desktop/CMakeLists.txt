@@ -4,6 +4,29 @@ find_package(
 )
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
+set(
+    SHADOW_VCPKG_ICONV_PREFIX
+    ""
+    CACHE PATH
+    "Optional vcpkg Iconv prefix used when the port installs beneath usr/local"
+)
+if(WIN32 AND SHADOW_VCPKG_ICONV_PREFIX)
+    if(EXISTS "${SHADOW_VCPKG_ICONV_PREFIX}")
+        list(PREPEND CMAKE_PREFIX_PATH "${SHADOW_VCPKG_ICONV_PREFIX}")
+        list(PREPEND CMAKE_INCLUDE_PATH "${SHADOW_VCPKG_ICONV_PREFIX}/include")
+        list(
+            PREPEND CMAKE_LIBRARY_PATH
+            "${SHADOW_VCPKG_ICONV_PREFIX}/lib"
+            "${SHADOW_VCPKG_ICONV_PREFIX}/debug/lib"
+        )
+        message(STATUS "Using vcpkg Iconv compatibility prefix: ${SHADOW_VCPKG_ICONV_PREFIX}")
+    else()
+        message(STATUS
+            "Configured vcpkg Iconv compatibility prefix is absent; "
+            "using the canonical vcpkg layout"
+        )
+    endif()
+endif()
 find_package(Iconv REQUIRED)
 find_package(TIFF REQUIRED)
 # Keep the final executable on the same reentrant LibRaw selected by the C++ kernel and Rust bridge.
@@ -55,7 +78,7 @@ set(
 )
 set(
     SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME
-    "shadow-rawnind-foundation-provider"
+    "shadow-rawnind-foundation-provider${CMAKE_EXECUTABLE_SUFFIX}"
 )
 set(
     SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY
@@ -159,7 +182,7 @@ file(
 
 set(
     SHADOW_DESKTOP_RUST_LIBRARY
-    "${SHADOW_CARGO_TARGET_DIRECTORY}/${SHADOW_CARGO_PROFILE}/libshadow_desktop_bridge.a"
+    "${SHADOW_CARGO_TARGET_DIRECTORY}/${SHADOW_CARGO_PROFILE}/${CMAKE_STATIC_LIBRARY_PREFIX}shadow_desktop_bridge${CMAKE_STATIC_LIBRARY_SUFFIX}"
 )
 set(
     SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY

@@ -19,6 +19,13 @@ before the first stable release.
 The canonical local entry points are:
 
 ```sh
+cargo xtask desktop-build-promote
+cargo xtask desktop-run-debug
+```
+
+The POSIX and PowerShell launchers are intentionally thin wrappers around the same commands:
+
+```sh
 ./scripts/build_and_promote_debug.sh
 ./scripts/run_debug.sh
 ```

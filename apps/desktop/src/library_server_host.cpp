@@ -1,13 +1,14 @@
 #include "library_server_host.hpp"
 
 #include "backend/library_server_projection.hpp"
+#include "backend/native_path_input.hpp"
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
 #include <stdexcept>
 
 struct LibraryServerHost::Impl final {
     explicit Impl(const QString& storage_root) :
-        host(shadow::desktop::open_library_server_host(storage_root.toStdString())) {}
+        host(shadow::desktop::open_library_server_host(native_path_input::path(storage_root))) {}
 
     rust::Box<shadow::desktop::LibraryServerHost> host;
 };

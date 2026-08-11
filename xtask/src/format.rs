@@ -173,19 +173,10 @@ fn run_clang_format(root: &Path, check: bool, paths: BTreeSet<PathBuf>) -> io::R
         result => return result,
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new("xcrun");
-        command.arg("clang-format");
-        configure_clang_format(&mut command, root, check, &paths);
-        return run_status(command, "xcrun clang-format");
-    }
-
-    #[cfg(not(target_os = "macos"))]
     Err(io::Error::new(
         io::ErrorKind::NotFound,
         format!(
-            "clang-format was not found on PATH; set {CLANG_FORMAT_OVERRIDE} to its executable"
+            "clang-format was not found on PATH; install it or set {CLANG_FORMAT_OVERRIDE} to its executable"
         ),
     ))
 }

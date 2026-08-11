@@ -1,5 +1,6 @@
 #include "backend/export_backend.hpp"
 #include "backend/export_raster_encoder.hpp"
+#include "backend/native_path_input.hpp"
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
@@ -30,7 +31,6 @@ namespace {
     );
     return QString::fromUtf8(value.data(), static_cast<qsizetype>(length));
 }
-
 [[nodiscard]] qsizetype checked_qt_vector_size(
     const std::size_t size,
     const char* const field
@@ -249,7 +249,7 @@ BackendDurableExportJob ExportBackend::enqueueDurableExportJob(
         shadow::desktop::FfiDurableExportTarget ffi_target;
         ffi_target.photo_id = target.photo_id.toStdString();
         ffi_target.source_path = target.source_path.toStdString();
-        ffi_target.output_path = target.output_path.toStdString();
+        ffi_target.output_path = native_path_input::path(target.output_path);
         ffi_targets.push_back(std::move(ffi_target));
     }
     const auto job = session_->enqueue_durable_export_job(
@@ -282,7 +282,7 @@ ExportBackend::claimNextDurableExportItem() const {
         .job_id = qstring(item.job_id),
         .photo_id = qstring(item.photo_id),
         .source_path = qstring(item.source_path),
-        .output_path = qstring(item.output_path),
+        .output_path = native_path_input::qstring(item.output_path),
         .settings_json = qstring(item.settings_json),
     };
 }
@@ -305,7 +305,7 @@ BackendExportReceipt ExportBackend::executeDurableExportItem(
         ffi_item.job_id = item.job_id.toStdString();
         ffi_item.photo_id = item.photo_id.toStdString();
         ffi_item.source_path = item.source_path.toStdString();
-        ffi_item.output_path = item.output_path.toStdString();
+        ffi_item.output_path = native_path_input::path(item.output_path);
         ffi_item.settings_json = item.settings_json.toStdString();
         const auto raster = session_->render_durable_export_item(ffi_item);
 

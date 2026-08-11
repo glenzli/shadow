@@ -6,7 +6,7 @@
 //! Encoding and atomic file publication remain in the desktop shell because
 //! Qt already owns the supported JPEG/PNG and watermark implementations.
 
-use std::{collections::BTreeSet, path::Path};
+use std::collections::BTreeSet;
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{RawDevelopmentPlan, raw_development_plan_identity};
@@ -15,8 +15,8 @@ use shadow_catalog::{
     ExportItemRecord, ExportItemState, ExportJobId, ExportSettingsSource, NewExportItem,
     NewExportOutputReceipt, RecipeCommitRecord, ReviewItemRecord,
 };
-use shadow_core::native_location;
-use shadow_domain::{EntityId, RecipeCommitId};
+use shadow_core::native_path_from_location;
+use shadow_domain::{AssetLocation, EntityId, RecipeCommitId};
 use uuid::Uuid;
 
 use crate::{digest_hex::encode_hex, wall_clock::current_time_ms};
@@ -59,8 +59,8 @@ impl ExportQueueService {
         let mut items = Vec::with_capacity(targets.len());
 
         for target in targets {
-            validate_export_target(&target)?;
-            if !outputs.insert(target.output_path.clone()) {
+            let output = validate_export_target(&target)?;
+            if !outputs.insert((output.platform.as_str(), output.native_path.clone())) {
                 bail!("one export job cannot publish two items to the same destination");
             }
             let (photo_id, source) =
@@ -101,7 +101,7 @@ impl ExportQueueService {
                 edit_commit_id: None,
                 source_identity_json,
                 render_plan_json,
-                output: native_location(Path::new(&target.output_path)),
+                output,
             });
         }
 
@@ -158,13 +158,23 @@ impl ExportQueueService {
                 .catalog
                 .export_job(item.job_id)?
                 .ok_or_else(|| anyhow!("durable export job {} is absent", item.job_id))?;
+            if native_path_from_location(&item.output).is_err() {
+                self.fail(
+                    item.id,
+                    ExportItemState::Preparing,
+                    "export_output_platform_mismatch",
+                    "the frozen export destination cannot be reopened on this platform",
+                    false,
+                )?;
+                continue;
+            }
             return Ok(Some(ffi::FfiDurableExportItem {
                 has_item: true,
                 item_id: item.id.to_string(),
                 job_id: item.job_id.to_string(),
                 photo_id: item.photo_id.to_string(),
                 source_path: source.location.display_path,
-                output_path: item.output.display_path,
+                output_path: crate::native_path_ffi::location_to_ffi(&item.output)?,
                 settings_json: job.settings_json,
             }));
         }
@@ -370,9 +380,8 @@ impl ExportQueueService {
         let item_id = parse_item_id(&item.item_id)?;
         let job_id = parse_job_id(&item.job_id)?;
         let persisted = self.item_by_id_for_job(job_id, item_id)?;
-        if persisted.photo_id.to_string() != item.photo_id
-            || persisted.output.display_path != item.output_path
-        {
+        let received_output = crate::native_path_ffi::location_from_ffi(&item.output_path)?;
+        if persisted.photo_id.to_string() != item.photo_id || persisted.output != received_output {
             bail!("durable export item identity changed after it was claimed");
         }
         Ok(persisted)
@@ -401,17 +410,19 @@ fn saturating_u32(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
-fn validate_export_target(target: &ffi::FfiDurableExportTarget) -> AnyResult<()> {
-    if target.photo_id.trim().is_empty()
-        || target.source_path.trim().is_empty()
-        || target.output_path.trim().is_empty()
-    {
+fn validate_export_target(target: &ffi::FfiDurableExportTarget) -> AnyResult<AssetLocation> {
+    if target.photo_id.trim().is_empty() || target.source_path.trim().is_empty() {
         bail!("durable export targets require photo id, source path, and output path");
     }
-    if !Path::new(&target.output_path).is_absolute() {
+    let output = crate::native_path_ffi::location_from_ffi(&target.output_path)?;
+    let output_path = native_path_from_location(&output)?;
+    if output_path.as_os_str().is_empty() {
+        bail!("durable export targets require photo id, source path, and output path");
+    }
+    if !output_path.is_absolute() {
         bail!("durable export output paths must be absolute");
     }
-    Ok(())
+    Ok(output)
 }
 
 fn normalized_settings_json(settings_json: &str) -> AnyResult<String> {

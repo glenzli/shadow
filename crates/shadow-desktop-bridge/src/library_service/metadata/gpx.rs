@@ -54,9 +54,19 @@ impl GpxPreviewRegistry {
 }
 
 impl LibraryService {
+    #[cfg(test)]
     pub(crate) fn preview_gpx_import(
         &self,
         gpx_path: &str,
+        targets: Vec<ffi::FfiBatchPhotoTarget>,
+        settings: GpsMatchSettings,
+    ) -> AnyResult<ffi::FfiGpxImportPreview> {
+        self.preview_gpx_import_at(Path::new(gpx_path), targets, settings)
+    }
+
+    pub(crate) fn preview_gpx_import_at(
+        &self,
+        gpx_path: &Path,
         targets: Vec<ffi::FfiBatchPhotoTarget>,
         settings: GpsMatchSettings,
     ) -> AnyResult<ffi::FfiGpxImportPreview> {
@@ -81,7 +91,7 @@ impl LibraryService {
                 });
             }
         }
-        let track = load_gpx_track(Path::new(gpx_path))?;
+        let track = load_gpx_track(gpx_path)?;
         let mut preview = match_photos_to_gpx(&track, &captures, settings)?;
         preview.requested_photo_count = seen.len();
         preview.unmatched_photo_count = seen.len().saturating_sub(preview.proposals.len());

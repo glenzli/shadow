@@ -215,13 +215,21 @@ impl ScanService {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn scan_folder(
         &self,
         folder_path: &str,
         scan_id: u64,
     ) -> AnyResult<ffi::FfiScanReport> {
+        self.scan_folder_path(Path::new(folder_path), scan_id)
+    }
+
+    pub(crate) fn scan_folder_path(
+        &self,
+        folder_path: &Path,
+        scan_id: u64,
+    ) -> AnyResult<ffi::FfiScanReport> {
         let cancellation = self.start_cancellation(scan_id)?;
-        let folder_path = Path::new(folder_path);
         let mut catalog = self.catalog.clone();
         let worker_count = recommended_decode_inspection_worker_count();
         let embedded_preview_sink: Arc<dyn EmbeddedPreviewSink> = self.session_previews.clone();

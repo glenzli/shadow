@@ -64,8 +64,9 @@ impl RelinkService {
         &self,
         scan_session_id: &str,
         location_id: &str,
-        candidate_path: &str,
+        candidate_path: impl AsRef<Path>,
     ) -> AnyResult<VerifiedSourceRelinkReceipt> {
+        let candidate_path = candidate_path.as_ref();
         let scan_session_id = scan_session_id
             .trim()
             .parse::<ImportSessionId>()
@@ -91,8 +92,9 @@ impl RelinkService {
     pub(crate) fn relink_library_source_location(
         &self,
         location_id: &str,
-        candidate_path: &str,
+        candidate_path: impl AsRef<Path>,
     ) -> AnyResult<VerifiedSourceRelinkReceipt> {
+        let candidate_path = candidate_path.as_ref();
         let location_id = location_id
             .trim()
             .parse::<LocationId>()
@@ -123,8 +125,9 @@ impl RelinkService {
     pub(crate) fn recover_library_source(
         &self,
         source_id: &str,
-        replacement_folder: &str,
+        replacement_folder: impl AsRef<Path>,
     ) -> AnyResult<LibrarySourceRecoveryReceipt> {
+        let replacement_folder = replacement_folder.as_ref();
         let source_id = source_id
             .trim()
             .parse::<LibrarySourceId>()
@@ -135,9 +138,12 @@ impl RelinkService {
             .into_iter()
             .find(|source| source.id == source_id && source.enabled)
             .ok_or_else(|| anyhow!("the selected Library folder is no longer active"))?;
-        let replacement_root = Path::new(replacement_folder)
-            .canonicalize()
-            .with_context(|| format!("resolve selected recovery folder {replacement_folder}"))?;
+        let replacement_root = replacement_folder.canonicalize().with_context(|| {
+            format!(
+                "resolve selected recovery folder {}",
+                replacement_folder.display()
+            )
+        })?;
         if !std::fs::metadata(&replacement_root).is_ok_and(|metadata| metadata.is_dir()) {
             bail!(
                 "the selected recovery path is not a folder: {}",
@@ -155,7 +161,7 @@ impl RelinkService {
         for recovery in plan.recoveries {
             self.relink_target(
                 &recovery.missing,
-                &recovery.path.to_string_lossy(),
+                &recovery.path,
                 Some(&replacement_root),
                 recovery.may_bootstrap_identity,
             )?;
@@ -180,11 +186,11 @@ impl RelinkService {
     fn relink_from_user_selection(
         &self,
         missing: &shadow_catalog::MissingSourceLocationRecord,
-        selected_path: &str,
+        selected_path: &Path,
     ) -> AnyResult<VerifiedSourceRelinkReceipt> {
-        let selected = Path::new(selected_path)
-            .canonicalize()
-            .with_context(|| format!("resolve selected recovery path {selected_path}"))?;
+        let selected = selected_path.canonicalize().with_context(|| {
+            format!("resolve selected recovery path {}", selected_path.display())
+        })?;
         let metadata = std::fs::metadata(&selected)
             .with_context(|| format!("inspect selected recovery path {}", selected.display()))?;
         if metadata.is_dir() {
@@ -193,7 +199,7 @@ impl RelinkService {
             for recovery in recoveries {
                 let receipt = self.relink_target(
                     &recovery.missing,
-                    &recovery.path.to_string_lossy(),
+                    &recovery.path,
                     Some(&selected),
                     recovery.may_bootstrap_identity,
                 )?;
@@ -210,7 +216,7 @@ impl RelinkService {
                 .representation_has_current_whole_file_identity(missing.representation_id)?;
             self.relink_target(
                 missing,
-                &selected.to_string_lossy(),
+                &selected,
                 None,
                 !has_strong_identity
                     && same_original_file_name(missing, &selected)
@@ -222,13 +228,13 @@ impl RelinkService {
     fn relink_target(
         &self,
         missing: &shadow_catalog::MissingSourceLocationRecord,
-        candidate_path: &str,
+        candidate_path: &Path,
         preferred_library_root: Option<&Path>,
         may_bootstrap_identity: bool,
     ) -> AnyResult<VerifiedSourceRelinkReceipt> {
-        let candidate_path = Path::new(candidate_path)
+        let candidate_path = candidate_path
             .canonicalize()
-            .with_context(|| format!("resolve selected source {candidate_path}"))?;
+            .with_context(|| format!("resolve selected source {}", candidate_path.display()))?;
         let library_root =
             library_root_for_candidate(&self.catalog, &candidate_path, preferred_library_root)?;
         let now_ms = current_time_ms()?;

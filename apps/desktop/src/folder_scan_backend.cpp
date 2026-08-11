@@ -1,5 +1,6 @@
 #include "folder_scan_backend.hpp"
 
+#include "backend/native_path_input.hpp"
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
 #include <algorithm>
@@ -15,7 +16,6 @@ namespace {
     );
     return QString::fromUtf8(value.data(), static_cast<qsizetype>(length));
 }
-
 [[nodiscard]] BackendScanPhase scan_phase(
     const shadow::desktop::FfiScanPhase phase
 ) {
@@ -53,7 +53,7 @@ BackendScanReport FolderScanBackend::scanFolder(
     const QString& folder_path,
     const std::uint64_t scan_id
 ) const {
-    const auto source = session_->scan_folder(folder_path.toStdString(), scan_id);
+    const auto source = session_->scan_folder(native_path_input::path(folder_path), scan_id);
     return {
         .folder_path = qstring(source.folder_path),
         .files_seen = source.files_seen,

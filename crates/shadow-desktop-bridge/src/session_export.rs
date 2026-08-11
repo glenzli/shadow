@@ -27,7 +27,12 @@ impl DesktopSession {
                 job_id: String::new(),
                 photo_id: String::new(),
                 source_path: String::new(),
-                output_path: String::new(),
+                output_path: ffi::FfiNativePath {
+                    platform: ffi::FfiNativePathPlatform::MacOs,
+                    unix_bytes: Vec::new(),
+                    windows_units: Vec::new(),
+                    display_path: String::new(),
+                },
                 settings_json: String::new(),
             }))
     }

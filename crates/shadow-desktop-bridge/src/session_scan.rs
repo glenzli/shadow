@@ -7,6 +7,16 @@ use shadow_core::{DecodeInspectionSummary, ScanCancellation};
 use super::{DesktopSession, ffi};
 
 impl DesktopSession {
+    pub(crate) fn scan_folder_ffi(
+        &self,
+        folder_path: &ffi::FfiNativePath,
+        scan_id: u64,
+    ) -> AnyResult<ffi::FfiScanReport> {
+        let folder_path = crate::native_path_ffi::path_from_ffi(folder_path)?;
+        self.scanner.scan_folder_path(&folder_path, scan_id)
+    }
+
+    #[cfg(test)]
     pub(crate) fn scan_folder(
         &self,
         folder_path: &str,

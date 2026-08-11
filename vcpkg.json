@@ -1,0 +1,20 @@
+{
+  "name": "shadow-desktop",
+  "version-string": "0.1.0",
+  "description": "Windows native and Qt dependencies for Shadow",
+  "dependencies": [
+    "lcms",
+    "libheif",
+    "libiconv",
+    "libjpeg-turbo",
+    "libraw",
+    "libtiff",
+    "pkgconf",
+    "qtbase",
+    "qtdeclarative",
+    "qtlocation",
+    "qtpositioning",
+    "qtsvg",
+    "qttools"
+  ]
+}

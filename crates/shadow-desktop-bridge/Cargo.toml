@@ -21,7 +21,7 @@ shadow-catalog.workspace = true
 shadow-core.workspace = true
 shadow-domain.workspace = true
 shadow-library-sharing.workspace = true
-shadow-native-path = { path = "../shadow-native-path" }
+shadow-native-path.workspace = true
 shadow-ai.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

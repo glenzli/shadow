@@ -126,39 +126,42 @@ impl DesktopSession {
             .ffi_missing_source_location_page(scan_session_id, after_location_id, limit)
     }
 
-    pub(crate) fn relink_missing_source_location(
+    pub(crate) fn relink_missing_source_location_ffi(
         &self,
         scan_session_id: &str,
         location_id: &str,
-        candidate_path: &str,
+        candidate_path: &ffi::FfiNativePath,
     ) -> AnyResult<ffi::FfiVerifiedSourceRelinkReceipt> {
+        let candidate_path = crate::native_path_ffi::path_from_ffi(candidate_path)?;
         let receipt = self.relink.relink_missing_source_location(
             scan_session_id,
             location_id,
-            candidate_path,
+            &candidate_path,
         )?;
         Ok(ffi_verified_source_relink_receipt(receipt))
     }
 
-    pub(crate) fn relink_library_source_location(
+    pub(crate) fn relink_library_source_location_ffi(
         &self,
         location_id: &str,
-        candidate_path: &str,
+        candidate_path: &ffi::FfiNativePath,
     ) -> AnyResult<ffi::FfiVerifiedSourceRelinkReceipt> {
+        let candidate_path = crate::native_path_ffi::path_from_ffi(candidate_path)?;
         Ok(ffi_verified_source_relink_receipt(
             self.relink
-                .relink_library_source_location(location_id, candidate_path)?,
+                .relink_library_source_location(location_id, &candidate_path)?,
         ))
     }
 
-    pub(crate) fn recover_library_source(
+    pub(crate) fn recover_library_source_ffi(
         &self,
         source_id: &str,
-        replacement_folder: &str,
+        replacement_folder: &ffi::FfiNativePath,
     ) -> AnyResult<ffi::FfiLibrarySourceRecoveryReceipt> {
+        let replacement_folder = crate::native_path_ffi::path_from_ffi(replacement_folder)?;
         Ok(ffi_library_source_recovery_receipt(
             self.relink
-                .recover_library_source(source_id, replacement_folder)?,
+                .recover_library_source(source_id, &replacement_folder)?,
         ))
     }
 
@@ -388,6 +391,25 @@ impl DesktopSession {
             .apply_capture_time_batch(preview_id, current_time_ms()?)
     }
 
+    pub(crate) fn preview_library_gpx_import_ffi(
+        &self,
+        gpx_path: &ffi::FfiNativePath,
+        targets: Vec<ffi::FfiBatchPhotoTarget>,
+        camera_clock_offset_seconds: i64,
+        maximum_gap_seconds: u32,
+    ) -> AnyResult<ffi::FfiGpxImportPreview> {
+        let gpx_path = crate::native_path_ffi::path_from_ffi(gpx_path)?;
+        self.library.preview_gpx_import_at(
+            &gpx_path,
+            targets,
+            shadow_core::GpsMatchSettings {
+                camera_clock_offset_seconds,
+                maximum_gap_seconds,
+            },
+        )
+    }
+
+    #[cfg(test)]
     pub(crate) fn preview_library_gpx_import(
         &self,
         gpx_path: &str,

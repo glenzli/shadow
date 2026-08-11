@@ -1,3 +1,4 @@
+#include "backend/native_path_input.hpp"
 #include "desktop_backend.hpp"
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
@@ -48,7 +49,6 @@ void require(const bool condition, const std::string& contract) {
         std::exit(EXIT_FAILURE);
     }
 }
-
 void cancellation_and_completion_remain_one_scan_identity_lifecycle() {
     QTemporaryDir root;
     require(root.isValid(), "temporary data root");
@@ -56,8 +56,8 @@ void cancellation_and_completion_remain_one_scan_identity_lifecycle() {
     require(QDir{}.mkpath(import_path), "empty import folder");
 
     auto session = shadow::desktop::open_desktop_session(
-        root.filePath(QStringLiteral("catalog.sqlite")).toStdString(),
-        root.filePath(QStringLiteral("cache")).toStdString()
+        native_path_input::path(root.filePath(QStringLiteral("catalog.sqlite"))),
+        native_path_input::path(root.filePath(QStringLiteral("cache")))
     );
     const FolderScanBackend scans(*session);
 

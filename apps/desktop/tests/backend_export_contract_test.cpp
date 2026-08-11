@@ -1,5 +1,6 @@
 #include "backend/export_backend.hpp"
 #include "backend/export_settings_codec.hpp"
+#include "backend/native_path_input.hpp"
 #include "desktop_backend.hpp"
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
@@ -25,7 +26,6 @@ namespace {
     }
     return condition;
 }
-
 template <typename Backend>
 concept HasLegacyOneShotExport = requires(
     Backend& backend,
@@ -292,8 +292,8 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     auto session = shadow::desktop::open_desktop_session(
-        root.filePath(QStringLiteral("catalog.sqlite")).toStdString(),
-        root.filePath(QStringLiteral("cache")).toStdString()
+        native_path_input::path(root.filePath(QStringLiteral("catalog.sqlite"))),
+        native_path_input::path(root.filePath(QStringLiteral("cache")))
     );
     ExportBackend backend(*session);
     const BackendDurableExportRecovery recovery =

@@ -8,23 +8,25 @@ tests remain documented beside their source owner.
 Build and atomically promote a complete debug application with:
 
 ```sh
-./scripts/build_and_promote_debug.sh
+cargo xtask desktop-build-promote
 ```
 
 Launch the promoted application with:
 
 ```sh
-./scripts/run_debug.sh
+cargo xtask desktop-run-debug
 ```
 
-Use `./scripts/build_and_promote_debug.sh --check` to inspect resolved build and asset inputs
+The matching `.sh` and `.ps1` files in `scripts/` are thin wrappers for terminals that prefer
+platform-native launchers. Use `cargo xtask desktop-build-promote --check` to inspect resolved
+build and asset inputs
 without building. A first machine setup supplies `SHADOW_GEONAMES_CITY_INDEX_PATH` and
 `SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR`; later builds can reuse the dedicated local asset cache or
 the previous canonical bundle as a read-only bootstrap source.
 
 Promoted builds live outside the repository under the sibling `.shadow-local-build` directory.
 Promotion creates an immutable revision-stamped release and atomically advances `current-debug`, so
-a running application is never modified in place. `./scripts/run_debug.sh --check` reports the
+a running application is never modified in place. `cargo xtask desktop-run-debug --check` reports the
 resolved executable and managed model paths without launching the application.
 
 The launcher detaches by default and appends output to
@@ -53,8 +55,25 @@ cargo xtask desktop-build
 `cargo xtask format` delegates Rust to `rustfmt.toml` and tracked native sources to
 `.clang-format`. Pass explicit native files for a narrow edit, `--check` for non-mutating
 verification, or `--all` only when intentionally normalizing all tracked native sources. Native
-formatting uses `clang-format` from `PATH`, with `xcrun clang-format` as a macOS-only fallback. Set
-`SHADOW_CLANG_FORMAT` to an explicit executable when the toolchain is not on `PATH`.
+formatting uses `clang-format` from `PATH`; set `SHADOW_CLANG_FORMAT` to an explicit executable
+when the toolchain is installed elsewhere.
+
+## Windows compile contract
+
+The Mac-first source tree exposes `windows-native-dev` and `windows-desktop-dev` CMake presets.
+They select the vcpkg toolchain, keep installed packages outside the repository, disable Metal,
+and supply the compatibility prefix used by vcpkg Iconv layouts that install beneath
+`usr/local`. The checked-in `vcpkg.json` owns the Windows native and Qt dependency set.
+
+```powershell
+cmake --preset windows-desktop-dev
+cmake --build --preset windows-desktop-dev --target shadow-desktop-rust-build
+```
+
+The Windows workflow runs the native-path fixtures, configures that desktop graph, compiles the
+Rust/CXX bridge, and builds the portable image kernel. Runtime launch and immutable debug promotion
+remain platform backends behind the shared xtask commands; the macOS backends are implemented here,
+and Windows can add its backend without changing the command contract.
 
 Repository instructions require build output outside the source tree. Agents and concurrent tasks
 must use task-private external Cargo and CMake directories; see [AGENTS.md](../../AGENTS.md) for the
