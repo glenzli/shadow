@@ -116,6 +116,26 @@ fn text_request_is_bounded_before_transport() {
 }
 
 #[test]
+fn semantic_intents_follow_the_selected_consumer_contract() {
+    assert_eq!(
+        image_embedding_intent(InferRuntimeConsumerVersion::Candidate2),
+        "vision.embed_image"
+    );
+    assert_eq!(
+        text_embedding_intent(InferRuntimeConsumerVersion::Candidate2),
+        "vision.embed_text"
+    );
+    assert_eq!(
+        image_embedding_intent(InferRuntimeConsumerVersion::Candidate3),
+        "semantic.embed_image"
+    );
+    assert_eq!(
+        text_embedding_intent(InferRuntimeConsumerVersion::Candidate3),
+        "semantic.embed_text"
+    );
+}
+
+#[test]
 #[ignore = "set SHADOW_TEST_SEMANTIC_IMAGE and SHADOW_INFER_TOKEN_FILE to run real local SigLIP HTTP inference"]
 fn real_siglip_image_and_chinese_text_share_one_space() {
     let image_path = std::env::var("SHADOW_TEST_SEMANTIC_IMAGE").expect("semantic image path");
@@ -127,11 +147,11 @@ fn real_siglip_image_and_chinese_text_share_one_space() {
         "image/jpeg"
     };
     let source_revision = format!("shadow:test:artifact:{}", blake3::hash(&image).to_hex());
-    let client = InferRuntimeClient::from_credential_file(
-        "http://127.0.0.1:8787",
+    let client = InferRuntimeClient::from_credential_file_with_discovery(
+        None,
         std::path::Path::new(&token_file),
     )
-    .expect("configure infer-runtime client");
+    .expect("discover infer-runtime client");
 
     let image = client
         .embed_image_semantics(

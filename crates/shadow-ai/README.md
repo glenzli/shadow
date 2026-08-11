@@ -143,11 +143,15 @@ and gates, not implemented inference.
   Consumer endpoint selection independently from those typed routes. An
   explicit Shadow override wins, otherwise it validates the owner-only
   `infra.discovery.registration@20260810.1` manifest, exact
-  `infer-runtime.consumer@0.1.0-candidate.2` offer, lease, generation, and
-  canonical numeric-loopback endpoint. A connection failure re-runs discovery;
-  `http://127.0.0.1:8787` remains only as the final migration fallback. Remove
-  that fallback after the publisher release has restarted and soaked with the
-  offer present and every registered Consumer has completed this migration.
+  `infer-runtime.consumer` offer, lease, generation, and canonical numeric-loopback
+  endpoint. During the candidate.3 migration it accepts only exact
+  `0.1.0-candidate.2` or `0.1.0-candidate.3` versions, prefers candidate.3 when
+  both are offered, and emits the Intent/capability vocabulary belonging to the
+  selected version. An explicit URL or `http://127.0.0.1:8787` migration fallback
+  retains candidate.2 vocabulary because neither supplies an authenticated
+  version offer. A connection failure re-runs discovery. Remove the fixed fallback
+  after the publisher release has restarted and soaked with candidate.3 present
+  and every registered Consumer has completed this migration.
 - Deterministic anonymous-person candidate grouping over request-local SFace
   evidence. It uses conservative complete-link grouping, never compares
   different embedding spaces, never groups two co-occurring faces from the

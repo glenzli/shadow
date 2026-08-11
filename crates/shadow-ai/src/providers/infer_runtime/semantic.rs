@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::{SEMANTIC_EMBEDDING_CONTRACT_VERSION, SemanticEmbedding, SemanticEmbeddingSpace};
 
 use super::{
-    InferRuntimeClient, InferRuntimeClientError, RawImageGeometry, VisionProvenance, image_form,
-    valid_provenance, validate_request,
+    InferRuntimeClient, InferRuntimeClientError, RawImageGeometry, VisionProvenance,
+    discovery::InferRuntimeConsumerVersion, image_form, valid_provenance, validate_request,
 };
 
 const IMAGE_EMBEDDING_PATH: &str = "infer/v1/vision/image-embeddings";
@@ -95,11 +95,15 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
     ) -> Result<ImageEmbeddingEvidence, InferRuntimeClientError> {
         validate_request(image, media_type, source_revision)?;
         let response: RawImageEmbeddingResponse =
-            self.send_json(IMAGE_EMBEDDING_PATH, |endpoint| {
-                let form: multipart::Form =
-                    image_form("vision.embed_image", image, media_type, source_revision)?
-                        .text("image_orientation", NORMALIZED_DISPLAY_ORIENTATION)
-                        .text("infer.priority", priority.as_str());
+            self.send_json(IMAGE_EMBEDDING_PATH, |endpoint, consumer_version| {
+                let form: multipart::Form = image_form(
+                    image_embedding_intent(consumer_version),
+                    image,
+                    media_type,
+                    source_revision,
+                )?
+                .text("image_orientation", NORMALIZED_DISPLAY_ORIENTATION)
+                .text("infer.priority", priority.as_str());
                 Ok(self
                     .client
                     .post(endpoint)
@@ -117,15 +121,15 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
         priority: SemanticRequestPriority,
     ) -> Result<TextEmbeddingEvidence, InferRuntimeClientError> {
         validate_text_request(text, query_revision, language)?;
-        let request = TextEmbeddingRequest {
-            model: "vision.embed_text",
-            text,
-            query_revision,
-            language,
-            metadata: BTreeMap::from([("infer.priority", priority.as_str())]),
-        };
         let response: RawTextEmbeddingResponse =
-            self.send_json(TEXT_EMBEDDING_PATH, |endpoint| {
+            self.send_json(TEXT_EMBEDDING_PATH, |endpoint, consumer_version| {
+                let request = TextEmbeddingRequest {
+                    model: text_embedding_intent(consumer_version),
+                    text,
+                    query_revision,
+                    language,
+                    metadata: BTreeMap::from([("infer.priority", priority.as_str())]),
+                };
                 Ok(self
                     .client
                     .post(endpoint)
@@ -133,6 +137,20 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
                     .json(&request))
             })?;
         response.validate(query_revision, language)
+    }
+}
+
+const fn image_embedding_intent(version: InferRuntimeConsumerVersion) -> &'static str {
+    match version {
+        InferRuntimeConsumerVersion::Candidate2 => "vision.embed_image",
+        InferRuntimeConsumerVersion::Candidate3 => "semantic.embed_image",
+    }
+}
+
+const fn text_embedding_intent(version: InferRuntimeConsumerVersion) -> &'static str {
+    match version {
+        InferRuntimeConsumerVersion::Candidate2 => "vision.embed_text",
+        InferRuntimeConsumerVersion::Candidate3 => "semantic.embed_text",
     }
 }
 

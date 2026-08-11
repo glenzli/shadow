@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::{FaceBoundingBox, FaceEmbedding, FaceLandmarks};
-use discovery::{DiscoveryEndpoint, InferRuntimeDiscoveryResolver};
+use discovery::{DiscoveryEndpoint, InferRuntimeConsumerVersion, InferRuntimeDiscoveryResolver};
 
 pub use image_understanding::{
     ClassificationReviewCategory, ClassificationReviewDisposition, ClassificationReviewEvidence,
@@ -319,14 +319,15 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         source_revision: &str,
     ) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
         validate_request(image, media_type, source_revision)?;
-        let response: RawFaceDetectionResponse = self.send_json(DETECT_FACES_PATH, |endpoint| {
-            let form = image_form("vision.detect_faces", image, media_type, source_revision)?;
-            Ok(self
-                .client
-                .post(endpoint)
-                .bearer_auth(self.credential.expose())
-                .multipart(form))
-        })?;
+        let response: RawFaceDetectionResponse =
+            self.send_json(DETECT_FACES_PATH, |endpoint, _consumer_version| {
+                let form = image_form("vision.detect_faces", image, media_type, source_revision)?;
+                Ok(self
+                    .client
+                    .post(endpoint)
+                    .bearer_auth(self.credential.expose())
+                    .multipart(form))
+            })?;
         response.validate(source_revision)
     }
 
@@ -349,15 +350,16 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         }
         let landmarks_json =
             serde_json::to_string(&landmarks).map_err(InferRuntimeClientError::SerializeRequest)?;
-        let response: RawFaceEmbeddingResponse = self.send_json(EMBED_FACE_PATH, |endpoint| {
-            let form = image_form("vision.embed_face", image, media_type, source_revision)?
-                .text("landmarks", landmarks_json.clone());
-            Ok(self
-                .client
-                .post(endpoint)
-                .bearer_auth(self.credential.expose())
-                .multipart(form))
-        })?;
+        let response: RawFaceEmbeddingResponse =
+            self.send_json(EMBED_FACE_PATH, |endpoint, _consumer_version| {
+                let form = image_form("vision.embed_face", image, media_type, source_revision)?
+                    .text("landmarks", landmarks_json.clone());
+                Ok(self
+                    .client
+                    .post(endpoint)
+                    .bearer_auth(self.credential.expose())
+                    .multipart(form))
+            })?;
         response.validate(source_revision)
     }
 }
@@ -366,10 +368,16 @@ impl InferRuntimeClient {
     fn send_json<T: DeserializeOwned>(
         &self,
         path: &str,
-        mut build_request: impl FnMut(Url) -> Result<RequestBuilder, InferRuntimeClientError>,
+        mut build_request: impl FnMut(
+            Url,
+            InferRuntimeConsumerVersion,
+        ) -> Result<RequestBuilder, InferRuntimeClientError>,
     ) -> Result<T, InferRuntimeClientError> {
         let first_endpoint = self.resolve_endpoint();
-        let request = build_request(Self::endpoint_url(&first_endpoint, path)?)?;
+        let request = build_request(
+            Self::endpoint_url(&first_endpoint, path)?,
+            first_endpoint.consumer_version,
+        )?;
         let first_result = Self::send_json_once(request);
         let should_rediscover = matches!(
             &first_result,
@@ -385,7 +393,10 @@ impl InferRuntimeClient {
         if retry_endpoint == first_endpoint {
             return first_result;
         }
-        let retry = build_request(Self::endpoint_url(&retry_endpoint, path)?)?;
+        let retry = build_request(
+            Self::endpoint_url(&retry_endpoint, path)?,
+            retry_endpoint.consumer_version,
+        )?;
         Self::send_json_once(retry)
     }
 

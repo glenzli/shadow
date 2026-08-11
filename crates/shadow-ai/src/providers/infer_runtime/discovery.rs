@@ -26,16 +26,35 @@ const DISCOVERY_SCHEMA_VERSION: &str = "20260810.1";
 const SERVICE_KIND: &str = "infer-runtime";
 const SERVICE_INSTANCE_ID: &str = "local";
 const CONSUMER_PROTOCOL: &str = "infer-runtime.consumer";
-const CONSUMER_PROTOCOL_VERSION: &str = "0.1.0-candidate.2";
+const CONSUMER_PROTOCOL_VERSION_CANDIDATE_2: &str = "0.1.0-candidate.2";
+const CONSUMER_PROTOCOL_VERSION_CANDIDATE_3: &str = "0.1.0-candidate.3";
 const CONSUMER_BINDING: &str = "infer-runtime.http-loopback";
 const FALLBACK_ENDPOINT: &str = "http://127.0.0.1:8787";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_OFFERS: usize = 64;
 const MAX_PROTOCOL_VERSIONS: usize = 16;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub(super) enum InferRuntimeConsumerVersion {
+    Candidate2,
+    Candidate3,
+}
+
+impl InferRuntimeConsumerVersion {
+    const PREFERENCE_ORDER: [Self; 2] = [Self::Candidate3, Self::Candidate2];
+
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Candidate2 => CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+            Self::Candidate3 => CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(super) struct DiscoveryEndpoint {
     pub(super) base_url: Url,
+    pub(super) consumer_version: InferRuntimeConsumerVersion,
     source: DiscoveryEndpointSource,
 }
 
@@ -43,6 +62,9 @@ impl DiscoveryEndpoint {
     pub(super) fn explicit(base_url: Url) -> Self {
         Self {
             base_url,
+            // An explicit URL has no authenticated version offer. Preserve the
+            // pre-migration vocabulary instead of guessing a newer contract.
+            consumer_version: InferRuntimeConsumerVersion::Candidate2,
             source: DiscoveryEndpointSource::Explicit,
         }
     }
@@ -139,6 +161,9 @@ impl InferRuntimeDiscoveryResolver {
     fn fallback(&self) -> DiscoveryEndpoint {
         DiscoveryEndpoint {
             base_url: self.fallback.clone(),
+            // The fixed endpoint predates candidate.3 discovery. It remains a
+            // candidate.2 compatibility path until the fallback is removed.
+            consumer_version: InferRuntimeConsumerVersion::Candidate2,
             source: DiscoveryEndpointSource::CompatibilityFallback,
         }
     }
@@ -190,16 +215,21 @@ fn discover_endpoint(
     let manifest = registrations.join(format!("{SERVICE_KIND}--{SERVICE_INSTANCE_ID}.json"));
     let registration = read_private_registration(&manifest)?;
     validate_registration(&registration, now)?;
-    let offer = registration
-        .offers
+    let (consumer_version, offer) = InferRuntimeConsumerVersion::PREFERENCE_ORDER
         .iter()
-        .find(|offer| {
-            offer.protocol == CONSUMER_PROTOCOL
-                && offer.binding == CONSUMER_BINDING
-                && offer
-                    .protocol_versions
-                    .iter()
-                    .any(|version| version == CONSUMER_PROTOCOL_VERSION)
+        .find_map(|version| {
+            registration
+                .offers
+                .iter()
+                .find(|offer| {
+                    offer.protocol == CONSUMER_PROTOCOL
+                        && offer.binding == CONSUMER_BINDING
+                        && offer
+                            .protocol_versions
+                            .iter()
+                            .any(|offered| offered == version.as_str())
+                })
+                .map(|offer| (*version, offer))
         })
         .ok_or(InferRuntimeDiscoveryError::NoCompatibleOffer)?;
     let base_url = validate_loopback_base_url(&offer.endpoint)
@@ -207,6 +237,7 @@ fn discover_endpoint(
     let expires_at = parse_time(&registration.lease.expires_at)?;
     Ok(DiscoveryEndpoint {
         base_url,
+        consumer_version,
         source: DiscoveryEndpointSource::Discovered {
             instance_id: registration.service.instance_id.clone(),
             generation: registration.service.generation.clone(),

@@ -142,6 +142,46 @@ fn classification_request_is_bounded_and_has_unique_ids() {
 }
 
 #[test]
+fn image_understanding_vocabulary_follows_the_selected_consumer_contract() {
+    assert_eq!(
+        classification_intent(InferRuntimeConsumerVersion::Candidate2),
+        "vision.review_classification"
+    );
+    assert_eq!(
+        classification_intent(InferRuntimeConsumerVersion::Candidate3),
+        "vision.classify_closed_set"
+    );
+    assert_eq!(
+        capability_metadata(
+            InferRuntimeConsumerVersion::Candidate2,
+            ImageUnderstandingQuality::Basic,
+        ),
+        ("infer.quality_floor", "basic")
+    );
+    assert_eq!(
+        capability_metadata(
+            InferRuntimeConsumerVersion::Candidate2,
+            ImageUnderstandingQuality::General,
+        ),
+        ("infer.quality_floor", "general")
+    );
+    assert_eq!(
+        capability_metadata(
+            InferRuntimeConsumerVersion::Candidate3,
+            ImageUnderstandingQuality::Basic,
+        ),
+        ("infer.capability_floor", "foundational")
+    );
+    assert_eq!(
+        capability_metadata(
+            InferRuntimeConsumerVersion::Candidate3,
+            ImageUnderstandingQuality::General,
+        ),
+        ("infer.capability_floor", "capable")
+    );
+}
+
+#[test]
 fn additive_response_fields_are_ignored() {
     let value = serde_json::json!({
         "object": "vision.image_description",
@@ -191,11 +231,11 @@ fn real_qwen_description_and_closed_set_review_use_typed_contracts() {
         "image/jpeg"
     };
     let source_revision = format!("shadow:test:artifact:{}", blake3::hash(&image).to_hex());
-    let client = InferRuntimeClient::from_credential_file(
-        "http://127.0.0.1:8787",
+    let client = InferRuntimeClient::from_credential_file_with_discovery(
+        None,
         std::path::Path::new(&token_file),
     )
-    .expect("configure infer-runtime client");
+    .expect("discover infer-runtime client");
 
     let description = client
         .describe_image(

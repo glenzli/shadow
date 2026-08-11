@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     InferRuntimeClient, InferRuntimeClientError, RawImageGeometry, SemanticRequestPriority,
-    image_form, validate_request,
+    discovery::InferRuntimeConsumerVersion, image_form, validate_request,
 };
 
 const IMAGE_DESCRIPTION_PATH: &str = "infer/v1/vision/image-descriptions";
@@ -42,10 +42,12 @@ pub enum ImageUnderstandingQuality {
 }
 
 impl ImageUnderstandingQuality {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Basic => "basic",
-            Self::General => "general",
+    const fn capability_floor(self, version: InferRuntimeConsumerVersion) -> &'static str {
+        match (version, self) {
+            (InferRuntimeConsumerVersion::Candidate2, Self::Basic) => "basic",
+            (InferRuntimeConsumerVersion::Candidate2, Self::General) => "general",
+            (InferRuntimeConsumerVersion::Candidate3, Self::Basic) => "foundational",
+            (InferRuntimeConsumerVersion::Candidate3, Self::General) => "capable",
         }
     }
 }
@@ -174,7 +176,7 @@ impl ImageUnderstandingProvider for InferRuntimeClient {
         validate_request(image, media_type, source_revision)?;
         validate_language(language)?;
         let response: RawImageDescriptionResponse =
-            self.send_json(IMAGE_DESCRIPTION_PATH, |endpoint| {
+            self.send_json(IMAGE_DESCRIPTION_PATH, |endpoint, consumer_version| {
                 let form = understanding_form(
                     "vision.describe_image",
                     image,
@@ -182,6 +184,7 @@ impl ImageUnderstandingProvider for InferRuntimeClient {
                     source_revision,
                     quality,
                     priority,
+                    consumer_version,
                 )?
                 .text("language", language.to_owned());
                 Ok(self
@@ -207,14 +210,15 @@ impl ClassificationReviewProvider for InferRuntimeClient {
             return Err(InferRuntimeClientError::InvalidClassificationCategories);
         }
         let response: RawClassificationReviewResponse =
-            self.send_json(CLASSIFICATION_REVIEW_PATH, |endpoint| {
+            self.send_json(CLASSIFICATION_REVIEW_PATH, |endpoint, consumer_version| {
                 let form = understanding_form(
-                    "vision.review_classification",
+                    classification_intent(consumer_version),
                     request.image,
                     request.media_type,
                     request.source_revision,
                     request.quality,
                     request.priority,
+                    consumer_version,
                 )?
                 .text("taxonomy_revision", request.taxonomy_revision.to_owned())
                 .text("categories", categories_json.clone());
@@ -239,14 +243,34 @@ fn understanding_form(
     source_revision: &str,
     quality: ImageUnderstandingQuality,
     priority: SemanticRequestPriority,
+    consumer_version: InferRuntimeConsumerVersion,
 ) -> Result<multipart::Form, InferRuntimeClientError> {
+    let (capability_key, capability_floor) = capability_metadata(consumer_version, quality);
     Ok(image_form(model, image, media_type, source_revision)?
         .text("image_orientation", NORMALIZED_DISPLAY_ORIENTATION)
         .text("infer.priority", priority.as_str())
-        .text("infer.quality_floor", quality.as_str())
+        .text(capability_key, capability_floor)
         .text("infer.placement", "local_only")
         .text("infer.offline_required", "true")
         .text("infer.fallback", "none"))
+}
+
+const fn capability_metadata(
+    version: InferRuntimeConsumerVersion,
+    quality: ImageUnderstandingQuality,
+) -> (&'static str, &'static str) {
+    let key = match version {
+        InferRuntimeConsumerVersion::Candidate2 => "infer.quality_floor",
+        InferRuntimeConsumerVersion::Candidate3 => "infer.capability_floor",
+    };
+    (key, quality.capability_floor(version))
+}
+
+const fn classification_intent(version: InferRuntimeConsumerVersion) -> &'static str {
+    match version {
+        InferRuntimeConsumerVersion::Candidate2 => "vision.review_classification",
+        InferRuntimeConsumerVersion::Candidate3 => "vision.classify_closed_set",
+    }
 }
 
 #[derive(Deserialize)]

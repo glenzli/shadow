@@ -47,6 +47,16 @@ impl DiscoveryFixture {
         endpoint: &str,
         version: &str,
     ) {
+        self.write_registration_versions(now, generation, endpoint, &[version]);
+    }
+
+    fn write_registration_versions(
+        &self,
+        now: OffsetDateTime,
+        generation: &str,
+        endpoint: &str,
+        versions: &[&str],
+    ) {
         let renewed_at = (now - Duration::seconds(5))
             .format(&Rfc3339)
             .expect("renewed time");
@@ -72,7 +82,7 @@ impl DiscoveryFixture {
                 "endpoint": "sockets/example.sock"
             }, {
                 "protocol": "infer-runtime.consumer",
-                "protocol_versions": [version],
+                "protocol_versions": versions,
                 "binding": "infer-runtime.http-loopback",
                 "endpoint": endpoint
             }]
@@ -100,11 +110,15 @@ fn selects_the_exact_live_consumer_offer() {
         now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
     );
 
     let endpoint = discover_endpoint(&fixture.root, now).expect("discover endpoint");
     assert_eq!(endpoint.base_url.as_str(), "http://127.0.0.1:9123/");
+    assert_eq!(
+        endpoint.consumer_version,
+        InferRuntimeConsumerVersion::Candidate2
+    );
     assert!(matches!(
         endpoint.source,
         DiscoveryEndpointSource::Discovered {
@@ -116,6 +130,27 @@ fn selects_the_exact_live_consumer_offer() {
 }
 
 #[test]
+fn prefers_candidate_3_when_the_offer_supports_both_migration_versions() {
+    let fixture = DiscoveryFixture::new();
+    let now = OffsetDateTime::now_utc();
+    fixture.write_registration_versions(
+        now,
+        "generation-a",
+        "http://127.0.0.1:9123",
+        &[
+            CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+            CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
+        ],
+    );
+
+    let endpoint = discover_endpoint(&fixture.root, now).expect("discover endpoint");
+    assert_eq!(
+        endpoint.consumer_version,
+        InferRuntimeConsumerVersion::Candidate3
+    );
+}
+
+#[test]
 fn resolver_tracks_generation_changes_and_lease_expiration() {
     let fixture = DiscoveryFixture::new();
     let now = OffsetDateTime::now_utc();
@@ -123,7 +158,7 @@ fn resolver_tracks_generation_changes_and_lease_expiration() {
         now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
     );
     let resolver = InferRuntimeDiscoveryResolver::from_root(fixture.root.clone());
     let first = resolver.resolve_at(now);
@@ -132,11 +167,15 @@ fn resolver_tracks_generation_changes_and_lease_expiration() {
         now,
         "generation-b",
         "http://127.0.0.1:9456",
-        CONSUMER_PROTOCOL_VERSION,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
     let second = resolver.resolve_at(now);
     assert_ne!(first, second);
     assert_eq!(second.base_url.as_str(), "http://127.0.0.1:9456/");
+    assert_eq!(
+        second.consumer_version,
+        InferRuntimeConsumerVersion::Candidate3
+    );
 
     let expired = resolver.resolve_at(now + Duration::seconds(121));
     assert_eq!(expired.base_url.as_str(), "http://127.0.0.1:8787/");
@@ -154,7 +193,7 @@ fn connection_failure_rechecks_generation_before_using_fallback() {
         now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
     );
     let resolver = InferRuntimeDiscoveryResolver::from_root(fixture.root.clone());
     let failed = resolver.resolve_at(now);
@@ -163,7 +202,7 @@ fn connection_failure_rechecks_generation_before_using_fallback() {
         OffsetDateTime::now_utc(),
         "generation-b",
         "http://127.0.0.1:9456",
-        CONSUMER_PROTOCOL_VERSION,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_3,
     );
     let rediscovered = resolver.resolve_after_connection_failure(&failed);
     assert_eq!(rediscovered.base_url.as_str(), "http://127.0.0.1:9456/");
@@ -181,7 +220,12 @@ fn typed_client_connection_failure_invokes_rediscovery() {
     let now = OffsetDateTime::now_utc();
     let discovered = "http://127.0.0.1:1";
     let fallback = "http://127.0.0.1:2";
-    fixture.write_registration(now, "generation-a", discovered, CONSUMER_PROTOCOL_VERSION);
+    fixture.write_registration(
+        now,
+        "generation-a",
+        discovered,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
+    );
     let resolver = Arc::new(InferRuntimeDiscoveryResolver::from_root_with_fallback(
         fixture.root.clone(),
         fallback,
@@ -194,8 +238,10 @@ fn typed_client_connection_failure_invokes_rediscovery() {
     )
     .expect("discovery client");
 
-    let result: Result<serde_json::Value, _> =
-        client.send_json("infer/v1/jobs", |endpoint| Ok(client.client.get(endpoint)));
+    let result: Result<serde_json::Value, _> = client
+        .send_json("infer/v1/jobs", |endpoint, _consumer_version| {
+            Ok(client.client.get(endpoint))
+        });
     assert!(matches!(
         result,
         Err(super::super::InferRuntimeClientError::Request(_))
@@ -239,7 +285,7 @@ fn rejects_noncanonical_endpoint_and_duplicate_or_unknown_fields() {
         now,
         "generation-a",
         "http://localhost:8787",
-        CONSUMER_PROTOCOL_VERSION,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
     );
     assert!(matches!(
         discover_endpoint(&fixture.root, now),
@@ -269,7 +315,7 @@ fn rejects_registration_that_is_not_owner_only() {
         now,
         "generation-a",
         "http://127.0.0.1:9123",
-        CONSUMER_PROTOCOL_VERSION,
+        CONSUMER_PROTOCOL_VERSION_CANDIDATE_2,
     );
     set_mode(&fixture.manifest(), 0o644);
     assert!(matches!(
