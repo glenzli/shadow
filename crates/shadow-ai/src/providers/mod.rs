@@ -18,8 +18,12 @@ pub use infer_runtime::{
     ClassificationReviewProvider, ClassificationReviewRequest, ClassificationReviewSuggestion,
     DetectedFace, DetectedFaceBatch, EmbeddedFace, FaceAnalysisProvider, FaceEmbeddingEligibility,
     ImageEmbeddingEvidence, ImageUnderstandingEvidence, ImageUnderstandingProvenance,
-    ImageUnderstandingProvider, ImageUnderstandingQuality, InferRuntimeClient,
-    InferRuntimeClientError, InferRuntimeCredential, SemanticEmbeddingProvider,
+    ImageUnderstandingProvider, ImageUnderstandingQuality, InferRawFoundationArtifactReceipt,
+    InferRawFoundationCancellation, InferRawFoundationDecoderIdentity, InferRawFoundationJob,
+    InferRawFoundationLeaseGrant, InferRawFoundationPriority, InferRawFoundationProvenance,
+    InferRawFoundationProvider, InferRawFoundationRegisteredLease, InferRawFoundationRequest,
+    InferRawFoundationResult, InferRawFoundationSource, InferRawFoundationStaging,
+    InferRuntimeClient, InferRuntimeClientError, InferRuntimeCredential, SemanticEmbeddingProvider,
     SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance, VisionTokenizerProvenance,
 };
 pub(crate) use rawnind_foundation_sidecar::descriptor_from_planned_verification;

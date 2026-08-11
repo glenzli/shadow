@@ -104,6 +104,12 @@ and reports the resolved canonical paths without opening the application.
   remain in
   [`../../../../tools/neural-raw-denoise-rawnind/requirements.lock`](../../../../tools/neural-raw-denoise-rawnind/requirements.lock).
 - `model-manifest.json` owns the exact public model artifact set.
+- `execution-baseline.json` freezes the Phase 0 execution, ownership,
+  handle-lease, parity, cancellation, and performance contract used to
+  compare the current sidecar with a future Infer Runtime adapter. Validate it
+  with
+  [`../../../../tools/neural-raw-denoise-rawnind/execution_baseline.py`](../../../../tools/neural-raw-denoise-rawnind/execution_baseline.py);
+  generated validation receipts stay outside the repository.
 - `install_runtime.cmake` owns the guarded, symlink-preserving copy of the
   PyInstaller private runtime into the application bundle.
 - [`../../CMakeLists.txt`](../../CMakeLists.txt) owns only the short desktop

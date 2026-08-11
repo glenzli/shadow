@@ -24,4 +24,7 @@ AI RAW foundations use a separate verified container contract in
 identities, stripe coverage and digests, and every finite float before exposing bounded row reads.
 Its verification projection includes the zero-or-one top/left active-sensor crop needed to bind
 canonical RGGB output back to the original RAW geometry; model paths and cache locations remain
-outside portable artifact identity.
+outside portable artifact identity. Execution-profile admission lives in
+[`src/foundation_artifact/execution_profile.rs`](src/foundation_artifact/execution_profile.rs):
+the legacy ORT 1.24.4 implementation and the isolated ORT 1.27 experimental Build are separate
+exact pairs, so neither can inherit the other's implementation or cache identity.

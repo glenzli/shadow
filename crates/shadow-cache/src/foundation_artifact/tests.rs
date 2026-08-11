@@ -25,7 +25,7 @@ fn contract() -> FoundationContract {
             blend_overlap_packed: 48,
             blend_width_packed: 34,
             exact_halo_packed: 31,
-            implementation_revision: IMPLEMENTATION_REVISION.to_owned(),
+            implementation_revision: execution_profile::LEGACY_IMPLEMENTATION_REVISION.to_owned(),
             inference_passes: 2,
             input_channel_order: ["R", "G1", "G2", "B"].map(str::to_owned),
             normalization: "per-cfa-site-black-to-white-range-clipped".to_owned(),
@@ -43,8 +43,8 @@ fn contract() -> FoundationContract {
             engine: "onnxruntime".to_owned(),
             machine: "arm64".to_owned(),
             platform: "macOS-test".to_owned(),
-            requested_provider: "CPUExecutionProvider".to_owned(),
-            runtime_version: "test".to_owned(),
+            requested_provider: "cpu".to_owned(),
+            runtime_version: "1.24.4".to_owned(),
         },
         model: FoundationModel {
             graph_member: "rawdenoise-nind/model_bayer.onnx".to_owned(),
@@ -112,8 +112,7 @@ fn publication_wire(publication: &StripePublication) -> StripePublicationWire {
     }
 }
 
-fn write_fixture(path: &Path) -> FoundationArtifactVerification {
-    let contract = contract();
+fn write_fixture_contract(path: &Path, contract: FoundationContract) {
     let shape = [3, 4, 6];
     let cache_key = canonical_sha256(&CacheKeyMaterial {
         contract: &contract,
@@ -204,7 +203,69 @@ fn write_fixture(path: &Path) -> FoundationArtifactVerification {
     bytes.extend_from_slice(&(manifest_bytes.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&sha256_bytes(&manifest_bytes));
     fs::write(path, bytes).expect("write synthetic artifact");
+}
+
+fn write_fixture(path: &Path) -> FoundationArtifactVerification {
+    write_fixture_contract(path, contract());
     verify_foundation_artifact(path).expect("verify synthetic artifact")
+}
+
+#[test]
+fn exact_experimental_ort127_profile_is_admitted() {
+    let path = fixture_path("experimental-ort127");
+    let mut contract = contract();
+    contract.algorithm.implementation_revision =
+        execution_profile::EXPERIMENTAL_ORT127_IMPLEMENTATION_REVISION.to_owned();
+    contract.execution.runtime_version = "onnxruntime-1.27.0".to_owned();
+    write_fixture_contract(&path, contract);
+
+    let verification =
+        verify_foundation_artifact(&path).expect("verify experimental execution profile");
+    assert_eq!(
+        verification.implementation_revision,
+        execution_profile::EXPERIMENTAL_ORT127_IMPLEMENTATION_REVISION
+    );
+}
+
+#[test]
+fn implementation_and_runtime_profiles_cannot_be_cross_paired() {
+    let legacy_with_new_runtime = fixture_path("legacy-with-new-runtime");
+    let mut legacy_contract = contract();
+    legacy_contract.execution.runtime_version = "onnxruntime-1.27.0".to_owned();
+    write_fixture_contract(&legacy_with_new_runtime, legacy_contract);
+    assert!(matches!(
+        verify_foundation_artifact(&legacy_with_new_runtime),
+        Err(FoundationArtifactError::Invalid(
+            "foundation algorithm identity is unsupported"
+        ))
+    ));
+
+    let experimental_with_legacy_runtime = fixture_path("experimental-with-legacy-runtime");
+    let mut experimental_contract = contract();
+    experimental_contract.algorithm.implementation_revision =
+        execution_profile::EXPERIMENTAL_ORT127_IMPLEMENTATION_REVISION.to_owned();
+    write_fixture_contract(&experimental_with_legacy_runtime, experimental_contract);
+    assert!(matches!(
+        verify_foundation_artifact(&experimental_with_legacy_runtime),
+        Err(FoundationArtifactError::Invalid(
+            "foundation algorithm identity is unsupported"
+        ))
+    ));
+}
+
+#[test]
+fn execution_provider_identity_is_exact() {
+    let path = fixture_path("wrong-provider");
+    let mut contract = contract();
+    contract.execution.active_providers = vec!["CoreMLExecutionProvider".to_owned()];
+    write_fixture_contract(&path, contract);
+
+    assert!(matches!(
+        verify_foundation_artifact(&path),
+        Err(FoundationArtifactError::Invalid(
+            "foundation algorithm identity is unsupported"
+        ))
+    ));
 }
 
 #[test]
@@ -343,7 +404,7 @@ fn real_audited_artifact_is_optionally_verified() {
     );
     assert_eq!(
         verification.implementation_revision,
-        IMPLEMENTATION_REVISION
+        execution_profile::LEGACY_IMPLEMENTATION_REVISION
     );
     let width = verification.width;
     let rows = reader
@@ -351,4 +412,19 @@ fn real_audited_artifact_is_optionally_verified() {
         .expect("read real rows across the first stripe boundary");
     assert_eq!(rows.len(), 36 * width as usize * 3);
     assert!(rows.iter().all(|value| value.is_finite()));
+}
+
+#[test]
+fn real_experimental_artifact_is_optionally_verified() {
+    let Some(path) = std::env::var_os("SHADOW_TEST_EXPERIMENTAL_FOUNDATION_ARTIFACT") else {
+        return;
+    };
+    let verification =
+        verify_foundation_artifact(PathBuf::from(path)).expect("verify real experimental artifact");
+    assert_eq!(
+        verification.implementation_revision,
+        execution_profile::EXPERIMENTAL_ORT127_IMPLEMENTATION_REVISION
+    );
+    assert_eq!(verification.model_package_sha256, PACKAGE_SHA256);
+    assert_eq!(verification.model_graph_sha256, BAYER_GRAPH_SHA256);
 }

@@ -1,0 +1,152 @@
+{
+  "schema": "shadow.rawnind.execution-baseline@20260811.1",
+  "status": "phase-0-candidate",
+  "legacy_route": {
+    "adapter_revision": "rawnind-foundation-sidecar-protocol-20260731.2",
+    "provider_id": "shadow.rawnind.foundation-sidecar"
+  },
+  "target_route": {
+    "artifact_lease_protocol": "infer-runtime.artifact-lease@20260811.1",
+    "contract": "infer.raw.foundation@20260811.1",
+    "endpoint": "POST /infer/v1/raw/foundations",
+    "intent": "raw.materialize_foundation"
+  },
+  "model": {
+    "artifact_set_blake3": "51bfabe88964e78ac74007e7b499e61ed07dc9dba51c28f3d0d495becb611d94",
+    "exact_revision": "release-5.6.0@5454d7aa6d89a67054fd4a83343b09e69acaf76a",
+    "execution_provider": "CPUExecutionProvider",
+    "format": "onnx",
+    "graph_sha256": "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901",
+    "id": "darktable-ai/rawnind-public-bayer",
+    "manifest_sha256": "60f1727e358c6504dbb8dd52531a80494a3ac9d04c60fdc02b9e7b3bcedc4d43",
+    "opset": 20,
+    "package_sha256": "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af",
+    "precision": "float32",
+    "runtime": "onnxruntime-1.24.4"
+  },
+  "input": {
+    "descriptor_contract": "active-camera-colour-20260806.1",
+    "payload_dtype": "uint16-little-endian",
+    "payload_suffix": ".u16le",
+    "source_pixel_contract_sha256": "e1998069001c14d01251cc3d6e2bc2aa66b807f3f17d246e7ee7270528302f7f",
+    "staging_schema": "shadow-raw-frame-staging-20260806.1"
+  },
+  "adapter_semantics": {
+    "input": {
+      "channel_order": [
+        "R",
+        "G1",
+        "G2",
+        "B"
+      ],
+      "dtype": "float32",
+      "name": "input",
+      "normalization": "per-cfa-site-black-to-white-range-clipped",
+      "shape": [
+        1,
+        4,
+        512,
+        512
+      ],
+      "white_balance": "none"
+    },
+    "output": {
+      "channel_order": [
+        "R",
+        "G",
+        "B"
+      ],
+      "dtype": "float32",
+      "name": "output",
+      "shape": [
+        1,
+        3,
+        1024,
+        1024
+      ],
+      "space": "linear-camera-rgb"
+    },
+    "tiling": {
+      "blend_overlap_packed": 112,
+      "blend_width_packed": 24,
+      "exact_halo_packed": 100,
+      "padding": "numpy-reflect-direct-index",
+      "pool_alignment_packed": 16,
+      "step_packed": 288,
+      "tile_edge_packed": 512
+    },
+    "lifecycle": {
+      "inference_passes": 2,
+      "max_additional_working_bytes": 268435456,
+      "producer": "rawnind-bayer-two-pass-stripe-v1",
+      "scale_policy": "one-global-output-mean-to-input-mean",
+      "source_extraction": "direct-reflect-from-borrowed-packed-input",
+      "stripe_format": "shadow-linear-camera-rgb-f32-stripe-chw-v1"
+    }
+  },
+  "output": {
+    "artifact_schema": "shadow-raw-foundation-artifact-v1",
+    "cache_key_schema": "shadow-raw-foundation-cache-key-v1",
+    "header_schema": "shadow-raw-foundation-header-v1",
+    "implementation_revision": "rawnind-public-bayer-foundation-v1",
+    "publication_owner": "shadow",
+    "verification_owner": "shadow"
+  },
+  "ownership": {
+    "infer_runtime": [
+      "exact-build-and-model-discovery-without-download",
+      "rawnind-adapter-semantics",
+      "onnxruntime-session-and-provider-lifecycle",
+      "resource-admission-and-queue",
+      "execution-progress-cancellation-errors-and-provenance"
+    ],
+    "shadow": [
+      "raw-container-decode-and-provider-neutral-staging",
+      "recipe-source-revision-and-stale-result-arbitration",
+      "cache-lookup-index-verification-publication-and-recovery",
+      "preview-detail-export-and-user-interface"
+    ]
+  },
+  "transport": {
+    "input_handle": "read-only-stable-open-object",
+    "input_integrity": "consumer-stability-promise-plus-runtime-identity-size-and-actual-read-digest",
+    "linux_macos": "uds-scm-rights",
+    "no_arbitrary_paths": true,
+    "no_per_tile_public_rpc": true,
+    "no_second_full_input_or_output": true,
+    "output_exclusivity": "cooperative-owner-only-not-adversarial-same-uid",
+    "output_handle": "empty-cooperative-exclusive-writable-open-object",
+    "lease_binding": "one-shot-app-job-generation-ttl",
+    "windows": "owner-only-named-pipe-duplicated-handle"
+  },
+  "routing_policy": {
+    "cache_hit_before_runtime": true,
+    "cache_hit_loads_onnxruntime": false,
+    "cache_hit_may_contact_runtime": false,
+    "legacy_and_infer_route_identities_are_distinct": true,
+    "silent_legacy_fallback": false
+  },
+  "parity_and_performance_gates": {
+    "artifact_parity": {
+      "fallback": "exact-stripe-and-pixel-semantics-with-new-artifact-revision",
+      "preferred": "byte-identical-shadowrawf"
+    },
+    "cancellation": {
+      "additional_stop_latency_ms_max": 250,
+      "percentile": 95,
+      "rule": "one-tile-time-plus-additional-latency"
+    },
+    "cpu_tile_throughput_decrease_percent_max": 3.0,
+    "extra_private_dirty_bytes_max": 67108864,
+    "soak": {
+      "duration_hours": 24,
+      "orphan_leases_max": 0
+    },
+    "warm_end_to_end_overhead": {
+      "p50_relative_percent_max": 3.0,
+      "p95_additional_latency_ms_max": 500,
+      "p95_relative_percent_max": 5.0,
+      "p95_rule": "relative-or-absolute-whichever-is-looser"
+    }
+  }
+}

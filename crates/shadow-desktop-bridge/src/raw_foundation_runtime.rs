@@ -1,12 +1,13 @@
 //! Desktop application adapter for one admitted `RawNIND` foundation.
 //!
-//! The source path is converted into a complete SHA-256 inventory before the
-//! provider is admitted. Model verification, CPU resource admission, planned
-//! cache lookup, one-shot execution, and verified publication then form one
-//! serialized local transaction. The resulting cache path is transient
-//! application state and never becomes part of a Recipe.
+//! The legacy sidecar remains the default route. An explicit Infer Runtime
+//! override retains Shadow's source inventory, isolated RAW decode, local
+//! cache lookup, independent publication, and stale-result boundaries while
+//! delegating only the Build-specific model execution. The resulting cache
+//! path is transient application state and never becomes part of a Recipe.
 
 pub(crate) mod config;
+mod infer_materialization;
 
 use std::{
     path::PathBuf,
@@ -20,12 +21,12 @@ use shadow_ai::{
     BackendKind, CancellationToken, ExecutionBackend, FallbackDisclosure, HardwareProfile,
     InputRole, LocalExecutionAdmission, LocalExecutionBinding, LocalModelAvailability,
     MaterializedRawFoundation, ModelAvailability, NumericPrecision, ObservationTarget,
-    OnBatteryPolicy, PrivacyClass, RawFoundationArtifact, RawFoundationMaterializationDisposition,
-    RawFoundationMaterializationOutcome, RawNindFoundationInput, ResourceEstimate, ResourcePolicy,
-    RuntimeFailure, RuntimeProgressSink, RuntimeTerminalOutcome, TaskPriority,
-    VerifiedRawNindFoundationInstallation, admit_local_execution,
-    materialize_rawnind_foundation_with_progress, resolve_cached_rawnind_foundation,
-    verify_rawnind_foundation_installation,
+    OnBatteryPolicy, PrivacyClass, RAWNIND_FOUNDATION_MODEL_ID, RawFoundationArtifact,
+    RawFoundationMaterializationDisposition, RawFoundationMaterializationOutcome,
+    RawNindFoundationInput, ResourceEstimate, ResourcePolicy, RuntimeFailure, RuntimeProgressSink,
+    RuntimeTerminalOutcome, TaskPriority, VerifiedRawNindFoundationInstallation,
+    admit_local_execution, materialize_rawnind_foundation_with_progress,
+    resolve_cached_rawnind_foundation, verify_rawnind_foundation_installation,
 };
 use shadow_cache::{
     FoundationArtifactError, FoundationArtifactReader, FoundationArtifactStore,
@@ -36,7 +37,13 @@ use shadow_core::fingerprint_source;
 use shadow_domain::{PhotoId, Platform};
 use thiserror::Error;
 
-use self::config::RawFoundationRuntimePaths;
+use self::{
+    config::{RawFoundationExecutionRoute, RawFoundationRuntimePaths},
+    infer_materialization::{
+        InferMaterializationError, InferMaterializationOutcome, InferMaterializedFoundation,
+        InferRawFoundationMaterializer,
+    },
+};
 use crate::isolated_proxy::{
     IsolatedRawFrameStaging, configured_helper_path, stage_isolated_raw_frame,
 };
@@ -55,6 +62,8 @@ pub(crate) struct RawFoundationRuntime {
     manifest_path: PathBuf,
     raw_frame_staging_root: PathBuf,
     store: FoundationArtifactStore,
+    execution_route: RawFoundationExecutionRoute,
+    infer_materializer: InferRawFoundationMaterializer,
     installation: Mutex<Option<VerifiedRawNindFoundationInstallation>>,
 }
 
@@ -114,13 +123,21 @@ impl RawFoundationRuntime {
     pub(crate) fn open(
         paths: RawFoundationRuntimePaths,
     ) -> Result<Self, RawFoundationRuntimeError> {
+        let store = FoundationArtifactStore::open(&paths.foundation_store_root)?;
+        let infer_materializer = InferRawFoundationMaterializer::new(
+            paths.infer_base_url_override,
+            paths.infer_credential_file,
+            &paths.foundation_store_root,
+        );
         Ok(Self {
             provider_executable: paths.provider_executable,
             model_package: paths.model_package,
             model_graph: paths.model_graph,
             manifest_path: paths.manifest_path,
             raw_frame_staging_root: paths.raw_frame_staging_root,
-            store: FoundationArtifactStore::open(paths.foundation_store_root)?,
+            store,
+            execution_route: paths.execution_route,
+            infer_materializer,
             installation: Mutex::new(None),
         })
     }
@@ -130,6 +147,13 @@ impl RawFoundationRuntime {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<RawFoundationRuntimeAvailability, RawFoundationRuntimeError> {
+        if self.execution_route == RawFoundationExecutionRoute::InferRuntime {
+            self.infer_materializer.probe_client()?;
+            return Ok(RawFoundationRuntimeAvailability {
+                model_id: RAWNIND_FOUNDATION_MODEL_ID.into(),
+                runtime_version: "onnxruntime-1.27.0".into(),
+            });
+        }
         let mut installation = self.installation_guard()?;
         let installation = self.verified_installation(&mut installation, cancellation)?;
         Ok(RawFoundationRuntimeAvailability {
@@ -159,6 +183,16 @@ impl RawFoundationRuntime {
         }
         if cancellation.is_cancelled() {
             return Ok(RawFoundationRuntimeOutcome::Cancelled);
+        }
+
+        if self.execution_route == RawFoundationExecutionRoute::InferRuntime {
+            return self.materialize_infer(
+                invocation,
+                before,
+                &source_sha256,
+                cancellation,
+                progress,
+            );
         }
 
         let mut installation_guard = self.installation_guard()?;
@@ -271,6 +305,27 @@ impl RawFoundationRuntime {
         if before != after_hash {
             return Err(RawFoundationRuntimeError::SourceChanged);
         }
+        if self.execution_route == RawFoundationExecutionRoute::InferRuntime {
+            let staging = self.stage_decoded_raw_frame(input_raw)?.ok_or_else(|| {
+                RawFoundationRuntimeError::DecodedInput(
+                    "isolated RAW decode helper is required by Infer Runtime".to_owned(),
+                )
+            })?;
+            let cached = self.infer_materializer.resolve_cached(
+                &self.store,
+                &source_sha256,
+                before.byte_len,
+                &staging,
+            )?;
+            if fingerprint_source(input_raw).map_err(RawFoundationRuntimeError::SourceInventory)?
+                != before
+            {
+                return Err(RawFoundationRuntimeError::SourceChanged);
+            }
+            return Ok(cached.map(|materialized| {
+                ready_from_infer(materialized, input_raw, before, Arc::new(staging))
+            }));
+        }
         let mut installation_guard = self.installation_guard()?;
         let installation = self.verified_installation(&mut installation_guard, cancellation)?;
         let staging = self.stage_decoded_raw_frame(input_raw)?;
@@ -309,6 +364,48 @@ impl RawFoundationRuntime {
         stage_isolated_raw_frame(&helper_path, &self.raw_frame_staging_root, input_raw)
             .map(Some)
             .map_err(|error| RawFoundationRuntimeError::DecodedInput(error.to_string()))
+    }
+
+    fn materialize_infer(
+        &self,
+        invocation: &RawFoundationInvocation,
+        source: RepresentationFingerprint,
+        source_sha256: &str,
+        cancellation: &CancellationToken,
+        progress: &dyn RuntimeProgressSink,
+    ) -> Result<RawFoundationRuntimeOutcome, RawFoundationRuntimeError> {
+        let staging = self
+            .stage_decoded_raw_frame(&invocation.input_raw)?
+            .ok_or_else(|| {
+                RawFoundationRuntimeError::DecodedInput(
+                    "isolated RAW decode helper is required by Infer Runtime".to_owned(),
+                )
+            })?;
+        let outcome = self.infer_materializer.materialize(
+            &self.store,
+            source_sha256,
+            source.byte_len,
+            &staging,
+            cancellation,
+            progress,
+        )?;
+        if fingerprint_source(&invocation.input_raw)
+            .map_err(RawFoundationRuntimeError::SourceInventory)?
+            != source
+        {
+            return Err(RawFoundationRuntimeError::SourceChanged);
+        }
+        Ok(match outcome {
+            InferMaterializationOutcome::Ready(materialized) => {
+                RawFoundationRuntimeOutcome::Ready(Box::new(ready_from_infer(
+                    *materialized,
+                    &invocation.input_raw,
+                    source,
+                    Arc::new(staging),
+                )))
+            }
+            InferMaterializationOutcome::Cancelled => RawFoundationRuntimeOutcome::Cancelled,
+        })
     }
 
     fn installation_guard(
@@ -421,6 +518,25 @@ fn ready_from_materialized(
     }
 }
 
+fn ready_from_infer(
+    materialized: InferMaterializedFoundation,
+    source_path: &std::path::Path,
+    source: RepresentationFingerprint,
+    raw_frame_staging: Arc<IsolatedRawFrameStaging>,
+) -> RawFoundationReady {
+    RawFoundationReady {
+        descriptor: materialized.descriptor,
+        path: materialized.path,
+        source_path: source_path.to_path_buf(),
+        source,
+        disposition: materialized.disposition,
+        verified_reader: materialized
+            .verified_reader
+            .map(|reader| Arc::new(Mutex::new(reader))),
+        raw_frame_staging: Some(raw_frame_staging),
+    }
+}
+
 fn runtime_failure_diagnostic(failure: &RuntimeFailure) -> String {
     format!("{failure:?}")
 }
@@ -518,6 +634,8 @@ pub(crate) enum RawFoundationRuntimeError {
     AdmissionDeferred(String),
     #[error(transparent)]
     SourceHash(#[from] FoundationArtifactError),
+    #[error(transparent)]
+    InferMaterialization(#[from] InferMaterializationError),
     #[error(transparent)]
     Store(#[from] FoundationArtifactStoreError),
     #[error(transparent)]

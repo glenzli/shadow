@@ -16,5 +16,8 @@ shadow-domain.workspace = true
 thiserror.workspace = true
 time.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
 [lints]
 workspace = true

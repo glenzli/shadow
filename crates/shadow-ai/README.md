@@ -139,6 +139,22 @@ and gates, not implemented inference.
   vectors, requires tokenizer provenance for text, and compares results only
   inside one exact versioned embedding space. The client does not own a photo
   index, retry checkpoint, or Catalog publication.
+- [`infer_runtime/raw_foundation.rs`](src/providers/infer_runtime/raw_foundation.rs)
+  owns the typed Shadow client for the frozen RawNIND execution split. A
+  caller must complete Shadow's cache lookup first, then create an authenticated
+  Job/ticket, pass one read-only Bayer staging handle and one empty writable
+  output handle through the owner-only `SCM_RIGHTS` lease, and execute the
+  one-shot lease against the exact daemon endpoint that issued it. Capability
+  ids and the Unix socket path are redacted from Debug output; the client
+  validates owner/mode/link/open flags, exact staging byte count, response
+  digests, and the isolated ORT 1.27 Build pair. Shadow remains responsible for
+  complete `.shadowrawf` verification, publication, cache identity, and stale
+  result arbitration. The desktop bridge can select this route only through an
+  explicit execution override; the legacy sidecar remains the default while
+  the assembled Infer deployment is not active in the running daemon. The
+  Windows named-pipe/HANDLE binding is not implemented, so the override fails
+  closed there. The current Job API has no stable RAW percentage/tile progress;
+  consumers may show only queued, running, and terminal states.
 - [`infer_runtime/discovery.rs`](src/providers/infer_runtime/discovery.rs) owns
   Consumer endpoint selection independently from those typed routes. An
   explicit Shadow override wins, otherwise it validates the owner-only

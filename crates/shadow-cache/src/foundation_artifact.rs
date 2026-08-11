@@ -5,6 +5,8 @@
 //! schema, cache identity, publication receipt, stripe coverage, every digest,
 //! finite pixels, and the complete file are checked before any row is exposed.
 
+mod execution_profile;
+
 use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom},
@@ -26,7 +28,6 @@ const HEADER_SCHEMA: &str = "shadow-raw-foundation-header-v1";
 const ARTIFACT_SCHEMA: &str = "shadow-raw-foundation-artifact-v1";
 const CACHE_KEY_SCHEMA: &str = "shadow-raw-foundation-cache-key-v1";
 const SEQUENCE_FORMAT: &str = "shadow-linear-camera-rgb-f32-stripe-chw-v1";
-const IMPLEMENTATION_REVISION: &str = "rawnind-public-bayer-foundation-v1";
 const PACKAGE_SHA256: &str = "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af";
 const BAYER_GRAPH_SHA256: &str = "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901";
 const SOURCE_PIXEL_CONTRACT_SHA256: &str =
@@ -872,20 +873,13 @@ fn validate_contract(contract: &FoundationContract) -> Result<(), FoundationArti
         ));
     }
     let execution = &contract.execution;
-    if execution.engine.is_empty()
-        || execution.runtime_version.is_empty()
-        || execution.requested_provider.is_empty()
-        || execution.active_providers.is_empty()
-        || execution.active_providers.iter().any(String::is_empty)
-        || execution.platform.is_empty()
-        || execution.machine.is_empty()
-    {
+    if execution.platform.is_empty() || execution.machine.is_empty() {
         return Err(FoundationArtifactError::Invalid(
             "execution identity is incomplete",
         ));
     }
     let algorithm = &contract.algorithm;
-    if algorithm.implementation_revision != IMPLEMENTATION_REVISION
+    if !execution_profile::is_supported(&algorithm.implementation_revision, execution)
         || algorithm.inference_passes != 2
         || algorithm.input_channel_order != ["R", "G1", "G2", "B"]
         || algorithm.normalization != "per-cfa-site-black-to-white-range-clipped"

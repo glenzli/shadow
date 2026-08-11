@@ -1,11 +1,12 @@
-//! Fail-closed loopback client for infer-runtime's experimental typed face APIs.
+//! Fail-closed loopback client for infer-runtime's typed local APIs.
 //!
 //! The bearer credential is always redacted, redirects are disabled, and the
-//! base URL is restricted to the local machine so biometric image bytes cannot
-//! be redirected to a remote service.
+//! base URL is restricted to the local machine so image bytes, model inputs,
+//! and local capability handshakes cannot be redirected to a remote service.
 
 mod discovery;
 mod image_understanding;
+mod raw_foundation;
 mod semantic;
 
 use std::{
@@ -32,6 +33,13 @@ pub use image_understanding::{
     ClassificationReviewProvider, ClassificationReviewRequest, ClassificationReviewSuggestion,
     ImageUnderstandingEvidence, ImageUnderstandingProvenance, ImageUnderstandingProvider,
     ImageUnderstandingQuality,
+};
+pub use raw_foundation::{
+    InferRawFoundationArtifactReceipt, InferRawFoundationCancellation,
+    InferRawFoundationDecoderIdentity, InferRawFoundationJob, InferRawFoundationLeaseGrant,
+    InferRawFoundationPriority, InferRawFoundationProvenance, InferRawFoundationProvider,
+    InferRawFoundationRegisteredLease, InferRawFoundationRequest, InferRawFoundationResult,
+    InferRawFoundationSource, InferRawFoundationStaging,
 };
 pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,
@@ -368,11 +376,26 @@ impl InferRuntimeClient {
     fn send_json<T: DeserializeOwned>(
         &self,
         path: &str,
-        mut build_request: impl FnMut(
+        build_request: impl FnMut(
             Url,
             InferRuntimeConsumerVersion,
         ) -> Result<RequestBuilder, InferRuntimeClientError>,
     ) -> Result<T, InferRuntimeClientError> {
+        self.send_json_with_endpoint(path, build_request)
+            .map(|(response, _endpoint)| response)
+    }
+
+    /// Sends a retry-safe request and returns the exact endpoint which
+    /// accepted it. Multi-step capability protocols retain that endpoint so a
+    /// daemon generation change cannot silently redirect a bound lease.
+    fn send_json_with_endpoint<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        mut build_request: impl FnMut(
+            Url,
+            InferRuntimeConsumerVersion,
+        ) -> Result<RequestBuilder, InferRuntimeClientError>,
+    ) -> Result<(T, DiscoveryEndpoint), InferRuntimeClientError> {
         let first_endpoint = self.resolve_endpoint();
         let request = build_request(
             Self::endpoint_url(&first_endpoint, path)?,
@@ -384,20 +407,32 @@ impl InferRuntimeClient {
             Err(InferRuntimeClientError::Request(error)) if error.is_connect()
         );
         if !should_rediscover {
-            return first_result;
+            return first_result.map(|response| (response, first_endpoint));
         }
         let InferRuntimeEndpoint::Discovery(resolver) = &self.endpoint else {
-            return first_result;
+            return first_result.map(|response| (response, first_endpoint));
         };
         let retry_endpoint = resolver.resolve_after_connection_failure(&first_endpoint);
         if retry_endpoint == first_endpoint {
-            return first_result;
+            return first_result.map(|response| (response, first_endpoint));
         }
         let retry = build_request(
             Self::endpoint_url(&retry_endpoint, path)?,
             retry_endpoint.consumer_version,
         )?;
-        Self::send_json_once(retry)
+        Self::send_json_once(retry).map(|response| (response, retry_endpoint))
+    }
+
+    /// Sends one request to a previously selected daemon endpoint. This is
+    /// intentionally not rediscovered because Job, ticket, and lease
+    /// capabilities are generation-bound.
+    fn send_json_at<T: DeserializeOwned>(
+        endpoint: &DiscoveryEndpoint,
+        path: &str,
+        build_request: impl FnOnce(Url) -> Result<RequestBuilder, InferRuntimeClientError>,
+    ) -> Result<T, InferRuntimeClientError> {
+        let request = build_request(Self::endpoint_url(endpoint, path)?)?;
+        Self::send_json_once(request)
     }
 
     fn send_json_once<T: DeserializeOwned>(
@@ -710,6 +745,18 @@ pub enum InferRuntimeClientError {
     InvalidLanguage,
     #[error("infer-runtime classification taxonomy or category set is invalid")]
     InvalidClassificationCategories,
+    #[error("infer-runtime RAW foundation request is invalid: {0}")]
+    InvalidRawFoundationRequest(&'static str),
+    #[error("infer-runtime RAW artifact lease transport is unavailable on this platform")]
+    RawArtifactLeaseUnsupported,
+    #[error("infer-runtime RAW artifact lease endpoint failed owner-only validation")]
+    UnsafeRawArtifactLeaseEndpoint,
+    #[error("infer-runtime RAW artifact lease handle is invalid: {0}")]
+    InvalidRawArtifactLeaseHandle(&'static str),
+    #[error("infer-runtime RAW artifact lease protocol is malformed")]
+    InvalidRawArtifactLeaseProtocol,
+    #[error("infer-runtime RAW artifact lease I/O failed: {0}")]
+    RawArtifactLeaseIo(io::Error),
     #[error("cannot serialize infer-runtime request: {0}")]
     SerializeRequest(serde_json::Error),
     #[error("infer-runtime request failed: {0}")]

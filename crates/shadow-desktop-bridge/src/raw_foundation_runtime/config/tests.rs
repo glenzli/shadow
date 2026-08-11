@@ -41,6 +41,60 @@ fn default_layout_keeps_models_outside_the_rebuildable_cache() {
         paths.raw_frame_staging_root,
         Path::new("/Users/test/Library/Application Support/Shadow/cache/ai/raw-frame-staging")
     );
+    assert_eq!(
+        paths.execution_route,
+        RawFoundationExecutionRoute::LegacySidecar
+    );
+    assert_eq!(paths.infer_base_url_override, None);
+    assert_eq!(
+        paths.infer_credential_file,
+        Path::new(
+            "/Users/test/Library/Application Support/Shadow/credentials/infer-runtime-shadow.token"
+        )
+    );
+}
+
+#[test]
+fn infer_route_is_explicit_and_reuses_the_shared_consumer_overrides() {
+    let paths = RawFoundationRuntimePaths::discover_with(
+        Path::new("/Applications/Shadow.app/Contents/MacOS/Shadow"),
+        Path::new("/Users/test/Library/Application Support/Shadow/cache"),
+        |key| match key {
+            EXECUTION_ROUTE_OVERRIDE => Some(OsString::from("infer-runtime")),
+            INFER_BASE_URL_OVERRIDE => Some(OsString::from("http://127.0.0.1:9876")),
+            INFER_CREDENTIAL_OVERRIDE => Some(OsString::from("/private/credential")),
+            _ => None,
+        },
+    )
+    .expect("infer paths");
+
+    assert_eq!(
+        paths.execution_route,
+        RawFoundationExecutionRoute::InferRuntime
+    );
+    assert_eq!(
+        paths.infer_base_url_override.as_deref(),
+        Some("http://127.0.0.1:9876")
+    );
+    assert_eq!(
+        paths.infer_credential_file,
+        Path::new("/private/credential")
+    );
+}
+
+#[test]
+fn unknown_execution_route_fails_closed() {
+    let error = RawFoundationRuntimePaths::discover_with(
+        Path::new("/Applications/Shadow.app/Contents/MacOS/Shadow"),
+        Path::new("/Users/test/Library/Application Support/Shadow/cache"),
+        |key| (key == EXECUTION_ROUTE_OVERRIDE).then(|| OsString::from("automatic")),
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        RawFoundationRuntimePathError::InvalidExecutionRoute
+    ));
 }
 
 #[test]

@@ -32,6 +32,9 @@ Responsibility map:
   accumulation, two-pass global gain, cancellation, and atomic sink lifecycle
 - `foundation_artifact.py`: single-file foundation container, cache identity,
   checksums, bounded row reads, no-overwrite publication, and partial recovery
+- `execution_baseline.py`: source-checked Phase 0 contract for moving only
+  model-bound execution into Infer Runtime while Shadow retains decode, cache,
+  verification, publication, and product semantics
 - `provider_sidecar.py`: strict `--verify-model` / `--run` process protocol
   used by Shadow's fail-closed Rust provider
 - `public_pair.py` / `quality.py`: public paired-RAW identity and quality probe
@@ -41,6 +44,33 @@ Responsibility map:
   and atomic no-overwrite publication
 - `benchmark.py`: camera-diverse batch execution, aggregation, and admission
 - `audit.py`: composition and admission report only
+
+The migration baseline does not run or move the model. It detects drift
+between the checked-in model manifest, RawFrame staging, tensor/tiling/stripe
+semantics, foundation artifact contract, and the agreed transport and
+performance gates:
+
+```bash
+python3 tools/neural-raw-denoise-rawnind/execution_baseline.py \
+  --receipt /private/tmp/shadow-rawnind-execution-baseline.json
+```
+
+The receipt contains only contract identities and validation results; it does
+not record RAW paths, staging paths, or payload data. It names the raw file-byte
+SHA-256 and canonicalized-JSON SHA-256 separately so consumers cannot confuse
+the two identities. The checked-in baseline keeps the legacy sidecar and
+future Infer routes distinct and forbids silent fallback. A verified cache hit
+remains entirely inside Shadow and must not contact Infer Runtime or load ONNX
+Runtime.
+
+The lease input is a read-only, stable open object rather than a claim that an
+ordinary file descriptor makes same-user storage cryptographically immutable.
+Shadow promises not to mutate it for the lease lifetime; Infer binds the open
+object's identity and size and records the actual-read digest; Shadow still
+arbitrates source revision and stale results. Output exclusivity is likewise a
+cooperative owner-only boundary, followed by Shadow's independent verification
+and publication, not protection against a malicious process with the same OS
+identity.
 
 ## Pinned public release
 
