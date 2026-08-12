@@ -4042,6 +4042,11 @@ R %2 · G %3 · B %4</translation>
         <translation>Shadow · 精修</translation>
     </message>
     <message>
+        <location filename="../qml/Main.qml" line="70"/>
+        <source>Shadow · Map</source>
+        <translation>Shadow · 地图</translation>
+    </message>
+    <message>
         <location filename="../qml/Main.qml" line="69"/>
         <source>Shadow · Library</source>
         <translation>Shadow · 图库</translation>
@@ -4122,6 +4127,12 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/MainTitleBar.qml" line="131"/>
         <source>PEOPLE</source>
         <translation>人物</translation>
+    </message>
+    <message>
+        <location filename="../qml/MainStatusBar.qml" line="134"/>
+        <location filename="../qml/MainTitleBar.qml" line="140"/>
+        <source>MAP</source>
+        <translation>地图</translation>
     </message>
     <message>
         <location filename="../qml/MainTitleBar.qml" line="159"/>
@@ -9859,11 +9870,6 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="121"/>
         <source>Add at least two photos to start the candidate duel</source>
         <translation>至少加入两张照片才能开始精选对决</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="169"/>
-        <source>Browse geotagged photos on a map</source>
-        <translation>在地图上浏览带地理位置的照片</translation>
     </message>
     <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="178"/>

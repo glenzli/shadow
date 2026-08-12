@@ -45,19 +45,6 @@ Rectangle {
         anchors.rightMargin: 12
         spacing: 8
 
-        ShadowIconButton {
-            objectName: "mapLibraryScopeButton"
-            visible: toolbar.workspace.galleryPresentation
-                === ReviewWorkspace.Map
-            source: "qrc:/icons/back-to-library.svg"
-            selected: toolbar.workspace.mapLibrarySidebarExpanded
-            toolTipText: selected
-                ? qsTr("Hide Library scope selector")
-                : qsTr("Show Library scope selector")
-            accessibleName: toolTipText
-            onClicked: toolbar.workspace.mapLibrarySidebarExpanded = !selected
-        }
-
         Label {
             text: toolbar.workspace.currentLibraryScopeName.toUpperCase()
             color: toolbar.workspace.textMuted
@@ -162,16 +149,6 @@ Rectangle {
                 = ReviewWorkspace.SinglePhotoFilmstrip
         }
 
-        ShadowIconButton {
-            source: "qrc:/icons/map.svg"
-            selected: toolbar.workspace.galleryPresentation
-                === ReviewWorkspace.Map
-            toolTipText: qsTr("Browse geotagged photos on a map")
-            accessibleName: toolTipText
-            onClicked: toolbar.workspace.galleryPresentation
-                = ReviewWorkspace.Map
-        }
-
         Label {
             visible: toolbar.workspace.galleryPresentation
                 === ReviewWorkspace.JustifiedGrid
@@ -223,8 +200,6 @@ Rectangle {
         }
 
         ShadowIconButton {
-            visible: toolbar.workspace.galleryPresentation
-                !== ReviewWorkspace.Map
             source: "qrc:/icons/location-pin.svg"
             toolTipText: qsTr("Set location for selected photos")
             accessibleName: toolTipText

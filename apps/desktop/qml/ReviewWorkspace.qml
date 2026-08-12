@@ -1,8 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Window
 
@@ -162,16 +160,10 @@ Item {
     // filtered catalogue model.
     enum GalleryPresentation {
         JustifiedGrid,
-        SinglePhotoFilmstrip,
-        Map
+        SinglePhotoFilmstrip
     }
     property int galleryPresentation: ReviewWorkspace.JustifiedGrid
-    property bool mapLibrarySidebarExpanded: false
     property string precisionOpenStatus: ""
-
-    readonly property bool librarySidebarVisible:
-        galleryPresentation !== ReviewWorkspace.Map
-        || mapLibrarySidebarExpanded
 
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
         && !comparison.compareMode
@@ -288,6 +280,7 @@ Item {
                                   string previewSource)
     signal openLibraryManagementRequested()
     signal openMapProviderSettingsRequested()
+    signal libraryScopeCommitted()
     signal exportRequested(var targets)
 
     ReviewMetadataPresentation {
@@ -355,11 +348,6 @@ Item {
 
     Component.onCompleted: {
         justifiedReviewLayout.targetRowHeight = preferences.libraryThumbnailScale
-    }
-
-    onGalleryPresentationChanged: {
-        if (galleryPresentation === ReviewWorkspace.Map)
-            mapLibrarySidebarExpanded = false
     }
 
     function selectionKey(photoId, representationId) {
@@ -537,8 +525,7 @@ Item {
     }
 
     function commitLibraryScopeSelection() {
-        if (galleryPresentation === ReviewWorkspace.Map)
-            mapLibrarySidebarExpanded = false
+        libraryScopeCommitted()
     }
 
     function isTravelCollectionActive(countryKey, localityKey) {
@@ -748,8 +735,7 @@ Item {
         ReviewLibrarySidebar {
             id: librarySidebar
             objectName: "reviewLibrarySidebar"
-            visible: review.librarySidebarVisible
-            Layout.preferredWidth: visible ? 210 : 0
+            Layout.preferredWidth: 210
             workspace: review
             albumDialogs: albumDialogs
         }

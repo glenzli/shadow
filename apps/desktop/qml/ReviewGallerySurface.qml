@@ -22,9 +22,6 @@ Rectangle {
         if (gallery.workspace.galleryPresentation
                 === ReviewWorkspace.SinglePhotoFilmstrip)
             singlePhotoPreview.forceGalleryFocus()
-        else if (gallery.workspace.galleryPresentation === ReviewWorkspace.Map
-                 && mapLoader.item)
-            mapLoader.item.forceGalleryFocus()
         else
             justifiedGrid.forceActiveFocus()
     }
@@ -254,22 +251,6 @@ Rectangle {
         model: gallery.workspace.controller.model
     }
 
-    Loader {
-        id: mapLoader
-        anchors.top: reviewToolBar.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        active: !gallery.workspace.comparison.compareMode
-            && !gallery.workspace.culling.arenaActive
-            && gallery.workspace.galleryPresentation === ReviewWorkspace.Map
-        visible: active
-
-        sourceComponent: LibraryMapView {
-            workspace: gallery.workspace
-        }
-    }
-
     Label {
         objectName: "reviewEmptyStateText"
         anchors.centerIn: justifiedGrid
@@ -327,7 +308,6 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         visible: gallery.workspace.controller.busy
-            && gallery.workspace.galleryPresentation !== ReviewWorkspace.Map
         color: Theme.busyOverlay
 
         Column {

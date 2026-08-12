@@ -60,6 +60,8 @@ void installDesktopSmokeHarness(
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE");
     const bool cancel_scan_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_CANCEL_SCAN_SMOKE");
     const bool i18n_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_I18N_SMOKE");
+    const bool map_workspace_smoke =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_MAP_WORKSPACE_SMOKE");
     const bool close_lifecycle_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_CLOSE_SMOKE");
     const bool dirty_close_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_DIRTY_CLOSE_SMOKE");
     const bool smoke_test = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
@@ -83,7 +85,37 @@ void installDesktopSmokeHarness(
         return;
     }
 
-    if (dirty_close_smoke) {
+    if (map_workspace_smoke) {
+        QObject* const root = engine.rootObjects().front();
+        constexpr int map_workspace_page = 4;
+        root->setProperty("workspaceIndex", map_workspace_page);
+        QTimer::singleShot(0, &application, [&application, root]() {
+            QObject* const map_workspace =
+                root->findChild<QObject*>(QStringLiteral("libraryMapWorkspace"));
+            QObject* const scope_sidebar =
+                root->findChild<QObject*>(QStringLiteral("mapLibraryScopeSidebar"));
+            QObject* const scope_button =
+                root->findChild<QObject*>(QStringLiteral("mapLibraryScopeButton"));
+            if (root->property("workspaceIndex").toInt() != map_workspace_page
+                || map_workspace == nullptr || !map_workspace->property("visible").toBool()
+                || map_workspace->property("libraryScopeExpanded").toBool()
+                || scope_sidebar == nullptr || scope_sidebar->property("visible").toBool()
+                || scope_button == nullptr
+                || !QMetaObject::invokeMethod(scope_button, "clicked", Qt::DirectConnection)) {
+                qCritical() << "Packaged Map workspace did not start with a collapsed scope";
+                application.exit(EXIT_FAILURE);
+                return;
+            }
+            QCoreApplication::processEvents();
+            if (!map_workspace->property("libraryScopeExpanded").toBool()
+                || !scope_sidebar->property("visible").toBool()) {
+                qCritical() << "Map scope control did not reveal shared Library navigation";
+                application.exit(EXIT_FAILURE);
+                return;
+            }
+            application.quit();
+        });
+    } else if (dirty_close_smoke) {
         DesktopSmoke::startDirtyCloseLifecycle(application, engine, editor);
     } else if (close_lifecycle_smoke) {
         DesktopSmoke::startCloseLifecycle(application, engine);

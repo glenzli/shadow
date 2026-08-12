@@ -9,6 +9,9 @@ Item {
     required property var controller
     required property bool hasActiveLibraryFilter
     required property var manualAlbums
+    readonly property bool modalVisible: createDialog.opened
+        || membershipDialog.opened || manageDialog.opened
+        || deleteDialog.opened
 
     function openCreate() {
         createDialog.open();

@@ -5,6 +5,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
+// Owns the map canvas inside the application-level Map workspace. Library
+// scope selection belongs to LibraryMapWorkspace so map navigation never
+// mutates the current album/filter context implicitly.
 Rectangle {
     id: root
 

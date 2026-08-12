@@ -4,6 +4,10 @@
         NAME shadow-desktop-qml-startup
         COMMAND $<TARGET_FILE:shadow-desktop>
     )
+    add_test(
+        NAME shadow-desktop-map-workspace-startup
+        COMMAND $<TARGET_FILE:shadow-desktop>
+    )
 
     add_executable(
         shadow-people-analysis-controller-test
@@ -304,6 +308,12 @@
         PROPERTIES
             ENVIRONMENT
                 "QT_QPA_PLATFORM=offscreen;SHADOW_DESKTOP_SMOKE_TEST=1;SHADOW_DESKTOP_DATA_ROOT=${CMAKE_CURRENT_BINARY_DIR}/qml-startup-smoke"
+    )
+    set_tests_properties(
+        shadow-desktop-map-workspace-startup
+        PROPERTIES
+            ENVIRONMENT
+                "QT_QPA_PLATFORM=offscreen;SHADOW_DESKTOP_SMOKE_TEST=1;SHADOW_DESKTOP_MAP_WORKSPACE_SMOKE=1;SHADOW_DESKTOP_DATA_ROOT=${CMAKE_CURRENT_BINARY_DIR}/map-workspace-startup-smoke"
     )
     set_tests_properties(
         shadow-server-manager-qml-startup

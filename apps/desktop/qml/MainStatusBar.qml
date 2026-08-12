@@ -10,6 +10,10 @@ Rectangle {
     id: statusBar
 
     required property int workspaceIndex
+    required property int reviewWorkspaceIndex
+    required property int precisionWorkspaceIndex
+    required property int mapWorkspaceIndex
+    required property int peopleWorkspaceIndex
     required property var controller
     required property var editor
     required property var peopleAnalysisController
@@ -29,7 +33,7 @@ Rectangle {
             : qsTranslate("Main", "Parsing full-resolution RAW…")
     }
 
-    height: statusBar.workspaceIndex === 0 ? 40 : 30
+    height: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex ? 40 : 30
     color: Theme.chrome
     border.color: Theme.border
 
@@ -42,7 +46,7 @@ Rectangle {
         BusyIndicator {
             Layout.preferredWidth: 15
             Layout.preferredHeight: 15
-            visible: statusBar.workspaceIndex === 0
+            visible: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex
                 ? statusBar.semanticSearchController.busy
                     || statusBar.controller.scanning
                     || statusBar.controller.refreshing
@@ -50,8 +54,11 @@ Rectangle {
                     || statusBar.controller.loadingMore
                     || statusBar.controller.comparisonBusy
                     || statusBar.controller.decisionBusy
-                : statusBar.workspaceIndex !== 1
-                ? statusBar.workspaceIndex === 3
+                : statusBar.workspaceIndex === statusBar.mapWorkspaceIndex
+                    ? statusBar.reviewWorkspace.controller.libraryMapBusy
+                        || statusBar.reviewWorkspace.libraryWebMapController.busy
+                : statusBar.workspaceIndex !== statusBar.precisionWorkspaceIndex
+                ? statusBar.workspaceIndex === statusBar.peopleWorkspaceIndex
                     ? statusBar.peopleAnalysisController.busy
                     : statusBar.controller.scanning
                         || statusBar.controller.refreshing
@@ -65,7 +72,7 @@ Rectangle {
         }
 
         MainLibraryFilterBar {
-            visible: statusBar.workspaceIndex === 0
+            visible: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex
             Layout.alignment: Qt.AlignVCenter
             controller: statusBar.controller
             semanticSearchController: statusBar.semanticSearchController
@@ -74,7 +81,7 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
-            text: statusBar.workspaceIndex === 0
+            text: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex
                 ? statusBar.semanticSearchController.errorText.length > 0
                     ? statusBar.semanticSearchController.errorText
                     : statusBar.semanticSearchController.busy
@@ -83,9 +90,12 @@ Rectangle {
                         : qsTranslate("Main", "%L1 / %L2 photos").arg(
                             statusBar.controller.filteredItemCount
                         ).arg(statusBar.controller.itemCount)
-                : statusBar.workspaceIndex === 3
+                : statusBar.workspaceIndex === statusBar.mapWorkspaceIndex
+                    ? qsTranslate("ReviewWorkspace", "%L1 photos in view").arg(
+                        statusBar.reviewWorkspace.controller.libraryMapPhotoCount)
+                : statusBar.workspaceIndex === statusBar.peopleWorkspaceIndex
                     ? statusBar.peopleAnalysisController.statusText
-                : statusBar.workspaceIndex !== 1
+                : statusBar.workspaceIndex !== statusBar.precisionWorkspaceIndex
                     ? (statusBar.controller.decisionBusy
                         ? statusBar.controller.decisionStatusText
                         : statusBar.controller.comparisonBusy
@@ -94,7 +104,7 @@ Rectangle {
                     : statusBar.editor.fullResolutionPreparing
                         ? statusBar.fullResolutionPreparationText()
                         : statusBar.editor.statusText
-            color: statusBar.workspaceIndex === 0
+            color: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex
                 && statusBar.semanticSearchController.errorText.length > 0
                 ? Theme.errorText : Theme.textMuted
             font.pixelSize: 10
@@ -102,7 +112,7 @@ Rectangle {
         }
 
         Rectangle {
-            visible: statusBar.workspaceIndex === 1
+            visible: statusBar.workspaceIndex === statusBar.precisionWorkspaceIndex
                 && statusBar.editor.active
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: 1
@@ -111,17 +121,19 @@ Rectangle {
         }
 
         MainPrecisionProxyStatus {
-            visible: statusBar.workspaceIndex === 1
+            visible: statusBar.workspaceIndex === statusBar.precisionWorkspaceIndex
                 && statusBar.editor.active
             Layout.alignment: Qt.AlignVCenter
             active: statusBar.precisionWorkspace.proxyActive
         }
 
         Label {
-            visible: statusBar.workspaceIndex !== 0
-            text: statusBar.workspaceIndex === 1
+            visible: statusBar.workspaceIndex !== statusBar.reviewWorkspaceIndex
+            text: statusBar.workspaceIndex === statusBar.precisionWorkspaceIndex
                 ? qsTranslate("Main", "PRECISION")
-                : statusBar.workspaceIndex === 3
+                : statusBar.workspaceIndex === statusBar.mapWorkspaceIndex
+                    ? qsTranslate("Main", "MAP")
+                : statusBar.workspaceIndex === statusBar.peopleWorkspaceIndex
                     ? qsTranslate("Main", "PEOPLE")
                     : qsTranslate("Main", "LIBRARY")
             color: Theme.textFaint

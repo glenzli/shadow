@@ -887,6 +887,7 @@ qt_add_qml_module(
         qml/LibraryMapPlaceSearch.qml
         qml/LibraryMapProviderOverlay.qml
         qml/LibraryMapView.qml
+        qml/LibraryMapWorkspace.qml
         qml/LibraryRemoteConnectionsPane.qml
         qml/LibrarySourceHealthPane.qml
         qml/LibraryWorkspace.qml

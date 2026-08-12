@@ -15,12 +15,17 @@ ToolBar {
     required property var personalProfile
     required property var personalProfileDialog
     required property int workspaceIndex
+    required property int reviewWorkspaceIndex
+    required property int precisionWorkspaceIndex
+    required property int mapWorkspaceIndex
+    required property int peopleWorkspaceIndex
     required property string descriptiveTitle
     required property bool canOpenSelectedPhoto
     required property bool historyOpen
 
     signal reviewRequested()
     signal precisionRequested()
+    signal mapRequested()
     signal peopleRequested()
     signal historyRequested()
 
@@ -94,7 +99,8 @@ ToolBar {
 
             ShadowTabButton {
                 height: parent.height
-                active: titleBar.workspaceIndex === 0
+                active: titleBar.workspaceIndex
+                    === titleBar.reviewWorkspaceIndex
                 iconSource: "qrc:/icons/review-grid.svg"
                 iconSize: 18
                 minimumTabWidth: 46
@@ -107,7 +113,8 @@ ToolBar {
 
             ShadowTabButton {
                 height: parent.height
-                active: titleBar.workspaceIndex === 1
+                active: titleBar.workspaceIndex
+                    === titleBar.precisionWorkspaceIndex
                 iconSource: "qrc:/icons/edit.svg"
                 iconSize: 18
                 minimumTabWidth: 46
@@ -122,7 +129,22 @@ ToolBar {
 
             ShadowTabButton {
                 height: parent.height
-                active: titleBar.workspaceIndex === 3
+                active: titleBar.workspaceIndex
+                    === titleBar.mapWorkspaceIndex
+                iconSource: "qrc:/icons/map.svg"
+                iconSize: 18
+                minimumTabWidth: 46
+                underlineInset: 22
+                underlineBottomMargin: -titleBar.bottomPadding
+                text: qsTr("MAP")
+                toolTipText: text
+                onClicked: titleBar.mapRequested()
+            }
+
+            ShadowTabButton {
+                height: parent.height
+                active: titleBar.workspaceIndex
+                    === titleBar.peopleWorkspaceIndex
                 iconSource: "qrc:/icons/people.svg"
                 iconSize: 18
                 minimumTabWidth: 46
@@ -140,7 +162,9 @@ ToolBar {
             spacing: 4
 
             Row {
-                visible: titleBar.workspaceIndex === 1 && titleBar.editor.active
+                visible: titleBar.workspaceIndex
+                    === titleBar.precisionWorkspaceIndex
+                    && titleBar.editor.active
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
 
@@ -169,7 +193,8 @@ ToolBar {
             }
 
             Row {
-                visible: titleBar.workspaceIndex === 1
+                visible: titleBar.workspaceIndex
+                    === titleBar.precisionWorkspaceIndex
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
 
@@ -204,7 +229,8 @@ ToolBar {
             }
 
             ShadowIconButton {
-                visible: titleBar.workspaceIndex === 1
+                visible: titleBar.workspaceIndex
+                    === titleBar.precisionWorkspaceIndex
                 anchors.verticalCenter: parent.verticalCenter
                 source: "qrc:/icons/back-to-library.svg"
                 text: qsTr("Return to Review")

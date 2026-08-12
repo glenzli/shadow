@@ -81,13 +81,16 @@ Application startup is split from environment-driven automation:
   locality label with country/display-name fallback. The dimension registry is
   presentation-generic so separate country/locality choices and People can be added as providers
   without moving grouping policy into layout or QML.
-- [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace routing, theme
-  projection, and the stable application-shell entry points used by child workspaces.
+- [`qml/Main.qml`](qml/Main.qml) owns application-window composition, named workspace routing,
+  theme projection, and the stable application-shell entry points used by child workspaces. Map
+  is an application-level workspace beside Review, Precision, and People; Library Management
+  remains a secondary route rather than consuming a top-level tab.
 - [`qml/PeopleWorkspace.qml`](qml/PeopleWorkspace.qml) owns the manually triggered People preview,
   local-only disclosure, analysis summary, anonymous cards, and session-clear interaction. It does
   not imply persistence, naming, merge/split facts, or automatic background analysis.
-- [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns the compact gallery mode and
-  batch controls inside Review.
+- [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns the compact grid/filmstrip
+  modes and batch controls inside Review. It does not route to Map; the application title bar owns
+  that workspace transition.
   [`qml/SemanticSearchControl.qml`](qml/SemanticSearchControl.qml) owns the integrated
   natural-language field, its asynchronous waiting/error state, and the responsive handoff from a
   wide toolbar field to an anchored compact popup.
@@ -202,7 +205,7 @@ Application startup is split from environment-driven automation:
   provider SDK owns basemap attribution and networking; Shadow has no parallel Google Tile session,
   native tile cache, or raster-layer implementation. On macOS the WebView is a native child view,
   so [`qml/LibraryWebMapSurface.qml`](qml/LibraryWebMapSurface.qml) materializes it only while an
-  eligible provider is visible and no application modal owns the foreground; leaving Review or
+  eligible provider is visible and no application modal owns the foreground; leaving Map or
   opening a modal destroys the native view before it can cover another QML surface. This
   responsibility was extracted rather than
   added to `LibraryMapView.qml` because provider document/runtime policy is a native cross-language
@@ -712,9 +715,9 @@ resolution, and explicit copyright fields.
 
 Review presentation keeps the workspace as the composition and compatibility surface:
 
-- [`qml/ReviewWorkspace.qml`](qml/ReviewWorkspace.qml) owns Review composition, selection
-  compatibility routing, gallery presentation, and the stable triggers consumed by its toolbars
-  and delegates.
+- [`qml/ReviewWorkspace.qml`](qml/ReviewWorkspace.qml) owns Review composition, the authoritative
+  selection and Library-scope projection shared with Map, gallery presentation, and the stable
+  triggers consumed by its toolbars and delegates.
 - [`qml/ReviewLibrarySidebar.qml`](qml/ReviewLibrarySidebar.qml) owns the complete left Library
   navigation surface: system collections, album selection/management entry, import progress, and
   session comparison evidence. It receives only the workspace contract and album-dialog owner;
@@ -895,8 +898,13 @@ Review presentation keeps the workspace as the composition and compatibility sur
   confirmation; and [`qml/LibraryKeywordPopup.qml`](qml/LibraryKeywordPopup.qml) is the bounded
   Review entry surface. The Library management view composes the same panel so organization and
   retrieval cannot drift into separate keyword semantics.
-- [`qml/LibraryMapView.qml`](qml/LibraryMapView.qml) owns the on-demand map composition, external
-  search/placement controls, and photo-selection routing.
+- [`qml/LibraryMapWorkspace.qml`](qml/LibraryMapWorkspace.qml) owns the top-level Map presentation,
+  its default-collapsed Library-scope navigation, and map-local metadata/album/keyword transient
+  surfaces. It consumes Review's authoritative album/filter and photo-selection context, so a
+  scope chosen in either workspace is immediately visible in the other. Map pan/zoom remains a
+  viewport operation and never mutates that Library scope.
+  [`qml/LibraryMapView.qml`](qml/LibraryMapView.qml) owns the map canvas, external search/placement
+  controls, and photo-selection routing.
   [`qml/LibraryWebMapSurface.qml`](qml/LibraryWebMapSurface.qml) is the thin Qt WebView host; the
   WebView exclusively owns the visible map rectangle, including basemap, markers, clustering,
   attribution, gestures, and map clicks, so native WebKit content is never overlapped by QML.
@@ -1140,6 +1148,10 @@ paths inside the source tree are rejected.
 QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
   build/desktop-dev/apps/desktop/Shadow.app/Contents/MacOS/Shadow
 ```
+
+`shadow-desktop-map-workspace-startup` additionally enters the packaged Map page, verifies that
+its Library-scope sidebar starts collapsed, and activates the real title-level scope affordance to
+prove that the shared navigation becomes visible.
 
 `SHADOW_DESKTOP_SCAN_FOLDER=/absolute/folder` optionally starts one scan after launch. It is intended for local visual regression and does not bypass the folder picker in normal use.
 

@@ -31,7 +31,12 @@ ApplicationWindow {
     required property var lutLibrary
     required property var opticsProfileLibrary
     required property string initialSettingsSection
-    property int workspaceIndex: 0
+    readonly property int reviewWorkspacePage: 0
+    readonly property int precisionWorkspacePage: 1
+    readonly property int libraryManagementPage: 2
+    readonly property int peopleWorkspacePage: 3
+    readonly property int mapWorkspacePage: 4
+    property int workspaceIndex: reviewWorkspacePage
 
     width: 1480
     height: 920
@@ -61,12 +66,16 @@ ApplicationWindow {
     palette.disabled.text: Theme.textDisabled
     palette.disabled.buttonText: Theme.textDisabled
     palette.disabled.button: Theme.buttonDisabledSurface
-    readonly property string descriptiveTitle: workspaceIndex === 0
+    readonly property string descriptiveTitle:
+        workspaceIndex === reviewWorkspacePage
         ? qsTr("Shadow · Review")
-        : workspaceIndex === 1
+        : workspaceIndex === precisionWorkspacePage
             ? qsTr("Shadow · Precision")
-            : workspaceIndex === 3
-                ? qsTr("Shadow · People") : qsTr("Shadow · Library")
+            : workspaceIndex === mapWorkspacePage
+                ? qsTr("Shadow · Map")
+                : workspaceIndex === peopleWorkspacePage
+                    ? qsTr("Shadow · People")
+                    : qsTr("Shadow · Library")
     // macOS would otherwise draw a second native title beside our integrated
     // navigation. Mission Control and the Dock still receive the app identity.
     title: Qt.platform.os === "osx" ? "" : descriptiveTitle
@@ -77,12 +86,19 @@ ApplicationWindow {
     readonly property color textPrimary: Theme.textPrimary
     readonly property color textMuted: Theme.textMuted
     readonly property color accent: Theme.accent
-    readonly property bool nativeWebMapForegroundAllowed:
-        window.workspaceIndex === 0
-        && !applicationSettingsDialog.opened
+    readonly property bool modalSurfaceClear:
+        !applicationSettingsDialog.opened
         && !personalProfileDialog.opened
         && !exportDialog.opened
         && !historyDrawer.opened
+    readonly property bool nativeWebMapForegroundAllowed:
+        window.workspaceIndex === mapWorkspacePage
+        && modalSurfaceClear
+    readonly property bool nativeLocationDialogWebMapAllowed:
+        window.workspaceIndex === reviewWorkspacePage
+        && modalSurfaceClear
+    readonly property bool mapNativeSurfaceBlocked:
+        mapWorkspace.nativeSurfaceBlocked
 
     function synchronizeTheme() {
         const configuredMode = String(preferences.appearanceMode)
@@ -193,39 +209,45 @@ ApplicationWindow {
         // open could appear to reopen the previous photo. Close the session
         // first; its autosave path is non-blocking and safely chains a later
         // selection if the user immediately opens another item.
-        if (workspaceIndex === 1)
+        if (workspaceIndex === precisionWorkspacePage)
             editor.closePhoto()
         workspaceIndex = workspace
     }
 
     function showReview() {
-        leavePrecision(0)
+        leavePrecision(reviewWorkspacePage)
     }
 
     function showPrecision() {
-        if (workspaceIndex === 0 && reviewWorkspace.canOpenSelectedPhoto) {
+        if ((workspaceIndex === reviewWorkspacePage
+                || workspaceIndex === mapWorkspacePage)
+                && reviewWorkspace.canOpenSelectedPhoto) {
             if (editor.active
                     && editor.photoId === reviewWorkspace.selectedPhotoId
                     && editor.representationId
                         === reviewWorkspace.selectedRepresentationId
                     && editor.sourcePath === reviewWorkspace.selectedPath) {
                 reviewWorkspace.precisionOpenStatus = ""
-                workspaceIndex = 1
+                workspaceIndex = precisionWorkspacePage
                 return
             }
             reviewWorkspace.openSelectedPhoto()
             return
         }
         if (editor.active || editor.busy)
-            workspaceIndex = 1
+            workspaceIndex = precisionWorkspacePage
     }
 
     function showLibrary() {
-        leavePrecision(2)
+        leavePrecision(libraryManagementPage)
     }
 
     function showPeople() {
-        leavePrecision(3)
+        leavePrecision(peopleWorkspacePage)
+    }
+
+    function showMap() {
+        leavePrecision(mapWorkspacePage)
     }
 
     function chooseLibraryFolder() {
@@ -237,13 +259,13 @@ ApplicationWindow {
                 && editor.representationId === representationId
                 && editor.sourcePath === sourcePath) {
             reviewWorkspace.precisionOpenStatus = ""
-            workspaceIndex = 1
+            workspaceIndex = precisionWorkspacePage
             return
         }
         if (editor.openPhoto(photoId, representationId, sourcePath, photoTitle,
                              previewSource || "")) {
             reviewWorkspace.precisionOpenStatus = ""
-            workspaceIndex = 1
+            workspaceIndex = precisionWorkspacePage
         } else {
             reviewWorkspace.reportPrecisionOpenFailure(editor.statusText)
         }
@@ -271,11 +293,16 @@ ApplicationWindow {
         personalProfile: window.personalProfile
         personalProfileDialog: personalProfileDialog
         workspaceIndex: window.workspaceIndex
+        reviewWorkspaceIndex: window.reviewWorkspacePage
+        precisionWorkspaceIndex: window.precisionWorkspacePage
+        mapWorkspaceIndex: window.mapWorkspacePage
+        peopleWorkspaceIndex: window.peopleWorkspacePage
         descriptiveTitle: window.descriptiveTitle
         canOpenSelectedPhoto: reviewWorkspace.canOpenSelectedPhoto
         historyOpen: historyDrawer.opened
         onReviewRequested: window.showReview()
         onPrecisionRequested: window.showPrecision()
+        onMapRequested: window.showMap()
         onPeopleRequested: window.showPeople()
         onHistoryRequested: {
             if (historyDrawer.opened) {
@@ -314,9 +341,9 @@ ApplicationWindow {
             // because the native layer would cover the modal regardless of its
             // QML z-order.
             nativeWebMapAllowed: window.nativeWebMapForegroundAllowed
-                && !reviewWorkspace.locationBatchDialogVisible
+                && !window.mapNativeSurfaceBlocked
             nativeLocationDialogWebMapAllowed:
-                window.nativeWebMapForegroundAllowed
+                window.nativeLocationDialogWebMapAllowed
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {
@@ -384,10 +411,21 @@ ApplicationWindow {
             Layout.fillHeight: true
             controller: window.peopleAnalysisController
         }
+
+        LibraryMapWorkspace {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            libraryContext: reviewWorkspace
+            onOpenLibraryManagementRequested: window.showLibrary()
+        }
     }
 
     footer: MainStatusBar {
         workspaceIndex: window.workspaceIndex
+        reviewWorkspaceIndex: window.reviewWorkspacePage
+        precisionWorkspaceIndex: window.precisionWorkspacePage
+        mapWorkspaceIndex: window.mapWorkspacePage
+        peopleWorkspaceIndex: window.peopleWorkspacePage
         controller: window.controller
         editor: window.editor
         peopleAnalysisController: window.peopleAnalysisController
