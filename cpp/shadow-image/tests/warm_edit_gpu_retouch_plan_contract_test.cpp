@@ -201,8 +201,28 @@ void tile_context_and_heal_mode_are_preserved() {
     expect(
         prepared_heal.has_value()
             && prepared_heal->regions.front().parameters.mode
-                   == image::detail::WarmRetouchMode::heal,
-        "Heal lowers through the same ordered retouch geometry without changing its mode"
+                   == image::detail::WarmRetouchMode::heal
+            && prepared_heal->regions.front().parameters.screening_weight == 2.0F
+            && prepared_heal->regions.front().parameters.poisson_iterations >= 32U
+            && prepared_heal->regions.front().parameters.poisson_iterations <= 96U,
+        "Heal lowers with bounded adaptive reconstruction and the softer seam constraint"
+    );
+
+    const image::SpotHealAdjustment edge_clone{
+        .spots = {{
+            .center_x = 0.95,
+            .center_y = 0.5,
+            .radius_level_zero_pixels = 4U,
+            .mode = image::SpotRepairMode::clone,
+            .source_offset_x_radii = 8.0,
+        }},
+    };
+    const auto prepared_edge =
+        image::detail::prepare_warm_retouch_stage(edge_clone, {80U, 60U}, 1.0, 1.0, {});
+    expect(
+        prepared_edge.has_value()
+            && prepared_edge->regions.front().parameters.donor_offset_x < 1.0F,
+        "an edge donor is translated as one patch instead of repeating clamped edge pixels"
     );
 }
 

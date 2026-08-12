@@ -464,6 +464,8 @@ qt_add_executable(
     src/edit_persistence_task_coordinator.hpp
     src/edit_render_coordinator.cpp
     src/edit_retouch_controller.cpp
+    src/edit_retouch_donor_selection.cpp
+    src/edit_retouch_donor_selection.hpp
     src/edit_source_admission.cpp
     src/edit_source_admission.hpp
     src/edit_stroke_input.cpp

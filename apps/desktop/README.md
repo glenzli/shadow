@@ -382,8 +382,10 @@ Its implementation follows the same navigation:
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
-  clone picker state, continuous strokes, legacy spots, automatic Heal donors, and source-offset
-  editing for both Heal and Clone.
+  clone picker state, continuous strokes, legacy spots, and source-offset editing for both Heal
+  and Clone. [`src/edit_retouch_donor_selection.*`](src/edit_retouch_donor_selection.hpp) owns the
+  deterministic, generation-matched preview analysis used to author an in-bounds donor into new
+  Heal and Clone regions; later renders consume that stored offset without re-running analysis.
 - [`src/edit_liquify_controller.cpp`](src/edit_liquify_controller.cpp) owns the photo-private
   singleton Liquify projection, node bypass, Push/Reconstruct brush mode, and one-gesture/one-
   history boundary. Push prefers the local display mesh, then falls back to the same provisional

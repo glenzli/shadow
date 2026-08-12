@@ -20,8 +20,9 @@ namespace {
 
 constexpr std::size_t rgb_channels = 3U;
 constexpr float minimum_coverage = 1.0e-4F;
-constexpr std::size_t poisson_iterations = 28U;
-constexpr double screening_weight = 4.0;
+constexpr double screening_weight = 2.0;
+constexpr double minimum_texture_gain = 0.65;
+constexpr double maximum_texture_gain = 1.55;
 
 [[noreturn]] void invalid_heal(const std::string& detail) {
     throw EditError(
@@ -74,9 +75,14 @@ local_index(const std::uint32_t x, const std::uint32_t y, const std::uint32_t wi
     return static_cast<std::size_t>(y) * width + x;
 }
 
-[[nodiscard]] float robust_location(const std::vector<float>& values) {
+struct RobustStatistics final {
+    double location = 0.0;
+    double scale = 0.0;
+};
+
+[[nodiscard]] RobustStatistics robust_statistics(const std::vector<float>& values) {
     if (values.empty()) {
-        return 0.0F;
+        return {};
     }
     const double sum = std::accumulate(
         values.begin(),
@@ -93,15 +99,29 @@ local_index(const std::uint32_t x, const std::uint32_t y, const std::uint32_t wi
     const double standard_deviation = std::sqrt(square_sum / static_cast<double>(values.size()));
     const double lower = mean - 2.5 * standard_deviation;
     const double upper = mean + 2.5 * standard_deviation;
-    const double clipped_sum = std::accumulate(
-        values.begin(),
-        values.end(),
-        0.0,
-        [lower, upper](const double total, const float value) {
-            return total + std::clamp(static_cast<double>(value), lower, upper);
-        }
-    );
-    return static_cast<float>(clipped_sum / static_cast<double>(values.size()));
+    double clipped_sum = 0.0;
+    for (const float value : values) {
+        clipped_sum += std::clamp(static_cast<double>(value), lower, upper);
+    }
+    const double clipped_mean = clipped_sum / static_cast<double>(values.size());
+    double clipped_square_sum = 0.0;
+    for (const float value : values) {
+        const double retained = std::clamp(static_cast<double>(value), lower, upper);
+        const double delta = retained - clipped_mean;
+        clipped_square_sum = std::fma(delta, delta, clipped_square_sum);
+    }
+    return {
+        .location = clipped_mean,
+        .scale = std::sqrt(clipped_square_sum / static_cast<double>(values.size())),
+    };
+}
+
+[[nodiscard]] std::size_t poisson_iteration_count(
+    const std::uint32_t coverage_width,
+    const std::uint32_t coverage_height
+) noexcept {
+    const std::uint32_t narrow_extent = std::min(coverage_width, coverage_height);
+    return static_cast<std::size_t>(std::clamp(24U + narrow_extent, 32U, 96U));
 }
 
 [[nodiscard]] bool covered(
@@ -193,14 +213,38 @@ void apply_texture_heal(
     if (target_boundary_samples[0].empty() || donor_boundary_samples[0].empty()) {
         return;
     }
-    std::array<float, rgb_channels> boundary_shift{};
+    std::array<RobustStatistics, rgb_channels> target_statistics{};
+    std::array<RobustStatistics, rgb_channels> donor_statistics{};
+    double target_scale_squared = 0.0;
+    double donor_scale_squared = 0.0;
     for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-        boundary_shift[channel] = robust_location(target_boundary_samples[channel])
-                                  - robust_location(donor_boundary_samples[channel]);
+        target_statistics[channel] = robust_statistics(target_boundary_samples[channel]);
+        donor_statistics[channel] = robust_statistics(donor_boundary_samples[channel]);
+        target_scale_squared = std::fma(
+            target_statistics[channel].scale,
+            target_statistics[channel].scale,
+            target_scale_squared
+        );
+        donor_scale_squared = std::fma(
+            donor_statistics[channel].scale,
+            donor_statistics[channel].scale,
+            donor_scale_squared
+        );
     }
+    const double texture_gain = donor_scale_squared > 1.0e-10
+                                    ? std::clamp(
+                                          std::sqrt(target_scale_squared / donor_scale_squared),
+                                          minimum_texture_gain,
+                                          maximum_texture_gain
+                                      )
+                                    : 1.0;
     for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
         for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-            solution[pixel * rgb_channels + channel] += boundary_shift[channel];
+            const double donor_delta = static_cast<double>(donor[pixel * rgb_channels + channel])
+                                       - donor_statistics[channel].location;
+            solution[pixel * rgb_channels + channel] = static_cast<float>(
+                target_statistics[channel].location + texture_gain * donor_delta
+            );
         }
     }
     const std::vector<float> screened_target = solution;
@@ -212,6 +256,7 @@ void apply_texture_heal(
         {{0, 1}},
     }};
     std::vector<float> next_solution = solution;
+    const std::size_t poisson_iterations = poisson_iteration_count(coverage_width, coverage_height);
     for (std::size_t iteration = 0U; iteration < poisson_iterations; ++iteration) {
         for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
             for (std::uint32_t local_x = 0U; local_x < coverage_width; ++local_x) {
@@ -252,8 +297,9 @@ void apply_texture_heal(
                                      + channel];
                         }
                         donor_laplacian +=
-                            static_cast<double>(donor[pixel * rgb_channels + channel])
-                            - static_cast<double>(donor[adjacent * rgb_channels + channel]);
+                            texture_gain
+                            * (static_cast<double>(donor[pixel * rgb_channels + channel])
+                               - static_cast<double>(donor[adjacent * rgb_channels + channel]));
                         ++neighbor_count;
                     }
                     if (neighbor_count == 0U) {
@@ -280,11 +326,8 @@ void apply_texture_heal(
     for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
         for (std::uint32_t local_x = 0U; local_x < coverage_width; ++local_x) {
             const std::size_t pixel = local_index(local_x, local_y, coverage_width);
-            const double alpha = std::clamp(
-                static_cast<double>(coverage[pixel]) * strength,
-                0.0,
-                1.0
-            );
+            const double alpha =
+                std::clamp(static_cast<double>(coverage[pixel]) * strength, 0.0, 1.0);
             if (alpha <= 0.0) {
                 continue;
             }

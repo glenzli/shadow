@@ -37,17 +37,14 @@ constexpr std::uint16_t maximum_spot_radius_level_zero = 128U;
     );
 }
 
-[[nodiscard]] Dimensions execution_full_dimensions(
-    const FloatRgbImage& image,
-    const AdjustmentExecutionContext context
-) {
-    const Dimensions full = context.full_dimensions.width == 0U
-            || context.full_dimensions.height == 0U
-        ? image.dimensions
-        : context.full_dimensions;
-    if (full.width == 0U || full.height == 0U
-        || context.origin_x > full.width || context.origin_y > full.height
-        || image.dimensions.width > full.width - context.origin_x
+[[nodiscard]] Dimensions
+execution_full_dimensions(const FloatRgbImage& image, const AdjustmentExecutionContext context) {
+    const Dimensions full =
+        context.full_dimensions.width == 0U || context.full_dimensions.height == 0U
+            ? image.dimensions
+            : context.full_dimensions;
+    if (full.width == 0U || full.height == 0U || context.origin_x > full.width
+        || context.origin_y > full.height || image.dimensions.width > full.width - context.origin_x
         || image.dimensions.height > full.height - context.origin_y) {
         invalid_retouch("execution context exceeds full-image dimensions");
     }
@@ -62,30 +59,16 @@ constexpr std::uint16_t maximum_spot_radius_level_zero = 128U;
     return normalized * normalized * (3.0 - 2.0 * normalized);
 }
 
-[[nodiscard]] std::size_t sample_index(
-    const FloatRgbImage& image,
-    const std::uint32_t x,
-    const std::uint32_t y
-) {
+[[nodiscard]] std::size_t
+sample_index(const FloatRgbImage& image, const std::uint32_t x, const std::uint32_t y) {
     return static_cast<std::size_t>(y) * (image.row_stride_bytes / sizeof(float))
-        + static_cast<std::size_t>(x) * rgb_channels;
+           + static_cast<std::size_t>(x) * rgb_channels;
 }
 
-[[nodiscard]] std::array<double, rgb_channels> sample_bilinear(
-    const FloatRgbImage& image,
-    const double x,
-    const double y
-) {
-    const double clamped_x = std::clamp(
-        x,
-        0.0,
-        static_cast<double>(image.dimensions.width - 1U)
-    );
-    const double clamped_y = std::clamp(
-        y,
-        0.0,
-        static_cast<double>(image.dimensions.height - 1U)
-    );
+[[nodiscard]] std::array<double, rgb_channels>
+sample_bilinear(const FloatRgbImage& image, const double x, const double y) {
+    const double clamped_x = std::clamp(x, 0.0, static_cast<double>(image.dimensions.width - 1U));
+    const double clamped_y = std::clamp(y, 0.0, static_cast<double>(image.dimensions.height - 1U));
     const auto x0 = static_cast<std::uint32_t>(std::floor(clamped_x));
     const auto y0 = static_cast<std::uint32_t>(std::floor(clamped_y));
     const auto x1 = std::min(x0 + 1U, image.dimensions.width - 1U);
@@ -132,8 +115,10 @@ struct RasterBounds final {
     const AdjustmentExecutionContext context
 ) {
     return RasterPoint{
-        .x = point.x * static_cast<double>(full.width) - static_cast<double>(context.origin_x) - 0.5,
-        .y = point.y * static_cast<double>(full.height) - static_cast<double>(context.origin_y) - 0.5,
+        .x =
+            point.x * static_cast<double>(full.width) - static_cast<double>(context.origin_x) - 0.5,
+        .y = point.y * static_cast<double>(full.height) - static_cast<double>(context.origin_y)
+             - 0.5,
     };
 }
 
@@ -145,18 +130,18 @@ struct RasterBounds final {
     const double radius_multiplier
 ) {
     return RasterBounds{
-        .lower_x = static_cast<std::int64_t>(std::floor(
-            std::min(first.x, last.x) - radius_x * radius_multiplier
-        )),
-        .upper_x = static_cast<std::int64_t>(std::ceil(
-            std::max(first.x, last.x) + radius_x * radius_multiplier
-        )),
-        .lower_y = static_cast<std::int64_t>(std::floor(
-            std::min(first.y, last.y) - radius_y * radius_multiplier
-        )),
-        .upper_y = static_cast<std::int64_t>(std::ceil(
-            std::max(first.y, last.y) + radius_y * radius_multiplier
-        )),
+        .lower_x = static_cast<std::int64_t>(
+            std::floor(std::min(first.x, last.x) - radius_x * radius_multiplier)
+        ),
+        .upper_x = static_cast<std::int64_t>(
+            std::ceil(std::max(first.x, last.x) + radius_x * radius_multiplier)
+        ),
+        .lower_y = static_cast<std::int64_t>(
+            std::floor(std::min(first.y, last.y) - radius_y * radius_multiplier)
+        ),
+        .upper_y = static_cast<std::int64_t>(
+            std::ceil(std::max(first.y, last.y) + radius_y * radius_multiplier)
+        ),
     };
 }
 
@@ -176,13 +161,14 @@ struct RasterBounds final {
     const double segment_x = (last.x - first.x) / radius_x;
     const double segment_y = (last.y - first.y) / radius_y;
     const double segment_length_squared = std::fma(segment_x, segment_x, segment_y * segment_y);
-    const double projection = segment_length_squared <= std::numeric_limits<double>::epsilon()
-        ? 0.0
-        : std::clamp(
-            (point_x * segment_x + point_y * segment_y) / segment_length_squared,
-            0.0,
-            1.0
-        );
+    const double projection =
+        segment_length_squared <= std::numeric_limits<double>::epsilon()
+            ? 0.0
+            : std::clamp(
+                  (point_x * segment_x + point_y * segment_y) / segment_length_squared,
+                  0.0,
+                  1.0
+              );
     const double delta_x = point_x - projection * segment_x;
     const double delta_y = point_y - projection * segment_y;
     return std::sqrt(std::fma(delta_x, delta_x, delta_y * delta_y));
@@ -192,9 +178,7 @@ struct RasterBounds final {
     if (distance > 1.0) {
         return 0.0;
     }
-    return feather <= 0.0
-        ? 1.0
-        : 1.0 - smoothstep(1.0 - feather, 1.0, distance);
+    return feather <= 0.0 ? 1.0 : 1.0 - smoothstep(1.0 - feather, 1.0, distance);
 }
 
 [[nodiscard]] bool valid_retouch_properties(
@@ -206,20 +190,56 @@ struct RasterBounds final {
     const double strength
 ) {
     return radius_level_zero_pixels >= minimum_spot_radius_level_zero
-        && radius_level_zero_pixels <= maximum_spot_radius_level_zero
-        && (mode == SpotRepairMode::heal || mode == SpotRepairMode::clone)
-        && std::isfinite(source_offset_x_radii)
-        && std::isfinite(source_offset_y_radii)
-        && source_offset_x_radii >= -8.0 && source_offset_x_radii <= 8.0
-        && source_offset_y_radii >= -8.0 && source_offset_y_radii <= 8.0
-        && std::isfinite(feather) && feather >= 0.0 && feather <= 1.0
-        && std::isfinite(strength) && strength >= 0.0 && strength <= 1.0;
+           && radius_level_zero_pixels <= maximum_spot_radius_level_zero
+           && (mode == SpotRepairMode::heal || mode == SpotRepairMode::clone)
+           && std::isfinite(source_offset_x_radii) && std::isfinite(source_offset_y_radii)
+           && source_offset_x_radii >= -8.0 && source_offset_x_radii <= 8.0
+           && source_offset_y_radii >= -8.0 && source_offset_y_radii <= 8.0
+           && std::isfinite(feather) && feather >= 0.0 && feather <= 1.0 && std::isfinite(strength)
+           && strength >= 0.0 && strength <= 1.0;
 }
 
 struct SourceOffsetPixels final {
     double x = 0.0;
     double y = 0.0;
 };
+
+[[nodiscard]] SourceOffsetPixels clamp_source_offset_to_image(
+    SourceOffsetPixels offset,
+    const double normalized_lower_x,
+    const double normalized_upper_x,
+    const double normalized_lower_y,
+    const double normalized_upper_y,
+    const double radius_x,
+    const double radius_y,
+    const Dimensions full
+) noexcept {
+    const double maximum_x = static_cast<double>(full.width - 1U);
+    const double maximum_y = static_cast<double>(full.height - 1U);
+    const double target_lower_x = std::clamp(
+        normalized_lower_x * static_cast<double>(full.width) - 0.5 - radius_x,
+        0.0,
+        maximum_x
+    );
+    const double target_upper_x = std::clamp(
+        normalized_upper_x * static_cast<double>(full.width) - 0.5 + radius_x,
+        0.0,
+        maximum_x
+    );
+    const double target_lower_y = std::clamp(
+        normalized_lower_y * static_cast<double>(full.height) - 0.5 - radius_y,
+        0.0,
+        maximum_y
+    );
+    const double target_upper_y = std::clamp(
+        normalized_upper_y * static_cast<double>(full.height) - 0.5 + radius_y,
+        0.0,
+        maximum_y
+    );
+    offset.x = std::clamp(offset.x, -target_lower_x, maximum_x - target_upper_x);
+    offset.y = std::clamp(offset.y, -target_lower_y, maximum_y - target_upper_y);
+    return offset;
+}
 
 [[nodiscard]] SourceOffsetPixels source_offset_pixels(
     const double authored_x_radii,
@@ -230,8 +250,8 @@ struct SourceOffsetPixels final {
     const double normalized_center_y
 ) {
     constexpr double authored_zero_epsilon = 1.0e-9;
-    if (std::abs(authored_x_radii) > authored_zero_epsilon ||
-        std::abs(authored_y_radii) > authored_zero_epsilon) {
+    if (std::abs(authored_x_radii) > authored_zero_epsilon
+        || std::abs(authored_y_radii) > authored_zero_epsilon) {
         return {
             .x = authored_x_radii * radius_x,
             .y = authored_y_radii * radius_y,
@@ -258,21 +278,21 @@ void apply_target(
     if (target.strength <= 0.0) {
         return;
     }
-    const double radius_x = static_cast<double>(target.radius_level_zero_pixels)
-        * image.level_zero_to_raster_scale_x;
-    const double radius_y = static_cast<double>(target.radius_level_zero_pixels)
-        * image.level_zero_to_raster_scale_y;
-    if (!std::isfinite(radius_x) || !std::isfinite(radius_y)
-        || radius_x <= 0.0 || radius_y <= 0.0) {
+    const double radius_x =
+        static_cast<double>(target.radius_level_zero_pixels) * image.level_zero_to_raster_scale_x;
+    const double radius_y =
+        static_cast<double>(target.radius_level_zero_pixels) * image.level_zero_to_raster_scale_y;
+    if (!std::isfinite(radius_x) || !std::isfinite(radius_y) || radius_x <= 0.0
+        || radius_y <= 0.0) {
         invalid_retouch("has an invalid proxy scale");
     }
 
     // Pixel-centre coordinates map exactly to the normalized original image
     // contract used by local masks. The input tile may contain a detail apron.
     const double center_x = target.center_x * static_cast<double>(full.width)
-        - static_cast<double>(context.origin_x) - 0.5;
-    const double center_y = target.center_y * static_cast<double>(full.height) -
-                            static_cast<double>(context.origin_y) - 0.5;
+                            - static_cast<double>(context.origin_x) - 0.5;
+    const double center_y = target.center_y * static_cast<double>(full.height)
+                            - static_cast<double>(context.origin_y) - 0.5;
     const FloatRgbImage source = image;
     const auto paint_lower_x = static_cast<std::int64_t>(std::floor(center_x - radius_x)) - 1;
     const auto paint_upper_x = static_cast<std::int64_t>(std::ceil(center_x + radius_x)) + 1;
@@ -296,11 +316,12 @@ void apply_target(
             const double dy = (static_cast<double>(y) - center_y) / radius_y;
             const double distance = std::sqrt(std::fma(dx, dx, dy * dy));
             const double alpha = brush_alpha(distance, target.feather);
-            coverage[static_cast<std::size_t>(y - lower_y) * coverage_width +
-                     static_cast<std::size_t>(x - lower_x)] = static_cast<float>(alpha);
+            coverage
+                [static_cast<std::size_t>(y - lower_y) * coverage_width
+                 + static_cast<std::size_t>(x - lower_x)] = static_cast<float>(alpha);
         }
     }
-    const SourceOffsetPixels donor_offset =
+    const SourceOffsetPixels donor_offset = clamp_source_offset_to_image(
         source_offset_pixels(
             target.source_offset_x_radii,
             target.source_offset_y_radii,
@@ -308,7 +329,15 @@ void apply_target(
             radius_y,
             target.center_x,
             target.center_y
-        );
+        ),
+        target.center_x,
+        target.center_x,
+        target.center_y,
+        target.center_y,
+        radius_x,
+        radius_y,
+        full
+    );
     if (target.mode == SpotRepairMode::heal) {
         detail::apply_texture_heal(
             image,
@@ -326,17 +355,15 @@ void apply_target(
     }
     for (std::int64_t y = lower_y; y <= upper_y; ++y) {
         for (std::int64_t x = lower_x; x <= upper_x; ++x) {
-            const double alpha = target.strength *
-                coverage[static_cast<std::size_t>(y - lower_y) * coverage_width +
-                         static_cast<std::size_t>(x - lower_x)];
+            const double alpha = target.strength
+                                 * coverage
+                                     [static_cast<std::size_t>(y - lower_y) * coverage_width
+                                      + static_cast<std::size_t>(x - lower_x)];
             if (alpha <= 0.0) {
                 continue;
             }
-            const std::size_t sample = sample_index(
-                image,
-                static_cast<std::uint32_t>(x),
-                static_cast<std::uint32_t>(y)
-            );
+            const std::size_t sample =
+                sample_index(image, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y));
             const std::array<double, rgb_channels> replacement = sample_bilinear(
                 source,
                 static_cast<double>(x) + donor_offset.x,
@@ -371,15 +398,16 @@ void apply_stroke(
     if (stroke.strength <= 0.0) {
         return;
     }
-    const double radius_x = static_cast<double>(stroke.radius_level_zero_pixels)
-        * image.level_zero_to_raster_scale_x;
-    const double radius_y = static_cast<double>(stroke.radius_level_zero_pixels)
-        * image.level_zero_to_raster_scale_y;
-    if (!std::isfinite(radius_x) || !std::isfinite(radius_y)
-        || radius_x <= 0.0 || radius_y <= 0.0) {
+    const double radius_x =
+        static_cast<double>(stroke.radius_level_zero_pixels) * image.level_zero_to_raster_scale_x;
+    const double radius_y =
+        static_cast<double>(stroke.radius_level_zero_pixels) * image.level_zero_to_raster_scale_y;
+    if (!std::isfinite(radius_x) || !std::isfinite(radius_y) || radius_x <= 0.0
+        || radius_y <= 0.0) {
         invalid_retouch("has an invalid proxy scale");
     }
-    if (image.dimensions.width > std::numeric_limits<std::size_t>::max() / image.dimensions.height) {
+    if (image.dimensions.width
+        > std::numeric_limits<std::size_t>::max() / image.dimensions.height) {
         invalid_retouch("stroke coverage exceeds the supported raster range");
     }
 
@@ -451,8 +479,8 @@ void apply_stroke(
                     stroke.feather
                 );
                 const std::size_t coverage_index =
-                    static_cast<std::size_t>(y - stroke_lower_y) * coverage_width +
-                    static_cast<std::size_t>(x - stroke_lower_x);
+                    static_cast<std::size_t>(y - stroke_lower_y) * coverage_width
+                    + static_cast<std::size_t>(x - stroke_lower_x);
                 coverage[coverage_index] =
                     std::max(coverage[coverage_index], static_cast<float>(alpha));
             }
@@ -473,7 +501,7 @@ void apply_stroke(
     const double normalized_center_y = std::midpoint(normalized_lower_y, normalized_upper_y);
     const bool automatic_source =
         stroke.source_offset_x_radii == 0.0 && stroke.source_offset_y_radii == 0.0;
-    const SourceOffsetPixels donor_offset =
+    const SourceOffsetPixels authored_donor_offset =
         automatic_source
         ? (normalized_upper_x - normalized_lower_x >= normalized_upper_y - normalized_lower_y
             ? SourceOffsetPixels{
@@ -492,6 +520,16 @@ void apply_stroke(
             normalized_center_x,
             normalized_center_y
         );
+    const SourceOffsetPixels donor_offset = clamp_source_offset_to_image(
+        authored_donor_offset,
+        normalized_lower_x,
+        normalized_upper_x,
+        normalized_lower_y,
+        normalized_upper_y,
+        radius_x,
+        radius_y,
+        full
+    );
     if (stroke.mode == SpotRepairMode::heal) {
         detail::apply_texture_heal(
             image,
@@ -509,20 +547,20 @@ void apply_stroke(
     }
     for (std::int64_t y = stroke_lower_y; y <= stroke_upper_y; ++y) {
         for (std::int64_t x = stroke_lower_x; x <= stroke_upper_x; ++x) {
-            const double alpha = stroke.strength *
-                coverage[static_cast<std::size_t>(y - stroke_lower_y) * coverage_width +
-                         static_cast<std::size_t>(x - stroke_lower_x)];
+            const double alpha = stroke.strength
+                                 * coverage
+                                     [static_cast<std::size_t>(y - stroke_lower_y) * coverage_width
+                                      + static_cast<std::size_t>(x - stroke_lower_x)];
             if (alpha <= 0.0) {
                 continue;
             }
-            const std::size_t sample = sample_index(
-                image,
-                static_cast<std::uint32_t>(x),
-                static_cast<std::uint32_t>(y)
+            const std::size_t sample =
+                sample_index(image, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y));
+            const std::array<double, rgb_channels> replacement = sample_bilinear(
+                source,
+                static_cast<double>(x) + donor_offset.x,
+                static_cast<double>(y) + donor_offset.y
             );
-            const std::array<double, rgb_channels> replacement =
-                sample_bilinear(source, static_cast<double>(x) + donor_offset.x,
-                                static_cast<double>(y) + donor_offset.y);
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 const double value = std::fma(
                     alpha,
@@ -554,8 +592,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
     }
     for (const auto& target : adjustment.spots) {
         if (!std::isfinite(target.center_x) || !std::isfinite(target.center_y)
-            || target.center_x < 0.0 || target.center_x > 1.0
-            || target.center_y < 0.0 || target.center_y > 1.0
+            || target.center_x < 0.0 || target.center_x > 1.0 || target.center_y < 0.0
+            || target.center_y > 1.0
             || !valid_retouch_properties(
                 target.radius_level_zero_pixels,
                 target.mode,
@@ -580,8 +618,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
             invalid_retouch("continuous stroke properties are outside the supported range");
         }
         for (const auto point : stroke.points) {
-            if (!std::isfinite(point.x) || !std::isfinite(point.y)
-                || point.x < 0.0 || point.x > 1.0 || point.y < 0.0 || point.y > 1.0) {
+            if (!std::isfinite(point.x) || !std::isfinite(point.y) || point.x < 0.0 || point.x > 1.0
+                || point.y < 0.0 || point.y > 1.0) {
                 invalid_retouch("continuous stroke points are outside the normalized image");
             }
         }

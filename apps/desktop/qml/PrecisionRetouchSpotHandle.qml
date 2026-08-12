@@ -17,9 +17,10 @@ Item {
     property bool sourceGestureActive: false
 
     readonly property real radiusPixels: Math.max(
-        6,
+        0.25,
         Number(modelData.radius) * pixelScale
     )
+    readonly property real interactionRadiusPixels: Math.max(6, radiusPixels)
     readonly property real targetX: Number(modelData.x) * width
     readonly property real targetY: Number(modelData.y) * height
     readonly property real sourceX: targetX
@@ -104,7 +105,7 @@ Item {
                 * Math.max(0, 1 - Number(repairHandle.modelData.feather))
             height: width
             radius: width / 2
-            visible: width >= 4
+            visible: width >= 3
             color: Theme.transparent
             border.width: 1
             border.color: Theme.previewCompareDivider
@@ -114,7 +115,11 @@ Item {
             objectName: "retouchSpotTargetHitArea"
 
             anchors.fill: parent
-            anchors.margins: -5
+            anchors.margins: -Math.max(
+                5,
+                repairHandle.interactionRadiusPixels
+                    - repairHandle.radiusPixels
+            )
             acceptedButtons: Qt.LeftButton
             hoverEnabled: true
             preventStealing: true
@@ -196,13 +201,33 @@ Item {
                     return
                 const point = sourceCircle.mapToItem(
                     repairHandle, mouse.x, mouse.y)
-                const radius = Math.max(1, repairHandle.radiusPixels)
+                const radius = Math.max(0.25, repairHandle.radiusPixels)
+                const minimumX = Math.min(
+                    repairHandle.width / 2,
+                    repairHandle.radiusPixels
+                )
+                const maximumX = Math.max(
+                    minimumX,
+                    repairHandle.width - repairHandle.radiusPixels
+                )
+                const minimumY = Math.min(
+                    repairHandle.height / 2,
+                    repairHandle.radiusPixels
+                )
+                const maximumY = Math.max(
+                    minimumY,
+                    repairHandle.height - repairHandle.radiusPixels
+                )
+                const sourceCenterX = Math.max(
+                    minimumX, Math.min(maximumX, point.x))
+                const sourceCenterY = Math.max(
+                    minimumY, Math.min(maximumY, point.y))
                 repairHandle.editor.setRetouchSpotSourceOffset(
                     repairHandle.modelData.index,
                     Math.max(-8, Math.min(
-                        8, (point.x - repairHandle.targetX) / radius)),
+                        8, (sourceCenterX - repairHandle.targetX) / radius)),
                     Math.max(-8, Math.min(
-                        8, (point.y - repairHandle.targetY) / radius))
+                        8, (sourceCenterY - repairHandle.targetY) / radius))
                 )
             }
             onReleased: repairHandle.finishSourceGesture()

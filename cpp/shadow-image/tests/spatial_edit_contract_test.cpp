@@ -384,8 +384,8 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
         "spot-heal restores a blue defect component from its ring"
     );
     auto half_heal_nodes = nodes;
-    std::get<image::SpotHealAdjustment>(half_heal_nodes.front().parameters)
-        .spots.front().strength = 0.5;
+    std::get<image::SpotHealAdjustment>(half_heal_nodes.front().parameters).spots.front().strength =
+        0.5;
     const auto half_healed = image::execute_adjustment_nodes(input, half_heal_nodes);
     expect_close(
         half_healed.samples[center],
@@ -461,11 +461,10 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
 
     auto half_strength_nodes = clone_nodes;
     std::get<image::SpotHealAdjustment>(half_strength_nodes.front().parameters)
-        .spots.front().strength = 0.5;
-    const auto half_strength = image::execute_adjustment_nodes(
-        rgb_raster(9U, 9U, clone_samples),
-        half_strength_nodes
-    );
+        .spots.front()
+        .strength = 0.5;
+    const auto half_strength =
+        image::execute_adjustment_nodes(rgb_raster(9U, 9U, clone_samples), half_strength_nodes);
     expect_close(
         half_strength.samples[center],
         0.5F,
@@ -474,15 +473,38 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
 
     auto zero_strength_nodes = clone_nodes;
     std::get<image::SpotHealAdjustment>(zero_strength_nodes.front().parameters)
-        .spots.front().strength = 0.0;
-    const auto zero_strength = image::execute_adjustment_nodes(
-        rgb_raster(9U, 9U, clone_samples),
-        zero_strength_nodes
-    );
+        .spots.front()
+        .strength = 0.0;
+    const auto zero_strength =
+        image::execute_adjustment_nodes(rgb_raster(9U, 9U, clone_samples), zero_strength_nodes);
     expect_close(
         zero_strength.samples[center],
         clone_samples[center],
         "zero repair strength preserves the original pixel"
+    );
+
+    const std::array edge_clone_nodes{
+        image::AdjustmentNode{
+            .node_id = "edge-clone",
+            .parameters = image::SpotHealAdjustment{
+                .spots = {{
+                    .center_x = 7.5 / 9.0,
+                    .center_y = 4.5 / 9.0,
+                    .radius_level_zero_pixels = 1U,
+                    .mode = image::SpotRepairMode::clone,
+                    .source_offset_x_radii = 8.0,
+                    .feather = 0.0,
+                }},
+            },
+        },
+    };
+    const auto edge_clone =
+        image::execute_adjustment_nodes(rgb_raster(9U, 9U, clone_samples), edge_clone_nodes);
+    const std::size_t edge_target = (4U * 9U + 7U) * 3U;
+    expect_close(
+        edge_clone.samples[edge_target],
+        clone_samples[edge_target],
+        "an out-of-bounds donor is translated as one patch instead of smearing the edge pixel"
     );
 }
 
@@ -854,18 +876,14 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
         .perspective_vertical = 1.0,
         .perspective_horizontal = -0.75,
     };
-    const auto perspective_layout = image::photo_geometry_layout(
-        image::Dimensions{64U, 48U},
-        perspective
-    );
+    const auto perspective_layout =
+        image::photo_geometry_layout(image::Dimensions{64U, 48U}, perspective);
     expect(
         perspective_layout.output_dimensions == image::Dimensions{64U, 48U},
         "perspective preserves the final Canvas extent"
     );
-    const auto perspective_output = image::apply_photo_geometry(
-        rgb_raster(64U, 48U, filled_samples),
-        perspective
-    );
+    const auto perspective_output =
+        image::apply_photo_geometry(rgb_raster(64U, 48U, filled_samples), perspective);
     for (const float sample : perspective_output.samples) {
         expect_close(
             sample,

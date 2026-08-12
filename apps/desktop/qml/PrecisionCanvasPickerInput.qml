@@ -16,6 +16,8 @@ Item {
     required property bool previewFrameReady
     required property string readyPreviewGeneration
     required property real displayScale
+    required property real levelZeroWidth
+    required property real levelZeroHeight
     required property bool interactionEnabled
 
     visible: interactionEnabled
@@ -59,6 +61,7 @@ Item {
 
     PrecisionActiveStrokeCoverage {
         id: activeRetouchCoverage
+        objectName: "activeRetouchCoverage"
         anchors.fill: parent
         z: 1
         visible: inputArea.retouchStrokeActive
@@ -87,9 +90,9 @@ Item {
 
         function retouchBrushDiameter() {
             // The persisted repair target has an 18px level-zero radius.
-            // Match its visible diameter instead of creating a second
-            // brush-size contract in presentation code.
-            return Math.max(18, 36 * pickerInput.displayScale)
+            // Coverage must remain exact even when the image is fitted far
+            // below 1:1. Pointer affordance is handled separately.
+            return Math.max(0.5, 36 * pickerInput.displayScale)
         }
 
         function appendRetouchDraftPoint(mouse, force) {
@@ -142,14 +145,21 @@ Item {
                     appendRetouchDraftPoint(mouse, true)
                 if (retouchDraftPoints.length > 0) {
                     pickerInput.editor.addRetouchStrokeFromPreview(
-                        retouchDraftPoints)
+                        retouchDraftPoints,
+                        pickerInput.readyPreviewGeneration,
+                        Math.max(1, Math.round(pickerInput.levelZeroWidth)),
+                        Math.max(1, Math.round(pickerInput.levelZeroHeight)))
                 }
                 Qt.callLater(activeRetouchCoverage.clearStroke)
             } else if (!canceled && retouchPressPoint !== null) {
                 // A click remains a single legacy spot: existing recipes and
                 // the precise spot workflow retain their original behavior.
                 pickerInput.editor.addRetouchSpotFromPreview(
-                    retouchPressPoint.x, retouchPressPoint.y)
+                    retouchPressPoint.x,
+                    retouchPressPoint.y,
+                    pickerInput.readyPreviewGeneration,
+                    Math.max(1, Math.round(pickerInput.levelZeroWidth)),
+                    Math.max(1, Math.round(pickerInput.levelZeroHeight)))
             }
             retouchGestureActive = false
             retouchStrokeActive = false
@@ -223,7 +233,7 @@ Item {
         Rectangle {
             visible: pickerInput.editor.retouchPickerActive
             anchors.centerIn: parent
-            width: Math.max(18, 36 * pickerInput.displayScale)
+            width: inputArea.retouchBrushDiameter()
             height: width
             radius: width / 2
             color: Theme.transparent
@@ -237,6 +247,14 @@ Item {
                 color: Theme.transparent
                 border.width: 1
                 border.color: Theme.accent
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: 4
+                height: 4
+                radius: 2
+                color: Theme.previewCompareDivider
             }
         }
 

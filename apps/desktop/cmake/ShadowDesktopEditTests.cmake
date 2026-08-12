@@ -80,6 +80,40 @@
     endif()
     add_test(NAME shadow-desktop-preview-diagnostics COMMAND shadow-preview-diagnostics-test)
 
+    add_executable(
+        shadow-edit-retouch-donor-selection-test
+        tests/edit_retouch_donor_selection_test.cpp
+        src/edit_retouch_donor_selection.cpp
+        src/edit_retouch_donor_selection.hpp
+    )
+    target_compile_features(
+        shadow-edit-retouch-donor-selection-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-retouch-donor-selection-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-retouch-donor-selection-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-retouch-donor-selection-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-retouch-donor-selection-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-retouch-donor-selection
+        COMMAND shadow-edit-retouch-donor-selection-test
+    )
+
     add_executable(shadow-edit-history-test tests/edit_history_test.cpp)
     target_compile_features(shadow-edit-history-test PRIVATE cxx_std_20)
     target_include_directories(shadow-edit-history-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")

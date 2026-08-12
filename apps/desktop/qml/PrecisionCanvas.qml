@@ -605,6 +605,8 @@ Rectangle {
                     previewFrameReady: canvas.previewFrameReady
                     readyPreviewGeneration: canvas.readyPreviewGeneration
                     displayScale: canvas.displayScale
+                    levelZeroWidth: canvas.imagePixelWidth
+                    levelZeroHeight: canvas.imagePixelHeight
                     interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
                 }
 

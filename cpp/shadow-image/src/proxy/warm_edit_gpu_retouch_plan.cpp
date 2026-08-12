@@ -23,7 +23,14 @@ namespace {
 constexpr std::uint32_t maximum_grid_extent = 32U;
 constexpr std::size_t maximum_reference_count = 4U * 1'024U * 1'024U;
 constexpr std::uint32_t retouch_statistics_thread_count = 256U;
-constexpr std::uint32_t heal_poisson_iterations = 28U;
+constexpr float heal_screening_weight = 2.0F;
+
+[[nodiscard]] std::uint32_t heal_poisson_iterations(
+    const std::uint32_t bounds_width,
+    const std::uint32_t bounds_height
+) noexcept {
+    return std::clamp(24U + std::min(bounds_width, bounds_height), 32U, 96U);
+}
 
 struct RasterPoint final {
     double x = 0.0;
@@ -34,6 +41,43 @@ struct SourceOffset final {
     double x = 0.0;
     double y = 0.0;
 };
+
+[[nodiscard]] SourceOffset clamp_source_offset_to_image(
+    SourceOffset offset,
+    const double normalized_lower_x,
+    const double normalized_upper_x,
+    const double normalized_lower_y,
+    const double normalized_upper_y,
+    const double radius_x,
+    const double radius_y,
+    const Dimensions full
+) noexcept {
+    const double maximum_x = static_cast<double>(full.width - 1U);
+    const double maximum_y = static_cast<double>(full.height - 1U);
+    const double target_lower_x = std::clamp(
+        normalized_lower_x * static_cast<double>(full.width) - 0.5 - radius_x,
+        0.0,
+        maximum_x
+    );
+    const double target_upper_x = std::clamp(
+        normalized_upper_x * static_cast<double>(full.width) - 0.5 + radius_x,
+        0.0,
+        maximum_x
+    );
+    const double target_lower_y = std::clamp(
+        normalized_lower_y * static_cast<double>(full.height) - 0.5 - radius_y,
+        0.0,
+        maximum_y
+    );
+    const double target_upper_y = std::clamp(
+        normalized_upper_y * static_cast<double>(full.height) - 0.5 + radius_y,
+        0.0,
+        maximum_y
+    );
+    offset.x = std::clamp(offset.x, -target_lower_x, maximum_x - target_upper_x);
+    offset.y = std::clamp(offset.y, -target_lower_y, maximum_y - target_upper_y);
+    return offset;
+}
 
 struct RegionGeometry final {
     std::vector<RasterPoint> points;
@@ -111,13 +155,22 @@ struct IntegerBounds final {
         .points = {center},
         .radius_x = radius_x,
         .radius_y = radius_y,
-        .donor_offset = authored_or_automatic_offset(
-            target.source_offset_x_radii,
-            target.source_offset_y_radii,
+        .donor_offset = clamp_source_offset_to_image(
+            authored_or_automatic_offset(
+                target.source_offset_x_radii,
+                target.source_offset_y_radii,
+                radius_x,
+                radius_y,
+                target.center_x,
+                target.center_y
+            ),
+            target.center_x,
+            target.center_x,
+            target.center_y,
+            target.center_y,
             radius_x,
             radius_y,
-            target.center_x,
-            target.center_y
+            full
         ),
         .feather = target.feather,
         .strength = target.strength,
@@ -175,6 +228,16 @@ struct IntegerBounds final {
             center_x,
             center_y
         );
+    result.donor_offset = clamp_source_offset_to_image(
+        result.donor_offset,
+        lower_x,
+        upper_x,
+        lower_y,
+        upper_y,
+        result.radius_x,
+        result.radius_y,
+        full
+    );
     return result;
 }
 
@@ -337,13 +400,13 @@ append_records(std::vector<WarmRetouchWord>& words, const std::span<const Record
             .reference_count = static_cast<std::uint32_t>(references.size()),
             .mode = geometry.mode,
             .statistics_group_count = statistics_groups,
-            .poisson_iterations = heal_poisson_iterations,
+            .poisson_iterations = heal_poisson_iterations(width, height),
             .radius_x = static_cast<float>(geometry.radius_x),
             .radius_y = static_cast<float>(geometry.radius_y),
             .donor_offset_x = static_cast<float>(geometry.donor_offset.x),
             .donor_offset_y = static_cast<float>(geometry.donor_offset.y),
             .feather = static_cast<float>(geometry.feather),
-            .screening_weight = 4.0F,
+            .screening_weight = heal_screening_weight,
             .strength = static_cast<float>(geometry.strength),
         },
     };
@@ -384,14 +447,15 @@ bool WarmRetouchStage::valid() const noexcept {
                && (parameters.mode == WarmRetouchMode::clone
                    || parameters.mode == WarmRetouchMode::heal)
                && parameters.statistics_group_count > 0U
-               && parameters.poisson_iterations == heal_poisson_iterations
+               && parameters.poisson_iterations
+                      == heal_poisson_iterations(parameters.bounds_width, parameters.bounds_height)
                && std::isfinite(parameters.radius_x) && parameters.radius_x > 0.0F
                && std::isfinite(parameters.radius_y) && parameters.radius_y > 0.0F
                && std::isfinite(parameters.donor_offset_x)
                && std::isfinite(parameters.donor_offset_y) && std::isfinite(parameters.feather)
+               && parameters.screening_weight == heal_screening_weight
                && std::isfinite(parameters.strength) && parameters.strength >= 0.0F
-               && parameters.strength <= 1.0F
-               && region.capsule_offset_bytes <= bytes
+               && parameters.strength <= 1.0F && region.capsule_offset_bytes <= bytes
                && capsule_bytes <= bytes - region.capsule_offset_bytes
                && region.cell_offset_bytes <= bytes
                && cell_bytes <= bytes - region.cell_offset_bytes

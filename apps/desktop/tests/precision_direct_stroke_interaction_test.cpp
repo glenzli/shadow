@@ -117,12 +117,29 @@ class FakeDirectStrokeEditor final : public QObject {
     Q_INVOKABLE void beginParameterEdit(const QString&) {}
     Q_INVOKABLE void endParameterEdit(const QString&) {}
     Q_INVOKABLE void setPhotoCropBounds(double, double, double, double) {}
-    Q_INVOKABLE void addRetouchSpotFromPreview(double, double) {
+    Q_INVOKABLE void addRetouchSpotFromPreview(
+        double,
+        double,
+        const QString& generation,
+        const int level_zero_width,
+        const int level_zero_height
+    ) {
         ++spot_commit_count;
+        committed_retouch_generation = generation;
+        committed_retouch_width = level_zero_width;
+        committed_retouch_height = level_zero_height;
     }
-    Q_INVOKABLE void addRetouchStrokeFromPreview(const QVariantList& points) {
+    Q_INVOKABLE void addRetouchStrokeFromPreview(
+        const QVariantList& points,
+        const QString& generation,
+        const int level_zero_width,
+        const int level_zero_height
+    ) {
         ++stroke_commit_count;
         committed_points = points;
+        committed_retouch_generation = generation;
+        committed_retouch_width = level_zero_width;
+        committed_retouch_height = level_zero_height;
     }
     Q_INVOKABLE void appendSelectedLocalMaskBrushStroke(const QVariantList& points) {
         ++mask_commit_count;
@@ -151,10 +168,12 @@ class FakeDirectStrokeEditor final : public QObject {
     }
     Q_INVOKABLE void finishLiquifyLiveStroke() {
         ++liquify_live_finish_count;
-        liquify_strokes.push_back(QVariantMap{
-            {QStringLiteral("kind"), liquify_live_kind},
-            {QStringLiteral("points"), committed_liquify_points},
-        });
+        liquify_strokes.push_back(
+            QVariantMap{
+                {QStringLiteral("kind"), liquify_live_kind},
+                {QStringLiteral("points"), committed_liquify_points},
+            }
+        );
         emit parametersChanged();
     }
     Q_INVOKABLE void cancelLiquifyLiveStroke() {
@@ -178,7 +197,10 @@ class FakeDirectStrokeEditor final : public QObject {
     QVariantList committed_mask_points;
     QVariantList committed_liquify_points;
     QVariantList liquify_strokes;
+    QString committed_retouch_generation;
     double committed_liquify_aspect = 0.0;
+    int committed_retouch_width = 0;
+    int committed_retouch_height = 0;
     int liquify_brush_mode = 0;
     bool state_busy = false;
 
@@ -323,8 +345,8 @@ void sendMouse(
                "normalized transport validates and collapses adjacent duplicates"
            )
            && require(
-               samples.has_value() && samples->size() == 2
-                   && samples->front().pressure == 0.75 && samples->back().pressure == 0.5,
+               samples.has_value() && samples->size() == 2 && samples->front().pressure == 0.75
+                   && samples->back().pressure == 0.5,
                "pressure is bounded and the latest colocated sample wins"
            )
            && require(
@@ -447,6 +469,8 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("previewFrameReady"), false},
         {QStringLiteral("readyPreviewGeneration"), QString{}},
         {QStringLiteral("displayScale"), 1.0},
+        {QStringLiteral("levelZeroWidth"), 4'000.0},
+        {QStringLiteral("levelZeroHeight"), 3'000.0},
         {QStringLiteral("interactionEnabled"), true},
         {QStringLiteral("width"), 400.0},
         {QStringLiteral("height"), 300.0},
@@ -467,8 +491,21 @@ int main(int argc, char* argv[]) {
 
     if (!require(
             picker->property("visible").toBool() && editor.stroke_commit_count == 1
-                && editor.committed_points.size() >= 3,
-            "retouch remains captured while preview readiness is false and commits one batch"
+                && editor.committed_points.size() >= 3 && editor.committed_retouch_width == 4'000
+                && editor.committed_retouch_height == 3'000,
+            "retouch commits one batch with authoritative level-zero geometry"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    picker->setProperty("displayScale", 0.1);
+    drainBindings();
+    QObject* const active_coverage =
+        picker->findChild<QObject*>(QStringLiteral("activeRetouchCoverage"));
+    if (!require(
+            active_coverage != nullptr
+                && std::abs(active_coverage->property("radiusPixels").toDouble() - 1.8) < 0.01,
+            "fit-view repair coverage preserves the exact 18px level-zero radius"
         )) {
         return EXIT_FAILURE;
     }
@@ -561,7 +598,8 @@ int main(int argc, char* argv[]) {
                     .value(QStringLiteral("pressure"))
                     .toDouble()
                 == 1.0,
-            "mouse input records canonical full pressure while pressure-capable pointers remain authored"
+            "mouse input records canonical full pressure while pressure-capable pointers remain "
+            "authored"
         )
         || !require(
             liquify_preview.finish_count == 1 && liquify_preview.finish_committed
@@ -588,10 +626,8 @@ int main(int argc, char* argv[]) {
             "a pending local Push remains visible without blocking the next Liquify gesture"
         )
         || !require(
-            liquify_brush_cursor != nullptr
-                && liquify_brush_cursor->property("visible").toBool()
-                && liquify_outer_ring != nullptr
-                && liquify_hardness_ring != nullptr
+            liquify_brush_cursor != nullptr && liquify_brush_cursor->property("visible").toBool()
+                && liquify_outer_ring != nullptr && liquify_hardness_ring != nullptr
                 && std::abs(liquify_outer_ring->property("width").toDouble() - 48.0) < 0.01
                 && std::abs(liquify_hardness_ring->property("width").toDouble() - 19.2) < 0.01,
             "Liquify feedback is a radius and hardness brush cursor over the live image"
@@ -609,8 +645,7 @@ int main(int argc, char* argv[]) {
     sendMouse(window, QEvent::MouseMove, QPointF{230, 145}, Qt::NoButton, Qt::LeftButton);
     if (!require(
             editor.liquify_live_begin_count == 1 && editor.liquify_live_kind == 1
-                && editor.liquify_live_update_count >= 3
-                && editor.liquify_live_finish_count == 0
+                && editor.liquify_live_update_count >= 3 && editor.liquify_live_finish_count == 0
                 && editor.liquify_live_cancel_count == 0
                 && liquify_preview.begin_count == transient_begin_count,
             "Reconstruct survives a preview-readiness transition while streaming one authoritative "
@@ -620,8 +655,7 @@ int main(int argc, char* argv[]) {
     }
     sendMouse(window, QEvent::MouseButtonRelease, QPointF{250, 150}, Qt::LeftButton, Qt::NoButton);
     if (!require(
-            editor.liquify_live_finish_count == 1
-                && editor.liquify_live_cancel_count == 0
+            editor.liquify_live_finish_count == 1 && editor.liquify_live_cancel_count == 0
                 && editor.committed_liquify_points.size() >= 3
                 && editor.committed_liquify_aspect == 4.0 / 3.0,
             "Reconstruct release commits the streamed path as one ordered operation even when its "
@@ -668,7 +702,8 @@ int main(int argc, char* argv[]) {
                 && editor.liquify_live_kind == 0
                 && editor.liquify_live_finish_count == live_finish_before_fallback + 1
                 && editor.liquify_live_cancel_count == 0,
-            "Push falls back to authoritative live preview when the local display mesh is unavailable"
+            "Push falls back to authoritative live preview when the local display mesh is "
+            "unavailable"
         )) {
         return EXIT_FAILURE;
     }

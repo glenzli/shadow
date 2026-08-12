@@ -620,8 +620,19 @@ class EditController final : public QObject {
     Q_INVOKABLE void cancelFoundationAiDenoise();
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
-    Q_INVOKABLE void addRetouchSpotFromPreview(double normalized_x, double normalized_y);
-    Q_INVOKABLE void addRetouchStrokeFromPreview(const QVariantList& points);
+    Q_INVOKABLE void addRetouchSpotFromPreview(
+        double normalized_x,
+        double normalized_y,
+        const QString& preview_generation,
+        int level_zero_width,
+        int level_zero_height
+    );
+    Q_INVOKABLE void addRetouchStrokeFromPreview(
+        const QVariantList& points,
+        const QString& preview_generation,
+        int level_zero_width,
+        int level_zero_height
+    );
     Q_INVOKABLE void setRetouchSpotCenter(int index, double normalized_x, double normalized_y);
     Q_INVOKABLE void setRetouchSpotRadius(int index, int radius_level_zero_pixels);
     Q_INVOKABLE void setRetouchSpotMode(int index, int mode);

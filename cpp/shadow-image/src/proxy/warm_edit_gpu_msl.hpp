@@ -588,6 +588,26 @@ inline float warm_retouch_coverage(
         : 1.0f - smoothstep(1.0f - parameters.feather, 1.0f, distance);
 }
 
+inline float warm_retouch_texture_gain(
+    device const WarmRetouchStatistics& summary
+) {
+    const float donor_scale_squared = dot(
+        summary.donor_square_sum.xyz,
+        summary.donor_square_sum.xyz
+    );
+    const float boundary_scale_squared = dot(
+        summary.boundary_square_sum.xyz,
+        summary.boundary_square_sum.xyz
+    );
+    return donor_scale_squared > 1.0e-10f
+        ? clamp(
+            sqrt(boundary_scale_squared / donor_scale_squared),
+            0.65f,
+            1.55f
+        )
+        : 1.0f;
+}
+
 kernel void warm_retouch_clone_v1(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -812,14 +832,14 @@ kernel void warm_retouch_heal_reduce_v1(
         ? total.boundary_sum_count.xyz / boundary_count
         : float3(0.0f);
     const float3 donor_standard_deviation =
-        parameters.robust_pass == 0u && donor_count > 0.0f
+        donor_count > 0.0f
         ? sqrt(max(
             total.donor_square_sum.xyz / donor_count - donor_mean * donor_mean,
             float3(0.0f)
         ))
         : float3(0.0f);
     const float3 boundary_standard_deviation =
-        parameters.robust_pass == 0u && boundary_count > 0.0f
+        boundary_count > 0.0f
         ? sqrt(max(
             total.boundary_square_sum.xyz / boundary_count
                 - boundary_mean * boundary_mean,
@@ -872,12 +892,15 @@ kernel void warm_retouch_heal_initialize_v1(
     float3 result = original;
     if (coverage > 1.0e-4f && summary.donor_sum_count.w > 0.0f
         && summary.boundary_sum_count.w > 0.0f) {
-        result = warm_retouch_sample_bilinear(
+        const float3 donor = warm_retouch_sample_bilinear(
             source,
             float2(position)
                 + float2(parameters.donor_offset_x, parameters.donor_offset_y),
             parameters
-        ) + summary.boundary_sum_count.xyz - summary.donor_sum_count.xyz;
+        );
+        const float texture_gain = warm_retouch_texture_gain(summary);
+        result = summary.boundary_sum_count.xyz
+            + texture_gain * (donor - summary.donor_sum_count.xyz);
     }
     if (!all(isfinite(result))) {
         report_adjustment_failure(status, status_non_finite, 0u);
@@ -939,6 +962,7 @@ kernel void warm_retouch_heal_jacobi_v1(
     );
     float3 neighbor_sum = float3(0.0f);
     float3 donor_laplacian = float3(0.0f);
+    const float texture_gain = warm_retouch_texture_gain(summary);
     uint neighbor_count = 0u;
     const int2 signed_position = int2(position);
     constexpr int2 offsets[4] = {
@@ -980,16 +1004,16 @@ kernel void warm_retouch_heal_jacobi_v1(
                 source[adjacent_source + 1u],
                 source[adjacent_source + 2u]
             );
-        donor_laplacian += donor_center - warm_retouch_sample_bilinear(
+        donor_laplacian += texture_gain * (donor_center - warm_retouch_sample_bilinear(
             source,
             float2(adjacent)
                 + float2(parameters.donor_offset_x, parameters.donor_offset_y),
             parameters
-        );
+        ));
         ++neighbor_count;
     }
-    const float3 screened_target = donor_center
-        + summary.boundary_sum_count.xyz - summary.donor_sum_count.xyz;
+    const float3 screened_target = summary.boundary_sum_count.xyz
+        + texture_gain * (donor_center - summary.donor_sum_count.xyz);
     const float denominator =
         float(neighbor_count) + parameters.screening_weight;
     const float3 result = neighbor_count == 0u

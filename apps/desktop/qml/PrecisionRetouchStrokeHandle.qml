@@ -21,9 +21,10 @@ Item {
 
     readonly property var points: modelData.points || []
     readonly property real radiusPixels: Math.max(
-        6,
+        0.25,
         Number(modelData.radius) * pixelScale
     )
+    readonly property real interactionRadiusPixels: Math.max(6, radiusPixels)
     readonly property real sourceOffsetX:
         Number(modelData.sourceOffsetX) * radiusPixels
     readonly property real sourceOffsetY:
@@ -55,7 +56,10 @@ Item {
     function coverageContains(x, y, offsetX, offsetY) {
         if (points.length === 0)
             return false
-        const hitRadius = radiusPixels + 3
+        const hitRadius = Math.max(
+            interactionRadiusPixels,
+            radiusPixels + 3
+        )
         const maximumDistanceSquared = hitRadius * hitRadius
         let previous = null
         for (let pointIndex = 0; pointIndex < points.length; ++pointIndex) {
@@ -210,7 +214,7 @@ Item {
                 return
             const point = sourcePointer.mapToItem(
                 strokeHandle, mouse.x, mouse.y)
-            const radius = Math.max(1, strokeHandle.radiusPixels)
+            const radius = Math.max(0.25, strokeHandle.radiusPixels)
             strokeHandle.editor.setRetouchStrokeSourceOffset(
                 strokeHandle.modelData.index,
                 Math.max(-8, Math.min(

@@ -12,6 +12,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -516,6 +517,27 @@ int main(int argc, char* argv[]) {
     if (!require(
             editor.begin_key_ == QStringLiteral("retouch/0/source"),
             "the selected overlapping spot donor keeps drag priority above its target"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    stroke_handle->setProperty("pixelScale", 0.1);
+    stroke_handle->setProperty("modelData", strokeRegion(0, 2.0));
+    spot_handle->setProperty("pixelScale", 0.1);
+    spot_handle->setProperty("modelData", spotRegion(0, 2.0));
+    drainBindings();
+    if (!require(
+            std::abs(stroke_handle->property("radiusPixels").toDouble() - 1.8) < 0.01
+                && std::abs(stroke_handle->property("sourceOffsetX").toDouble() - 3.6) < 0.01,
+            "fit-view stroke coverage and donor displacement use exact geometry"
+        )
+        || !require(
+            std::abs(spot_handle->property("radiusPixels").toDouble() - 1.8) < 0.01
+                && std::abs(
+                       spot_handle->property("sourceX").toDouble()
+                       - spot_handle->property("targetX").toDouble() - 3.6
+                   ) < 0.01,
+            "fit-view spot coverage and donor displacement use exact geometry"
         )) {
         return EXIT_FAILURE;
     }
