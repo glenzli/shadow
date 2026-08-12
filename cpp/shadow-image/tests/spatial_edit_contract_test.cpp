@@ -492,7 +492,7 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
                     .center_y = 4.5 / 9.0,
                     .radius_level_zero_pixels = 1U,
                     .mode = image::SpotRepairMode::clone,
-                    .source_offset_x_radii = 8.0,
+                    .source_offset_x_radii = 40.0,
                     .feather = 0.0,
                 }},
             },
@@ -504,7 +504,8 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
     expect_close(
         edge_clone.samples[edge_target],
         clone_samples[edge_target],
-        "an out-of-bounds donor is translated as one patch instead of smearing the edge pixel"
+        "a distant out-of-bounds donor is translated as one patch instead of smearing the edge "
+        "pixel"
     );
 }
 

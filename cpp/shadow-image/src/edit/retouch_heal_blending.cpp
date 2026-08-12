@@ -80,6 +80,12 @@ struct RobustStatistics final {
     double scale = 0.0;
 };
 
+struct AffineColorCorrection final {
+    std::array<double, rgb_channels> intercept{};
+    std::array<double, rgb_channels> slope_x{};
+    std::array<double, rgb_channels> slope_y{};
+};
+
 [[nodiscard]] RobustStatistics robust_statistics(const std::vector<float>& values) {
     if (values.empty()) {
         return {};
@@ -114,6 +120,107 @@ struct RobustStatistics final {
         .location = clipped_mean,
         .scale = std::sqrt(clipped_square_sum / static_cast<double>(values.size())),
     };
+}
+
+[[nodiscard]] double
+normalized_coordinate(const std::uint32_t coordinate, const std::uint32_t extent) noexcept {
+    const double center = static_cast<double>(extent - 1U) * 0.5;
+    const double scale = std::max(static_cast<double>(extent) * 0.5, 1.0);
+    return (static_cast<double>(coordinate) - center) / scale;
+}
+
+[[nodiscard]] AffineColorCorrection fit_affine_color_correction(
+    const std::array<std::vector<float>, rgb_channels>& target_samples,
+    const std::array<std::vector<float>, rgb_channels>& donor_samples,
+    const std::span<const double> normalized_x,
+    const std::span<const double> normalized_y,
+    const std::array<RobustStatistics, rgb_channels>& target_statistics,
+    const std::array<RobustStatistics, rgb_channels>& donor_statistics,
+    const double texture_gain
+) {
+    AffineColorCorrection correction;
+    const std::size_t count = normalized_x.size();
+    if (count == 0U || normalized_y.size() != count) {
+        return correction;
+    }
+    double sum_x = 0.0;
+    double sum_y = 0.0;
+    double sum_xx = 0.0;
+    double sum_xy = 0.0;
+    double sum_yy = 0.0;
+    for (std::size_t sample = 0U; sample < count; ++sample) {
+        const double x = normalized_x[sample];
+        const double y = normalized_y[sample];
+        sum_x += x;
+        sum_y += y;
+        sum_xx = std::fma(x, x, sum_xx);
+        sum_xy = std::fma(x, y, sum_xy);
+        sum_yy = std::fma(y, y, sum_yy);
+    }
+    const double inverse_count = 1.0 / static_cast<double>(count);
+    const double mean_x = sum_x * inverse_count;
+    const double mean_y = sum_y * inverse_count;
+    constexpr double regression_regularization = 1.0e-4;
+    const double variance_x =
+        std::max(0.0, sum_xx * inverse_count - mean_x * mean_x) + regression_regularization;
+    const double variance_y =
+        std::max(0.0, sum_yy * inverse_count - mean_y * mean_y) + regression_regularization;
+    const double covariance_xy = sum_xy * inverse_count - mean_x * mean_y;
+    const double determinant = std::fma(variance_x, variance_y, -covariance_xy * covariance_xy);
+
+    for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+        if (target_samples[channel].size() != count || donor_samples[channel].size() != count) {
+            invalid_heal("produced inconsistent boundary statistics");
+        }
+        const double target_lower =
+            target_statistics[channel].location - 2.5 * target_statistics[channel].scale;
+        const double target_upper =
+            target_statistics[channel].location + 2.5 * target_statistics[channel].scale;
+        const double donor_lower =
+            donor_statistics[channel].location - 2.5 * donor_statistics[channel].scale;
+        const double donor_upper =
+            donor_statistics[channel].location + 2.5 * donor_statistics[channel].scale;
+        double sum_residual = 0.0;
+        double sum_residual_x = 0.0;
+        double sum_residual_y = 0.0;
+        for (std::size_t sample = 0U; sample < count; ++sample) {
+            const double target = std::clamp(
+                static_cast<double>(target_samples[channel][sample]),
+                target_lower,
+                target_upper
+            );
+            const double donor = std::clamp(
+                static_cast<double>(donor_samples[channel][sample]),
+                donor_lower,
+                donor_upper
+            );
+            const double residual = target - texture_gain * donor;
+            sum_residual += residual;
+            sum_residual_x = std::fma(residual, normalized_x[sample], sum_residual_x);
+            sum_residual_y = std::fma(residual, normalized_y[sample], sum_residual_y);
+        }
+        const double mean_residual = sum_residual * inverse_count;
+        const double covariance_residual_x =
+            sum_residual_x * inverse_count - mean_residual * mean_x;
+        const double covariance_residual_y =
+            sum_residual_y * inverse_count - mean_residual * mean_y;
+        if (determinant > 1.0e-10) {
+            correction.slope_x[channel] =
+                (covariance_residual_x * variance_y - covariance_residual_y * covariance_xy)
+                / determinant;
+            correction.slope_y[channel] =
+                (covariance_residual_y * variance_x - covariance_residual_x * covariance_xy)
+                / determinant;
+        }
+        correction.intercept[channel] = mean_residual - correction.slope_x[channel] * mean_x
+                                        - correction.slope_y[channel] * mean_y;
+        if (!std::isfinite(correction.intercept[channel])
+            || !std::isfinite(correction.slope_x[channel])
+            || !std::isfinite(correction.slope_y[channel])) {
+            invalid_heal("produced a non-finite local illumination fit");
+        }
+    }
+    return correction;
 }
 
 [[nodiscard]] std::size_t poisson_iteration_count(
@@ -167,12 +274,16 @@ void apply_texture_heal(
     std::vector<float> solution(pixel_count * rgb_channels, 0.0F);
     std::array<std::vector<float>, rgb_channels> target_boundary_samples;
     std::array<std::vector<float>, rgb_channels> donor_boundary_samples;
+    std::vector<double> boundary_normalized_x;
+    std::vector<double> boundary_normalized_y;
     for (auto& samples : target_boundary_samples) {
         samples.reserve(static_cast<std::size_t>(coverage_width + coverage_height) * 2U);
     }
     for (auto& samples : donor_boundary_samples) {
         samples.reserve(static_cast<std::size_t>(coverage_width + coverage_height) * 2U);
     }
+    boundary_normalized_x.reserve(static_cast<std::size_t>(coverage_width + coverage_height) * 2U);
+    boundary_normalized_y.reserve(static_cast<std::size_t>(coverage_width + coverage_height) * 2U);
 
     for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
         for (std::uint32_t local_x = 0U; local_x < coverage_width; ++local_x) {
@@ -207,6 +318,8 @@ void apply_texture_heal(
                 target_boundary_samples[channel].push_back(source.samples[raster_sample + channel]);
                 donor_boundary_samples[channel].push_back(donor_sample[channel]);
             }
+            boundary_normalized_x.push_back(normalized_coordinate(local_x, coverage_width));
+            boundary_normalized_y.push_back(normalized_coordinate(local_y, coverage_height));
         }
     }
 
@@ -238,13 +351,29 @@ void apply_texture_heal(
                                           maximum_texture_gain
                                       )
                                     : 1.0;
-    for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
-        for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-            const double donor_delta = static_cast<double>(donor[pixel * rgb_channels + channel])
-                                       - donor_statistics[channel].location;
-            solution[pixel * rgb_channels + channel] = static_cast<float>(
-                target_statistics[channel].location + texture_gain * donor_delta
-            );
+    const AffineColorCorrection illumination = fit_affine_color_correction(
+        target_boundary_samples,
+        donor_boundary_samples,
+        boundary_normalized_x,
+        boundary_normalized_y,
+        target_statistics,
+        donor_statistics,
+        texture_gain
+    );
+    for (std::uint32_t local_y = 0U; local_y < coverage_height; ++local_y) {
+        const double normalized_y = normalized_coordinate(local_y, coverage_height);
+        for (std::uint32_t local_x = 0U; local_x < coverage_width; ++local_x) {
+            const double normalized_x = normalized_coordinate(local_x, coverage_width);
+            const std::size_t pixel = local_index(local_x, local_y, coverage_width);
+            for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                const double correction = illumination.intercept[channel]
+                                          + illumination.slope_x[channel] * normalized_x
+                                          + illumination.slope_y[channel] * normalized_y;
+                solution[pixel * rgb_channels + channel] = static_cast<float>(
+                    texture_gain * static_cast<double>(donor[pixel * rgb_channels + channel])
+                    + correction
+                );
+            }
         }
     }
     const std::vector<float> screened_target = solution;

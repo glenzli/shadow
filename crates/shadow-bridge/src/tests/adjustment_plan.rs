@@ -343,14 +343,15 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
                 ],
                 radius_level_zero_pixels: 24,
                 mode: 1,
-                source_offset_x_radii: 1.25,
+                source_offset_x_radii: 24.5,
                 source_offset_y_radii: -0.75,
                 feather: 0.4,
                 strength: 0.65,
             }],
         },
     };
-    validate_render_operation(&node.operation).expect("a bounded continuous clone stroke is valid");
+    validate_render_operation(&node.operation)
+        .expect("an image-bounded continuous clone stroke is valid");
 
     let flattened = ffi_render_node(&node);
     assert!(matches!(
@@ -360,7 +361,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
     assert_eq!(flattened.parameter_group_lengths, [0, 1, 2]);
     assert_eq!(
         flattened.parameters,
-        [24.0, 1.0, 1.25, -0.75, 0.4, 0.65, 0.2, 0.3, 0.7, 0.6]
+        [24.0, 1.0, 24.5, -0.75, 0.4, 0.65, 0.2, 0.3, 0.7, 0.6]
     );
 
     let invalid = AdjustmentRenderOperation::SpotHeal {

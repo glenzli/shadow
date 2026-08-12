@@ -36,10 +36,63 @@ namespace {
     return pixels;
 }
 
+[[nodiscard]] std::vector<std::uint8_t> photographic_texture(const QSize dimensions) {
+    const std::size_t width = static_cast<std::size_t>(dimensions.width());
+    const std::size_t height = static_cast<std::size_t>(dimensions.height());
+    std::vector<std::uint8_t> pixels(width * height * 3U, 0U);
+    for (std::size_t y = 0U; y < height; ++y) {
+        for (std::size_t x = 0U; x < width; ++x) {
+            const double wave = 34.0 * std::sin(static_cast<double>(x) * 0.31)
+                                + 27.0 * std::cos(static_cast<double>(y) * 0.19)
+                                + 18.0 * std::sin(static_cast<double>(x + 2U * y) * 0.11);
+            const int base = std::clamp(
+                static_cast<int>(std::lround(112.0 + 0.23 * static_cast<double>(x) + wave)),
+                0,
+                255
+            );
+            const std::size_t index = (y * width + x) * 3U;
+            pixels[index] = static_cast<std::uint8_t>(base);
+            pixels[index + 1U] = static_cast<std::uint8_t>(std::clamp(base + 17, 0, 255));
+            pixels[index + 2U] = static_cast<std::uint8_t>(std::clamp(228 - base / 2, 0, 255));
+        }
+    }
+    return pixels;
+}
+
+void copy_patch(
+    std::vector<std::uint8_t>& pixels,
+    const QSize dimensions,
+    const int source_center_x,
+    const int source_center_y,
+    const int destination_center_x,
+    const int destination_center_y,
+    const int half_extent
+) {
+    const std::vector<std::uint8_t> original = pixels;
+    const std::size_t width = static_cast<std::size_t>(dimensions.width());
+    for (int offset_y = -half_extent; offset_y <= half_extent; ++offset_y) {
+        for (int offset_x = -half_extent; offset_x <= half_extent; ++offset_x) {
+            const std::size_t source = (static_cast<std::size_t>(source_center_y + offset_y) * width
+                                        + static_cast<std::size_t>(source_center_x + offset_x))
+                                       * 3U;
+            const std::size_t destination =
+                (static_cast<std::size_t>(destination_center_y + offset_y) * width
+                 + static_cast<std::size_t>(destination_center_x + offset_x))
+                * 3U;
+            std::copy_n(
+                original.begin() + static_cast<std::ptrdiff_t>(source),
+                3,
+                pixels.begin() + static_cast<std::ptrdiff_t>(destination)
+            );
+        }
+    }
+}
+
 [[nodiscard]] EditRetouchDonorRequest request(
     const std::span<const std::uint8_t> pixels,
     const QSize dimensions,
-    const std::span<const QPointF> points
+    const std::span<const QPointF> points,
+    const EditRetouchDonorMode mode = EditRetouchDonorMode::Clone
 ) {
     return {
         .preview_rgb8 = pixels,
@@ -48,7 +101,7 @@ namespace {
         .level_zero_dimensions = dimensions,
         .normalized_target_points = points,
         .radius_level_zero_pixels = 10.0,
-        .mode = EditRetouchDonorMode::Clone,
+        .mode = mode,
     };
 }
 
@@ -76,6 +129,54 @@ int main() {
         || !require(
             edge_offset->x() < 0.0 && std::abs(edge_offset->y()) < 1.0e-9,
             "edge selection rejects clamped source pixels and searches inward"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    std::vector<std::uint8_t> textured = photographic_texture(dimensions);
+    constexpr int target_x = 112;
+    constexpr int target_y = 100;
+    constexpr int donor_x = target_x + 50;
+    copy_patch(textured, dimensions, target_x, target_y, donor_x, target_y, 30);
+    const std::array<QPointF, 1U> textured_target{QPointF(
+        static_cast<double>(target_x) / static_cast<double>(dimensions.width() - 1),
+        static_cast<double>(target_y) / static_cast<double>(dimensions.height() - 1)
+    )};
+    const auto texture_clone = select_edit_retouch_donor_offset(
+        request(textured, dimensions, textured_target, EditRetouchDonorMode::Clone)
+    );
+    const auto texture_heal = select_edit_retouch_donor_offset(
+        request(textured, dimensions, textured_target, EditRetouchDonorMode::Heal)
+    );
+    if (!require(
+            texture_clone.has_value() && texture_heal.has_value(),
+            "multiscale texture fixtures select a donor for both modes"
+        )
+        || !require(
+            std::abs(texture_clone->x() - 5.0) < 1.0e-9 && std::abs(texture_clone->y()) < 1.0e-9
+                && std::abs(texture_heal->x() - 5.0) < 1.0e-9
+                && std::abs(texture_heal->y()) < 1.0e-9,
+            "multiscale color and directed-gradient structure recover the copied texture"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    const std::array<QPointF, 2U> horizontal_stroke{
+        QPointF(0.4, 0.5),
+        QPointF(0.55, 0.5),
+    };
+    const auto separated_stroke =
+        select_edit_retouch_donor_offset(request(pixels, dimensions, horizontal_stroke));
+    if (!require(separated_stroke.has_value(), "a long stroke finds a non-overlapping donor")) {
+        return EXIT_FAILURE;
+    }
+    const double stroke_length_radii = 0.15 * static_cast<double>(dimensions.width() - 1) / 10.0;
+    const double minimum_separation = 2.15;
+    const double gap_x = std::max(0.0, std::abs(separated_stroke->x()) - stroke_length_radii);
+    const double gap_y = std::abs(separated_stroke->y());
+    if (!require(
+            std::hypot(gap_x, gap_y) >= minimum_separation - 1.0e-9,
+            "donor selection rejects source strokes that overlap their target sweep"
         )) {
         return EXIT_FAILURE;
     }

@@ -404,11 +404,8 @@ void EditController::setRetouchSpotSourceOffset(
     const double offset_x_radii,
     const double offset_y_radii
 ) {
-    constexpr double maximum_offset_radii = 8.0;
     if (!active_ || interactionLocked() || index < 0 || index >= grade_stack_.retouch_spots.size()
-        || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)
-        || offset_x_radii < -maximum_offset_radii || offset_x_radii > maximum_offset_radii
-        || offset_y_radii < -maximum_offset_radii || offset_y_radii > maximum_offset_radii) {
+        || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)) {
         return;
     }
     auto& spot = grade_stack_.retouch_spots[index];
@@ -511,11 +508,8 @@ void EditController::setRetouchStrokeSourceOffset(
     const double offset_x_radii,
     const double offset_y_radii
 ) {
-    constexpr double maximum_offset_radii = 8.0;
     if (!active_ || interactionLocked() || index < 0 || index >= grade_stack_.retouch_strokes.size()
-        || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)
-        || offset_x_radii < -maximum_offset_radii || offset_x_radii > maximum_offset_radii
-        || offset_y_radii < -maximum_offset_radii || offset_y_radii > maximum_offset_radii) {
+        || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)) {
         return;
     }
     auto& stroke = grade_stack_.retouch_strokes[index];

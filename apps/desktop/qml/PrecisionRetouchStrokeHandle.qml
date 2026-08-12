@@ -93,6 +93,31 @@ Item {
         return coverageContains(x, y, sourceOffsetX, sourceOffsetY)
     }
 
+    function pointBounds(horizontal) {
+        if (points.length === 0)
+            return Qt.point(0, 0)
+        let lower = Number(horizontal ? points[0].x : points[0].y)
+            * (horizontal ? width : height)
+        let upper = lower
+        for (let index = 1; index < points.length; ++index) {
+            const value = Number(horizontal ? points[index].x : points[index].y)
+                * (horizontal ? width : height)
+            lower = Math.min(lower, value)
+            upper = Math.max(upper, value)
+        }
+        return Qt.point(lower, upper)
+    }
+
+    function clampSourceOffsetPixels(candidate, horizontal) {
+        const extent = horizontal ? width : height
+        const bounds = pointBounds(horizontal)
+        const minimum = radiusPixels - bounds.x
+        const maximum = extent - radiusPixels - bounds.y
+        if (minimum > maximum)
+            return extent / 2 - (bounds.x + bounds.y) / 2
+        return Math.max(minimum, Math.min(maximum, candidate))
+    }
+
     function selectTarget() {
         selectedRequested()
     }
@@ -215,18 +240,18 @@ Item {
             const point = sourcePointer.mapToItem(
                 strokeHandle, mouse.x, mouse.y)
             const radius = Math.max(0.25, strokeHandle.radiusPixels)
+            const candidateOffsetX =
+                strokeHandle.sourceStartOffsetX * radius
+                + point.x - strokeHandle.sourceStartX
+            const candidateOffsetY =
+                strokeHandle.sourceStartOffsetY * radius
+                + point.y - strokeHandle.sourceStartY
             strokeHandle.editor.setRetouchStrokeSourceOffset(
                 strokeHandle.modelData.index,
-                Math.max(-8, Math.min(
-                    8,
-                    strokeHandle.sourceStartOffsetX
-                        + (point.x - strokeHandle.sourceStartX) / radius
-                )),
-                Math.max(-8, Math.min(
-                    8,
-                    strokeHandle.sourceStartOffsetY
-                        + (point.y - strokeHandle.sourceStartY) / radius
-                ))
+                strokeHandle.clampSourceOffsetPixels(
+                    candidateOffsetX, true) / radius,
+                strokeHandle.clampSourceOffsetPixels(
+                    candidateOffsetY, false) / radius
             )
         }
         onReleased: strokeHandle.finishSourceGesture()

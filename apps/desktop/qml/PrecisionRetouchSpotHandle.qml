@@ -15,6 +15,10 @@ Item {
 
     property bool targetGestureActive: false
     property bool sourceGestureActive: false
+    property real sourceStartX: 0
+    property real sourceStartY: 0
+    property real sourceStartOffsetX: 0
+    property real sourceStartOffsetY: 0
 
     readonly property real radiusPixels: Math.max(
         0.25,
@@ -177,10 +181,15 @@ Item {
         }
 
         MouseArea {
+            id: sourceHitArea
             objectName: "retouchSpotSourceHitArea"
 
             anchors.fill: parent
-            anchors.margins: -5
+            anchors.margins: -Math.max(
+                5,
+                repairHandle.interactionRadiusPixels
+                    - repairHandle.radiusPixels
+            )
             // Keep every donor visible, but only the selected repair owns
             // donor input. Unselected donors must not steal target selection
             // or a new paint gesture from the lower canvas input.
@@ -190,16 +199,24 @@ Item {
             preventStealing: true
             cursorShape: Qt.CrossCursor
 
-            onPressed: {
+            onPressed: mouse => {
                 repairHandle.selectedRequested()
+                const point = sourceHitArea.mapToItem(
+                    repairHandle, mouse.x, mouse.y)
                 repairHandle.sourceGestureActive = true
+                repairHandle.sourceStartX = point.x
+                repairHandle.sourceStartY = point.y
+                repairHandle.sourceStartOffsetX = Number(
+                    repairHandle.modelData.sourceOffsetX)
+                repairHandle.sourceStartOffsetY = Number(
+                    repairHandle.modelData.sourceOffsetY)
                 repairHandle.editor.beginParameterEdit(
                     "retouch/" + repairHandle.modelData.index + "/source")
             }
             onPositionChanged: mouse => {
                 if (!pressed)
                     return
-                const point = sourceCircle.mapToItem(
+                const point = sourceHitArea.mapToItem(
                     repairHandle, mouse.x, mouse.y)
                 const radius = Math.max(0.25, repairHandle.radiusPixels)
                 const minimumX = Math.min(
@@ -218,16 +235,22 @@ Item {
                     minimumY,
                     repairHandle.height - repairHandle.radiusPixels
                 )
-                const sourceCenterX = Math.max(
-                    minimumX, Math.min(maximumX, point.x))
-                const sourceCenterY = Math.max(
-                    minimumY, Math.min(maximumY, point.y))
+                const candidateCenterX = repairHandle.targetX
+                    + (repairHandle.sourceStartOffsetX
+                        + (point.x - repairHandle.sourceStartX) / radius)
+                        * radius
+                const candidateCenterY = repairHandle.targetY
+                    + (repairHandle.sourceStartOffsetY
+                        + (point.y - repairHandle.sourceStartY) / radius)
+                        * radius
+                const sourceCenterX = Math.max(minimumX, Math.min(
+                    maximumX, candidateCenterX))
+                const sourceCenterY = Math.max(minimumY, Math.min(
+                    maximumY, candidateCenterY))
                 repairHandle.editor.setRetouchSpotSourceOffset(
                     repairHandle.modelData.index,
-                    Math.max(-8, Math.min(
-                        8, (sourceCenterX - repairHandle.targetX) / radius)),
-                    Math.max(-8, Math.min(
-                        8, (sourceCenterY - repairHandle.targetY) / radius))
+                    (sourceCenterX - repairHandle.targetX) / radius,
+                    (sourceCenterY - repairHandle.targetY) / radius
                 )
             }
             onReleased: repairHandle.finishSourceGesture()

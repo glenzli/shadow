@@ -19,6 +19,11 @@ struct Sample final {
     double blue = 0.0;
 };
 
+struct Gradient final {
+    double horizontal = 0.0;
+    double vertical = 0.0;
+};
+
 [[nodiscard]] bool valid_request(const EditRetouchDonorRequest& request) noexcept {
     if (!request.preview_dimensions.isValid() || request.preview_dimensions.isEmpty()
         || !request.level_zero_dimensions.isValid() || request.level_zero_dimensions.isEmpty()
@@ -44,16 +49,27 @@ struct Sample final {
 sample_rgb8(const EditRetouchDonorRequest& request, const double x, const double y) noexcept {
     const int width = request.preview_dimensions.width();
     const int height = request.preview_dimensions.height();
-    const int ix = std::clamp(static_cast<int>(std::lround(x)), 0, width - 1);
-    const int iy = std::clamp(static_cast<int>(std::lround(y)), 0, height - 1);
-    const std::size_t index = static_cast<std::size_t>(iy) * request.preview_row_stride_bytes
-                              + static_cast<std::size_t>(ix) * RGB_CHANNELS;
+    const double clamped_x = std::clamp(x, 0.0, static_cast<double>(width - 1));
+    const double clamped_y = std::clamp(y, 0.0, static_cast<double>(height - 1));
+    const int x0 = static_cast<int>(std::floor(clamped_x));
+    const int y0 = static_cast<int>(std::floor(clamped_y));
+    const int x1 = std::min(x0 + 1, width - 1);
+    const int y1 = std::min(y0 + 1, height - 1);
+    const double blend_x = clamped_x - static_cast<double>(x0);
+    const double blend_y = clamped_y - static_cast<double>(y0);
     constexpr double inverse_byte = 1.0 / 255.0;
-    return {
-        .red = static_cast<double>(request.preview_rgb8[index]) * inverse_byte,
-        .green = static_cast<double>(request.preview_rgb8[index + 1U]) * inverse_byte,
-        .blue = static_cast<double>(request.preview_rgb8[index + 2U]) * inverse_byte,
+    const auto channel = [&](const int sample_x, const int sample_y, const std::size_t offset) {
+        const std::size_t index =
+            static_cast<std::size_t>(sample_y) * request.preview_row_stride_bytes
+            + static_cast<std::size_t>(sample_x) * RGB_CHANNELS + offset;
+        return static_cast<double>(request.preview_rgb8[index]) * inverse_byte;
     };
+    const auto interpolate = [&](const std::size_t offset) {
+        const double top = std::lerp(channel(x0, y0, offset), channel(x1, y0, offset), blend_x);
+        const double bottom = std::lerp(channel(x0, y1, offset), channel(x1, y1, offset), blend_x);
+        return std::lerp(top, bottom, blend_y);
+    };
+    return {.red = interpolate(0U), .green = interpolate(1U), .blue = interpolate(2U)};
 }
 
 [[nodiscard]] double color_distance(const Sample first, const Sample second) noexcept {
@@ -67,13 +83,29 @@ sample_rgb8(const EditRetouchDonorRequest& request, const double x, const double
     return 0.2126 * sample.red + 0.7152 * sample.green + 0.0722 * sample.blue;
 }
 
-[[nodiscard]] double
-gradient_energy(const EditRetouchDonorRequest& request, const double x, const double y) noexcept {
-    const double horizontal =
-        luma(sample_rgb8(request, x + 1.0, y)) - luma(sample_rgb8(request, x - 1.0, y));
-    const double vertical =
-        luma(sample_rgb8(request, x, y + 1.0)) - luma(sample_rgb8(request, x, y - 1.0));
-    return std::fma(horizontal, horizontal, vertical * vertical);
+[[nodiscard]] bool sample_fits(
+    const EditRetouchDonorRequest& request,
+    const double x,
+    const double y,
+    const double margin
+) noexcept {
+    return x >= margin && y >= margin
+           && x <= static_cast<double>(request.preview_dimensions.width() - 1) - margin
+           && y <= static_cast<double>(request.preview_dimensions.height() - 1) - margin;
+}
+
+[[nodiscard]] Gradient gradient(
+    const EditRetouchDonorRequest& request,
+    const double x,
+    const double y,
+    const double step
+) noexcept {
+    return {
+        .horizontal =
+            luma(sample_rgb8(request, x + step, y)) - luma(sample_rgb8(request, x - step, y)),
+        .vertical =
+            luma(sample_rgb8(request, x, y + step)) - luma(sample_rgb8(request, x, y - step)),
+    };
 }
 
 [[nodiscard]] std::vector<QPointF>
@@ -112,6 +144,96 @@ sampled_path(const std::span<const QPointF> points, const double width, const do
     });
 }
 
+[[nodiscard]] bool source_is_separate(
+    const std::vector<QPointF>& path,
+    const double offset_x,
+    const double offset_y,
+    const double radius_x,
+    const double radius_y
+) noexcept {
+    constexpr double minimum_center_distance_radii = 2.15;
+    const double minimum_distance_squared =
+        minimum_center_distance_radii * minimum_center_distance_radii;
+    const QPointF normalized_offset(offset_x / radius_x, offset_y / radius_y);
+    if (path.size() == 1U) {
+        return std::fma(
+                   normalized_offset.x(),
+                   normalized_offset.x(),
+                   normalized_offset.y() * normalized_offset.y()
+               )
+               >= minimum_distance_squared;
+    }
+    const auto normalized = [&](const QPointF point) {
+        return QPointF(point.x() / radius_x, point.y() / radius_y);
+    };
+    const auto cross = [](const QPointF first, const QPointF second) {
+        return first.x() * second.y() - first.y() * second.x();
+    };
+    const auto point_segment_distance_squared = [&](const QPointF point,
+                                                    const QPointF start,
+                                                    const QPointF end) {
+        const QPointF segment = end - start;
+        const double length_squared = std::fma(segment.x(), segment.x(), segment.y() * segment.y());
+        const double progress =
+            length_squared > 1.0e-12
+                ? std::clamp(QPointF::dotProduct(point - start, segment) / length_squared, 0.0, 1.0)
+                : 0.0;
+        const QPointF delta = point - (start + progress * segment);
+        return std::fma(delta.x(), delta.x(), delta.y() * delta.y());
+    };
+    const auto segment_distance_squared = [&](const QPointF first_start,
+                                              const QPointF first_end,
+                                              const QPointF second_start,
+                                              const QPointF second_end) {
+        const QPointF first_direction = first_end - first_start;
+        const QPointF second_direction = second_end - second_start;
+        const double first_side_start = cross(first_direction, second_start - first_start);
+        const double first_side_end = cross(first_direction, second_end - first_start);
+        const double second_side_start = cross(second_direction, first_start - second_start);
+        const double second_side_end = cross(second_direction, first_end - second_start);
+        constexpr double intersection_epsilon = 1.0e-10;
+        const auto opposite_sides = [=](const double first, const double second) {
+            return (first > intersection_epsilon && second < -intersection_epsilon)
+                   || (first < -intersection_epsilon && second > intersection_epsilon);
+        };
+        const auto on_segment =
+            [=](const QPointF point, const QPointF start, const QPointF end, const double side) {
+                return std::abs(side) <= intersection_epsilon
+                       && point.x() >= std::min(start.x(), end.x()) - intersection_epsilon
+                       && point.x() <= std::max(start.x(), end.x()) + intersection_epsilon
+                       && point.y() >= std::min(start.y(), end.y()) - intersection_epsilon
+                       && point.y() <= std::max(start.y(), end.y()) + intersection_epsilon;
+            };
+        if ((opposite_sides(first_side_start, first_side_end)
+             && opposite_sides(second_side_start, second_side_end))
+            || on_segment(second_start, first_start, first_end, first_side_start)
+            || on_segment(second_end, first_start, first_end, first_side_end)
+            || on_segment(first_start, second_start, second_end, second_side_start)
+            || on_segment(first_end, second_start, second_end, second_side_end)) {
+            return 0.0;
+        }
+        return std::min({
+            point_segment_distance_squared(first_start, second_start, second_end),
+            point_segment_distance_squared(first_end, second_start, second_end),
+            point_segment_distance_squared(second_start, first_start, first_end),
+            point_segment_distance_squared(second_end, first_start, first_end),
+        });
+    };
+    for (std::size_t target = 1U; target < path.size(); ++target) {
+        const QPointF target_start = normalized(path[target - 1U]);
+        const QPointF target_end = normalized(path[target]);
+        for (std::size_t source = 1U; source < path.size(); ++source) {
+            const QPointF source_start = normalized(path[source - 1U]) + normalized_offset;
+            const QPointF source_end = normalized(path[source]) + normalized_offset;
+            if (segment_distance_squared(target_start, target_end, source_start, source_end)
+                < minimum_distance_squared) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] double candidate_score(
     const EditRetouchDonorRequest& request,
     const std::vector<QPointF>& path,
@@ -130,29 +252,50 @@ sampled_path(const std::span<const QPointF> points, const double width, const do
         3.0 * std::numbers::pi / 2.0,
         7.0 * std::numbers::pi / 4.0,
     };
+    constexpr std::array<double, 3U> scales{1.12, 1.75, 2.45};
     const double color_weight = request.mode == EditRetouchDonorMode::Clone ? 1.0 : 0.28;
     double score = 0.0;
     std::size_t sample_count = 0U;
+    std::size_t target_sample_count = 0U;
     for (const QPointF point : path) {
-        for (const double angle : angles) {
-            const double ring_x = std::cos(angle) * radius_x * 1.12;
-            const double ring_y = std::sin(angle) * radius_y * 1.12;
-            const double target_x = point.x() + ring_x;
-            const double target_y = point.y() + ring_y;
-            const double source_x = target_x + offset_x;
-            const double source_y = target_y + offset_y;
-            const Sample target = sample_rgb8(request, target_x, target_y);
-            const Sample source = sample_rgb8(request, source_x, source_y);
-            score += color_weight * color_distance(target, source);
-            const double target_gradient = gradient_energy(request, target_x, target_y);
-            const double source_gradient = gradient_energy(request, source_x, source_y);
-            const double gradient_delta = std::sqrt(target_gradient) - std::sqrt(source_gradient);
-            score += 1.8 * gradient_delta * gradient_delta;
-            ++sample_count;
+        for (const double scale : scales) {
+            const double gradient_step = std::max(1.0, std::min(radius_x, radius_y) * scale * 0.18);
+            for (const double angle : angles) {
+                const double ring_x = std::cos(angle) * radius_x * scale;
+                const double ring_y = std::sin(angle) * radius_y * scale;
+                const double target_x = point.x() + ring_x;
+                const double target_y = point.y() + ring_y;
+                if (!sample_fits(request, target_x, target_y, gradient_step)) {
+                    continue;
+                }
+                ++target_sample_count;
+                const double source_x = target_x + offset_x;
+                const double source_y = target_y + offset_y;
+                if (!sample_fits(request, source_x, source_y, gradient_step)) {
+                    continue;
+                }
+                const Sample target = sample_rgb8(request, target_x, target_y);
+                const Sample source = sample_rgb8(request, source_x, source_y);
+                const double scale_weight = 1.0 / scale;
+                score += color_weight * scale_weight * color_distance(target, source);
+                const Gradient target_gradient =
+                    gradient(request, target_x, target_y, gradient_step);
+                const Gradient source_gradient =
+                    gradient(request, source_x, source_y, gradient_step);
+                const double horizontal_delta =
+                    target_gradient.horizontal - source_gradient.horizontal;
+                const double vertical_delta = target_gradient.vertical - source_gradient.vertical;
+                score +=
+                    1.8 * scale_weight
+                    * std::fma(horizontal_delta, horizontal_delta, vertical_delta * vertical_delta);
+                ++sample_count;
+            }
         }
     }
-    return sample_count == 0U ? std::numeric_limits<double>::infinity()
-                              : score / static_cast<double>(sample_count);
+    if (sample_count == 0U || sample_count * 4U < target_sample_count * 3U) {
+        return std::numeric_limits<double>::infinity();
+    }
+    return score / static_cast<double>(sample_count);
 }
 
 } // namespace
@@ -177,7 +320,7 @@ std::optional<QPointF> select_edit_retouch_donor_offset(const EditRetouchDonorRe
         return std::nullopt;
     }
 
-    constexpr std::array<double, 6U> distances{2.5, 3.25, 4.0, 5.0, 6.25, 7.5};
+    constexpr std::array<double, 8U> distances{2.5, 3.25, 4.0, 5.0, 6.25, 7.5, 9.0, 10.5};
     constexpr std::size_t direction_count = 16U;
     double best_score = std::numeric_limits<double>::infinity();
     std::optional<QPointF> best;
@@ -198,6 +341,9 @@ std::optional<QPointF> select_edit_retouch_donor_offset(const EditRetouchDonorRe
                     preview_width,
                     preview_height
                 )) {
+                continue;
+            }
+            if (!source_is_separate(path, offset_x, offset_y, radius_x, radius_y)) {
                 continue;
             }
             const double score =

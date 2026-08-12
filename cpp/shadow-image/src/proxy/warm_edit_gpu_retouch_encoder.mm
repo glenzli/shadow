@@ -17,34 +17,23 @@ id<MTLBuffer> encode_warm_retouch_stage(
     if (geometry == nil || !stage.valid()) {
         return nil;
     }
-    const auto dispatch = [encoder](
-        id<MTLComputePipelineState> pipeline,
-        const Dimensions dimensions
-    ) {
-        const NSUInteger thread_width = std::min<NSUInteger>(
-            32U,
-            std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
-        );
-        const NSUInteger thread_height = std::max<NSUInteger>(
-            1U,
-            std::min<NSUInteger>(
-                8U,
-                pipeline.maxTotalThreadsPerThreadgroup / thread_width
-            )
-        );
-        [encoder dispatchThreads:MTLSizeMake(
-                dimensions.width,
-                dimensions.height,
-                1U
-            )
-            threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
-    };
+    const auto dispatch =
+        [encoder](id<MTLComputePipelineState> pipeline, const Dimensions dimensions) {
+            const NSUInteger thread_width =
+                std::min<NSUInteger>(32U, std::max<NSUInteger>(1U, pipeline.threadExecutionWidth));
+            const NSUInteger thread_height = std::max<NSUInteger>(
+                1U,
+                std::min<NSUInteger>(8U, pipeline.maxTotalThreadsPerThreadgroup / thread_width)
+            );
+            [encoder dispatchThreads:MTLSizeMake(dimensions.width, dimensions.height, 1U)
+                threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+        };
     const auto dispatch_statistics = [encoder](const std::uint32_t group_count) {
         // Statistics reduction requires a complete power-of-two lane set. dispatchThreadgroups
         // deliberately launches the padded final group; the shader zeroes lanes beyond the
         // region instead of reducing an implementation-defined non-uniform tail.
         [encoder dispatchThreadgroups:MTLSizeMake(group_count, 1U, 1U)
-            threadsPerThreadgroup:MTLSizeMake(256U, 1U, 1U)];
+                threadsPerThreadgroup:MTLSizeMake(256U, 1U, 1U)];
     };
     const auto copy_complete_input = [&](id<MTLBuffer> source,
                                          id<MTLBuffer> destination,
@@ -63,8 +52,7 @@ id<MTLBuffer> encode_warm_retouch_stage(
     const auto available_buffers = [&slot](id<MTLBuffer> current) {
         std::array<id<MTLBuffer>, 2U> result{nil, nil};
         std::size_t index = 0U;
-        for (id<MTLBuffer> candidate :
-             std::array<id<MTLBuffer>, 3U>{
+        for (id<MTLBuffer> candidate : std::array<id<MTLBuffer>, 3U>{
                  slot.adjusted,
                  slot.denoised,
                  slot.layer_before,
@@ -100,15 +88,9 @@ id<MTLBuffer> encode_warm_retouch_stage(
             [encoder setBuffer:scratch[0] offset:0U atIndex:1U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
             [encoder setBuffer:slot.status offset:0U atIndex:3U];
-            [encoder setBuffer:geometry
-                        offset:region.capsule_offset_bytes
-                       atIndex:4U];
-            [encoder setBuffer:geometry
-                        offset:region.cell_offset_bytes
-                       atIndex:5U];
-            [encoder setBuffer:geometry
-                        offset:region.reference_offset_bytes
-                       atIndex:6U];
+            [encoder setBuffer:geometry offset:region.capsule_offset_bytes atIndex:4U];
+            [encoder setBuffer:geometry offset:region.cell_offset_bytes atIndex:5U];
+            [encoder setBuffer:geometry offset:region.reference_offset_bytes atIndex:6U];
             dispatch(context.retouch_clone_pipeline(), region_dimensions);
             current = scratch[0];
             continue;
@@ -120,15 +102,9 @@ id<MTLBuffer> encode_warm_retouch_stage(
             [encoder setBuffer:current offset:0U atIndex:0U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:1U];
             [encoder setBuffer:slot.status offset:0U atIndex:2U];
-            [encoder setBuffer:geometry
-                        offset:region.capsule_offset_bytes
-                       atIndex:3U];
-            [encoder setBuffer:geometry
-                        offset:region.cell_offset_bytes
-                       atIndex:4U];
-            [encoder setBuffer:geometry
-                        offset:region.reference_offset_bytes
-                       atIndex:5U];
+            [encoder setBuffer:geometry offset:region.capsule_offset_bytes atIndex:3U];
+            [encoder setBuffer:geometry offset:region.cell_offset_bytes atIndex:4U];
+            [encoder setBuffer:geometry offset:region.reference_offset_bytes atIndex:5U];
             [encoder setBuffer:slot.retouch_statistics offset:0U atIndex:6U];
             [encoder setBuffer:slot.retouch_summary offset:0U atIndex:7U];
             dispatch_statistics(parameters.statistics_group_count);
@@ -142,44 +118,31 @@ id<MTLBuffer> encode_warm_retouch_stage(
         };
         encode_statistics(0U);
         encode_statistics(1U);
+        encode_statistics(2U);
 
         [encoder setComputePipelineState:context.retouch_heal_initialize_pipeline()];
         [encoder setBuffer:current offset:0U atIndex:0U];
         [encoder setBuffer:scratch[0] offset:0U atIndex:1U];
         [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
         [encoder setBuffer:slot.status offset:0U atIndex:3U];
-        [encoder setBuffer:geometry
-                    offset:region.capsule_offset_bytes
-                   atIndex:4U];
-        [encoder setBuffer:geometry
-                    offset:region.cell_offset_bytes
-                   atIndex:5U];
-        [encoder setBuffer:geometry
-                    offset:region.reference_offset_bytes
-                   atIndex:6U];
+        [encoder setBuffer:geometry offset:region.capsule_offset_bytes atIndex:4U];
+        [encoder setBuffer:geometry offset:region.cell_offset_bytes atIndex:5U];
+        [encoder setBuffer:geometry offset:region.reference_offset_bytes atIndex:6U];
         [encoder setBuffer:slot.retouch_summary offset:0U atIndex:7U];
         dispatch(context.retouch_heal_initialize_pipeline(), region_dimensions);
 
         id<MTLBuffer> solution = scratch[0];
         id<MTLBuffer> next = scratch[1];
-        for (std::uint32_t iteration = 0U;
-             iteration < parameters.poisson_iterations;
-             ++iteration) {
+        for (std::uint32_t iteration = 0U; iteration < parameters.poisson_iterations; ++iteration) {
             [encoder setComputePipelineState:context.retouch_heal_jacobi_pipeline()];
             [encoder setBuffer:current offset:0U atIndex:0U];
             [encoder setBuffer:solution offset:0U atIndex:1U];
             [encoder setBuffer:next offset:0U atIndex:2U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:3U];
             [encoder setBuffer:slot.status offset:0U atIndex:4U];
-            [encoder setBuffer:geometry
-                        offset:region.capsule_offset_bytes
-                       atIndex:5U];
-            [encoder setBuffer:geometry
-                        offset:region.cell_offset_bytes
-                       atIndex:6U];
-            [encoder setBuffer:geometry
-                        offset:region.reference_offset_bytes
-                       atIndex:7U];
+            [encoder setBuffer:geometry offset:region.capsule_offset_bytes atIndex:5U];
+            [encoder setBuffer:geometry offset:region.cell_offset_bytes atIndex:6U];
+            [encoder setBuffer:geometry offset:region.reference_offset_bytes atIndex:7U];
             [encoder setBuffer:slot.retouch_summary offset:0U atIndex:8U];
             dispatch(context.retouch_heal_jacobi_pipeline(), region_dimensions);
             std::swap(solution, next);
@@ -195,15 +158,9 @@ id<MTLBuffer> encode_warm_retouch_stage(
         [encoder setBuffer:next offset:0U atIndex:2U];
         [encoder setBytes:&parameters length:sizeof(parameters) atIndex:3U];
         [encoder setBuffer:slot.status offset:0U atIndex:4U];
-        [encoder setBuffer:geometry
-                    offset:region.capsule_offset_bytes
-                   atIndex:5U];
-        [encoder setBuffer:geometry
-                    offset:region.cell_offset_bytes
-                   atIndex:6U];
-        [encoder setBuffer:geometry
-                    offset:region.reference_offset_bytes
-                   atIndex:7U];
+        [encoder setBuffer:geometry offset:region.capsule_offset_bytes atIndex:5U];
+        [encoder setBuffer:geometry offset:region.cell_offset_bytes atIndex:6U];
+        [encoder setBuffer:geometry offset:region.reference_offset_bytes atIndex:7U];
         [encoder setBuffer:slot.retouch_summary offset:0U atIndex:8U];
         dispatch(context.retouch_heal_blend_pipeline(), region_dimensions);
         current = next;

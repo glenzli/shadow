@@ -645,6 +645,11 @@ if(BUILD_TESTING)
         NAME shadow-image-spatial-edit-contract
         COMMAND shadow-image-spatial-edit-tests
     )
+    shadow_image_add_contract(
+        shadow-image-retouch-quality-tests
+        shadow-image-retouch-quality-contract
+        tests/retouch_quality_contract_test.cpp
+    )
 
     add_executable(
         shadow-image-perceptual-color-tests

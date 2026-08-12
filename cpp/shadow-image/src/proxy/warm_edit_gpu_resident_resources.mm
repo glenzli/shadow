@@ -776,11 +776,11 @@ struct WarmGpuResidentResources::Impl final {
         const std::size_t group_count =
             (layout.adjusted_sample_count / 3U + statistics_threads - 1U) / statistics_threads;
         std::size_t statistics_bytes = 0U;
-        if (!checked_multiply(group_count, sizeof(WarmRetouchStatistics), statistics_bytes)
+        if (!checked_multiply(group_count, sizeof(WarmRetouchStatisticsPartial), statistics_bytes)
             || statistics_bytes == 0U) {
             return "warm-preview retouch statistics size overflowed";
         }
-        const std::size_t summary_bytes = sizeof(WarmRetouchStatistics);
+        const std::size_t summary_bytes = sizeof(WarmRetouchSummary);
         std::size_t addition = 0U;
         if (!checked_add(statistics_bytes, summary_bytes, addition)
             || addition > std::numeric_limits<std::size_t>::max()

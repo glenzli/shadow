@@ -484,8 +484,8 @@ New production code should include the narrow semantic owner directly:
 - `cpu_edit_reference.hpp` owns the deterministic flat-node oracle; `tone_curve.hpp` owns
   standalone Oklab Lightness application and exact smooth-curve sampling; `retouch.hpp` owns
   spot/continuous-brush geometry, coverage and donor selection, while
-  `src/edit/retouch_heal_blending.*` owns Heal's boundary tone matching and screened
-  gradient-domain texture blend; `adjustment_layers.hpp` owns masks, layer composition, and
+  `src/edit/retouch_heal_blending.*` owns Heal's robust local-illumination boundary fit and
+  screened gradient-domain texture blend; `adjustment_layers.hpp` owns masks, layer composition, and
   masked execution.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
   execution provenance, transient display-sRGB RGB8 rendering, and settled JPEG output;
@@ -634,8 +634,9 @@ Clone region into raster-space capsules and a bounded CSR grid. Its immutable pa
 cached by the resident-resource owner, while `warm_edit_gpu_retouch_encoder.*` preserves every
 region's complete source snapshot in resident RGB buffers exactly as the CPU oracle does. Clone
 copies through the indexed continuous coverage directly. Heal computes a deterministic two-pass
-robust donor statistic, initializes the correction field, runs a screened-Poisson Jacobi solve,
-and feathers the result without leaving Metal. Mixed ordered Heal and Clone therefore remain in
+robust donor statistic plus a bounded affine boundary-light fit, initializes the correction field,
+runs a screened-Poisson Jacobi solve, and feathers the result without leaving Metal. Mixed ordered
+Heal and Clone therefore remain in
 the same command transaction as surrounding pixel-local and neighborhood stages.
 `src/proxy/warm_edit_gpu_geometry_plan.*` seals the authoritative `PhotoGeometryLayout`, complete
   output canvas, bounded source tile, and output tile into one portable sampling contract. Its
@@ -666,7 +667,9 @@ side-table caches; their only shared fixture owns CPU-oracle parity inputs and c
 The retouch child owns mixed continuous Heal/Clone parity, ordered source snapshots,
 geometry-cache reuse, and the opt-in `SHADOW_TEST_WARM_RETOUCH_BENCHMARK`; its portable plan
 contract proves tile-coordinate mapping and indexed-candidate completeness, while the focused
-retouch seam contract crosses irregular full-detail tiles on real Metal.
+retouch seam contract crosses irregular full-detail tiles on real Metal. The separate portable
+retouch-quality contract uses deterministic photographic stress fields to hold local illumination
+adaptation and high-frequency Clone transfer stable without checking photo payloads into Git.
 The geometry child owns node and layer CPU parity, transposed native-scale propagation, encoded
 display parity, and the opt-in `SHADOW_TEST_WARM_GEOMETRY_BENCHMARK`; its portable plan contract
 proves complete and bounded-tile coordinate lowering, while the focused geometry seam contract

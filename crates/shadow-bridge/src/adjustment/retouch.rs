@@ -1,4 +1,4 @@
-//! Bounded spot-heal targets and continuous swept repair/clone strokes.
+//! Image-bounded spot-heal targets and continuous swept repair/clone strokes.
 
 use crate::error::BridgeError;
 
@@ -12,7 +12,9 @@ pub struct AdjustmentSpotHealTarget {
     pub radius_level_zero_pixels: u16,
     /// 0 = heal, 1 = clone.
     pub mode: u8,
+    /// Finite horizontal donor displacement in brush radii.
     pub source_offset_x_radii: f64,
+    /// Finite vertical donor displacement in brush radii.
     pub source_offset_y_radii: f64,
     pub feather: f64,
     pub strength: f64,
@@ -35,7 +37,9 @@ pub struct AdjustmentRetouchStroke {
     pub radius_level_zero_pixels: u16,
     /// 0 = heal, 1 = clone.
     pub mode: u8,
+    /// Finite horizontal donor displacement in brush radii.
     pub source_offset_x_radii: f64,
+    /// Finite vertical donor displacement in brush radii.
     pub source_offset_y_radii: f64,
     pub feather: f64,
     pub strength: f64,
@@ -73,13 +77,9 @@ pub(super) fn validate_spot_heal(
                 ));
             }
         }
-        if target.mode > 1
-            || !(-8.0..=8.0).contains(&target.source_offset_x_radii)
-            || !(-8.0..=8.0).contains(&target.source_offset_y_radii)
-            || !(1..=128).contains(&target.radius_level_zero_pixels)
-        {
+        if target.mode > 1 || !(1..=128).contains(&target.radius_level_zero_pixels) {
             return Err(BridgeError::InvalidEditRequest(
-                "spot-heal mode, source offset, or radius is outside its supported range",
+                "spot-heal mode or radius is outside its supported range",
             ));
         }
     }
@@ -103,8 +103,6 @@ pub(super) fn validate_spot_heal(
             validate_finite_render_parameter(value)?;
         }
         if stroke.mode > 1
-            || !(-8.0..=8.0).contains(&stroke.source_offset_x_radii)
-            || !(-8.0..=8.0).contains(&stroke.source_offset_y_radii)
             || !(0.0..=1.0).contains(&stroke.feather)
             || !(0.0..=1.0).contains(&stroke.strength)
             || !(1..=128).contains(&stroke.radius_level_zero_pixels)

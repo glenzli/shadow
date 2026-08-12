@@ -78,12 +78,32 @@ class FakeRetouchEditor final : public QObject {
     Q_INVOKABLE void setRetouchSpotStrength(int, double) {}
     Q_INVOKABLE void removeRetouchStroke(int) {}
     Q_INVOKABLE void removeRetouchSpot(int) {}
-    Q_INVOKABLE void setRetouchStrokeSourceOffset(int, double, double) {}
+    Q_INVOKABLE void
+    setRetouchStrokeSourceOffset(const int index, const double offset_x, const double offset_y) {
+        ++stroke_source_write_count_;
+        stroke_source_index_ = index;
+        stroke_source_offset_x_ = offset_x;
+        stroke_source_offset_y_ = offset_y;
+    }
     Q_INVOKABLE void setRetouchSpotCenter(int, double, double) {}
-    Q_INVOKABLE void setRetouchSpotSourceOffset(int, double, double) {}
+    Q_INVOKABLE void
+    setRetouchSpotSourceOffset(const int index, const double offset_x, const double offset_y) {
+        ++spot_source_write_count_;
+        spot_source_index_ = index;
+        spot_source_offset_x_ = offset_x;
+        spot_source_offset_y_ = offset_y;
+    }
 
     QString begin_key_;
     QString end_key_;
+    int stroke_source_write_count_ = 0;
+    int stroke_source_index_ = -1;
+    double stroke_source_offset_x_ = 0.0;
+    double stroke_source_offset_y_ = 0.0;
+    int spot_source_write_count_ = 0;
+    int spot_source_index_ = -1;
+    double spot_source_offset_x_ = 0.0;
+    double spot_source_offset_y_ = 0.0;
 
   signals:
     void parametersChanged();
@@ -211,6 +231,43 @@ void sendClick(QQuickWindow& window, const QPointF& position) {
         position,
         position,
         position,
+        Qt::LeftButton,
+        Qt::NoButton,
+        Qt::NoModifier,
+        QPointingDevice::primaryPointingDevice()
+    );
+    QGuiApplication::sendEvent(&window, &release);
+    drainBindings();
+}
+
+void sendDrag(QQuickWindow& window, const QPointF& start, const QPointF& finish) {
+    QMouseEvent press(
+        QEvent::MouseButtonPress,
+        start,
+        start,
+        start,
+        Qt::LeftButton,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        QPointingDevice::primaryPointingDevice()
+    );
+    QGuiApplication::sendEvent(&window, &press);
+    QMouseEvent move(
+        QEvent::MouseMove,
+        finish,
+        finish,
+        finish,
+        Qt::NoButton,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        QPointingDevice::primaryPointingDevice()
+    );
+    QGuiApplication::sendEvent(&window, &move);
+    QMouseEvent release(
+        QEvent::MouseButtonRelease,
+        finish,
+        finish,
+        finish,
         Qt::LeftButton,
         Qt::NoButton,
         Qt::NoModifier,
@@ -538,6 +595,52 @@ int main(int argc, char* argv[]) {
                        - spot_handle->property("targetX").toDouble() - 3.6
                    ) < 0.01,
             "fit-view spot coverage and donor displacement use exact geometry"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.stroke_source_write_count_ = 0;
+    editor.stroke_source_index_ = -1;
+    editor.end_key_.clear();
+    sendDrag(stroke_window, QPointF(84.0, 50.0), QPointF(92.0, 54.0));
+    if (!require(
+            editor.stroke_source_write_count_ > 0 && editor.stroke_source_index_ == 0
+                && std::abs(editor.stroke_source_offset_x_ - 6.44) < 0.15
+                && std::abs(editor.stroke_source_offset_y_ - 2.22) < 0.15
+                && editor.end_key_ == QStringLiteral("retouch/stroke/0/source"),
+            "a selected fit-view stroke donor follows a real drag without snapping"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.spot_source_write_count_ = 0;
+    editor.spot_source_index_ = -1;
+    editor.end_key_.clear();
+    sendDrag(spot_window, QPointF(84.0, 50.0), QPointF(92.0, 54.0));
+    if (!require(
+            editor.spot_source_write_count_ > 0 && editor.spot_source_index_ == 0
+                && std::abs(editor.spot_source_offset_x_ - 6.44) < 0.15
+                && std::abs(editor.spot_source_offset_y_ - 2.22) < 0.15
+                && editor.end_key_ == QStringLiteral("retouch/0/source"),
+            "a selected fit-view spot donor follows a real drag without snapping"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.stroke_source_write_count_ = 0;
+    sendDrag(stroke_window, QPointF(84.0, 50.0), QPointF(124.0, 50.0));
+    if (!require(
+            editor.stroke_source_write_count_ > 0 && editor.stroke_source_offset_x_ > 8.0,
+            "a stroke donor can move beyond the former eight-radius cap"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.spot_source_write_count_ = 0;
+    sendDrag(spot_window, QPointF(84.0, 50.0), QPointF(124.0, 50.0));
+    if (!require(
+            editor.spot_source_write_count_ > 0 && editor.spot_source_offset_x_ > 8.0,
+            "a spot donor can move beyond the former eight-radius cap"
         )) {
         return EXIT_FAILURE;
     }

@@ -214,7 +214,7 @@ void tile_context_and_heal_mode_are_preserved() {
             .center_y = 0.5,
             .radius_level_zero_pixels = 4U,
             .mode = image::SpotRepairMode::clone,
-            .source_offset_x_radii = 8.0,
+            .source_offset_x_radii = 24.0,
         }},
     };
     const auto prepared_edge =

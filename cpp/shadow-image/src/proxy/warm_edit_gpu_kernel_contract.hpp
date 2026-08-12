@@ -214,18 +214,29 @@ struct WarmRetouchWord final {
     std::uint32_t value = 0U;
 };
 
-struct WarmRetouchStatistics final {
+struct WarmRetouchStatisticsPartial final {
     std::array<float, 4U> donor_sum_count{};
     std::array<float, 4U> boundary_sum_count{};
     std::array<float, 4U> donor_square_sum{};
     std::array<float, 4U> boundary_square_sum{};
 };
 
+struct WarmRetouchSummary final {
+    std::array<float, 4U> donor_sum_count{};
+    std::array<float, 4U> boundary_sum_count{};
+    std::array<float, 4U> donor_square_sum{};
+    std::array<float, 4U> boundary_square_sum{};
+    std::array<float, 4U> correction_intercept{};
+    std::array<float, 4U> correction_slope_x{};
+    std::array<float, 4U> correction_slope_y{};
+};
+
 static_assert(sizeof(WarmRetouchRegionParameters) == 96U);
 static_assert(sizeof(WarmRetouchCapsule) == 16U);
 static_assert(sizeof(WarmRetouchCellRange) == 8U);
 static_assert(sizeof(WarmRetouchWord) == 4U);
-static_assert(sizeof(WarmRetouchStatistics) == 64U);
+static_assert(sizeof(WarmRetouchStatisticsPartial) == 64U);
+static_assert(sizeof(WarmRetouchSummary) == 112U);
 
 // Capture sharpening is evaluated in log luminance, matching the CPU technical-detail
 // contract. The two scalar buffers required by its separable Gaussian stay resident beside the
@@ -374,7 +385,8 @@ static_assert(warm_kernel_record<WarmRetouchRegionParameters>);
 static_assert(warm_kernel_record<WarmRetouchCapsule>);
 static_assert(warm_kernel_record<WarmRetouchCellRange>);
 static_assert(warm_kernel_record<WarmRetouchWord>);
-static_assert(warm_kernel_record<WarmRetouchStatistics>);
+static_assert(warm_kernel_record<WarmRetouchStatisticsPartial>);
+static_assert(warm_kernel_record<WarmRetouchSummary>);
 static_assert(warm_kernel_record<WarmDenoiseParameters>);
 static_assert(warm_kernel_record<WarmSharpenParameters>);
 static_assert(warm_kernel_record<WarmTextureParameters>);
@@ -398,7 +410,8 @@ static_assert(alignof(WarmRetouchRegionParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmRetouchCapsule) == alignof(std::uint32_t));
 static_assert(alignof(WarmRetouchCellRange) == alignof(std::uint32_t));
 static_assert(alignof(WarmRetouchWord) == alignof(std::uint32_t));
-static_assert(alignof(WarmRetouchStatistics) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchStatisticsPartial) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchSummary) == alignof(std::uint32_t));
 static_assert(alignof(WarmDenoiseParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmSharpenParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmTextureParameters) == alignof(std::uint32_t));

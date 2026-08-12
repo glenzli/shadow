@@ -193,8 +193,6 @@ struct RasterBounds final {
            && radius_level_zero_pixels <= maximum_spot_radius_level_zero
            && (mode == SpotRepairMode::heal || mode == SpotRepairMode::clone)
            && std::isfinite(source_offset_x_radii) && std::isfinite(source_offset_y_radii)
-           && source_offset_x_radii >= -8.0 && source_offset_x_radii <= 8.0
-           && source_offset_y_radii >= -8.0 && source_offset_y_radii <= 8.0
            && std::isfinite(feather) && feather >= 0.0 && feather <= 1.0 && std::isfinite(strength)
            && strength >= 0.0 && strength <= 1.0;
 }
