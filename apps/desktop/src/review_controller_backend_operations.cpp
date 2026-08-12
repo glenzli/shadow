@@ -262,6 +262,27 @@ metadata_operations(const std::shared_ptr<DesktopBackend>& backend) {
         .apply_capture_time = [backend](
                                   const QString& preview_id
                               ) { return backend->applyLibraryCaptureTimeBatch(preview_id); },
+        .preview_coordinates =
+            [backend](
+                const QVector<BackendBatchPhotoTarget>& targets,
+                const QString& mode,
+                const double latitude_degrees,
+                const double longitude_degrees,
+                const QString& place_name,
+                const QString& source_label
+            ) {
+                return backend->previewLibraryCoordinateBatch(
+                    targets,
+                    mode,
+                    latitude_degrees,
+                    longitude_degrees,
+                    place_name,
+                    source_label
+                );
+            },
+        .apply_coordinates = [backend](
+                                 const QString& preview_id
+                             ) { return backend->applyLibraryCoordinateBatch(preview_id); },
         .preview_gpx =
             [backend](
                 const QString& path,

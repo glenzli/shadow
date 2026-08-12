@@ -11,6 +11,8 @@ Item {
     property bool showDoneButton: false
     readonly property bool libraryMapReady:
         preferences.libraryMapProvider !== "none"
+            && (preferences.googleApiKeyStored
+                || preferences.amapJsCredentialsStored)
     readonly property bool amapServiceReady:
         preferences.amapWebServiceKeyStored
     signal doneRequested()
@@ -61,6 +63,8 @@ Item {
             return qsTr("Save an AMap Web Service key before allowing AMap place services.")
         case "amap-js-credentials-required":
             return qsTr("Save AMap JS API credentials before choosing AMap for the Library map.")
+        case "map-provider-required":
+            return qsTr("Save Google or AMap map credentials before choosing a basemap policy.")
         case "secure-storage-unavailable":
             return qsTr("Shadow's local credential file is unavailable.")
         case "secret-store-failed":
@@ -115,6 +119,76 @@ Item {
                     text: qsTr("Done")
                     onClicked: root.doneRequested()
                 }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.border
+            }
+
+            Label {
+                text: qsTr("Library basemap")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontBody
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Auto uses AMap for mainland China and Google elsewhere. It chooses once when a map context opens or you select a place in another region; ordinary panning never switches providers.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+                lineHeight: 1.2
+            }
+
+            RowLayout {
+                objectName: "libraryMapProviderPolicyControls"
+                Layout.fillWidth: true
+                spacing: 4
+
+                ShadowButton {
+                    objectName: "automaticLibraryMapProviderButton"
+                    compact: true
+                    variant: ShadowButton.Ghost
+                    text: qsTr("Auto")
+                    enabled: root.preferences.googleApiKeyStored
+                        || root.preferences.amapJsCredentialsStored
+                    selected: root.preferences.libraryMapProvider === "auto"
+                    onClicked: root.preferences.libraryMapProvider = "auto"
+                }
+
+                ShadowButton {
+                    objectName: "googleLibraryMapProviderButton"
+                    compact: true
+                    variant: ShadowButton.Ghost
+                    text: qsTr("Google")
+                    enabled: root.preferences.googleApiKeyStored
+                    selected: root.preferences.libraryMapProvider === "google"
+                    onClicked: root.preferences.libraryMapProvider = "google"
+                }
+
+                ShadowButton {
+                    objectName: "amapLibraryMapProviderButton"
+                    compact: true
+                    variant: ShadowButton.Ghost
+                    text: qsTr("AMap")
+                    enabled: root.preferences.amapJsCredentialsStored
+                    selected: root.preferences.libraryMapProvider === "amap"
+                    onClicked: root.preferences.libraryMapProvider = "amap"
+                }
+
+                ShadowButton {
+                    objectName: "disableLibraryMapProviderButton"
+                    compact: true
+                    variant: ShadowButton.Ghost
+                    text: qsTr("Off")
+                    selected: root.preferences.libraryMapProvider === "none"
+                    onClicked: root.preferences.libraryMapProvider = "none"
+                }
+
+                Item { Layout.fillWidth: true }
             }
 
             Rectangle {
@@ -304,16 +378,6 @@ Item {
                 lineHeight: 1.2
             }
 
-            ShadowSwitch {
-                objectName: "amapLibraryMapSwitch"
-                Layout.fillWidth: true
-                text: qsTr("Use AMap for the Library map")
-                enabled: root.preferences.amapJsCredentialsStored
-                checked: root.preferences.libraryMapProvider === "amap"
-                onClicked: root.preferences.libraryMapProvider =
-                    root.preferences.libraryMapProvider === "amap" ? "none" : "amap"
-            }
-
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
@@ -415,16 +479,6 @@ Item {
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
                 lineHeight: 1.2
-            }
-
-            ShadowSwitch {
-                objectName: "googleLibraryMapSwitch"
-                Layout.fillWidth: true
-                text: qsTr("Use Google Maps for the Library map")
-                enabled: root.preferences.googleApiKeyStored
-                checked: root.preferences.libraryMapProvider === "google"
-                onClicked: root.preferences.libraryMapProvider =
-                    root.preferences.libraryMapProvider === "google" ? "none" : "google"
             }
 
             ShadowSwitch {

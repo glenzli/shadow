@@ -149,9 +149,11 @@ Application startup is split from environment-driven automation:
   may enforce that target only through the Catalog-proven unused-preview sweep: live, unknown,
   recently protected, and AI RAW foundation data may keep actual use above the requested target.
 - [`src/map_provider_preferences.*`](src/map_provider_preferences.hpp) owns optional external
-  map-service permissions, the explicitly selected Library map provider, the shared road/satellite
-  style, and the native-only Google/AMap credential lifecycle. With no eligible selection it
-  publishes an explicit `none` provider instead of silently choosing an unavailable map.
+  map-service permissions, the persisted `auto`/Google/AMap/`none` Library basemap policy, the
+  shared road/satellite style, and the native-only Google/AMap credential lifecycle. `auto` is not
+  an effective provider identity: it delegates one sticky map-context choice to the Web map
+  controller. With no eligible credential the controller publishes no effective provider; a
+  transient credential-store failure does not erase the user's persisted policy.
   [`src/secure_secret_store.*`](src/secure_secret_store.hpp) is the narrow local credential
   boundary: production stores each credential family in a user-private Shadow file and isolated
   smoke sessions use volatile memory. It never calls a platform credential prompt.
@@ -191,7 +193,11 @@ Application startup is split from environment-driven automation:
   stay in `shadow-desktop-bridge`; the server process does not initialize the photo-editing backend.
 - [`src/map/library_web_map_controller.*`](src/map/library_web_map_controller.hpp) owns the unified
   Google/AMap interactive map document, provider credential injection, WGS84/GCJ-02 boundary,
-  marker state, viewport events, placement events, and WebView failure lifecycle. Credentials are
+  marker state, viewport events, placement events, sticky effective-provider selection, and
+  WebView failure lifecycle. In automatic mode a new or explicitly navigated mainland-China
+  context selects AMap when configured and an overseas context selects Google when configured;
+  ordinary pan/zoom never changes providers. A manually selected provider never silently falls
+  back, and unsupported AMap regions remain an explicit setup state. Credentials are
   injected directly into the private document and have no QML-readable property. The official
   provider SDK owns basemap attribution and networking; Shadow has no parallel Google Tile session,
   native tile cache, or raster-layer implementation. On macOS the WebView is a native child view,
@@ -277,7 +283,8 @@ Its implementation follows the same navigation:
   exact selected-photo inspection.
 - [`src/desktop_backend_library.cpp`](src/desktop_backend_library.cpp) owns Library queries,
   facets, albums, source-health evidence, relinking, mutable Library organization, non-destructive
-  capture/GPS corrections, batch capture-time preview/apply, and GPX preview/apply projection.
+  capture/GPS corrections, batch capture-time and manual-coordinate preview/apply, and GPX
+  preview/apply projection.
 - [`src/desktop_backend_review.cpp`](src/desktop_backend_review.cpp) owns Review visuals,
   comparison receipts, feedback, and explicit decision mutation.
 - [`src/desktop_backend_edit.cpp`](src/desktop_backend_edit.cpp) owns Precision state, shared
@@ -714,6 +721,10 @@ Review presentation keeps the workspace as the composition and compatibility sur
   time and coordinates without writing the source file, while
   [`qml/LibraryCaptureTimeBatchDialog.qml`](qml/LibraryCaptureTimeBatchDialog.qml) previews and
   explicitly applies a shared clock shift or restoration to the current camera times, and
+  [`qml/LibraryLocationBatchDialog.qml`](qml/LibraryLocationBatchDialog.qml) owns map/search/manual
+  coordinate selection plus missing-only versus explicit replacement policy for the current
+  selection; [`qml/LibraryLocationBatchState.qml`](qml/LibraryLocationBatchState.qml) owns its
+  opaque preview/apply lifecycle, and
   [`qml/LibraryGpxImportDialog.qml`](qml/LibraryGpxImportDialog.qml) owns GPX selection,
   clock-offset settings, match summary, and explicit confirmation. Selection ownership remains in
   `ReviewSelectionState`.
@@ -725,7 +736,7 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`src/review_controller_library_query.cpp`](src/review_controller_library_query.cpp), and
   [`src/review_controller_library_management.cpp`](src/review_controller_library_management.cpp).
   [`src/review_controller_library_metadata.cpp`](src/review_controller_library_metadata.cpp)
-  routes only manual metadata, batch capture-time, and GPX commands.
+  routes only manual metadata, batch capture-time, batch coordinate, and GPX commands.
   [`src/review_controller_backend_operations.*`](src/review_controller_backend_operations.hpp)
   owns every backend-to-coordinator operation adapter, while
   [`src/review_controller_connections.cpp`](src/review_controller_connections.cpp) owns the
@@ -791,8 +802,8 @@ Review presentation keeps the workspace as the composition and compatibility sur
   current generation for asynchronous QML image delivery; Review does not build a second RAW or
   edit pipeline and does not retain a full-resolution presentation image.
 - [`src/review_library_metadata_coordinator.cpp`](src/review_library_metadata_coordinator.cpp)
-  keeps metadata reads, manual corrections, batch capture-time preview/apply, GPX parsing/preview,
-  and confirmed batch application off the GUI thread. Decoder EXIF remains the immutable
+  keeps metadata reads, manual corrections, batch capture-time and coordinate preview/apply, GPX
+  parsing/preview, and confirmed batch application off the GUI thread. Decoder EXIF remains the immutable
   observation; the Catalog materializes an indexed effective projection, so rescans preserve user
   corrections and Library sort/facets use the corrected time and location. The Catalog also
   derives the Chinese lunar month, day, and leap-month identity only when that effective capture

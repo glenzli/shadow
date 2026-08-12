@@ -17,9 +17,11 @@ class MapProviderPreferences;
 class LibraryWebMapController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY stateChanged)
+    Q_PROPERTY(QString providerPolicy READ providerPolicy NOTIFY stateChanged)
     Q_PROPERTY(QString providerId READ providerId NOTIFY stateChanged)
     Q_PROPERTY(bool providerSelected READ providerSelected NOTIFY stateChanged)
     Q_PROPERTY(bool providerAvailable READ providerAvailable NOTIFY stateChanged)
+    Q_PROPERTY(bool providerRegionAvailable READ providerRegionAvailable NOTIFY stateChanged)
     Q_PROPERTY(QString providerName READ providerName NOTIFY stateChanged)
     Q_PROPERTY(bool ready READ ready NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
@@ -35,9 +37,11 @@ class LibraryWebMapController final : public QObject {
     );
 
     [[nodiscard]] bool active() const noexcept;
+    [[nodiscard]] QString providerPolicy() const;
     [[nodiscard]] QString providerId() const;
     [[nodiscard]] bool providerSelected() const;
     [[nodiscard]] bool providerAvailable() const;
+    [[nodiscard]] bool providerRegionAvailable() const;
     [[nodiscard]] QString providerName() const;
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] bool busy() const noexcept;
@@ -49,6 +53,12 @@ class LibraryWebMapController final : public QObject {
     Q_INVOKABLE void attachWebView(QObject* web_view);
     Q_INVOKABLE void detachWebView(QObject* web_view);
     Q_INVOKABLE void setActive(bool active);
+    /// Resolve the `auto` policy for a new intentional map context. Ordinary
+    /// viewport movement never calls this, so the chosen provider is sticky.
+    Q_INVOKABLE void beginMapContext(double latitude, double longitude);
+    /// Re-resolve only after an explicit cross-region navigation, such as
+    /// choosing a place-search result. Panning and zooming remain provider-stable.
+    Q_INVOKABLE void navigateToContext(double latitude, double longitude, double zoom = -1.0);
     Q_INVOKABLE void setLanguage(const QString& language);
     Q_INVOKABLE void setClusters(const QVariantList& clusters);
     Q_INVOKABLE void setCenter(double latitude, double longitude, double zoom = -1.0);
@@ -60,18 +70,14 @@ class LibraryWebMapController final : public QObject {
   signals:
     void stateChanged();
     void centerChanged();
-    void viewportChanged(
-        double south,
-        double west,
-        double north,
-        double east,
-        int zoom
-    );
+    void viewportChanged(double south, double west, double north, double east, int zoom);
     void clusterActivated(const QVariantMap& cluster);
     void coordinateProposed(double latitude, double longitude);
 
   private:
     [[nodiscard]] QString buildDocument();
+    [[nodiscard]] QString resolveProviderForCoordinate(double latitude, double longitude) const;
+    [[nodiscard]] QString fallbackAvailableProvider() const;
     [[nodiscard]] QVariantMap presentationState() const;
     [[nodiscard]] QVariantMap providerCoordinate(double latitude, double longitude) const;
     void reloadDocument();
@@ -89,6 +95,7 @@ class LibraryWebMapController final : public QObject {
     bool busy_ = false;
     bool placement_active_ = false;
     bool pending_coordinate_present_ = false;
+    QString effective_provider_id_;
     double pending_latitude_ = 0.0;
     double pending_longitude_ = 0.0;
     double center_latitude_ = 20.0;

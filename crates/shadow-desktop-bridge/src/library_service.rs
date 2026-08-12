@@ -8,7 +8,7 @@
 //! - [`keywords`] owns the hierarchy and committed photo assignments;
 //! - [`lifecycle`] owns non-destructive removal from active Library projections;
 //! - [`metadata`] owns observed/effective metadata projection and routes
-//!   independent capture-time and GPX preview lifecycles;
+//!   independent capture-time, coordinate-batch, and GPX preview lifecycles;
 //! - [`map_browse`] owns provider-independent spatial aggregation;
 //! - [`place_resolution`] owns provider-neutral unresolved coordinate and result projection;
 //! - [`source_health`] owns reversible source removal plus observational scan
@@ -43,6 +43,7 @@ pub(crate) struct LibraryService {
     catalog: CatalogHandle,
     gpx_previews: Arc<Mutex<metadata::GpxPreviewRegistry>>,
     capture_time_previews: Arc<Mutex<metadata::CaptureTimePreviewRegistry>>,
+    coordinate_batch_previews: Arc<Mutex<metadata::CoordinateBatchPreviewRegistry>>,
 }
 
 impl LibraryService {
@@ -52,6 +53,9 @@ impl LibraryService {
             gpx_previews: Arc::new(Mutex::new(metadata::GpxPreviewRegistry::default())),
             capture_time_previews: Arc::new(Mutex::new(
                 metadata::CaptureTimePreviewRegistry::default(),
+            )),
+            coordinate_batch_previews: Arc::new(Mutex::new(
+                metadata::CoordinateBatchPreviewRegistry::default(),
             )),
         }
     }

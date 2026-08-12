@@ -20,7 +20,9 @@ struct AmapJsCredentialsResult final {
     }
 };
 
-/// Owns optional external map-service authorization.
+/// Owns optional external map-service authorization and the persisted Library
+/// map-provider policy. `auto` is a policy rather than an effective provider;
+/// the interactive map controller resolves it for one sticky map context.
 ///
 /// Service permissions are ordinary preferences. Provider credentials stay
 /// behind SecretStore and deliberately have no Q_PROPERTY or Q_INVOKABLE read

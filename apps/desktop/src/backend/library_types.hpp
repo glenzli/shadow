@@ -359,6 +359,20 @@ struct BackendCaptureTimeBatchPreview final {
     QVector<BackendCaptureTimeBatchProposal> proposal_sample;
 };
 
+struct BackendCoordinateBatchPreview final {
+    QString preview_id;
+    QString mode;
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
+    QString place_name;
+    std::uint32_t requested_photo_count = 0;
+    std::uint32_t applicable_photo_count = 0;
+    std::uint32_t skipped_photo_count = 0;
+    std::uint32_t missing_photo_count = 0;
+    std::uint32_t existing_photo_count = 0;
+    std::uint32_t replacement_photo_count = 0;
+};
+
 struct BackendLibraryMetadataBatchReceipt final {
     std::uint32_t requested_photo_count = 0;
     std::uint32_t applied_photo_count = 0;

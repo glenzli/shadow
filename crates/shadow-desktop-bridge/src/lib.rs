@@ -913,6 +913,24 @@ mod ffi {
         proposal_sample: Vec<FfiCaptureTimeBatchProposal>,
     }
 
+    /// Opaque one-time preview for assigning one WGS84 coordinate to a
+    /// selected photo set. `missing` preserves every existing effective
+    /// coordinate; `replace` explicitly includes them in the mutation batch.
+    #[derive(Debug)]
+    struct FfiCoordinateBatchPreview {
+        preview_id: String,
+        mode: String,
+        latitude_e7: i32,
+        longitude_e7: i32,
+        place_name: String,
+        requested_photo_count: u32,
+        applicable_photo_count: u32,
+        skipped_photo_count: u32,
+        missing_photo_count: u32,
+        existing_photo_count: u32,
+        replacement_photo_count: u32,
+    }
+
     #[derive(Debug)]
     struct FfiLibraryMetadataBatchReceipt {
         requested_photo_count: u32,
@@ -2193,6 +2211,19 @@ mod ffi {
             offset_seconds: i64,
         ) -> Result<FfiCaptureTimeBatchPreview>;
         fn apply_library_capture_time_batch(
+            self: &DesktopSession,
+            preview_id: &str,
+        ) -> Result<FfiLibraryMetadataBatchReceipt>;
+        fn preview_library_coordinate_batch(
+            self: &DesktopSession,
+            targets: Vec<FfiBatchPhotoTarget>,
+            mode: &str,
+            latitude_degrees: f64,
+            longitude_degrees: f64,
+            place_name: &str,
+            source_label: &str,
+        ) -> Result<FfiCoordinateBatchPreview>;
+        fn apply_library_coordinate_batch(
             self: &DesktopSession,
             preview_id: &str,
         ) -> Result<FfiLibraryMetadataBatchReceipt>;

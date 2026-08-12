@@ -853,6 +853,43 @@
     )
 
     add_executable(
+        shadow-library-location-batch-state-test
+        tests/library_location_batch_state_test.cpp
+    )
+    target_compile_features(
+        shadow-library-location-batch-state-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-library-location-batch-state-test
+        PRIVATE Qt6::Core Qt6::Qml
+    )
+    qt_add_qml_module(
+        shadow-library-location-batch-state-test
+        URI Shadow.LibraryLocationBatchContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/LibraryLocationBatchState.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-location-batch-state-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-location-batch-state-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-location-batch-state
+        COMMAND shadow-library-location-batch-state-test
+    )
+
+    add_executable(
         shadow-review-library-organization-coordinator-test
         tests/review_library_organization_coordinator_test.cpp
         tests/review_library_organization_coordinator/library_organization_fixture.hpp

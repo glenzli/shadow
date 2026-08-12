@@ -15,6 +15,7 @@ Item {
         anchors.fill: parent
         active: root.presentationAllowed && root.controller.active
             && root.controller.providerAvailable
+            && root.controller.providerRegionAvailable
 
         sourceComponent: WebView {
             id: webView

@@ -227,6 +227,10 @@ class ReviewController final : public QObject {
         QVariantMap libraryCaptureTimePreview READ libraryCaptureTimePreview NOTIFY
             libraryMetadataChanged
     )
+    Q_PROPERTY(
+        QVariantMap libraryCoordinateBatchPreview READ libraryCoordinateBatchPreview NOTIFY
+            libraryMetadataChanged
+    )
     Q_PROPERTY(QVariantMap libraryGpxPreview READ libraryGpxPreview NOTIFY libraryMetadataChanged)
     Q_PROPERTY(
         QVariantMap libraryMetadataBatchReceipt READ libraryMetadataBatchReceipt NOTIFY
@@ -390,6 +394,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] bool librarySourceReconcileBusy() const noexcept;
     [[nodiscard]] QVariantMap libraryMetadata() const;
     [[nodiscard]] QVariantMap libraryCaptureTimePreview() const;
+    [[nodiscard]] QVariantMap libraryCoordinateBatchPreview() const;
     [[nodiscard]] QVariantMap libraryGpxPreview() const;
     [[nodiscard]] QVariantMap libraryMetadataBatchReceipt() const;
     [[nodiscard]] bool libraryMetadataBusy() const noexcept;
@@ -551,6 +556,15 @@ class ReviewController final : public QObject {
         qlonglong offset_seconds
     );
     Q_INVOKABLE void applyLibraryCaptureTimeBatch(const QString& preview_id);
+    Q_INVOKABLE void previewLibraryCoordinateBatch(
+        const QVariantList& targets,
+        const QString& mode,
+        double latitude_degrees,
+        double longitude_degrees,
+        const QString& place_name,
+        const QString& source_label
+    );
+    Q_INVOKABLE void applyLibraryCoordinateBatch(const QString& preview_id);
     Q_INVOKABLE void previewLibraryGpxImport(
         const QUrl& gpx_url,
         const QVariantList& targets,

@@ -442,6 +442,23 @@ capture_time_batch_preview(const shadow::desktop::FfiCaptureTimeBatchPreview& so
     return result;
 }
 
+[[nodiscard]] BackendCoordinateBatchPreview
+coordinate_batch_preview(const shadow::desktop::FfiCoordinateBatchPreview& source) {
+    return {
+        .preview_id = qstring(source.preview_id),
+        .mode = qstring(source.mode),
+        .latitude_e7 = source.latitude_e7,
+        .longitude_e7 = source.longitude_e7,
+        .place_name = qstring(source.place_name),
+        .requested_photo_count = source.requested_photo_count,
+        .applicable_photo_count = source.applicable_photo_count,
+        .skipped_photo_count = source.skipped_photo_count,
+        .missing_photo_count = source.missing_photo_count,
+        .existing_photo_count = source.existing_photo_count,
+        .replacement_photo_count = source.replacement_photo_count,
+    };
+}
+
 [[nodiscard]] rust::Vec<shadow::desktop::FfiBatchPhotoTarget>
 ffi_batch_photo_targets(const QVector<BackendBatchPhotoTarget>& targets) {
     rust::Vec<shadow::desktop::FfiBatchPhotoTarget> result;
@@ -876,6 +893,34 @@ BackendCaptureTimeBatchPreview DesktopBackend::previewLibraryCaptureTimeBatch(
 BackendLibraryMetadataBatchReceipt
 DesktopBackend::applyLibraryCaptureTimeBatch(const QString& preview_id) const {
     const auto receipt = impl_->session->apply_library_capture_time_batch(preview_id.toStdString());
+    return {
+        .requested_photo_count = receipt.requested_photo_count,
+        .applied_photo_count = receipt.applied_photo_count,
+    };
+}
+
+BackendCoordinateBatchPreview DesktopBackend::previewLibraryCoordinateBatch(
+    const QVector<BackendBatchPhotoTarget>& targets,
+    const QString& mode,
+    const double latitude_degrees,
+    const double longitude_degrees,
+    const QString& place_name,
+    const QString& source_label
+) const {
+    return coordinate_batch_preview(impl_->session->preview_library_coordinate_batch(
+        ffi_batch_photo_targets(targets),
+        mode.toStdString(),
+        latitude_degrees,
+        longitude_degrees,
+        place_name.toStdString(),
+        source_label.toStdString()
+    ));
+}
+
+BackendLibraryMetadataBatchReceipt
+DesktopBackend::applyLibraryCoordinateBatch(const QString& preview_id) const {
+    const auto receipt =
+        impl_->session->apply_library_coordinate_batch(preview_id.toStdString());
     return {
         .requested_photo_count = receipt.requested_photo_count,
         .applied_photo_count = receipt.applied_photo_count,

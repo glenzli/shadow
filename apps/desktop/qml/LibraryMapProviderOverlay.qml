@@ -14,15 +14,17 @@ Rectangle {
     required property var workspace
     required property bool providerSelected
     required property bool providerAvailable
+    required property bool providerRegionAvailable
     required property string providerName
 
     signal configureRequested
 
-    visible: !providerAvailable
+    visible: !providerAvailable || !providerRegionAvailable
     color: Theme.window
 
     Rectangle {
         objectName: "libraryMapSetupPanel"
+        visible: root.visible
         anchors.centerIn: parent
         width: Math.min(440, root.width - 48)
         height: setupContent.implicitHeight + 32
@@ -41,7 +43,9 @@ Rectangle {
 
             Label {
                 Layout.fillWidth: true
-                text: root.providerSelected
+                text: !root.providerRegionAvailable
+                    ? qsTr("AMap is unavailable in this region")
+                    : root.providerSelected
                     ? qsTr("Complete the %1 map configuration").arg(root.providerName)
                     : qsTr("Choose a map service")
                 color: Theme.textPrimary
@@ -52,7 +56,9 @@ Rectangle {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("The Library map uses one interactive WebView surface. Add AMap JS API credentials or a Google Maps JavaScript API key, then choose that provider.")
+                text: !root.providerRegionAvailable
+                    ? qsTr("Use Auto or Google for photos outside mainland China. Shadow keeps one provider for the current map context instead of switching while you pan.")
+                    : qsTr("The Library map uses one interactive WebView surface. Add AMap JS API credentials or a Google Maps JavaScript API key, then choose that provider.")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontMeta
                 horizontalAlignment: Text.AlignHCenter

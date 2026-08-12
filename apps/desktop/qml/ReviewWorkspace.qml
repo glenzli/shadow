@@ -308,6 +308,16 @@ Item {
         onRetryRequested: review.controller.retryPhotoInspection()
     }
 
+    LibraryLocationBatchDialog {
+        id: locationBatchDialog
+        transientParent: review.Window.window
+        controller: review.controller
+        mapController: review.libraryWebMapController
+        placeSearchService: review.amapPlaceSearchService
+        nativeWebMapAllowed: review.nativeWebMapAllowed
+        onConfigureMapRequested: review.openMapProviderSettingsRequested()
+    }
+
     LibraryAlbumDialogs {
         id: albumDialogs
         anchors.fill: parent
@@ -417,6 +427,19 @@ Item {
 
     function openKeywordPanel() {
         keywordPopup.present()
+    }
+
+    function openLocationBatch() {
+        const targets = batchSelectionTargets()
+        if (targets.length === 0 || controller.libraryMetadataBusy)
+            return false
+        return locationBatchDialog.present(
+            targets,
+            selectedHasCoordinates,
+            selectedLatitude,
+            selectedLongitude,
+            selectedResolvedPlaceName.length > 0
+                ? selectedResolvedPlaceName : selectedPlaceName)
     }
 
     function relinkUnavailablePhoto(photoId, locationId, title, sourcePath) {

@@ -384,6 +384,10 @@ QVariantMap ReviewController::libraryCaptureTimePreview() const {
     return metadata_coordinator_.captureTimePreview();
 }
 
+QVariantMap ReviewController::libraryCoordinateBatchPreview() const {
+    return metadata_coordinator_.coordinateBatchPreview();
+}
+
 QVariantMap ReviewController::libraryGpxPreview() const {
     return metadata_coordinator_.gpxPreview();
 }

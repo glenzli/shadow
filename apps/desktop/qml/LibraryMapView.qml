@@ -39,6 +39,19 @@ Rectangle {
         mapRegion.forceActiveFocus()
     }
 
+    function beginProviderContext() {
+        const controller = root.workspace.libraryWebMapController
+        if (root.workspace.selectedHasCoordinates) {
+            controller.beginMapContext(
+                Number(root.workspace.selectedLatitude),
+                Number(root.workspace.selectedLongitude))
+        } else {
+            controller.beginMapContext(
+                Number(controller.centerLatitude),
+                Number(controller.centerLongitude))
+        }
+    }
+
     LibraryMapLocationPlacementState {
         id: locationPlacement
         workspace: root.workspace
@@ -67,6 +80,8 @@ Rectangle {
                     Layout.preferredWidth: Math.min(390, Math.max(250, root.width * 0.36))
                     service: root.workspace.amapPlaceSearchService
                     mapController: root.workspace.libraryWebMapController
+                    providerEligible:
+                        root.workspace.libraryWebMapController.providerId === "amap"
                 }
 
                 ColumnLayout {
@@ -76,7 +91,10 @@ Rectangle {
                     Label {
                         Layout.fillWidth: true
                         text: root.workspace.libraryWebMapController.providerSelected
-                            ? root.workspace.libraryWebMapController.providerName
+                            ? root.workspace.libraryWebMapController.providerPolicy === "auto"
+                                ? qsTr("Auto · %1").arg(
+                                    root.workspace.libraryWebMapController.providerName)
+                                : root.workspace.libraryWebMapController.providerName
                             : qsTr("Basemap unavailable")
                         color: root.workspace.libraryWebMapController.providerSelected
                             ? Theme.textPrimary : Theme.textMuted
@@ -86,7 +104,9 @@ Rectangle {
 
                     Label {
                         Layout.fillWidth: true
-                        text: root.workspace.libraryWebMapController.statusCode.length > 0
+                        text: !root.workspace.libraryWebMapController.providerRegionAvailable
+                            ? qsTr("This provider does not cover the current map region.")
+                            : root.workspace.libraryWebMapController.statusCode.length > 0
                             ? qsTr("The map service is unavailable. Check the provider credentials and network connection.")
                             : root.workspace.controller.libraryMapFailed
                                 ? qsTr("Map locations could not be loaded.")
@@ -94,7 +114,8 @@ Rectangle {
                                     ? qsTr("No geotagged photos in this map area.")
                                     : qsTr("%L1 photos in view").arg(
                                           root.workspace.controller.libraryMapPhotoCount)
-                        color: root.workspace.libraryWebMapController.statusCode.length > 0
+                        color: !root.workspace.libraryWebMapController.providerRegionAvailable
+                            || root.workspace.libraryWebMapController.statusCode.length > 0
                             ? Theme.errorText : Theme.textSecondary
                         font.pixelSize: 10
                         elide: Text.ElideRight
@@ -225,6 +246,8 @@ Rectangle {
                     root.workspace.libraryWebMapController.providerSelected
                 providerAvailable:
                     root.workspace.libraryWebMapController.providerAvailable
+                providerRegionAvailable:
+                    root.workspace.libraryWebMapController.providerRegionAvailable
                 providerName: root.workspace.libraryWebMapController.providerName
                 onConfigureRequested:
                     root.workspace.openMapProviderSettingsRequested()
@@ -278,13 +301,19 @@ Rectangle {
     }
 
     onVisibleChanged: {
-        root.workspace.libraryWebMapController.active = visible
-        if (visible) root.refreshClusters()
+        if (visible) {
+            root.beginProviderContext()
+            root.workspace.libraryWebMapController.active = true
+            root.refreshClusters()
+        } else {
+            root.workspace.libraryWebMapController.active = false
+        }
     }
 
     Component.onCompleted: {
         root.workspace.libraryWebMapController.setLanguage(
             root.workspace.preferences.effectiveLanguage)
+        if (root.visible) root.beginProviderContext()
         root.workspace.libraryWebMapController.active = root.visible
         root.refreshClusters()
         root.synchronizePlacement()

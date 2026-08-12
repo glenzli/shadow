@@ -75,23 +75,27 @@ class FakeMapController final : public QObject {
     Q_PROPERTY(double zoomLevel READ zoomLevel NOTIFY centerChanged)
 
   public:
-    [[nodiscard]] double centerLatitude() const noexcept { return latitude_; }
-    [[nodiscard]] double centerLongitude() const noexcept { return longitude_; }
+    [[nodiscard]] double centerLatitude() const noexcept {
+        return latitude_;
+    }
+    [[nodiscard]] double centerLongitude() const noexcept {
+        return longitude_;
+    }
     [[nodiscard]] double zoomLevel() const noexcept {
         return zoom_level_;
     }
 
-    Q_INVOKABLE void setCenter(
-        const double latitude,
-        const double longitude,
-        const double zoom_level
-    ) {
+    Q_INVOKABLE void
+    navigateToContext(const double latitude, const double longitude, const double zoom_level) {
+        ++context_navigation_count;
         latitude_ = latitude;
         longitude_ = longitude;
         zoom_level_ = zoom_level;
         emit zoomLevelChanged();
         emit centerChanged();
     }
+
+    int context_navigation_count = 0;
 
   signals:
     void centerChanged();
@@ -163,8 +167,7 @@ int main(int argc, char* argv[]) {
 
     auto* const search_field =
         findVisualChild(*search, QStringLiteral("libraryMapAmapSearchField"));
-    auto* const result =
-        findVisualChild(*search, QStringLiteral("libraryMapAmapSearchResult"));
+    auto* const result = findVisualChild(*search, QStringLiteral("libraryMapAmapSearchResult"));
     bool valid = require(
         search->isVisible() && search_field != nullptr && result != nullptr,
         "the packaged search field and result delegate are visible when AMap search is authorized"
@@ -182,18 +185,26 @@ int main(int argc, char* argv[]) {
     }
 
     if (result != nullptr) {
-        const QPointF position = result->mapToScene(
-            QPointF{result->width() / 2.0, result->height() / 2.0}
-        );
+        const QPointF position =
+            result->mapToScene(QPointF{result->width() / 2.0, result->height() / 2.0});
         QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, position.toPoint());
         drainBindings();
         valid &= require(
             qAbs(map_controller.centerLatitude() - 31.2400) < 0.0001
                 && qAbs(map_controller.centerLongitude() - 121.4900) < 0.0001
-                && map_controller.zoomLevel() >= 13.0 && service.clear_count == 1,
-            "clicking a result recenters the shared map in WGS84 and clears transient results"
+                && map_controller.zoomLevel() >= 13.0
+                && map_controller.context_navigation_count == 1 && service.clear_count == 1,
+            "clicking a result opens an intentional provider context in WGS84 and clears transient "
+            "results"
         );
     }
+
+    search->setProperty("providerEligible", false);
+    drainBindings();
+    valid &= require(
+        !search->isVisible(),
+        "AMap place search stays hidden while another basemap owns the map context"
+    );
 
     return valid ? EXIT_SUCCESS : EXIT_FAILURE;
 }

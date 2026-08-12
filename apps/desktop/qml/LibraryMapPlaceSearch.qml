@@ -10,6 +10,9 @@ Rectangle {
 
     required property var service
     required property var mapController
+    property bool providerEligible: true
+    property bool proposeChosenCoordinate: false
+    signal resultChosen(real latitude, real longitude, string name, string label)
 
     width: Math.min(390, Math.max(240, parent ? parent.width - 28 : 390))
     height: searchColumn.implicitHeight + 16
@@ -17,7 +20,15 @@ Rectangle {
     color: Theme.panelRaised
     border.width: 1
     border.color: Theme.borderStrong
-    visible: service.available || searchField.activeFocus
+    visible: providerEligible && (service.available || searchField.activeFocus)
+
+    onProviderEligibleChanged: {
+        if (!providerEligible) {
+            searchDelay.stop();
+            searchField.clear();
+            service.clear();
+        }
+    }
 
     function submitSearch() {
         root.service.search(
@@ -29,9 +40,17 @@ Rectangle {
     function choose(result) {
         if (!result)
             return;
-        mapController.setCenter(
+        mapController.navigateToContext(
             Number(result.latitude), Number(result.longitude),
             Math.max(Number(mapController.zoomLevel), 13));
+        if (root.proposeChosenCoordinate) {
+            root.mapController.setPlacementActive(true);
+            root.mapController.setPendingCoordinate(
+                true, Number(result.latitude), Number(result.longitude));
+            root.resultChosen(
+                Number(result.latitude), Number(result.longitude),
+                String(result.name || ""), String(result.label || ""));
+        }
         searchField.text = String(result.name);
         service.clear();
         searchField.focus = false;

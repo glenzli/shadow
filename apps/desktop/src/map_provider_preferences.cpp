@@ -21,7 +21,8 @@ constexpr auto amap_reverse_geocoding_key = "maps/amap/reverse_geocoding_allowed
 constexpr QChar amap_js_separator{0x001f};
 
 [[nodiscard]] QString normalizedLibraryMapProvider(const QString& provider) {
-    return provider == QStringLiteral("google") || provider == QStringLiteral("amap")
+    return provider == QStringLiteral("auto") || provider == QStringLiteral("google")
+                   || provider == QStringLiteral("amap")
                ? provider
                : QStringLiteral("none");
 }
@@ -145,6 +146,11 @@ QString MapProviderPreferences::diagnosticText() const {
 
 void MapProviderPreferences::setLibraryMapProvider(const QString& provider) {
     const QString normalized = normalizedLibraryMapProvider(provider);
+    if (normalized == QStringLiteral("auto") && !google_api_key_stored_
+        && !amap_js_credentials_stored_) {
+        setStatus(QStringLiteral("map-provider-required"));
+        return;
+    }
     if (normalized == QStringLiteral("google") && !google_api_key_stored_) {
         setStatus(QStringLiteral("api-key-required"));
         return;
@@ -267,7 +273,7 @@ bool MapProviderPreferences::storeGoogleApiKey(const QString& api_key) {
         emit googleApiKeyStoredChanged();
     }
     if (!credential_was_stored && library_map_provider_ == QStringLiteral("none")) {
-        setLibraryMapProvider(QStringLiteral("google"));
+        setLibraryMapProvider(QStringLiteral("auto"));
     }
     setStatus(QStringLiteral("api-key-saved"));
     return true;
@@ -297,6 +303,12 @@ bool MapProviderPreferences::removeGoogleApiKey() {
     if (google_api_key_stored_) {
         google_api_key_stored_ = false;
         emit googleApiKeyStoredChanged();
+    }
+    if (library_map_provider_ == QStringLiteral("auto") && !amap_js_credentials_stored_) {
+        library_map_provider_ = QStringLiteral("none");
+        settings_->setValue(QString::fromLatin1(library_map_provider_key), library_map_provider_);
+        settings_->sync();
+        emit libraryMapProviderChanged();
     }
     setStatus(QStringLiteral("api-key-removed"));
     return true;
@@ -396,7 +408,7 @@ bool MapProviderPreferences::storeAmapJsCredentials(
         emit amapJsCredentialsStoredChanged();
     }
     if (!credentials_were_stored && library_map_provider_ == QStringLiteral("none")) {
-        setLibraryMapProvider(QStringLiteral("amap"));
+        setLibraryMapProvider(QStringLiteral("auto"));
     }
     setStatus(QStringLiteral("amap-js-credentials-saved"));
     return true;
@@ -421,7 +433,8 @@ bool MapProviderPreferences::removeAmapJsCredentials() {
         );
         return false;
     }
-    if (library_map_provider_ == QStringLiteral("amap")) {
+    if (library_map_provider_ == QStringLiteral("amap")
+        || (library_map_provider_ == QStringLiteral("auto") && !google_api_key_stored_)) {
         library_map_provider_ = QStringLiteral("none");
         settings_->setValue(QString::fromLatin1(library_map_provider_key), library_map_provider_);
         settings_->sync();
@@ -593,9 +606,7 @@ void MapProviderPreferences::recoverSoleAvailableLibraryMapProvider() {
     if (google_api_key_stored_ == amap_js_credentials_stored_) {
         return;
     }
-    setLibraryMapProvider(
-        google_api_key_stored_ ? QStringLiteral("google") : QStringLiteral("amap")
-    );
+    setLibraryMapProvider(QStringLiteral("auto"));
 }
 
 void MapProviderPreferences::disableGooglePermissions(const bool persist) {

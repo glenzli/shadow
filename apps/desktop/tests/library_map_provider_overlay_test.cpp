@@ -88,6 +88,7 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("workspace"), QVariant::fromValue(&workspace)},
         {QStringLiteral("providerSelected"), false},
         {QStringLiteral("providerAvailable"), false},
+        {QStringLiteral("providerRegionAvailable"), true},
         {QStringLiteral("providerName"), QString{}},
         {QStringLiteral("width"), 900.0},
         {QStringLiteral("height"), 600.0},
@@ -134,12 +135,17 @@ int main(int argc, char* argv[]) {
     overlay->setProperty("providerSelected", true);
     overlay->setProperty("providerName", QStringLiteral("Google Maps"));
     drainBindings();
-    return require(
-               !setup_panel->property("visible").toBool(),
-               "the setup guidance leaves the map after the WebView provider becomes available"
-           )
-               ? EXIT_SUCCESS
-               : EXIT_FAILURE;
+    bool valid = require(
+        !overlay->property("visible").toBool(),
+        "the setup guidance leaves the map after the WebView provider becomes available"
+    );
+    overlay->setProperty("providerRegionAvailable", false);
+    drainBindings();
+    valid &= require(
+        overlay->property("providerRegionAvailable").toBool() == false,
+        "an unsupported manual-provider region shows guidance instead of a blank map"
+    );
+    return valid ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 #include "library_map_provider_overlay_test.moc"

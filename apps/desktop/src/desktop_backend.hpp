@@ -157,6 +157,16 @@ class DesktopBackend final {
     ) const;
     [[nodiscard]] BackendLibraryMetadataBatchReceipt
     applyLibraryCaptureTimeBatch(const QString& preview_id) const;
+    [[nodiscard]] BackendCoordinateBatchPreview previewLibraryCoordinateBatch(
+        const QVector<BackendBatchPhotoTarget>& targets,
+        const QString& mode,
+        double latitude_degrees,
+        double longitude_degrees,
+        const QString& place_name,
+        const QString& source_label
+    ) const;
+    [[nodiscard]] BackendLibraryMetadataBatchReceipt
+    applyLibraryCoordinateBatch(const QString& preview_id) const;
     [[nodiscard]] BackendGpxImportPreview previewLibraryGpxImport(
         const QString& gpx_path,
         const QVector<BackendBatchPhotoTarget>& targets,

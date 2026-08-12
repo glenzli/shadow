@@ -104,41 +104,100 @@ LibraryWebMapController::LibraryWebMapController(
     );
 }
 
-bool LibraryWebMapController::active() const noexcept { return active_; }
-QString LibraryWebMapController::providerId() const { return preferences_->libraryMapProvider(); }
-bool LibraryWebMapController::providerSelected() const { return providerId() != QStringLiteral("none"); }
+bool LibraryWebMapController::active() const noexcept {
+    return active_;
+}
+QString LibraryWebMapController::providerPolicy() const {
+    return preferences_->libraryMapProvider();
+}
+QString LibraryWebMapController::providerId() const {
+    return providerPolicy() == QStringLiteral("auto") ? effective_provider_id_ : providerPolicy();
+}
+bool LibraryWebMapController::providerSelected() const {
+    return providerId() != QStringLiteral("none");
+}
 bool LibraryWebMapController::providerAvailable() const {
     return (providerId() == QStringLiteral("google") && preferences_->googleApiKeyStored())
            || (providerId() == QStringLiteral("amap") && preferences_->amapJsCredentialsStored());
 }
+bool LibraryWebMapController::providerRegionAvailable() const {
+    return providerId() != QStringLiteral("amap")
+           || shadow::desktop::maps::amapDomesticCoordinateSupported(
+               center_latitude_,
+               center_longitude_
+           );
+}
 QString LibraryWebMapController::providerName() const {
-    if (providerId() == QStringLiteral("google")) return QStringLiteral("Google Maps");
-    if (providerId() == QStringLiteral("amap")) return QStringLiteral("AMap");
+    if (providerId() == QStringLiteral("google"))
+        return QStringLiteral("Google Maps");
+    if (providerId() == QStringLiteral("amap"))
+        return QStringLiteral("AMap");
     return {};
 }
-bool LibraryWebMapController::ready() const noexcept { return ready_; }
-bool LibraryWebMapController::busy() const noexcept { return busy_; }
-QString LibraryWebMapController::statusCode() const { return status_code_; }
-double LibraryWebMapController::centerLatitude() const noexcept { return center_latitude_; }
-double LibraryWebMapController::centerLongitude() const noexcept { return center_longitude_; }
-double LibraryWebMapController::zoomLevel() const noexcept { return zoom_level_; }
+
+QString LibraryWebMapController::fallbackAvailableProvider() const {
+    if (preferences_->googleApiKeyStored())
+        return QStringLiteral("google");
+    if (preferences_->amapJsCredentialsStored())
+        return QStringLiteral("amap");
+    return {};
+}
+
+QString LibraryWebMapController::resolveProviderForCoordinate(
+    const double latitude,
+    const double longitude
+) const {
+    const bool domestic =
+        shadow::desktop::maps::amapDomesticCoordinateSupported(latitude, longitude);
+    if (domestic && preferences_->amapJsCredentialsStored())
+        return QStringLiteral("amap");
+    if (!domestic && preferences_->googleApiKeyStored())
+        return QStringLiteral("google");
+    return fallbackAvailableProvider();
+}
+
+bool LibraryWebMapController::ready() const noexcept {
+    return ready_;
+}
+bool LibraryWebMapController::busy() const noexcept {
+    return busy_;
+}
+QString LibraryWebMapController::statusCode() const {
+    return status_code_;
+}
+double LibraryWebMapController::centerLatitude() const noexcept {
+    return center_latitude_;
+}
+double LibraryWebMapController::centerLongitude() const noexcept {
+    return center_longitude_;
+}
+double LibraryWebMapController::zoomLevel() const noexcept {
+    return zoom_level_;
+}
 
 void LibraryWebMapController::attachWebView(QObject* const web_view) {
-    if (web_view_ == web_view) return;
+    if (web_view_ == web_view)
+        return;
     web_view_ = web_view;
     reloadDocument();
 }
 
 void LibraryWebMapController::detachWebView(QObject* const web_view) {
-    if (web_view_ != web_view) return;
+    if (web_view_ != web_view)
+        return;
     web_view_.clear();
     setRuntimeState(false, false);
 }
 
 void LibraryWebMapController::setActive(const bool active) {
-    if (active_ == active) return;
+    if (active_ == active)
+        return;
     active_ = active;
     if (active_) {
+        if (providerPolicy() == QStringLiteral("auto") && effective_provider_id_.isEmpty()) {
+            effective_provider_id_ =
+                resolveProviderForCoordinate(center_latitude_, center_longitude_);
+        }
         reloadDocument();
     } else {
         setRuntimeState(false, false);
@@ -146,11 +205,39 @@ void LibraryWebMapController::setActive(const bool active) {
     emit stateChanged();
 }
 
+void LibraryWebMapController::beginMapContext(const double latitude, const double longitude) {
+    if (!finiteCoordinate(latitude, longitude))
+        return;
+    if (providerPolicy() == QStringLiteral("auto")) {
+        effective_provider_id_.clear();
+        effective_provider_id_ = resolveProviderForCoordinate(latitude, longitude);
+    }
+    setCenter(latitude, longitude);
+    reloadDocument();
+}
+
+void LibraryWebMapController::navigateToContext(
+    const double latitude,
+    const double longitude,
+    const double zoom
+) {
+    if (!finiteCoordinate(latitude, longitude))
+        return;
+    const QString resolved = providerPolicy() == QStringLiteral("auto")
+                                 ? resolveProviderForCoordinate(latitude, longitude)
+                                 : QString{};
+    if (!resolved.isEmpty())
+        effective_provider_id_ = resolved;
+    setCenter(latitude, longitude, zoom);
+    reloadDocument();
+}
+
 void LibraryWebMapController::setLanguage(const QString& language) {
     const QString normalized = language.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)
                                    ? QStringLiteral("zh-CN")
                                    : QStringLiteral("en-US");
-    if (language_ == normalized) return;
+    if (language_ == normalized)
+        return;
     language_ = normalized;
     reloadDocument();
 }
@@ -165,16 +252,20 @@ void LibraryWebMapController::setCenter(
     const double longitude,
     const double zoom
 ) {
-    if (!finiteCoordinate(latitude, longitude)) return;
+    if (!finiteCoordinate(latitude, longitude))
+        return;
     center_latitude_ = latitude;
     center_longitude_ = longitude;
-    if (std::isfinite(zoom) && zoom >= 0.0) zoom_level_ = std::clamp(zoom, 1.0, 20.0);
+    if (std::isfinite(zoom) && zoom >= 0.0)
+        zoom_level_ = std::clamp(zoom, 1.0, 20.0);
     emit centerChanged();
+    emit stateChanged();
     pushState();
 }
 
 void LibraryWebMapController::setPlacementActive(const bool active) {
-    if (placement_active_ == active) return;
+    if (placement_active_ == active)
+        return;
     placement_active_ = active;
     pushState();
 }
@@ -193,7 +284,8 @@ void LibraryWebMapController::setPendingCoordinate(
 void LibraryWebMapController::consumeEvents(const QString& json) {
     QJsonParseError error;
     const QJsonDocument document = QJsonDocument::fromJson(json.toUtf8(), &error);
-    if (error.error != QJsonParseError::NoError || !document.isArray()) return;
+    if (error.error != QJsonParseError::NoError || !document.isArray())
+        return;
     for (const QJsonValue& value : document.array()) {
         const QJsonObject event = value.toObject();
         const QString kind = event.value(QStringLiteral("kind")).toString();
@@ -208,7 +300,8 @@ void LibraryWebMapController::consumeEvents(const QString& json) {
         }
         if (kind == QStringLiteral("cluster")) {
             const int index = event.value(QStringLiteral("index")).toInt(-1);
-            if (index >= 0 && index < clusters_.size()) emit clusterActivated(clusters_.at(index).toMap());
+            if (index >= 0 && index < clusters_.size())
+                emit clusterActivated(clusters_.at(index).toMap());
             continue;
         }
         if (kind == QStringLiteral("placement")) {
@@ -219,23 +312,35 @@ void LibraryWebMapController::consumeEvents(const QString& json) {
                 latitude = converted.latitude;
                 longitude = converted.longitude;
             }
-            if (finiteCoordinate(latitude, longitude)) emit coordinateProposed(latitude, longitude);
+            if (finiteCoordinate(latitude, longitude))
+                emit coordinateProposed(latitude, longitude);
             continue;
         }
-        if (kind != QStringLiteral("viewport")) continue;
+        if (kind != QStringLiteral("viewport"))
+            continue;
         double south = event.value(QStringLiteral("south")).toDouble();
         double west = event.value(QStringLiteral("west")).toDouble();
         double north = event.value(QStringLiteral("north")).toDouble();
         double east = event.value(QStringLiteral("east")).toDouble();
-        double center_latitude = event.value(QStringLiteral("center")).toObject().value(QStringLiteral("latitude")).toDouble();
-        double center_longitude = event.value(QStringLiteral("center")).toObject().value(QStringLiteral("longitude")).toDouble();
+        double center_latitude = event.value(QStringLiteral("center"))
+                                     .toObject()
+                                     .value(QStringLiteral("latitude"))
+                                     .toDouble();
+        double center_longitude = event.value(QStringLiteral("center"))
+                                      .toObject()
+                                      .value(QStringLiteral("longitude"))
+                                      .toDouble();
         if (providerId() == QStringLiteral("amap")) {
             const auto south_west = shadow::desktop::maps::gcj02ToWgs84(south, west);
             const auto north_east = shadow::desktop::maps::gcj02ToWgs84(north, east);
-            const auto center = shadow::desktop::maps::gcj02ToWgs84(center_latitude, center_longitude);
-            south = south_west.latitude; west = south_west.longitude;
-            north = north_east.latitude; east = north_east.longitude;
-            center_latitude = center.latitude; center_longitude = center.longitude;
+            const auto center =
+                shadow::desktop::maps::gcj02ToWgs84(center_latitude, center_longitude);
+            south = south_west.latitude;
+            west = south_west.longitude;
+            north = north_east.latitude;
+            east = north_east.longitude;
+            center_latitude = center.latitude;
+            center_longitude = center.longitude;
         }
         const int zoom = std::clamp(event.value(QStringLiteral("zoom")).toInt(2), 1, 20);
         if (finiteCoordinate(center_latitude, center_longitude)) {
@@ -251,9 +356,16 @@ void LibraryWebMapController::consumeEvents(const QString& json) {
 }
 
 void LibraryWebMapController::handleLoadStatus(const int status, const QString& error_text) {
-    if (status == 0) setRuntimeState(false, true);
-    else if (status == 2) setRuntimeState(false, true);
-    else if (status == 3) setRuntimeState(false, false, error_text.isEmpty() ? QStringLiteral("load-failed") : QStringLiteral("load-failed"));
+    if (status == 0)
+        setRuntimeState(false, true);
+    else if (status == 2)
+        setRuntimeState(false, true);
+    else if (status == 3)
+        setRuntimeState(
+            false,
+            false,
+            error_text.isEmpty() ? QStringLiteral("load-failed") : QStringLiteral("load-failed")
+        );
 }
 
 QString LibraryWebMapController::buildDocument() {
@@ -264,11 +376,17 @@ QString LibraryWebMapController::buildDocument() {
     };
     if (providerId() == QStringLiteral("google")) {
         const SecretStoreResult secret = preferences_->readGoogleApiKey();
-        if (!secret.succeeded()) { status_code_ = QStringLiteral("credential-unavailable"); return {}; }
+        if (!secret.succeeded()) {
+            status_code_ = QStringLiteral("credential-unavailable");
+            return {};
+        }
         config.insert(QStringLiteral("apiKey"), secret.value);
     } else if (providerId() == QStringLiteral("amap")) {
         const AmapJsCredentialsResult credentials = preferences_->readAmapJsCredentials();
-        if (!credentials.succeeded()) { status_code_ = QStringLiteral("credential-unavailable"); return {}; }
+        if (!credentials.succeeded()) {
+            status_code_ = QStringLiteral("credential-unavailable");
+            return {};
+        }
         config.insert(QStringLiteral("apiKey"), credentials.api_key);
         config.insert(QStringLiteral("securityCode"), credentials.security_code);
     } else {
@@ -278,13 +396,14 @@ QString LibraryWebMapController::buildDocument() {
     return document.replace(QStringLiteral("__SHADOW_CONFIG__"), compactJson(config));
 }
 
-QVariantMap LibraryWebMapController::providerCoordinate(
-    const double latitude,
-    const double longitude
-) const {
+QVariantMap
+LibraryWebMapController::providerCoordinate(const double latitude, const double longitude) const {
     if (providerId() == QStringLiteral("amap")) {
         const auto converted = shadow::desktop::maps::wgs84ToGcj02(latitude, longitude);
-        return {{QStringLiteral("latitude"), converted.latitude}, {QStringLiteral("longitude"), converted.longitude}};
+        return {
+            {QStringLiteral("latitude"), converted.latitude},
+            {QStringLiteral("longitude"), converted.longitude}
+        };
     }
     return {{QStringLiteral("latitude"), latitude}, {QStringLiteral("longitude"), longitude}};
 }
@@ -294,7 +413,10 @@ QVariantMap LibraryWebMapController::presentationState() const {
     presented_clusters.reserve(clusters_.size());
     for (const QVariant& value : clusters_) {
         QVariantMap cluster = value.toMap();
-        const QVariantMap coordinate = providerCoordinate(cluster.value(QStringLiteral("latitude")).toDouble(), cluster.value(QStringLiteral("longitude")).toDouble());
+        const QVariantMap coordinate = providerCoordinate(
+            cluster.value(QStringLiteral("latitude")).toDouble(),
+            cluster.value(QStringLiteral("longitude")).toDouble()
+        );
         cluster.insert(QStringLiteral("latitude"), coordinate.value(QStringLiteral("latitude")));
         cluster.insert(QStringLiteral("longitude"), coordinate.value(QStringLiteral("longitude")));
         presented_clusters.push_back(cluster);
@@ -305,30 +427,40 @@ QVariantMap LibraryWebMapController::presentationState() const {
         {QStringLiteral("center"), providerCoordinate(center_latitude_, center_longitude_)},
         {QStringLiteral("zoom"), zoom_level_},
     };
-    if (pending_coordinate_present_) state.insert(QStringLiteral("pending"), providerCoordinate(pending_latitude_, pending_longitude_));
-    else state.insert(QStringLiteral("pending"), QVariant{});
+    if (pending_coordinate_present_)
+        state.insert(
+            QStringLiteral("pending"),
+            providerCoordinate(pending_latitude_, pending_longitude_)
+        );
+    else
+        state.insert(QStringLiteral("pending"), QVariant{});
     return state;
 }
 
 void LibraryWebMapController::reloadDocument() {
-    if (!active_ || web_view_.isNull() || !providerAvailable()) {
+    if (!active_ || web_view_.isNull() || !providerAvailable() || !providerRegionAvailable()) {
         setRuntimeState(false, false);
         return;
     }
     const QString document = buildDocument();
-    if (document.isEmpty()) { emit stateChanged(); return; }
+    if (document.isEmpty()) {
+        emit stateChanged();
+        return;
+    }
     setRuntimeState(false, true);
     QMetaObject::invokeMethod(web_view_, "loadHtml", Q_ARG(QString, document));
 }
 
 void LibraryWebMapController::pushState() {
-    if (!ready_ || web_view_.isNull()) return;
+    if (!ready_ || web_view_.isNull())
+        return;
     const QString json = compactJson(QJsonObject::fromVariantMap(presentationState()));
     runJavaScript(QStringLiteral("window.shadowMapApplyState(%1)").arg(json));
 }
 
 void LibraryWebMapController::runJavaScript(const QString& script) {
-    if (!web_view_.isNull()) QMetaObject::invokeMethod(web_view_, "runJavaScript", Q_ARG(QString, script));
+    if (!web_view_.isNull())
+        QMetaObject::invokeMethod(web_view_, "runJavaScript", Q_ARG(QString, script));
 }
 
 void LibraryWebMapController::setRuntimeState(
@@ -336,7 +468,8 @@ void LibraryWebMapController::setRuntimeState(
     const bool busy,
     const QString& status_code
 ) {
-    if (ready_ == ready && busy_ == busy && status_code_ == status_code) return;
+    if (ready_ == ready && busy_ == busy && status_code_ == status_code)
+        return;
     ready_ = ready;
     busy_ = busy;
     status_code_ = status_code;
@@ -344,6 +477,18 @@ void LibraryWebMapController::setRuntimeState(
 }
 
 void LibraryWebMapController::synchronizeProvider() {
+    if (providerPolicy() == QStringLiteral("auto")) {
+        if (effective_provider_id_.isEmpty()
+            || (effective_provider_id_ == QStringLiteral("google")
+                && !preferences_->googleApiKeyStored())
+            || (effective_provider_id_ == QStringLiteral("amap")
+                && !preferences_->amapJsCredentialsStored())) {
+            effective_provider_id_ =
+                resolveProviderForCoordinate(center_latitude_, center_longitude_);
+        }
+    } else {
+        effective_provider_id_.clear();
+    }
     emit stateChanged();
     reloadDocument();
 }

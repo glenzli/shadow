@@ -20,6 +20,8 @@ struct ReviewLibraryMetadataTaskResult final {
         CoordinatesMutation,
         CaptureBatchPreview,
         CaptureBatchApply,
+        CoordinateBatchPreview,
+        CoordinateBatchApply,
         GpxPreview,
         GpxApply,
     };
@@ -27,12 +29,14 @@ struct ReviewLibraryMetadataTaskResult final {
     Kind kind = Kind::Load;
     BackendLibraryMetadataState metadata;
     BackendCaptureTimeBatchPreview capture_time_preview;
+    BackendCoordinateBatchPreview coordinate_batch_preview;
     BackendGpxImportPreview gpx_preview;
     BackendLibraryMetadataBatchReceipt batch_receipt;
     QString error;
 };
 
-/// Owns asynchronous metadata correction and GPX preview/apply work.
+/// Owns asynchronous metadata correction plus coordinate, capture-time, and
+/// GPX preview/apply work.
 ///
 /// ReviewController is only the QML facade. Parsing GPX and writing a large
 /// correction batch must never occupy the GUI thread.
@@ -61,6 +65,16 @@ public:
         )> preview_capture_time;
         std::function<BackendLibraryMetadataBatchReceipt(const QString&)>
             apply_capture_time;
+        std::function<BackendCoordinateBatchPreview(
+            const QVector<BackendBatchPhotoTarget>&,
+            const QString&,
+            double,
+            double,
+            const QString&,
+            const QString&
+        )> preview_coordinates;
+        std::function<BackendLibraryMetadataBatchReceipt(const QString&)>
+            apply_coordinates;
         std::function<BackendGpxImportPreview(
             const QString&,
             const QVector<BackendBatchPhotoTarget>&,
@@ -79,6 +93,7 @@ public:
 
     [[nodiscard]] QVariantMap metadata() const;
     [[nodiscard]] QVariantMap captureTimePreview() const;
+    [[nodiscard]] QVariantMap coordinateBatchPreview() const;
     [[nodiscard]] QVariantMap gpxPreview() const;
     [[nodiscard]] QVariantMap batchReceipt() const;
     [[nodiscard]] bool busy() const noexcept;
@@ -105,6 +120,15 @@ public:
         std::int64_t offset_seconds
     );
     void applyCaptureTime(const QString& preview_id);
+    void previewCoordinates(
+        const QVariantList& targets,
+        const QString& mode,
+        double latitude_degrees,
+        double longitude_degrees,
+        const QString& place_name,
+        const QString& source_label
+    );
+    void applyCoordinates(const QString& preview_id);
     void previewGpx(
         const QString& gpx_path,
         const QVariantList& targets,
@@ -130,6 +154,7 @@ private:
     Operations operations_;
     BackendLibraryMetadataState metadata_;
     BackendCaptureTimeBatchPreview capture_time_preview_;
+    BackendCoordinateBatchPreview coordinate_batch_preview_;
     BackendGpxImportPreview gpx_preview_;
     BackendLibraryMetadataBatchReceipt batch_receipt_;
     QString status_code_ = QStringLiteral("idle");

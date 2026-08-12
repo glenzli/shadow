@@ -14,21 +14,19 @@ namespace {
 
 class MemorySecretStore final : public SecretStore {
   public:
-    [[nodiscard]] bool available() const noexcept override { return true; }
+    [[nodiscard]] bool available() const noexcept override {
+        return true;
+    }
     [[nodiscard]] SecretStoreResult read(const QString&, const QString& account) const override {
         const auto found = values_.constFind(account);
-        return found == values_.cend()
-                   ? SecretStoreResult{.status = SecretStoreStatus::NotFound}
-                   : SecretStoreResult{
-                         .status = SecretStoreStatus::Success,
-                         .value = found.value(),
-                     };
+        return found == values_.cend() ? SecretStoreResult{.status = SecretStoreStatus::NotFound}
+                                       : SecretStoreResult{
+                                             .status = SecretStoreStatus::Success,
+                                             .value = found.value(),
+                                         };
     }
-    [[nodiscard]] SecretStoreResult write(
-        const QString&,
-        const QString& account,
-        const QString& value
-    ) override {
+    [[nodiscard]] SecretStoreResult
+    write(const QString&, const QString& account, const QString& value) override {
         values_.insert(account, value);
         return {.status = SecretStoreStatus::Success};
     }
@@ -45,15 +43,20 @@ class FakeWebView final : public QObject {
     Q_OBJECT
 
   public:
-    Q_INVOKABLE void loadHtml(const QString& document) { html = document; }
-    Q_INVOKABLE void runJavaScript(const QString& source) { scripts.push_back(source); }
+    Q_INVOKABLE void loadHtml(const QString& document) {
+        html = document;
+    }
+    Q_INVOKABLE void runJavaScript(const QString& source) {
+        scripts.push_back(source);
+    }
 
     QString html;
     QStringList scripts;
 };
 
 [[nodiscard]] bool require(const bool condition, const char* const message) {
-    if (!condition) std::cerr << "Library Web map controller contract failed: " << message << '\n';
+    if (!condition)
+        std::cerr << "Library Web map controller contract failed: " << message << '\n';
     return condition;
 }
 
@@ -61,7 +64,8 @@ class FakeWebView final : public QObject {
 
 int main() {
     QTemporaryDir root;
-    if (!root.isValid()) return EXIT_FAILURE;
+    if (!root.isValid())
+        return EXIT_FAILURE;
 
     MapProviderPreferences preferences(
         root.filePath(QStringLiteral("map.ini")),
@@ -78,10 +82,45 @@ int main() {
     LibraryWebMapController controller(&preferences);
     FakeWebView web_view;
     controller.attachWebView(&web_view);
+    preferences.setLibraryMapProvider(QStringLiteral("auto"));
+    controller.beginMapContext(31.2304, 121.4737);
     controller.setActive(true);
-    preferences.setLibraryMapProvider(QStringLiteral("google"));
 
     bool valid = require(
+        controller.providerPolicy() == QStringLiteral("auto")
+            && controller.providerId() == QStringLiteral("amap")
+            && web_view.html.contains(QStringLiteral("webapi.amap.com/maps")),
+        "Auto chooses AMap when a mainland-China map context opens"
+    );
+
+    controller.setCenter(37.7749, -122.4194, 11.0);
+    valid &= require(
+        controller.providerId() == QStringLiteral("amap") && !controller.providerRegionAvailable(),
+        "ordinary viewport movement keeps the automatic provider sticky and exposes an "
+        "unsupported-region state"
+    );
+
+    controller.navigateToContext(37.7749, -122.4194, 11.0);
+    valid &= require(
+        controller.providerId() == QStringLiteral("google")
+            && web_view.html.contains(QStringLiteral("maps.googleapis.com/maps/api/js"))
+            && web_view.html.contains(google_key)
+            && !web_view.html.contains(QStringLiteral("tile.googleapis.com"))
+            && !web_view.html.contains(QStringLiteral("createSession")),
+        "explicit overseas navigation re-resolves Auto to the Google JavaScript map"
+    );
+
+    controller.beginMapContext(31.2304, 121.4737);
+    valid &= require(
+        controller.providerId() == QStringLiteral("amap")
+            && web_view.html.contains(QStringLiteral("webapi.amap.com/maps"))
+            && web_view.html.contains(amap_key) && web_view.html.contains(amap_security),
+        "a new mainland-China context re-resolves Auto to AMap"
+    );
+
+    preferences.setLibraryMapProvider(QStringLiteral("google"));
+
+    valid &= require(
         web_view.html.contains(QStringLiteral("maps.googleapis.com/maps/api/js"))
             && web_view.html.contains(google_key)
             && !web_view.html.contains(QStringLiteral("tile.googleapis.com"))
@@ -122,10 +161,17 @@ int main() {
     );
 
     preferences.setLibraryMapProvider(QStringLiteral("amap"));
+    controller.beginMapContext(37.7749, -122.4194);
     valid &= require(
-        web_view.html.contains(QStringLiteral("webapi.amap.com/maps"))
+        controller.providerId() == QStringLiteral("amap") && !controller.providerRegionAvailable(),
+        "manual AMap remains selected overseas and reports the unsupported region without fallback"
+    );
+    controller.beginMapContext(31.2304, 121.4737);
+    valid &= require(
+        controller.providerRegionAvailable()
+            && web_view.html.contains(QStringLiteral("webapi.amap.com/maps"))
             && web_view.html.contains(amap_key) && web_view.html.contains(amap_security),
-        "AMap uses the same WebView owner with its JS key and security code"
+        "manual AMap resumes its official WebView document in mainland China"
     );
 
     double proposed_latitude = 0.0;
@@ -138,12 +184,12 @@ int main() {
             proposed_longitude = longitude;
         }
     );
-    controller.consumeEvents(QStringLiteral(
-        "[{\"kind\":\"placement\",\"latitude\":31.228457,\"longitude\":121.478223}]"
-    ));
+    controller.consumeEvents(
+        QStringLiteral("[{\"kind\":\"placement\",\"latitude\":31.228457,\"longitude\":121.478223}]")
+    );
     valid &= require(
-        proposed_latitude > 31.22 && proposed_latitude < 31.24
-            && proposed_longitude > 121.46 && proposed_longitude < 121.48,
+        proposed_latitude > 31.22 && proposed_latitude < 31.24 && proposed_longitude > 121.46
+            && proposed_longitude < 121.48,
         "AMap events return through the WGS84 provider boundary"
     );
 

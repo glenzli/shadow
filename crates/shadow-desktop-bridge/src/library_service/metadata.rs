@@ -4,9 +4,11 @@
 //! lifecycles and live in responsibility-named child owners.
 
 mod capture_time_batch;
+mod coordinate_batch;
 mod gpx;
 
 pub(in crate::library_service) use capture_time_batch::CaptureTimePreviewRegistry;
+pub(in crate::library_service) use coordinate_batch::CoordinateBatchPreviewRegistry;
 pub(in crate::library_service) use gpx::GpxPreviewRegistry;
 
 use anyhow::{Context, Result as AnyResult, bail};

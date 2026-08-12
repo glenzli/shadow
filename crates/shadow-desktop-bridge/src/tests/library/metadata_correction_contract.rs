@@ -196,6 +196,107 @@ fn capture_time_batch_previews_effective_shifts_and_restores_camera_values_atomi
     );
 }
 
+#[test]
+fn coordinate_batch_preserves_existing_locations_by_default_and_requires_explicit_replacement() {
+    let fixture = MetadataFixture::open();
+    let existing = fixture.register_photo_named_with_coordinates(
+        "existing.nef",
+        Some(1_700_000_000),
+        Some((39.9, 116.4, "Beijing")),
+    );
+    let missing =
+        fixture.register_photo_named_with_coordinates("missing.nef", Some(1_700_001_000), None);
+    let targets = || {
+        vec![
+            ffi::FfiBatchPhotoTarget {
+                photo_id: existing.photo_id.to_string(),
+                source_path: String::new(),
+            },
+            ffi::FfiBatchPhotoTarget {
+                photo_id: missing.photo_id.to_string(),
+                source_path: String::new(),
+            },
+            ffi::FfiBatchPhotoTarget {
+                photo_id: missing.photo_id.to_string(),
+                source_path: String::new(),
+            },
+        ]
+    };
+
+    let safe_preview = fixture
+        .session
+        .preview_library_coordinate_batch(
+            targets(),
+            "missing",
+            31.2304,
+            121.4737,
+            "Shanghai",
+            "place-search:Shanghai",
+        )
+        .expect("preview missing-only coordinate assignment");
+    assert_eq!(safe_preview.requested_photo_count, 2);
+    assert_eq!(safe_preview.missing_photo_count, 1);
+    assert_eq!(safe_preview.existing_photo_count, 1);
+    assert_eq!(safe_preview.applicable_photo_count, 1);
+    assert_eq!(safe_preview.skipped_photo_count, 1);
+    assert_eq!(safe_preview.replacement_photo_count, 0);
+    let safe_receipt = fixture
+        .session
+        .apply_library_coordinate_batch(&safe_preview.preview_id)
+        .expect("apply missing-only coordinate assignment");
+    assert_eq!(safe_receipt.applied_photo_count, 1);
+    assert!(
+        fixture
+            .session
+            .apply_library_coordinate_batch(&safe_preview.preview_id)
+            .is_err(),
+        "coordinate preview must be one-time"
+    );
+    let unchanged = fixture
+        .session
+        .library_metadata_state(&existing.photo_id.to_string())
+        .expect("read preserved location");
+    assert_eq!(unchanged.effective_place_name, "Beijing");
+    assert_eq!(unchanged.coordinates_override_mode, "inherit");
+    let filled = fixture
+        .session
+        .library_metadata_state(&missing.photo_id.to_string())
+        .expect("read assigned location");
+    assert_eq!(filled.effective_latitude_e7, 312_304_000);
+    assert_eq!(filled.effective_place_name, "Shanghai");
+    assert_eq!(filled.coordinates_source_label, "place-search:Shanghai");
+
+    let replace_preview = fixture
+        .session
+        .preview_library_coordinate_batch(
+            targets(),
+            "replace",
+            35.6762,
+            139.6503,
+            "Tokyo",
+            "manual-map",
+        )
+        .expect("preview explicit location replacement");
+    assert_eq!(replace_preview.applicable_photo_count, 2);
+    assert_eq!(replace_preview.skipped_photo_count, 0);
+    assert_eq!(replace_preview.existing_photo_count, 2);
+    assert_eq!(replace_preview.replacement_photo_count, 2);
+    fixture
+        .session
+        .apply_library_coordinate_batch(&replace_preview.preview_id)
+        .expect("replace all selected coordinates");
+    for photo_id in [existing.photo_id, missing.photo_id] {
+        let state = fixture
+            .session
+            .library_metadata_state(&photo_id.to_string())
+            .expect("read replaced location");
+        assert_eq!(state.effective_latitude_e7, 356_762_000);
+        assert_eq!(state.effective_longitude_e7, 1_396_503_000);
+        assert_eq!(state.effective_place_name, "Tokyo");
+        assert_eq!(state.coordinates_source_label, "manual-map");
+    }
+}
+
 struct MetadataFixture {
     root: std::path::PathBuf,
     source_path: std::path::PathBuf,
@@ -232,6 +333,19 @@ impl MetadataFixture {
         file_name: &str,
         captured_at_unix_seconds: Option<i64>,
     ) -> shadow_catalog::RegisteredAsset {
+        self.register_photo_named_with_coordinates(
+            file_name,
+            captured_at_unix_seconds,
+            Some((39.9, 116.4, "Beijing")),
+        )
+    }
+
+    fn register_photo_named_with_coordinates(
+        &self,
+        file_name: &str,
+        captured_at_unix_seconds: Option<i64>,
+        coordinates: Option<(f64, f64, &str)>,
+    ) -> shadow_catalog::RegisteredAsset {
         let source_path = self.root.join(file_name);
         let display_path = source_path.to_string_lossy().into_owned();
         let registered = self
@@ -263,9 +377,9 @@ impl MetadataFixture {
                 aperture_milli: Some(4_000),
                 focal_length_tenth_mm: Some(240),
                 iso_speed: Some(800.0),
-                latitude_e7: Some(399_000_000),
-                longitude_e7: Some(1_164_000_000),
-                place_name: "Beijing".into(),
+                latitude_e7: coordinates.map(|value| (value.0 * 10_000_000.0).round() as i32),
+                longitude_e7: coordinates.map(|value| (value.1 * 10_000_000.0).round() as i32),
+                place_name: coordinates.map_or_else(String::new, |value| value.2.into()),
                 indexed_representation_id: Some(registered.representation_id),
                 indexed_source: Some(RepresentationFingerprint {
                     byte_len: 20_000,

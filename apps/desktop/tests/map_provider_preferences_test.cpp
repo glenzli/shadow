@@ -148,10 +148,10 @@ int main() {
             )
             || !require(
                 preferences.storeGoogleApiKey(api_key) && preferences.googleApiKeyStored()
-                    && preferences.libraryMapProvider() == QStringLiteral("google")
+                    && preferences.libraryMapProvider() == QStringLiteral("auto")
                     && preferences.statusCode() == QStringLiteral("api-key-saved")
                     && state->write_count == 1,
-                "a first valid basemap key is stored and selected atomically"
+                "a first valid basemap key activates automatic provider selection"
             )
             || !require(
                 preferences.storeAmapWebServiceKey(amap_web_key)
@@ -162,9 +162,9 @@ int main() {
             || !require(
                 preferences.storeAmapJsCredentials(amap_js_key, amap_security_code)
                     && preferences.amapJsCredentialsStored()
-                    && preferences.libraryMapProvider() == QStringLiteral("google")
+                    && preferences.libraryMapProvider() == QStringLiteral("auto")
                     && preferences.statusCode() == QStringLiteral("amap-js-credentials-saved"),
-                "adding another basemap credential preserves the explicit provider"
+                "adding another basemap credential preserves automatic routing"
             )) {
             return EXIT_FAILURE;
         }
@@ -283,10 +283,10 @@ int main() {
         QSettings recovered_settings(recovery_settings_path, QSettings::IniFormat);
         if (!require(
                 recovered.amapJsCredentialsStored()
-                    && recovered.libraryMapProvider() == QStringLiteral("amap")
+                    && recovered.libraryMapProvider() == QStringLiteral("auto")
                     && recovered_settings.value(QStringLiteral("maps/library/provider"))
-                           == QStringLiteral("amap"),
-                "the sole available basemap provider is recovered and persisted at startup"
+                           == QStringLiteral("auto"),
+                "a sole available basemap credential recovers automatic routing at startup"
             )) {
             return EXIT_FAILURE;
         }
@@ -309,6 +309,31 @@ int main() {
                 disabled.amapJsCredentialsStored()
                     && disabled.libraryMapProvider() == QStringLiteral("none"),
                 "an explicitly disabled basemap stays disabled across reconstruction"
+            )) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    {
+        const QString automatic_settings_path =
+            root.filePath(QStringLiteral("explicit-auto-amap-only.ini"));
+        QSettings automatic_settings(automatic_settings_path, QSettings::IniFormat);
+        automatic_settings.setValue(
+            QStringLiteral("maps/library/provider"),
+            QStringLiteral("auto")
+        );
+        automatic_settings.sync();
+        auto automatic_state = std::make_shared<FakeSecretState>();
+        automatic_state->read_status = SecretStoreStatus::Success;
+        automatic_state->values.insert(
+            QStringLiteral("amap-js-api-credentials"),
+            amap_js_key + QChar{0x001f} + amap_security_code
+        );
+        MapProviderPreferences automatic(automatic_settings_path, fakeStore(automatic_state));
+        if (!require(
+                automatic.amapJsCredentialsStored()
+                    && automatic.libraryMapProvider() == QStringLiteral("auto"),
+                "automatic routing survives startup when only AMap credentials are stored"
             )) {
             return EXIT_FAILURE;
         }

@@ -210,6 +210,24 @@ Popup {
         Divider {}
 
         MenuRow {
+            text: root.hasWorkspace && root.workspace.selectedPhotoCount > 1
+                ? qsTr("Set location for selected photos…")
+                : qsTr("Set photo location…")
+            iconSource: "qrc:/icons/location-pin.svg"
+            actionEnabled: root.hasWorkspace
+                && root.workspace.selectedPhotoCount > 0
+                && !root.workspace.controller.libraryMetadataBusy
+            onActivated: {
+                if (!root.hasWorkspace)
+                    return
+                root.workspace.openLocationBatch()
+                root.close()
+            }
+        }
+
+        Divider {}
+
+        MenuRow {
             visible: !root.photoSourceAvailable && !root.photoIsRemote
             text: qsTr("Add or locate folder…")
             iconSource: "qrc:/icons/add-folder.svg"

@@ -187,6 +187,43 @@ namespace {
     };
 }
 
+[[nodiscard]] QVariantMap coordinate_batch_preview_presentation(
+    const BackendCoordinateBatchPreview& source
+) {
+    if (source.preview_id.isEmpty()) {
+        return {};
+    }
+    constexpr double e7_scale = 10'000'000.0;
+    return {
+        {QStringLiteral("previewId"), source.preview_id},
+        {QStringLiteral("mode"), source.mode},
+        {
+            QStringLiteral("latitude"),
+            static_cast<double>(source.latitude_e7) / e7_scale,
+        },
+        {
+            QStringLiteral("longitude"),
+            static_cast<double>(source.longitude_e7) / e7_scale,
+        },
+        {QStringLiteral("placeName"), source.place_name},
+        {
+            QStringLiteral("requestedPhotoCount"),
+            source.requested_photo_count,
+        },
+        {
+            QStringLiteral("applicablePhotoCount"),
+            source.applicable_photo_count,
+        },
+        {QStringLiteral("skippedPhotoCount"), source.skipped_photo_count},
+        {QStringLiteral("missingPhotoCount"), source.missing_photo_count},
+        {QStringLiteral("existingPhotoCount"), source.existing_photo_count},
+        {
+            QStringLiteral("replacementPhotoCount"),
+            source.replacement_photo_count,
+        },
+    };
+}
+
 [[nodiscard]] QVariantMap batch_receipt_presentation(
     const BackendLibraryMetadataBatchReceipt& source
 ) {
@@ -215,7 +252,8 @@ ReviewLibraryMetadataCoordinator::ReviewLibraryMetadataCoordinator(
     : QObject(parent), operations_(std::move(operations)) {
     if (!operations_.load || !operations_.set_capture_time
         || !operations_.set_coordinates || !operations_.preview_capture_time
-        || !operations_.apply_capture_time || !operations_.preview_gpx
+        || !operations_.apply_capture_time || !operations_.preview_coordinates
+        || !operations_.apply_coordinates || !operations_.preview_gpx
         || !operations_.apply_gpx) {
         throw std::invalid_argument(
             "Library metadata coordinator requires complete operations"
@@ -239,6 +277,10 @@ QVariantMap ReviewLibraryMetadataCoordinator::metadata() const {
 
 QVariantMap ReviewLibraryMetadataCoordinator::captureTimePreview() const {
     return capture_time_preview_presentation(capture_time_preview_);
+}
+
+QVariantMap ReviewLibraryMetadataCoordinator::coordinateBatchPreview() const {
+    return coordinate_batch_preview_presentation(coordinate_batch_preview_);
 }
 
 QVariantMap ReviewLibraryMetadataCoordinator::gpxPreview() const {
@@ -284,6 +326,7 @@ void ReviewLibraryMetadataCoordinator::clear() {
     }
     metadata_ = {};
     capture_time_preview_ = {};
+    coordinate_batch_preview_ = {};
     gpx_preview_ = {};
     batch_receipt_ = {};
     status_code_ = QStringLiteral("idle");
@@ -381,6 +424,59 @@ void ReviewLibraryMetadataCoordinator::applyCaptureTime(
                 ReviewLibraryMetadataTaskResult::Kind::CaptureBatchApply;
             result.batch_receipt =
                 operations.apply_capture_time(preview_id);
+            return result;
+        }
+    );
+}
+
+void ReviewLibraryMetadataCoordinator::previewCoordinates(
+    const QVariantList& targets,
+    const QString& mode,
+    const double latitude_degrees,
+    const double longitude_degrees,
+    const QString& place_name,
+    const QString& source_label
+) {
+    const QVector<BackendBatchPhotoTarget> batch = batchTargets(targets);
+    start(
+        ReviewLibraryMetadataTaskResult::Kind::CoordinateBatchPreview,
+        QStringLiteral("previewing"),
+        [
+            operations = operations_,
+            batch,
+            mode,
+            latitude_degrees,
+            longitude_degrees,
+            place_name,
+            source_label
+        ]() {
+            ReviewLibraryMetadataTaskResult result;
+            result.kind =
+                ReviewLibraryMetadataTaskResult::Kind::CoordinateBatchPreview;
+            result.coordinate_batch_preview = operations.preview_coordinates(
+                batch,
+                mode,
+                latitude_degrees,
+                longitude_degrees,
+                place_name,
+                source_label
+            );
+            return result;
+        }
+    );
+}
+
+void ReviewLibraryMetadataCoordinator::applyCoordinates(
+    const QString& preview_id
+) {
+    start(
+        ReviewLibraryMetadataTaskResult::Kind::CoordinateBatchApply,
+        QStringLiteral("applying"),
+        [operations = operations_, preview_id]() {
+            ReviewLibraryMetadataTaskResult result;
+            result.kind =
+                ReviewLibraryMetadataTaskResult::Kind::CoordinateBatchApply;
+            result.batch_receipt = operations.apply_coordinates(preview_id);
             return result;
         }
     );
@@ -485,6 +581,18 @@ void ReviewLibraryMetadataCoordinator::finish() {
     case ReviewLibraryMetadataTaskResult::Kind::CaptureBatchApply:
         batch_receipt_ = result.batch_receipt;
         capture_time_preview_ = {};
+        status_code_ = QStringLiteral("applied");
+        emit libraryChanged({});
+        break;
+    case ReviewLibraryMetadataTaskResult::Kind::CoordinateBatchPreview:
+        coordinate_batch_preview_ =
+            std::move(result.coordinate_batch_preview);
+        batch_receipt_ = {};
+        status_code_ = QStringLiteral("ready");
+        break;
+    case ReviewLibraryMetadataTaskResult::Kind::CoordinateBatchApply:
+        batch_receipt_ = result.batch_receipt;
+        coordinate_batch_preview_ = {};
         status_code_ = QStringLiteral("applied");
         emit libraryChanged({});
         break;

@@ -391,6 +391,33 @@ impl DesktopSession {
             .apply_capture_time_batch(preview_id, current_time_ms()?)
     }
 
+    pub(crate) fn preview_library_coordinate_batch(
+        &self,
+        targets: Vec<ffi::FfiBatchPhotoTarget>,
+        mode: &str,
+        latitude_degrees: f64,
+        longitude_degrees: f64,
+        place_name: &str,
+        source_label: &str,
+    ) -> AnyResult<ffi::FfiCoordinateBatchPreview> {
+        self.library.preview_coordinate_batch(
+            targets,
+            mode,
+            latitude_degrees,
+            longitude_degrees,
+            place_name,
+            source_label,
+        )
+    }
+
+    pub(crate) fn apply_library_coordinate_batch(
+        &self,
+        preview_id: &str,
+    ) -> AnyResult<ffi::FfiLibraryMetadataBatchReceipt> {
+        self.library
+            .apply_coordinate_batch(preview_id, current_time_ms()?)
+    }
+
     pub(crate) fn preview_library_gpx_import_ffi(
         &self,
         gpx_path: &ffi::FfiNativePath,

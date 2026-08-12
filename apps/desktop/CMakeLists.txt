@@ -875,6 +875,8 @@ qt_add_qml_module(
         qml/LibraryKeywordPopup.qml
         qml/LibraryGpxImportDialog.qml
         qml/LibraryCaptureTimeBatchDialog.qml
+        qml/LibraryLocationBatchDialog.qml
+        qml/LibraryLocationBatchState.qml
         qml/LibraryMetadataEditor.qml
         qml/LibraryMapLocationPlacementState.qml
         qml/LibraryWebMapSurface.qml

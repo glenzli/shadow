@@ -222,6 +222,17 @@ Rectangle {
             onClicked: toolbar.openMetadataRequested()
         }
 
+        ShadowIconButton {
+            visible: toolbar.workspace.galleryPresentation
+                !== ReviewWorkspace.Map
+            source: "qrc:/icons/location-pin.svg"
+            toolTipText: qsTr("Set location for selected photos")
+            accessibleName: toolTipText
+            enabled: toolbar.workspace.selectedPhotoCount > 0
+                && !toolbar.workspace.controller.libraryMetadataBusy
+            onClicked: toolbar.workspace.openLocationBatch()
+        }
+
         Label {
             visible: toolbar.workspace.selectedPhotoCount > 1
             text: qsTr("%L1 selected").arg(

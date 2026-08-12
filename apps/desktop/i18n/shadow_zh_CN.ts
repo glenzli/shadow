@@ -4233,295 +4233,316 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>MapProviderSettingsPane</name>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="39"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="41"/>
         <source>API key removed. Google service permissions are off.</source>
         <translation>API 密钥已移除，Google 服务权限已关闭。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="41"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="43"/>
         <source>Enter a valid API key without spaces.</source>
         <translation>请输入不含空格的有效 API 密钥。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="43"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="45"/>
         <source>The stored API key is invalid. Replace or remove it.</source>
         <translation>已存储的 API 密钥无效，请替换或移除。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="45"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="47"/>
         <source>Save an API key before allowing Google services.</source>
         <translation>请先保存 API 密钥，再允许使用 Google 服务。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="63"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="65"/>
         <source>Save AMap JS API credentials before choosing AMap for the Library map.</source>
         <translation>请先保存高德 JS API 凭据，再将高德选为图库地图。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="94"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="98"/>
         <source>Map &amp; Location Services</source>
         <translation>地图与位置服务</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="102"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="106"/>
         <source>City-level location names work offline. Add your own AMap or Google credentials only for a basemap, place search, or more precise place names.</source>
         <translation>城市级位置名称可离线使用。仅在需要底图、地点搜索或更精确的地名时，才需添加你自己的高德或 Google 凭据。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="115"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="119"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="298"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="372"/>
         <source>Stored for the official AMap interactive WebView renderer. The credentials are not written to the catalog or backups.</source>
         <translation>已用于高德官方交互式 WebView 地图。凭据不会写入图库或备份。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="310"/>
-        <source>Use AMap for the Library map</source>
-        <translation>图库地图使用高德地图</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="331"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="352"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="395"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="416"/>
         <source>Google Maps Platform API key</source>
         <translation>Google Maps Platform API 密钥</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="423"/>
-        <source>Use Google Maps for the Library map</source>
-        <translation>图库地图使用 Google 地图</translation>
-    </message>
-    <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="507"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="561"/>
         <source>Google and AMap share one Qt WebView map surface. The selected provider loads its official JavaScript map only while the Library map is open; Shadow does not maintain a separate tile cache.</source>
         <translation>Google 与高德共用同一个 Qt WebView 地图界面。仅在打开图库地图时加载所选服务商的官方 JavaScript 地图；Shadow 不维护单独的图块缓存。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="516"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="570"/>
         <source>For Google, enable the Maps JavaScript API rather than the Map Tiles API. Use a dedicated restricted key, quotas, and budget alerts.</source>
         <translation>使用 Google 时，请启用 Maps JavaScript API，而不是 Map Tiles API。建议使用独立且受限的密钥，并设置配额与预算提醒。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="162"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="350"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="236"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="414"/>
         <source>A key is stored — enter a replacement</source>
         <translation>已存储密钥 — 输入新密钥以替换</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="351"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="415"/>
         <source>Paste your API key</source>
         <translation>粘贴 API 密钥</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="176"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="267"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="364"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="250"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="341"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="428"/>
         <source>Replace</source>
         <translation>替换</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="176"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="267"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="364"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="250"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="341"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="428"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="189"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="284"/>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="377"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="263"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="358"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="441"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="37"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="39"/>
         <source>API key saved on this Mac.</source>
         <translation>API 密钥已保存在这台 Mac 上。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="65"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="67"/>
+        <source>Save Google or AMap map credentials before choosing a basemap policy.</source>
+        <translation>请先保存 Google 或高德地图凭据，再选择底图策略。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="69"/>
         <source>Shadow&apos;s local credential file is unavailable.</source>
         <translation>Shadow 的本地凭据文件不可用。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="67"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="71"/>
         <source>Shadow could not update its local credential file.</source>
         <translation>Shadow 无法更新本地凭据文件。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="389"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="131"/>
+        <source>Library basemap</source>
+        <translation>图库底图</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="139"/>
+        <source>Auto uses AMap for mainland China and Google elsewhere. It chooses once when a map context opens or you select a place in another region; ordinary panning never switches providers.</source>
+        <translation>自动模式在中国大陆使用高德地图，其他地区使用 Google。打开地图上下文或选择其他地区的地点时决定一次；普通拖动不会切换供应商。</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="155"/>
+        <source>Auto</source>
+        <translation>自动</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="166"/>
+        <source>Google</source>
+        <translation>Google</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="186"/>
+        <source>Off</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="453"/>
         <source>Stored in a user-private Shadow file on this Mac. It is not written to the catalog or backups.</source>
         <translation>保存在这台 Mac 上仅当前用户可访问的 Shadow 文件中，不会写入图库或备份。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="390"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="454"/>
         <source>No Google API key is stored.</source>
         <translation>未存储 Google API 密钥。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="405"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="469"/>
         <source>Allowed services</source>
         <translation>允许使用的服务</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="413"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="477"/>
         <source>Saving a key does not contact Google. Shadow may call only the services you allow, and only while the corresponding permission remains enabled.</source>
         <translation>保存密钥不会联系 Google。Shadow 仅会调用你允许的服务，并且只会在相应权限保持启用期间调用。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="433"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="487"/>
         <source>Place search and autocomplete</source>
         <translation>地点搜索与自动补全</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="442"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="496"/>
         <source>Use Google for more precise place names</source>
         <translation>使用 Google 获取更精确的地名</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="450"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="504"/>
         <source>Country, region, and nearest-city lookup uses GeoNames data (CC BY 4.0) offline by default. This option may send photo coordinates to Google and falls back to offline city data if the request fails.</source>
         <translation>国家、地区和最近城市默认使用 GeoNames 数据（CC BY 4.0）离线查询。启用后可能会将照片坐标发送给 Google；请求失败时会回退到离线城市数据。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="459"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="513"/>
         <source>No Google sign-in is required. The key&apos;s Google Cloud project must have billing and the Geocoding API enabled.</source>
         <translation>无需登录 Google。该密钥所属的 Google Cloud 项目必须启用结算和 Geocoding API。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="479"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="533"/>
         <source>Map style</source>
         <translation>地图样式</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="489"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="543"/>
         <source>Road</source>
         <translation>道路</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="498"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="552"/>
         <source>Satellite</source>
         <translation>卫星</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="127"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="176"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="201"/>
         <source>AMap</source>
         <translation>高德地图</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="53"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="55"/>
         <source>AMap JS API credentials removed.</source>
         <translation>高德 JS API 凭据已移除。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="51"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="53"/>
         <source>AMap JS API credentials saved on this Mac.</source>
         <translation>高德 JS API 凭据已保存在这台 Mac 上。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="247"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="321"/>
         <source>AMap JS API key</source>
         <translation>高德 JS API Key</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="259"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="333"/>
         <source>AMap JS API security code</source>
         <translation>高德 JS API 安全密钥</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="164"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="238"/>
         <source>AMap Web Service key</source>
         <translation>高德 Web 服务 Key</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="49"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="51"/>
         <source>AMap Web Service key removed. AMap place services are off.</source>
         <translation>高德 Web 服务 Key 已移除，高德地点服务已关闭。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="47"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="49"/>
         <source>AMap Web Service key saved on this Mac.</source>
         <translation>高德 Web 服务 Key 已保存在这台 Mac 上。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="201"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="275"/>
         <source>AMap place search</source>
         <translation>高德地点搜索</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="245"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="319"/>
         <source>Credentials are stored — enter replacements</source>
         <translation>凭据已存储 — 输入新凭据以替换</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="55"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="57"/>
         <source>Enter a valid AMap Web Service key without spaces.</source>
         <translation>请输入不含空格的有效高德 Web 服务 Key。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="57"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="59"/>
         <source>The stored AMap Web Service key is invalid. Replace or remove it.</source>
         <translation>已存储的高德 Web 服务 Key 无效，请替换或移除。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="59"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="61"/>
         <source>Enter both the AMap JS API key and security code without spaces.</source>
         <translation>请同时输入不含空格的高德 JS API Key 和安全密钥。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="324"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="388"/>
         <source>Google Maps Platform</source>
         <translation>Google Maps Platform</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="246"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="320"/>
         <source>JS API key</source>
         <translation>JS API Key</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="226"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="300"/>
         <source>JS API key and security code</source>
         <translation>JS API Key 与安全密钥</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="299"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="373"/>
         <source>No AMap JS API credentials are stored.</source>
         <translation>未存储高德 JS API 凭据。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="163"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="237"/>
         <source>Paste the AMap Web Service key</source>
         <translation>粘贴高德 Web 服务 Key</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="61"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="63"/>
         <source>Save an AMap Web Service key before allowing AMap place services.</source>
         <translation>请先保存高德 Web 服务 Key，再允许使用高德地点服务。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="218"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="292"/>
         <source>These options may send a search phrase or photo coordinates to AMap. Failed requests fall back to Shadow&apos;s offline city data.</source>
         <translation>这些选项可能会将搜索文字或照片坐标发送给高德。请求失败时会回退到 Shadow 的离线城市数据。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="210"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="284"/>
         <source>Use AMap for precise place names in mainland China</source>
         <translation>使用高德获取中国大陆的精确地名</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="135"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="209"/>
         <source>Use the Web Service key for place search and precise location names in mainland China. Shadow converts coordinates only at the AMap boundary; Catalog GPS data remains WGS84.</source>
         <translation>使用 Web 服务 Key 搜索地点并获取中国大陆的精确地名。Shadow 仅在请求高德时转换坐标，图库中的 GPS 数据仍保持 WGS84。</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="143"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="217"/>
         <source>Web Service key</source>
         <translation>Web 服务 Key</translation>
     </message>
     <message>
-        <location filename="../qml/MapProviderSettingsPane.qml" line="258"/>
+        <location filename="../qml/MapProviderSettingsPane.qml" line="332"/>
         <source>securityJsCode</source>
         <translation>securityJsCode</translation>
     </message>
@@ -8349,6 +8370,16 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoContextMenu.qml" line="214"/>
+        <source>Set location for selected photos…</source>
+        <translation>设置所选照片的位置…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="215"/>
+        <source>Set photo location…</source>
+        <translation>设置照片位置…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="214"/>
         <source>Add or locate folder…</source>
         <translation>添加或定位文件夹…</translation>
     </message>
@@ -8668,12 +8699,117 @@ Technical detail: %1</source>
 <context>
     <name>ReviewWorkspace</name>
     <message>
-        <location filename="../qml/LibraryMapPlaceSearch.qml" line="76"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="20"/>
+        <source>Set Photo Location</source>
+        <translation>设置照片位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="122"/>
+        <source>%L1 selected photos</source>
+        <translation>已选择 %L1 张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="131"/>
+        <source>Choose a place or click the map. Shadow stores the location non-destructively; the original EXIF remains unchanged.</source>
+        <translation>搜索地点或点击地图。Shadow 会以无损方式保存位置，原片 EXIF 保持不变。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="147"/>
+        <source>Coordinates</source>
+        <translation>坐标</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="157"/>
+        <source>Latitude</source>
+        <translation>纬度</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="166"/>
+        <source>Longitude</source>
+        <translation>经度</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="175"/>
+        <source>Place name (optional)</source>
+        <translation>地点名称（可选）</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="182"/>
+        <source>USE THESE COORDINATES</source>
+        <translation>使用这些坐标</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="192"/>
+        <source>Apply to</source>
+        <translation>应用到</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="204"/>
+        <source>Photos without a location</source>
+        <translation>没有位置的照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="205"/>
+        <source>All selected photos</source>
+        <translation>所有所选照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="238"/>
+        <source>%L1 photos will be updated</source>
+        <translation>将更新 %L1 张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="240"/>
+        <source>Preview the change before applying it</source>
+        <translation>应用前请先预览更改</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="250"/>
+        <source>%L1 without location · %L2 already located · %L3 skipped</source>
+        <translation>%L1 张无位置 · %L2 张已有位置 · 跳过 %L3 张</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="263"/>
+        <source>This will replace the current location of %L1 photos.</source>
+        <translation>这会替换 %L1 张照片的现有位置。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="278"/>
+        <source>Could not update photo locations: %1</source>
+        <translation>无法更新照片位置：%1</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="289"/>
+        <source>Photo locations updated</source>
+        <translation>照片位置已更新</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="307"/>
+        <source>REFRESH PREVIEW</source>
+        <translation>刷新预览</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="318"/>
+        <source>WORKING…</source>
+        <translation>正在处理…</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="318"/>
+        <source>APPLY</source>
+        <translation>应用</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="230"/>
+        <source>Set location for selected photos</source>
+        <translation>设置所选照片的位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapPlaceSearch.qml" line="85"/>
         <source>Clear place search</source>
         <translation>清除地点搜索</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapPlaceSearch.qml" line="56"/>
+        <location filename="../qml/LibraryMapPlaceSearch.qml" line="65"/>
         <source>Search places with AMap</source>
         <translation>使用高德搜索地点</translation>
     </message>
@@ -9985,77 +10121,97 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>%L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="80"/>
+        <location filename="../qml/LibraryMapView.qml" line="98"/>
         <source>Basemap unavailable</source>
         <translation>底图不可用</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="90"/>
+        <location filename="../qml/LibraryMapView.qml" line="108"/>
+        <source>This provider does not cover the current map region.</source>
+        <translation>当前地图供应商不覆盖此区域。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapView.qml" line="110"/>
         <source>The map service is unavailable. Check the provider credentials and network connection.</source>
         <translation>地图服务不可用。请检查服务商凭据与网络连接。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="95"/>
+        <location filename="../qml/LibraryMapView.qml" line="115"/>
         <source>%L1 photos in view</source>
         <translation>视野内 %L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="130"/>
+        <location filename="../qml/LibraryMapView.qml" line="151"/>
         <source>Select a photo and configure a map before setting its location</source>
         <translation>请先选择照片并配置地图，再设置拍摄位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="45"/>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="47"/>
+        <source>AMap is unavailable in this region</source>
+        <translation>高德地图在此区域不可用</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="49"/>
         <source>Complete the %1 map configuration</source>
         <translation>完成 %1 地图配置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="46"/>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="50"/>
         <source>Choose a map service</source>
         <translation>选择地图服务</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="55"/>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="60"/>
+        <source>Use Auto or Google for photos outside mainland China. Shadow keeps one provider for the current map context instead of switching while you pan.</source>
+        <translation>中国大陆以外的照片请使用“自动”或 Google。Shadow 会为当前地图上下文固定一个供应商，不会在拖动时切换。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="61"/>
         <source>The Library map uses one interactive WebView surface. Add AMap JS API credentials or a Google Maps JavaScript API key, then choose that provider.</source>
         <translation>图库地图使用统一的交互式 WebView 界面。请添加高德 JS API 凭据或 Google Maps JavaScript API 密钥，然后选择对应的服务商。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapProviderOverlay.qml" line="67"/>
+        <location filename="../qml/LibraryMapProviderOverlay.qml" line="73"/>
         <source>Open map settings</source>
         <translation>打开地图设置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="129"/>
+        <location filename="../qml/LibraryMapView.qml" line="150"/>
         <source>Set the selected photo location on the map</source>
         <translation>在地图上设置所选照片的位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="188"/>
+        <location filename="../qml/LibraryMapView.qml" line="209"/>
         <source>Cancel map location placement</source>
         <translation>取消地图位置设置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="162"/>
+        <location filename="../qml/LibraryMapView.qml" line="183"/>
         <source>Click the map where this photo was taken.</source>
         <translation>点击地图中拍摄此照片的位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="180"/>
+        <location filename="../qml/LibraryMapView.qml" line="95"/>
+        <source>Auto · %1</source>
+        <translation>自动 · %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapView.qml" line="201"/>
         <source>Save this photo location</source>
         <translation>保存此照片位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="197"/>
+        <location filename="../qml/LibraryMapView.qml" line="218"/>
         <source>Could not save the map location: %1</source>
         <translation>无法保存地图位置：%1</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="92"/>
+        <location filename="../qml/LibraryMapView.qml" line="112"/>
         <source>Map locations could not be loaded.</source>
         <translation>无法加载地图中的照片位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapView.qml" line="94"/>
+        <location filename="../qml/LibraryMapView.qml" line="114"/>
         <source>No geotagged photos in this map area.</source>
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>

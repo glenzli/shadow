@@ -56,6 +56,30 @@ void ReviewController::applyLibraryCaptureTimeBatch(
     metadata_coordinator_.applyCaptureTime(preview_id);
 }
 
+void ReviewController::previewLibraryCoordinateBatch(
+    const QVariantList& targets,
+    const QString& mode,
+    const double latitude_degrees,
+    const double longitude_degrees,
+    const QString& place_name,
+    const QString& source_label
+) {
+    metadata_coordinator_.previewCoordinates(
+        targets,
+        mode.trimmed().toLower(),
+        latitude_degrees,
+        longitude_degrees,
+        place_name.trimmed(),
+        source_label.trimmed()
+    );
+}
+
+void ReviewController::applyLibraryCoordinateBatch(
+    const QString& preview_id
+) {
+    metadata_coordinator_.applyCoordinates(preview_id);
+}
+
 void ReviewController::previewLibraryGpxImport(
     const QUrl& gpx_url,
     const QVariantList& targets,
