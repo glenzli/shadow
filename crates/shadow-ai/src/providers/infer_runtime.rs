@@ -1,32 +1,26 @@
-//! Fail-closed loopback client for infer-runtime's typed local APIs.
+//! Shadow product adapters over the official Infer Runtime Consumer SDK.
 //!
-//! The bearer credential is always redacted, redirects are disabled, and the
-//! base URL is restricted to the local machine so image bytes, model inputs,
-//! and local capability handshakes cannot be redirected to a remote service.
+//! The SDK is the sole owner of Infra Discovery, Core and Capability contract
+//! negotiation, managed credential loading, loopback HTTP policy, retries,
+//! headers, and public error decoding. Shadow retains only its product-facing
+//! synchronous provider traits, input staging, strict evidence admission, and
+//! stale/cache/publish policy in callers.
 
-mod discovery;
 mod image_understanding;
 mod raw_foundation;
 mod semantic;
 
-use std::{
-    fmt, fs,
-    io::{self, Read},
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::BTreeMap, fmt, io::Write, path::Path};
 
-use reqwest::{
-    Url,
-    blocking::{Client, RequestBuilder, multipart},
-    redirect::Policy,
+use infer_runtime_client::{
+    Client as SdkClient, DiscoveryResolver, FaceDetectionResponse, FaceEmbeddingResponse,
+    FivePointLandmarks, Point,
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use thiserror::Error;
+use serde::{Deserialize, Serialize};
+use tempfile::NamedTempFile;
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
-use crate::{FaceBoundingBox, FaceEmbedding, FaceLandmarks};
-use discovery::{DiscoveryEndpoint, InferRuntimeConsumerVersion, InferRuntimeDiscoveryResolver};
+use crate::{FaceBoundingBox, FaceEmbedding, FaceLandmarks, FacePoint};
 
 pub use image_understanding::{
     ClassificationReviewCategory, ClassificationReviewDisposition, ClassificationReviewEvidence,
@@ -34,92 +28,27 @@ pub use image_understanding::{
     ImageUnderstandingEvidence, ImageUnderstandingProvenance, ImageUnderstandingProvider,
     ImageUnderstandingQuality,
 };
+pub use infer_runtime_client::{
+    AttemptSnapshot as InferRuntimeAttemptSnapshot, CancelResult as InferRuntimeCancelResult,
+    CapabilityCatalog as InferRuntimeCapabilityCatalog, ContractManifest as InferRuntimeContract,
+    Error as InferRuntimeClientError, ExplainResult as InferRuntimeExplainResult,
+    JobListPage as InferRuntimeJobListPage, JobSnapshot as InferRuntimeJobSnapshot,
+};
 pub use raw_foundation::{
     InferRawFoundationArtifactReceipt, InferRawFoundationCancellation,
     InferRawFoundationDecoderIdentity, InferRawFoundationJob, InferRawFoundationLeaseGrant,
     InferRawFoundationPriority, InferRawFoundationProvenance, InferRawFoundationProvider,
     InferRawFoundationRegisteredLease, InferRawFoundationRequest, InferRawFoundationResult,
-    InferRawFoundationSource, InferRawFoundationStaging,
+    InferRawFoundationSource, InferRawFoundationStaging, infer_raw_foundation_sdk_status,
 };
 pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,
     TextEmbeddingEvidence,
 };
 
-const DETECT_FACES_PATH: &str = "infer/v1/vision/face-detections";
-const EMBED_FACE_PATH: &str = "infer/v1/vision/face-embeddings";
-const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
-const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DETECTIONS: usize = 4_096;
-const EXPECTED_ORIENTATION: &str = "input_pixels_no_exif_transform";
+const EXPECTED_FACE_ORIENTATION: &str = "input_pixels_no_exif_transform";
 const BIOMETRIC_CLASSIFICATION: &str = "sensitive_biometric";
-
-#[derive(Clone)]
-pub struct InferRuntimeCredential(Arc<str>);
-
-impl fmt::Debug for InferRuntimeCredential {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("InferRuntimeCredential(<redacted>)")
-    }
-}
-
-impl InferRuntimeCredential {
-    /// Loads one owner-only token without exposing it through command-line
-    /// arguments, debug formatting, or error text.
-    ///
-    /// # Errors
-    ///
-    /// Rejects symlinks, non-files, group/world access on Unix, malformed
-    /// token text, or filesystem failures.
-    pub fn load(path: &Path) -> Result<Self, InferRuntimeClientError> {
-        let metadata =
-            fs::symlink_metadata(path).map_err(|source| InferRuntimeClientError::CredentialIo {
-                path: path.to_path_buf(),
-                source,
-            })?;
-        if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
-            return Err(InferRuntimeClientError::UnsafeCredentialFile(
-                path.to_path_buf(),
-            ));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if metadata.permissions().mode() & 0o077 != 0 {
-                return Err(InferRuntimeClientError::UnsafeCredentialPermissions(
-                    path.to_path_buf(),
-                ));
-            }
-        }
-        let value =
-            fs::read_to_string(path).map_err(|source| InferRuntimeClientError::CredentialIo {
-                path: path.to_path_buf(),
-                source,
-            })?;
-        Self::parse(value.trim_end_matches(['\r', '\n']))
-    }
-
-    /// Creates a credential from an already protected secret source.
-    ///
-    /// # Errors
-    ///
-    /// Rejects short, oversized, whitespace-containing, or control-containing
-    /// values.
-    pub fn parse(value: &str) -> Result<Self, InferRuntimeClientError> {
-        if !(32..=512).contains(&value.len())
-            || value
-                .bytes()
-                .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
-        {
-            return Err(InferRuntimeClientError::InvalidCredential);
-        }
-        Ok(Self(Arc::from(value)))
-    }
-
-    fn expose(&self) -> &str {
-        &self.0
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisionProvenance {
@@ -203,119 +132,171 @@ pub trait FaceAnalysisProvider {
     ) -> Result<EmbeddedFace, InferRuntimeClientError>;
 }
 
-#[derive(Debug, Clone)]
+/// Synchronous product adapter over the official asynchronous SDK.
 pub struct InferRuntimeClient {
-    client: Client,
-    endpoint: InferRuntimeEndpoint,
-    credential: InferRuntimeCredential,
+    runtime: Runtime,
+    sdk: SdkClient,
 }
 
-#[derive(Debug, Clone)]
-enum InferRuntimeEndpoint {
-    Fixed(Url),
-    Discovery(Arc<InferRuntimeDiscoveryResolver>),
+impl fmt::Debug for InferRuntimeClient {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("InferRuntimeClient")
+            .field("sdk", &"infer-runtime-client@1.0.0")
+            .finish_non_exhaustive()
+    }
 }
 
 impl InferRuntimeClient {
-    /// Creates a local-only client. HTTP redirects are disabled.
+    /// Uses an explicit, path-free loopback endpoint for development or
+    /// diagnostics. This is an override, never a product fallback.
     ///
     /// # Errors
     ///
-    /// Rejects non-loopback, non-HTTP, credential-bearing, or path-bearing
-    /// base URLs and client construction failures.
-    pub fn new(
-        base_url: &str,
-        credential: InferRuntimeCredential,
-    ) -> Result<Self, InferRuntimeClientError> {
-        let base_url = validate_loopback_base_url(base_url)?;
-        Self::with_endpoint(InferRuntimeEndpoint::Fixed(base_url), credential)
-    }
-
-    /// Creates a local-only client using the Consumer endpoint selection
-    /// order: explicit override, Infra Discovery, then the temporary fixed
-    /// loopback fallback.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid explicit override or HTTP client construction
-    /// failure. Discovery failures remain contained and select the migration
-    /// fallback instead of changing credential or typed-request behavior.
-    pub fn discover(
-        explicit_base_url: Option<&str>,
-        credential: InferRuntimeCredential,
-    ) -> Result<Self, InferRuntimeClientError> {
-        if let Some(base_url) = explicit_base_url.filter(|value| !value.is_empty()) {
-            return Self::new(base_url, credential);
-        }
-        Self::with_endpoint(
-            InferRuntimeEndpoint::Discovery(Arc::new(
-                InferRuntimeDiscoveryResolver::from_environment(),
-            )),
-            credential,
-        )
-    }
-
-    fn with_endpoint(
-        endpoint: InferRuntimeEndpoint,
-        credential: InferRuntimeCredential,
-    ) -> Result<Self, InferRuntimeClientError> {
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(3))
-            .timeout(Duration::from_mins(1))
-            .no_proxy()
-            .redirect(Policy::none())
-            .build()
-            .map_err(InferRuntimeClientError::ClientBuild)?;
-        Ok(Self {
-            client,
-            endpoint,
-            credential,
-        })
-    }
-
-    /// Loads an owner-only credential file and creates a local-only client.
-    ///
-    /// # Errors
-    ///
-    /// Returns credential or client configuration failures.
+    /// Returns SDK endpoint, client-construction, or executor failures.
     pub fn from_credential_file(
         base_url: &str,
         credential_path: &Path,
     ) -> Result<Self, InferRuntimeClientError> {
-        Self::new(base_url, InferRuntimeCredential::load(credential_path)?)
+        Self::from_credential_file_with_discovery(Some(base_url), credential_path)
     }
 
-    /// Loads the existing owner-only credential and resolves the endpoint via
-    /// explicit override, Infra Discovery, then the migration fallback.
+    /// Uses official Infra Discovery unless an explicit development endpoint
+    /// is supplied. No fixed-port or candidate-contract fallback exists.
     ///
     /// # Errors
     ///
-    /// Returns credential, explicit endpoint, or client construction failures.
+    /// Returns SDK endpoint, client-construction, or executor failures.
     pub fn from_credential_file_with_discovery(
         explicit_base_url: Option<&str>,
         credential_path: &Path,
     ) -> Result<Self, InferRuntimeClientError> {
-        Self::discover(
-            explicit_base_url,
-            InferRuntimeCredential::load(credential_path)?,
-        )
-    }
-
-    fn resolve_endpoint(&self) -> DiscoveryEndpoint {
-        match &self.endpoint {
-            InferRuntimeEndpoint::Fixed(base_url) => DiscoveryEndpoint::explicit(base_url.clone()),
-            InferRuntimeEndpoint::Discovery(resolver) => resolver.resolve(),
+        let mut resolver = DiscoveryResolver::local();
+        if let Some(endpoint) = explicit_base_url.filter(|value| !value.is_empty()) {
+            resolver = resolver.with_explicit_endpoint(endpoint.to_owned())?;
         }
+        let sdk = SdkClient::with_discovery(resolver)
+            .credential_file(credential_path)
+            .build()?;
+        let runtime = RuntimeBuilder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                InferRuntimeClientError::Input(format!(
+                    "cannot construct Shadow's Infer Runtime SDK executor: {error}"
+                ))
+            })?;
+        Ok(Self { runtime, sdk })
     }
 
-    fn endpoint_url(
-        endpoint: &DiscoveryEndpoint,
-        path: &str,
-    ) -> Result<Url, InferRuntimeClientError> {
-        endpoint
-            .base_url
-            .join(path)
-            .map_err(|_| InferRuntimeClientError::InvalidBaseUrl)
+    /// Returns the exact dated Core contract after SDK schema verification.
+    ///
+    /// # Errors
+    ///
+    /// Returns SDK Discovery, transport, schema, or response failures.
+    pub fn contract(&self) -> Result<InferRuntimeContract, InferRuntimeClientError> {
+        self.runtime.block_on(self.sdk.contract())
+    }
+
+    /// Returns the SDK-validated dated Capability Catalog.
+    ///
+    /// # Errors
+    ///
+    /// Returns SDK Discovery, transport, schema, or response failures.
+    pub fn capabilities(&self) -> Result<InferRuntimeCapabilityCatalog, InferRuntimeClientError> {
+        self.runtime.block_on(self.sdk.capabilities())
+    }
+
+    /// Queries one payload-free Job projection through the official Core API.
+    ///
+    /// # Errors
+    ///
+    /// Returns SDK Job-id, Discovery, transport, or response failures.
+    pub fn job(&self, job_id: &str) -> Result<InferRuntimeJobSnapshot, InferRuntimeClientError> {
+        self.runtime.block_on(self.sdk.job(job_id))
+    }
+
+    /// Queries a bounded payload-free Job page through the official Core API.
+    ///
+    /// # Errors
+    ///
+    /// Returns SDK Discovery, transport, or response failures.
+    pub fn jobs(
+        &self,
+        query: &[(&str, &str)],
+    ) -> Result<InferRuntimeJobListPage, InferRuntimeClientError> {
+        self.runtime.block_on(self.sdk.jobs(query))
+    }
+
+    /// Queries routing and Attempt provenance through the official Core API.
+    ///
+    /// # Errors
+    ///
+    /// Returns SDK Job-id, Discovery, transport, or response failures.
+    pub fn explain(
+        &self,
+        job_id: &str,
+    ) -> Result<InferRuntimeExplainResult, InferRuntimeClientError> {
+        self.runtime.block_on(self.sdk.explain(job_id))
+    }
+
+    /// Cancels a Job through the official Core API.
+    ///
+    /// # Errors
+    ///
+    /// Returns SDK Job-id, Discovery, transport, or response failures.
+    pub fn cancel_job(
+        &self,
+        job_id: &str,
+    ) -> Result<InferRuntimeCancelResult, InferRuntimeClientError> {
+        self.runtime.block_on(self.sdk.cancel_job(job_id))
+    }
+
+    fn stage_image(
+        image: &[u8],
+        media_type: &str,
+        revision: &str,
+    ) -> Result<(NamedTempFile, &'static str), InferRuntimeClientError> {
+        if image.is_empty() || image.len() > 20 * 1024 * 1024 {
+            return Err(InferRuntimeClientError::Input(
+                "image source violates the 20 MiB typed vision bound".into(),
+            ));
+        }
+        let media_type = match media_type {
+            "image/jpeg" => "image/jpeg",
+            "image/png" => "image/png",
+            _ => {
+                return Err(InferRuntimeClientError::Input(
+                    "typed vision accepts only image/jpeg or image/png".into(),
+                ));
+            }
+        };
+        if revision.trim().is_empty() || revision.len() > 256 {
+            return Err(InferRuntimeClientError::Input(
+                "typed vision revision must be non-empty and at most 256 bytes".into(),
+            ));
+        }
+        let mut staged = NamedTempFile::new().map_err(|error| {
+            InferRuntimeClientError::Input(format!("cannot stage bounded vision input: {error}"))
+        })?;
+        staged.write_all(image).map_err(|error| {
+            InferRuntimeClientError::Input(format!("cannot stage bounded vision input: {error}"))
+        })?;
+        staged.flush().map_err(|error| {
+            InferRuntimeClientError::Input(format!("cannot flush bounded vision input: {error}"))
+        })?;
+        Ok((staged, media_type))
+    }
+
+    fn sdk(&self) -> &SdkClient {
+        &self.sdk
+    }
+
+    fn block_on<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, InferRuntimeClientError>>,
+    ) -> Result<T, InferRuntimeClientError> {
+        self.runtime.block_on(future)
     }
 }
 
@@ -326,17 +307,15 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         media_type: &str,
         source_revision: &str,
     ) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
-        validate_request(image, media_type, source_revision)?;
-        let response: RawFaceDetectionResponse =
-            self.send_json(DETECT_FACES_PATH, |endpoint, _consumer_version| {
-                let form = image_form("vision.detect_faces", image, media_type, source_revision)?;
-                Ok(self
-                    .client
-                    .post(endpoint)
-                    .bearer_auth(self.credential.expose())
-                    .multipart(form))
-            })?;
-        response.validate(source_revision)
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata("background", None);
+        let response = self.block_on(self.sdk.detect_faces(
+            staged.path(),
+            media_type,
+            source_revision,
+            &metadata,
+        ))?;
+        admit_face_detection(response, source_revision)
     }
 
     fn embed_face(
@@ -346,315 +325,189 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         source_revision: &str,
         landmarks: FaceLandmarks,
     ) -> Result<EmbeddedFace, InferRuntimeClientError> {
-        validate_request(image, media_type, source_revision)?;
         if landmarks
             .points()
             .iter()
             .any(|point| !point.x.is_finite() || !point.y.is_finite())
         {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "face landmarks must be finite",
-            ));
+            return malformed("face landmarks must be finite");
         }
-        let landmarks_json =
-            serde_json::to_string(&landmarks).map_err(InferRuntimeClientError::SerializeRequest)?;
-        let response: RawFaceEmbeddingResponse =
-            self.send_json(EMBED_FACE_PATH, |endpoint, _consumer_version| {
-                let form = image_form("vision.embed_face", image, media_type, source_revision)?
-                    .text("landmarks", landmarks_json.clone());
-                Ok(self
-                    .client
-                    .post(endpoint)
-                    .bearer_auth(self.credential.expose())
-                    .multipart(form))
-            })?;
-        response.validate(source_revision)
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata("background", None);
+        let response = self.block_on(self.sdk.embed_face(
+            staged.path(),
+            media_type,
+            source_revision,
+            sdk_landmarks(landmarks),
+            &metadata,
+        ))?;
+        admit_face_embedding(response, source_revision)
     }
 }
 
-impl InferRuntimeClient {
-    fn send_json<T: DeserializeOwned>(
-        &self,
-        path: &str,
-        build_request: impl FnMut(
-            Url,
-            InferRuntimeConsumerVersion,
-        ) -> Result<RequestBuilder, InferRuntimeClientError>,
-    ) -> Result<T, InferRuntimeClientError> {
-        self.send_json_with_endpoint(path, build_request)
-            .map(|(response, _endpoint)| response)
+fn admit_face_detection(
+    response: FaceDetectionResponse,
+    expected_source_revision: &str,
+) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
+    if response.object != "vision.face_detection"
+        || response.status != "completed"
+        || response.source_revision != expected_source_revision
+        || response.image.orientation != EXPECTED_FACE_ORIENTATION
+        || response.image.width == 0
+        || response.image.height == 0
+        || response.detections.len() > MAX_DETECTIONS
+    {
+        return malformed("face detection response violated Shadow's typed evidence contract");
     }
-
-    /// Sends a retry-safe request and returns the exact endpoint which
-    /// accepted it. Multi-step capability protocols retain that endpoint so a
-    /// daemon generation change cannot silently redirect a bound lease.
-    fn send_json_with_endpoint<T: DeserializeOwned>(
-        &self,
-        path: &str,
-        mut build_request: impl FnMut(
-            Url,
-            InferRuntimeConsumerVersion,
-        ) -> Result<RequestBuilder, InferRuntimeClientError>,
-    ) -> Result<(T, DiscoveryEndpoint), InferRuntimeClientError> {
-        let first_endpoint = self.resolve_endpoint();
-        let request = build_request(
-            Self::endpoint_url(&first_endpoint, path)?,
-            first_endpoint.consumer_version,
-        )?;
-        let first_result = Self::send_json_once(request);
-        let should_rediscover = matches!(
-            &first_result,
-            Err(InferRuntimeClientError::Request(error)) if error.is_connect()
-        );
-        if !should_rediscover {
-            return first_result.map(|response| (response, first_endpoint));
-        }
-        let InferRuntimeEndpoint::Discovery(resolver) = &self.endpoint else {
-            return first_result.map(|response| (response, first_endpoint));
-        };
-        let retry_endpoint = resolver.resolve_after_connection_failure(&first_endpoint);
-        if retry_endpoint == first_endpoint {
-            return first_result.map(|response| (response, first_endpoint));
-        }
-        let retry = build_request(
-            Self::endpoint_url(&retry_endpoint, path)?,
-            retry_endpoint.consumer_version,
-        )?;
-        Self::send_json_once(retry).map(|response| (response, retry_endpoint))
+    let detections = response
+        .detections
+        .into_iter()
+        .map(|detection| DetectedFace {
+            bounding_box: FaceBoundingBox {
+                x: detection.bounding_box.x,
+                y: detection.bounding_box.y,
+                width: detection.bounding_box.width,
+                height: detection.bounding_box.height,
+            },
+            landmarks: shadow_landmarks(detection.landmarks),
+            confidence: detection.confidence,
+        })
+        .collect::<Vec<_>>();
+    if detections
+        .iter()
+        .any(|detection| !valid_detection(detection, response.image.width, response.image.height))
+    {
+        return malformed("face detection geometry violated Shadow's evidence contract");
     }
-
-    /// Sends one request to a previously selected daemon endpoint. This is
-    /// intentionally not rediscovered because Job, ticket, and lease
-    /// capabilities are generation-bound.
-    fn send_json_at<T: DeserializeOwned>(
-        endpoint: &DiscoveryEndpoint,
-        path: &str,
-        build_request: impl FnOnce(Url) -> Result<RequestBuilder, InferRuntimeClientError>,
-    ) -> Result<T, InferRuntimeClientError> {
-        let request = build_request(Self::endpoint_url(endpoint, path)?)?;
-        Self::send_json_once(request)
-    }
-
-    fn send_json_once<T: DeserializeOwned>(
-        request: RequestBuilder,
-    ) -> Result<T, InferRuntimeClientError> {
-        let mut response = request.send().map_err(InferRuntimeClientError::Request)?;
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-        {
-            return Err(InferRuntimeClientError::ResponseTooLarge);
-        }
-        let status = response.status();
-        let bytes = read_bounded(&mut response)?;
-        if !status.is_success() {
-            let code = serde_json::from_slice::<ErrorEnvelope>(&bytes).map_or_else(
-                |_| "invalid_error_response".into(),
-                |envelope| {
-                    let code = envelope.error.code;
-                    if !code.is_empty()
-                        && code.len() <= 128
-                        && code.bytes().all(|byte| {
-                            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')
-                        })
-                    {
-                        code
-                    } else {
-                        "invalid_error_response".into()
-                    }
-                },
-            );
-            return Err(InferRuntimeClientError::Http {
-                status: status.as_u16(),
-                code,
-            });
-        }
-        serde_json::from_slice(&bytes).map_err(InferRuntimeClientError::DecodeResponse)
-    }
+    Ok(DetectedFaceBatch {
+        source_revision: response.source_revision,
+        width: response.image.width,
+        height: response.image.height,
+        orientation: response.image.orientation,
+        detections,
+        provenance: admit_vision_provenance(response.provenance)?,
+    })
 }
 
-fn validate_loopback_base_url(value: &str) -> Result<Url, InferRuntimeClientError> {
-    let invalid = || InferRuntimeClientError::InvalidBaseUrl;
-    let address = value
-        .strip_prefix("http://")
-        .ok_or_else(invalid)?
-        .parse::<std::net::SocketAddr>()
-        .map_err(|_| invalid())?;
-    if !address.ip().is_loopback() || address.port() == 0 || format!("http://{address}") != value {
-        return Err(InferRuntimeClientError::InvalidBaseUrl);
+fn admit_face_embedding(
+    response: FaceEmbeddingResponse,
+    expected_source_revision: &str,
+) -> Result<EmbeddedFace, InferRuntimeClientError> {
+    if response.object != "vision.face_embedding"
+        || response.status != "completed"
+        || response.source_revision != expected_source_revision
+        || response.data_classification != BIOMETRIC_CLASSIFICATION
+        || response.embedding.dimensions != crate::SFACE_EMBEDDING_DIMENSIONS
+        || response.embedding.values.len() != response.embedding.dimensions
+        || !response.embedding.normalized
+        || response.embedding.distance_metric != "cosine"
+        || !response.eligibility.eligible
+        || !response.eligibility.landmarks_in_image
+        || !response.eligibility.inter_eye_distance_pixels.is_finite()
+        || response.eligibility.inter_eye_distance_pixels < 0.0
+        || !response.eligibility.alignment_rmse_pixels.is_finite()
+        || response.eligibility.alignment_rmse_pixels < 0.0
+    {
+        return malformed("face embedding response violated Shadow's biometric evidence contract");
     }
-    let mut url = Url::parse(value).map_err(|_| InferRuntimeClientError::InvalidBaseUrl)?;
-    url.set_path("/");
-    Ok(url)
+    let embedding = FaceEmbedding::new(response.embedding.values, response.embedding.space)
+        .map_err(|_| {
+            InferRuntimeClientError::MalformedResponse(
+                "face embedding values violated Shadow's SFace contract".into(),
+            )
+        })?;
+    Ok(EmbeddedFace {
+        source_revision: response.source_revision,
+        embedding,
+        eligibility: FaceEmbeddingEligibility {
+            eligible: response.eligibility.eligible,
+            landmarks_in_image: response.eligibility.landmarks_in_image,
+            inter_eye_distance_pixels: response.eligibility.inter_eye_distance_pixels,
+            alignment_rmse_pixels: response.eligibility.alignment_rmse_pixels,
+        },
+        provenance: admit_vision_provenance(response.provenance)?,
+    })
 }
 
-fn validate_request(
-    image: &[u8],
-    media_type: &str,
-    source_revision: &str,
-) -> Result<(), InferRuntimeClientError> {
-    if image.is_empty() || image.len() > MAX_IMAGE_BYTES {
-        return Err(InferRuntimeClientError::InvalidImageLength(image.len()));
-    }
-    if !matches!(media_type, "image/jpeg" | "image/png") {
-        return Err(InferRuntimeClientError::InvalidMediaType);
-    }
-    if source_revision.is_empty() || source_revision.len() > 256 {
-        return Err(InferRuntimeClientError::InvalidSourceRevision);
-    }
-    Ok(())
-}
-
-fn image_form(
-    model: &'static str,
-    image: &[u8],
-    media_type: &str,
-    source_revision: &str,
-) -> Result<multipart::Form, InferRuntimeClientError> {
-    let extension = if media_type == "image/png" {
-        "png"
-    } else {
-        "jpg"
+fn admit_vision_provenance(
+    mut provenance: infer_runtime_client::VisionProvenance,
+) -> Result<VisionProvenance, InferRuntimeClientError> {
+    let tokenizer = provenance
+        .extra
+        .remove("tokenizer")
+        .map(serde_json::from_value::<VisionTokenizerProvenance>)
+        .transpose()
+        .map_err(|error| {
+            InferRuntimeClientError::MalformedResponse(format!(
+                "typed vision tokenizer provenance is malformed: {error}"
+            ))
+        })?;
+    let admitted = VisionProvenance {
+        job_id: provenance.job_id,
+        provider: provenance.provider,
+        deployment: provenance.deployment,
+        model_build: provenance.model_build,
+        artifact_sha256: provenance.artifact_sha256,
+        preprocessing_identity: provenance.preprocessing_identity,
+        postprocessing_identity: provenance.postprocessing_identity,
+        tokenizer,
+        runtime: provenance.runtime,
+        requested_execution_provider: provenance.requested_execution_provider,
+        actual_execution_provider: provenance.actual_execution_provider,
+        execution_provider_fallback_reason: provenance.execution_provider_fallback_reason,
+        precision: provenance.precision,
     };
-    let part = multipart::Part::bytes(image.to_vec())
-        .file_name(format!("shadow-visual.{extension}"))
-        .mime_str(media_type)
-        .map_err(|_| InferRuntimeClientError::InvalidMediaType)?;
-    Ok(multipart::Form::new()
-        .text("model", model)
-        .text("source_revision", source_revision.to_owned())
-        .part("image", part))
-}
-
-fn read_bounded(reader: &mut impl Read) -> Result<Vec<u8>, InferRuntimeClientError> {
-    let mut bytes = Vec::new();
-    reader
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(InferRuntimeClientError::ReadResponse)?;
-    if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(InferRuntimeClientError::ResponseTooLarge);
+    if !valid_provenance(&admitted) {
+        return malformed("typed vision provenance violated Shadow's evidence contract");
     }
-    Ok(bytes)
+    Ok(admitted)
 }
 
-#[derive(Deserialize)]
-struct ErrorEnvelope {
-    error: ErrorBody,
+fn local_metadata(priority: &str, capability_floor: Option<&str>) -> BTreeMap<String, String> {
+    let mut metadata = BTreeMap::from([
+        ("infer.priority".into(), priority.into()),
+        ("infer.placement".into(), "local_only".into()),
+        ("infer.offline_required".into(), "true".into()),
+        ("infer.fallback".into(), "none".into()),
+    ]);
+    if let Some(floor) = capability_floor {
+        metadata.insert("infer.capability_floor".into(), floor.into());
+    }
+    metadata
 }
 
-#[derive(Deserialize)]
-struct ErrorBody {
-    code: String,
-}
-
-#[derive(Deserialize)]
-struct RawFaceDetectionResponse {
-    object: String,
-    status: String,
-    source_revision: String,
-    image: RawImageGeometry,
-    detections: Vec<DetectedFace>,
-    provenance: VisionProvenance,
-}
-
-impl RawFaceDetectionResponse {
-    fn validate(
-        self,
-        expected_source_revision: &str,
-    ) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
-        if self.object != "vision.face_detection"
-            || self.status != "completed"
-            || self.source_revision != expected_source_revision
-            || self.image.orientation != EXPECTED_ORIENTATION
-            || self.image.width == 0
-            || self.image.height == 0
-            || self.detections.len() > MAX_DETECTIONS
-            || !valid_provenance(&self.provenance)
-            || self
-                .detections
-                .iter()
-                .any(|detection| !valid_detection(detection, self.image.width, self.image.height))
-        {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "face detection response violated the typed contract",
-            ));
-        }
-        Ok(DetectedFaceBatch {
-            source_revision: self.source_revision,
-            width: self.image.width,
-            height: self.image.height,
-            orientation: self.image.orientation,
-            detections: self.detections,
-            provenance: self.provenance,
-        })
+fn sdk_landmarks(value: FaceLandmarks) -> FivePointLandmarks {
+    FivePointLandmarks {
+        right_eye: sdk_point(value.right_eye),
+        left_eye: sdk_point(value.left_eye),
+        nose_tip: sdk_point(value.nose_tip),
+        right_mouth_corner: sdk_point(value.right_mouth_corner),
+        left_mouth_corner: sdk_point(value.left_mouth_corner),
     }
 }
 
-#[derive(Deserialize)]
-struct RawImageGeometry {
-    width: u32,
-    height: u32,
-    orientation: String,
-}
-
-#[derive(Deserialize)]
-struct RawFaceEmbeddingResponse {
-    object: String,
-    status: String,
-    source_revision: String,
-    data_classification: String,
-    embedding: RawFaceEmbedding,
-    eligibility: FaceEmbeddingEligibility,
-    provenance: VisionProvenance,
-}
-
-impl RawFaceEmbeddingResponse {
-    fn validate(
-        self,
-        expected_source_revision: &str,
-    ) -> Result<EmbeddedFace, InferRuntimeClientError> {
-        if self.object != "vision.face_embedding"
-            || self.status != "completed"
-            || self.source_revision != expected_source_revision
-            || self.data_classification != BIOMETRIC_CLASSIFICATION
-            || self.embedding.dimensions != crate::SFACE_EMBEDDING_DIMENSIONS
-            || !self.embedding.normalized
-            || self.embedding.distance_metric != "cosine"
-            || !self.eligibility.eligible
-            || !self.eligibility.landmarks_in_image
-            || !self.eligibility.inter_eye_distance_pixels.is_finite()
-            || self.eligibility.inter_eye_distance_pixels < 0.0
-            || !self.eligibility.alignment_rmse_pixels.is_finite()
-            || self.eligibility.alignment_rmse_pixels < 0.0
-            || !valid_provenance(&self.provenance)
-        {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "face embedding response violated the typed contract",
-            ));
-        }
-        let embedding =
-            FaceEmbedding::new(self.embedding.values, self.embedding.space).map_err(|_| {
-                InferRuntimeClientError::InvalidResponse(
-                    "face embedding values violated the SFace contract",
-                )
-            })?;
-        Ok(EmbeddedFace {
-            source_revision: self.source_revision,
-            embedding,
-            eligibility: self.eligibility,
-            provenance: self.provenance,
-        })
+fn sdk_point(value: FacePoint) -> Point {
+    Point {
+        x: value.x,
+        y: value.y,
     }
 }
 
-#[derive(Deserialize)]
-struct RawFaceEmbedding {
-    values: Vec<f32>,
-    dimensions: usize,
-    normalized: bool,
-    distance_metric: String,
-    space: String,
+fn shadow_landmarks(value: FivePointLandmarks) -> FaceLandmarks {
+    FaceLandmarks {
+        right_eye: shadow_point(value.right_eye),
+        left_eye: shadow_point(value.left_eye),
+        nose_tip: shadow_point(value.nose_tip),
+        right_mouth_corner: shadow_point(value.right_mouth_corner),
+        left_mouth_corner: shadow_point(value.left_mouth_corner),
+    }
+}
+
+fn shadow_point(value: Point) -> FacePoint {
+    FacePoint {
+        x: value.x,
+        y: value.y,
+    }
 }
 
 fn valid_detection(detection: &DetectedFace, width: u32, height: u32) -> bool {
@@ -713,64 +566,8 @@ fn valid_provenance(provenance: &VisionProvenance) -> bool {
     core_is_valid && tokenizer_is_valid
 }
 
-#[derive(Debug, Error)]
-pub enum InferRuntimeClientError {
-    #[error("infer-runtime base URL must be a path-free literal loopback HTTP URL")]
-    InvalidBaseUrl,
-    #[error("infer-runtime credential is malformed")]
-    InvalidCredential,
-    #[error("infer-runtime credential path is not a regular owner file: {0}")]
-    UnsafeCredentialFile(PathBuf),
-    #[error("infer-runtime credential file is accessible by group or other users: {0}")]
-    UnsafeCredentialPermissions(PathBuf),
-    #[error("cannot read infer-runtime credential at {path}: {source}")]
-    CredentialIo {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("cannot construct the infer-runtime HTTP client: {0}")]
-    ClientBuild(reqwest::Error),
-    #[error("infer-runtime image length must be in 1..={MAX_IMAGE_BYTES}, got {0}")]
-    InvalidImageLength(usize),
-    #[error("infer-runtime typed vision accepts only image/jpeg or image/png")]
-    InvalidMediaType,
-    #[error("infer-runtime source revision must be non-empty and at most 256 bytes")]
-    InvalidSourceRevision,
-    #[error("infer-runtime semantic text length must be in 1..=4096 bytes, got {0}")]
-    InvalidSemanticTextLength(usize),
-    #[error("infer-runtime query revision must be non-empty and at most 256 bytes")]
-    InvalidQueryRevision,
-    #[error("infer-runtime language must be a BCP-47-shaped ASCII tag of at most 35 bytes")]
-    InvalidLanguage,
-    #[error("infer-runtime classification taxonomy or category set is invalid")]
-    InvalidClassificationCategories,
-    #[error("infer-runtime RAW foundation request is invalid: {0}")]
-    InvalidRawFoundationRequest(&'static str),
-    #[error("infer-runtime RAW artifact lease transport is unavailable on this platform")]
-    RawArtifactLeaseUnsupported,
-    #[error("infer-runtime RAW artifact lease endpoint failed owner-only validation")]
-    UnsafeRawArtifactLeaseEndpoint,
-    #[error("infer-runtime RAW artifact lease handle is invalid: {0}")]
-    InvalidRawArtifactLeaseHandle(&'static str),
-    #[error("infer-runtime RAW artifact lease protocol is malformed")]
-    InvalidRawArtifactLeaseProtocol,
-    #[error("infer-runtime RAW artifact lease I/O failed: {0}")]
-    RawArtifactLeaseIo(io::Error),
-    #[error("cannot serialize infer-runtime request: {0}")]
-    SerializeRequest(serde_json::Error),
-    #[error("infer-runtime request failed: {0}")]
-    Request(reqwest::Error),
-    #[error("infer-runtime returned HTTP {status} with code {code}")]
-    Http { status: u16, code: String },
-    #[error("infer-runtime response exceeded {MAX_RESPONSE_BYTES} bytes")]
-    ResponseTooLarge,
-    #[error("cannot read infer-runtime response: {0}")]
-    ReadResponse(io::Error),
-    #[error("cannot decode infer-runtime response: {0}")]
-    DecodeResponse(serde_json::Error),
-    #[error("invalid infer-runtime response: {0}")]
-    InvalidResponse(&'static str),
+fn malformed<T>(message: &str) -> Result<T, InferRuntimeClientError> {
+    Err(InferRuntimeClientError::MalformedResponse(message.into()))
 }
 
 #[cfg(test)]

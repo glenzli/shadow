@@ -125,48 +125,35 @@ and gates, not implemented inference.
   cooperatively cancels by terminating the child, and retries one complete
   request after a transport failure. Model download and redistribution remain
   outside Shadow.
-- A fail-closed loopback client for infer-runtime's experimental YuNet and
-  SFace routes. It accepts only path-free literal loopback-IP HTTP URLs,
-  disables proxies and redirects, loads a regular owner-only credential file, validates
+- An adapter over the official `infer-runtime-client` SDK at Git revision
+  `8588a945047cedaea62035969e479e7fb7ff795c` for YuNet and SFace. The SDK owns
+  strict `infra.discovery.registration@20260812.1` selection, exact
+  `infer-runtime.consumer-core@20260813.1` and Capability Catalog negotiation,
+  managed owner-only credentials, loopback HTTP, no-proxy/no-redirect policy,
+  generation reconnect, headers, and public errors. Shadow validates
   the exact `input_pixels_no_exif_transform` coordinate contract, and rejects
   malformed model provenance or biometric responses. SFace vectors are fixed
   at 128 finite L2-normalized values in one exact embedding space; their Debug
   output is redacted and they have no serialization implementation.
-- The same loopback client now exposes infer-runtime's experimental `SigLIP 2`
-  image/text routes through a separate semantic owner. It requires normalized
+- The same official SDK exposes infer-runtime's typed `SigLIP 2` image/text and
+  Qwen image-understanding routes through separate Shadow evidence owners. They require normalized
   display orientation for JPEG/PNG inputs, sends explicit interactive or
   background priority, admits only finite normalized 768-dimensional cosine
   vectors, requires tokenizer provenance for text, and compares results only
   inside one exact versioned embedding space. The client does not own a photo
   index, retry checkpoint, or Catalog publication.
 - [`infer_runtime/raw_foundation.rs`](src/providers/infer_runtime/raw_foundation.rs)
-  owns the typed Shadow client for the frozen RawNIND execution split. A
-  caller must complete Shadow's cache lookup first, then create an authenticated
-  Job/ticket, pass one read-only Bayer staging handle and one empty writable
-  output handle through the owner-only `SCM_RIGHTS` lease, and execute the
-  one-shot lease against the exact daemon endpoint that issued it. Capability
-  ids and the Unix socket path are redacted from Debug output; the client
-  validates owner/mode/link/open flags, exact staging byte count, response
-  digests, and the isolated ORT 1.27 Build pair. Shadow remains responsible for
-  complete `.shadowrawf` verification, publication, cache identity, and stale
-  result arbitration. The desktop bridge can select this route only through an
-  explicit execution override; the legacy sidecar remains the default while
-  the assembled Infer deployment is not active in the running daemon. The
-  Windows named-pipe/HANDLE binding is not implemented, so the override fails
-  closed there. The current Job API has no stable RAW percentage/tile progress;
-  consumers may show only queued, running, and terminal states.
-- [`infer_runtime/discovery.rs`](src/providers/infer_runtime/discovery.rs) owns
-  Consumer endpoint selection independently from those typed routes. An
-  explicit Shadow override wins, otherwise it validates the owner-only
-  `infra.discovery.registration@20260812.1` persistent candidate registration,
-  exact `infer-runtime.consumer@0.1.0-candidate.3` offer, generation, and
-  canonical numeric-loopback endpoint. It rejects the removed lease field, the
-  previous Discovery schema, and candidate.2-only offers; neither manifest
-  presence nor modification time is treated as liveness. Explicit URLs and the
-  fixed `http://127.0.0.1:8787` transport fallback use candidate.3 vocabulary as
-  well. A connection failure re-runs discovery and accepts a changed generation
-  or offer immediately. Remove the fixed fallback after every supported Infer
-  Runtime publisher reliably registers a compatible candidate.3 offer.
+  preserves the inactive RawNIND request/cache identity and cache-before-runtime
+  contract. The legacy sidecar remains the default. The official SDK 1.0.0 has
+  no typed RAW ticket, `SCM_RIGHTS` handle lease, execution, cancellation, or
+  provenance module, so an explicit Infer RAW override now fails closed before
+  transport. Activation is blocked on that dedicated SDK surface; Shadow does
+  not retain a second Core Discovery parser or generic RAW transport.
+- [`infer_runtime.rs`](src/providers/infer_runtime.rs) is now only Shadow's
+  synchronous product/evidence adapter over the SDK. Product endpoint selection
+  has no fixed-port fallback and no candidate-contract branch. An explicit
+  literal-loopback endpoint remains available solely as a development or
+  diagnostic override.
 - Deterministic anonymous-person candidate grouping over request-local SFace
   evidence. It uses conservative complete-link grouping, never compares
   different embedding spaces, never groups two co-occurring faces from the
@@ -264,9 +251,7 @@ putting vectors into the ordinary Catalog.
 - [`src/culling.rs`](src/culling.rs) owns similarity-only grouping evidence;
   [`src/people.rs`](src/people.rs) owns anonymous-person grouping and sensitive
   SFace value admission; [`src/providers/infer_runtime.rs`](src/providers/infer_runtime.rs)
-  owns shared loopback transport and face routes, while
-  [`src/providers/infer_runtime/discovery.rs`](src/providers/infer_runtime/discovery.rs)
-  owns Consumer endpoint discovery and migration fallback policy, and
+  owns the synchronous Shadow evidence adapter over the official SDK, while
   [`src/providers/infer_runtime/semantic.rs`](src/providers/infer_runtime/semantic.rs)
   owns `SigLIP 2` image/text request and response admission;
   [`src/providers/`](src/providers/) owns the remaining platform availability

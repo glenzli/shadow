@@ -23,8 +23,11 @@ pub use infer_runtime::{
     InferRawFoundationLeaseGrant, InferRawFoundationPriority, InferRawFoundationProvenance,
     InferRawFoundationProvider, InferRawFoundationRegisteredLease, InferRawFoundationRequest,
     InferRawFoundationResult, InferRawFoundationSource, InferRawFoundationStaging,
-    InferRuntimeClient, InferRuntimeClientError, InferRuntimeCredential, SemanticEmbeddingProvider,
+    InferRuntimeAttemptSnapshot, InferRuntimeCancelResult, InferRuntimeCapabilityCatalog,
+    InferRuntimeClient, InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
+    InferRuntimeJobListPage, InferRuntimeJobSnapshot, SemanticEmbeddingProvider,
     SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance, VisionTokenizerProvenance,
+    infer_raw_foundation_sdk_status,
 };
 pub(crate) use rawnind_foundation_sidecar::descriptor_from_planned_verification;
 pub use rawnind_foundation_sidecar::{
