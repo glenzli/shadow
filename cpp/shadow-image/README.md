@@ -158,6 +158,10 @@ Current contract rules:
   with CFA, black/white levels, both colour-calibration contracts, and decoder identity in a
   bounded manifest. The sample file is
   published before the manifest and both stay outside the source tree.
+- `auto_geometry.hpp` and `src/analysis/auto_geometry.cpp` own bounded, deterministic geometry
+  analysis over a borrowed display-sRGB RGB8 preview. They return non-authoritative straighten and
+  keystone proposals with confidence and line evidence; the analyzer never mutates or persists a
+  Recipe. Authored crop, orientation, perspective, and rendering remain owned by `photo_geometry`.
 - Native-size Bayer reconstruction, the precompiled camera transform and orientation are fused
   into one output pass. The CPU path remains the exact reference. On macOS, Metal v1 performs the
   balanced bilinear and high-quality directional-green/colour-difference contracts in fp32 and

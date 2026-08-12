@@ -1,6 +1,7 @@
 #include "edit_controller.hpp"
 #include "ai_preferences.hpp"
 #include "edit_ai_mask_controller.hpp"
+#include "edit_auto_geometry_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_raw_foundation_controller.hpp"
 
@@ -46,6 +47,7 @@ EditController::EditController(
     ai_preferences_(ai_preferences), persistence_state_(*this, [this] { startAutosave(); }),
     versions_(this), tone_curve_points_(this) {
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
+    auto_geometry_controller_ = std::make_unique<EditAutoGeometryController>(*this);
     persistence_task_coordinator_ = std::make_unique<EditPersistenceTaskCoordinator>(
         *this,
         [this] { finishStateTask(); }
@@ -92,6 +94,21 @@ EditController::EditController(
     connect(this, &EditController::parametersChanged, this, [this] {
         ai_mask_controller_->resetContext();
     });
+    connect(this, &EditController::sourceIdentityChanged, this, [this] {
+        auto_geometry_controller_->resetContext();
+    });
+    connect(this, &EditController::parametersChanged, this, [this] {
+        auto_geometry_controller_->resetContext();
+    });
+    connect(this, &EditController::cropToolActiveChanged, this, [this] {
+        if (!crop_tool_active_) {
+            auto_geometry_controller_->resetContext();
+        } else {
+            emit autoGeometryChanged();
+        }
+    });
+    connect(this, &EditController::renderingChanged, this, &EditController::autoGeometryChanged);
+    connect(this, &EditController::stateBusyChanged, this, &EditController::autoGeometryChanged);
     if (ai_preferences_ != nullptr) {
         connect(
             ai_preferences_,
@@ -133,6 +150,7 @@ EditController::EditController(
 }
 
 EditController::~EditController() {
+    auto_geometry_controller_.reset();
     raw_foundation_controller_.reset();
     ai_mask_controller_.reset();
     preview_debounce_.stop();
@@ -153,7 +171,8 @@ bool EditController::active() const noexcept {
 
 bool EditController::busy() const noexcept {
     return stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
-           || (ai_mask_controller_ && ai_mask_controller_->busy());
+           || (ai_mask_controller_ && ai_mask_controller_->busy())
+           || (auto_geometry_controller_ && auto_geometry_controller_->busy());
 }
 
 bool EditController::stateBusy() const noexcept {
@@ -333,6 +352,9 @@ bool EditController::eventFilter(QObject* const watched, QEvent* const event) {
 
 void EditController::retranslateUi() {
     emit statusTextChanged();
+    if (auto_geometry_controller_) {
+        auto_geometry_controller_->retranslateUi();
+    }
     if (raw_foundation_controller_) {
         raw_foundation_controller_->retranslateUi();
     }

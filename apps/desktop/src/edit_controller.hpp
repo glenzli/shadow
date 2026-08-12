@@ -27,6 +27,7 @@
 
 class EditPreviewPresentationContext;
 class EditAiMaskController;
+class EditAutoGeometryController;
 class EditPersistenceTaskCoordinator;
 class EditRawFoundationController;
 class AiPreferences;
@@ -278,6 +279,29 @@ class EditController final : public QObject {
     // Crop/orientation is photo-local too. It is intentionally not a Grade
     // Node control, because framing must never become a shared style.
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY parametersChanged)
+    Q_PROPERTY(bool autoGeometryBusy READ autoGeometryBusy NOTIFY autoGeometryChanged)
+    Q_PROPERTY(bool autoGeometryCanAnalyze READ autoGeometryCanAnalyze NOTIFY autoGeometryChanged)
+    Q_PROPERTY(bool autoGeometryHasProposal READ autoGeometryHasProposal NOTIFY autoGeometryChanged)
+    Q_PROPERTY(bool autoGeometryPreviewing READ autoGeometryPreviewing NOTIFY autoGeometryChanged)
+    Q_PROPERTY(int autoGeometryConfidence READ autoGeometryConfidence NOTIFY autoGeometryChanged)
+    Q_PROPERTY(
+        double autoGeometrySuggestedStraighten READ autoGeometrySuggestedStraighten NOTIFY
+            autoGeometryChanged
+    )
+    Q_PROPERTY(
+        double autoGeometrySuggestedVertical READ autoGeometrySuggestedVertical NOTIFY
+            autoGeometryChanged
+    )
+    Q_PROPERTY(
+        double autoGeometrySuggestedHorizontal READ autoGeometrySuggestedHorizontal NOTIFY
+            autoGeometryChanged
+    )
+    Q_PROPERTY(
+        int autoGeometrySupportingLines READ autoGeometrySupportingLines NOTIFY autoGeometryChanged
+    )
+    Q_PROPERTY(
+        QString autoGeometryStatusText READ autoGeometryStatusText NOTIFY autoGeometryChanged
+    )
     Q_PROPERTY(bool canvasNodeMaterialized READ canvasNodeMaterialized NOTIFY parametersChanged)
     Q_PROPERTY(
         bool canvasNodeEnabled READ canvasNodeEnabled WRITE setCanvasNodeEnabled NOTIFY
@@ -473,6 +497,16 @@ class EditController final : public QObject {
     [[nodiscard]] int liquifyBrushMode() const noexcept;
     [[nodiscard]] bool liquifyCanReconstruct() const noexcept;
     [[nodiscard]] QVariantMap photoGeometry() const;
+    [[nodiscard]] bool autoGeometryBusy() const noexcept;
+    [[nodiscard]] bool autoGeometryCanAnalyze() const noexcept;
+    [[nodiscard]] bool autoGeometryHasProposal() const noexcept;
+    [[nodiscard]] bool autoGeometryPreviewing() const noexcept;
+    [[nodiscard]] int autoGeometryConfidence() const noexcept;
+    [[nodiscard]] double autoGeometrySuggestedStraighten() const noexcept;
+    [[nodiscard]] double autoGeometrySuggestedVertical() const noexcept;
+    [[nodiscard]] double autoGeometrySuggestedHorizontal() const noexcept;
+    [[nodiscard]] int autoGeometrySupportingLines() const noexcept;
+    [[nodiscard]] QString autoGeometryStatusText() const;
     [[nodiscard]] bool canvasNodeMaterialized() const noexcept;
     [[nodiscard]] bool canvasNodeEnabled() const noexcept;
     [[nodiscard]] bool cropToolActive() const noexcept;
@@ -627,6 +661,9 @@ class EditController final : public QObject {
     setPhotoCropBounds(double crop_left, double crop_top, double crop_right, double crop_bottom);
     Q_INVOKABLE void setPhotoStraightenDegrees(double degrees);
     Q_INVOKABLE void setPhotoPerspective(double vertical, double horizontal);
+    Q_INVOKABLE void analyzeAutoGeometry(int mode);
+    Q_INVOKABLE void acceptAutoGeometry();
+    Q_INVOKABLE void cancelAutoGeometry();
     Q_INVOKABLE void setCropToolActive(bool active);
     Q_INVOKABLE void resetPhotoGeometry();
     Q_INVOKABLE void resetSelectedAdjustmentSection(const QString& section_key);
@@ -781,6 +818,7 @@ class EditController final : public QObject {
     void liquifyBrushChanged();
     void whiteBalancePickerActiveChanged();
     void cropToolActiveChanged();
+    void autoGeometryChanged();
 
   private slots:
     void finishStateTask();
@@ -899,6 +937,7 @@ class EditController final : public QObject {
     acceptParameter(double value, double minimum, double maximum, const char* label_source);
 
     friend class EditAiMaskController;
+    friend class EditAutoGeometryController;
     friend class EditRawFoundationController;
 
     std::shared_ptr<DesktopBackend> backend_;
@@ -907,6 +946,7 @@ class EditController final : public QObject {
     AiPreferences* ai_preferences_ = nullptr;
     EditPersistenceState persistence_state_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
+    std::unique_ptr<EditAutoGeometryController> auto_geometry_controller_;
     std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
     EditVersionModel versions_;

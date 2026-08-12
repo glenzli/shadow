@@ -74,6 +74,167 @@ ColumnLayout {
             Item { Layout.fillWidth: true }
         }
 
+        ShadowSubsectionLabel {
+            Layout.topMargin: 6
+            text: qsTr("AUTO GEOMETRY")
+            toolTipText: qsTr("Detect dominant lines locally and preview a photo-level correction before changing the Recipe.")
+        }
+
+        GridLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            columns: 2
+            columnSpacing: 6
+            rowSpacing: 6
+
+            ShadowButton {
+                objectName: "autoGeometryAutomaticButton"
+                Layout.fillWidth: true
+                compact: true
+                text: geometry.inspector.editor.autoGeometryBusy
+                    ? qsTr("Analyzing…") : qsTr("Auto")
+                variant: ShadowButton.Primary
+                enabled: geometry.inspector.editor.autoGeometryCanAnalyze
+                toolTipText: qsTr("Choose reliable level and perspective corrections from the detected structure.")
+                onClicked: geometry.inspector.editor.analyzeAutoGeometry(0)
+            }
+
+            ShadowButton {
+                objectName: "autoGeometryLevelButton"
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Level")
+                enabled: geometry.inspector.editor.autoGeometryCanAnalyze
+                toolTipText: qsTr("Correct only the dominant horizon or near-horizontal lines.")
+                onClicked: geometry.inspector.editor.analyzeAutoGeometry(1)
+            }
+
+            ShadowButton {
+                objectName: "autoGeometryVerticalButton"
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Vertical")
+                enabled: geometry.inspector.editor.autoGeometryCanAnalyze
+                toolTipText: qsTr("Level the photo and straighten converging vertical lines.")
+                onClicked: geometry.inspector.editor.analyzeAutoGeometry(2)
+            }
+
+            ShadowButton {
+                objectName: "autoGeometryFullButton"
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Full")
+                enabled: geometry.inspector.editor.autoGeometryCanAnalyze
+                toolTipText: qsTr("Correct level plus both vertical and horizontal perspective.")
+                onClicked: geometry.inspector.editor.analyzeAutoGeometry(3)
+            }
+        }
+
+        Label {
+            objectName: "autoGeometryStatusLabel"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 6
+            visible: text.length > 0
+            text: geometry.inspector.editor.autoGeometryStatusText
+            color: geometry.inspector.editor.autoGeometryHasProposal
+                ? Theme.accent : Theme.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.WordWrap
+        }
+
+        Label {
+            objectName: "autoGeometryProposalLabel"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 2
+            visible: geometry.inspector.editor.autoGeometryHasProposal
+            text: qsTr("Proposal · %1° · V %2% · H %3% · %4 lines")
+                .arg(Number(
+                    geometry.inspector.editor.autoGeometrySuggestedStraighten
+                ).toFixed(1))
+                .arg(Math.round(
+                    Number(geometry.inspector.editor.autoGeometrySuggestedVertical) * 100
+                ))
+                .arg(Math.round(
+                    Number(geometry.inspector.editor.autoGeometrySuggestedHorizontal) * 100
+                ))
+                .arg(geometry.inspector.editor.autoGeometrySupportingLines)
+            color: Theme.textSecondary
+            font.pixelSize: 9
+            wrapMode: Text.WordWrap
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 6
+            visible: geometry.inspector.editor.autoGeometryHasProposal
+            spacing: 6
+
+            ShadowButton {
+                objectName: "autoGeometryApplyButton"
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Apply")
+                variant: ShadowButton.Primary
+                enabled: geometry.inspector.editor.autoGeometryPreviewing
+                    && !geometry.inspector.editor.autoGeometryBusy
+                toolTipText: qsTr("Accept the preview as one undoable geometry edit.")
+                onClicked: geometry.inspector.editor.acceptAutoGeometry()
+            }
+
+            ShadowButton {
+                objectName: "autoGeometryCancelButton"
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Cancel")
+                variant: ShadowButton.Ghost
+                enabled: !geometry.inspector.editor.autoGeometryBusy
+                toolTipText: qsTr("Discard the proposal and restore the authored geometry.")
+                onClicked: geometry.inspector.editor.cancelAutoGeometry()
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 6
+            visible: !geometry.inspector.editor.autoGeometryCanAnalyze
+                && !geometry.inspector.editor.autoGeometryBusy
+                && !geometry.inspector.editor.autoGeometryHasProposal
+                && (Number(
+                    geometry.inspector.editor.photoGeometry.cropLeft || 0
+                ) > 0.0001
+                    || Number(
+                        geometry.inspector.editor.photoGeometry.cropTop || 0
+                    ) > 0.0001
+                    || Math.abs(Number(
+                        geometry.inspector.editor.photoGeometry.cropRight || 0
+                    ) - 1) > 0.0001
+                    || Math.abs(Number(
+                        geometry.inspector.editor.photoGeometry.cropBottom || 0
+                    ) - 1) > 0.0001
+                    || Math.abs(Number(
+                        geometry.inspector.editor.photoGeometry.straightenDegrees || 0
+                    )) > 0.0001
+                    || Math.abs(Number(
+                        geometry.inspector.editor.photoGeometry.perspectiveVertical || 0
+                    )) > 0.0001
+                    || Math.abs(Number(
+                        geometry.inspector.editor.photoGeometry.perspectiveHorizontal || 0
+                    )) > 0.0001)
+            text: qsTr("Reset Crop, Straighten, and Perspective before analyzing again.")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.WordWrap
+        }
+
         ShadowSlider {
             Layout.fillWidth: true
             Layout.leftMargin: 14

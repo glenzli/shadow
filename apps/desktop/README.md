@@ -330,6 +330,12 @@ Its implementation follows the same navigation:
 - [`src/edit_geometry_controller.cpp`](src/edit_geometry_controller.cpp) owns crop-tool state,
   crop bounds and aspect ratios, straighten, bounded vertical/horizontal perspective, rotation,
   flips, and geometry reset.
+- [`src/edit_auto_geometry_controller.*`](src/edit_auto_geometry_controller.hpp) owns bounded
+  asynchronous line analysis over the settled display preview, stale-result rejection, and the
+  transient proposal-render/accept/cancel lifecycle. It never mutates the authoritative Grade
+  Stack before a rendered proposal is explicitly accepted. Auto Geometry v1 requires an uncropped
+  photo with neutral fine geometry so its preview and the crop-before-perspective renderer share
+  one projective center; authored rotation and flips remain valid inputs.
 - [`src/edit_grade_node_controller.cpp`](src/edit_grade_node_controller.cpp) owns Grade Node list
   presentation, selection, visibility/bypass state, collection actions, sharing, and node-level
   resets. Foundation, Grade, and fixed photo-node rows use the same eye affordance for this
@@ -723,7 +729,10 @@ Review presentation keeps the workspace as the composition and compatibility sur
   explicitly applies a shared clock shift or restoration to the current camera times, and
   [`qml/LibraryLocationBatchDialog.qml`](qml/LibraryLocationBatchDialog.qml) owns map/search/manual
   coordinate selection plus missing-only versus explicit replacement policy for the current
-  selection; [`qml/LibraryLocationBatchState.qml`](qml/LibraryLocationBatchState.qml) owns its
+  selection. Its explicit close/Escape path and Review-owned native-WebView handoff ensure that
+  the dialog exclusively owns the interactive map while open. The base map responds to that
+  eligibility change by releasing the controller, then restoring itself only when its presentation
+  is still eligible; [`qml/LibraryLocationBatchState.qml`](qml/LibraryLocationBatchState.qml) owns its
   opaque preview/apply lifecycle, and
   [`qml/LibraryGpxImportDialog.qml`](qml/LibraryGpxImportDialog.qml) owns GPX selection,
   clock-offset settings, match summary, and explicit confirmation. Selection ownership remains in

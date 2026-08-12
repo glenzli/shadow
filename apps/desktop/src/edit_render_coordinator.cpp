@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_auto_geometry_controller.hpp"
 #include "edit_preview_presentation_context.hpp"
 #include "preview_diagnostics.hpp"
 
@@ -116,6 +117,12 @@ void EditController::finishPreviewTask() {
     if (kind == EditPreviewKind::Current && presentable_current) {
         if (!result.error.isEmpty()) {
             if (accepted) {
+                if (auto_geometry_controller_) {
+                    auto_geometry_controller_->handlePreviewFailed(
+                        result.generation.current_revision,
+                        result.error
+                    );
+                }
                 markHistogramFailed(EditPreviewKind::Current);
                 if (raw_development_unavailable(result.error)) {
                     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -163,6 +170,12 @@ void EditController::finishPreviewTask() {
                 std::move(result.preview.frame),
                 result.generation.presentation_binding
             );
+            if (accepted && result.generation.policy == EditPreviewPolicy::Settled
+                && auto_geometry_controller_) {
+                auto_geometry_controller_->handlePreviewSettled(
+                    result.generation.current_revision
+                );
+            }
             preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
                                   .arg(result.generation.current_revision);
             emit previewSourceChanged();
@@ -301,6 +314,9 @@ void EditController::startPreviewRender() {
     preview_render_token_ = backend_->beginEditPreviewRequest();
     in_flight_preview_policy_ = policy;
     BackendGradeStack preview_stack = grade_stack_;
+    if (auto_geometry_controller_) {
+        (void)auto_geometry_controller_->applyPreviewOverride(preview_stack.geometry);
+    }
     if (crop_tool_active_) {
         preview_stack.geometry.crop_left = 0.0;
         preview_stack.geometry.crop_top = 0.0;

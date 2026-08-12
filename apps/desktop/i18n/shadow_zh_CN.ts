@@ -1119,27 +1119,27 @@
         <translation>命名版本已作为草稿载入；继续调整会创建新的当前工作状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="121"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="128"/>
         <source>This RAW can be browsed from its embedded preview, but the active local decoder cannot parse it for Precision. Use a compatible local RAW provider or convert it to DNG.</source>
         <translation>该 RAW 可通过内嵌预览在图库中浏览，但当前本地解码器无法将其解析为精修图像。请使用兼容的本地 RAW 解码器，或将照片转换为 DNG。</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="127"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="134"/>
         <source>Preview render failed · %1</source>
         <translation>预览渲染失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="198"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="211"/>
         <source>Saving adjustments · preview is current</source>
         <translation>正在保存调整 · 预览为最新</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="202"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="215"/>
         <source>Working state and preview are current</source>
         <translation>当前工作状态与预览均为最新</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="216"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="229"/>
         <source>Neutral baseline failed · %1</source>
         <translation>中性基线失败 · %1</translation>
     </message>
@@ -1159,7 +1159,7 @@
         <translation>全分辨率细节已就绪 · 本地源文件 %1 MiB</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="327"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="343"/>
         <source>Rendering preview…</source>
         <translation>正在渲染预览…</translation>
     </message>
@@ -1189,12 +1189,12 @@
         <translation>图库目录返回了其他照片的自动保存状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="387"/>
+        <location filename="../src/edit_controller.cpp" line="409"/>
         <source>Select a Grade Node before editing</source>
         <translation>请先选择一个调色节点再进行编辑</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="392"/>
+        <location filename="../src/edit_controller.cpp" line="414"/>
         <source>Enable the selected Grade Node before editing its controls</source>
         <translation>请先启用选中的调色节点，再编辑其控件</translation>
     </message>
@@ -1230,12 +1230,12 @@
         <translation>图库版本已创建 · 之前的状态仍然保留</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="400"/>
+        <location filename="../src/edit_controller.cpp" line="422"/>
         <source>%1 is outside the supported preview range</source>
         <translation>%1 超出支持的预览范围</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.hpp" line="949"/>
+        <location filename="../src/edit_controller.hpp" line="989"/>
         <source>Open a photo from Review to begin editing</source>
         <translation>请从选片中打开一张照片开始编辑</translation>
     </message>
@@ -1432,6 +1432,41 @@
         <location filename="../src/edit_variant_controller.cpp" line="121"/>
         <source>Could not remove Variant · %1</source>
         <translation>无法移除调整方案 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_geometry_controller.cpp" line="155"/>
+        <source>Wait for the current preview before analyzing geometry</source>
+        <translation>请等待当前预览就绪后再分析几何结构</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_geometry_controller.cpp" line="166"/>
+        <source>Analyzing lines and perspective…</source>
+        <translation>正在分析线条与透视…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_geometry_controller.cpp" line="195"/>
+        <source>Automatic geometry analysis failed · %1</source>
+        <translation>自动几何分析失败 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_geometry_controller.cpp" line="203"/>
+        <source>No reliable level or perspective correction was found</source>
+        <translation>未发现可靠的水平或透视校正</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_geometry_controller.cpp" line="218"/>
+        <source>Rendering automatic geometry preview · %1% confidence</source>
+        <translation>正在渲染自动几何预览 · 置信度 %1%</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_geometry_controller.cpp" line="302"/>
+        <source>Previewing automatic geometry · %1% confidence</source>
+        <translation>正在预览自动几何校正 · 置信度 %1%</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_geometry_controller.cpp" line="317"/>
+        <source>Automatic geometry preview failed · %1</source>
+        <translation>自动几何预览失败 · %1</translation>
     </message>
 </context>
 <context>
@@ -4017,7 +4052,7 @@ R %2 · G %3 · B %4</translation>
         <translation>Shadow · 人物</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="180"/>
+        <location filename="../qml/Main.qml" line="186"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
@@ -5536,6 +5571,7 @@ R %2 · G %3 · B %4</translation>
         <translation>节点名称</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="195"/>
         <location filename="../qml/PrecisionGradeNodeMenus.qml" line="312"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="118"/>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="88"/>
@@ -7077,57 +7113,133 @@ R %2 · G %3 · B %4</translation>
         <translation>重置变换</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="82"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="79"/>
+        <source>AUTO GEOMETRY</source>
+        <translation>自动几何</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="80"/>
+        <source>Detect dominant lines locally and preview a photo-level correction before changing the Recipe.</source>
+        <translation>在本机检测主导线条，并在更改配方前预览照片级校正。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="96"/>
+        <source>Analyzing…</source>
+        <translation>正在分析…</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="96"/>
+        <source>Auto</source>
+        <translation>自动</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="99"/>
+        <source>Choose reliable level and perspective corrections from the detected structure.</source>
+        <translation>根据检测到的结构选择可靠的水平与透视校正。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="107"/>
+        <source>Level</source>
+        <translation>水平</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="109"/>
+        <source>Correct only the dominant horizon or near-horizontal lines.</source>
+        <translation>仅校正主导地平线或近水平线。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="119"/>
+        <source>Level the photo and straighten converging vertical lines.</source>
+        <translation>校平照片并拉直汇聚的垂直线。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="127"/>
+        <source>Full</source>
+        <translation>完整</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="129"/>
+        <source>Correct level plus both vertical and horizontal perspective.</source>
+        <translation>校正水平倾斜以及垂直、水平两个方向的透视。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="155"/>
+        <source>Proposal · %1° · V %2% · H %3% · %4 lines</source>
+        <translation>建议 · %1° · 垂直 %2% · 水平 %3% · %4 条线</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="183"/>
+        <source>Apply</source>
+        <translation>应用</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="187"/>
+        <source>Accept the preview as one undoable geometry edit.</source>
+        <translation>将此预览接受为一次可撤销的几何编辑。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="198"/>
+        <source>Discard the proposal and restore the authored geometry.</source>
+        <translation>丢弃建议并恢复已编辑的几何设置。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="243"/>
         <source>Straighten</source>
         <translation>拉直</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="83"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="244"/>
         <source>Rotates the photo and automatically crops empty corners while preserving the current aspect ratio.</source>
         <translation>旋转照片，并自动裁掉空白角，保留当前纵横比。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="107"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="268"/>
         <source>Empty corners are cropped automatically after rotation.</source>
         <translation>旋转后会自动裁掉空白角。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="115"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="276"/>
         <source>PERSPECTIVE</source>
         <translation>透视矫正</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="116"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="277"/>
         <source>Correct converging vertical or horizontal lines with one photo-local projective transform.</source>
         <translation>通过照片专属的投影变换矫正汇聚的垂直线或水平线。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="123"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="117"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="284"/>
         <source>Vertical</source>
         <translation>垂直</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="148"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="232"/>
+        <source>Reset Crop, Straighten, and Perspective before analyzing again.</source>
+        <translation>请先重置“裁切”“拉直”和“透视矫正”，再重新分析。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="309"/>
         <source>Horizontal</source>
         <translation>水平</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="171"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="332"/>
         <source>ASPECT</source>
         <translation>比例</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="172"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="333"/>
         <source>Freeform by default. A selected ratio constrains the canvas handles without becoming separate Recipe state.</source>
         <translation>默认自由裁剪。选择比例后只会约束画布控制点，不会产生独立的配方状态。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="183"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="344"/>
         <source>Free</source>
         <translation>自由</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGeometryTools.qml" line="218"/>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="379"/>
         <source>Drag the frame, edges, or corners directly on the photo.</source>
         <translation>直接在照片上拖动画框、边缘或角点。</translation>
     </message>
@@ -8042,7 +8154,7 @@ Technical detail: %1</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="666"/>
+        <location filename="../src/review_controller.hpp" line="680"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -8052,7 +8164,7 @@ Technical detail: %1</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="670"/>
+        <location filename="../src/review_controller.hpp" line="684"/>
         <location filename="../src/review_decision_coordinator.hpp" line="121"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
@@ -8379,77 +8491,77 @@ Technical detail: %1</source>
         <translation>设置照片位置…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="214"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="232"/>
         <source>Add or locate folder…</source>
         <translation>添加或定位文件夹…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="230"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="248"/>
         <source>Remove from Library…</source>
         <translation>从图库移除…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="248"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="266"/>
         <source>Remove Like</source>
         <translation>取消喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="248"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="266"/>
         <source>Like</source>
         <translation>喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="265"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="283"/>
         <source>Clear pick flag</source>
         <translation>清除入选标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="265"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="283"/>
         <source>Pick</source>
         <translation>入选</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="280"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="298"/>
         <source>Clear reject flag</source>
         <translation>清除淘汰标记</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="280"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="298"/>
         <source>Reject</source>
         <translation>淘汰</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="294"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="312"/>
         <source>Rating</source>
         <translation>星级</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="314"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="332"/>
         <source>%1 star</source>
         <translation>%1 星</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="331"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="349"/>
         <source>Correct smart categories…</source>
         <translation>纠正智能分类…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="344"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="362"/>
         <source>Add to Album</source>
         <translation>添加到相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="384"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="402"/>
         <source>Apply Shared Node</source>
         <translation>应用共享调整节点</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="427"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="445"/>
         <source>More shared nodes…</source>
         <translation>更多共享节点…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewPhotoContextMenu.qml" line="444"/>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="462"/>
         <source>Export photo</source>
         <translation>导出照片</translation>
     </message>
@@ -8700,116 +8812,122 @@ Technical detail: %1</source>
     <name>ReviewWorkspace</name>
     <message>
         <location filename="../qml/LibraryLocationBatchDialog.qml" line="20"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="158"/>
         <source>Set Photo Location</source>
         <translation>设置照片位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="122"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="170"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="178"/>
         <source>%L1 selected photos</source>
         <translation>已选择 %L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="131"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="186"/>
         <source>Choose a place or click the map. Shadow stores the location non-destructively; the original EXIF remains unchanged.</source>
         <translation>搜索地点或点击地图。Shadow 会以无损方式保存位置，原片 EXIF 保持不变。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="147"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="199"/>
         <source>Coordinates</source>
         <translation>坐标</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="157"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="208"/>
         <source>Latitude</source>
         <translation>纬度</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="166"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="217"/>
         <source>Longitude</source>
         <translation>经度</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="175"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="226"/>
         <source>Place name (optional)</source>
         <translation>地点名称（可选）</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="182"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="232"/>
         <source>USE THESE COORDINATES</source>
         <translation>使用这些坐标</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="192"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="241"/>
         <source>Apply to</source>
         <translation>应用到</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="204"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="252"/>
         <source>Photos without a location</source>
         <translation>没有位置的照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="205"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="253"/>
         <source>All selected photos</source>
         <translation>所有所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="238"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="280"/>
         <source>%L1 photos will be updated</source>
         <translation>将更新 %L1 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="240"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="282"/>
         <source>Preview the change before applying it</source>
         <translation>应用前请先预览更改</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="250"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="290"/>
         <source>%L1 without location · %L2 already located · %L3 skipped</source>
         <translation>%L1 张无位置 · %L2 张已有位置 · 跳过 %L3 张</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="263"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="303"/>
         <source>This will replace the current location of %L1 photos.</source>
         <translation>这会替换 %L1 张照片的现有位置。</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="278"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="315"/>
         <source>Could not update photo locations: %1</source>
         <translation>无法更新照片位置：%1</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="289"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="325"/>
         <source>Photo locations updated</source>
         <translation>照片位置已更新</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="307"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="338"/>
         <source>REFRESH PREVIEW</source>
         <translation>刷新预览</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="318"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="348"/>
         <source>WORKING…</source>
         <translation>正在处理…</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryLocationBatchDialog.qml" line="318"/>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="348"/>
         <source>APPLY</source>
         <translation>应用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="230"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="229"/>
         <source>Set location for selected photos</source>
         <translation>设置所选照片的位置</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapPlaceSearch.qml" line="85"/>
+        <location filename="../qml/LibraryMapPlaceSearch.qml" line="95"/>
         <source>Clear place search</source>
         <translation>清除地点搜索</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryMapPlaceSearch.qml" line="65"/>
+        <location filename="../qml/LibraryMapPlaceSearch.qml" line="75"/>
         <source>Search places with AMap</source>
         <translation>使用高德搜索地点</translation>
     </message>
@@ -8880,12 +8998,12 @@ Technical detail: %1</source>
         <translation>%1 · %L2 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="248"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="259"/>
         <source>Compare the two selected photos</source>
         <translation>比较两张已选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="249"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="260"/>
         <source>Compare the selected photo with the next photo</source>
         <translation>将已选照片与下一张照片比较</translation>
     </message>
@@ -9415,7 +9533,7 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="41"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="272"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="275"/>
         <source>All Photos</source>
         <translation>所有照片</translation>
     </message>
@@ -9667,7 +9785,7 @@ Technical detail: %1</source>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="74"/>
         <location filename="../qml/ReviewSystemCollections.qml" line="76"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="265"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="268"/>
         <source>Liked</source>
         <translation>喜欢</translation>
     </message>
@@ -9678,7 +9796,7 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="84"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="267"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="270"/>
         <source>5 Stars</source>
         <translation>5 星</translation>
     </message>
@@ -9718,7 +9836,7 @@ Technical detail: %1</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="273"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="284"/>
         <source>Create a Manual Album first</source>
         <translation>请先创建手动相册</translation>
     </message>
@@ -9768,27 +9886,27 @@ Technical detail: %1</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="227"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="238"/>
         <source>%L1 selected</source>
         <translation>已选择 %L1 张</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="236"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="247"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="272"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="283"/>
         <source>Add selected photos to a Manual Album</source>
         <translation>将所选照片添加到手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="286"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="297"/>
         <source>Remove selected photos from this Manual Album</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="298"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="309"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
     </message>
@@ -10014,6 +10132,7 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>焦距</translation>
     </message>
     <message>
+        <location filename="../qml/LibraryLocationBatchDialog.qml" line="338"/>
         <location filename="../qml/ReviewExifSection.qml" line="133"/>
         <source>PREVIEW</source>
         <translation>预览</translation>
@@ -10216,57 +10335,57 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="231"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="234"/>
         <source>Daily</source>
         <translation>日常</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="251"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="254"/>
         <source>Travel</source>
         <translation>旅行</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="254"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="257"/>
         <source>Review uncertain</source>
         <translation>确认不确定分类</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="269"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="272"/>
         <source>Search Results</source>
         <translation>搜索结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="271"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="274"/>
         <source>Filtered Photos</source>
         <translation>筛选结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="572"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="598"/>
         <source>Downloading the original RAW from the remote Library…</source>
         <translation>正在从远程图库下载原始 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="578"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="604"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="595"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="621"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="597"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="623"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="599"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="625"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="601"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="627"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>

@@ -297,6 +297,11 @@ if(BUILD_TESTING)
         tests/focus_observation_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-auto-geometry-tests
+        shadow-image-auto-geometry-contract
+        tests/auto_geometry_contract_test.cpp
+    )
+    shadow_image_add_contract(
         shadow-image-raster-gps-metadata-tests
         shadow-image-raster-gps-metadata-contract
         tests/raster_gps_metadata_contract_test.cpp

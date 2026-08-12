@@ -427,6 +427,8 @@ qt_add_executable(
     src/edit_adjustment_reset_controller.cpp
     src/edit_ai_mask_controller.cpp
     src/edit_ai_mask_controller.hpp
+    src/edit_auto_geometry_controller.cpp
+    src/edit_auto_geometry_controller.hpp
     src/edit_ai_mask_prompt_state.cpp
     src/edit_ai_mask_prompt_state.hpp
     src/edit_analysis_controller.cpp

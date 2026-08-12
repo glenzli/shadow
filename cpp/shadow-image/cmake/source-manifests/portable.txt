@@ -1,4 +1,5 @@
 src/acceleration/image_acceleration_policy.cpp
+src/analysis/auto_geometry.cpp
 src/decoder/decoder_error.cpp
 src/decoder/decoder_metadata.cpp
 src/decoder/decoder_types.cpp
