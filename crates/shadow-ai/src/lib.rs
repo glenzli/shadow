@@ -86,8 +86,10 @@ pub use providers::{
     InferRawFoundationDecoderIdentity, InferRawFoundationJob, InferRawFoundationLeaseGrant,
     InferRawFoundationPriority, InferRawFoundationProvenance, InferRawFoundationProvider,
     InferRawFoundationRegisteredLease, InferRawFoundationRequest, InferRawFoundationResult,
-    InferRawFoundationSource, InferRawFoundationStaging, InferRuntimeClient,
-    InferRuntimeClientError, InferRuntimeCredential, RAWNIND_FOUNDATION_ADAPTER_REVISION,
+    InferRawFoundationSource, InferRawFoundationStaging, InferRuntimeAttemptSnapshot,
+    InferRuntimeCancelResult, InferRuntimeCapabilityCatalog, InferRuntimeClient,
+    InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
+    InferRuntimeJobListPage, InferRuntimeJobSnapshot, RAWNIND_FOUNDATION_ADAPTER_REVISION,
     RAWNIND_FOUNDATION_ARTIFACT_SET_BLAKE3, RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256,
     RAWNIND_FOUNDATION_IMPLEMENTATION_REVISION, RAWNIND_FOUNDATION_MODEL_ID,
     RAWNIND_FOUNDATION_MODEL_RECEIPT_PREFIX, RAWNIND_FOUNDATION_MODEL_REVISION,
@@ -102,8 +104,8 @@ pub use providers::{
     Sam2CoreMlProviderConfigurationError, Sam2CoreMlResidentSession, Sam2CoreMlSidecarProvider,
     SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence,
     VerifiedRawNindFoundationInstallation, VerifiedSam2CoreMlInstallation, VisionProvenance,
-    VisionTokenizerProvenance, plan_rawnind_foundation, verify_rawnind_foundation_installation,
-    verify_sam2_coreml_installation,
+    VisionTokenizerProvenance, infer_raw_foundation_sdk_status, plan_rawnind_foundation,
+    verify_rawnind_foundation_installation, verify_sam2_coreml_installation,
 };
 pub use raw_foundation::{
     MAX_RAW_FOUNDATION_IMPLEMENTATION_REVISION_BYTES, RAW_FOUNDATION_ENCODING_VERSION,

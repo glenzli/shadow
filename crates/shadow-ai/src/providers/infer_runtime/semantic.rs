@@ -1,23 +1,12 @@
-//! Strict `SigLIP` image/text adapters over infer-runtime's experimental routes.
-//!
-//! Both results are admitted through the provider-neutral semantic contract.
-//! The caller must still bind image evidence to its current Catalog/cache
-//! revision and partition every search index by the exact embedding space.
-
-use std::collections::BTreeMap;
-
-use reqwest::blocking::multipart;
-use serde::{Deserialize, Serialize};
+//! Strict `SigLIP` product evidence over the official typed vision SDK.
 
 use crate::{SEMANTIC_EMBEDDING_CONTRACT_VERSION, SemanticEmbedding, SemanticEmbeddingSpace};
 
 use super::{
-    InferRuntimeClient, InferRuntimeClientError, RawImageGeometry, VisionProvenance,
-    discovery::InferRuntimeConsumerVersion, image_form, valid_provenance, validate_request,
+    InferRuntimeClient, InferRuntimeClientError, VisionProvenance, admit_vision_provenance,
+    local_metadata, malformed,
 };
 
-const IMAGE_EMBEDDING_PATH: &str = "infer/v1/vision/image-embeddings";
-const TEXT_EMBEDDING_PATH: &str = "infer/v1/vision/text-embeddings";
 const NORMALIZED_DISPLAY_ORIENTATION: &str = "display_pixels_orientation_normalized";
 const SIGLIP_EMBEDDING_DIMENSIONS: usize = 768;
 const MAX_TEXT_BYTES: usize = 4_096;
@@ -62,7 +51,7 @@ pub trait SemanticEmbeddingProvider {
     ///
     /// # Errors
     ///
-    /// Returns a fail-closed local transport or typed-contract error.
+    /// Returns SDK transport/contract failures or Shadow evidence rejection.
     fn embed_image_semantics(
         &self,
         image: &[u8],
@@ -75,7 +64,7 @@ pub trait SemanticEmbeddingProvider {
     ///
     /// # Errors
     ///
-    /// Returns a fail-closed local transport or typed-contract error.
+    /// Returns SDK transport/contract failures or Shadow evidence rejection.
     fn embed_text_semantics(
         &self,
         text: &str,
@@ -93,24 +82,31 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
         source_revision: &str,
         priority: SemanticRequestPriority,
     ) -> Result<ImageEmbeddingEvidence, InferRuntimeClientError> {
-        validate_request(image, media_type, source_revision)?;
-        let response: RawImageEmbeddingResponse =
-            self.send_json(IMAGE_EMBEDDING_PATH, |endpoint, consumer_version| {
-                let form: multipart::Form = image_form(
-                    image_embedding_intent(consumer_version),
-                    image,
-                    media_type,
-                    source_revision,
-                )?
-                .text("image_orientation", NORMALIZED_DISPLAY_ORIENTATION)
-                .text("infer.priority", priority.as_str());
-                Ok(self
-                    .client
-                    .post(endpoint)
-                    .bearer_auth(self.credential.expose())
-                    .multipart(form))
-            })?;
-        response.validate(source_revision)
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata(priority.as_str(), None);
+        let response = self.block_on(self.sdk().embed_image(
+            staged.path(),
+            media_type,
+            source_revision,
+            &metadata,
+        ))?;
+        if response.object != "vision.image_embedding"
+            || response.status != "completed"
+            || response.source_revision != source_revision
+            || response.image.orientation != NORMALIZED_DISPLAY_ORIENTATION
+            || response.image.width == 0
+            || response.image.height == 0
+        {
+            return malformed("image embedding response violated Shadow's typed evidence contract");
+        }
+        Ok(ImageEmbeddingEvidence {
+            source_revision: response.source_revision,
+            width: response.image.width,
+            height: response.image.height,
+            orientation: response.image.orientation,
+            embedding: admit_embedding(response.embedding)?,
+            provenance: admit_vision_provenance(response.provenance)?,
+        })
     }
 
     fn embed_text_semantics(
@@ -121,161 +117,63 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
         priority: SemanticRequestPriority,
     ) -> Result<TextEmbeddingEvidence, InferRuntimeClientError> {
         validate_text_request(text, query_revision, language)?;
-        let response: RawTextEmbeddingResponse =
-            self.send_json(TEXT_EMBEDDING_PATH, |endpoint, consumer_version| {
-                let request = TextEmbeddingRequest {
-                    model: text_embedding_intent(consumer_version),
-                    text,
-                    query_revision,
-                    language,
-                    metadata: BTreeMap::from([("infer.priority", priority.as_str())]),
-                };
-                Ok(self
-                    .client
-                    .post(endpoint)
-                    .bearer_auth(self.credential.expose())
-                    .json(&request))
-            })?;
-        response.validate(query_revision, language)
-    }
-}
-
-const fn image_embedding_intent(version: InferRuntimeConsumerVersion) -> &'static str {
-    match version {
-        InferRuntimeConsumerVersion::Candidate3 => "semantic.embed_image",
-    }
-}
-
-const fn text_embedding_intent(version: InferRuntimeConsumerVersion) -> &'static str {
-    match version {
-        InferRuntimeConsumerVersion::Candidate3 => "semantic.embed_text",
-    }
-}
-
-#[derive(Serialize)]
-struct TextEmbeddingRequest<'a> {
-    model: &'static str,
-    text: &'a str,
-    query_revision: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    language: Option<&'a str>,
-    metadata: BTreeMap<&'static str, &'static str>,
-}
-
-#[derive(Deserialize)]
-struct RawImageEmbeddingResponse {
-    object: String,
-    status: String,
-    source_revision: String,
-    image: RawImageGeometry,
-    embedding: RawSemanticEmbedding,
-    provenance: VisionProvenance,
-}
-
-impl RawImageEmbeddingResponse {
-    fn validate(
-        self,
-        expected_source_revision: &str,
-    ) -> Result<ImageEmbeddingEvidence, InferRuntimeClientError> {
-        if self.object != "vision.image_embedding"
-            || self.status != "completed"
-            || self.source_revision != expected_source_revision
-            || self.image.orientation != NORMALIZED_DISPLAY_ORIENTATION
-            || self.image.width == 0
-            || self.image.height == 0
-            || !valid_provenance(&self.provenance)
+        let request = infer_runtime_client::TextEmbeddingRequest {
+            model: "semantic.embed_text".into(),
+            text: text.into(),
+            query_revision: query_revision.into(),
+            language: language.map(str::to_owned),
+            metadata: local_metadata(priority.as_str(), None),
+        };
+        let response = self.block_on(self.sdk().embed_text(&request))?;
+        if response.object != "vision.text_embedding"
+            || response.status != "completed"
+            || response.query_revision != query_revision
+            || response.language.as_deref() != language
         {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "image embedding response violated the typed contract",
-            ));
+            return malformed("text embedding response violated Shadow's typed evidence contract");
         }
-        Ok(ImageEmbeddingEvidence {
-            source_revision: self.source_revision,
-            width: self.image.width,
-            height: self.image.height,
-            orientation: self.image.orientation,
-            embedding: self.embedding.admit()?,
-            provenance: self.provenance,
-        })
-    }
-}
-
-#[derive(Deserialize)]
-struct RawTextEmbeddingResponse {
-    object: String,
-    status: String,
-    query_revision: String,
-    language: Option<String>,
-    embedding: RawSemanticEmbedding,
-    provenance: VisionProvenance,
-}
-
-impl RawTextEmbeddingResponse {
-    fn validate(
-        self,
-        expected_query_revision: &str,
-        expected_language: Option<&str>,
-    ) -> Result<TextEmbeddingEvidence, InferRuntimeClientError> {
-        if self.object != "vision.text_embedding"
-            || self.status != "completed"
-            || self.query_revision != expected_query_revision
-            || self.language.as_deref() != expected_language
-            || !valid_provenance(&self.provenance)
-            || self.provenance.tokenizer.as_ref().is_none_or(|tokenizer| {
-                tokenizer.identity.trim().is_empty()
-                    || tokenizer.artifact_sha256.trim().is_empty()
-                    || tokenizer.max_length == 0
-            })
-        {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "text embedding response violated the typed contract",
-            ));
+        let provenance = admit_vision_provenance(response.provenance)?;
+        if provenance.tokenizer.as_ref().is_none_or(|tokenizer| {
+            tokenizer.identity.trim().is_empty()
+                || tokenizer.artifact_sha256.trim().is_empty()
+                || tokenizer.max_length == 0
+        }) {
+            return malformed("text embedding tokenizer provenance is incomplete");
         }
         Ok(TextEmbeddingEvidence {
-            query_revision: self.query_revision,
-            language: self.language,
-            embedding: self.embedding.admit()?,
-            provenance: self.provenance,
+            query_revision: response.query_revision,
+            language: response.language,
+            embedding: admit_embedding(response.embedding)?,
+            provenance,
         })
     }
 }
 
-#[derive(Deserialize)]
-struct RawSemanticEmbedding {
-    values: Vec<f32>,
-    dimensions: usize,
-    normalized: bool,
-    distance_metric: String,
-    space: String,
-}
-
-impl RawSemanticEmbedding {
-    fn admit(self) -> Result<SemanticEmbedding, InferRuntimeClientError> {
-        if self.dimensions != SIGLIP_EMBEDDING_DIMENSIONS
-            || !self.normalized
-            || self.distance_metric != "cosine"
-            || self.values.len() != self.dimensions
-        {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "semantic embedding metadata violated the typed contract",
-            ));
-        }
-        let space = SemanticEmbeddingSpace::new(
-            SEMANTIC_EMBEDDING_CONTRACT_VERSION,
-            self.space,
-            self.dimensions,
+fn admit_embedding(
+    embedding: infer_runtime_client::SemanticEmbeddingVector,
+) -> Result<SemanticEmbedding, InferRuntimeClientError> {
+    if embedding.dimensions != SIGLIP_EMBEDDING_DIMENSIONS
+        || !embedding.normalized
+        || embedding.distance_metric != "cosine"
+        || embedding.values.len() != embedding.dimensions
+    {
+        return malformed("semantic embedding metadata violated Shadow's typed contract");
+    }
+    let space = SemanticEmbeddingSpace::new(
+        SEMANTIC_EMBEDDING_CONTRACT_VERSION,
+        embedding.space,
+        embedding.dimensions,
+    )
+    .map_err(|_| {
+        InferRuntimeClientError::MalformedResponse(
+            "semantic embedding space violated Shadow's typed contract".into(),
         )
-        .map_err(|_| {
-            InferRuntimeClientError::InvalidResponse(
-                "semantic embedding space violated the typed contract",
-            )
-        })?;
-        SemanticEmbedding::new(space, self.values).map_err(|_| {
-            InferRuntimeClientError::InvalidResponse(
-                "semantic embedding values violated the typed contract",
-            )
-        })
-    }
+    })?;
+    SemanticEmbedding::new(space, embedding.values).map_err(|_| {
+        InferRuntimeClientError::MalformedResponse(
+            "semantic embedding values violated Shadow's typed contract".into(),
+        )
+    })
 }
 
 fn validate_text_request(
@@ -284,12 +182,14 @@ fn validate_text_request(
     language: Option<&str>,
 ) -> Result<(), InferRuntimeClientError> {
     if text.trim().is_empty() || text.len() > MAX_TEXT_BYTES {
-        return Err(InferRuntimeClientError::InvalidSemanticTextLength(
-            text.len(),
+        return Err(InferRuntimeClientError::Input(
+            "semantic text must be non-empty and at most 4096 bytes".into(),
         ));
     }
     if query_revision.trim().is_empty() || query_revision.len() > MAX_REVISION_BYTES {
-        return Err(InferRuntimeClientError::InvalidQueryRevision);
+        return Err(InferRuntimeClientError::Input(
+            "semantic query revision must be non-empty and at most 256 bytes".into(),
+        ));
     }
     if language.is_some_and(|language| {
         language.is_empty()
@@ -298,7 +198,9 @@ fn validate_text_request(
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
     }) {
-        return Err(InferRuntimeClientError::InvalidLanguage);
+        return Err(InferRuntimeClientError::Input(
+            "semantic language is not a bounded BCP-47-shaped tag".into(),
+        ));
     }
     Ok(())
 }

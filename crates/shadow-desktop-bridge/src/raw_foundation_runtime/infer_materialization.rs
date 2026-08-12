@@ -25,6 +25,7 @@ use shadow_ai::{
     RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256, RasterExtent, RawFoundationArtifact,
     RawFoundationArtifactError, RawFoundationMaterializationDisposition, RawFoundationProvenance,
     RawFoundationSourceProvenance, RuntimeProgress, RuntimeProgressSink,
+    infer_raw_foundation_sdk_status,
 };
 use shadow_cache::{
     FoundationArtifactPublicationStatus, FoundationArtifactReader, FoundationArtifactStore,
@@ -76,7 +77,8 @@ impl InferRawFoundationMaterializer {
     }
 
     pub(super) fn probe_client(&self) -> Result<(), InferMaterializationError> {
-        self.client().map(|_| ())
+        infer_raw_foundation_sdk_status()?;
+        unreachable!("the current SDK RAW status always fails closed")
     }
 
     pub(super) fn resolve_cached(

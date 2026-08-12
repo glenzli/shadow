@@ -150,7 +150,7 @@ pub fn analyze_review_people(
                     face.landmarks,
                 ) {
                     Ok(embedded) => embedded,
-                    Err(InferRuntimeClientError::Http { status: 400, .. }) => {
+                    Err(InferRuntimeClientError::Api { status, .. }) if status.as_u16() == 400 => {
                         skipped.ineligible_embedding += 1;
                         continue;
                     }

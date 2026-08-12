@@ -1,47 +1,27 @@
-//! Typed client for infer-runtime's inactive `RawNIND` foundation route.
+//! Inactive Shadow boundary for experimental RAW foundation materialization.
 //!
-//! Shadow still owns RAW decoding, cache lookup, artifact verification,
-//! publication, and stale-result arbitration. This owner begins only after a
-//! cache miss. It pins the daemon endpoint selected for ticket creation,
-//! passes already-open staging/output handles over the owner-only local lease
-//! transport, and admits only the exact experimental Build currently frozen
-//! by the cross-project contract.
+//! The official `infer-runtime-client` 1.0.0 surface intentionally has no RAW
+//! module. Shadow preserves request/cache identities and the legacy-default
+//! product boundary, but the explicit Infer override fails closed until the SDK
+//! gains typed ticket, handle-lease, execution, cancellation, and provenance
+//! support. No second Core Discovery parser or generic transport remains here.
 
-use std::{fmt, fs::File, path::PathBuf, time::Duration};
+use std::{fmt, fs::File};
 
 use serde::{Deserialize, Serialize};
 
-use super::{DiscoveryEndpoint, InferRuntimeClient, InferRuntimeClientError};
+use super::{InferRuntimeClient, InferRuntimeClientError};
 
-const CREATE_LEASE_PATH: &str = "infer/v1/raw/foundations/leases";
-const EXECUTE_PATH: &str = "infer/v1/raw/foundations";
 const RAW_FOUNDATION_INTENT: &str = "raw.materialize_foundation";
 const SOURCE_PIXEL_CONTRACT_SHA256: &str =
     "e1998069001c14d01251cc3d6e2bc2aa66b807f3f17d246e7ee7270528302f7f";
 const STAGING_SCHEMA: &str = "infer.raw-foundation-staging@20260811.1";
 const STAGING_SAMPLE_FORMAT: &str = "uint16-le-row-major-active-bayer";
-const ARTIFACT_LEASE_CONTRACT: &str = "infer-runtime.artifact-lease@20260811.1";
-const UNIX_ARTIFACT_LEASE_TRANSPORT: &str = "uds-scm-rights";
 const MAX_SOURCE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_DIMENSION: u32 = 100_000;
 const MAX_ID_BYTES: usize = 256;
-const MAX_CAPABILITY_ID_BYTES: usize = 128;
-const DEFAULT_EXECUTION_TIMEOUT: Duration = Duration::from_hours(1);
-const EXECUTION_RESPONSE_GRACE: Duration = Duration::from_secs(5);
-
-const EXPECTED_PROVIDER: &str = "raw-foundation-local";
-const EXPECTED_DEPLOYMENT: &str = "rawnind_ort127_exp1";
-const EXPECTED_MODEL_PROFILE: &str = "rawnind";
-const EXPECTED_MODEL_BUILD: &str = "rawnind_ort127_exp1";
-const EXPECTED_PHYSICAL_MODEL: &str = "darktable-ai/rawnind-public-bayer";
-const EXPECTED_EXACT_REVISION: &str = "release-5.6.0@5454d7aa6d89a67054fd4a83343b09e69acaf76a";
-const EXPECTED_GRAPH_SHA256: &str =
-    "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901";
-const EXPECTED_IMPLEMENTATION_REVISION: &str = "rawnind-public-bayer-foundation-ort127-exp1";
-const EXPECTED_CACHE_IDENTITY: &str = "rawnind-cpu-ort127-exp1";
-const EXPECTED_EXECUTION_PROVIDER: &str = "CPUExecutionProvider";
-const EXPECTED_RUNTIME_VERSION: &str = "onnxruntime-1.27.0";
-const EXPECTED_PRECISION: &str = "float32";
+const SDK_RAW_DELTA: &str =
+    "infer-runtime-client@1.0.0 has no typed RAW ticket/SCM_RIGHTS/execution/cancellation module";
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -58,8 +38,6 @@ pub struct InferRawFoundationSource {
 }
 
 impl InferRawFoundationSource {
-    /// Binds a source RAW identity to the only pixel contract currently
-    /// accepted by the `RawNIND` foundation Build.
     pub fn new(sha256: impl Into<String>, size_bytes: u64) -> Self {
         Self {
             sha256: sha256.into(),
@@ -128,12 +106,11 @@ impl InferRawFoundationRequest {
         }
     }
 
-    /// Validates the complete request before creating a remote Job or ticket.
+    /// Validates the cache/staging identity before any Runtime selection.
     ///
     /// # Errors
     ///
-    /// Rejects unsupported pixel/staging contracts, malformed identities, or
-    /// dimensions and byte counts that cannot describe the staged Bayer file.
+    /// Rejects malformed identities, dimensions, sizes, or pixel contracts.
     pub fn validate(&self) -> Result<(), InferRuntimeClientError> {
         if matches!(self.deadline_ms, Some(0 | 3_600_001..)) {
             return invalid_request("deadline_ms must be in 1..=3600000");
@@ -152,22 +129,14 @@ impl InferRawFoundationRequest {
         }
         self.staging.validate()
     }
-
-    fn execution_timeout(&self) -> Duration {
-        self.deadline_ms
-            .map_or(DEFAULT_EXECUTION_TIMEOUT, Duration::from_millis)
-            .saturating_add(EXECUTION_RESPONSE_GRACE)
-    }
 }
 
 impl InferRawFoundationStaging {
-    /// Constructs the frozen staging descriptor while keeping the model-owned
-    /// constants out of application call sites.
+    /// Constructs the frozen cache/staging identity without activating Infer.
     ///
     /// # Errors
     ///
-    /// Rejects invalid dimensions, CFA/level contracts, decoded-sample
-    /// identity, or decoder identity.
+    /// Rejects invalid dimensions, Bayer layout, levels, hashes, or decoder identity.
     pub fn new(
         width: u32,
         height: u32,
@@ -180,9 +149,7 @@ impl InferRawFoundationStaging {
         let sample_bytes = u64::from(width)
             .checked_mul(u64::from(height))
             .and_then(|pixels| pixels.checked_mul(2))
-            .ok_or(InferRuntimeClientError::InvalidRawFoundationRequest(
-                "staging byte count overflows",
-            ))?;
+            .ok_or_else(|| raw_input("staging byte count overflows"))?;
         let staging = Self {
             schema: STAGING_SCHEMA.into(),
             width,
@@ -240,9 +207,7 @@ impl InferRawFoundationStaging {
         let expected_bytes = u64::from(self.width)
             .checked_mul(u64::from(self.height))
             .and_then(|pixels| pixels.checked_mul(2))
-            .ok_or(InferRuntimeClientError::InvalidRawFoundationRequest(
-                "staging byte count overflows",
-            ))?;
+            .ok_or_else(|| raw_input("staging byte count overflows"))?;
         if self.sample_bytes != expected_bytes {
             return invalid_request("staging byte count does not match its dimensions");
         }
@@ -266,7 +231,6 @@ impl InferRawFoundationStaging {
 #[derive(Clone)]
 pub struct InferRawFoundationJob {
     id: String,
-    endpoint: DiscoveryEndpoint,
 }
 
 impl fmt::Debug for InferRawFoundationJob {
@@ -286,14 +250,8 @@ impl InferRawFoundationJob {
 
 pub struct InferRawFoundationLeaseGrant {
     job: InferRawFoundationJob,
-    ticket_id: String,
     expires_at_unix_ms: u64,
     daemon_generation: String,
-    socket_path: PathBuf,
-    source_revision: String,
-    width: u32,
-    height: u32,
-    execution_timeout: Duration,
 }
 
 impl fmt::Debug for InferRawFoundationLeaseGrant {
@@ -301,10 +259,8 @@ impl fmt::Debug for InferRawFoundationLeaseGrant {
         formatter
             .debug_struct("InferRawFoundationLeaseGrant")
             .field("job_id", &self.job.id)
-            .field("ticket_id", &"<redacted>")
             .field("expires_at_unix_ms", &self.expires_at_unix_ms)
             .field("daemon_generation", &self.daemon_generation)
-            .field("socket_path", &"<redacted-owner-only-endpoint>")
             .finish_non_exhaustive()
     }
 }
@@ -325,13 +281,7 @@ impl InferRawFoundationLeaseGrant {
 
 pub struct InferRawFoundationRegisteredLease {
     job: InferRawFoundationJob,
-    lease_id: String,
     expires_at_unix_ms: u64,
-    source_revision: String,
-    width: u32,
-    height: u32,
-    execution_timeout: Duration,
-    output: File,
 }
 
 impl fmt::Debug for InferRawFoundationRegisteredLease {
@@ -339,7 +289,6 @@ impl fmt::Debug for InferRawFoundationRegisteredLease {
         formatter
             .debug_struct("InferRawFoundationRegisteredLease")
             .field("job_id", &self.job.id)
-            .field("lease_id", &"<redacted>")
             .field("expires_at_unix_ms", &self.expires_at_unix_ms)
             .finish_non_exhaustive()
     }
@@ -402,24 +351,21 @@ pub struct InferRawFoundationCancellation {
 }
 
 pub trait InferRawFoundationProvider {
-    /// Creates an authenticated Job and a short-lived, one-shot handle ticket.
+    /// Begins the inactive typed RAW protocol.
     ///
     /// # Errors
     ///
-    /// Returns a request, authentication, admission, transport, or typed
-    /// response failure without exposing the ticket capability.
+    /// Returns the exact SDK RAW-surface blocker after request validation.
     fn begin_raw_foundation(
         &self,
         request: &InferRawFoundationRequest,
     ) -> Result<InferRawFoundationLeaseGrant, InferRuntimeClientError>;
 
-    /// Sends the already-open read-only Bayer input and empty writable output
-    /// handles over the lease's owner-only local transport.
+    /// Registers RAW handles for an already issued typed lease.
     ///
     /// # Errors
     ///
-    /// Returns a handle, endpoint-ownership, peer, framing, or lease protocol
-    /// failure without falling back to a path or byte upload.
+    /// Returns the exact SDK RAW-surface blocker.
     fn register_raw_foundation_handles(
         &self,
         grant: InferRawFoundationLeaseGrant,
@@ -427,34 +373,31 @@ pub trait InferRawFoundationProvider {
         output: &File,
     ) -> Result<InferRawFoundationRegisteredLease, InferRuntimeClientError>;
 
-    /// Executes one registered lease against the exact daemon which issued it.
+    /// Executes one typed RAW lease.
     ///
     /// # Errors
     ///
-    /// Returns a local HTTP, Runtime, typed response, or output-handle length
-    /// failure. It never rediscovers another daemon for a bound lease.
+    /// Returns the exact SDK RAW-surface blocker.
     fn execute_raw_foundation(
         &self,
         lease: InferRawFoundationRegisteredLease,
     ) -> Result<InferRawFoundationResult, InferRuntimeClientError>;
 
-    /// Cancels a pending RAW Job and revokes its unconsumed ticket or lease.
+    /// Cancels one typed RAW Job.
     ///
     /// # Errors
     ///
-    /// Returns a local HTTP or typed cancellation response failure.
+    /// Returns the exact SDK RAW-surface blocker.
     fn cancel_raw_foundation(
         &self,
         job: &InferRawFoundationJob,
     ) -> Result<InferRawFoundationCancellation, InferRuntimeClientError>;
 
-    /// Runs the three-step experimental protocol. Cache lookup must already
-    /// have completed in Shadow before this convenience method is called.
+    /// Runs the three-step protocol after Shadow has completed cache lookup.
     ///
     /// # Errors
     ///
-    /// Returns the first request, lease-registration, or execution failure.
-    /// Registration failure also triggers a best-effort Job cancellation.
+    /// Returns request validation or the exact SDK RAW-surface blocker.
     fn materialize_raw_foundation(
         &self,
         request: &InferRawFoundationRequest,
@@ -474,311 +417,83 @@ pub trait InferRawFoundationProvider {
     }
 }
 
+/// Reports the activation blocker shared by product availability probes and
+/// the inactive execution adapter.
+///
+/// # Errors
+///
+/// Always returns the exact missing official SDK RAW-module delta.
+pub fn infer_raw_foundation_sdk_status() -> Result<(), InferRuntimeClientError> {
+    Err(raw_sdk_unavailable())
+}
+
 impl InferRawFoundationProvider for InferRuntimeClient {
     fn begin_raw_foundation(
         &self,
         request: &InferRawFoundationRequest,
     ) -> Result<InferRawFoundationLeaseGrant, InferRuntimeClientError> {
         request.validate()?;
-        let (response, endpoint): (RawLeaseGrantResponse, DiscoveryEndpoint) = self
-            .send_json_with_endpoint(CREATE_LEASE_PATH, |url, _consumer_version| {
-                Ok(self
-                    .client
-                    .post(url)
-                    .bearer_auth(self.credential.expose())
-                    .json(request))
-            })?;
-        response.validate(request, endpoint)
+        infer_raw_foundation_sdk_status()?;
+        unreachable!("the current SDK RAW status always fails closed")
     }
 
     fn register_raw_foundation_handles(
         &self,
-        grant: InferRawFoundationLeaseGrant,
-        input: &File,
-        output: &File,
+        _grant: InferRawFoundationLeaseGrant,
+        _input: &File,
+        _output: &File,
     ) -> Result<InferRawFoundationRegisteredLease, InferRuntimeClientError> {
-        register_handles(grant, input, output)
+        Err(raw_sdk_unavailable())
     }
 
     fn execute_raw_foundation(
         &self,
-        lease: InferRawFoundationRegisteredLease,
+        _lease: InferRawFoundationRegisteredLease,
     ) -> Result<InferRawFoundationResult, InferRuntimeClientError> {
-        let request = RawExecuteRequest {
-            job_id: &lease.job.id,
-            lease_id: &lease.lease_id,
-        };
-        let response: RawFoundationResponse =
-            Self::send_json_at(&lease.job.endpoint, EXECUTE_PATH, |url| {
-                Ok(self
-                    .client
-                    .post(url)
-                    .timeout(lease.execution_timeout)
-                    .bearer_auth(self.credential.expose())
-                    .json(&request))
-            })?;
-        let result = response.validate(
-            &lease.job.id,
-            &lease.source_revision,
-            lease.width,
-            lease.height,
-        )?;
-        let output_bytes = lease
-            .output
-            .metadata()
-            .map_err(InferRuntimeClientError::RawArtifactLeaseIo)?
-            .len();
-        if output_bytes != result.artifact.artifact_file_bytes {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "RAW output handle length does not match the artifact receipt",
-            ));
-        }
-        Ok(result)
+        Err(raw_sdk_unavailable())
     }
 
     fn cancel_raw_foundation(
         &self,
-        job: &InferRawFoundationJob,
+        _job: &InferRawFoundationJob,
     ) -> Result<InferRawFoundationCancellation, InferRuntimeClientError> {
-        validate_capability_id(&job.id, "RAW job id is invalid")?;
-        let path = format!("infer/v1/raw/foundations/{}/cancel", job.id);
-        let response: RawCancellationResponse = Self::send_json_at(&job.endpoint, &path, |url| {
-            Ok(self.client.post(url).bearer_auth(self.credential.expose()))
-        })?;
-        response.validate(&job.id)
+        Err(raw_sdk_unavailable())
     }
 }
 
-#[derive(Deserialize)]
-struct RawLeaseGrantResponse {
-    object: String,
-    job_id: String,
-    ticket_id: String,
-    expires_at_unix_ms: u64,
-    daemon_generation: String,
-    binding: RawLeaseBinding,
-}
-
-#[derive(Deserialize)]
-struct RawLeaseBinding {
-    contract: String,
-    transport: String,
-    endpoint: String,
-}
-
-impl RawLeaseGrantResponse {
-    fn validate(
-        self,
-        request: &InferRawFoundationRequest,
-        endpoint: DiscoveryEndpoint,
-    ) -> Result<InferRawFoundationLeaseGrant, InferRuntimeClientError> {
-        if self.object != "raw.foundation.lease"
-            || self.expires_at_unix_ms == 0
-            || self.binding.contract != ARTIFACT_LEASE_CONTRACT
-            || self.binding.transport != UNIX_ARTIFACT_LEASE_TRANSPORT
-        {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "RAW lease grant violated the typed contract",
-            ));
-        }
-        validate_capability_id(&self.job_id, "RAW job id is invalid")?;
-        validate_capability_id(&self.ticket_id, "RAW ticket id is invalid")?;
-        validate_capability_id(&self.daemon_generation, "RAW daemon generation is invalid")?;
-        if self.binding.endpoint.is_empty() || self.binding.endpoint.len() > 1_024 {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "RAW lease endpoint violated the typed contract",
-            ));
-        }
-        Ok(InferRawFoundationLeaseGrant {
-            job: InferRawFoundationJob {
-                id: self.job_id,
-                endpoint,
-            },
-            ticket_id: self.ticket_id,
-            expires_at_unix_ms: self.expires_at_unix_ms,
-            daemon_generation: self.daemon_generation,
-            socket_path: PathBuf::from(self.binding.endpoint),
-            source_revision: request.source_revision.clone(),
-            width: request.staging.width,
-            height: request.staging.height,
-            execution_timeout: request.execution_timeout(),
-        })
-    }
-}
-
-#[derive(Serialize)]
-struct RawExecuteRequest<'a> {
-    job_id: &'a str,
-    lease_id: &'a str,
-}
-
-#[derive(Deserialize)]
-struct RawFoundationResponse {
-    id: String,
-    object: String,
-    status: String,
-    source_revision: String,
-    artifact: InferRawFoundationArtifactReceipt,
-    provenance: InferRawFoundationProvenance,
-}
-
-impl RawFoundationResponse {
-    fn validate(
-        self,
-        job_id: &str,
-        source_revision: &str,
-        width: u32,
-        height: u32,
-    ) -> Result<InferRawFoundationResult, InferRuntimeClientError> {
-        if self.id != job_id
-            || self.object != "raw.foundation"
-            || self.status != "completed"
-            || self.source_revision != source_revision
-            || !self.artifact.is_valid(width, height)
-            || !self.provenance.is_valid()
-            || self.artifact.implementation_revision != self.provenance.implementation_revision
-            || self.artifact.cache_identity != self.provenance.cache_identity
-        {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "RAW foundation response violated the typed contract",
-            ));
-        }
-        Ok(InferRawFoundationResult {
-            job_id: self.id,
-            source_revision: self.source_revision,
-            artifact: self.artifact,
-            provenance: self.provenance,
-        })
-    }
-}
-
-impl InferRawFoundationArtifactReceipt {
-    fn is_valid(&self, width: u32, height: u32) -> bool {
-        [
-            self.cache_key_sha256.as_str(),
-            self.artifact_identity_sha256.as_str(),
-            self.artifact_file_sha256.as_str(),
-            self.sequence_sha256.as_str(),
-            self.payload_sha256.as_str(),
-        ]
-        .into_iter()
-        .all(valid_sha256)
-            && self.artifact_file_bytes > 0
-            && self.output_width == width
-            && self.output_height == height
-            && self.tile_inferences > 0
-            && self.maximum_accumulator_rows > 0
-            && self.maximum_accumulator_rows <= height
-            && self.explicit_full_output_buffers == 0
-            && self.implementation_revision == EXPECTED_IMPLEMENTATION_REVISION
-            && self.cache_identity == EXPECTED_CACHE_IDENTITY
-    }
-}
-
-impl InferRawFoundationProvenance {
-    fn is_valid(&self) -> bool {
-        self.provider == EXPECTED_PROVIDER
-            && self.deployment == EXPECTED_DEPLOYMENT
-            && self.model_profile == EXPECTED_MODEL_PROFILE
-            && self.model_build == EXPECTED_MODEL_BUILD
-            && self.physical_model == EXPECTED_PHYSICAL_MODEL
-            && self.exact_revision == EXPECTED_EXACT_REVISION
-            && self.graph_sha256 == EXPECTED_GRAPH_SHA256
-            && self.implementation_revision == EXPECTED_IMPLEMENTATION_REVISION
-            && self.cache_identity == EXPECTED_CACHE_IDENTITY
-            && self.execution_provider == EXPECTED_EXECUTION_PROVIDER
-            && self.runtime_version == EXPECTED_RUNTIME_VERSION
-            && self.precision == EXPECTED_PRECISION
-    }
-}
-
-#[derive(Deserialize)]
-struct RawCancellationResponse {
-    id: String,
-    object: String,
-    status: String,
-}
-
-impl RawCancellationResponse {
-    fn validate(
-        self,
-        expected_job_id: &str,
-    ) -> Result<InferRawFoundationCancellation, InferRuntimeClientError> {
-        if self.id != expected_job_id
-            || self.object != "raw.foundation.cancellation"
-            || self.status != "cancelled"
-        {
-            return Err(InferRuntimeClientError::InvalidResponse(
-                "RAW cancellation response violated the typed contract",
-            ));
-        }
-        Ok(InferRawFoundationCancellation { job_id: self.id })
-    }
-}
-
-fn validate_id(
-    value: &str,
-    max_bytes: usize,
-    error: &'static str,
-) -> Result<(), InferRuntimeClientError> {
-    if value.trim().is_empty() || value.len() > max_bytes || value.chars().any(char::is_control) {
-        return invalid_request(error);
-    }
-    Ok(())
-}
-
-fn validate_sha256(value: &str, error: &'static str) -> Result<(), InferRuntimeClientError> {
-    if !valid_sha256(value) {
-        return invalid_request(error);
-    }
-    Ok(())
-}
-
-fn validate_capability_id(value: &str, error: &'static str) -> Result<(), InferRuntimeClientError> {
-    if value.is_empty()
-        || value.len() > MAX_CAPABILITY_ID_BYTES
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-    {
-        return invalid_request(error);
-    }
-    Ok(())
-}
-
-fn valid_sha256(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn invalid_request<T>(message: &'static str) -> Result<T, InferRuntimeClientError> {
-    Err(InferRuntimeClientError::InvalidRawFoundationRequest(
-        message,
+fn raw_sdk_unavailable() -> InferRuntimeClientError {
+    InferRuntimeClientError::Input(format!(
+        "experimental RAW foundation is inactive: {SDK_RAW_DELTA}"
     ))
 }
 
-#[cfg(unix)]
-fn register_handles(
-    grant: InferRawFoundationLeaseGrant,
-    input: &File,
-    output: &File,
-) -> Result<InferRawFoundationRegisteredLease, InferRuntimeClientError> {
-    artifact_lease::register(grant, input, output)
+fn raw_input(message: &str) -> InferRuntimeClientError {
+    InferRuntimeClientError::Input(format!("Infer Runtime RAW request is invalid: {message}"))
 }
 
-#[cfg(not(unix))]
-fn register_handles(
-    _grant: InferRawFoundationLeaseGrant,
-    _input: &File,
-    _output: &File,
-) -> Result<InferRawFoundationRegisteredLease, InferRuntimeClientError> {
-    Err(InferRuntimeClientError::RawArtifactLeaseUnsupported)
+fn invalid_request<T>(message: &str) -> Result<T, InferRuntimeClientError> {
+    Err(raw_input(message))
 }
 
-#[cfg(unix)]
-mod artifact_lease;
+fn validate_sha256(value: &str, message: &str) -> Result<(), InferRuntimeClientError> {
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        invalid_request(message)
+    }
+}
+
+fn validate_id(value: &str, maximum: usize, message: &str) -> Result<(), InferRuntimeClientError> {
+    if !value.is_empty()
+        && value.len() <= maximum
+        && !value.chars().any(char::is_control)
+        && value == value.trim()
+    {
+        Ok(())
+    } else {
+        invalid_request(message)
+    }
+}
 
 #[cfg(test)]
 mod tests;

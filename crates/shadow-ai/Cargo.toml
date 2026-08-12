@@ -8,16 +8,15 @@ authors.workspace = true
 
 [dependencies]
 blake3.workspace = true
-reqwest.workspace = true
+infer-runtime-client.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shadow-cache.workspace = true
 shadow-domain.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 time.workspace = true
-
-[target.'cfg(unix)'.dependencies]
-nix.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true
