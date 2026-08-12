@@ -77,6 +77,12 @@ ApplicationWindow {
     readonly property color textPrimary: Theme.textPrimary
     readonly property color textMuted: Theme.textMuted
     readonly property color accent: Theme.accent
+    readonly property bool nativeWebMapForegroundAllowed:
+        window.workspaceIndex === 0
+        && !applicationSettingsDialog.opened
+        && !personalProfileDialog.opened
+        && !exportDialog.opened
+        && !historyDrawer.opened
 
     function synchronizeTheme() {
         const configuredMode = String(preferences.appearanceMode)
@@ -307,11 +313,10 @@ ApplicationWindow {
             // graph item. It must not remain materialized beneath a QML modal,
             // because the native layer would cover the modal regardless of its
             // QML z-order.
-            nativeWebMapAllowed: window.workspaceIndex === 0
-                && !applicationSettingsDialog.opened
-                && !personalProfileDialog.opened
-                && !exportDialog.opened
-                && !historyDrawer.opened
+            nativeWebMapAllowed: window.nativeWebMapForegroundAllowed
+                && !reviewWorkspace.locationBatchDialogVisible
+            nativeLocationDialogWebMapAllowed:
+                window.nativeWebMapForegroundAllowed
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {

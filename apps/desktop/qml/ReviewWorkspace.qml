@@ -22,6 +22,7 @@ Item {
     required property var smartCategoryController
     required property var imageUnderstandingController
     property bool nativeWebMapAllowed: true
+    property bool nativeLocationDialogWebMapAllowed: true
 
     ReviewSelectionState {
         id: selectionState
@@ -45,6 +46,8 @@ Item {
 
     readonly property alias comparison: comparisonState
     readonly property alias culling: cullingState
+    readonly property bool locationBatchDialogVisible:
+        locationBatchDialog.visible
     readonly property alias selectedPhotoId: selectionState.selectedPhotoId
     readonly property alias selectedRepresentationId:
         selectionState.selectedRepresentationId
@@ -314,7 +317,7 @@ Item {
         controller: review.controller
         mapController: review.libraryWebMapController
         placeSearchService: review.amapPlaceSearchService
-        nativeWebMapAllowed: review.nativeWebMapAllowed
+        nativeWebMapAllowed: review.nativeLocationDialogWebMapAllowed
         onConfigureMapRequested: review.openMapProviderSettingsRequested()
     }
 

@@ -890,6 +890,68 @@
     )
 
     add_executable(
+        shadow-library-location-batch-dialog-test
+        tests/library_location_batch_dialog_test.cpp
+    )
+    target_compile_features(
+        shadow-library-location-batch-dialog-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-library-location-batch-dialog-test
+        PRIVATE
+            Qt6::Gui
+            Qt6::Qml
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::Test
+            Qt6::WebView
+    )
+    qt_add_qml_module(
+        shadow-library-location-batch-dialog-test
+        URI Shadow.LibraryLocationBatchDialogContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/LibraryLocationBatchDialog.qml
+            qml/LibraryLocationBatchState.qml
+            qml/LibraryMapPlaceSearch.qml
+            qml/LibraryMapProviderOverlay.qml
+            qml/LibraryWebMapSurface.qml
+            qml/ShadowButton.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-library-location-batch-dialog-test
+        shadow-library-location-batch-dialog-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-location-batch-dialog-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-location-batch-dialog-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-location-batch-dialog
+        COMMAND shadow-library-location-batch-dialog-test
+    )
+    set_tests_properties(
+        shadow-desktop-library-location-batch-dialog
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-review-library-organization-coordinator-test
         tests/review_library_organization_coordinator_test.cpp
         tests/review_library_organization_coordinator/library_organization_fixture.hpp

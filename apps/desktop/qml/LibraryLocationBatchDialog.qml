@@ -61,6 +61,13 @@ Window {
         root.mapActivated = false
     }
 
+    function requestDismiss() {
+        if (locationState.busy)
+            return false
+        root.close()
+        return true
+    }
+
     function present(selectedTargets, initialHasCoordinate,
                      initialLatitude, initialLongitude, initialPlaceName) {
         root.targets = selectedTargets || []
@@ -126,6 +133,13 @@ Window {
         onTriggered: root.close()
     }
 
+    Shortcut {
+        sequence: "Escape"
+        context: Qt.WindowShortcut
+        enabled: root.visible && !locationState.busy
+        onActivated: root.requestDismiss()
+    }
+
     RowLayout {
         anchors.fill: parent
         anchors.margins: 18
@@ -136,12 +150,27 @@ Window {
             Layout.fillHeight: true
             spacing: 12
 
-            Label {
+            RowLayout {
                 Layout.fillWidth: true
-                text: qsTr("Set Photo Location")
-                color: Theme.textPrimary
-                font.pixelSize: 20
-                font.weight: Font.DemiBold
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Set Photo Location")
+                    color: Theme.textPrimary
+                    font.pixelSize: 20
+                    font.weight: Font.DemiBold
+                }
+
+                ShadowIconButton {
+                    objectName: "locationBatchCloseButton"
+                    source: "qrc:/icons/close.svg"
+                    buttonSize: 30
+                    iconSize: 16
+                    enabled: !locationState.busy
+                    toolTipText: qsTr("Close")
+                    accessibleName: toolTipText
+                    onClicked: root.requestDismiss()
+                }
             }
 
             Label {
@@ -325,40 +354,15 @@ Window {
             }
         }
 
-        Rectangle {
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Theme.controlRadius
-            color: Theme.photoCanvas
-            clip: true
-            border.width: 1
-            border.color: Theme.border
+            spacing: 8
 
-            LibraryWebMapSurface {
-                anchors.fill: parent
-                controller: root.mapController
-                presentationAllowed: root.visible
-                    && root.nativeWebMapAllowed
-            }
-
-            LibraryMapProviderOverlay {
-                anchors.fill: parent
-                workspace: root
-                providerSelected: root.mapController.providerSelected
-                providerAvailable: root.mapController.providerAvailable
-                providerRegionAvailable:
-                    root.mapController.providerRegionAvailable
-                providerName: root.mapController.providerName
-                onConfigureRequested: {
-                    root.configureMapRequested()
-                    root.close()
-                }
-            }
-
+            // Qt WebView is a native child on macOS. Search remains outside
+            // its rectangle so it cannot be covered by the map surface.
             LibraryMapPlaceSearch {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.margins: 12
+                Layout.fillWidth: true
                 service: root.placeSearchService
                 mapController: root.mapController
                 providerEligible: root.mapController.providerId === "amap"
@@ -377,28 +381,47 @@ Window {
             }
 
             Rectangle {
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: 12
-                width: coordinateLabel.implicitWidth + 20
-                height: coordinateLabel.implicitHeight + 12
-                radius: Theme.compactControlRadius
-                color: Theme.panelRaised
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: Theme.controlRadius
+                color: Theme.photoCanvas
+                clip: true
                 border.width: 1
                 border.color: Theme.border
-                visible: locationState.hasCoordinate
 
-                Label {
-                    id: coordinateLabel
-                    anchors.centerIn: parent
-                    text: Number(locationState.latitude).toLocaleString(
-                              Qt.locale("C"), "f", 6)
-                        + ", "
-                        + Number(locationState.longitude).toLocaleString(
-                              Qt.locale("C"), "f", 6)
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontMeta
+                LibraryWebMapSurface {
+                    anchors.fill: parent
+                    controller: root.mapController
+                    presentationAllowed: root.visible
+                        && root.nativeWebMapAllowed
                 }
+
+                LibraryMapProviderOverlay {
+                    anchors.fill: parent
+                    workspace: root
+                    providerSelected: root.mapController.providerSelected
+                    providerAvailable: root.mapController.providerAvailable
+                    providerRegionAvailable:
+                        root.mapController.providerRegionAvailable
+                    providerName: root.mapController.providerName
+                    onConfigureRequested: {
+                        root.configureMapRequested()
+                        root.close()
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: locationState.hasCoordinate
+                text: Number(locationState.latitude).toLocaleString(
+                          Qt.locale("C"), "f", 6)
+                    + ", "
+                    + Number(locationState.longitude).toLocaleString(
+                          Qt.locale("C"), "f", 6)
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMeta
+                horizontalAlignment: Text.AlignRight
             }
         }
     }

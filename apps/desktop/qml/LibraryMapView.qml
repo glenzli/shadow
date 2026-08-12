@@ -258,6 +258,7 @@ Rectangle {
 
     Connections {
         target: root.workspace.libraryWebMapController
+        enabled: root.workspace.nativeWebMapAllowed
 
         function onViewportChanged(south, west, north, east, zoom) {
             root.requestViewport(south, west, north, east, zoom)
@@ -303,10 +304,27 @@ Rectangle {
     onVisibleChanged: {
         if (visible) {
             root.beginProviderContext()
-            root.workspace.libraryWebMapController.active = true
+            root.workspace.libraryWebMapController.active =
+                root.workspace.nativeWebMapAllowed
             root.refreshClusters()
         } else {
             root.workspace.libraryWebMapController.active = false
+        }
+    }
+
+    Connections {
+        target: root.workspace
+
+        function onNativeWebMapAllowedChanged() {
+            if (!root.visible)
+                return
+            if (root.workspace.nativeWebMapAllowed) {
+                root.beginProviderContext()
+                root.refreshClusters()
+                root.workspace.libraryWebMapController.active = true
+            } else {
+                root.workspace.libraryWebMapController.active = false
+            }
         }
     }
 
@@ -315,6 +333,7 @@ Rectangle {
             root.workspace.preferences.effectiveLanguage)
         if (root.visible) root.beginProviderContext()
         root.workspace.libraryWebMapController.active = root.visible
+            && root.workspace.nativeWebMapAllowed
         root.refreshClusters()
         root.synchronizePlacement()
     }
