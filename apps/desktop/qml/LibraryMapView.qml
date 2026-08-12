@@ -77,6 +77,7 @@ Rectangle {
                 spacing: 10
 
                 LibraryMapPlaceSearch {
+                    id: placeSearch
                     Layout.preferredWidth: Math.min(390, Math.max(250, root.width * 0.36))
                     service: root.workspace.amapPlaceSearchService
                     mapController: root.workspace.libraryWebMapController
@@ -237,6 +238,7 @@ Rectangle {
                 controller: root.workspace.libraryWebMapController
                 presentationAllowed: root.visible
                     && root.workspace.nativeWebMapAllowed
+                    && !placeSearch.nativeSurfaceBlocked
             }
 
             LibraryMapProviderOverlay {

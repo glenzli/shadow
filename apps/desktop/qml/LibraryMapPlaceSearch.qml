@@ -7,15 +7,21 @@ import QtQuick.Layouts
 
 Rectangle {
     id: root
+    objectName: "libraryMapPlaceSearch"
 
     required property var service
     required property var mapController
     property bool providerEligible: true
     property bool proposeChosenCoordinate: false
+    readonly property bool nativeSurfaceBlocked: visible
+        && (service.busy || service.results.length > 0
+            || String(service.errorText).length > 0)
     signal resultChosen(real latitude, real longitude, string name, string label)
 
-    width: Math.min(390, Math.max(240, parent ? parent.width - 28 : 390))
-    height: searchColumn.implicitHeight + 16
+    implicitWidth: Math.min(390, Math.max(240, parent ? parent.width - 28 : 390))
+    implicitHeight: searchColumn.implicitHeight + 16
+    width: implicitWidth
+    height: implicitHeight
     radius: 8
     color: Theme.panelRaised
     border.width: 1

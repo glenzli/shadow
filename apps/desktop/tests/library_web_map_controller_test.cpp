@@ -89,7 +89,13 @@ int main() {
     bool valid = require(
         controller.providerPolicy() == QStringLiteral("auto")
             && controller.providerId() == QStringLiteral("amap")
-            && web_view.html.contains(QStringLiteral("webapi.amap.com/maps")),
+            && web_view.html.contains(QStringLiteral("webapi.amap.com/maps"))
+            && web_view.html.contains(QStringLiteral("const options={center:"))
+            && web_view.html.contains(
+                QStringLiteral("if(config.style==='satellite')options.layers=")
+            )
+            && web_view.html.contains(QStringLiteral("new AMap.Map('map',options)"))
+            && !web_view.html.contains(QStringLiteral("layers,viewMode")),
         "Auto chooses AMap when a mainland-China map context opens"
     );
 
@@ -166,12 +172,14 @@ int main() {
         controller.providerId() == QStringLiteral("amap") && !controller.providerRegionAvailable(),
         "manual AMap remains selected overseas and reports the unsupported region without fallback"
     );
-    controller.beginMapContext(31.2304, 121.4737);
+    controller.navigateToContext(39.9014339, 116.4211222, 13.0);
     valid &= require(
         controller.providerRegionAvailable()
+            && qFuzzyCompare(controller.centerLatitude(), 39.9014339)
+            && qFuzzyCompare(controller.centerLongitude(), 116.4211222)
             && web_view.html.contains(QStringLiteral("webapi.amap.com/maps"))
             && web_view.html.contains(amap_key) && web_view.html.contains(amap_security),
-        "manual AMap resumes its official WebView document in mainland China"
+        "choosing a Beijing place resumes manual AMap with its official WebView document"
     );
 
     double proposed_latitude = 0.0;

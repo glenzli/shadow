@@ -172,6 +172,14 @@ int main(int argc, char* argv[]) {
         search->isVisible() && search_field != nullptr && result != nullptr,
         "the packaged search field and result delegate are visible when AMap search is authorized"
     );
+    valid &= require(
+        search->property("nativeSurfaceBlocked").toBool(),
+        "a visible result asks the native map surface to yield its rectangle"
+    );
+    valid &= require(
+        search->implicitHeight() >= search->height(),
+        "search results contribute their full height to a parent layout"
+    );
 
     if (search_field != nullptr) {
         search_field->setProperty("text", QStringLiteral("外滩"));
@@ -196,6 +204,10 @@ int main(int argc, char* argv[]) {
                 && map_controller.context_navigation_count == 1 && service.clear_count == 1,
             "clicking a result opens an intentional provider context in WGS84 and clears transient "
             "results"
+        );
+        valid &= require(
+            !search->property("nativeSurfaceBlocked").toBool(),
+            "choosing a result releases the native map rectangle for the new provider context"
         );
     }
 

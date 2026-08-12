@@ -901,7 +901,9 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`src/amap_place_search_service.*`](src/amap_place_search_service.hpp) and
   [`qml/LibraryMapPlaceSearch.qml`](qml/LibraryMapPlaceSearch.qml) separately own authorized AMap
   Web Service search, cancellation, coordinate-boundary conversion, and map recentering; they do
-  not own map rendering.
+  not own map rendering. While search results, work, or provider diagnostics are visible, the
+  search component asks its parent to release the macOS native WebView rectangle; selecting a
+  result restores the map in the newly resolved provider context.
   [`qml/LibraryMapProviderOverlay.qml`](qml/LibraryMapProviderOverlay.qml) separately owns provider
   setup guidance and is visible only when the WebView is hidden. The local Catalog, not a provider,
   applies the current Library filter and aggregates effective GPS coordinates through

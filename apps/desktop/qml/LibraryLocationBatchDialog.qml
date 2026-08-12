@@ -362,6 +362,7 @@ Window {
             // Qt WebView is a native child on macOS. Search remains outside
             // its rectangle so it cannot be covered by the map surface.
             LibraryMapPlaceSearch {
+                id: placeSearch
                 Layout.fillWidth: true
                 service: root.placeSearchService
                 mapController: root.mapController
@@ -394,6 +395,7 @@ Window {
                     controller: root.mapController
                     presentationAllowed: root.visible
                         && root.nativeWebMapAllowed
+                        && !placeSearch.nativeSurfaceBlocked
                 }
 
                 LibraryMapProviderOverlay {

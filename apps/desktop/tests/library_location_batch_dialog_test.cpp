@@ -77,19 +77,19 @@ class FakeMapController final : public QObject {
         return active_;
     }
     [[nodiscard]] bool providerSelected() const noexcept {
-        return false;
+        return true;
     }
     [[nodiscard]] bool providerAvailable() const noexcept {
-        return false;
+        return true;
     }
     [[nodiscard]] bool providerRegionAvailable() const noexcept {
         return true;
     }
     [[nodiscard]] QString providerName() const {
-        return {};
+        return QStringLiteral("AMap");
     }
     [[nodiscard]] QString providerId() const {
-        return QStringLiteral("none");
+        return QStringLiteral("amap");
     }
     [[nodiscard]] double centerLatitude() const noexcept {
         return latitude_;
@@ -161,7 +161,7 @@ class FakePlaceSearchService final : public QObject {
 
   public:
     [[nodiscard]] bool available() const noexcept {
-        return false;
+        return true;
     }
     [[nodiscard]] bool busy() const noexcept {
         return false;
@@ -263,6 +263,21 @@ int main(int argc, char* argv[]) {
     valid &=
         require(dialog->property("visible").toBool(), "the presented dialog should be visible");
     valid &= require(map_controller.active(), "the presented dialog should activate map placement");
+
+    QObject* const search_field =
+        dialog->findChild<QObject*>(QStringLiteral("libraryMapAmapSearchField"));
+    valid &= require(search_field != nullptr, "the dialog should expose its place-search field");
+    QObject* const place_search_item =
+        dialog->findChild<QObject*>(QStringLiteral("libraryMapPlaceSearch"));
+    valid &= require(
+        place_search_item != nullptr,
+        "the dialog should compose the place-search owner"
+    );
+    if (place_search_item != nullptr)
+        valid &= require(
+            place_search_item->property("implicitHeight").toDouble() > 0.0,
+            "the dialog search should reserve its dynamic result height in the map column"
+        );
 
     auto* const close_button =
         dialog->findChild<QQuickItem*>(QStringLiteral("locationBatchCloseButton"));
