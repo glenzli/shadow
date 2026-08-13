@@ -12,13 +12,13 @@
 
 Shadow 是一个本地优先、非破坏性的摄影工作空间：把图库、选片、RAW 编辑与可选的局域网图库连接放在同一套照片身份与 Recipe 之上。
 
-![Shadow 图库概念图，全部为合成数据](docs/media/shadow-gallery-concept.svg)
+![Shadow 图库工作区：真实界面，照片内容为合成示意](docs/media/shadow-gallery-synthetic.png)
 
-*图库概念示意图，所有照片、名称、数值与状态均为合成数据。*
+*图库工作区的真实界面截图；所有照片缩略图与头像均为合成占位内容。*
 
-![Shadow 节点式编辑概念图，全部为合成数据](docs/media/shadow-editing-concept.svg)
+![Shadow 精修工作区：真实界面，照片内容为合成示意](docs/media/shadow-precision-synthetic.png)
 
-*节点编辑概念示意图，突出 Recipe、局部蒙版与液化网格。*
+*精修工作区的真实界面截图；中央照片与头像均为合成占位内容。*
 
 ### 设计理念
 
@@ -29,11 +29,13 @@ Shadow 是一个本地优先、非破坏性的摄影工作空间：把图库、�
 
 ### 当前能力
 
-- 本地文件夹与远程图库的统一浏览、筛选、评分、颜色标记、相册与多来源照片模型。
-- 选片、候选竞技场与并排比较；筛选过程不强迫产生“保留/删除”的破坏性动作。
-- 非破坏性 RAW 调整、裁剪、几何、局部蒙版、修复、液化、AI RAW 降噪与节点式编辑流程。
-- 图库地图、逆地理信息、手动补全位置，以及按拍摄事件分组的缺失位置核对。
-- 可管理的导出预设、水印与本机 Shadow Library Server。
+- **统一图库**：本地文件夹、远程 Library 与已下载缓存共同进入一个按照片身份合并的图库；支持多来源与 RAW/JPEG 等多种表现形式。
+- **浏览与整理**：网格、胶片带与地图浏览；排序、筛选、评分、喜欢、颜色标记、关键词、智能分类、相册及 EXIF/来源检查器。
+- **选片**：并排比较与候选竞技场；可以先海选，再逐轮选择更优或同等的候选，而不强迫立即执行“保留/删除”。
+- **非破坏性编辑**：以 Recipe 和节点保存编辑；包含基础 RAW 调整、白平衡、裁剪、旋转、透视/几何、局部蒙版、修复与液化。
+- **智能辅助**：本地人物分组、语义发现、AI RAW 降噪和焦点细节检查均作为可见、可复核的辅助信息。
+- **位置工作流**：地图浏览、逆地理信息、手动位置补全，以及按拍摄事件聚类的无位置照片核对。
+- **交付与共享**：导出预设、格式/尺寸/质量控制、水印管理，以及可选的本机 Shadow Library Server。
 
 ### 尝试开发版
 
@@ -75,13 +77,13 @@ cargo xtask desktop-build-promote --verify
 
 Shadow is a local-first, non-destructive photography workspace. Library browsing, culling, RAW development, and optional LAN Libraries share one photo identity and Recipe model.
 
-![Synthetic Shadow Gallery concept](docs/media/shadow-gallery-concept.svg)
+![Shadow Gallery workspace with synthetic photo content](docs/media/shadow-gallery-synthetic.png)
 
-*Gallery concept illustration; all photos, names, values, and states are synthetic.*
+*A real Gallery-workspace screenshot; all photo thumbnails and the profile image use synthetic placeholder content.*
 
-![Synthetic Shadow node-based editing concept](docs/media/shadow-editing-concept.svg)
+![Shadow Precision workspace with synthetic photo content](docs/media/shadow-precision-synthetic.png)
 
-*Node-editing concept illustration, emphasizing Recipe, local masks, and Liquify mesh editing.*
+*A real Precision-workspace screenshot; the central photo and profile image use synthetic placeholder content.*
 
 ### Principles
 
@@ -92,11 +94,13 @@ Shadow is a local-first, non-destructive photography workspace. Library browsing
 
 ### Current capabilities
 
-- Unified local-folder and remote-Library browsing, filtering, ratings, color labels, albums, and multi-source photo identity.
-- Culling, a candidate arena, and side-by-side comparison without forcing destructive keep/delete actions.
-- Non-destructive RAW adjustments, crop, geometry, local masks, retouch, Liquify, AI RAW Denoise, and a node-based editing workflow.
-- Library maps, reverse-geographic information, manual location completion, and capture-event grouping for photos without GPS.
-- Export presets, watermark management, and a local Shadow Library Server.
+- **Unified Library**: local folders, remote Libraries, and downloaded caches converge on photo identity, with multiple sources and representations such as RAW and JPEG.
+- **Browse and organize**: grid, filmstrip, and map views; sorting, filtering, ratings, favorites, color labels, keywords, smart groups, albums, and an EXIF/source inspector.
+- **Culling**: side-by-side comparison and a candidate arena support a shortlisting round followed by explicit better/equal decisions, without forcing immediate keep/delete actions.
+- **Non-destructive editing**: Recipes and nodes preserve adjustments including foundational RAW controls, white balance, crop, rotation, perspective/geometry, local masks, retouch, and Liquify.
+- **Assisted review**: local people grouping, semantic discovery, AI RAW Denoise, and focus-detail inspection remain visible, reviewable assistance.
+- **Location workflow**: map browsing, reverse-geographic information, manual location completion, and capture-event grouping for photos without GPS.
+- **Delivery and sharing**: export presets, format/size/quality control, watermark management, and an optional local Shadow Library Server.
 
 ### Run the development build
 
