@@ -39,8 +39,12 @@ BackendReviewItem photo(
 ) {
     return {
         .photo_id = id,
+        .representation_id = QStringLiteral("raw-") + id,
+        .visual_handle = QStringLiteral("visual-") + id,
         .title = id,
         .source_path = QStringLiteral("/photos/") + id + QStringLiteral(".raw"),
+        .visual_width = 2048,
+        .visual_height = 1365,
         .captured_at_unix_seconds = captured_at,
         .has_coordinates = has_coordinates,
         .latitude_e7 = latitude_e7,
@@ -128,8 +132,20 @@ void runContract() {
             && first.value(QStringLiteral("hasSuggestion")).toBool()
             && first.value(QStringLiteral("anchorCount")).toInt() == 2
             && first.value(QStringLiteral("placeName")).toString() == QStringLiteral("Shanghai")
-            && first.value(QStringLiteral("targets")).toList().size() == 2,
-        "time-near reference anchors join the event without becoming mutation targets"
+            && first.value(QStringLiteral("targets")).toList().size() == 2
+            && first.value(QStringLiteral("targets")).toList().constFirst().toMap().value(
+                QStringLiteral("photoId")
+            ) == QStringLiteral("missing-a")
+            && first.value(QStringLiteral("targets")).toList().constFirst().toMap().value(
+                QStringLiteral("sourceAvailable")
+            ).toBool()
+            && first.value(QStringLiteral("targets")).toList().constFirst().toMap().value(
+                QStringLiteral("representationId")
+            ) == QStringLiteral("raw-missing-a")
+            && first.value(QStringLiteral("targets")).toList().constFirst().toMap().value(
+                QStringLiteral("visualHandle")
+            ) == QStringLiteral("visual-missing-a"),
+        "time-near reference anchors join the event without becoming mutation targets, and each target retains Gallery presentation identity"
     );
     const QVariantMap second = coordinator.groups().at(1).toMap();
     require(
