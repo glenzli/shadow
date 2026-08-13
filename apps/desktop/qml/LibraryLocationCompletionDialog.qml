@@ -68,7 +68,7 @@ Window {
 
     FolderDialog {
         id: referenceFolderDialog
-        title: qsTr("Choose a reference photo folder")
+        title: qsTr("Choose a reference photo or video folder")
         onAccepted: root.controller.addLocationReferenceLibrary(selectedFolder, 0)
     }
 
@@ -150,14 +150,14 @@ Window {
                         spacing: 2
 
                         Label {
-                            text: qsTr("Reference photo folders")
+                text: qsTr("Reference photo and video folders")
                             color: Theme.textPrimary
                             font.weight: Font.DemiBold
                         }
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Read only capture time and GPS from a phone or camera folder. These photos are not imported into your Library.")
+                text: qsTr("Read only capture time and GPS from a phone or camera folder. These files are not imported into your Library.")
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontMeta
                             wrapMode: Text.WordWrap

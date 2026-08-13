@@ -814,7 +814,8 @@ mod ffi {
     }
 
     /// Read-only description of a separate reference folder used only as a
-    /// capture-time/GPS anchor source. Its photos never enter the Library.
+    /// capture-time/GPS anchor source. Its photos and videos never enter the
+    /// Library.
     #[derive(Debug)]
     struct FfiLocationReferenceLibrary {
         id: String,
@@ -824,7 +825,7 @@ mod ffi {
         anchor_count: u64,
     }
 
-    /// Minimal reference-photo evidence consumed by location completion.
+    /// Minimal reference-photo or video evidence consumed by location completion.
     #[derive(Debug)]
     struct FfiLocationReferenceAnchor {
         library_id: String,

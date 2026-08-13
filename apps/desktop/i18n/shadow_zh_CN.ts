@@ -11712,18 +11712,18 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/LibraryLocationCompletionDialog.qml" line="70"/>
-        <source>Choose a reference photo folder</source>
-        <translation>选择参考照片文件夹</translation>
+        <source>Choose a reference photo or video folder</source>
+        <translation>选择参考照片或视频文件夹</translation>
     </message>
     <message>
         <location filename="../qml/LibraryLocationCompletionDialog.qml" line="145"/>
-        <source>Reference photo folders</source>
-        <translation>参考照片文件夹</translation>
+        <source>Reference photo and video folders</source>
+        <translation>参考照片和视频文件夹</translation>
     </message>
     <message>
         <location filename="../qml/LibraryLocationCompletionDialog.qml" line="153"/>
-        <source>Read only capture time and GPS from a phone or camera folder. These photos are not imported into your Library.</source>
-        <translation>仅读取手机或相机文件夹中的拍摄时间和 GPS。这些照片不会导入图库。</translation>
+        <source>Read only capture time and GPS from a phone or camera folder. These files are not imported into your Library.</source>
+        <translation>仅读取手机或相机文件夹中的拍摄时间和 GPS。这些文件不会导入图库。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryLocationCompletionDialog.qml" line="169"/>

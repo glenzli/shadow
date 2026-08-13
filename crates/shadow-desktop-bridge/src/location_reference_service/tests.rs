@@ -7,7 +7,7 @@ use shadow_domain::{
 };
 use uuid::Uuid;
 
-use super::{LocationReferenceService, collect_anchors};
+use super::{LocationReferenceService, collect_anchors, collect_anchors_with_metadata};
 
 fn snapshot(captured_at_unix_seconds: i64, gps: Option<(f64, f64)>) -> DecoderSnapshot {
     DecoderSnapshot {
@@ -86,6 +86,34 @@ fn reference_scan_keeps_only_time_and_gps_and_applies_clock_offset() {
     assert_eq!(anchors[0].captured_at_unix_seconds, 1_700_000_090);
     assert_eq!(anchors[0].latitude_e7, 312_304_000);
     assert_eq!(anchors[0].longitude_e7, 1_214_737_000);
+    fs::remove_dir_all(temporary).expect("remove fixture root");
+}
+
+#[test]
+fn reference_scan_uses_video_metadata_without_sending_video_to_photo_inspection() {
+    let temporary = test_root();
+    let source = temporary.join("phone");
+    fs::create_dir_all(&source).expect("create source root");
+    fs::write(source.join("clip.mov"), b"container metadata fixture").expect("write video fixture");
+
+    let anchors = collect_anchors_with_metadata(
+        "phone-2026",
+        &source,
+        0,
+        |_| panic!("video must not use photo inspection"),
+        |_| {
+            Ok(Some(super::video_metadata::VideoReferenceMetadata {
+                captured_at_unix_seconds: 1_700_000_000,
+                latitude_degrees: 39.901_434,
+                longitude_degrees: 116.421_122,
+            }))
+        },
+    )
+    .expect("scan video anchor");
+    assert_eq!(anchors.len(), 1);
+    assert_eq!(anchors[0].relative_path, "clip.mov");
+    assert_eq!(anchors[0].latitude_e7, 399_014_340);
+    assert_eq!(anchors[0].longitude_e7, 1_164_211_220);
     fs::remove_dir_all(temporary).expect("remove fixture root");
 }
 

@@ -1338,6 +1338,7 @@ dependencies = [
  "shadow-library-sharing",
  "shadow-native-path",
  "thiserror",
+ "time",
  "uuid",
 ]
 

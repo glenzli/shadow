@@ -1,6 +1,6 @@
 //! Durable, read-only location anchors from a user-selected reference library.
 //!
-//! This service deliberately keeps reference photos out of Shadow's primary
+//! This service deliberately keeps reference photos and videos out of Shadow's primary
 //! Catalog. A manifest contains only lossless root identities plus the small,
 //! rebuildable `{capture time, GPS}` anchor index needed by location completion.
 
@@ -79,9 +79,10 @@ impl LocationReferenceService {
 
     /// Rebuilds one reference root's lightweight anchor index.
     ///
-    /// A reference image is never added to the Catalog and no image pixels are
-    /// cached. Decode failures and non-geotagged files are skipped; only an
-    /// unreadable root is an operation error.
+    /// A reference photo or video is never added to the Catalog and no pixels
+    /// are cached. Video indexing reads container tags only, without decoding.
+    /// Files without usable time/GPS metadata are skipped; only an unreadable
+    /// root is an operation error.
     pub(crate) fn add_or_rescan(
         &mut self,
         id: &str,
@@ -90,9 +91,14 @@ impl LocationReferenceService {
         indexed_at_unix_ms: i64,
     ) -> Result<LocationReferenceLibrary> {
         let mut inspector = PhotoInspector::new_with_isolated_proxy_cache(None)?;
-        self.add_or_rescan_with(id, root, clock_offset_seconds, indexed_at_unix_ms, |path| {
-            inspector.inspect(path)
-        })
+        self.add_or_rescan_with_metadata(
+            id,
+            root,
+            clock_offset_seconds,
+            indexed_at_unix_ms,
+            |path| inspector.inspect(path),
+            video_metadata::inspect,
+        )
     }
 
     /// Rebuilds a reference root using a stable identity derived from its
@@ -109,6 +115,7 @@ impl LocationReferenceService {
         self.add_or_rescan(&id, &root, clock_offset_seconds, indexed_at_unix_ms)
     }
 
+    #[cfg(test)]
     pub(crate) fn add_or_rescan_with(
         &mut self,
         id: &str,
@@ -117,9 +124,34 @@ impl LocationReferenceService {
         indexed_at_unix_ms: i64,
         inspect: impl FnMut(&Path) -> std::result::Result<shadow_domain::DecoderSnapshot, String>,
     ) -> Result<LocationReferenceLibrary> {
+        self.add_or_rescan_with_metadata(
+            id,
+            root,
+            clock_offset_seconds,
+            indexed_at_unix_ms,
+            inspect,
+            |_| Ok(None),
+        )
+    }
+
+    fn add_or_rescan_with_metadata(
+        &mut self,
+        id: &str,
+        root: &Path,
+        clock_offset_seconds: i64,
+        indexed_at_unix_ms: i64,
+        inspect_photo: impl FnMut(&Path) -> std::result::Result<shadow_domain::DecoderSnapshot, String>,
+        inspect_video: impl FnMut(&Path) -> Result<Option<video_metadata::VideoReferenceMetadata>>,
+    ) -> Result<LocationReferenceLibrary> {
         let id = normalized_id(id)?;
         let root = canonical_root(root)?;
-        let anchors = collect_anchors(&id, &root, clock_offset_seconds, inspect)?;
+        let anchors = collect_anchors_with_metadata(
+            &id,
+            &root,
+            clock_offset_seconds,
+            inspect_photo,
+            inspect_video,
+        )?;
         let library = LocationReferenceLibrary {
             id: id.clone(),
             root: native_location(&root),
@@ -199,29 +231,34 @@ fn canonical_root(root: &Path) -> Result<PathBuf> {
     Ok(root)
 }
 
+#[cfg(test)]
 fn collect_anchors(
     library_id: &str,
     root: &Path,
     clock_offset_seconds: i64,
-    mut inspect: impl FnMut(&Path) -> std::result::Result<shadow_domain::DecoderSnapshot, String>,
+    inspect: impl FnMut(&Path) -> std::result::Result<shadow_domain::DecoderSnapshot, String>,
+) -> Result<Vec<LocationReferenceAnchor>> {
+    collect_anchors_with_metadata(library_id, root, clock_offset_seconds, inspect, |_| {
+        Ok(None)
+    })
+}
+
+fn collect_anchors_with_metadata(
+    library_id: &str,
+    root: &Path,
+    clock_offset_seconds: i64,
+    mut inspect_photo: impl FnMut(&Path) -> std::result::Result<shadow_domain::DecoderSnapshot, String>,
+    mut inspect_video: impl FnMut(&Path) -> Result<Option<video_metadata::VideoReferenceMetadata>>,
 ) -> Result<Vec<LocationReferenceAnchor>> {
     let mut files = Vec::new();
     collect_files(root, &mut files)?;
     let mut anchors = Vec::new();
     for path in files {
-        let Ok(snapshot) = inspect(&path) else {
+        let Some((captured_at, latitude, longitude)) =
+            reference_metadata_for_path(&path, &mut inspect_photo, &mut inspect_video)
+        else {
             continue;
         };
-        let Some(gps) = snapshot.metadata.gps else {
-            continue;
-        };
-        let captured_at = snapshot.metadata.captured_at_unix_seconds;
-        if captured_at <= 0
-            || !gps.latitude_degrees.is_finite()
-            || !gps.longitude_degrees.is_finite()
-        {
-            continue;
-        }
         let Some(relative_path) = path
             .strip_prefix(root)
             .ok()
@@ -237,11 +274,33 @@ fn collect_anchors(
             library_id: library_id.to_owned(),
             relative_path,
             captured_at_unix_seconds: adjusted_capture,
-            latitude_e7: degrees_e7(gps.latitude_degrees, 90.0)?,
-            longitude_e7: degrees_e7(gps.longitude_degrees, 180.0)?,
+            latitude_e7: degrees_e7(latitude, 90.0)?,
+            longitude_e7: degrees_e7(longitude, 180.0)?,
         });
     }
     Ok(anchors)
+}
+
+fn reference_metadata_for_path(
+    path: &Path,
+    inspect_photo: &mut impl FnMut(&Path) -> std::result::Result<shadow_domain::DecoderSnapshot, String>,
+    inspect_video: &mut impl FnMut(&Path) -> Result<Option<video_metadata::VideoReferenceMetadata>>,
+) -> Option<(i64, f64, f64)> {
+    if video_metadata::supports(path) {
+        let metadata = inspect_video(path).ok().flatten()?;
+        return Some((
+            metadata.captured_at_unix_seconds,
+            metadata.latitude_degrees,
+            metadata.longitude_degrees,
+        ));
+    }
+    let snapshot = inspect_photo(path).ok()?;
+    let gps = snapshot.metadata.gps?;
+    let captured_at = snapshot.metadata.captured_at_unix_seconds;
+    if captured_at <= 0 || !gps.latitude_degrees.is_finite() || !gps.longitude_degrees.is_finite() {
+        return None;
+    }
+    Some((captured_at, gps.latitude_degrees, gps.longitude_degrees))
 }
 
 fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
@@ -306,3 +365,5 @@ fn persist_manifest(path: &Path, manifest: &Manifest) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+mod video_metadata;

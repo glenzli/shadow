@@ -24,6 +24,7 @@ shadow-library-sharing.workspace = true
 shadow-native-path.workspace = true
 shadow-ai.workspace = true
 thiserror.workspace = true
+time.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
