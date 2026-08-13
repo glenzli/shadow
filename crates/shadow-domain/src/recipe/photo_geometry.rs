@@ -239,6 +239,10 @@ impl PhotoGeometry {
     /// Applies bounded symmetric keystone correction in the oriented photo
     /// coordinate system. The renderer maps the output rectangle into an
     /// interior trapezoid, so correction never introduces synthetic corners.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either axis is non-finite or outside `[-1, 1]`.
     pub fn with_perspective(
         mut self,
         vertical: f64,

@@ -44,6 +44,9 @@ struct BackendReviewItem final {
     QString lens_model;
     std::int64_t captured_at_unix_seconds = 0;
     QString capture_day;
+    bool has_coordinates = false;
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
     QString place_name;
     double iso_speed = 0.0;
     double exposure_time_seconds = 0.0;

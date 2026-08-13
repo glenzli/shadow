@@ -2,7 +2,22 @@ use super::*;
 use crate::recipe::{RecipeValidationError, UnitInterval};
 
 #[test]
-fn retouch_spots_reject_invalid_radius_and_clone_offsets() {
+fn retouch_spots_accept_far_donors_within_the_detail_apron() {
+    RetouchSpot::new(
+        UnitInterval::new(0.5).expect("normalized x"),
+        UnitInterval::new(0.5).expect("normalized y"),
+        18,
+    )
+    .expect("valid repair spot")
+    .with_behavior(
+        RetouchMode::Clone,
+        10.5,
+        0.0,
+        UnitInterval::new(0.4).expect("feather"),
+    )
+    .expect("a small brush can use a donor beyond eight radii");
+
+    let maximum = maximum_source_offset_radii(18);
     assert_eq!(
         RetouchSpot::new(
             UnitInterval::new(0.5).expect("normalized x"),
@@ -12,12 +27,16 @@ fn retouch_spots_reject_invalid_radius_and_clone_offsets() {
         .expect("valid repair spot")
         .with_behavior(
             RetouchMode::Clone,
-            8.01,
+            maximum + 0.01,
             0.0,
             UnitInterval::new(0.4).expect("feather"),
         ),
         Err(RecipeValidationError::InvalidRetouchSourceOffset)
     );
+}
+
+#[test]
+fn retouch_spots_reject_invalid_radius() {
     assert_eq!(
         RetouchSpot::new(
             UnitInterval::new(0.5).expect("normalized x"),
@@ -72,4 +91,55 @@ fn retouch_strength_defaults_to_full_and_survives_round_trip() {
     let legacy_decoded: RetouchSpot =
         serde_json::from_value(legacy).expect("deserialize repair without strength");
     assert_eq!(legacy_decoded.strength().get(), 1.0);
+}
+
+#[test]
+fn structure_preserving_heal_mode_survives_round_trip() {
+    let spot = RetouchSpot::new(
+        UnitInterval::new(0.4).expect("normalized x"),
+        UnitInterval::new(0.6).expect("normalized y"),
+        18,
+    )
+    .expect("valid repair spot")
+    .with_behavior(
+        RetouchMode::HealStructure,
+        3.0,
+        -1.5,
+        UnitInterval::new(0.28).expect("feather"),
+    )
+    .expect("valid structure-preserving Heal");
+    let encoded = serde_json::to_value(spot).expect("serialize structure-preserving Heal");
+    let decoded: RetouchSpot =
+        serde_json::from_value(encoded).expect("deserialize structure-preserving Heal");
+    assert_eq!(decoded.mode(), RetouchMode::HealStructure);
+}
+
+#[test]
+#[allow(clippy::float_cmp)] // Recipe serialization must preserve authored transforms exactly.
+fn source_transform_survives_validation_and_round_trip() {
+    let spot = RetouchSpot::new(
+        UnitInterval::new(0.4).expect("normalized x"),
+        UnitInterval::new(0.6).expect("normalized y"),
+        128,
+    )
+    .expect("valid repair spot")
+    .with_source_transform(37.0, 0.5, true, false)
+    .expect("valid source transform")
+    .with_behavior(
+        RetouchMode::Clone,
+        3.25,
+        -1.0,
+        UnitInterval::new(0.28).expect("feather"),
+    )
+    .expect("a reduced source may use the remaining detail apron");
+
+    let encoded = serde_json::to_value(spot).expect("serialize transformed repair");
+    let decoded: RetouchSpot =
+        serde_json::from_value(encoded).expect("deserialize transformed repair");
+    decoded.validate().expect("validate transformed repair");
+    assert_eq!(decoded.source_rotation_degrees(), 37.0);
+    assert_eq!(decoded.source_scale(), 0.5);
+    assert!(decoded.source_flip_horizontal());
+    assert!(!decoded.source_flip_vertical());
+    assert_eq!(decoded.source_offset_x_radii(), 3.25);
 }

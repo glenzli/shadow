@@ -45,13 +45,23 @@ Rectangle {
     function beginProviderContext() {
         const controller = root.workspace.libraryWebMapController
         if (root.workspace.selectedHasCoordinates) {
-            controller.beginMapContext(
+            controller.navigateToContext(
                 Number(root.workspace.selectedLatitude),
-                Number(root.workspace.selectedLongitude))
+                Number(root.workspace.selectedLongitude), 13)
         } else {
             controller.beginMapContext(
                 Number(controller.centerLatitude),
                 Number(controller.centerLongitude))
+        }
+    }
+
+    Timer {
+        id: selectedPhotoContextTimer
+        interval: 0
+        repeat: false
+        onTriggered: {
+            if (root.visible && root.workspace.selectedHasCoordinates)
+                root.beginProviderContext()
         }
     }
 
@@ -275,6 +285,22 @@ Rectangle {
 
         function onCoordinateProposed(latitude, longitude) {
             locationPlacement.proposeCoordinate(latitude, longitude)
+        }
+    }
+
+    Connections {
+        target: root.workspace
+
+        function onSelectedHasCoordinatesChanged() {
+            selectedPhotoContextTimer.restart()
+        }
+
+        function onSelectedLatitudeChanged() {
+            selectedPhotoContextTimer.restart()
+        }
+
+        function onSelectedLongitudeChanged() {
+            selectedPhotoContextTimer.restart()
         }
     }
 

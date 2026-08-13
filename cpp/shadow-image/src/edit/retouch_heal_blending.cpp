@@ -228,7 +228,11 @@ normalized_coordinate(const std::uint32_t coordinate, const std::uint32_t extent
     const std::uint32_t coverage_height
 ) noexcept {
     const std::uint32_t narrow_extent = std::min(coverage_width, coverage_height);
-    return static_cast<std::size_t>(std::clamp(24U + narrow_extent, 32U, 96U));
+    // Jacobi propagates boundary constraints roughly one pixel per pass. Small repairs converge
+    // quickly, while a wide brush needs a proportionally larger budget to avoid retaining a soft
+    // donor-colour plateau in its centre. Keep the bound finite for interactive preview, but scale
+    // it far enough to cover the largest practical non-AI repair footprint.
+    return static_cast<std::size_t>(std::clamp(32U + narrow_extent * 2U, 48U, 192U));
 }
 
 [[nodiscard]] bool covered(
@@ -250,9 +254,9 @@ void apply_texture_heal(
     const std::int64_t coverage_origin_y,
     const std::uint32_t coverage_width,
     const std::uint32_t coverage_height,
-    const double source_offset_x_pixels,
-    const double source_offset_y_pixels,
-    const double strength
+    const RetouchSourceMapping& source_mapping,
+    const double strength,
+    const bool preserve_target_structure
 ) {
     const std::uint64_t coverage_pixels =
         static_cast<std::uint64_t>(coverage_width) * coverage_height;
@@ -264,7 +268,6 @@ void apply_texture_heal(
                > destination.dimensions.width
         || static_cast<std::uint64_t>(coverage_origin_y) + coverage_height
                > destination.dimensions.height
-        || !std::isfinite(source_offset_x_pixels) || !std::isfinite(source_offset_y_pixels)
         || !std::isfinite(strength) || strength < 0.0 || strength > 1.0) {
         invalid_heal("received an invalid source or coverage layout");
     }
@@ -292,8 +295,8 @@ void apply_texture_heal(
             const std::size_t pixel = local_index(local_x, local_y, coverage_width);
             const auto donor_sample = sample_bilinear(
                 source,
-                static_cast<double>(raster_x) + source_offset_x_pixels,
-                static_cast<double>(raster_y) + source_offset_y_pixels
+                source_mapping.source_x(raster_x, raster_y),
+                source_mapping.source_y(raster_x, raster_y)
             );
             const std::size_t raster_sample = sample_index(source, raster_x, raster_y);
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
@@ -393,48 +396,74 @@ void apply_texture_heal(
                     continue;
                 }
                 const std::size_t pixel = local_index(local_x, local_y, coverage_width);
-                for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-                    double neighbor_sum = 0.0;
-                    double donor_laplacian = 0.0;
-                    std::uint32_t neighbor_count = 0U;
-                    for (const auto neighbor : neighbors) {
-                        const std::int64_t neighbor_x =
-                            static_cast<std::int64_t>(local_x) + neighbor[0];
-                        const std::int64_t neighbor_y =
-                            static_cast<std::int64_t>(local_y) + neighbor[1];
-                        if (neighbor_x < 0 || neighbor_y < 0
-                            || neighbor_x >= static_cast<std::int64_t>(coverage_width)
-                            || neighbor_y >= static_cast<std::int64_t>(coverage_height)) {
-                            continue;
-                        }
-                        const auto adjacent_x = static_cast<std::uint32_t>(neighbor_x);
-                        const auto adjacent_y = static_cast<std::uint32_t>(neighbor_y);
-                        const std::size_t adjacent =
-                            local_index(adjacent_x, adjacent_y, coverage_width);
-                        const bool adjacent_covered =
-                            covered(coverage, coverage_width, adjacent_x, adjacent_y);
-                        if (adjacent_covered) {
-                            neighbor_sum += solution[adjacent * rgb_channels + channel];
-                        } else {
-                            const auto adjacent_raster_x =
-                                static_cast<std::uint32_t>(coverage_origin_x + adjacent_x);
-                            const auto adjacent_raster_y =
-                                static_cast<std::uint32_t>(coverage_origin_y + adjacent_y);
-                            neighbor_sum +=
-                                source.samples
-                                    [sample_index(source, adjacent_raster_x, adjacent_raster_y)
-                                     + channel];
-                        }
-                        donor_laplacian +=
+                const auto raster_x = static_cast<std::uint32_t>(coverage_origin_x + local_x);
+                const auto raster_y = static_cast<std::uint32_t>(coverage_origin_y + local_y);
+                const std::size_t raster_pixel = sample_index(source, raster_x, raster_y);
+                std::array<double, rgb_channels> neighbor_sum{};
+                std::array<double, rgb_channels> guidance_laplacian{};
+                std::uint32_t neighbor_count = 0U;
+                for (const auto neighbor : neighbors) {
+                    const std::int64_t neighbor_x =
+                        static_cast<std::int64_t>(local_x) + neighbor[0];
+                    const std::int64_t neighbor_y =
+                        static_cast<std::int64_t>(local_y) + neighbor[1];
+                    if (neighbor_x < 0 || neighbor_y < 0
+                        || neighbor_x >= static_cast<std::int64_t>(coverage_width)
+                        || neighbor_y >= static_cast<std::int64_t>(coverage_height)) {
+                        continue;
+                    }
+                    const auto adjacent_x = static_cast<std::uint32_t>(neighbor_x);
+                    const auto adjacent_y = static_cast<std::uint32_t>(neighbor_y);
+                    const std::size_t adjacent =
+                        local_index(adjacent_x, adjacent_y, coverage_width);
+                    const auto adjacent_raster_x =
+                        static_cast<std::uint32_t>(coverage_origin_x + adjacent_x);
+                    const auto adjacent_raster_y =
+                        static_cast<std::uint32_t>(coverage_origin_y + adjacent_y);
+                    const std::size_t adjacent_raster =
+                        sample_index(source, adjacent_raster_x, adjacent_raster_y);
+                    const bool adjacent_covered =
+                        covered(coverage, coverage_width, adjacent_x, adjacent_y);
+                    std::array<double, rgb_channels> donor_gradient{};
+                    std::array<double, rgb_channels> target_gradient{};
+                    double donor_energy = 0.0;
+                    double target_energy = 0.0;
+                    for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                        neighbor_sum[channel] += adjacent_covered
+                                                     ? solution[adjacent * rgb_channels + channel]
+                                                     : source.samples[adjacent_raster + channel];
+                        donor_gradient[channel] =
                             texture_gain
                             * (static_cast<double>(donor[pixel * rgb_channels + channel])
                                - static_cast<double>(donor[adjacent * rgb_channels + channel]));
-                        ++neighbor_count;
+                        target_gradient[channel] =
+                            static_cast<double>(source.samples[raster_pixel + channel])
+                            - static_cast<double>(source.samples[adjacent_raster + channel]);
+                        donor_energy = std::fma(
+                            donor_gradient[channel],
+                            donor_gradient[channel],
+                            donor_energy
+                        );
+                        target_energy = std::fma(
+                            target_gradient[channel],
+                            target_gradient[channel],
+                            target_energy
+                        );
                     }
-                    if (neighbor_count == 0U) {
-                        continue;
+                    const bool keep_target_gradient =
+                        preserve_target_structure && target_energy > donor_energy;
+                    for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                        guidance_laplacian[channel] += keep_target_gradient
+                                                           ? target_gradient[channel]
+                                                           : donor_gradient[channel];
                     }
-                    const double value = (neighbor_sum + donor_laplacian
+                    ++neighbor_count;
+                }
+                if (neighbor_count == 0U) {
+                    continue;
+                }
+                for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                    const double value = (neighbor_sum[channel] + guidance_laplacian[channel]
                                           + screening_weight
                                                 * static_cast<double>(
                                                     screened_target[pixel * rgb_channels + channel]

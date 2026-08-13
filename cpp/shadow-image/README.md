@@ -483,10 +483,12 @@ New production code should include the narrow semantic owner directly:
   source-node index lifetime.
 - `cpu_edit_reference.hpp` owns the deterministic flat-node oracle; `tone_curve.hpp` owns
   standalone Oklab Lightness application and exact smooth-curve sampling; `retouch.hpp` owns
-  spot/continuous-brush geometry, coverage and donor selection, while
+  spot/continuous-brush geometry, coverage and donor selection;
+  `src/edit/retouch_source_transform.*` owns the shared affine donor mapping, whole-patch edge
+  clamping, and exact full-detail source reach for rotation, scale, and mirroring, while
   `src/edit/retouch_heal_blending.*` owns Heal's robust local-illumination boundary fit and
-  screened gradient-domain texture blend; `adjustment_layers.hpp` owns masks, layer composition, and
-  masked execution.
+  scale-aware bounded screened gradient-domain texture blend; `adjustment_layers.hpp` owns masks,
+  layer composition, and masked execution.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
   execution provenance, transient display-sRGB RGB8 rendering, and settled JPEG output;
   `edit_preview_frame.hpp` owns the immutable moved RGB8/R8 presentation frame and paired mask
@@ -633,10 +635,10 @@ coverage capture consume the same prepared record and brush index.
 Clone region into raster-space capsules and a bounded CSR grid. Its immutable packed geometry is
 cached by the resident-resource owner, while `warm_edit_gpu_retouch_encoder.*` preserves every
 region's complete source snapshot in resident RGB buffers exactly as the CPU oracle does. Clone
-copies through the indexed continuous coverage directly. Heal computes a deterministic two-pass
-robust donor statistic plus a bounded affine boundary-light fit, initializes the correction field,
-runs a screened-Poisson Jacobi solve, and feathers the result without leaving Metal. Mixed ordered
-Heal and Clone therefore remain in
+copies through the indexed continuous coverage and shared affine donor mapping directly. Heal
+computes a deterministic two-pass robust donor statistic plus a bounded affine boundary-light fit,
+initializes the correction field, runs a brush-scale-aware bounded screened-Poisson Jacobi solve,
+and feathers the result without leaving Metal. Mixed ordered Heal and Clone therefore remain in
 the same command transaction as surrounding pixel-local and neighborhood stages.
 `src/proxy/warm_edit_gpu_geometry_plan.*` seals the authoritative `PhotoGeometryLayout`, complete
   output canvas, bounded source tile, and output tile into one portable sampling contract. Its

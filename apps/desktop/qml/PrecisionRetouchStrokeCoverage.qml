@@ -13,6 +13,13 @@ Canvas {
     required property color coverageColor
     property real coverageOffsetX: 0
     property real coverageOffsetY: 0
+    property bool sourceTransformEnabled: false
+    property real sourceAnchorX: 0
+    property real sourceAnchorY: 0
+    property real sourceRotationDegrees: 0
+    property real sourceScale: 1
+    property bool sourceFlipHorizontal: false
+    property bool sourceFlipVertical: false
 
     antialiasing: true
 
@@ -43,12 +50,25 @@ Canvas {
     function fillCoverage(context) {
         // Composite the swept union once so overlapping authored samples do
         // not appear as darker, independent dabs.
+        context.save()
+        if (sourceTransformEnabled) {
+            context.translate(
+                sourceAnchorX + coverageOffsetX,
+                sourceAnchorY + coverageOffsetY)
+            context.rotate(sourceRotationDegrees * Math.PI / 180)
+            context.scale(
+                sourceScale * (sourceFlipHorizontal ? -1 : 1),
+                sourceScale * (sourceFlipVertical ? -1 : 1))
+            context.translate(-sourceAnchorX, -sourceAnchorY)
+        }
         context.beginPath()
         let previous = null
         for (let pointIndex = 0; pointIndex < points.length; ++pointIndex) {
             const point = points[pointIndex]
-            const pointX = Number(point.x) * width + coverageOffsetX
-            const pointY = Number(point.y) * height + coverageOffsetY
+            const pointX = Number(point.x) * width
+                + (sourceTransformEnabled ? 0 : coverageOffsetX)
+            const pointY = Number(point.y) * height
+                + (sourceTransformEnabled ? 0 : coverageOffsetY)
             if (previous === null) {
                 appendDisc(context, pointX, pointY, radiusPixels)
             } else {
@@ -64,6 +84,7 @@ Canvas {
             previous = { x: pointX, y: pointY }
         }
         context.fill()
+        context.restore()
     }
 
     onPaint: {
@@ -91,5 +112,12 @@ Canvas {
     onCoverageColorChanged: requestPaint()
     onCoverageOffsetXChanged: requestPaint()
     onCoverageOffsetYChanged: requestPaint()
+    onSourceTransformEnabledChanged: requestPaint()
+    onSourceAnchorXChanged: requestPaint()
+    onSourceAnchorYChanged: requestPaint()
+    onSourceRotationDegreesChanged: requestPaint()
+    onSourceScaleChanged: requestPaint()
+    onSourceFlipHorizontalChanged: requestPaint()
+    onSourceFlipVerticalChanged: requestPaint()
     Component.onCompleted: requestPaint()
 }

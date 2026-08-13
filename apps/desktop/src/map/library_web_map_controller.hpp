@@ -96,6 +96,7 @@ class LibraryWebMapController final : public QObject {
     bool placement_active_ = false;
     bool pending_coordinate_present_ = false;
     QString effective_provider_id_;
+    quint64 document_generation_ = 0;
     double pending_latitude_ = 0.0;
     double pending_longitude_ = 0.0;
     double center_latitude_ = 20.0;

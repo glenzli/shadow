@@ -198,9 +198,14 @@ struct BackendRetouchSpot final {
     double center_x = 0.5;
     double center_y = 0.5;
     std::uint16_t radius_level_zero_pixels = 18;
+    // 0 = natural Heal, 1 = Clone, 2 = structure-preserving Heal.
     std::uint8_t mode = 0;
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
+    double source_rotation_degrees = 0.0;
+    double source_scale = 1.0;
+    bool source_flip_horizontal = false;
+    bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
 
@@ -220,9 +225,14 @@ struct BackendRetouchStrokePoint final {
 struct BackendRetouchStroke final {
     QVector<BackendRetouchStrokePoint> points;
     std::uint16_t radius_level_zero_pixels = 18;
+    // 0 = natural Heal, 1 = Clone, 2 = structure-preserving Heal.
     std::uint8_t mode = 0;
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
+    double source_rotation_degrees = 0.0;
+    double source_scale = 1.0;
+    bool source_flip_horizontal = false;
+    bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
 

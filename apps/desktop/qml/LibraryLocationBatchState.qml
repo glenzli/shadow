@@ -41,6 +41,14 @@ QtObject {
 
     function present(selectedTargets, initialHasCoordinate,
                      initialLatitude, initialLongitude, initialPlaceName) {
+        return presentWithSource(
+                    selectedTargets, initialHasCoordinate, initialLatitude,
+                    initialLongitude, initialPlaceName, "manual-map")
+    }
+
+    function presentWithSource(selectedTargets, initialHasCoordinate,
+                               initialLatitude, initialLongitude, initialPlaceName,
+                               initialSourceLabel) {
         controller.clearLibraryMetadata()
         targets = selectedTargets || []
         open = targets.length > 0
@@ -48,7 +56,7 @@ QtObject {
         latitude = hasCoordinate ? Number(initialLatitude) : 0
         longitude = hasCoordinate ? Number(initialLongitude) : 0
         placeName = hasCoordinate ? String(initialPlaceName || "") : ""
-        sourceLabel = "manual-map"
+        sourceLabel = String(initialSourceLabel || "manual-map")
         mode = "missing"
         applying = false
         applied = false

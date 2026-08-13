@@ -133,6 +133,45 @@ ColumnLayout {
             Item { Layout.fillWidth: true }
         }
 
+        RowLayout {
+            objectName: "retouchSourceAlignmentControls"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 4
+            spacing: 6
+            visible: retouch.inspector.editor.retouchPickerActive
+
+            ShadowButton {
+                objectName: "retouchAlignedSourceButton"
+                Layout.fillWidth: true
+                compact: true
+                selected: retouch.inspector.editor.retouchSourceAligned
+                text: qsTr("Aligned")
+                toolTipText: qsTr("Keep one source-to-target offset across new strokes")
+                onClicked: retouch.inspector.editor.setRetouchSourceAligned(true)
+            }
+
+            ShadowButton {
+                objectName: "retouchFixedSourceButton"
+                Layout.fillWidth: true
+                compact: true
+                selected: !retouch.inspector.editor.retouchSourceAligned
+                text: qsTr("Fixed source")
+                toolTipText: qsTr("Restart every new stroke from the sampled source point")
+                onClicked: retouch.inspector.editor.setRetouchSourceAligned(false)
+            }
+
+            ShadowButton {
+                objectName: "retouchClearSampledSourceButton"
+                compact: true
+                visible: retouch.inspector.editor.retouchSourceSampled
+                text: qsTr("Clear")
+                toolTipText: qsTr("Return to automatic nearby source selection")
+                onClicked: retouch.inspector.editor.clearRetouchSource()
+            }
+        }
+
         Label {
             Layout.fillWidth: true
             Layout.leftMargin: 14
@@ -140,7 +179,9 @@ ColumnLayout {
             Layout.topMargin: 6
             Layout.bottomMargin: 10
             text: retouch.inspector.editor.retouchPickerActive
-                ? qsTr("Drag on the image to paint · Esc stops painting")
+                ? (retouch.inspector.editor.retouchSourceSampled
+                    ? qsTr("Source sampled · drag to paint · Option/Alt-click samples again")
+                    : qsTr("Drag to paint · Option/Alt-click samples a source · Esc stops painting"))
                 : retouch.regionCount > 0
                     ? qsTr("Select a repair region below or on the image.")
                     : qsTr("Choose Heal or Clone, then paint on the image.")

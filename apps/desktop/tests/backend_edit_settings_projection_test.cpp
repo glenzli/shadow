@@ -181,7 +181,7 @@ void require(const bool condition, const std::string& message) {
         .center_x = 0.31,
         .center_y = 0.32,
         .radius_level_zero_pixels = 33,
-        .mode = 1,
+        .mode = 2,
         .source_offset_x_radii = -1.1,
         .source_offset_y_radii = 1.2,
         .feather = 0.34,

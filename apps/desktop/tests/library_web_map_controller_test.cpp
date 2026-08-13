@@ -181,6 +181,15 @@ int main() {
             && web_view.html.contains(amap_key) && web_view.html.contains(amap_security),
         "choosing a Beijing place resumes manual AMap with its official WebView document"
     );
+    controller.consumeEvents(QStringLiteral(
+        "[{\"generation\":0,\"kind\":\"viewport\",\"south\":39.7,\"west\":116.1,\"north\":40.1,\"east\":116.7,"
+        "\"center\":{\"latitude\":39.904,\"longitude\":116.407},\"zoom\":13}]"
+    ));
+    valid &= require(
+        qFuzzyCompare(controller.centerLatitude(), 39.9014339)
+            && qFuzzyCompare(controller.centerLongitude(), 116.4211222),
+        "a stale document viewport cannot overwrite the just-navigated map context"
+    );
 
     double proposed_latitude = 0.0;
     double proposed_longitude = 0.0;

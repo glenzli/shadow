@@ -322,9 +322,13 @@ std::optional<QPointF> select_edit_retouch_donor_offset(const EditRetouchDonorRe
 
     constexpr std::array<double, 8U> distances{2.5, 3.25, 4.0, 5.0, 6.25, 7.5, 9.0, 10.5};
     constexpr std::size_t direction_count = 16U;
+    const double maximum_offset_radii = (512.0 - 1.0) / request.radius_level_zero_pixels - 1.0;
     double best_score = std::numeric_limits<double>::infinity();
     std::optional<QPointF> best;
     for (const double distance : distances) {
+        if (distance > maximum_offset_radii) {
+            continue;
+        }
         for (std::size_t direction = 0U; direction < direction_count; ++direction) {
             const double angle = 2.0 * std::numbers::pi * static_cast<double>(direction)
                                  / static_cast<double>(direction_count);

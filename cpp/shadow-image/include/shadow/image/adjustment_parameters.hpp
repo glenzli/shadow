@@ -130,8 +130,8 @@ struct PerceptualColorAdjustment final {
     // one makes Selective Color a hue/chroma-only correction in the perceptual
     // layer. The target masks are always evaluated in Oklab/OKLCH.
     double selective_color_lightness_protection = 0.0;
-    std::array<std::array<double, selective_color_component_count>,
-               selective_color_target_count> selective_color_cmyk{};
+    std::array<std::array<double, selective_color_component_count>, selective_color_target_count>
+        selective_color_cmyk{};
 };
 
 // A Color Warper is a fixed 5×5 lattice over the Oklab a/b plane. Points are
@@ -286,7 +286,17 @@ struct OklabOpponentToneCurves final {
 enum class SpotRepairMode : std::uint8_t {
     heal = 0U,
     clone = 1U,
+    heal_structure = 2U,
 };
+
+inline constexpr std::uint32_t maximum_retouch_detail_apron_level_zero_pixels = 512U;
+
+[[nodiscard]] constexpr double
+maximum_retouch_source_offset_radii(const std::uint16_t radius_level_zero_pixels) noexcept {
+    return (static_cast<double>(maximum_retouch_detail_apron_level_zero_pixels) - 1.0)
+               / static_cast<double>(radius_level_zero_pixels)
+           - 1.0;
+}
 
 struct SpotHealTarget final {
     double center_x = 0.5;
@@ -295,6 +305,10 @@ struct SpotHealTarget final {
     SpotRepairMode mode = SpotRepairMode::heal;
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
+    double source_rotation_degrees = 0.0;
+    double source_scale = 1.0;
+    bool source_flip_horizontal = false;
+    bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
 };
@@ -318,6 +332,10 @@ struct RetouchStroke final {
     SpotRepairMode mode = SpotRepairMode::heal;
     double source_offset_x_radii = 0.0;
     double source_offset_y_radii = 0.0;
+    double source_rotation_degrees = 0.0;
+    double source_scale = 1.0;
+    bool source_flip_horizontal = false;
+    bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
 };

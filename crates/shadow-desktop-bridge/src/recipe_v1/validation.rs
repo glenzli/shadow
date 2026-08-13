@@ -43,6 +43,12 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
             spot.source_offset_y_radii(),
             spot.feather(),
         )?
+        .with_source_transform(
+            spot.source_rotation_degrees(),
+            spot.source_scale(),
+            spot.source_flip_horizontal(),
+            spot.source_flip_vertical(),
+        )?
         .with_strength(spot.strength());
     }
     if grade_stack.retouch_strokes.len() > MAX_RETOUCH_STROKES_PER_RECIPE {
@@ -60,6 +66,12 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
                     stroke.source_offset_x_radii(),
                     stroke.source_offset_y_radii(),
                     stroke.feather(),
+                )?
+                .with_source_transform(
+                    stroke.source_rotation_degrees(),
+                    stroke.source_scale(),
+                    stroke.source_flip_horizontal(),
+                    stroke.source_flip_vertical(),
                 )?
                 .with_strength(stroke.strength());
     }

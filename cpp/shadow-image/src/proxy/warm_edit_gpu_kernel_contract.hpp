@@ -169,6 +169,7 @@ static_assert(sizeof(WarmBrushCellRange) == 8U);
 enum class WarmRetouchMode : std::uint32_t {
     clone = 0U,
     heal = 1U,
+    heal_structure = 2U,
 };
 
 struct WarmRetouchRegionParameters final {
@@ -192,6 +193,12 @@ struct WarmRetouchRegionParameters final {
     float radius_y = 1.0F;
     float donor_offset_x = 0.0F;
     float donor_offset_y = 0.0F;
+    float source_matrix_xx = 1.0F;
+    float source_matrix_xy = 0.0F;
+    float source_matrix_yx = 0.0F;
+    float source_matrix_yy = 1.0F;
+    float source_anchor_x = 0.0F;
+    float source_anchor_y = 0.0F;
     float feather = 0.0F;
     float screening_weight = 4.0F;
     float strength = 1.0F;
@@ -231,7 +238,7 @@ struct WarmRetouchSummary final {
     std::array<float, 4U> correction_slope_y{};
 };
 
-static_assert(sizeof(WarmRetouchRegionParameters) == 96U);
+static_assert(sizeof(WarmRetouchRegionParameters) == 120U);
 static_assert(sizeof(WarmRetouchCapsule) == 16U);
 static_assert(sizeof(WarmRetouchCellRange) == 8U);
 static_assert(sizeof(WarmRetouchWord) == 4U);
@@ -442,7 +449,9 @@ static_assert(offsetof(WarmRetouchRegionParameters, bounds_origin_x) == 16U);
 static_assert(offsetof(WarmRetouchRegionParameters, grid_columns) == 32U);
 static_assert(offsetof(WarmRetouchRegionParameters, mode) == 48U);
 static_assert(offsetof(WarmRetouchRegionParameters, radius_x) == 64U);
-static_assert(offsetof(WarmRetouchRegionParameters, feather) == 80U);
+static_assert(offsetof(WarmRetouchRegionParameters, source_matrix_xx) == 80U);
+static_assert(offsetof(WarmRetouchRegionParameters, source_anchor_x) == 96U);
+static_assert(offsetof(WarmRetouchRegionParameters, feather) == 104U);
 static_assert(offsetof(WarmDenoiseParameters, luminance_strength) == 16U);
 static_assert(offsetof(WarmDenoiseParameters, red_luminance) == 32U);
 static_assert(offsetof(WarmSharpenParameters, sigma_x) == 16U);

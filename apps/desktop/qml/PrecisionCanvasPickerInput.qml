@@ -207,6 +207,16 @@ Item {
                 inputArea, mouse.x, mouse.y)
             if (normalized === null)
                 return
+            // Option on macOS and Alt on Windows/Linux establish the durable
+            // source anchor for the following repair gestures. Sampling is a
+            // tool-session action, so it must never create an empty target.
+            if ((mouse.modifiers & Qt.AltModifier) !== 0) {
+                pickerInput.editor.setRetouchSourceFromPreview(
+                    normalized.x, normalized.y)
+                retouchGestureActive = false
+                mouse.accepted = true
+                return
+            }
             retouchGestureActive = true
             retouchStrokeActive = false
             retouchPressX = mouse.x

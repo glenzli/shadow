@@ -122,8 +122,10 @@ pub enum RecipeValidationError {
     TooManyRetouchStrokePoints(usize),
     #[error("retouch stroke radius {0} must be between 1 and 128 full-resolution pixels")]
     InvalidRetouchStrokeRadius(u16),
-    #[error("retouch donor source offset must stay within eight brush radii")]
+    #[error("retouch donor source offset exceeds the 512-pixel full-detail apron")]
     InvalidRetouchSourceOffset,
+    #[error("retouch source transform must use rotation -180°..=180° and scale 0.25..=4")]
+    InvalidRetouchSourceTransform,
     #[error("Recipe contains {0} retouch spots, but at most 64 are supported")]
     TooManyRetouchSpots(usize),
     #[error("Recipe contains {0} retouch strokes, but at most 64 are supported")]

@@ -43,6 +43,9 @@ void expect(const bool condition, const std::string_view message) {
         .mode = image::SpotRepairMode::clone,
         .source_offset_x_radii = 1.65,
         .source_offset_y_radii = -0.75,
+        .source_rotation_degrees = 8.0,
+        .source_scale = 0.75,
+        .source_flip_vertical = true,
         .feather = 0.31,
         .strength = 0.41,
     };
@@ -72,6 +75,9 @@ void expect(const bool condition, const std::string_view message) {
                         .mode = image::SpotRepairMode::clone,
                         .source_offset_x_radii = -2.0,
                         .source_offset_y_radii = 1.0,
+                        .source_rotation_degrees = 31.0,
+                        .source_scale = 0.8,
+                        .source_flip_horizontal = true,
                         .feather = 0.18,
                         .strength = 0.63,
                     }},
@@ -104,8 +110,8 @@ void resident_gpu_retouch_matches_the_cpu_or_declines() {
     const auto second = preparation.session->render(nodes, plan, true);
     const auto after_second = preparation.session->stats();
     auto strength_changed = nodes;
-    std::get<image::SpotHealAdjustment>(strength_changed[1U].parameters)
-        .strokes.front().strength = 0.72;
+    std::get<image::SpotHealAdjustment>(strength_changed[1U].parameters).strokes.front().strength =
+        0.72;
     const auto adjusted_strength = preparation.session->render(
         strength_changed,
         image::compile_edit_execution_plan(strength_changed),
@@ -210,6 +216,40 @@ void resident_gpu_retouch_matches_the_cpu_or_declines() {
                       << " CPU=" << cpu.pixels.samples[cpu_index] << '\n';
         }
         expect(parity, "resident Metal Heal tracks the robust screened-Poisson CPU oracle");
+    }
+
+    auto structure_heal = heal;
+    std::get<image::SpotHealAdjustment>(structure_heal[1U].parameters).spots.front().mode =
+        image::SpotRepairMode::heal_structure;
+    const auto structure_healed = preparation.session->render(
+        structure_heal,
+        image::compile_edit_execution_plan(structure_heal),
+        true
+    );
+    expect(
+        structure_healed.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && structure_healed.output.has_value()
+            && structure_healed.output->analyzed_linear.has_value(),
+        "structure-preserving Heal remains inside the resident Metal transaction"
+    );
+    if (structure_healed.output && structure_healed.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            structure_heal,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool parity = linear_close(
+            *structure_healed.output->analyzed_linear,
+            cpu.pixels,
+            maximum_error,
+            3.5e-3
+        );
+        if (!parity) {
+            std::cerr << "Structure Heal warm linear parity max=" << maximum_error << '\n';
+        }
+        expect(parity, "resident Metal Structure Heal tracks the mixed-gradient CPU oracle");
     }
 }
 

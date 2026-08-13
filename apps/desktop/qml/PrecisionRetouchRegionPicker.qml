@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-pragma Translator: "PrecisionWorkspace"
+pragma Translator: PrecisionWorkspace
 
 import QtQuick
 import QtQuick.Controls
@@ -18,21 +18,18 @@ ColumnLayout {
     signal regionRequested(bool continuous, int index)
 
     readonly property int strokeCount: editor.retouchStrokes.length
-    readonly property int regionCount:
-        strokeCount + editor.retouchSpots.length
+    readonly property int regionCount: strokeCount + editor.retouchSpots.length
     readonly property int focusRingGutter: 2
     readonly property int regionButtonSize: 34
     readonly property int regionButtonSpacing: 6
     readonly property int selectedDisplayIndex: {
-        const collection = selectedContinuous
-            ? editor.retouchStrokes : editor.retouchSpots
+        const collection = selectedContinuous ? editor.retouchStrokes : editor.retouchSpots;
         for (let itemIndex = 0; itemIndex < collection.length; ++itemIndex) {
             if (Number(collection[itemIndex].index) === selectedIndex) {
-                return selectedContinuous
-                    ? itemIndex : strokeCount + itemIndex
+                return selectedContinuous ? itemIndex : strokeCount + itemIndex;
             }
         }
-        return -1
+        return -1;
     }
 
     Layout.fillWidth: true
@@ -43,11 +40,11 @@ ColumnLayout {
     spacing: 6
 
     function revealSelected() {
-        regionFlickable.ensureDisplayIndexVisible(selectedDisplayIndex)
+        regionFlickable.ensureDisplayIndexVisible(selectedDisplayIndex);
     }
 
     function queueRevealSelected() {
-        Qt.callLater(regionPicker.revealSelected)
+        Qt.callLater(regionPicker.revealSelected);
     }
 
     onSelectedContinuousChanged: queueRevealSelected()
@@ -58,7 +55,7 @@ ColumnLayout {
         target: regionPicker.editor
 
         function onParametersChanged() {
-            regionPicker.queueRevealSelected()
+            regionPicker.queueRevealSelected();
         }
     }
 
@@ -77,13 +74,7 @@ ColumnLayout {
 
         Layout.fillWidth: true
         Layout.preferredHeight: 38
-        contentWidth: regionPicker.regionCount > 0
-            ? regionPicker.focusRingGutter * 2
-                + regionPicker.regionCount
-                    * regionPicker.regionButtonSize
-                + (regionPicker.regionCount - 1)
-                    * regionPicker.regionButtonSpacing
-            : 0
+        contentWidth: regionPicker.regionCount > 0 ? regionPicker.focusRingGutter * 2 + regionPicker.regionCount * regionPicker.regionButtonSize + (regionPicker.regionCount - 1) * regionPicker.regionButtonSpacing : 0
         contentHeight: height
         clip: true
         boundsBehavior: Flickable.StopAtBounds
@@ -91,23 +82,15 @@ ColumnLayout {
 
         function ensureDisplayIndexVisible(displayIndex) {
             if (displayIndex < 0 || width <= 0)
-                return
-            const buttonLeft = regionPicker.focusRingGutter
-                + displayIndex * (
-                    regionPicker.regionButtonSize
-                        + regionPicker.regionButtonSpacing
-                )
-            const itemLeft = buttonLeft - regionPicker.focusRingGutter
-            const itemRight = buttonLeft + regionPicker.regionButtonSize
-                + regionPicker.focusRingGutter
-            const maximumContentX = Math.max(0, contentWidth - width)
+                return;
+            const buttonLeft = regionPicker.focusRingGutter + displayIndex * (regionPicker.regionButtonSize + regionPicker.regionButtonSpacing);
+            const itemLeft = buttonLeft - regionPicker.focusRingGutter;
+            const itemRight = buttonLeft + regionPicker.regionButtonSize + regionPicker.focusRingGutter;
+            const maximumContentX = Math.max(0, contentWidth - width);
             if (itemLeft < contentX) {
-                contentX = Math.max(0, itemLeft)
+                contentX = Math.max(0, itemLeft);
             } else if (itemRight > contentX + width) {
-                contentX = Math.min(
-                    maximumContentX,
-                    itemRight - width
-                )
+                contentX = Math.min(maximumContentX, itemRight - width);
             }
         }
 
@@ -128,33 +111,26 @@ ColumnLayout {
                 delegate: ShadowIconButton {
                     required property var modelData
                     required property int index
-                    readonly property int regionIndex:
-                        Number(modelData.index)
+                    readonly property int regionIndex: Number(modelData.index)
                     readonly property int displayIndex: index
                     objectName: "retouchRegionButton"
 
                     buttonSize: regionPicker.regionButtonSize
                     iconSize: 18
-                    source: Number(modelData.mode) === 0
-                        ? "qrc:/icons/heal.svg"
-                        : "qrc:/icons/clone.svg"
-                    selected: regionPicker.selectedContinuous
-                        && regionPicker.selectedIndex === regionIndex
+                    source: Number(modelData.mode) === 1 ? "qrc:/icons/clone.svg" : "qrc:/icons/heal.svg"
+                    selected: regionPicker.selectedContinuous && regionPicker.selectedIndex === regionIndex
                     Accessible.selected: selected
-                    toolTipText: qsTr("Repair region %1").arg(
-                        displayIndex + 1)
+                    toolTipText: qsTr("Repair region %1").arg(displayIndex + 1)
                     accessibleName: toolTipText
-                    onClicked: regionPicker.regionRequested(
-                        true, regionIndex)
+                    onClicked: regionPicker.regionRequested(true, regionIndex)
                     onActiveFocusChanged: {
                         if (activeFocus) {
-                            regionFlickable.ensureDisplayIndexVisible(
-                                displayIndex)
+                            regionFlickable.ensureDisplayIndexVisible(displayIndex);
                         }
                     }
                     Component.onCompleted: {
                         if (selected)
-                            regionPicker.queueRevealSelected()
+                            regionPicker.queueRevealSelected();
                     }
                 }
             }
@@ -166,34 +142,26 @@ ColumnLayout {
                 delegate: ShadowIconButton {
                     required property var modelData
                     required property int index
-                    readonly property int regionIndex:
-                        Number(modelData.index)
-                    readonly property int displayIndex:
-                        regionPicker.strokeCount + index
+                    readonly property int regionIndex: Number(modelData.index)
+                    readonly property int displayIndex: regionPicker.strokeCount + index
                     objectName: "retouchRegionButton"
 
                     buttonSize: regionPicker.regionButtonSize
                     iconSize: 18
-                    source: Number(modelData.mode) === 0
-                        ? "qrc:/icons/heal.svg"
-                        : "qrc:/icons/clone.svg"
-                    selected: !regionPicker.selectedContinuous
-                        && regionPicker.selectedIndex === regionIndex
+                    source: Number(modelData.mode) === 1 ? "qrc:/icons/clone.svg" : "qrc:/icons/heal.svg"
+                    selected: !regionPicker.selectedContinuous && regionPicker.selectedIndex === regionIndex
                     Accessible.selected: selected
-                    toolTipText: qsTr("Repair region %1").arg(
-                        displayIndex + 1)
+                    toolTipText: qsTr("Repair region %1").arg(displayIndex + 1)
                     accessibleName: toolTipText
-                    onClicked: regionPicker.regionRequested(
-                        false, regionIndex)
+                    onClicked: regionPicker.regionRequested(false, regionIndex)
                     onActiveFocusChanged: {
                         if (activeFocus) {
-                            regionFlickable.ensureDisplayIndexVisible(
-                                displayIndex)
+                            regionFlickable.ensureDisplayIndexVisible(displayIndex);
                         }
                     }
                     Component.onCompleted: {
                         if (selected)
-                            regionPicker.queueRevealSelected()
+                            regionPicker.queueRevealSelected();
                     }
                 }
             }

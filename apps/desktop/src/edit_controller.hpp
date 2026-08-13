@@ -15,6 +15,7 @@
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QObject>
+#include <QPointF>
 #include <QSet>
 #include <QString>
 #include <QTimer>
@@ -377,6 +378,11 @@ class EditController final : public QObject {
             retouchCreationModeChanged
     )
     Q_PROPERTY(
+        bool retouchSourceAligned READ retouchSourceAligned WRITE setRetouchSourceAligned NOTIFY
+            retouchSourceChanged
+    )
+    Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
+    Q_PROPERTY(
         bool whiteBalancePickerActive READ whiteBalancePickerActive NOTIFY
             whiteBalancePickerActiveChanged
     )
@@ -540,6 +546,8 @@ class EditController final : public QObject {
     [[nodiscard]] bool pointColorPickerActive() const noexcept;
     [[nodiscard]] bool retouchPickerActive() const noexcept;
     [[nodiscard]] int retouchCreationMode() const noexcept;
+    [[nodiscard]] bool retouchSourceAligned() const noexcept;
+    [[nodiscard]] bool retouchSourceSampled() const noexcept;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool hasToneCurve() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
@@ -620,6 +628,9 @@ class EditController final : public QObject {
     Q_INVOKABLE void cancelFoundationAiDenoise();
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
+    Q_INVOKABLE void setRetouchSourceAligned(bool aligned);
+    Q_INVOKABLE void setRetouchSourceFromPreview(double normalized_x, double normalized_y);
+    Q_INVOKABLE void clearRetouchSource();
     Q_INVOKABLE void addRetouchSpotFromPreview(
         double normalized_x,
         double normalized_y,
@@ -640,6 +651,13 @@ class EditController final : public QObject {
     Q_INVOKABLE void setRetouchSpotStrength(int index, double strength);
     Q_INVOKABLE void
     setRetouchSpotSourceOffset(int index, double offset_x_radii, double offset_y_radii);
+    Q_INVOKABLE void setRetouchSpotSourceTransform(
+        int index,
+        double rotation_degrees,
+        double scale,
+        bool flip_horizontal,
+        bool flip_vertical
+    );
     Q_INVOKABLE void removeRetouchSpot(int index);
     Q_INVOKABLE void setRetouchStrokeRadius(int index, int radius_level_zero_pixels);
     Q_INVOKABLE void setRetouchStrokeMode(int index, int mode);
@@ -647,6 +665,14 @@ class EditController final : public QObject {
     Q_INVOKABLE void setRetouchStrokeStrength(int index, double strength);
     Q_INVOKABLE void
     setRetouchStrokeSourceOffset(int index, double offset_x_radii, double offset_y_radii);
+    Q_INVOKABLE void setRetouchStrokeSourceTransform(
+        int index,
+        double rotation_degrees,
+        double scale,
+        bool flip_horizontal,
+        bool flip_vertical
+    );
+    Q_INVOKABLE void translateRetouchStroke(int index, double normalized_dx, double normalized_dy);
     Q_INVOKABLE void removeRetouchStroke(int index);
     Q_INVOKABLE void clearRetouch();
     void setLiquifyBrushRadius(double radius);
@@ -826,6 +852,7 @@ class EditController final : public QObject {
     void pointColorPickerActiveChanged();
     void retouchPickerActiveChanged();
     void retouchCreationModeChanged();
+    void retouchSourceChanged();
     void liquifyBrushChanged();
     void whiteBalancePickerActiveChanged();
     void cropToolActiveChanged();
@@ -1049,6 +1076,9 @@ class EditController final : public QObject {
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
     int retouch_creation_mode_ = 0;
+    bool retouch_source_aligned_ = true;
+    std::optional<QPointF> retouch_source_anchor_;
+    std::optional<QPointF> retouch_aligned_source_offset_radii_;
     double liquify_brush_radius_ = 0.08;
     double liquify_brush_strength_ = 0.5;
     double liquify_brush_hardness_ = 0.5;

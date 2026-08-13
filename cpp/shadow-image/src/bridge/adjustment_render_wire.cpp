@@ -25,6 +25,17 @@ namespace {
 
 inline constexpr std::size_t maximum_adjustment_nodes = 256U;
 inline constexpr std::size_t maximum_adjustment_node_id_bytes = 256U;
+[[nodiscard]] bool source_offset_fits_detail_apron(
+    const double radius,
+    const double horizontal,
+    const double vertical,
+    const double source_scale
+) noexcept {
+    const double maximum =
+        image::maximum_retouch_source_offset_radii(static_cast<std::uint16_t>(radius)) + 1.0
+        - source_scale;
+    return std::abs(horizontal) <= maximum && std::abs(vertical) <= maximum;
+}
 
 [[noreturn]] void throw_invalid_adjustment_plan(std::string message) {
     throw image::DecodeError(image::DecodeErrorCode::invalid_request, 0, std::move(message));
@@ -333,7 +344,7 @@ void require_parameter_count(
                 "spot-heal must contain bounded complete repair targets or continuous strokes"
             );
         }
-        std::size_t expected_parameter_count = target_count * 8U;
+        std::size_t expected_parameter_count = target_count * 12U;
         for (std::size_t stroke_index = 0U; stroke_index < stroke_count; ++stroke_index) {
             const std::size_t point_count = source.parameter_group_lengths[2U + stroke_index];
             if (point_count == 0U || point_count > 512U) {
@@ -341,7 +352,7 @@ void require_parameter_count(
                     "a continuous repair stroke must contain 1 through 512 points"
                 );
             }
-            expected_parameter_count += 6U + point_count * 2U;
+            expected_parameter_count += 10U + point_count * 2U;
         }
         if (source.parameters.size() != expected_parameter_count) {
             throw_invalid_adjustment_plan(
@@ -351,7 +362,7 @@ void require_parameter_count(
         image::SpotHealAdjustment parameters;
         parameters.spots.reserve(target_count);
         for (std::size_t index = 0U; index < target_count; ++index) {
-            const std::size_t offset = index * 8U;
+            const std::size_t offset = index * 12U;
             const double encoded_radius = source.parameters[offset + 2U];
             const double encoded_mode = source.parameters[offset + 3U];
             if (!std::isfinite(source.parameters[offset])
@@ -359,15 +370,28 @@ void require_parameter_count(
                 || !std::isfinite(encoded_mode) || !std::isfinite(source.parameters[offset + 4U])
                 || !std::isfinite(source.parameters[offset + 5U])
                 || !std::isfinite(source.parameters[offset + 6U])
-                || !std::isfinite(source.parameters[offset + 7U]) || source.parameters[offset] < 0.0
-                || source.parameters[offset] > 1.0 || source.parameters[offset + 1U] < 0.0
-                || source.parameters[offset + 1U] > 1.0 || encoded_radius < 1.0
-                || encoded_radius > 128.0 || std::floor(encoded_radius) != encoded_radius
-                || (encoded_mode != 0.0 && encoded_mode != 1.0)
-                || source.parameters[offset + 4U] < -8.0 || source.parameters[offset + 4U] > 8.0
-                || source.parameters[offset + 5U] < -8.0 || source.parameters[offset + 5U] > 8.0
-                || source.parameters[offset + 6U] < 0.0 || source.parameters[offset + 6U] > 1.0
-                || source.parameters[offset + 7U] < 0.0 || source.parameters[offset + 7U] > 1.0) {
+                || !std::isfinite(source.parameters[offset + 7U])
+                || !std::isfinite(source.parameters[offset + 8U])
+                || !std::isfinite(source.parameters[offset + 9U])
+                || !std::isfinite(source.parameters[offset + 10U])
+                || !std::isfinite(source.parameters[offset + 11U])
+                || source.parameters[offset] < 0.0 || source.parameters[offset] > 1.0
+                || source.parameters[offset + 1U] < 0.0 || source.parameters[offset + 1U] > 1.0
+                || encoded_radius < 1.0 || encoded_radius > 128.0
+                || std::floor(encoded_radius) != encoded_radius
+                || (encoded_mode != 0.0 && encoded_mode != 1.0 && encoded_mode != 2.0)
+                || !source_offset_fits_detail_apron(
+                    encoded_radius,
+                    source.parameters[offset + 4U],
+                    source.parameters[offset + 5U],
+                    source.parameters[offset + 7U]
+                )
+                || source.parameters[offset + 6U] < -180.0 || source.parameters[offset + 6U] > 180.0
+                || source.parameters[offset + 7U] < 0.25 || source.parameters[offset + 7U] > 4.0
+                || (source.parameters[offset + 8U] != 0.0 && source.parameters[offset + 8U] != 1.0)
+                || (source.parameters[offset + 9U] != 0.0 && source.parameters[offset + 9U] != 1.0)
+                || source.parameters[offset + 10U] < 0.0 || source.parameters[offset + 10U] > 1.0
+                || source.parameters[offset + 11U] < 0.0 || source.parameters[offset + 11U] > 1.0) {
                 throw_invalid_adjustment_plan(
                     "spot-heal target behavior is outside the supported range"
                 );
@@ -377,17 +401,23 @@ void require_parameter_count(
                     .center_x = source.parameters[offset],
                     .center_y = source.parameters[offset + 1U],
                     .radius_level_zero_pixels = static_cast<std::uint16_t>(encoded_radius),
-                    .mode = encoded_mode == 0.0 ? image::SpotRepairMode::heal
-                                                : image::SpotRepairMode::clone,
+                    .mode = encoded_mode == 0.0
+                                ? image::SpotRepairMode::heal
+                                : (encoded_mode == 1.0 ? image::SpotRepairMode::clone
+                                                       : image::SpotRepairMode::heal_structure),
                     .source_offset_x_radii = source.parameters[offset + 4U],
                     .source_offset_y_radii = source.parameters[offset + 5U],
-                    .feather = source.parameters[offset + 6U],
-                    .strength = source.parameters[offset + 7U],
+                    .source_rotation_degrees = source.parameters[offset + 6U],
+                    .source_scale = source.parameters[offset + 7U],
+                    .source_flip_horizontal = source.parameters[offset + 8U] == 1.0,
+                    .source_flip_vertical = source.parameters[offset + 9U] == 1.0,
+                    .feather = source.parameters[offset + 10U],
+                    .strength = source.parameters[offset + 11U],
                 }
             );
         }
         parameters.strokes.reserve(stroke_count);
-        std::size_t offset = target_count * 8U;
+        std::size_t offset = target_count * 12U;
         for (std::size_t stroke_index = 0U; stroke_index < stroke_count; ++stroke_index) {
             const std::size_t point_count = source.parameter_group_lengths[2U + stroke_index];
             const double encoded_radius = source.parameters[offset];
@@ -396,28 +426,46 @@ void require_parameter_count(
                 || !std::isfinite(source.parameters[offset + 2U])
                 || !std::isfinite(source.parameters[offset + 3U])
                 || !std::isfinite(source.parameters[offset + 4U])
-                || !std::isfinite(source.parameters[offset + 5U]) || encoded_radius < 1.0
+                || !std::isfinite(source.parameters[offset + 5U])
+                || !std::isfinite(source.parameters[offset + 6U])
+                || !std::isfinite(source.parameters[offset + 7U])
+                || !std::isfinite(source.parameters[offset + 8U])
+                || !std::isfinite(source.parameters[offset + 9U]) || encoded_radius < 1.0
                 || encoded_radius > 128.0 || std::floor(encoded_radius) != encoded_radius
-                || (encoded_mode != 0.0 && encoded_mode != 1.0)
-                || source.parameters[offset + 2U] < -8.0 || source.parameters[offset + 2U] > 8.0
-                || source.parameters[offset + 3U] < -8.0 || source.parameters[offset + 3U] > 8.0
-                || source.parameters[offset + 4U] < 0.0 || source.parameters[offset + 4U] > 1.0
-                || source.parameters[offset + 5U] < 0.0 || source.parameters[offset + 5U] > 1.0) {
+                || (encoded_mode != 0.0 && encoded_mode != 1.0 && encoded_mode != 2.0)
+                || !source_offset_fits_detail_apron(
+                    encoded_radius,
+                    source.parameters[offset + 2U],
+                    source.parameters[offset + 3U],
+                    source.parameters[offset + 5U]
+                )
+                || source.parameters[offset + 4U] < -180.0 || source.parameters[offset + 4U] > 180.0
+                || source.parameters[offset + 5U] < 0.25 || source.parameters[offset + 5U] > 4.0
+                || (source.parameters[offset + 6U] != 0.0 && source.parameters[offset + 6U] != 1.0)
+                || (source.parameters[offset + 7U] != 0.0 && source.parameters[offset + 7U] != 1.0)
+                || source.parameters[offset + 8U] < 0.0 || source.parameters[offset + 8U] > 1.0
+                || source.parameters[offset + 9U] < 0.0 || source.parameters[offset + 9U] > 1.0) {
                 throw_invalid_adjustment_plan(
                     "continuous spot-heal behavior is outside the supported range"
                 );
             }
             image::RetouchStroke stroke{
                 .radius_level_zero_pixels = static_cast<std::uint16_t>(encoded_radius),
-                .mode = encoded_mode == 0.0 ? image::SpotRepairMode::heal
-                                            : image::SpotRepairMode::clone,
+                .mode = encoded_mode == 0.0
+                            ? image::SpotRepairMode::heal
+                            : (encoded_mode == 1.0 ? image::SpotRepairMode::clone
+                                                   : image::SpotRepairMode::heal_structure),
                 .source_offset_x_radii = source.parameters[offset + 2U],
                 .source_offset_y_radii = source.parameters[offset + 3U],
-                .feather = source.parameters[offset + 4U],
-                .strength = source.parameters[offset + 5U],
+                .source_rotation_degrees = source.parameters[offset + 4U],
+                .source_scale = source.parameters[offset + 5U],
+                .source_flip_horizontal = source.parameters[offset + 6U] == 1.0,
+                .source_flip_vertical = source.parameters[offset + 7U] == 1.0,
+                .feather = source.parameters[offset + 8U],
+                .strength = source.parameters[offset + 9U],
             };
             stroke.points.reserve(point_count);
-            offset += 6U;
+            offset += 10U;
             for (std::size_t point_index = 0U; point_index < point_count; ++point_index) {
                 const double x = source.parameters[offset + point_index * 2U];
                 const double y = source.parameters[offset + point_index * 2U + 1U];
@@ -693,10 +741,11 @@ std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) 
          ++stroke_index) {
         const std::uint8_t kind = source.stroke_kinds[stroke_index];
         const std::uint32_t point_count = source.stroke_point_counts[stroke_index];
-        if (kind > 1U
-            || point_count < (kind == 0U ? 2U : 1U)
+        if (kind > 1U || point_count < (kind == 0U ? 2U : 1U)
             || point_count > image::maximum_photo_liquify_points_per_stroke) {
-            throw_invalid_adjustment_plan("photo liquify gesture has an invalid kind or point count");
+            throw_invalid_adjustment_plan(
+                "photo liquify gesture has an invalid kind or point count"
+            );
         }
         if (kind == 1U && !has_prior_deformation) {
             throw_invalid_adjustment_plan(
@@ -737,19 +786,23 @@ std::optional<image::PhotoLiquify> photo_liquify(const FfiPhotoLiquify& source) 
         const double strength = source.stroke_parameters[stroke_index * 3U + 1U];
         const double hardness = source.stroke_parameters[stroke_index * 3U + 2U];
         if (kind == 0U) {
-            result.strokes.push_back(image::PhotoLiquifyPushStroke{
-                .points = std::move(points),
-                .radius = radius,
-                .strength = strength,
-                .hardness = hardness,
-            });
+            result.strokes.push_back(
+                image::PhotoLiquifyPushStroke{
+                    .points = std::move(points),
+                    .radius = radius,
+                    .strength = strength,
+                    .hardness = hardness,
+                }
+            );
         } else {
-            result.strokes.push_back(image::PhotoLiquifyReconstructStroke{
-                .points = std::move(points),
-                .radius = radius,
-                .strength = strength,
-                .hardness = hardness,
-            });
+            result.strokes.push_back(
+                image::PhotoLiquifyReconstructStroke{
+                    .points = std::move(points),
+                    .radius = radius,
+                    .strength = strength,
+                    .hardness = hardness,
+                }
+            );
         }
     }
     image::validate_photo_liquify(result);

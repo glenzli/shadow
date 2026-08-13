@@ -35,8 +35,8 @@ fn perspective_is_durable_and_part_of_canvas_identity() {
         .expect("bounded perspective");
 
     assert!(!geometry.is_identity());
-    assert_eq!(geometry.perspective_vertical(), 0.35);
-    assert_eq!(geometry.perspective_horizontal(), -0.2);
+    assert!((geometry.perspective_vertical() - 0.35).abs() < f64::EPSILON);
+    assert!((geometry.perspective_horizontal() + 0.2).abs() < f64::EPSILON);
     let encoded = serde_json::to_string(&geometry).expect("encode perspective");
     let decoded: PhotoGeometry = serde_json::from_str(&encoded).expect("decode perspective");
     assert_eq!(decoded, geometry);

@@ -2,6 +2,7 @@
 
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/cpu_edit_reference.hpp>
+#include <shadow/image/edit_execution_plan.hpp>
 
 #include <algorithm>
 #include <array>
@@ -174,10 +175,124 @@ void clone_preserves_high_frequency_source_structure_without_blur() {
     );
 }
 
+void clone_applies_the_authored_source_transform_without_resampling_the_target_shape() {
+    constexpr std::uint32_t width = 64U;
+    constexpr std::uint32_t height = 48U;
+    std::vector<float> samples(static_cast<std::size_t>(width) * height * 3U, 0.0F);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const std::size_t sample = sample_index(x, y, width);
+            samples[sample] = static_cast<float>(x) / static_cast<float>(width);
+            samples[sample + 1U] = static_cast<float>(y) / static_cast<float>(height);
+            samples[sample + 2U] = static_cast<float>(x + y) / static_cast<float>(width + height);
+        }
+    }
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "transformed-clone-source",
+            .parameters = image::SpotHealAdjustment{
+                .spots = {{
+                    .center_x = 20.5 / static_cast<double>(width),
+                    .center_y = 20.5 / static_cast<double>(height),
+                    .radius_level_zero_pixels = 5U,
+                    .mode = image::SpotRepairMode::clone,
+                    .source_offset_x_radii = 2.0,
+                    .source_offset_y_radii = 0.0,
+                    .source_rotation_degrees = 90.0,
+                    .source_scale = 1.5,
+                    .source_flip_horizontal = true,
+                    .feather = 0.0,
+                }},
+            },
+        },
+    };
+    const auto cloned = image::execute_adjustment_nodes(rgb_raster(width, height, samples), nodes);
+    const std::size_t target = sample_index(22U, 20U, width);
+    const std::size_t transformed_source = sample_index(30U, 17U, width);
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        expect_close_double(
+            cloned.samples[target + channel],
+            samples[transformed_source + channel],
+            1.0e-5,
+            "Clone maps scale, mirror, and rotation around the source anchor"
+        );
+    }
+    const image::AdjustmentFootprint footprint = image::footprint(
+        nodes[0].parameters,
+        1.0,
+        1.0,
+        image::Dimensions{.width = width, .height = height}
+    );
+    expect(
+        footprint.horizontal_radius < image::maximum_retouch_detail_apron_level_zero_pixels
+            && footprint.vertical_radius < image::maximum_retouch_detail_apron_level_zero_pixels,
+        "a bounded transformed source keeps an exact finite detail-tile footprint"
+    );
+}
+
+void structure_heal_preserves_a_target_edge_that_crosses_the_repair() {
+    constexpr std::uint32_t width = 64U;
+    constexpr std::uint32_t height = 48U;
+    constexpr std::uint32_t target_x = 18U;
+    constexpr std::uint32_t target_y = 24U;
+    std::vector<float> samples(static_cast<std::size_t>(width) * height * 3U, 0.58F);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        const std::size_t edge = sample_index(target_x, y, width);
+        samples[edge] = 0.12F;
+        samples[edge + 1U] = 0.12F;
+        samples[edge + 2U] = 0.12F;
+    }
+
+    const auto repair = [](const image::SpotRepairMode mode) {
+        return std::array{
+            image::AdjustmentNode{
+                .node_id = mode == image::SpotRepairMode::heal_structure
+                               ? "structure-preserving-heal"
+                               : "natural-heal",
+                .parameters = image::SpotHealAdjustment{
+                    .spots = {{
+                        .center_x = 18.5 / static_cast<double>(width),
+                        .center_y = 24.5 / static_cast<double>(height),
+                        .radius_level_zero_pixels = 5U,
+                        .mode = mode,
+                        .source_offset_x_radii = 5.0,
+                        .source_offset_y_radii = 0.0,
+                        .feather = 0.0,
+                    }},
+                },
+            },
+        };
+    };
+    const auto natural = image::execute_adjustment_nodes(
+        rgb_raster(width, height, samples),
+        repair(image::SpotRepairMode::heal)
+    );
+    const auto structured = image::execute_adjustment_nodes(
+        rgb_raster(width, height, samples),
+        repair(image::SpotRepairMode::heal_structure)
+    );
+    const std::size_t edge = sample_index(target_x, target_y, width);
+    const std::size_t neighbor = sample_index(target_x + 1U, target_y, width);
+    const double natural_contrast =
+        static_cast<double>(natural.samples[neighbor]) - natural.samples[edge];
+    const double structured_contrast =
+        static_cast<double>(structured.samples[neighbor]) - structured.samples[edge];
+    expect(
+        structured_contrast > natural_contrast + 0.12,
+        "Structure Heal retains a target edge that natural Heal correctly treats as a defect"
+    );
+    expect(
+        structured.samples[edge] < 0.42F,
+        "Structure Heal keeps the crossing line visibly darker than its donor"
+    );
+}
+
 } // namespace
 
 int main() {
     heal_tracks_local_illumination_instead_of_stamping_a_global_tone();
     clone_preserves_high_frequency_source_structure_without_blur();
+    clone_applies_the_authored_source_transform_without_resampling_the_target_shape();
+    structure_heal_preserves_a_target_edge_that_crosses_the_repair();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

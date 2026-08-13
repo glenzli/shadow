@@ -4,8 +4,8 @@ use crate::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
     AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentRenderNode,
     AdjustmentRenderOperation, AdjustmentRenderPlan, AdjustmentRetouchStroke,
-    AdjustmentRetouchStrokePoint, BasicEditParameters, BridgeError, EditedProxyRequest,
-    OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+    AdjustmentRetouchStrokePoint, AdjustmentSpotHealTarget, BasicEditParameters, BridgeError,
+    EditedProxyRequest, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
     OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION, OklabLightnessToneCurve,
     SELECTIVE_TONE_IMPLEMENTATION_VERSION, SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION,
     SelectiveToneParameters, SharpenParameters, TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
@@ -343,8 +343,12 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
                 ],
                 radius_level_zero_pixels: 24,
                 mode: 1,
-                source_offset_x_radii: 24.5,
+                source_offset_x_radii: 18.5,
                 source_offset_y_radii: -0.75,
+                source_rotation_degrees: 30.0,
+                source_scale: 1.25,
+                source_flip_horizontal: true,
+                source_flip_vertical: false,
                 feather: 0.4,
                 strength: 0.65,
             }],
@@ -361,7 +365,9 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
     assert_eq!(flattened.parameter_group_lengths, [0, 1, 2]);
     assert_eq!(
         flattened.parameters,
-        [24.0, 1.0, 24.5, -0.75, 0.4, 0.65, 0.2, 0.3, 0.7, 0.6]
+        [
+            24.0, 1.0, 18.5, -0.75, 30.0, 1.25, 1.0, 0.0, 0.4, 0.65, 0.2, 0.3, 0.7, 0.6
+        ]
     );
 
     let invalid = AdjustmentRenderOperation::SpotHeal {
@@ -372,6 +378,10 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
             mode: 0,
             source_offset_x_radii: 0.0,
             source_offset_y_radii: 0.0,
+            source_rotation_degrees: 0.0,
+            source_scale: 1.0,
+            source_flip_horizontal: false,
+            source_flip_vertical: false,
             feather: 0.28,
             strength: 1.0,
         }],
@@ -386,9 +396,51 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
             mode: 0,
             source_offset_x_radii: 0.0,
             source_offset_y_radii: 0.0,
+            source_rotation_degrees: 0.0,
+            source_scale: 1.0,
+            source_flip_horizontal: false,
+            source_flip_vertical: false,
             feather: 0.28,
             strength: 1.01,
         }],
     };
     assert!(validate_render_operation(&invalid_strength).is_err());
+}
+
+#[test]
+fn structure_preserving_heal_mode_validates_and_flattens_without_schema_expansion() {
+    let node = AdjustmentRenderNode {
+        node_id: "structure-heal".to_owned(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: true,
+        operation: AdjustmentRenderOperation::SpotHeal {
+            targets: vec![AdjustmentSpotHealTarget {
+                center_x: 0.5,
+                center_y: 0.5,
+                radius_level_zero_pixels: 18,
+                mode: 2,
+                source_offset_x_radii: 3.0,
+                source_offset_y_radii: -1.5,
+                source_rotation_degrees: 0.0,
+                source_scale: 1.0,
+                source_flip_horizontal: false,
+                source_flip_vertical: false,
+                feather: 0.28,
+                strength: 1.0,
+            }],
+            strokes: Vec::new(),
+        },
+    };
+    validate_render_operation(&node.operation).expect("structure-preserving Heal is valid");
+    let flattened = ffi_render_node(&node);
+    assert_eq!(flattened.parameter_group_lengths, [1, 0]);
+    assert!((flattened.parameters[3] - 2.0).abs() < f64::EPSILON);
+
+    let mut invalid = node;
+    let AdjustmentRenderOperation::SpotHeal { targets, .. } = &mut invalid.operation else {
+        unreachable!("test operation is retouch")
+    };
+    targets[0].mode = 3;
+    assert!(validate_render_operation(&invalid.operation).is_err());
 }

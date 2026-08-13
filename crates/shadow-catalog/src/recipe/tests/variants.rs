@@ -9,6 +9,7 @@ use super::{
 };
 use crate::CatalogError;
 
+#[allow(clippy::too_many_lines)] // One transaction sequence proves Variant head isolation.
 #[test]
 fn variants_share_the_photo_source_but_own_independent_recipe_heads() {
     let (mut catalog, photo_id) = catalog_with_photo("/photos/variants.dng");

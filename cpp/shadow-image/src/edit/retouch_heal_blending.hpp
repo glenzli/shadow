@@ -1,5 +1,7 @@
 #pragma once
 
+#include "retouch_source_transform.hpp"
+
 #include <shadow/image/working_rgb.hpp>
 
 #include <cstddef>
@@ -21,9 +23,9 @@ void apply_texture_heal(
     std::int64_t coverage_origin_y,
     std::uint32_t coverage_width,
     std::uint32_t coverage_height,
-    double source_offset_x_pixels,
-    double source_offset_y_pixels,
-    double strength
+    const RetouchSourceMapping& source_mapping,
+    double strength,
+    bool preserve_target_structure
 );
 
 } // namespace shadow::image::detail

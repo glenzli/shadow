@@ -413,6 +413,7 @@ ApplicationWindow {
         }
 
         LibraryMapWorkspace {
+            id: mapWorkspace
             Layout.fillWidth: true
             Layout.fillHeight: true
             libraryContext: reviewWorkspace

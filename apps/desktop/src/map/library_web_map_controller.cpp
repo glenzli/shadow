@@ -36,7 +36,7 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#eef1f
 const config=__SHADOW_CONFIG__;
 let map=null,markers=[],pendingMarker=null,state={clusters:[],placement:false,pending:null,center:{latitude:20,longitude:0},zoom:2.5};
 let events=[],viewportTimer=0;
-function emitEvent(value){events.push(value);if(events.length>64)events.shift()}
+function emitEvent(value){events.push(Object.assign({generation:config.generation},value));if(events.length>64)events.shift()}
 window.shadowMapDrainEvents=()=>events.splice(0,64);
 function scheduleViewport(){clearTimeout(viewportTimer);viewportTimer=setTimeout(emitViewport,140)}
 function markerHtml(cluster){const count=Number(cluster.photoCount||0);return '<div class="shadow-marker '+(count>1?'cluster':'')+'">'+(count>1?count:'&#8226;')+'</div>'}
@@ -56,7 +56,7 @@ function renderMarkers(){if(!map)return;clearMarkers();state.clusters.forEach((c
 });renderPending()}
 function activateCluster(index){const cluster=state.clusters[index];if(!cluster||state.placement)return;if(Number(cluster.photoCount)>1){setCenter(cluster.latitude,cluster.longitude,Math.min(20,currentZoom()+2));return}emitEvent({kind:'cluster',index})}
 function currentZoom(){return map?Number(map.getZoom()):Number(state.zoom)}
-function setCenter(latitude,longitude,zoom){if(!map)return;if(config.provider==='google'){map.setCenter({lat:Number(latitude),lng:Number(longitude)});if(zoom>=0)map.setZoom(Number(zoom))}else{map.setCenter([Number(longitude),Number(latitude)]);if(zoom>=0)map.setZoom(Number(zoom))}}
+function setCenter(latitude,longitude,zoom){if(!map)return;const point=config.provider==='google'?{lat:Number(latitude),lng:Number(longitude)}:[Number(longitude),Number(latitude)];if(zoom>=0){if(config.provider==='amap'){map.setZoomAndCenter(Number(zoom),point,true)}else{map.setZoom(Number(zoom));map.setCenter(point)}}else if(config.provider==='google'){map.setCenter(point)}else{map.setCenter(point,true)}}
 function renderPending(){if(!map)return;if(pendingMarker){if(config.provider==='google')pendingMarker.setMap(null);else map.remove(pendingMarker);pendingMarker=null}if(!state.pending)return;
  if(config.provider==='google')pendingMarker=new google.maps.Marker({map,position:googlePoint(state.pending),zIndex:10000,icon:{path:google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,scale:7,fillColor:'#0876bd',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}});
  else pendingMarker=new AMap.Marker({map,position:amapPoint(state.pending),anchor:'bottom-center',zIndex:10000,content:'<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#0876bd;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>'});
@@ -288,6 +288,11 @@ void LibraryWebMapController::consumeEvents(const QString& json) {
         return;
     for (const QJsonValue& value : document.array()) {
         const QJsonObject event = value.toObject();
+        if (event.contains(QStringLiteral("generation"))
+            && static_cast<quint64>(event.value(QStringLiteral("generation")).toDouble())
+                   != document_generation_) {
+            continue;
+        }
         const QString kind = event.value(QStringLiteral("kind")).toString();
         if (kind == QStringLiteral("ready")) {
             setRuntimeState(true, false);
@@ -373,6 +378,7 @@ QString LibraryWebMapController::buildDocument() {
         {QStringLiteral("provider"), providerId()},
         {QStringLiteral("language"), language_},
         {QStringLiteral("style"), preferences_->mapStyle()},
+        {QStringLiteral("generation"), static_cast<qint64>(document_generation_)},
     };
     if (providerId() == QStringLiteral("google")) {
         const SecretStoreResult secret = preferences_->readGoogleApiKey();
@@ -442,6 +448,7 @@ void LibraryWebMapController::reloadDocument() {
         setRuntimeState(false, false);
         return;
     }
+    ++document_generation_;
     const QString document = buildDocument();
     if (document.isEmpty()) {
         emit stateChanged();

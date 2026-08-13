@@ -15,6 +15,7 @@
 #include "oklab_color_warper.hpp"
 #include "perceptual_color.hpp"
 #include "perceptual_contrast.hpp"
+#include "retouch_source_transform.hpp"
 #include "rgb_pixel_traversal.hpp"
 #include "scalar_neighborhood_filters.hpp"
 #include "technical_detail_cpu.hpp"
@@ -48,112 +49,99 @@ using detail::apply_finishing_effects_cpu;
 using detail::apply_oklab_color_warper_cpu;
 using detail::apply_perceptual_color_cpu;
 using detail::apply_prepared_guided_selective_tone_cpu;
-using detail::apply_prepared_perceptual_contrast_cpu;
 using detail::apply_prepared_oklab_lightness_tone_curve;
 using detail::apply_prepared_oklab_opponent_tone_curves;
+using detail::apply_prepared_perceptual_contrast_cpu;
 using detail::apply_technical_detail_cpu;
 using detail::classify_perceptual_color;
 using detail::creative_detail_footprint;
 using detail::guided_selective_tone_is_neutral;
 using detail::Matrix3;
-using detail::oklab_to_working_rgb;
 using detail::oklab_color_warper_is_neutral;
+using detail::oklab_to_working_rgb;
 using detail::PerceptualColorStages;
-using detail::PreparedPerceptualContrast;
-using detail::PreparedOklabOpponentToneCurves;
-using detail::PreparedSmoothToneCurve;
-using detail::PreparedToneCurveAdjustment;
+using detail::prepare_guided_selective_tone;
 using detail::prepare_oklab_lightness_tone_curve_node;
 using detail::prepare_oklab_opponent_tone_curves_node;
-using detail::prepare_guided_selective_tone;
 using detail::prepare_perceptual_contrast;
 using detail::prepare_rgb_white_balance_matrix;
 using detail::prepare_working_space_transform;
+using detail::PreparedOklabOpponentToneCurves;
+using detail::PreparedPerceptualContrast;
+using detail::PreparedSmoothToneCurve;
+using detail::PreparedToneCurveAdjustment;
 using detail::technical_detail_footprint;
 using detail::throw_node_error;
 using detail::transform_rgb_pixels;
-using detail::validate_oklab_color_warper;
-using detail::validate_perceptual_color;
 using detail::validate_edit_execution_context;
 using detail::validate_edit_image;
 using detail::validate_guided_selective_tone;
+using detail::validate_oklab_color_warper;
+using detail::validate_perceptual_color;
 using detail::Vector3;
-using detail::WorkingSpaceTransform;
 using detail::working_rgb_to_oklab;
+using detail::WorkingSpaceTransform;
 
 struct PreparedAdjustmentNode final {
     PreparedToneCurveAdjustment tone_curve;
     std::optional<PreparedPerceptualContrast> perceptual_contrast;
 };
 
-[[nodiscard]] PreparedAdjustmentNode validate_node(
-    const AdjustmentNode& node,
-    const std::size_t index
-) {
-    const bool oklab_lightness_tone_curve = std::holds_alternative<OklabLightnessToneCurve>(
-        node.parameters
-    );
-    const bool oklab_opponent_tone_curves = std::holds_alternative<OklabOpponentToneCurves>(
-        node.parameters
-    );
-    const bool selective_tone = std::holds_alternative<SelectiveToneAdjustment>(
-        node.parameters
-    );
-    const bool perceptual_color = std::holds_alternative<PerceptualColorAdjustment>(
-        node.parameters
-    );
-    const bool oklab_color_warper = std::holds_alternative<OklabColorWarperAdjustment>(
-        node.parameters
-    );
+[[nodiscard]] PreparedAdjustmentNode
+validate_node(const AdjustmentNode& node, const std::size_t index) {
+    const bool oklab_lightness_tone_curve =
+        std::holds_alternative<OklabLightnessToneCurve>(node.parameters);
+    const bool oklab_opponent_tone_curves =
+        std::holds_alternative<OklabOpponentToneCurves>(node.parameters);
+    const bool selective_tone = std::holds_alternative<SelectiveToneAdjustment>(node.parameters);
+    const bool perceptual_color =
+        std::holds_alternative<PerceptualColorAdjustment>(node.parameters);
+    const bool oklab_color_warper =
+        std::holds_alternative<OklabColorWarperAdjustment>(node.parameters);
     const bool detail_effects = std::holds_alternative<SharpenAdjustment>(node.parameters);
-    const std::uint32_t expected_parameter_schema = oklab_lightness_tone_curve
-        ? oklab_lightness_tone_curve_parameter_schema_version
+    const std::uint32_t expected_parameter_schema =
+        oklab_lightness_tone_curve   ? oklab_lightness_tone_curve_parameter_schema_version
         : oklab_opponent_tone_curves ? oklab_opponent_tone_curve_parameter_schema_version
-        : selective_tone ? selective_tone_parameter_schema_version
-        : perceptual_color ? perceptual_color_parameter_schema_version
-        : oklab_color_warper ? oklab_color_warper_parameter_schema_version
-        : detail_effects ? detail_effects_parameter_schema_version
-                         : adjustment_parameter_schema_version;
-    const std::uint32_t expected_implementation = oklab_lightness_tone_curve
-        ? oklab_lightness_tone_curve_implementation_version
+        : selective_tone             ? selective_tone_parameter_schema_version
+        : perceptual_color           ? perceptual_color_parameter_schema_version
+        : oklab_color_warper         ? oklab_color_warper_parameter_schema_version
+        : detail_effects             ? detail_effects_parameter_schema_version
+                                     : adjustment_parameter_schema_version;
+    const std::uint32_t expected_implementation =
+        oklab_lightness_tone_curve   ? oklab_lightness_tone_curve_implementation_version
         : oklab_opponent_tone_curves ? oklab_opponent_tone_curve_implementation_version
-        : selective_tone ? selective_tone_implementation_version
-        : perceptual_color ? perceptual_color_implementation_version
-        : oklab_color_warper ? oklab_color_warper_implementation_version
-        : adjustment_implementation_version;
-    const bool supported_detail_pass = detail_effects
+        : selective_tone             ? selective_tone_implementation_version
+        : perceptual_color           ? perceptual_color_implementation_version
+        : oklab_color_warper         ? oklab_color_warper_implementation_version
+                                     : adjustment_implementation_version;
+    const bool supported_detail_pass =
+        detail_effects
         && ((std::get<SharpenAdjustment>(node.parameters).execution_pass
-                == DetailEffectsExecutionPass::technical_detail
-                && node.implementation_version == technical_detail_implementation_version)
+                 == DetailEffectsExecutionPass::technical_detail
+             && node.implementation_version == technical_detail_implementation_version)
             || (std::get<SharpenAdjustment>(node.parameters).execution_pass
                     == DetailEffectsExecutionPass::color_grading
-                    && node.implementation_version == color_grading_implementation_version)
+                && node.implementation_version == color_grading_implementation_version)
             || (std::get<SharpenAdjustment>(node.parameters).execution_pass
                     == DetailEffectsExecutionPass::finishing_effects
-                    && node.implementation_version
-                        == finishing_effects_implementation_version));
-    if (
-        node.parameter_schema_version != expected_parameter_schema
+                && node.implementation_version == finishing_effects_implementation_version));
+    if (node.parameter_schema_version != expected_parameter_schema
         || (!detail_effects && node.implementation_version != expected_implementation)
-        || (detail_effects && !supported_detail_pass)
-    ) {
+        || (detail_effects && !supported_detail_pass)) {
         throw_node_error(
             EditErrorCode::unsupported_version,
             index,
             node,
             oklab_lightness_tone_curve
                 ? "Oklab lightness curve requires parameter schema 1 and implementation 1"
-                : oklab_opponent_tone_curves
-                    ? "Oklab opponent curves require parameter schema 1 and implementation 1"
-                : selective_tone
-                    ? "selective tone requires the current guided-mask contract"
-                : perceptual_color
-                    ? "perceptual color requires the current complete contract"
-                : oklab_color_warper
-                    ? "Oklab Color Warper requires parameter schema 1 and implementation 1"
-                : detail_effects
-                    ? "Detail & Effects requires the current split-pass contract"
-                    : "only parameter schema 1 and implementation 1 are supported"
+            : oklab_opponent_tone_curves
+                ? "Oklab opponent curves require parameter schema 1 and implementation 1"
+            : selective_tone   ? "selective tone requires the current guided-mask contract"
+            : perceptual_color ? "perceptual color requires the current complete contract"
+            : oklab_color_warper
+                ? "Oklab Color Warper requires parameter schema 1 and implementation 1"
+            : detail_effects ? "Detail & Effects requires the current split-pass contract"
+                             : "only parameter schema 1 and implementation 1 are supported"
         );
     }
 
@@ -175,8 +163,7 @@ struct PreparedAdjustmentNode final {
                     );
                 }
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
-                prepared.perceptual_contrast =
-                    prepare_perceptual_contrast(parameters, node, index);
+                prepared.perceptual_contrast = prepare_perceptual_contrast(parameters, node, index);
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 prepared.tone_curve =
                     prepare_oklab_lightness_tone_curve_node(parameters, node, index);
@@ -210,30 +197,30 @@ struct PreparedAdjustmentNode final {
                 validate_oklab_color_warper(parameters, node, index);
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
                 const std::size_t size = parameters.lut.size;
-                const bool empty_neutral = parameters.intensity == 0.0
-                    && size == 0U && parameters.lut.entries.empty();
+                const bool empty_neutral =
+                    parameters.intensity == 0.0 && size == 0U && parameters.lut.entries.empty();
                 const bool valid_shape = size >= 2U && size <= 65U
-                    && parameters.lut.entries.size() == size * size * size;
-                const bool valid_domain = std::ranges::all_of(
-                    parameters.lut.domain_min,
-                    [](const float value) { return std::isfinite(value); }
-                ) && std::ranges::all_of(
-                    parameters.lut.domain_max,
-                    [](const float value) { return std::isfinite(value); }
-                ) && parameters.lut.domain_min[0] < parameters.lut.domain_max[0]
+                                         && parameters.lut.entries.size() == size * size * size;
+                const bool valid_domain =
+                    std::ranges::all_of(
+                        parameters.lut.domain_min,
+                        [](const float value) { return std::isfinite(value); }
+                    )
+                    && std::ranges::all_of(
+                        parameters.lut.domain_max,
+                        [](const float value) { return std::isfinite(value); }
+                    )
+                    && parameters.lut.domain_min[0] < parameters.lut.domain_max[0]
                     && parameters.lut.domain_min[1] < parameters.lut.domain_max[1]
                     && parameters.lut.domain_min[2] < parameters.lut.domain_max[2];
-                const bool finite_entries = std::ranges::all_of(
-                    parameters.lut.entries,
-                    [](const auto& entry) {
-                        return std::ranges::all_of(
-                            entry,
-                            [](const float value) { return std::isfinite(value); }
-                        );
-                    }
-                );
-                if (!std::isfinite(parameters.intensity)
-                    || parameters.intensity < 0.0 || parameters.intensity > 1.0
+                const bool finite_entries =
+                    std::ranges::all_of(parameters.lut.entries, [](const auto& entry) {
+                        return std::ranges::all_of(entry, [](const float value) {
+                            return std::isfinite(value);
+                        });
+                    });
+                if (!std::isfinite(parameters.intensity) || parameters.intensity < 0.0
+                    || parameters.intensity > 1.0
                     || (!empty_neutral && (!valid_shape || !valid_domain || !finite_entries))) {
                     throw_node_error(
                         EditErrorCode::invalid_parameter,
@@ -256,22 +243,16 @@ struct PreparedAdjustmentNode final {
                     return std::isfinite(value) && value >= -1.0 && value <= 1.0;
                 };
                 if (!std::isfinite(parameters.amount) || parameters.amount < 0.0
-                    || parameters.amount > 2.0
-                    || !std::isfinite(parameters.radius) || parameters.radius < 0.1
-                    || parameters.radius > 5.0
+                    || parameters.amount > 2.0 || !std::isfinite(parameters.radius)
+                    || parameters.radius < 0.1 || parameters.radius > 5.0
                     || !std::isfinite(parameters.threshold) || parameters.threshold < 0.0
-                    || parameters.threshold > 1.0
-                    || !std::isfinite(parameters.masking) || parameters.masking < 0.0
-                    || parameters.masking > 1.0
-                    || !signed_unit(parameters.clarity)
-                    || !signed_unit(parameters.texture)
+                    || parameters.threshold > 1.0 || !std::isfinite(parameters.masking)
+                    || parameters.masking < 0.0 || parameters.masking > 1.0
+                    || !signed_unit(parameters.clarity) || !signed_unit(parameters.texture)
                     || !signed_unit(parameters.local_contrast)
-                    || !unit(parameters.local_contrast_scale)
-                    || !unit(parameters.denoise_luminance)
-                    || !unit(parameters.denoise_detail)
-                    || !unit(parameters.denoise_color)
-                    || !signed_unit(parameters.dehaze)
-                    || !unit(parameters.defringe_purple_amount)
+                    || !unit(parameters.local_contrast_scale) || !unit(parameters.denoise_luminance)
+                    || !unit(parameters.denoise_detail) || !unit(parameters.denoise_color)
+                    || !signed_unit(parameters.dehaze) || !unit(parameters.defringe_purple_amount)
                     || !unit(parameters.defringe_green_amount)
                     || !std::isfinite(parameters.defringe_purple_hue_low)
                     || parameters.defringe_purple_hue_low < 0.0
@@ -280,15 +261,14 @@ struct PreparedAdjustmentNode final {
                     || parameters.defringe_purple_hue_high < 0.0
                     || parameters.defringe_purple_hue_high > 360.0
                     || parameters.defringe_purple_hue_low + 10.0
-                        > parameters.defringe_purple_hue_high
+                           > parameters.defringe_purple_hue_high
                     || !std::isfinite(parameters.defringe_green_hue_low)
                     || parameters.defringe_green_hue_low < 0.0
                     || parameters.defringe_green_hue_low > 360.0
                     || !std::isfinite(parameters.defringe_green_hue_high)
                     || parameters.defringe_green_hue_high < 0.0
                     || parameters.defringe_green_hue_high > 360.0
-                    || parameters.defringe_green_hue_low + 10.0
-                        > parameters.defringe_green_hue_high
+                    || parameters.defringe_green_hue_low + 10.0 > parameters.defringe_green_hue_high
                     || !unit(parameters.shadows_saturation)
                     || !signed_unit(parameters.shadows_luminance)
                     || !unit(parameters.midtones_saturation)
@@ -296,22 +276,17 @@ struct PreparedAdjustmentNode final {
                     || !unit(parameters.highlights_saturation)
                     || !signed_unit(parameters.highlights_luminance)
                     || !unit(parameters.grading_blending)
-                    || !signed_unit(parameters.grading_balance)
-                    || !unit(parameters.grain_amount)
-                    || !unit(parameters.grain_size)
-                    || !unit(parameters.grain_roughness)
+                    || !signed_unit(parameters.grading_balance) || !unit(parameters.grain_amount)
+                    || !unit(parameters.grain_size) || !unit(parameters.grain_roughness)
                     || !signed_unit(parameters.vignette_amount)
                     || !unit(parameters.vignette_midpoint)
                     || !signed_unit(parameters.vignette_roundness)
-                    || !unit(parameters.vignette_feather)
-                    || !unit(parameters.vignette_highlights)
-                    || !std::isfinite(parameters.shadows_hue)
-                    || parameters.shadows_hue < 0.0 || parameters.shadows_hue > 360.0
-                    || !std::isfinite(parameters.midtones_hue)
+                    || !unit(parameters.vignette_feather) || !unit(parameters.vignette_highlights)
+                    || !std::isfinite(parameters.shadows_hue) || parameters.shadows_hue < 0.0
+                    || parameters.shadows_hue > 360.0 || !std::isfinite(parameters.midtones_hue)
                     || parameters.midtones_hue < 0.0 || parameters.midtones_hue > 360.0
-                    || !std::isfinite(parameters.highlights_hue)
-                    || parameters.highlights_hue < 0.0 || parameters.highlights_hue > 360.0
-                ) {
+                    || !std::isfinite(parameters.highlights_hue) || parameters.highlights_hue < 0.0
+                    || parameters.highlights_hue > 360.0) {
                     throw_node_error(
                         EditErrorCode::invalid_parameter,
                         index,
@@ -326,9 +301,8 @@ struct PreparedAdjustmentNode final {
     return prepared;
 }
 
-[[nodiscard]] std::vector<PreparedAdjustmentNode> prepare_adjustment_nodes(
-    const std::span<const AdjustmentNode> nodes
-) {
+[[nodiscard]] std::vector<PreparedAdjustmentNode>
+prepare_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
     std::vector<PreparedAdjustmentNode> prepared_nodes;
     prepared_nodes.reserve(nodes.size());
     for (std::size_t index = 0; index < nodes.size(); ++index) {
@@ -370,22 +344,16 @@ struct PreparedAdjustmentNode final {
                 static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
                 switch (value.execution_pass) {
                 case DetailEffectsExecutionPass::technical_detail:
-                    return value.amount == 0.0
-                        && value.denoise_luminance == 0.0
-                        && value.denoise_color == 0.0
-                        && value.dehaze == 0.0
-                        && value.defringe_purple_amount == 0.0
-                        && value.defringe_green_amount == 0.0;
+                    return value.amount == 0.0 && value.denoise_luminance == 0.0
+                           && value.denoise_color == 0.0 && value.dehaze == 0.0
+                           && value.defringe_purple_amount == 0.0
+                           && value.defringe_green_amount == 0.0;
                 case DetailEffectsExecutionPass::color_grading:
-                    return value.clarity == 0.0
-                        && value.texture == 0.0
-                        && value.local_contrast == 0.0
-                        && value.shadows_saturation == 0.0
-                        && value.shadows_luminance == 0.0
-                        && value.midtones_saturation == 0.0
-                        && value.midtones_luminance == 0.0
-                        && value.highlights_saturation == 0.0
-                        && value.highlights_luminance == 0.0;
+                    return value.clarity == 0.0 && value.texture == 0.0
+                           && value.local_contrast == 0.0 && value.shadows_saturation == 0.0
+                           && value.shadows_luminance == 0.0 && value.midtones_saturation == 0.0
+                           && value.midtones_luminance == 0.0 && value.highlights_saturation == 0.0
+                           && value.highlights_luminance == 0.0;
                 case DetailEffectsExecutionPass::finishing_effects:
                     return value.grain_amount == 0.0 && value.vignette_amount == 0.0;
                 }
@@ -459,12 +427,8 @@ void apply_node(
                 if (parameters.temperature == 0.0 && parameters.tint == 0.0) {
                     return;
                 }
-                const Matrix3 adaptation = prepare_rgb_white_balance_matrix(
-                    image.working_space,
-                    parameters,
-                    node,
-                    index
-                );
+                const Matrix3 adaptation =
+                    prepare_rgb_white_balance_matrix(image.working_space, parameters, node, index);
                 transform_rgb_pixels(
                     image,
                     index,
@@ -525,24 +489,22 @@ void apply_node(
                 if (parameters.intensity == 0.0) {
                     return;
                 }
-                transform_rgb_pixels(
-                    image,
-                    index,
-                    node,
-                    [&parameters](const Vector3& input) {
-                        const auto sampled = sample_cube_lut(parameters.lut, {
+                transform_rgb_pixels(image, index, node, [&parameters](const Vector3& input) {
+                    const auto sampled = sample_cube_lut(
+                        parameters.lut,
+                        {
                             static_cast<float>(input[0]),
                             static_cast<float>(input[1]),
                             static_cast<float>(input[2]),
-                        });
-                        const double mix = parameters.intensity;
-                        return Vector3{
-                            input[0] + (static_cast<double>(sampled[0]) - input[0]) * mix,
-                            input[1] + (static_cast<double>(sampled[1]) - input[1]) * mix,
-                            input[2] + (static_cast<double>(sampled[2]) - input[2]) * mix,
-                        };
-                    }
-                );
+                        }
+                    );
+                    const double mix = parameters.intensity;
+                    return Vector3{
+                        input[0] + (static_cast<double>(sampled[0]) - input[0]) * mix,
+                        input[1] + (static_cast<double>(sampled[1]) - input[1]) * mix,
+                        input[2] + (static_cast<double>(sampled[2]) - input[2]) * mix,
+                    };
+                });
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 apply_spot_heal(image, parameters, context);
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
@@ -603,11 +565,11 @@ AdjustmentLocality locality(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentLocality::neighborhood;
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 return value.execution_pass == DetailEffectsExecutionPass::technical_detail
-                        || (value.execution_pass == DetailEffectsExecutionPass::color_grading
-                            && (value.clarity != 0.0 || value.texture != 0.0
-                                || value.local_contrast != 0.0))
-                    ? AdjustmentLocality::neighborhood
-                    : AdjustmentLocality::pixel_local;
+                               || (value.execution_pass == DetailEffectsExecutionPass::color_grading
+                                   && (value.clarity != 0.0 || value.texture != 0.0
+                                       || value.local_contrast != 0.0))
+                           ? AdjustmentLocality::neighborhood
+                           : AdjustmentLocality::pixel_local;
             } else {
                 return AdjustmentLocality::pixel_local;
             }
@@ -619,14 +581,11 @@ AdjustmentLocality locality(const AdjustmentParameters& parameters) noexcept {
 AdjustmentFootprint footprint(
     const AdjustmentParameters& parameters,
     const double level_zero_to_raster_scale_x,
-    const double level_zero_to_raster_scale_y
+    const double level_zero_to_raster_scale_y,
+    const Dimensions raster_dimensions
 ) {
-    if (
-        !std::isfinite(level_zero_to_raster_scale_x)
-        || level_zero_to_raster_scale_x <= 0.0
-        || !std::isfinite(level_zero_to_raster_scale_y)
-        || level_zero_to_raster_scale_y <= 0.0
-    ) {
+    if (!std::isfinite(level_zero_to_raster_scale_x) || level_zero_to_raster_scale_x <= 0.0
+        || !std::isfinite(level_zero_to_raster_scale_y) || level_zero_to_raster_scale_y <= 0.0) {
         throw EditError(
             EditErrorCode::invalid_parameter,
             std::nullopt,
@@ -634,62 +593,27 @@ AdjustmentFootprint footprint(
         );
     }
     return std::visit(
-        [level_zero_to_raster_scale_x, level_zero_to_raster_scale_y](const auto& value) {
+        [level_zero_to_raster_scale_x,
+         level_zero_to_raster_scale_y,
+         raster_dimensions](const auto& value) {
             using Parameters = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<Parameters, SelectiveToneAdjustment>) {
                 return prepare_guided_selective_tone(
-                    value,
-                    level_zero_to_raster_scale_x,
-                    level_zero_to_raster_scale_y
-                ).footprint();
+                           value,
+                           level_zero_to_raster_scale_x,
+                           level_zero_to_raster_scale_y
+                )
+                    .footprint();
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 validate_spot_heal(value);
-                double horizontal = 0.0;
-                double vertical = 0.0;
-                const auto include_region = [&](
-                    const std::uint16_t radius_level_zero_pixels,
-                    const double source_offset_x_radii,
-                    const double source_offset_y_radii
-                ) {
-                    const double radius = static_cast<double>(radius_level_zero_pixels);
-                    const bool automatic_source =
-                        source_offset_x_radii == 0.0 && source_offset_y_radii == 0.0;
-                    // The compact Heal/Clone raster writes one brush radius
-                    // around each target. Its donor may be displaced by the
-                    // authored offset; automatic selection is conservatively
-                    // bounded by three radii on either axis. One final pixel
-                    // covers bilinear donor sampling and the gradient boundary.
-                    const double offset_x =
-                        automatic_source ? 3.0 : std::abs(source_offset_x_radii);
-                    const double offset_y =
-                        automatic_source ? 3.0 : std::abs(source_offset_y_radii);
-                    horizontal = std::max(
-                        horizontal,
-                        std::ceil(
-                            radius * (1.0 + offset_x) * level_zero_to_raster_scale_x
-                        ) + 1.0
-                    );
-                    vertical = std::max(
-                        vertical,
-                        std::ceil(
-                            radius * (1.0 + offset_y) * level_zero_to_raster_scale_y
-                        ) + 1.0
-                    );
-                };
-                for (const auto& target : value.spots) {
-                    include_region(
-                        target.radius_level_zero_pixels,
-                        target.source_offset_x_radii,
-                        target.source_offset_y_radii
-                    );
-                }
-                for (const auto& stroke : value.strokes) {
-                    include_region(
-                        stroke.radius_level_zero_pixels,
-                        stroke.source_offset_x_radii,
-                        stroke.source_offset_y_radii
-                    );
-                }
+                const detail::RetouchSourceReach reach = detail::retouch_source_reach(
+                    value,
+                    level_zero_to_raster_scale_x,
+                    level_zero_to_raster_scale_y,
+                    raster_dimensions
+                );
+                const double horizontal = std::ceil(reach.horizontal);
+                const double vertical = std::ceil(reach.vertical);
                 if (horizontal > std::numeric_limits<std::uint32_t>::max()
                     || vertical > std::numeric_limits<std::uint32_t>::max()) {
                     throw EditError(
@@ -756,16 +680,14 @@ EditExecutionPlan compile_edit_execution_plan(
         .source_node_count = nodes.size(),
     };
     const auto add_footprint = [&nodes](
-        AdjustmentFootprint& destination,
-        const AdjustmentFootprint addition,
-        const std::size_t node_index
-    ) {
+                                   AdjustmentFootprint& destination,
+                                   const AdjustmentFootprint addition,
+                                   const std::size_t node_index
+                               ) {
         if (addition.horizontal_radius
-                > std::numeric_limits<std::uint32_t>::max()
-                    - destination.horizontal_radius
+                > std::numeric_limits<std::uint32_t>::max() - destination.horizontal_radius
             || addition.vertical_radius
-                > std::numeric_limits<std::uint32_t>::max()
-                    - destination.vertical_radius) {
+                   > std::numeric_limits<std::uint32_t>::max() - destination.vertical_radius) {
             throw_node_error(
                 EditErrorCode::numeric_overflow,
                 node_index,
@@ -785,18 +707,22 @@ EditExecutionPlan compile_edit_execution_plan(
 
         const AdjustmentLocality node_locality = locality(node.parameters);
         if (plan.segments.empty() || plan.segments.back().locality != node_locality) {
-            plan.segments.push_back(EditExecutionSegment{
-                .locality = node_locality,
-                .first_node_index = index,
-                .past_last_node_index = index + 1U,
-            });
+            plan.segments.push_back(
+                EditExecutionSegment{
+                    .locality = node_locality,
+                    .first_node_index = index,
+                    .past_last_node_index = index + 1U,
+                }
+            );
         }
         EditExecutionSegment& segment = plan.segments.back();
         segment.past_last_node_index = index + 1U;
-        segment.steps.push_back(EditExecutionStep{
-            .node_index = index,
-            .operation = operation(node.parameters),
-        });
+        segment.steps.push_back(
+            EditExecutionStep{
+                .node_index = index,
+                .operation = operation(node.parameters),
+            }
+        );
 
         AdjustmentFootprint node_footprint;
         try {

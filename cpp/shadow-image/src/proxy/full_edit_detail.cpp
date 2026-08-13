@@ -76,8 +76,10 @@ void validate_detail_tile_rect(const DetailTileRect rect, const Dimensions full_
     }
 }
 
-[[nodiscard]] AdjustmentFootprint
-required_detail_apron(const std::span<const AdjustmentNode> nodes) {
+[[nodiscard]] AdjustmentFootprint required_detail_apron(
+    const std::span<const AdjustmentNode> nodes,
+    const Dimensions full_dimensions
+) {
     std::uint64_t horizontal = 0U;
     std::uint64_t vertical = 0U;
     // Sequential neighborhood operations propagate boundary dependencies. Summing their
@@ -87,7 +89,8 @@ required_detail_apron(const std::span<const AdjustmentNode> nodes) {
         if (!node.enabled || locality(node.parameters) != AdjustmentLocality::neighborhood) {
             continue;
         }
-        const AdjustmentFootprint node_footprint = footprint(node.parameters, 1.0, 1.0);
+        const AdjustmentFootprint node_footprint =
+            footprint(node.parameters, 1.0, 1.0, full_dimensions);
         horizontal += node_footprint.horizontal_radius;
         vertical += node_footprint.vertical_radius;
         if (horizontal > maximum_edit_detail_total_apron
@@ -274,7 +277,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
     const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
     const GeometryPixelRect source_core =
         photo_structural_source_rect_for_output(structural, output_rect);
-    const AdjustmentFootprint apron = required_detail_apron(nodes);
+    const AdjustmentFootprint apron = required_detail_apron(nodes, full_dimensions);
     const DetailTileRect working_rect = expanded_detail_rect(
         DetailTileRect{
             .x = source_core.x,
@@ -426,7 +429,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     for (const auto& layer : layers) {
         flattened_nodes.insert(flattened_nodes.end(), layer.nodes.begin(), layer.nodes.end());
     }
-    const AdjustmentFootprint apron = required_detail_apron(flattened_nodes);
+    const AdjustmentFootprint apron = required_detail_apron(flattened_nodes, full_dimensions);
     const DetailTileRect working_rect = expanded_detail_rect(
         DetailTileRect{
             .x = source_core.x,

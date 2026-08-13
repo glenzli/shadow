@@ -1,4 +1,5 @@
 #include "warm_edit_gpu_retouch_plan.hpp"
+#include "../edit/retouch_source_transform.hpp"
 
 #include <shadow/image/retouch.hpp>
 
@@ -29,7 +30,7 @@ constexpr float heal_screening_weight = 2.0F;
     const std::uint32_t bounds_width,
     const std::uint32_t bounds_height
 ) noexcept {
-    return std::clamp(24U + std::min(bounds_width, bounds_height), 32U, 96U);
+    return std::clamp(32U + std::min(bounds_width, bounds_height) * 2U, 48U, 192U);
 }
 
 struct RasterPoint final {
@@ -42,48 +43,11 @@ struct SourceOffset final {
     double y = 0.0;
 };
 
-[[nodiscard]] SourceOffset clamp_source_offset_to_image(
-    SourceOffset offset,
-    const double normalized_lower_x,
-    const double normalized_upper_x,
-    const double normalized_lower_y,
-    const double normalized_upper_y,
-    const double radius_x,
-    const double radius_y,
-    const Dimensions full
-) noexcept {
-    const double maximum_x = static_cast<double>(full.width - 1U);
-    const double maximum_y = static_cast<double>(full.height - 1U);
-    const double target_lower_x = std::clamp(
-        normalized_lower_x * static_cast<double>(full.width) - 0.5 - radius_x,
-        0.0,
-        maximum_x
-    );
-    const double target_upper_x = std::clamp(
-        normalized_upper_x * static_cast<double>(full.width) - 0.5 + radius_x,
-        0.0,
-        maximum_x
-    );
-    const double target_lower_y = std::clamp(
-        normalized_lower_y * static_cast<double>(full.height) - 0.5 - radius_y,
-        0.0,
-        maximum_y
-    );
-    const double target_upper_y = std::clamp(
-        normalized_upper_y * static_cast<double>(full.height) - 0.5 + radius_y,
-        0.0,
-        maximum_y
-    );
-    offset.x = std::clamp(offset.x, -target_lower_x, maximum_x - target_upper_x);
-    offset.y = std::clamp(offset.y, -target_lower_y, maximum_y - target_upper_y);
-    return offset;
-}
-
 struct RegionGeometry final {
     std::vector<RasterPoint> points;
     double radius_x = 0.0;
     double radius_y = 0.0;
-    SourceOffset donor_offset;
+    RetouchSourceMapping source_mapping;
     double feather = 0.0;
     double strength = 1.0;
     WarmRetouchMode mode = WarmRetouchMode::clone;
@@ -95,6 +59,18 @@ struct IntegerBounds final {
     std::int64_t upper_x = -1;
     std::int64_t upper_y = -1;
 };
+
+[[nodiscard]] WarmRetouchMode warm_retouch_mode(const SpotRepairMode mode) noexcept {
+    switch (mode) {
+    case SpotRepairMode::clone:
+        return WarmRetouchMode::clone;
+    case SpotRepairMode::heal:
+        return WarmRetouchMode::heal;
+    case SpotRepairMode::heal_structure:
+        return WarmRetouchMode::heal_structure;
+    }
+    return WarmRetouchMode::heal;
+}
 
 [[nodiscard]] Dimensions execution_full_dimensions(
     const Dimensions dimensions,
@@ -123,6 +99,7 @@ struct IntegerBounds final {
     const double authored_y_radii,
     const double radius_x,
     const double radius_y,
+    const std::uint16_t radius_level_zero_pixels,
     const double normalized_center_x,
     const double normalized_center_y
 ) noexcept {
@@ -134,9 +111,12 @@ struct IntegerBounds final {
             .y = authored_y_radii * radius_y,
         };
     }
+    const double automatic_distance =
+        std::min(3.0, maximum_retouch_source_offset_radii(radius_level_zero_pixels));
     return {
-        .x = (normalized_center_x <= 0.5 ? 3.0 : -3.0) * radius_x,
-        .y = (normalized_center_y <= 0.5 ? 1.5 : -1.5) * radius_y,
+        .x = (normalized_center_x <= 0.5 ? automatic_distance : -automatic_distance) * radius_x,
+        .y = (normalized_center_y <= 0.5 ? automatic_distance * 0.5 : -automatic_distance * 0.5)
+             * radius_y,
     };
 }
 
@@ -151,31 +131,49 @@ struct IntegerBounds final {
     const double radius_y = static_cast<double>(target.radius_level_zero_pixels) * scale_y;
     const RasterPoint center =
         raster_point(RetouchStrokePoint{.x = target.center_x, .y = target.center_y}, full, context);
+    const SourceOffset donor_offset = authored_or_automatic_offset(
+        target.source_offset_x_radii,
+        target.source_offset_y_radii,
+        radius_x,
+        radius_y,
+        target.radius_level_zero_pixels,
+        target.center_x,
+        target.center_y
+    );
+    const double full_center_x = target.center_x * static_cast<double>(full.width) - 0.5;
+    const double full_center_y = target.center_y * static_cast<double>(full.height) - 0.5;
+    const auto mapping = clamp_retouch_source_mapping_to_image(
+        make_retouch_source_mapping(
+            target.source_rotation_degrees,
+            target.source_scale,
+            target.source_flip_horizontal,
+            target.source_flip_vertical,
+            scale_x,
+            scale_y,
+            full_center_x,
+            full_center_y,
+            donor_offset.x,
+            donor_offset.y
+        ),
+        RetouchRasterBounds{
+            .lower_x = full_center_x - radius_x,
+            .upper_x = full_center_x + radius_x,
+            .lower_y = full_center_y - radius_y,
+            .upper_y = full_center_y + radius_y,
+        },
+        full
+    );
+    if (!mapping.has_value()) {
+        return std::nullopt;
+    }
     return RegionGeometry{
         .points = {center},
         .radius_x = radius_x,
         .radius_y = radius_y,
-        .donor_offset = clamp_source_offset_to_image(
-            authored_or_automatic_offset(
-                target.source_offset_x_radii,
-                target.source_offset_y_radii,
-                radius_x,
-                radius_y,
-                target.center_x,
-                target.center_y
-            ),
-            target.center_x,
-            target.center_x,
-            target.center_y,
-            target.center_y,
-            radius_x,
-            radius_y,
-            full
-        ),
+        .source_mapping = mapping->with_local_origin(context.origin_x, context.origin_y),
         .feather = target.feather,
         .strength = target.strength,
-        .mode =
-            target.mode == SpotRepairMode::heal ? WarmRetouchMode::heal : WarmRetouchMode::clone,
+        .mode = warm_retouch_mode(target.mode),
     };
 }
 
@@ -191,8 +189,7 @@ struct IntegerBounds final {
         .radius_y = static_cast<double>(stroke.radius_level_zero_pixels) * scale_y,
         .feather = stroke.feather,
         .strength = stroke.strength,
-        .mode =
-            stroke.mode == SpotRepairMode::heal ? WarmRetouchMode::heal : WarmRetouchMode::clone,
+        .mode = warm_retouch_mode(stroke.mode),
     };
     result.points.reserve(stroke.points.size());
     double lower_x = 1.0;
@@ -210,14 +207,18 @@ struct IntegerBounds final {
     const double center_y = std::midpoint(lower_y, upper_y);
     const bool automatic =
         stroke.source_offset_x_radii == 0.0 && stroke.source_offset_y_radii == 0.0;
-    result.donor_offset = automatic
+    const double automatic_distance =
+        std::min(3.0, maximum_retouch_source_offset_radii(stroke.radius_level_zero_pixels));
+    const SourceOffset donor_offset = automatic
         ? (upper_x - lower_x >= upper_y - lower_y
             ? SourceOffset{
                 .x = 0.0,
-                .y = (center_y <= 0.5 ? 3.0 : -3.0) * result.radius_y,
+                .y = (center_y <= 0.5 ? automatic_distance : -automatic_distance)
+                     * result.radius_y,
             }
             : SourceOffset{
-                .x = (center_x <= 0.5 ? 3.0 : -3.0) * result.radius_x,
+                .x = (center_x <= 0.5 ? automatic_distance : -automatic_distance)
+                     * result.radius_x,
                 .y = 0.0,
             })
         : authored_or_automatic_offset(
@@ -225,19 +226,37 @@ struct IntegerBounds final {
             stroke.source_offset_y_radii,
             result.radius_x,
             result.radius_y,
+            stroke.radius_level_zero_pixels,
             center_x,
             center_y
         );
-    result.donor_offset = clamp_source_offset_to_image(
-        result.donor_offset,
-        lower_x,
-        upper_x,
-        lower_y,
-        upper_y,
-        result.radius_x,
-        result.radius_y,
+    const double full_anchor_x = center_x * static_cast<double>(full.width) - 0.5;
+    const double full_anchor_y = center_y * static_cast<double>(full.height) - 0.5;
+    const auto mapping = clamp_retouch_source_mapping_to_image(
+        make_retouch_source_mapping(
+            stroke.source_rotation_degrees,
+            stroke.source_scale,
+            stroke.source_flip_horizontal,
+            stroke.source_flip_vertical,
+            scale_x,
+            scale_y,
+            full_anchor_x,
+            full_anchor_y,
+            donor_offset.x,
+            donor_offset.y
+        ),
+        RetouchRasterBounds{
+            .lower_x = lower_x * static_cast<double>(full.width) - 0.5 - result.radius_x,
+            .upper_x = upper_x * static_cast<double>(full.width) - 0.5 + result.radius_x,
+            .lower_y = lower_y * static_cast<double>(full.height) - 0.5 - result.radius_y,
+            .upper_y = upper_y * static_cast<double>(full.height) - 0.5 + result.radius_y,
+        },
         full
     );
+    if (!mapping.has_value()) {
+        return std::nullopt;
+    }
+    result.source_mapping = mapping->with_local_origin(context.origin_x, context.origin_y);
     return result;
 }
 
@@ -403,8 +422,14 @@ append_records(std::vector<WarmRetouchWord>& words, const std::span<const Record
             .poisson_iterations = heal_poisson_iterations(width, height),
             .radius_x = static_cast<float>(geometry.radius_x),
             .radius_y = static_cast<float>(geometry.radius_y),
-            .donor_offset_x = static_cast<float>(geometry.donor_offset.x),
-            .donor_offset_y = static_cast<float>(geometry.donor_offset.y),
+            .donor_offset_x = static_cast<float>(geometry.source_mapping.offset_x),
+            .donor_offset_y = static_cast<float>(geometry.source_mapping.offset_y),
+            .source_matrix_xx = static_cast<float>(geometry.source_mapping.matrix_xx),
+            .source_matrix_xy = static_cast<float>(geometry.source_mapping.matrix_xy),
+            .source_matrix_yx = static_cast<float>(geometry.source_mapping.matrix_yx),
+            .source_matrix_yy = static_cast<float>(geometry.source_mapping.matrix_yy),
+            .source_anchor_x = static_cast<float>(geometry.source_mapping.anchor_x),
+            .source_anchor_y = static_cast<float>(geometry.source_mapping.anchor_y),
             .feather = static_cast<float>(geometry.feather),
             .screening_weight = heal_screening_weight,
             .strength = static_cast<float>(geometry.strength),
@@ -445,14 +470,21 @@ bool WarmRetouchStage::valid() const noexcept {
                && parameters.grid_columns > 0U && parameters.grid_rows > 0U
                && parameters.capsule_count > 0U
                && (parameters.mode == WarmRetouchMode::clone
-                   || parameters.mode == WarmRetouchMode::heal)
+                   || parameters.mode == WarmRetouchMode::heal
+                   || parameters.mode == WarmRetouchMode::heal_structure)
                && parameters.statistics_group_count > 0U
                && parameters.poisson_iterations
                       == heal_poisson_iterations(parameters.bounds_width, parameters.bounds_height)
                && std::isfinite(parameters.radius_x) && parameters.radius_x > 0.0F
                && std::isfinite(parameters.radius_y) && parameters.radius_y > 0.0F
                && std::isfinite(parameters.donor_offset_x)
-               && std::isfinite(parameters.donor_offset_y) && std::isfinite(parameters.feather)
+               && std::isfinite(parameters.donor_offset_y)
+               && std::isfinite(parameters.source_matrix_xx)
+               && std::isfinite(parameters.source_matrix_xy)
+               && std::isfinite(parameters.source_matrix_yx)
+               && std::isfinite(parameters.source_matrix_yy)
+               && std::isfinite(parameters.source_anchor_x)
+               && std::isfinite(parameters.source_anchor_y) && std::isfinite(parameters.feather)
                && parameters.screening_weight == heal_screening_weight
                && std::isfinite(parameters.strength) && parameters.strength >= 0.0F
                && parameters.strength <= 1.0F && region.capsule_offset_bytes <= bytes

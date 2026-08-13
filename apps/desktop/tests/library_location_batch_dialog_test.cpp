@@ -109,6 +109,8 @@ class FakeMapController final : public QObject {
     }
 
     Q_INVOKABLE void setLanguage(const QString&) {}
+    Q_INVOKABLE void attachWebView(QObject*) {}
+    Q_INVOKABLE void detachWebView(QObject*) {}
     Q_INVOKABLE void beginMapContext(const double latitude, const double longitude) {
         latitude_ = latitude;
         longitude_ = longitude;
@@ -325,6 +327,22 @@ int main(int argc, char* argv[]) {
             "a map click should update the visible coordinate fields"
         );
     }
+
+    valid &= require(
+        invokeBool(dialog.get(), "requestDismiss"),
+        "the second placement dialog can be dismissed before a different photo opens"
+    );
+    valid &= require(
+        invokeBool(dialog.get(), "present", {targets, true, 39.9014339, 116.4211222,
+                                               QStringLiteral("Beijing · China")}),
+        "an already geotagged photo should reopen the dialog"
+    );
+    valid &= require(
+        closeTo(map_controller.centerLatitude(), 39.9014339)
+            && closeTo(map_controller.centerLongitude(), 116.4211222)
+            && closeTo(map_controller.zoomLevel(), 13.0),
+        "an already geotagged photo opens the map at a usable city zoom"
+    );
 
     valid &= require(
         invokeBool(dialog.get(), "requestDismiss"),

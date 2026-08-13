@@ -8,14 +8,32 @@ Item {
 
     required property var controller
     required property bool presentationAllowed
-    readonly property bool webViewMaterialized: webViewLoader.item !== null
+    property bool shouldMaterialize: false
+    readonly property bool webViewMaterialized:
+        webViewLoader.status === Loader.Ready
+
+    function synchronizeMaterialization() {
+        const next = presentationAllowed && controller.active
+            && controller.providerAvailable && controller.providerRegionAvailable
+        if (shouldMaterialize !== next)
+            shouldMaterialize = next
+    }
+
+    Component.onCompleted: synchronizeMaterialization()
+    onPresentationAllowedChanged: synchronizeMaterialization()
+
+    Connections {
+        target: root.controller
+
+        function onStateChanged() {
+            root.synchronizeMaterialization()
+        }
+    }
 
     Loader {
         id: webViewLoader
         anchors.fill: parent
-        active: root.presentationAllowed && root.controller.active
-            && root.controller.providerAvailable
-            && root.controller.providerRegionAvailable
+        active: root.shouldMaterialize
 
         sourceComponent: WebView {
             id: webView

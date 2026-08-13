@@ -66,14 +66,17 @@ void continuous_clone_geometry_has_complete_bounded_candidates() {
         .strokes = {{
             .points =
                 {
-                    {.x = 0.12, .y = 0.20},
-                    {.x = 0.48, .y = 0.52},
-                    {.x = 0.86, .y = 0.75},
+                    {.x = 0.25, .y = 0.28},
+                    {.x = 0.40, .y = 0.52},
+                    {.x = 0.55, .y = 0.70},
                 },
             .radius_level_zero_pixels = 8U,
             .mode = image::SpotRepairMode::clone,
             .source_offset_x_radii = 1.5,
             .source_offset_y_radii = -0.5,
+            .source_rotation_degrees = 90.0,
+            .source_scale = 1.5,
+            .source_flip_horizontal = true,
             .feather = 0.25,
             .strength = 0.37,
         }},
@@ -95,9 +98,13 @@ void continuous_clone_geometry_has_complete_bounded_candidates() {
     const auto& region = prepared->regions.front();
     const auto& parameters = region.parameters;
     expect(
-        parameters.capsule_count == 2U && parameters.donor_offset_x == 12.0F
-            && parameters.donor_offset_y == -4.0F && parameters.strength == 0.37F,
-        "continuous clone geometry retains capsules, donor offset, and authored strength"
+        parameters.capsule_count == 2U && std::abs(parameters.donor_offset_x - 12.0F) < 1.0e-5F
+            && parameters.donor_offset_y <= 0.0F && parameters.donor_offset_y >= -4.0F
+            && std::abs(parameters.source_matrix_xx) < 1.0e-5F
+            && std::abs(parameters.source_matrix_xy + 1.5F) < 1.0e-5F
+            && std::abs(parameters.source_matrix_yx + 1.5F) < 1.0e-5F
+            && std::abs(parameters.source_matrix_yy) < 1.0e-5F && parameters.strength == 0.37F,
+        "continuous clone geometry retains capsules, affine donor mapping, and authored strength"
     );
     const auto capsules = records<image::detail::WarmRetouchCapsule>(
         *prepared,
@@ -203,9 +210,9 @@ void tile_context_and_heal_mode_are_preserved() {
             && prepared_heal->regions.front().parameters.mode
                    == image::detail::WarmRetouchMode::heal
             && prepared_heal->regions.front().parameters.screening_weight == 2.0F
-            && prepared_heal->regions.front().parameters.poisson_iterations >= 32U
-            && prepared_heal->regions.front().parameters.poisson_iterations <= 96U,
-        "Heal lowers with bounded adaptive reconstruction and the softer seam constraint"
+            && prepared_heal->regions.front().parameters.poisson_iterations >= 48U
+            && prepared_heal->regions.front().parameters.poisson_iterations <= 192U,
+        "Heal lowers with scale-aware bounded reconstruction and the softer seam constraint"
     );
 
     const image::SpotHealAdjustment edge_clone{

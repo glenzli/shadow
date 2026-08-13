@@ -25,6 +25,8 @@ class FakeRetouchEditor final : public QObject {
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
     Q_PROPERTY(int retouchCreationMode READ retouchCreationMode NOTIFY retouchCreationModeChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive NOTIFY retouchPickerActiveChanged)
+    Q_PROPERTY(bool retouchSourceAligned READ retouchSourceAligned NOTIFY retouchSourceChanged)
+    Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
 
   public:
     using QObject::QObject;
@@ -47,6 +49,12 @@ class FakeRetouchEditor final : public QObject {
     [[nodiscard]] bool retouchPickerActive() const noexcept {
         return picker_active_;
     }
+    [[nodiscard]] bool retouchSourceAligned() const noexcept {
+        return source_aligned_;
+    }
+    [[nodiscard]] bool retouchSourceSampled() const noexcept {
+        return source_sampled_;
+    }
 
     void publish(QVariantList strokes, QVariantList spots) {
         strokes_ = std::move(strokes);
@@ -62,14 +70,28 @@ class FakeRetouchEditor final : public QObject {
         picker_active_ = active;
         emit retouchPickerActiveChanged();
     }
+    Q_INVOKABLE void setRetouchSourceAligned(const bool aligned) {
+        source_aligned_ = aligned;
+        emit retouchSourceChanged();
+    }
+    Q_INVOKABLE void clearRetouchSource() {
+        source_sampled_ = false;
+        emit retouchSourceChanged();
+    }
     Q_INVOKABLE void beginParameterEdit(const QString& key) {
         begin_key_ = key;
     }
     Q_INVOKABLE void endParameterEdit(const QString& key) {
         end_key_ = key;
     }
-    Q_INVOKABLE void setRetouchStrokeMode(int, int) {}
-    Q_INVOKABLE void setRetouchSpotMode(int, int) {}
+    Q_INVOKABLE void setRetouchStrokeMode(const int index, const int mode) {
+        stroke_mode_index_ = index;
+        stroke_mode_ = mode;
+    }
+    Q_INVOKABLE void setRetouchSpotMode(const int index, const int mode) {
+        spot_mode_index_ = index;
+        spot_mode_ = mode;
+    }
     Q_INVOKABLE void setRetouchStrokeRadius(int, int) {}
     Q_INVOKABLE void setRetouchSpotRadius(int, int) {}
     Q_INVOKABLE void setRetouchStrokeFeather(int, double) {}
@@ -86,6 +108,14 @@ class FakeRetouchEditor final : public QObject {
         stroke_source_offset_y_ = offset_y;
     }
     Q_INVOKABLE void setRetouchSpotCenter(int, double, double) {}
+    Q_INVOKABLE void setRetouchStrokeSourceTransform(int, double, double, bool, bool) {}
+    Q_INVOKABLE void setRetouchSpotSourceTransform(int, double, double, bool, bool) {}
+    Q_INVOKABLE void translateRetouchStroke(const int index, const double dx, const double dy) {
+        ++stroke_position_write_count_;
+        stroke_position_index_ = index;
+        stroke_position_dx_ = dx;
+        stroke_position_dy_ = dy;
+    }
     Q_INVOKABLE void
     setRetouchSpotSourceOffset(const int index, const double offset_x, const double offset_y) {
         ++spot_source_write_count_;
@@ -104,17 +134,28 @@ class FakeRetouchEditor final : public QObject {
     int spot_source_index_ = -1;
     double spot_source_offset_x_ = 0.0;
     double spot_source_offset_y_ = 0.0;
+    int stroke_mode_index_ = -1;
+    int stroke_mode_ = -1;
+    int spot_mode_index_ = -1;
+    int spot_mode_ = -1;
+    int stroke_position_write_count_ = 0;
+    int stroke_position_index_ = -1;
+    double stroke_position_dx_ = 0.0;
+    double stroke_position_dy_ = 0.0;
 
   signals:
     void parametersChanged();
     void retouchCreationModeChanged();
     void retouchPickerActiveChanged();
+    void retouchSourceChanged();
 
   private:
     QVariantList strokes_;
     QVariantList spots_;
     int creation_mode_ = 0;
     bool picker_active_ = true;
+    bool source_aligned_ = true;
+    bool source_sampled_ = false;
 };
 
 class FakeRetouchInspector final : public QObject {
@@ -161,6 +202,12 @@ namespace {
         {QStringLiteral("radius"), radius},
         {QStringLiteral("feather"), 0.28},
         {QStringLiteral("strength"), 0.62},
+        {QStringLiteral("sourceOffsetX"), 2.0},
+        {QStringLiteral("sourceOffsetY"), 1.0},
+        {QStringLiteral("sourceRotation"), 0.0},
+        {QStringLiteral("sourceScale"), 1.0},
+        {QStringLiteral("sourceFlipHorizontal"), false},
+        {QStringLiteral("sourceFlipVertical"), false},
     };
 }
 
@@ -358,9 +405,27 @@ int main(int argc, char* argv[]) {
     tools->setProperty("selectedRegionContinuous", false);
     tools->setProperty("selectedRegionIndex", 0);
     drainBindings();
+    QObject* const blend_selector =
+        tools->findChild<QObject*>(QStringLiteral("retouchHealBlendSelector"));
+    QObject* const structure_heal =
+        tools->findChild<QObject*>(QStringLiteral("retouchStructureHealButton"));
+    QObject* const reset_source =
+        tools->findChild<QObject*>(QStringLiteral("retouchResetSourceButton"));
     if (!require(
             tools->property("selectedRegionDisplayIndex").toInt() == 2,
             "legacy spots follow continuous strokes in one stable region order"
+        )
+        || !require(
+            blend_selector != nullptr && blend_selector->property("visible").toBool()
+                && structure_heal != nullptr && QMetaObject::invokeMethod(structure_heal, "click")
+                && editor.spot_mode_index_ == 0 && editor.spot_mode_ == 2,
+            "Heal exposes and authors the persisted structure-preserving blend mode"
+        )
+        || !require(
+            reset_source != nullptr && QMetaObject::invokeMethod(reset_source, "click")
+                && editor.spot_source_write_count_ == 1 && editor.spot_source_index_ == 0
+                && editor.spot_source_offset_x_ == 0.0 && editor.spot_source_offset_y_ == 0.0,
+            "the selected region can restore its deterministic nearby source"
         )) {
         return EXIT_FAILURE;
     }
@@ -369,7 +434,7 @@ int main(int argc, char* argv[]) {
         {
             region(0, 0, 18),
             region(1, 1, 24),
-            region(2, 0, 20),
+            region(2, 2, 20),
         },
         {region(0, 0, 12)}
     );
@@ -480,8 +545,20 @@ int main(int argc, char* argv[]) {
             "target and donor hit tests follow swept coverage instead of a bounding box"
         )
         || !require(
-            stroke_item != nullptr && selection.target_count == 1 && editor.begin_key_.isEmpty(),
-            "target-stroke admission emits selection before the painter can receive the press"
+            stroke_item != nullptr && selection.target_count == 1
+                && editor.begin_key_ == QStringLiteral("retouch/stroke/0/position"),
+            "target-stroke admission starts one whole-stroke move gesture"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.stroke_position_write_count_ = 0;
+    editor.end_key_.clear();
+    sendDrag(stroke_window, QPointF(80.0, 50.0), QPointF(88.0, 54.0));
+    if (!require(
+            editor.stroke_position_write_count_ > 0 && editor.stroke_position_index_ == 0
+                && editor.stroke_position_dx_ > 0.0 && editor.stroke_position_dy_ > 0.0
+                && editor.end_key_ == QStringLiteral("retouch/stroke/0/position"),
+            "a continuous target can be repositioned as one undoable region"
         )) {
         return EXIT_FAILURE;
     }
@@ -527,6 +604,10 @@ int main(int argc, char* argv[]) {
         spot_handle->findChild<QObject*>(QStringLiteral("retouchSpotTargetHitArea"));
     QObject* const spot_source_hit_area =
         spot_handle->findChild<QObject*>(QStringLiteral("retouchSpotSourceHitArea"));
+    QObject* const spot_target_circle =
+        spot_handle->findChild<QObject*>(QStringLiteral("retouchSpotTargetCircle"));
+    QObject* const spot_source_circle =
+        spot_handle->findChild<QObject*>(QStringLiteral("retouchSpotSourceCircle"));
     QObject::connect(
         spot_handle.get(),
         SIGNAL(selectedRequested()),
@@ -641,6 +722,41 @@ int main(int argc, char* argv[]) {
     if (!require(
             editor.spot_source_write_count_ > 0 && editor.spot_source_offset_x_ > 8.0,
             "a spot donor can move beyond the former eight-radius cap"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.stroke_source_write_count_ = 0;
+    sendDrag(stroke_window, QPointF(84.0, 50.0), QPointF(198.0, 50.0));
+    if (!require(
+            editor.stroke_source_write_count_ > 0
+                && std::abs(editor.stroke_source_offset_x_ - (482.0 / 18.0)) < 0.15,
+            "a stroke donor stops at the tighter image or full-detail bound"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.spot_source_write_count_ = 0;
+    sendDrag(spot_window, QPointF(84.0, 50.0), QPointF(198.0, 50.0));
+    if (!require(
+            editor.spot_source_write_count_ > 0
+                && std::abs(editor.spot_source_offset_x_ - (493.0 / 18.0)) < 0.15,
+            "a spot donor stops at the radius-scaled full-detail apron"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    QVariantMap transformed_spot = spotRegion(0, 2.0);
+    transformed_spot.insert(QStringLiteral("sourceScale"), 2.0);
+    transformed_spot.insert(QStringLiteral("sourceRotation"), 35.0);
+    spot_handle->setProperty("modelData", transformed_spot);
+    drainBindings();
+    if (!require(
+            spot_target_circle != nullptr && spot_source_circle != nullptr
+                && std::abs(spot_target_circle->property("width").toDouble() - 3.6) < 0.01
+                && std::abs(spot_source_circle->property("width").toDouble() - 7.2) < 0.01
+                && std::abs(spot_source_circle->property("rotation").toDouble() - 35.0) < 0.01,
+            "source scale and rotation affect only the sampled spot overlay"
         )) {
         return EXIT_FAILURE;
     }

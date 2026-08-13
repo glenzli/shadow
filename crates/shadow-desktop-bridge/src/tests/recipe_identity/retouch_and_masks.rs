@@ -26,9 +26,13 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
         center_x: 0.2,
         center_y: 0.25,
         radius_level_zero_pixels: 12,
-        mode: 0,
+        mode: 2,
         source_offset_x_radii: 0.0,
         source_offset_y_radii: 0.0,
+        source_rotation_degrees: 0.0,
+        source_scale: 1.0,
+        source_flip_horizontal: false,
+        source_flip_vertical: false,
         feather: 0.28,
         strength: 0.75,
     }];
@@ -39,8 +43,12 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
         ],
         radius_level_zero_pixels: 24,
         mode: 1,
-        source_offset_x_radii: 1.25,
+        source_offset_x_radii: 18.5,
         source_offset_y_radii: -0.75,
+        source_rotation_degrees: 30.0,
+        source_scale: 1.25,
+        source_flip_horizontal: true,
+        source_flip_vertical: false,
         feather: 0.4,
         strength: 0.65,
     }];
@@ -50,14 +58,19 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
     assert_eq!(draft.retouch_spots.len(), 1);
     assert_eq!(draft.retouch_strokes.len(), 1);
     assert_eq!(draft.retouch_spots[0].strength().get(), 0.75);
+    assert_eq!(draft.retouch_spots[0].mode(), RetouchMode::HealStructure);
     let stroke = &draft.retouch_strokes[0];
     assert_eq!(stroke.points().len(), 2);
     assert_eq!(stroke.points()[0].x().get(), 0.3);
     assert_eq!(stroke.points()[1].y().get(), 0.65);
     assert_eq!(stroke.radius_level_zero_pixels(), 24);
     assert_eq!(stroke.mode(), RetouchMode::Clone);
-    assert_eq!(stroke.source_offset_x_radii(), 1.25);
+    assert_eq!(stroke.source_offset_x_radii(), 18.5);
     assert_eq!(stroke.source_offset_y_radii(), -0.75);
+    assert_eq!(stroke.source_rotation_degrees(), 30.0);
+    assert_eq!(stroke.source_scale(), 1.25);
+    assert!(stroke.source_flip_horizontal());
+    assert!(!stroke.source_flip_vertical());
     assert_eq!(stroke.feather().get(), 0.4);
     assert_eq!(stroke.strength().get(), 0.65);
 
@@ -81,19 +94,27 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
         .expect("photo-local retouch render node");
     assert_eq!(targets.len(), 1);
     assert_eq!(strokes.len(), 1);
+    assert_eq!(targets[0].mode, 2);
     assert_eq!(strokes[0].points.len(), 2);
     assert_eq!(strokes[0].points[0].x, 0.3);
     assert_eq!(strokes[0].points[1].y, 0.65);
     assert_eq!(strokes[0].mode, 1);
-    assert_eq!(strokes[0].source_offset_x_radii, 1.25);
+    assert_eq!(strokes[0].source_offset_x_radii, 18.5);
+    assert_eq!(strokes[0].source_rotation_degrees, 30.0);
+    assert_eq!(strokes[0].source_scale, 1.25);
+    assert!(strokes[0].source_flip_horizontal);
     assert_eq!(strokes[0].strength, 0.65);
 
     let outgoing = encode_grade_stack_draft_recipe_v1(draft).expect("encode Grade Stack");
     assert_eq!(outgoing.retouch_spots.len(), 1);
+    assert_eq!(outgoing.retouch_spots[0].mode, 2);
     assert_eq!(outgoing.retouch_strokes.len(), 1);
     assert_eq!(outgoing.retouch_strokes[0].points.len(), 2);
     assert_eq!(outgoing.retouch_strokes[0].mode, 1);
-    assert_eq!(outgoing.retouch_strokes[0].source_offset_x_radii, 1.25);
+    assert_eq!(outgoing.retouch_strokes[0].source_offset_x_radii, 18.5);
+    assert_eq!(outgoing.retouch_strokes[0].source_rotation_degrees, 30.0);
+    assert_eq!(outgoing.retouch_strokes[0].source_scale, 1.25);
+    assert!(outgoing.retouch_strokes[0].source_flip_horizontal);
     assert_eq!(outgoing.retouch_strokes[0].strength, 0.65);
 
     incoming.retouch_strokes[0].points.clear();

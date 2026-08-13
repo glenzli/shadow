@@ -5,6 +5,7 @@
 #include <shadow/image/working_rgb.hpp>
 
 #include "retouch_heal_blending.hpp"
+#include "retouch_source_transform.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,16 @@ constexpr std::size_t maximum_retouch_strokes = 64U;
 constexpr std::size_t maximum_retouch_stroke_points = 512U;
 constexpr std::uint16_t minimum_spot_radius_level_zero = 1U;
 constexpr std::uint16_t maximum_spot_radius_level_zero = 128U;
+
+[[nodiscard]] bool source_offset_fits_detail_apron(
+    const std::uint16_t radius,
+    const double horizontal,
+    const double vertical,
+    const double source_scale
+) noexcept {
+    const double maximum = maximum_retouch_source_offset_radii(radius) + 1.0 - source_scale;
+    return std::abs(horizontal) <= maximum && std::abs(vertical) <= maximum;
+}
 
 [[noreturn]] void invalid_retouch(const std::string_view detail) {
     throw EditError(
@@ -186,13 +197,25 @@ struct RasterBounds final {
     const SpotRepairMode mode,
     const double source_offset_x_radii,
     const double source_offset_y_radii,
+    const double source_rotation_degrees,
+    const double source_scale,
     const double feather,
     const double strength
 ) {
     return radius_level_zero_pixels >= minimum_spot_radius_level_zero
            && radius_level_zero_pixels <= maximum_spot_radius_level_zero
-           && (mode == SpotRepairMode::heal || mode == SpotRepairMode::clone)
+           && (mode == SpotRepairMode::heal || mode == SpotRepairMode::clone
+               || mode == SpotRepairMode::heal_structure)
            && std::isfinite(source_offset_x_radii) && std::isfinite(source_offset_y_radii)
+           && std::isfinite(source_rotation_degrees) && source_rotation_degrees >= -180.0
+           && source_rotation_degrees <= 180.0 && std::isfinite(source_scale)
+           && source_scale >= 0.25 && source_scale <= 4.0
+           && source_offset_fits_detail_apron(
+               radius_level_zero_pixels,
+               source_offset_x_radii,
+               source_offset_y_radii,
+               source_scale
+           )
            && std::isfinite(feather) && feather >= 0.0 && feather <= 1.0 && std::isfinite(strength)
            && strength >= 0.0 && strength <= 1.0;
 }
@@ -202,48 +225,12 @@ struct SourceOffsetPixels final {
     double y = 0.0;
 };
 
-[[nodiscard]] SourceOffsetPixels clamp_source_offset_to_image(
-    SourceOffsetPixels offset,
-    const double normalized_lower_x,
-    const double normalized_upper_x,
-    const double normalized_lower_y,
-    const double normalized_upper_y,
-    const double radius_x,
-    const double radius_y,
-    const Dimensions full
-) noexcept {
-    const double maximum_x = static_cast<double>(full.width - 1U);
-    const double maximum_y = static_cast<double>(full.height - 1U);
-    const double target_lower_x = std::clamp(
-        normalized_lower_x * static_cast<double>(full.width) - 0.5 - radius_x,
-        0.0,
-        maximum_x
-    );
-    const double target_upper_x = std::clamp(
-        normalized_upper_x * static_cast<double>(full.width) - 0.5 + radius_x,
-        0.0,
-        maximum_x
-    );
-    const double target_lower_y = std::clamp(
-        normalized_lower_y * static_cast<double>(full.height) - 0.5 - radius_y,
-        0.0,
-        maximum_y
-    );
-    const double target_upper_y = std::clamp(
-        normalized_upper_y * static_cast<double>(full.height) - 0.5 + radius_y,
-        0.0,
-        maximum_y
-    );
-    offset.x = std::clamp(offset.x, -target_lower_x, maximum_x - target_upper_x);
-    offset.y = std::clamp(offset.y, -target_lower_y, maximum_y - target_upper_y);
-    return offset;
-}
-
 [[nodiscard]] SourceOffsetPixels source_offset_pixels(
     const double authored_x_radii,
     const double authored_y_radii,
     const double radius_x,
     const double radius_y,
+    const std::uint16_t radius_level_zero_pixels,
     const double normalized_center_x,
     const double normalized_center_y
 ) {
@@ -258,9 +245,12 @@ struct SourceOffsetPixels final {
     // A zero authored offset is the durable "automatic source" identity used
     // by legacy and newly created Heal regions. Resolve it deterministically
     // for rendering and expose the same effective source through the editor.
+    const double automatic_distance =
+        std::min(3.0, maximum_retouch_source_offset_radii(radius_level_zero_pixels));
     return {
-        .x = (normalized_center_x <= 0.5 ? 3.0 : -3.0) * radius_x,
-        .y = (normalized_center_y <= 0.5 ? 1.5 : -1.5) * radius_y,
+        .x = (normalized_center_x <= 0.5 ? automatic_distance : -automatic_distance) * radius_x,
+        .y = (normalized_center_y <= 0.5 ? automatic_distance * 0.5 : -automatic_distance * 0.5)
+             * radius_y,
     };
 }
 
@@ -319,24 +309,44 @@ void apply_target(
                  + static_cast<std::size_t>(x - lower_x)] = static_cast<float>(alpha);
         }
     }
-    const SourceOffsetPixels donor_offset = clamp_source_offset_to_image(
-        source_offset_pixels(
-            target.source_offset_x_radii,
-            target.source_offset_y_radii,
-            radius_x,
-            radius_y,
-            target.center_x,
-            target.center_y
-        ),
-        target.center_x,
-        target.center_x,
-        target.center_y,
-        target.center_y,
+    const SourceOffsetPixels donor_offset = source_offset_pixels(
+        target.source_offset_x_radii,
+        target.source_offset_y_radii,
         radius_x,
         radius_y,
+        target.radius_level_zero_pixels,
+        target.center_x,
+        target.center_y
+    );
+    const double full_center_x = target.center_x * static_cast<double>(full.width) - 0.5;
+    const double full_center_y = target.center_y * static_cast<double>(full.height) - 0.5;
+    const auto full_mapping = detail::clamp_retouch_source_mapping_to_image(
+        detail::make_retouch_source_mapping(
+            target.source_rotation_degrees,
+            target.source_scale,
+            target.source_flip_horizontal,
+            target.source_flip_vertical,
+            image.level_zero_to_raster_scale_x,
+            image.level_zero_to_raster_scale_y,
+            full_center_x,
+            full_center_y,
+            donor_offset.x,
+            donor_offset.y
+        ),
+        detail::RetouchRasterBounds{
+            .lower_x = full_center_x - radius_x,
+            .upper_x = full_center_x + radius_x,
+            .lower_y = full_center_y - radius_y,
+            .upper_y = full_center_y + radius_y,
+        },
         full
     );
-    if (target.mode == SpotRepairMode::heal) {
+    if (!full_mapping.has_value()) {
+        invalid_retouch("source transform exceeds the full image");
+    }
+    const detail::RetouchSourceMapping source_mapping =
+        full_mapping->with_local_origin(context.origin_x, context.origin_y);
+    if (target.mode != SpotRepairMode::clone) {
         detail::apply_texture_heal(
             image,
             source,
@@ -345,9 +355,9 @@ void apply_target(
             lower_y,
             coverage_width,
             coverage_height,
-            donor_offset.x,
-            donor_offset.y,
-            target.strength
+            source_mapping,
+            target.strength,
+            target.mode == SpotRepairMode::heal_structure
         );
         return;
     }
@@ -364,8 +374,8 @@ void apply_target(
                 sample_index(image, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y));
             const std::array<double, rgb_channels> replacement = sample_bilinear(
                 source,
-                static_cast<double>(x) + donor_offset.x,
-                static_cast<double>(y) + donor_offset.y
+                source_mapping.source_x(static_cast<double>(x), static_cast<double>(y)),
+                source_mapping.source_y(static_cast<double>(x), static_cast<double>(y))
             );
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 const double value = std::fma(
@@ -499,15 +509,21 @@ void apply_stroke(
     const double normalized_center_y = std::midpoint(normalized_lower_y, normalized_upper_y);
     const bool automatic_source =
         stroke.source_offset_x_radii == 0.0 && stroke.source_offset_y_radii == 0.0;
+    const double automatic_distance =
+        std::min(3.0, maximum_retouch_source_offset_radii(stroke.radius_level_zero_pixels));
     const SourceOffsetPixels authored_donor_offset =
         automatic_source
         ? (normalized_upper_x - normalized_lower_x >= normalized_upper_y - normalized_lower_y
             ? SourceOffsetPixels{
                 .x = 0.0,
-                .y = (normalized_center_y <= 0.5 ? 3.0 : -3.0) * radius_y,
+                .y =
+                    (normalized_center_y <= 0.5 ? automatic_distance : -automatic_distance)
+                    * radius_y,
             }
             : SourceOffsetPixels{
-                .x = (normalized_center_x <= 0.5 ? 3.0 : -3.0) * radius_x,
+                .x =
+                    (normalized_center_x <= 0.5 ? automatic_distance : -automatic_distance)
+                    * radius_x,
                 .y = 0.0,
             })
         : source_offset_pixels(
@@ -515,20 +531,39 @@ void apply_stroke(
             stroke.source_offset_y_radii,
             radius_x,
             radius_y,
+            stroke.radius_level_zero_pixels,
             normalized_center_x,
             normalized_center_y
         );
-    const SourceOffsetPixels donor_offset = clamp_source_offset_to_image(
-        authored_donor_offset,
-        normalized_lower_x,
-        normalized_upper_x,
-        normalized_lower_y,
-        normalized_upper_y,
-        radius_x,
-        radius_y,
+    const double full_anchor_x = normalized_center_x * static_cast<double>(full.width) - 0.5;
+    const double full_anchor_y = normalized_center_y * static_cast<double>(full.height) - 0.5;
+    const auto full_mapping = detail::clamp_retouch_source_mapping_to_image(
+        detail::make_retouch_source_mapping(
+            stroke.source_rotation_degrees,
+            stroke.source_scale,
+            stroke.source_flip_horizontal,
+            stroke.source_flip_vertical,
+            image.level_zero_to_raster_scale_x,
+            image.level_zero_to_raster_scale_y,
+            full_anchor_x,
+            full_anchor_y,
+            authored_donor_offset.x,
+            authored_donor_offset.y
+        ),
+        detail::RetouchRasterBounds{
+            .lower_x = normalized_lower_x * static_cast<double>(full.width) - 0.5 - radius_x,
+            .upper_x = normalized_upper_x * static_cast<double>(full.width) - 0.5 + radius_x,
+            .lower_y = normalized_lower_y * static_cast<double>(full.height) - 0.5 - radius_y,
+            .upper_y = normalized_upper_y * static_cast<double>(full.height) - 0.5 + radius_y,
+        },
         full
     );
-    if (stroke.mode == SpotRepairMode::heal) {
+    if (!full_mapping.has_value()) {
+        invalid_retouch("continuous stroke source transform exceeds the full image");
+    }
+    const detail::RetouchSourceMapping source_mapping =
+        full_mapping->with_local_origin(context.origin_x, context.origin_y);
+    if (stroke.mode != SpotRepairMode::clone) {
         detail::apply_texture_heal(
             image,
             source,
@@ -537,9 +572,9 @@ void apply_stroke(
             stroke_lower_y,
             coverage_width,
             coverage_height,
-            donor_offset.x,
-            donor_offset.y,
-            stroke.strength
+            source_mapping,
+            stroke.strength,
+            stroke.mode == SpotRepairMode::heal_structure
         );
         return;
     }
@@ -556,8 +591,8 @@ void apply_stroke(
                 sample_index(image, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y));
             const std::array<double, rgb_channels> replacement = sample_bilinear(
                 source,
-                static_cast<double>(x) + donor_offset.x,
-                static_cast<double>(y) + donor_offset.y
+                source_mapping.source_x(static_cast<double>(x), static_cast<double>(y)),
+                source_mapping.source_y(static_cast<double>(x), static_cast<double>(y))
             );
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 const double value = std::fma(
@@ -597,6 +632,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
                 target.mode,
                 target.source_offset_x_radii,
                 target.source_offset_y_radii,
+                target.source_rotation_degrees,
+                target.source_scale,
                 target.feather,
                 target.strength
             )) {
@@ -610,6 +647,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
                 stroke.mode,
                 stroke.source_offset_x_radii,
                 stroke.source_offset_y_radii,
+                stroke.source_rotation_degrees,
+                stroke.source_scale,
                 stroke.feather,
                 stroke.strength
             )) {

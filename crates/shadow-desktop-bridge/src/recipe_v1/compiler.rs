@@ -309,9 +309,14 @@ fn append_photo_retouch_nodes(
                     mode: match spot.mode() {
                         RetouchMode::Heal => 0,
                         RetouchMode::Clone => 1,
+                        RetouchMode::HealStructure => 2,
                     },
                     source_offset_x_radii: spot.source_offset_x_radii(),
                     source_offset_y_radii: spot.source_offset_y_radii(),
+                    source_rotation_degrees: spot.source_rotation_degrees(),
+                    source_scale: spot.source_scale(),
+                    source_flip_horizontal: spot.source_flip_horizontal(),
+                    source_flip_vertical: spot.source_flip_vertical(),
                     feather: spot.feather().get(),
                     strength: spot.strength().get(),
                 })
@@ -332,9 +337,14 @@ fn append_photo_retouch_nodes(
                     mode: match stroke.mode() {
                         RetouchMode::Heal => 0,
                         RetouchMode::Clone => 1,
+                        RetouchMode::HealStructure => 2,
                     },
                     source_offset_x_radii: stroke.source_offset_x_radii(),
                     source_offset_y_radii: stroke.source_offset_y_radii(),
+                    source_rotation_degrees: stroke.source_rotation_degrees(),
+                    source_scale: stroke.source_scale(),
+                    source_flip_horizontal: stroke.source_flip_horizontal(),
+                    source_flip_vertical: stroke.source_flip_vertical(),
                     feather: stroke.feather().get(),
                     strength: stroke.strength().get(),
                 })

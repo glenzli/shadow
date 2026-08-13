@@ -13,6 +13,9 @@ Item {
 
     signal selectedRequested()
 
+    property bool targetGestureActive: false
+    property real targetLastX: 0
+    property real targetLastY: 0
     property bool sourceGestureActive: false
     property real sourceStartX: 0
     property real sourceStartY: 0
@@ -25,10 +28,26 @@ Item {
         Number(modelData.radius) * pixelScale
     )
     readonly property real interactionRadiusPixels: Math.max(6, radiusPixels)
-    readonly property real sourceOffsetX:
+    readonly property real sourceRadiusPixels: radiusPixels * Math.max(
+        0.25, Number(modelData.sourceScale)
+    )
+    readonly property real maximumSourceOffsetPixels: Math.max(
+        0,
+        (511 - Number(modelData.radius)
+            * Math.max(0.25, Number(modelData.sourceScale))) * pixelScale
+    )
+    readonly property real authoredSourceOffsetX:
         Number(modelData.sourceOffsetX) * radiusPixels
-    readonly property real sourceOffsetY:
+    readonly property real authoredSourceOffsetY:
         Number(modelData.sourceOffsetY) * radiusPixels
+    readonly property real sourceOffsetX:
+        clampSourceOffsetPixels(authoredSourceOffsetX, true)
+    readonly property real sourceOffsetY:
+        clampSourceOffsetPixels(authoredSourceOffsetY, false)
+    readonly property real sourceAnchorX:
+        (pointBounds(true).x + pointBounds(true).y) / 2
+    readonly property real sourceAnchorY:
+        (pointBounds(false).x + pointBounds(false).y) / 2
 
     function squaredDistanceToSegment(
         x, y, startX, startY, endX, endY
@@ -90,7 +109,21 @@ Item {
     }
 
     function sourceContains(x, y) {
-        return coverageContains(x, y, sourceOffsetX, sourceOffsetY)
+        const angle = -Number(modelData.sourceRotation) * Math.PI / 180
+        const cosine = Math.cos(angle)
+        const sine = Math.sin(angle)
+        const translatedX = x - sourceAnchorX - sourceOffsetX
+        const translatedY = y - sourceAnchorY - sourceOffsetY
+        const rotatedX = cosine * translatedX - sine * translatedY
+        const rotatedY = sine * translatedX + cosine * translatedY
+        const scale = Math.max(0.25, Number(modelData.sourceScale))
+        const targetX = sourceAnchorX
+            + rotatedX / (scale
+                * (Boolean(modelData.sourceFlipHorizontal) ? -1 : 1))
+        const targetY = sourceAnchorY
+            + rotatedY / (scale
+                * (Boolean(modelData.sourceFlipVertical) ? -1 : 1))
+        return coverageContains(targetX, targetY, 0, 0)
     }
 
     function pointBounds(horizontal) {
@@ -108,14 +141,44 @@ Item {
         return Qt.point(lower, upper)
     }
 
+    function transformedSourceBounds(horizontal) {
+        if (points.length === 0)
+            return Qt.point(0, 0)
+        const angle = Number(modelData.sourceRotation) * Math.PI / 180
+        const cosine = Math.cos(angle)
+        const sine = Math.sin(angle)
+        const scale = Math.max(0.25, Number(modelData.sourceScale))
+        const flipX = Boolean(modelData.sourceFlipHorizontal) ? -1 : 1
+        const flipY = Boolean(modelData.sourceFlipVertical) ? -1 : 1
+        let lower = Number.POSITIVE_INFINITY
+        let upper = Number.NEGATIVE_INFINITY
+        for (let index = 0; index < points.length; ++index) {
+            const deltaX = Number(points[index].x) * width - sourceAnchorX
+            const deltaY = Number(points[index].y) * height - sourceAnchorY
+            const transformedX = sourceAnchorX
+                + scale * (cosine * flipX * deltaX
+                    - sine * flipY * deltaY)
+            const transformedY = sourceAnchorY
+                + scale * (sine * flipX * deltaX
+                    + cosine * flipY * deltaY)
+            const value = horizontal ? transformedX : transformedY
+            lower = Math.min(lower, value - sourceRadiusPixels)
+            upper = Math.max(upper, value + sourceRadiusPixels)
+        }
+        return Qt.point(lower, upper)
+    }
+
     function clampSourceOffsetPixels(candidate, horizontal) {
         const extent = horizontal ? width : height
-        const bounds = pointBounds(horizontal)
-        const minimum = radiusPixels - bounds.x
-        const maximum = extent - radiusPixels - bounds.y
+        const bounds = transformedSourceBounds(horizontal)
+        const minimum = -bounds.x
+        const maximum = extent - bounds.y
         if (minimum > maximum)
             return extent / 2 - (bounds.x + bounds.y) / 2
-        return Math.max(minimum, Math.min(maximum, candidate))
+        return Math.max(
+            Math.max(minimum, -maximumSourceOffsetPixels),
+            Math.min(Math.min(maximum, maximumSourceOffsetPixels), candidate)
+        )
     }
 
     function selectTarget() {
@@ -128,6 +191,23 @@ Item {
         sourceGestureActive = false
         editor.endParameterEdit(
             "retouch/stroke/" + modelData.index + "/source")
+    }
+
+    function finishTargetGesture() {
+        if (!targetGestureActive)
+            return
+        targetGestureActive = false
+        editor.endParameterEdit(
+            "retouch/stroke/" + modelData.index + "/position")
+    }
+
+    function nudgeSource(horizontalPixels, verticalPixels) {
+        const radius = Math.max(0.25, radiusPixels)
+        editor.setRetouchStrokeSourceOffset(
+            modelData.index,
+            sourceOffsetX / radius + horizontalPixels / radius,
+            sourceOffsetY / radius + verticalPixels / radius
+        )
     }
 
     PrecisionRetouchStrokeCoverage {
@@ -150,6 +230,13 @@ Item {
         radiusPixels: strokeHandle.radiusPixels
         coverageOffsetX: strokeHandle.sourceOffsetX
         coverageOffsetY: strokeHandle.sourceOffsetY
+        sourceTransformEnabled: true
+        sourceAnchorX: strokeHandle.sourceAnchorX
+        sourceAnchorY: strokeHandle.sourceAnchorY
+        sourceRotationDegrees: Number(strokeHandle.modelData.sourceRotation)
+        sourceScale: Math.max(0.25, Number(strokeHandle.modelData.sourceScale))
+        sourceFlipHorizontal: Boolean(strokeHandle.modelData.sourceFlipHorizontal)
+        sourceFlipVertical: Boolean(strokeHandle.modelData.sourceFlipVertical)
         coverageColor: Qt.rgba(
             Theme.previewCompareDivider.r,
             Theme.previewCompareDivider.g,
@@ -191,12 +278,37 @@ Item {
         hoverEnabled: true
         preventStealing: true
         propagateComposedEvents: false
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: Qt.SizeAllCursor
 
         onPressed: mouse => {
             strokeHandle.selectTarget()
+            const point = targetPointer.mapToItem(
+                strokeHandle, mouse.x, mouse.y)
+            strokeHandle.targetGestureActive = true
+            strokeHandle.targetLastX = point.x
+            strokeHandle.targetLastY = point.y
+            strokeHandle.editor.beginParameterEdit(
+                "retouch/stroke/" + strokeHandle.modelData.index
+                    + "/position")
             mouse.accepted = true
         }
+        onPositionChanged: mouse => {
+            if (!pressed || !strokeHandle.targetGestureActive)
+                return
+            const point = targetPointer.mapToItem(
+                strokeHandle, mouse.x, mouse.y)
+            strokeHandle.editor.translateRetouchStroke(
+                strokeHandle.modelData.index,
+                (point.x - strokeHandle.targetLastX)
+                    / Math.max(1, strokeHandle.width),
+                (point.y - strokeHandle.targetLastY)
+                    / Math.max(1, strokeHandle.height)
+            )
+            strokeHandle.targetLastX = point.x
+            strokeHandle.targetLastY = point.y
+        }
+        onReleased: strokeHandle.finishTargetGesture()
+        onCanceled: strokeHandle.finishTargetGesture()
     }
 
     MouseArea {
@@ -217,18 +329,39 @@ Item {
         preventStealing: true
         propagateComposedEvents: false
         cursorShape: Qt.CrossCursor
+        focus: strokeHandle.selected
+
+        Keys.onPressed: event => {
+            const distance = (event.modifiers & Qt.ShiftModifier) !== 0
+                ? 10 : 1
+            if (event.key === Qt.Key_Left) {
+                strokeHandle.nudgeSource(-distance, 0)
+            } else if (event.key === Qt.Key_Right) {
+                strokeHandle.nudgeSource(distance, 0)
+            } else if (event.key === Qt.Key_Up) {
+                strokeHandle.nudgeSource(0, -distance)
+            } else if (event.key === Qt.Key_Down) {
+                strokeHandle.nudgeSource(0, distance)
+            } else {
+                return
+            }
+            event.accepted = true
+        }
 
         onPressed: mouse => {
             strokeHandle.selectedRequested()
+            forceActiveFocus()
             const point = sourcePointer.mapToItem(
                 strokeHandle, mouse.x, mouse.y)
             strokeHandle.sourceGestureActive = true
             strokeHandle.sourceStartX = point.x
             strokeHandle.sourceStartY = point.y
             strokeHandle.sourceStartOffsetX = Number(
-                strokeHandle.modelData.sourceOffsetX)
+                strokeHandle.sourceOffsetX
+                    / Math.max(0.25, strokeHandle.radiusPixels))
             strokeHandle.sourceStartOffsetY = Number(
-                strokeHandle.modelData.sourceOffsetY)
+                strokeHandle.sourceOffsetY
+                    / Math.max(0.25, strokeHandle.radiusPixels))
             strokeHandle.editor.beginParameterEdit(
                 "retouch/stroke/" + strokeHandle.modelData.index
                     + "/source")

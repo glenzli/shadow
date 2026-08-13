@@ -75,6 +75,12 @@ struct WarmRetouchRegionParameters {
     float radius_y;
     float donor_offset_x;
     float donor_offset_y;
+    float source_matrix_xx;
+    float source_matrix_xy;
+    float source_matrix_yx;
+    float source_matrix_yy;
+    float source_anchor_x;
+    float source_anchor_y;
     float feather;
     float screening_weight;
     float strength;
@@ -648,6 +654,21 @@ inline float3 warm_retouch_illumination_correction(
         + summary.correction_slope_y.xyz * normalized.y;
 }
 
+inline float2 warm_retouch_source_position(
+    float2 target,
+    constant WarmRetouchRegionParameters& parameters
+) {
+    const float2 anchor = float2(parameters.source_anchor_x, parameters.source_anchor_y);
+    const float2 delta = target - anchor;
+    return anchor + float2(parameters.donor_offset_x, parameters.donor_offset_y)
+        + float2(
+            parameters.source_matrix_xx * delta.x
+                + parameters.source_matrix_xy * delta.y,
+            parameters.source_matrix_yx * delta.x
+                + parameters.source_matrix_yy * delta.y
+        );
+}
+
 kernel void warm_retouch_clone_v1(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -687,8 +708,7 @@ kernel void warm_retouch_clone_v1(
     if (coverage > 0.0f) {
         const float3 donor = warm_retouch_sample_bilinear(
             input,
-            float2(position)
-                + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+            warm_retouch_source_position(float2(position), parameters),
             parameters
         );
         result = fma(float3(coverage * parameters.strength), donor - original, original);
@@ -743,8 +763,7 @@ kernel void warm_retouch_heal_statistics_v1(
             const float minimum_coverage = 1.0e-4f;
             const float3 donor_sample = warm_retouch_sample_bilinear(
                 source,
-                float2(position)
-                    + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+                warm_retouch_source_position(float2(position), parameters),
                 parameters
             );
             if (coverage <= minimum_coverage) {
@@ -1000,8 +1019,7 @@ kernel void warm_retouch_heal_initialize_v1(
         && summary.boundary_sum_count.w > 0.0f) {
         const float3 donor = warm_retouch_sample_bilinear(
             source,
-            float2(position)
-                + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+            warm_retouch_source_position(float2(position), parameters),
             parameters
         );
         const float texture_gain = warm_retouch_texture_gain(summary);
@@ -1063,7 +1081,7 @@ kernel void warm_retouch_heal_jacobi_v1(
 
     const float3 donor_center = warm_retouch_sample_bilinear(
         source,
-        float2(position) + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+        warm_retouch_source_position(float2(position), parameters),
         parameters
     );
     float3 neighbor_sum = float3(0.0f);
@@ -1110,12 +1128,20 @@ kernel void warm_retouch_heal_jacobi_v1(
                 source[adjacent_source + 1u],
                 source[adjacent_source + 2u]
             );
-        donor_laplacian += texture_gain * (donor_center - warm_retouch_sample_bilinear(
+        const float3 donor_gradient = texture_gain * (donor_center - warm_retouch_sample_bilinear(
             source,
-            float2(adjacent)
-                + float2(parameters.donor_offset_x, parameters.donor_offset_y),
+            warm_retouch_source_position(float2(adjacent), parameters),
             parameters
         ));
+        const float3 target_gradient = original - float3(
+            source[adjacent_source],
+            source[adjacent_source + 1u],
+            source[adjacent_source + 2u]
+        );
+        donor_laplacian += parameters.mode == 2u
+                && dot(target_gradient, target_gradient) > dot(donor_gradient, donor_gradient)
+            ? target_gradient
+            : donor_gradient;
         ++neighbor_count;
     }
     const float3 screened_target = texture_gain * donor_center

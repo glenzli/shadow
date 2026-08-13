@@ -25,14 +25,43 @@ Item {
         Number(modelData.radius) * pixelScale
     )
     readonly property real interactionRadiusPixels: Math.max(6, radiusPixels)
+    readonly property real sourceRadiusPixels: radiusPixels * Math.max(
+        0.25, Number(modelData.sourceScale)
+    )
+    readonly property real maximumSourceOffsetPixels: Math.max(
+        0,
+        (511 - Number(modelData.radius)
+            * Math.max(0.25, Number(modelData.sourceScale))) * pixelScale
+    )
     readonly property real targetX: Number(modelData.x) * width
     readonly property real targetY: Number(modelData.y) * height
-    readonly property real sourceX: targetX
-        + Number(modelData.sourceOffsetX) * radiusPixels
-    readonly property real sourceY: targetY
-        + Number(modelData.sourceOffsetY) * radiusPixels
+    readonly property real effectiveSourceOffsetX:
+        clampSourceOffsetPixels(
+            Number(modelData.sourceOffsetX) * radiusPixels, true)
+    readonly property real effectiveSourceOffsetY:
+        clampSourceOffsetPixels(
+            Number(modelData.sourceOffsetY) * radiusPixels, false)
+    readonly property real sourceX: targetX + effectiveSourceOffsetX
+    readonly property real sourceY: targetY + effectiveSourceOffsetY
     function clamp01(value) {
         return Math.max(0, Math.min(1, value))
+    }
+
+    function clampSourceOffsetPixels(candidate, horizontal) {
+        const extent = horizontal ? width : height
+        const target = horizontal ? targetX : targetY
+        const minimumCenter = Math.min(extent / 2, sourceRadiusPixels)
+        const maximumCenter = Math.max(
+            minimumCenter, extent - sourceRadiusPixels)
+        const candidateCenter = target + candidate
+        const clampedCenter = Math.max(
+            Math.max(minimumCenter, target - maximumSourceOffsetPixels),
+            Math.min(
+                Math.min(maximumCenter, target + maximumSourceOffsetPixels),
+                candidateCenter
+            )
+        )
+        return clampedCenter - target
     }
 
     function finishTargetGesture() {
@@ -47,6 +76,17 @@ Item {
             return
         sourceGestureActive = false
         editor.endParameterEdit("retouch/" + modelData.index + "/source")
+    }
+
+    function nudgeSource(horizontalPixels, verticalPixels) {
+        const radius = Math.max(0.25, radiusPixels)
+        const candidateCenterX = sourceX + horizontalPixels
+        const candidateCenterY = sourceY + verticalPixels
+        editor.setRetouchSpotSourceOffset(
+            modelData.index,
+            clampSourceOffsetPixels(candidateCenterX - targetX, true) / radius,
+            clampSourceOffsetPixels(candidateCenterY - targetY, false) / radius
+        )
     }
 
     Canvas {
@@ -86,6 +126,7 @@ Item {
 
     Rectangle {
         id: targetCircle
+        objectName: "retouchSpotTargetCircle"
 
         z: 1
         x: repairHandle.targetX - width / 2
@@ -155,13 +196,15 @@ Item {
 
     Rectangle {
         id: sourceCircle
+        objectName: "retouchSpotSourceCircle"
 
         z: 2
         x: repairHandle.sourceX - width / 2
         y: repairHandle.sourceY - height / 2
-        width: repairHandle.radiusPixels * 2
+        width: repairHandle.sourceRadiusPixels * 2
         height: width
         radius: width / 2
+        rotation: Number(repairHandle.modelData.sourceRotation)
         color: Qt.rgba(
             Theme.accent.r,
             Theme.accent.g,
@@ -198,18 +241,39 @@ Item {
             hoverEnabled: true
             preventStealing: true
             cursorShape: Qt.CrossCursor
+            focus: repairHandle.selected
+
+            Keys.onPressed: event => {
+                const distance = (event.modifiers & Qt.ShiftModifier) !== 0
+                    ? 10 : 1
+                if (event.key === Qt.Key_Left) {
+                    repairHandle.nudgeSource(-distance, 0)
+                } else if (event.key === Qt.Key_Right) {
+                    repairHandle.nudgeSource(distance, 0)
+                } else if (event.key === Qt.Key_Up) {
+                    repairHandle.nudgeSource(0, -distance)
+                } else if (event.key === Qt.Key_Down) {
+                    repairHandle.nudgeSource(0, distance)
+                } else {
+                    return
+                }
+                event.accepted = true
+            }
 
             onPressed: mouse => {
                 repairHandle.selectedRequested()
+                forceActiveFocus()
                 const point = sourceHitArea.mapToItem(
                     repairHandle, mouse.x, mouse.y)
                 repairHandle.sourceGestureActive = true
                 repairHandle.sourceStartX = point.x
                 repairHandle.sourceStartY = point.y
                 repairHandle.sourceStartOffsetX = Number(
-                    repairHandle.modelData.sourceOffsetX)
+                    repairHandle.effectiveSourceOffsetX
+                        / Math.max(0.25, repairHandle.radiusPixels))
                 repairHandle.sourceStartOffsetY = Number(
-                    repairHandle.modelData.sourceOffsetY)
+                    repairHandle.effectiveSourceOffsetY
+                        / Math.max(0.25, repairHandle.radiusPixels))
                 repairHandle.editor.beginParameterEdit(
                     "retouch/" + repairHandle.modelData.index + "/source")
             }
@@ -219,38 +283,18 @@ Item {
                 const point = sourceHitArea.mapToItem(
                     repairHandle, mouse.x, mouse.y)
                 const radius = Math.max(0.25, repairHandle.radiusPixels)
-                const minimumX = Math.min(
-                    repairHandle.width / 2,
-                    repairHandle.radiusPixels
-                )
-                const maximumX = Math.max(
-                    minimumX,
-                    repairHandle.width - repairHandle.radiusPixels
-                )
-                const minimumY = Math.min(
-                    repairHandle.height / 2,
-                    repairHandle.radiusPixels
-                )
-                const maximumY = Math.max(
-                    minimumY,
-                    repairHandle.height - repairHandle.radiusPixels
-                )
-                const candidateCenterX = repairHandle.targetX
-                    + (repairHandle.sourceStartOffsetX
-                        + (point.x - repairHandle.sourceStartX) / radius)
-                        * radius
-                const candidateCenterY = repairHandle.targetY
-                    + (repairHandle.sourceStartOffsetY
-                        + (point.y - repairHandle.sourceStartY) / radius)
-                        * radius
-                const sourceCenterX = Math.max(minimumX, Math.min(
-                    maximumX, candidateCenterX))
-                const sourceCenterY = Math.max(minimumY, Math.min(
-                    maximumY, candidateCenterY))
+                const candidateOffsetX =
+                    repairHandle.sourceStartOffsetX * radius
+                    + point.x - repairHandle.sourceStartX
+                const candidateOffsetY =
+                    repairHandle.sourceStartOffsetY * radius
+                    + point.y - repairHandle.sourceStartY
                 repairHandle.editor.setRetouchSpotSourceOffset(
                     repairHandle.modelData.index,
-                    (sourceCenterX - repairHandle.targetX) / radius,
-                    (sourceCenterY - repairHandle.targetY) / radius
+                    repairHandle.clampSourceOffsetPixels(
+                        candidateOffsetX, true) / radius,
+                    repairHandle.clampSourceOffsetPixels(
+                        candidateOffsetY, false) / radius
                 )
             }
             onReleased: repairHandle.finishSourceGesture()

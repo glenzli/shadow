@@ -14,6 +14,11 @@ use super::PhotoRepresentationRecord;
 impl Catalog {
     /// Lists original RAW/raster representations of one logical photo in
     /// stable edit preference order, including offline-only representations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the representation inventory cannot be read or a
+    /// persisted row violates the Catalog's representation contract.
     pub fn photo_representations(
         &self,
         photo_id: PhotoId,
@@ -71,6 +76,11 @@ impl Catalog {
     }
 
     /// Resolves one exact original representation owned by a logical photo.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the representation inventory cannot be read or a
+    /// persisted row violates the Catalog's representation contract.
     pub fn photo_representation(
         &self,
         photo_id: PhotoId,

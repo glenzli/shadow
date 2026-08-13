@@ -5,6 +5,30 @@ use serde::{Deserialize, Serialize};
 use super::RecipeValidationError;
 use super::value::{FiniteF64, UnitInterval, default_finite_zero};
 
+const MAX_RETOUCH_DETAIL_APRON_LEVEL_ZERO_PIXELS: f64 = 512.0;
+
+fn maximum_source_offset_radii(radius_level_zero_pixels: u16) -> f64 {
+    (MAX_RETOUCH_DETAIL_APRON_LEVEL_ZERO_PIXELS - 1.0) / f64::from(radius_level_zero_pixels) - 1.0
+}
+
+fn valid_source_offsets(
+    radius_level_zero_pixels: u16,
+    horizontal_source_offset_radii: f64,
+    vertical_source_offset_radii: f64,
+    source_scale: f64,
+) -> bool {
+    let maximum = maximum_source_offset_radii(radius_level_zero_pixels) + 1.0 - source_scale;
+    horizontal_source_offset_radii.abs() <= maximum && vertical_source_offset_radii.abs() <= maximum
+}
+
+const fn default_retouch_source_scale() -> FiniteF64 {
+    FiniteF64(1.0)
+}
+
+fn valid_source_transform(rotation_degrees: f64, scale: f64) -> bool {
+    (-180.0..=180.0).contains(&rotation_degrees) && (0.25..=4.0).contains(&scale)
+}
+
 /// Deterministic non-generative repair behavior.
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -14,6 +38,10 @@ pub enum RetouchMode {
     Heal,
     /// Copy from a nearby source offset measured in brush radii.
     Clone,
+    /// Preserve the stronger target or donor gradient while matching the
+    /// target boundary. This is intended for repairs that cross a real edge;
+    /// ordinary Heal remains the safer choice for isolated dust and spots.
+    HealStructure,
 }
 
 const fn default_retouch_feather() -> UnitInterval {
@@ -27,7 +55,9 @@ const fn default_retouch_strength() -> UnitInterval {
 /// One small, non-generative repair target in original-image coordinates.
 ///
 /// Radius is expressed in level-zero pixels. Clone offsets are measured in
-/// radii and deliberately bounded, preserving tile-local detail execution.
+/// radii and bounded by the 512-pixel full-detail apron, preserving tile-local
+/// execution while allowing a small brush to use a substantially farther
+/// source than the former fixed eight-radius limit.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RetouchSpot {
     center_x: UnitInterval,
@@ -39,6 +69,14 @@ pub struct RetouchSpot {
     source_offset_x_radii: FiniteF64,
     #[serde(default = "default_finite_zero")]
     source_offset_y_radii: FiniteF64,
+    #[serde(default = "default_finite_zero")]
+    source_rotation_degrees: FiniteF64,
+    #[serde(default = "default_retouch_source_scale")]
+    source_scale: FiniteF64,
+    #[serde(default)]
+    source_flip_horizontal: bool,
+    #[serde(default)]
+    source_flip_vertical: bool,
     #[serde(default = "default_retouch_feather")]
     feather: UnitInterval,
     #[serde(default = "default_retouch_strength")]
@@ -74,6 +112,10 @@ impl RetouchSpot {
             mode: RetouchMode::Heal,
             source_offset_x_radii: default_finite_zero(),
             source_offset_y_radii: default_finite_zero(),
+            source_rotation_degrees: default_finite_zero(),
+            source_scale: default_retouch_source_scale(),
+            source_flip_horizontal: false,
+            source_flip_vertical: false,
             feather: default_retouch_feather(),
             strength: default_retouch_strength(),
         })
@@ -83,8 +125,8 @@ impl RetouchSpot {
     ///
     /// # Errors
     ///
-    /// Returns an error when either source displacement is non-finite or
-    /// outside the supported `[-8, 8]` radius range.
+    /// Returns an error when either source displacement is non-finite or its
+    /// radius-scaled donor footprint exceeds the full-detail apron.
     pub fn with_behavior(
         mut self,
         mode: RetouchMode,
@@ -94,15 +136,51 @@ impl RetouchSpot {
     ) -> Result<Self, RecipeValidationError> {
         let horizontal_offset = FiniteF64::new(horizontal_source_offset_radii)?;
         let vertical_offset = FiniteF64::new(vertical_source_offset_radii)?;
-        if !(-8.0..=8.0).contains(&horizontal_offset.get())
-            || !(-8.0..=8.0).contains(&vertical_offset.get())
-        {
+        if !valid_source_offsets(
+            self.radius_level_zero_pixels,
+            horizontal_offset.get(),
+            vertical_offset.get(),
+            self.source_scale.get(),
+        ) {
             return Err(RecipeValidationError::InvalidRetouchSourceOffset);
         }
         self.mode = mode;
         self.source_offset_x_radii = horizontal_offset;
         self.source_offset_y_radii = vertical_offset;
         self.feather = feather;
+        Ok(self)
+    }
+
+    /// Rotates, scales, or mirrors donor coordinates around the target anchor.
+    /// Identity values preserve the historical translated-source behavior.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the rotation, scale, or resulting donor footprint
+    /// is outside the supported retouch bounds.
+    pub fn with_source_transform(
+        mut self,
+        rotation_degrees: f64,
+        scale: f64,
+        flip_horizontal: bool,
+        flip_vertical: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        let rotation = FiniteF64::new(rotation_degrees)?;
+        let scale = FiniteF64::new(scale)?;
+        if !valid_source_transform(rotation.get(), scale.get())
+            || !valid_source_offsets(
+                self.radius_level_zero_pixels,
+                self.source_offset_x_radii.get(),
+                self.source_offset_y_radii.get(),
+                scale.get(),
+            )
+        {
+            return Err(RecipeValidationError::InvalidRetouchSourceTransform);
+        }
+        self.source_rotation_degrees = rotation;
+        self.source_scale = scale;
+        self.source_flip_horizontal = flip_horizontal;
+        self.source_flip_vertical = flip_vertical;
         Ok(self)
     }
 
@@ -137,6 +215,22 @@ impl RetouchSpot {
         self.source_offset_y_radii.get()
     }
 
+    pub const fn source_rotation_degrees(self) -> f64 {
+        self.source_rotation_degrees.get()
+    }
+
+    pub const fn source_scale(self) -> f64 {
+        self.source_scale.get()
+    }
+
+    pub const fn source_flip_horizontal(self) -> bool {
+        self.source_flip_horizontal
+    }
+
+    pub const fn source_flip_vertical(self) -> bool {
+        self.source_flip_vertical
+    }
+
     pub const fn feather(self) -> UnitInterval {
         self.feather
     }
@@ -147,6 +241,12 @@ impl RetouchSpot {
 
     pub(super) fn validate(self) -> Result<(), RecipeValidationError> {
         Self::new(self.center_x, self.center_y, self.radius_level_zero_pixels)?
+            .with_source_transform(
+                self.source_rotation_degrees.get(),
+                self.source_scale.get(),
+                self.source_flip_horizontal,
+                self.source_flip_vertical,
+            )?
             .with_behavior(
                 self.mode,
                 self.source_offset_x_radii.get(),
@@ -201,6 +301,14 @@ pub struct RetouchStroke {
     source_offset_x_radii: FiniteF64,
     #[serde(default = "default_finite_zero")]
     source_offset_y_radii: FiniteF64,
+    #[serde(default = "default_finite_zero")]
+    source_rotation_degrees: FiniteF64,
+    #[serde(default = "default_retouch_source_scale")]
+    source_scale: FiniteF64,
+    #[serde(default)]
+    source_flip_horizontal: bool,
+    #[serde(default)]
+    source_flip_vertical: bool,
     #[serde(default = "default_retouch_feather")]
     feather: UnitInterval,
     #[serde(default = "default_retouch_strength")]
@@ -243,6 +351,10 @@ impl RetouchStroke {
             mode: RetouchMode::Heal,
             source_offset_x_radii: default_finite_zero(),
             source_offset_y_radii: default_finite_zero(),
+            source_rotation_degrees: default_finite_zero(),
+            source_scale: default_retouch_source_scale(),
+            source_flip_horizontal: false,
+            source_flip_vertical: false,
             feather: default_retouch_feather(),
             strength: default_retouch_strength(),
         })
@@ -253,8 +365,8 @@ impl RetouchStroke {
     ///
     /// # Errors
     ///
-    /// Returns an error when either source displacement is non-finite or
-    /// outside the supported `[-8, 8]` radius range.
+    /// Returns an error when either source displacement is non-finite or its
+    /// radius-scaled donor footprint exceeds the full-detail apron.
     pub fn with_behavior(
         mut self,
         mode: RetouchMode,
@@ -264,15 +376,51 @@ impl RetouchStroke {
     ) -> Result<Self, RecipeValidationError> {
         let horizontal_offset = FiniteF64::new(horizontal_source_offset_radii)?;
         let vertical_offset = FiniteF64::new(vertical_source_offset_radii)?;
-        if !(-8.0..=8.0).contains(&horizontal_offset.get())
-            || !(-8.0..=8.0).contains(&vertical_offset.get())
-        {
+        if !valid_source_offsets(
+            self.radius_level_zero_pixels,
+            horizontal_offset.get(),
+            vertical_offset.get(),
+            self.source_scale.get(),
+        ) {
             return Err(RecipeValidationError::InvalidRetouchSourceOffset);
         }
         self.mode = mode;
         self.source_offset_x_radii = horizontal_offset;
         self.source_offset_y_radii = vertical_offset;
         self.feather = feather;
+        Ok(self)
+    }
+
+    /// Applies a bounded donor-coordinate transform around the stroke's
+    /// normalized bounds center.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the rotation, scale, or resulting donor footprint
+    /// is outside the supported retouch bounds.
+    pub fn with_source_transform(
+        mut self,
+        rotation_degrees: f64,
+        scale: f64,
+        flip_horizontal: bool,
+        flip_vertical: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        let rotation = FiniteF64::new(rotation_degrees)?;
+        let scale = FiniteF64::new(scale)?;
+        if !valid_source_transform(rotation.get(), scale.get())
+            || !valid_source_offsets(
+                self.radius_level_zero_pixels,
+                self.source_offset_x_radii.get(),
+                self.source_offset_y_radii.get(),
+                scale.get(),
+            )
+        {
+            return Err(RecipeValidationError::InvalidRetouchSourceTransform);
+        }
+        self.source_rotation_degrees = rotation;
+        self.source_scale = scale;
+        self.source_flip_horizontal = flip_horizontal;
+        self.source_flip_vertical = flip_vertical;
         Ok(self)
     }
 
@@ -303,6 +451,22 @@ impl RetouchStroke {
         self.source_offset_y_radii.get()
     }
 
+    pub const fn source_rotation_degrees(&self) -> f64 {
+        self.source_rotation_degrees.get()
+    }
+
+    pub const fn source_scale(&self) -> f64 {
+        self.source_scale.get()
+    }
+
+    pub const fn source_flip_horizontal(&self) -> bool {
+        self.source_flip_horizontal
+    }
+
+    pub const fn source_flip_vertical(&self) -> bool {
+        self.source_flip_vertical
+    }
+
     pub const fn feather(&self) -> UnitInterval {
         self.feather
     }
@@ -313,6 +477,12 @@ impl RetouchStroke {
 
     pub(super) fn validate(&self) -> Result<(), RecipeValidationError> {
         Self::new(self.points.clone(), self.radius_level_zero_pixels)?
+            .with_source_transform(
+                self.source_rotation_degrees.get(),
+                self.source_scale.get(),
+                self.source_flip_horizontal,
+                self.source_flip_vertical,
+            )?
             .with_behavior(
                 self.mode,
                 self.source_offset_x_radii.get(),
