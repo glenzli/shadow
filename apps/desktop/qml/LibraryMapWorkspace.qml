@@ -69,17 +69,6 @@ Item {
             mapWorkspace.libraryContext.openMapProviderSettingsRequested()
     }
 
-    LibraryLocationCompletionDialog {
-        id: locationCompletionDialog
-        transientParent: mapWorkspace.Window.window
-        controller: mapWorkspace.libraryContext.controller
-        onUseGroupRequested: (targets, hasSuggestion, latitude, longitude, placeName) => {
-            locationBatchDialog.presentWithSource(
-                targets, hasSuggestion, latitude, longitude, placeName,
-                hasSuggestion ? "location-completion:event-anchor" : "manual-map")
-        }
-    }
-
     Connections {
         target: mapWorkspace.libraryContext
 
@@ -160,13 +149,6 @@ Item {
                     }
 
                     Item { Layout.fillWidth: true }
-
-                    ShadowIconButton {
-                        source: "qrc:/icons/pin.svg"
-                        toolTipText: qsTr("Complete missing photo locations")
-                        accessibleName: toolTipText
-                        onClicked: locationCompletionDialog.present()
-                    }
 
                     ShadowIconButton {
                         checkable: true

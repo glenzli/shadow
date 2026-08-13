@@ -163,9 +163,11 @@ Item {
         SinglePhotoFilmstrip
     }
     property int galleryPresentation: ReviewWorkspace.JustifiedGrid
+    property bool locationCompletionActive: false
     property string precisionOpenStatus: ""
 
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
+        && !locationCompletionActive
         && !comparison.compareMode
         && !culling.arenaActive
         && !controller.scanning && !controller.refreshing
@@ -177,6 +179,7 @@ Item {
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
         && selectedRepresentationId.length > 0
         && (selectedIsRemote || selectedPath.length > 0)
+        && !locationCompletionActive
         && !comparison.compareMode && !culling.arenaActive
         && !controller.remoteLibraryMaterializing
     readonly property var currentLibraryAlbum: {
@@ -431,6 +434,24 @@ Item {
             selectedLongitude,
             selectedResolvedPlaceName.length > 0
                 ? selectedResolvedPlaceName : selectedPlaceName)
+    }
+
+    function openLocationBatchForTargets(targets, hasCoordinate,
+                                         latitude, longitude, placeName,
+                                         sourceLabel) {
+        if (!targets || targets.length === 0 || controller.libraryMetadataBusy)
+            return false
+        return locationBatchDialog.presentWithSource(
+                    targets, hasCoordinate, latitude, longitude, placeName,
+                    sourceLabel)
+    }
+
+    function openLocationCompletion() {
+        if (comparison.compareMode || culling.arenaActive)
+            return false
+        galleryPresentation = ReviewWorkspace.JustifiedGrid
+        locationCompletionActive = true
+        return locationCompletionGallery.present()
     }
 
     function relinkUnavailablePhoto(photoId, locationId, title, sourcePath) {
@@ -744,6 +765,7 @@ Item {
             id: gallerySurface
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: !review.locationCompletionActive
             workspace: review
             onOpenLibraryManagementRequested:
                 review.openLibraryManagementRequested()
@@ -753,8 +775,18 @@ Item {
             onExportRequested: targets => review.exportRequested(targets)
         }
 
+        LibraryLocationCompletionGallery {
+            id: locationCompletionGallery
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: review.locationCompletionActive
+            workspace: review
+            onCloseRequested: review.locationCompletionActive = false
+        }
+
         ReviewPhotoInspector {
-            visible: !review.comparison.compareMode
+            visible: !review.locationCompletionActive
+                && !review.comparison.compareMode
             Layout.preferredWidth: visible ? 278 : 0
             review: review
             metadataPresentation: metadataPresentation

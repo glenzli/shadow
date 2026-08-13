@@ -219,6 +219,10 @@ class ReviewModel final : public QAbstractListModel {
     /// Builds a generation-bound comparison source. Grid roles use their own
     /// immutable lifetime contract when projected through data().
     [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
+    /// Produces the same stable grid-lifetime source used by Gallery rows for
+    /// a bounded event target. Location completion is only a presentation
+    /// grouping, so it must not create a second image-provider contract.
+    [[nodiscard]] QString gridVisualSourceFor(const QString& ticket) const;
     [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(const QString& photo_id) const;
     [[nodiscard]] std::optional<ReviewLibraryStateValue>
     libraryStateFor(const QString& photo_id) const;

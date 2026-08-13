@@ -687,6 +687,14 @@ QString ReviewModel::visualSourceFor(const QString& ticket) const {
     );
 }
 
+QString ReviewModel::gridVisualSourceFor(const QString& ticket) const {
+    return reviewVisualSource(
+        ticket,
+        generation_.load(std::memory_order_acquire),
+        ReviewVisualLifetime::Grid
+    );
+}
+
 std::optional<ReviewDecisionValue> ReviewModel::decisionFor(const QString& photo_id) const {
     const auto item =
         std::find_if(items_.cbegin(), items_.cend(), [&photo_id](const ReviewItem& candidate) {

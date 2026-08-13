@@ -11609,157 +11609,35 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
 </context>
 <context>
-    <name>LibraryLocationCompletionDialog</name>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="21"/>
-        <source>Complete Photo Locations</source>
-        <translation>补全照片位置</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="37"/>
-        <source>Unknown time</source>
-        <translation>未知时间</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="87"/>
-        <source>Complete locations</source>
-        <translation>补全位置</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="96"/>
-        <source>Review time-based events before assigning a location. Original EXIF remains unchanged.</source>
-        <translation>先按拍摄时间核对事件，再设置位置。原片 EXIF 保持不变。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="108"/>
-        <source>Close</source>
-        <translation>关闭</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="124"/>
-        <source>Capture range</source>
-        <translation>拍摄范围</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="131"/>
-        <source>Start YYYY-MM-DD</source>
-        <translation>开始 YYYY-MM-DD</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="141"/>
-        <source>to</source>
-        <translation>至</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="148"/>
-        <source>End YYYY-MM-DD</source>
-        <translation>结束 YYYY-MM-DD</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="157"/>
-        <source>Refresh</source>
-        <translation>刷新</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="169"/>
-        <source>Finding events…</source>
-        <translation>正在查找事件…</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="179"/>
-        <source>Only photos inside this capture range are considered.</source>
-        <translation>仅处理此拍摄范围内的照片。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="193"/>
-        <source>Showing the first 4,096 photos in this range. Narrow the capture range to review more.</source>
-        <translation>当前仅显示此范围的前 4,096 张照片。缩小拍摄范围可继续查看。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="226"/>
-        <source>%L1 photos without location</source>
-        <translation>%L1 张没有位置的照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="236"/>
-        <source>Suggested from %L1 nearby located photos: %2</source>
-        <translation>根据附近 %L1 张已有位置的照片建议：%2</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="238"/>
-        <source>Suggested from %L1 nearby located photos</source>
-        <translation>根据附近 %L1 张已有位置的照片建议</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="247"/>
-        <source>No safe location suggestion for this event. Choose a place on the map.</source>
-        <translation>这个事件没有可靠的位置建议。请在地图上选择地点。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="267"/>
-        <source>Review suggestion</source>
-        <translation>核对建议</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="267"/>
-        <source>Choose location</source>
-        <translation>选择位置</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="293"/>
-        <source>No photos without location in this range</source>
-        <translation>此范围内没有缺失位置的照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="70"/>
-        <source>Choose a reference photo or video folder</source>
-        <translation>选择参考照片或视频文件夹</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="145"/>
-        <source>Reference photo and video folders</source>
-        <translation>参考照片和视频文件夹</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="153"/>
-        <source>Read only capture time and GPS from a phone or camera folder. These files are not imported into your Library.</source>
-        <translation>仅读取手机或相机文件夹中的拍摄时间和 GPS。这些文件不会导入图库。</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="169"/>
-        <source>Add folder</source>
-        <translation>添加文件夹</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="184"/>
-        <source>No reference folder added</source>
-        <translation>尚未添加参考文件夹</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="228"/>
-        <source>%L1 GPS anchors</source>
-        <translation>%L1 个 GPS 锚点</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="235"/>
-        <source>Clock offset</source>
-        <translation>时钟偏移</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="247"/>
-        <source>Clock offset seconds</source>
-        <translation>时钟偏移秒数</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="251"/>
-        <source>Rescan</source>
-        <translation>重新扫描</translation>
-    </message>
-    <message>
-        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="257"/>
-        <source>Remove</source>
-        <translation>移除</translation>
-    </message>
+    <name>ReviewWorkspace</name>
+    <message><source>Unknown time</source><translation>未知时间</translation></message>
+    <message><source>Complete locations</source><translation>补全位置</translation></message>
+    <message><source>Review capture events, then preview a location before applying it.</source><translation>按拍摄事件核对照片，再预览位置后应用。</translation></message>
+    <message><source>Finding events…</source><translation>正在查找事件…</translation></message>
+    <message><source>Reference folders</source><translation>参考文件夹</translation></message>
+    <message><source>Capture range</source><translation>拍摄范围</translation></message>
+    <message><source>Start YYYY-MM-DD</source><translation>开始 YYYY-MM-DD</translation></message>
+    <message><source>to</source><translation>至</translation></message>
+    <message><source>End YYYY-MM-DD</source><translation>结束 YYYY-MM-DD</translation></message>
+    <message><source>Refresh</source><translation>刷新</translation></message>
+    <message><source>Only photos inside this capture range are considered.</source><translation>仅处理此拍摄范围内的照片。</translation></message>
+    <message><source>Showing the first 4,096 photos in this range. Narrow the capture range to review more.</source><translation>当前仅显示此范围的前 4,096 张照片。缩小拍摄范围可继续查看。</translation></message>
+    <message><source>Suggested: %1 · %2 nearby anchors</source><translation>建议：%1 · 附近 %2 个锚点</translation></message>
+    <message><source>Suggested from %1 nearby anchors</source><translation>根据附近 %1 个锚点建议</translation></message>
+    <message><source>No safe suggestion — choose a location on the map</source><translation>没有可靠建议，请在地图上选择位置</translation></message>
+    <message><source>Preview suggestion</source><translation>预览建议</translation></message>
+    <message><source>Choose location</source><translation>选择位置</translation></message>
+    <message><source>No photos without location in this range</source><translation>此范围内没有缺失位置的照片</translation></message>
+    <message><source>Choose a reference photo or video folder</source><translation>选择参考照片或视频文件夹</translation></message>
+    <message><source>Reference photo and video folders</source><translation>参考照片和视频文件夹</translation></message>
+    <message><source>Read only capture time and GPS from a phone or camera folder. These files are not imported into your Library.</source><translation>仅读取手机或相机文件夹中的拍摄时间和 GPS。这些文件不会导入图库。</translation></message>
+    <message><source>Add folder</source><translation>添加文件夹</translation></message>
+    <message><source>No reference folder added</source><translation>尚未添加参考文件夹</translation></message>
+    <message><source>%L1 GPS anchors</source><translation>%L1 个 GPS 锚点</translation></message>
+    <message><source>Clock offset</source><translation>时钟偏移</translation></message>
+    <message><source>Clock offset seconds</source><translation>时钟偏移秒数</translation></message>
+    <message><source>Rescan</source><translation>重新扫描</translation></message>
+    <message><source>Remove</source><translation>移除</translation></message>
 </context>
 <context>
     <name>ToneCurveEditor</name>

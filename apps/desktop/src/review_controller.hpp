@@ -563,6 +563,7 @@ class ReviewController final : public QObject {
         qlonglong capture_start_unix_seconds,
         qlonglong capture_end_unix_seconds
     );
+    Q_INVOKABLE QString locationCompletionVisualSource(const QString& visual_handle) const;
     Q_INVOKABLE void refreshLocationReferenceLibraries();
     Q_INVOKABLE void addLocationReferenceLibrary(
         const QUrl& root_url,

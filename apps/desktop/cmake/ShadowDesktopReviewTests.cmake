@@ -1020,15 +1020,15 @@
     )
 
     add_executable(
-        shadow-library-location-completion-dialog-test
-        tests/library_location_completion_dialog_test.cpp
+        shadow-library-location-completion-gallery-test
+        tests/library_location_completion_gallery_test.cpp
     )
     target_compile_features(
-        shadow-library-location-completion-dialog-test
+        shadow-library-location-completion-gallery-test
         PRIVATE cxx_std_20
     )
     target_link_libraries(
-        shadow-library-location-completion-dialog-test
+        shadow-library-location-completion-gallery-test
         PRIVATE
             Qt6::Gui
             Qt6::Qml
@@ -1036,41 +1036,41 @@
             Qt6::QuickControls2
     )
     qt_add_qml_module(
-        shadow-library-location-completion-dialog-test
-        URI Shadow.LibraryLocationCompletionDialogContract
+        shadow-library-location-completion-gallery-test
+        URI Shadow.LibraryLocationCompletionGalleryContract
         VERSION 1.0
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
-            qml/LibraryLocationCompletionDialog.qml
+            qml/LibraryLocationCompletionGallery.qml
             qml/ShadowIconButton.qml
             qml/ShadowIcon.qml
             qml/Theme.qml
     )
     qt_add_resources(
-        shadow-library-location-completion-dialog-test
-        shadow-library-location-completion-dialog-test-icons
+        shadow-library-location-completion-gallery-test
+        shadow-library-location-completion-gallery-test-icons
         PREFIX "/icons"
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
-        FILES icons/close.svg
+        FILES icons/back-to-library.svg
     )
     if(MSVC)
         target_compile_options(
-            shadow-library-location-completion-dialog-test
+            shadow-library-location-completion-gallery-test
             PRIVATE /W4 /permissive-
         )
     else()
         target_compile_options(
-            shadow-library-location-completion-dialog-test
+            shadow-library-location-completion-gallery-test
             PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
         )
     endif()
     add_test(
-        NAME shadow-desktop-library-location-completion-dialog
-        COMMAND shadow-library-location-completion-dialog-test
+        NAME shadow-desktop-library-location-completion-gallery
+        COMMAND shadow-library-location-completion-gallery-test
     )
     set_tests_properties(
-        shadow-desktop-library-location-completion-dialog
+        shadow-desktop-library-location-completion-gallery
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

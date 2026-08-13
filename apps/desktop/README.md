@@ -941,8 +941,9 @@ Review presentation keeps the workspace as the composition and compatibility sur
   separately reads bounded capture-time pages and groups timestamped photos without effective GPS
   into conservative two-hour events. Existing coordinates only become a suggestion when their
   event-local spread is small; the coordinator neither guesses locations nor persists changes.
-  [`qml/LibraryLocationCompletionDialog.qml`](qml/LibraryLocationCompletionDialog.qml) owns the
-  optional capture-range UI and delegates a selected event to
+  [`qml/LibraryLocationCompletionGallery.qml`](qml/LibraryLocationCompletionGallery.qml) owns the
+  Gallery-native event review: it presents each conservative time group with its photo previews,
+  optional capture range, and reference-folder evidence. It delegates one explicit event to
   [`qml/LibraryLocationBatchDialog.qml`](qml/LibraryLocationBatchDialog.qml), preserving the
   existing preview-then-accept non-destructive write boundary.
 - [`src/review_library_organization_coordinator.cpp`](src/review_library_organization_coordinator.cpp)

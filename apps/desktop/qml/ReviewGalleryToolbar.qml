@@ -208,6 +208,14 @@ Rectangle {
             onClicked: toolbar.workspace.openLocationBatch()
         }
 
+        ShadowIconButton {
+            source: "qrc:/icons/pin.svg"
+            toolTipText: qsTr("Complete missing photo locations")
+            accessibleName: toolTipText
+            enabled: !toolbar.workspace.controller.locationCompletionBusy
+            onClicked: toolbar.workspace.openLocationCompletion()
+        }
+
         Label {
             visible: toolbar.workspace.selectedPhotoCount > 1
             text: qsTr("%L1 selected").arg(

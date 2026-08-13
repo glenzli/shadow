@@ -29,3 +29,7 @@ void ReviewController::requestLocationCompletion(
     }
     location_completion_coordinator_.request(currentLibraryFilter(), start, end);
 }
+
+QString ReviewController::locationCompletionVisualSource(const QString& visual_handle) const {
+    return model_.gridVisualSourceFor(visual_handle);
+}

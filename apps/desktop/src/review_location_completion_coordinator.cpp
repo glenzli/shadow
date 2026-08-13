@@ -59,8 +59,13 @@ struct TimelineObservation final {
 [[nodiscard]] QVariantMap target_variant(const BackendReviewItem& item) {
     return {
         {QStringLiteral("photoId"), item.photo_id},
+        {QStringLiteral("representationId"), item.representation_id},
+        {QStringLiteral("visualHandle"), item.visual_handle},
         {QStringLiteral("sourcePath"), item.source_path},
         {QStringLiteral("title"), item.title},
+        {QStringLiteral("sourceAvailable"), item.source_available},
+        {QStringLiteral("visualWidth"), item.visual_width},
+        {QStringLiteral("visualHeight"), item.visual_height},
     };
 }
 

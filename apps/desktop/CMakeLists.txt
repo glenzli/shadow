@@ -887,7 +887,7 @@ qt_add_qml_module(
         qml/LibraryCaptureTimeBatchDialog.qml
         qml/LibraryLocationBatchDialog.qml
         qml/LibraryLocationBatchState.qml
-        qml/LibraryLocationCompletionDialog.qml
+        qml/LibraryLocationCompletionGallery.qml
         qml/LibraryMetadataEditor.qml
         qml/LibraryMapLocationPlacementState.qml
         qml/LibraryWebMapSurface.qml
