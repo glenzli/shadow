@@ -117,9 +117,11 @@ and gates, not implemented inference.
 - A small deterministic Bradley-Terry/logistic linear preference head over frozen
   feature vectors. It is a real, serializable CPU update path, but it is not a
   substitute for the still-unselected image feature extractor.
-- A macOS SAM 2.1 Small Core ML process provider for side-loaded model packages.
-  The one-shot route remains available for diagnostics; the product route owns
-  a resident child, compiled models, and one rendered-image embedding so point
+- A typed Infer Runtime SAM 2.1 soft-mask Consumer. Shadow verifies the native
+  256×256 Gray8 probability raster and keeps only product-side staging and
+  apply/discard authority; Infer Runtime owns the user-installed model,
+  compiled cache, resident worker, and cancellation. The old macOS Core ML
+  process provider remains only a lower-level diagnostic route, so point
   refinements run only the prompt encoder and decoder. It validates the exact
   pinned nine-file artifact inventory, uses a bounded JSON-lines protocol,
   cooperatively cancels by terminating the child, and retries one complete

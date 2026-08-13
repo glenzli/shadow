@@ -1,10 +1,9 @@
-//! Inactive Shadow boundary for experimental RAW foundation materialization.
+//! Typed Shadow boundary for Infer Runtime RAW foundation materialization.
 //!
-//! The official `infer-runtime-client` 1.0.0 surface intentionally has no RAW
-//! module. Shadow preserves request/cache identities and the legacy-default
-//! product boundary, but the explicit Infer override fails closed until the SDK
-//! gains typed ticket, handle-lease, execution, cancellation, and provenance
-//! support. No second Core Discovery parser or generic transport remains here.
+//! Shadow preserves the request/cache identities and sends only already-open
+//! staging descriptors through the official lease and `SCM_RIGHTS` SDK. The
+//! Runtime owns model execution; no generic HTTP RAW transport, file path, or
+//! pixel payload is introduced here.
 
 use std::{fmt, fs::File};
 
@@ -20,8 +19,6 @@ const STAGING_SAMPLE_FORMAT: &str = "uint16-le-row-major-active-bayer";
 const MAX_SOURCE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_DIMENSION: u32 = 100_000;
 const MAX_ID_BYTES: usize = 256;
-const SDK_RAW_DELTA: &str =
-    "infer-runtime-client@1.0.0 has no typed RAW ticket/SCM_RIGHTS/execution/cancellation module";
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -250,6 +247,8 @@ impl InferRawFoundationJob {
 
 pub struct InferRawFoundationLeaseGrant {
     job: InferRawFoundationJob,
+    ticket_id: String,
+    binding: infer_runtime_client::RawFoundationLeaseBinding,
     expires_at_unix_ms: u64,
     daemon_generation: String,
 }
@@ -281,6 +280,7 @@ impl InferRawFoundationLeaseGrant {
 
 pub struct InferRawFoundationRegisteredLease {
     job: InferRawFoundationJob,
+    lease_id: String,
     expires_at_unix_ms: u64,
 }
 
@@ -351,11 +351,11 @@ pub struct InferRawFoundationCancellation {
 }
 
 pub trait InferRawFoundationProvider {
-    /// Begins the inactive typed RAW protocol.
+    /// Begins the typed RAW protocol without placing a path or pixels on HTTP.
     ///
     /// # Errors
     ///
-    /// Returns the exact SDK RAW-surface blocker after request validation.
+    /// Returns request validation, discovery, contract, or transport failures.
     fn begin_raw_foundation(
         &self,
         request: &InferRawFoundationRequest,
@@ -365,7 +365,7 @@ pub trait InferRawFoundationProvider {
     ///
     /// # Errors
     ///
-    /// Returns the exact SDK RAW-surface blocker.
+    /// Returns handle-lease registration failures.
     fn register_raw_foundation_handles(
         &self,
         grant: InferRawFoundationLeaseGrant,
@@ -377,7 +377,7 @@ pub trait InferRawFoundationProvider {
     ///
     /// # Errors
     ///
-    /// Returns the exact SDK RAW-surface blocker.
+    /// Returns Runtime execution failures.
     fn execute_raw_foundation(
         &self,
         lease: InferRawFoundationRegisteredLease,
@@ -387,7 +387,7 @@ pub trait InferRawFoundationProvider {
     ///
     /// # Errors
     ///
-    /// Returns the exact SDK RAW-surface blocker.
+    /// Returns Runtime cancellation failures.
     fn cancel_raw_foundation(
         &self,
         job: &InferRawFoundationJob,
@@ -397,7 +397,7 @@ pub trait InferRawFoundationProvider {
     ///
     /// # Errors
     ///
-    /// Returns request validation or the exact SDK RAW-surface blocker.
+    /// Returns request validation or typed Runtime failures.
     fn materialize_raw_foundation(
         &self,
         request: &InferRawFoundationRequest,
@@ -417,14 +417,14 @@ pub trait InferRawFoundationProvider {
     }
 }
 
-/// Reports the activation blocker shared by product availability probes and
-/// the inactive execution adapter.
+/// Confirms that the pinned official SDK owns the typed RAW control and
+/// descriptor-transfer surface. Availability remains a live Runtime concern.
 ///
 /// # Errors
 ///
-/// Always returns the exact missing official SDK RAW-module delta.
+/// This static compatibility check currently cannot fail.
 pub fn infer_raw_foundation_sdk_status() -> Result<(), InferRuntimeClientError> {
-    Err(raw_sdk_unavailable())
+    Ok(())
 }
 
 impl InferRawFoundationProvider for InferRuntimeClient {
@@ -433,38 +433,131 @@ impl InferRawFoundationProvider for InferRuntimeClient {
         request: &InferRawFoundationRequest,
     ) -> Result<InferRawFoundationLeaseGrant, InferRuntimeClientError> {
         request.validate()?;
-        infer_raw_foundation_sdk_status()?;
-        unreachable!("the current SDK RAW status always fails closed")
+        let grant = self.block_on(self.sdk().create_raw_foundation_lease(
+            &infer_runtime_client::RawFoundationLeaseRequest {
+                model: RAW_FOUNDATION_INTENT.into(),
+                priority: match request.priority {
+                    InferRawFoundationPriority::Interactive => {
+                        infer_runtime_client::RawFoundationPriority::Interactive
+                    }
+                    InferRawFoundationPriority::Background => {
+                        infer_runtime_client::RawFoundationPriority::Background
+                    }
+                },
+                deadline_ms: request.deadline_ms,
+                source_revision: request.source_revision.clone(),
+                source: infer_runtime_client::RawFoundationSource {
+                    sha256: request.source.sha256.clone(),
+                    size_bytes: request.source.size_bytes,
+                    pixel_contract_sha256: request.source.pixel_contract_sha256.clone(),
+                },
+                staging: infer_runtime_client::RawFoundationStagingDescriptor {
+                    schema: request.staging.schema.clone(),
+                    width: request.staging.width,
+                    height: request.staging.height,
+                    cfa: request.staging.cfa.clone(),
+                    black_levels: request.staging.black_levels,
+                    white_levels: request.staging.white_levels,
+                    sample_format: request.staging.sample_format.clone(),
+                    sample_bytes: request.staging.sample_bytes,
+                    decoded_samples_sha256: request.staging.decoded_samples_sha256.clone(),
+                    decoder_provider_id: request.staging.decoder_provider_id.clone(),
+                    decoder_provider_version: request.staging.decoder_provider_version.clone(),
+                },
+            },
+        ))?;
+        Ok(InferRawFoundationLeaseGrant {
+            job: InferRawFoundationJob { id: grant.job_id },
+            ticket_id: grant.ticket_id,
+            binding: grant.binding,
+            expires_at_unix_ms: grant.expires_at_unix_ms,
+            daemon_generation: grant.daemon_generation,
+        })
     }
 
     fn register_raw_foundation_handles(
         &self,
-        _grant: InferRawFoundationLeaseGrant,
-        _input: &File,
-        _output: &File,
+        grant: InferRawFoundationLeaseGrant,
+        input: &File,
+        output: &File,
     ) -> Result<InferRawFoundationRegisteredLease, InferRuntimeClientError> {
-        Err(raw_sdk_unavailable())
+        let lease_id = self.sdk().register_raw_foundation_handles(
+            &infer_runtime_client::RawFoundationLeaseGrant {
+                object: "raw.foundation_lease".into(),
+                job_id: grant.job.id.clone(),
+                ticket_id: grant.ticket_id,
+                expires_at_unix_ms: grant.expires_at_unix_ms,
+                daemon_generation: grant.daemon_generation,
+                binding: grant.binding,
+            },
+            input,
+            output,
+        )?;
+        Ok(InferRawFoundationRegisteredLease {
+            job: grant.job,
+            lease_id,
+            expires_at_unix_ms: grant.expires_at_unix_ms,
+        })
     }
 
     fn execute_raw_foundation(
         &self,
-        _lease: InferRawFoundationRegisteredLease,
+        lease: InferRawFoundationRegisteredLease,
     ) -> Result<InferRawFoundationResult, InferRuntimeClientError> {
-        Err(raw_sdk_unavailable())
+        let response = self.block_on(
+            self.sdk()
+                .execute_raw_foundation(lease.job.id(), &lease.lease_id),
+        )?;
+        let artifact = response.artifact;
+        Ok(InferRawFoundationResult {
+            job_id: response.id,
+            source_revision: response.source_revision,
+            artifact: InferRawFoundationArtifactReceipt {
+                cache_key_sha256: artifact.cache_key_sha256,
+                artifact_identity_sha256: artifact.artifact_identity_sha256,
+                artifact_file_sha256: artifact.artifact_file_sha256,
+                artifact_file_bytes: artifact.artifact_file_bytes,
+                sequence_sha256: artifact.sequence_sha256,
+                payload_sha256: artifact.payload_sha256,
+                output_width: u32::try_from(artifact.output_width)
+                    .map_err(|_| raw_input("RAW output width exceeds Shadow's bound"))?,
+                output_height: u32::try_from(artifact.output_height)
+                    .map_err(|_| raw_input("RAW output height exceeds Shadow's bound"))?,
+                tile_inferences: u64::try_from(artifact.tile_inferences)
+                    .map_err(|_| raw_input("RAW tile count exceeds Shadow's bound"))?,
+                maximum_accumulator_rows: u32::try_from(artifact.maximum_accumulator_rows)
+                    .map_err(|_| raw_input("RAW accumulator rows exceed Shadow's bound"))?,
+                explicit_full_output_buffers: u32::try_from(artifact.explicit_full_output_buffers)
+                    .map_err(|_| raw_input("RAW output buffer count exceeds Shadow's bound"))?,
+                implementation_revision: artifact.implementation_revision,
+                cache_identity: artifact.cache_identity,
+            },
+            provenance: InferRawFoundationProvenance {
+                provider: response.provenance.provider,
+                deployment: response.provenance.deployment,
+                model_profile: response.provenance.model_profile,
+                model_build: response.provenance.model_build,
+                physical_model: response.provenance.physical_model,
+                exact_revision: response.provenance.exact_revision,
+                graph_sha256: response.provenance.graph_sha256,
+                implementation_revision: response.provenance.implementation_revision,
+                cache_identity: response.provenance.cache_identity,
+                execution_provider: response.provenance.execution_provider,
+                runtime_version: response.provenance.runtime_version,
+                precision: response.provenance.precision,
+            },
+        })
     }
 
     fn cancel_raw_foundation(
         &self,
-        _job: &InferRawFoundationJob,
+        job: &InferRawFoundationJob,
     ) -> Result<InferRawFoundationCancellation, InferRuntimeClientError> {
-        Err(raw_sdk_unavailable())
+        let response = self.block_on(self.sdk().cancel_raw_foundation(job.id()))?;
+        Ok(InferRawFoundationCancellation {
+            job_id: response.id,
+        })
     }
-}
-
-fn raw_sdk_unavailable() -> InferRuntimeClientError {
-    InferRuntimeClientError::Input(format!(
-        "experimental RAW foundation is inactive: {SDK_RAW_DELTA}"
-    ))
 }
 
 fn raw_input(message: &str) -> InferRuntimeClientError {

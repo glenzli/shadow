@@ -2737,10 +2737,9 @@ fn open_desktop_session_at(
         &subject_mask_paths.derived_raster_store_root,
     )?;
     let subject_mask_runtime = subject_mask_runtime::SubjectMaskRuntime::new(
-        subject_mask_paths.provider_executable,
-        subject_mask_paths.model_directory,
-        subject_mask_paths.manifest_path,
         subject_mask_paths.scratch_root,
+        subject_mask_paths.infer_base_url_override,
+        subject_mask_paths.infer_credential_file,
     )?;
     let raw_foundation_paths = raw_foundation_runtime::config::RawFoundationRuntimePaths::discover(
         &std::env::current_exe().context("resolve desktop executable path")?,

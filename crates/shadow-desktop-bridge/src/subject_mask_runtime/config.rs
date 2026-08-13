@@ -1,4 +1,4 @@
-//! Desktop filesystem layout for the side-loaded SAM provider.
+//! Desktop filesystem layout for Infer Runtime subject-mask consumption.
 
 use std::{
     ffi::OsString,
@@ -7,19 +7,18 @@ use std::{
 
 use thiserror::Error;
 
-const PROVIDER_OVERRIDE: &str = "SHADOW_SAM2_COREML_PROVIDER_PATH";
-const MODEL_OVERRIDE: &str = "SHADOW_SAM2_COREML_MODEL_DIR";
-const MANIFEST_OVERRIDE: &str = "SHADOW_SAM2_COREML_MANIFEST_PATH";
+const INFER_BASE_URL_OVERRIDE: &str = "SHADOW_INFER_BASE_URL";
+const INFER_CREDENTIAL_OVERRIDE: &str = "SHADOW_INFER_CREDENTIAL_FILE";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct SubjectMaskRuntimePaths {
-    pub(crate) provider_executable: PathBuf,
-    pub(crate) model_directory: PathBuf,
-    pub(crate) manifest_path: PathBuf,
     pub(crate) scratch_root: PathBuf,
     /// Durable generated objects are deliberately a sibling of `cache/`.
     /// Ordinary preview-cache removal must never invalidate a persisted Recipe.
     pub(crate) derived_raster_store_root: PathBuf,
+    /// Explicit development override only; normal operation uses discovery.
+    pub(crate) infer_base_url_override: Option<String>,
+    pub(crate) infer_credential_file: PathBuf,
 }
 
 impl SubjectMaskRuntimePaths {
@@ -35,7 +34,7 @@ impl SubjectMaskRuntimePaths {
         cache_root: &Path,
         environment: impl Fn(&str) -> Option<OsString>,
     ) -> Result<Self, SubjectMaskRuntimePathError> {
-        let executable_directory = desktop_executable
+        let _ = desktop_executable
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
             .ok_or(SubjectMaskRuntimePathError::ExecutableDirectory)?;
@@ -44,22 +43,20 @@ impl SubjectMaskRuntimePaths {
             .filter(|path| !path.as_os_str().is_empty())
             .ok_or(SubjectMaskRuntimePathError::ApplicationDataDirectory)?;
 
-        let provider_executable = override_path(&environment, PROVIDER_OVERRIDE)
-            .unwrap_or_else(|| executable_directory.join("shadow-sam2-coreml-provider"));
-        let manifest_path = override_path(&environment, MANIFEST_OVERRIDE)
-            .unwrap_or_else(|| executable_directory.join("shadow-sam2-coreml-model-manifest.json"));
-        let model_directory = override_path(&environment, MODEL_OVERRIDE).unwrap_or_else(|| {
-            application_data_root
-                .join("models")
-                .join("apple")
-                .join("coreml-sam2.1-small")
-        });
         Ok(Self {
-            provider_executable,
-            model_directory,
-            manifest_path,
-            scratch_root: cache_root.join("ai").join("sam2-coreml"),
+            scratch_root: cache_root.join("ai").join("subject-mask"),
             derived_raster_store_root: application_data_root.join("derived-rasters"),
+            infer_base_url_override: environment(INFER_BASE_URL_OVERRIDE)
+                .filter(|value| !value.is_empty())
+                .map(OsString::into_string)
+                .transpose()
+                .map_err(|_| SubjectMaskRuntimePathError::InvalidInferBaseUrl)?,
+            infer_credential_file: override_path(&environment, INFER_CREDENTIAL_OVERRIDE)
+                .unwrap_or_else(|| {
+                    application_data_root
+                        .join("credentials")
+                        .join("infer-runtime-shadow.token")
+                }),
         })
     }
 }
@@ -76,6 +73,8 @@ pub(crate) enum SubjectMaskRuntimePathError {
     ExecutableDirectory,
     #[error("desktop cache root has no application-data parent")]
     ApplicationDataDirectory,
+    #[error("SHADOW_INFER_BASE_URL is not valid UTF-8")]
+    InvalidInferBaseUrl,
 }
 
 #[cfg(test)]

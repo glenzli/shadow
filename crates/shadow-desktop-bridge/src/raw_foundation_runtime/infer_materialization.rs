@@ -78,7 +78,12 @@ impl InferRawFoundationMaterializer {
 
     pub(super) fn probe_client(&self) -> Result<(), InferMaterializationError> {
         infer_raw_foundation_sdk_status()?;
-        unreachable!("the current SDK RAW status always fails closed")
+        // Discovery and credential construction remain explicit here. The
+        // actual lease/descriptor transaction starts only after Shadow's own
+        // cache miss, so a probe never exposes RAW bytes or a source path.
+        let client = self.client()?;
+        client.contract()?;
+        Ok(())
     }
 
     pub(super) fn resolve_cached(

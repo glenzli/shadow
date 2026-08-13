@@ -49,15 +49,6 @@ fn invalid_staging_still_fails_before_any_runtime_call() {
 }
 
 #[test]
-fn explicit_infer_raw_override_reports_the_exact_sdk_delta_without_transport() {
-    let credential = tempfile::NamedTempFile::new().expect("credential fixture");
-    let client =
-        InferRuntimeClient::from_credential_file("http://127.0.0.1:65534", credential.path())
-            .expect("official SDK adapter");
-    let error = client
-        .begin_raw_foundation(&request())
-        .expect_err("RAW SDK surface is intentionally absent");
-    let message = error.to_string();
-    assert!(message.contains("infer-runtime-client@1.0.0"));
-    assert!(message.contains("typed RAW ticket/SCM_RIGHTS/execution/cancellation"));
+fn pinned_sdk_exposes_typed_raw_surface_before_transport() {
+    infer_raw_foundation_sdk_status().expect("pinned SDK exposes the typed RAW surface");
 }

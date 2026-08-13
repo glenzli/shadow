@@ -14,7 +14,7 @@ mod provenance;
 
 pub use admission::{
     AdmittedExecution, LocalExecutionAdmission, LocalExecutionBinding, admit_local_execution,
-    bind_system_execution,
+    bind_local_service_execution, bind_system_execution,
 };
 pub use error::RuntimeContractError;
 pub use execution::{

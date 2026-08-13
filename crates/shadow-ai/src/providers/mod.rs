@@ -3,8 +3,9 @@
 //! The current Apple Vision owner is a non-linking skeleton. It validates the
 //! runtime boundary and returns an explicit unavailable terminal until a native
 //! Vision bridge supplies real feature-print distances.
-//! SAM 2.1 Core ML remains an explicitly installed local process and model
-//! route; this crate links neither the native framework nor model weights.
+//! Shadow's product subject-mask route is the typed local Infer Runtime
+//! consumer. The direct SAM 2.1 Core ML adapter remains diagnostic-only; this
+//! crate links neither the native framework nor model weights.
 
 mod apple_vision;
 mod infer_runtime;
@@ -17,17 +18,18 @@ pub use infer_runtime::{
     ClassificationReviewCategory, ClassificationReviewDisposition, ClassificationReviewEvidence,
     ClassificationReviewProvider, ClassificationReviewRequest, ClassificationReviewSuggestion,
     DetectedFace, DetectedFaceBatch, EmbeddedFace, FaceAnalysisProvider, FaceEmbeddingEligibility,
-    ImageEmbeddingEvidence, ImageUnderstandingEvidence, ImageUnderstandingProvenance,
-    ImageUnderstandingProvider, ImageUnderstandingQuality, InferRawFoundationArtifactReceipt,
-    InferRawFoundationCancellation, InferRawFoundationDecoderIdentity, InferRawFoundationJob,
-    InferRawFoundationLeaseGrant, InferRawFoundationPriority, InferRawFoundationProvenance,
-    InferRawFoundationProvider, InferRawFoundationRegisteredLease, InferRawFoundationRequest,
-    InferRawFoundationResult, InferRawFoundationSource, InferRawFoundationStaging,
-    InferRuntimeAttemptSnapshot, InferRuntimeCancelResult, InferRuntimeCapabilityCatalog,
-    InferRuntimeClient, InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
-    InferRuntimeJobListPage, InferRuntimeJobSnapshot, SemanticEmbeddingProvider,
-    SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance, VisionTokenizerProvenance,
-    infer_raw_foundation_sdk_status,
+    INFER_SUBJECT_MASK_CAPABILITY, ImageEmbeddingEvidence, ImageUnderstandingEvidence,
+    ImageUnderstandingProvenance, ImageUnderstandingProvider, ImageUnderstandingQuality,
+    InferRawFoundationArtifactReceipt, InferRawFoundationCancellation,
+    InferRawFoundationDecoderIdentity, InferRawFoundationJob, InferRawFoundationLeaseGrant,
+    InferRawFoundationPriority, InferRawFoundationProvenance, InferRawFoundationProvider,
+    InferRawFoundationRegisteredLease, InferRawFoundationRequest, InferRawFoundationResult,
+    InferRawFoundationSource, InferRawFoundationStaging, InferRuntimeAttemptSnapshot,
+    InferRuntimeCancelResult, InferRuntimeCapabilityCatalog, InferRuntimeClient,
+    InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
+    InferRuntimeJobListPage, InferRuntimeJobSnapshot, InferSubjectMaskEvidence,
+    SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance,
+    VisionTokenizerProvenance, infer_raw_foundation_sdk_status,
 };
 pub(crate) use rawnind_foundation_sidecar::descriptor_from_planned_verification;
 pub use rawnind_foundation_sidecar::{

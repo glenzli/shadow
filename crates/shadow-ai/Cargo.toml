@@ -8,9 +8,12 @@ authors.workspace = true
 
 [dependencies]
 blake3.workspace = true
+base64.workspace = true
 infer-runtime-client.workspace = true
+image.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 shadow-cache.workspace = true
 shadow-domain.workspace = true
 tempfile.workspace = true

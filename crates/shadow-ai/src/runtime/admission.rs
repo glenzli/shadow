@@ -220,6 +220,52 @@ pub fn bind_system_execution(
     Ok(execution)
 }
 
+/// Binds a typed loopback service execution after the consumer has verified a
+/// result attestation. Infer Runtime retains model/resource ownership; Shadow
+/// uses this binding solely to preserve a complete, local-only provenance
+/// record while it stages and applies the returned bytes.
+///
+/// # Errors
+///
+/// Returns an error when the local service route, capability, or supplied
+/// resource plan is incomplete or internally inconsistent.
+pub fn bind_local_service_execution(
+    execution_id: String,
+    request: AiJobRequest,
+    route: ExecutionRouteIdentity,
+    supported_capabilities: &BTreeSet<AiCapability>,
+    plan: RunPlan,
+    route_estimate: ResourceEstimate,
+    fallback: FallbackDisclosure,
+) -> Result<AdmittedExecution, RuntimeContractError> {
+    validate_request(&request)?;
+    validate_route(&route)?;
+    if route.provider.execution_class != ProviderExecutionClass::LocalService {
+        return Err(RuntimeContractError::WrongProviderClass {
+            expected: ProviderExecutionClass::LocalService,
+            actual: route.provider.execution_class,
+        });
+    }
+    if !matches!(route.model, AdmittedModelIdentity::RemoteService { .. }) {
+        return Err(RuntimeContractError::ProviderModelClassMismatch);
+    }
+    if !supported_capabilities.contains(&request.task.capability()) {
+        return Err(RuntimeContractError::CapabilityUnsupported(
+            request.task.capability(),
+        ));
+    }
+    let execution = AdmittedExecution {
+        execution_id,
+        request,
+        route,
+        plan: ExecutionPlanIdentity::from_plan(plan)?,
+        route_estimate,
+        fallback,
+    };
+    execution.validate()?;
+    Ok(execution)
+}
+
 fn validate_request(request: &AiJobRequest) -> Result<(), RuntimeContractError> {
     if request.contract_version != AI_JOB_REQUEST_CONTRACT_VERSION {
         return Err(RuntimeContractError::UnsupportedRequestContract(
@@ -243,9 +289,9 @@ fn validate_backend_route(
     plan: &RunPlan,
 ) -> Result<(), RuntimeContractError> {
     let compatible = match route.provider.execution_class {
-        ProviderExecutionClass::LocalModel | ProviderExecutionClass::SystemFramework => {
-            plan.backend_kind != BackendKind::RemoteApi
-        }
+        ProviderExecutionClass::LocalModel
+        | ProviderExecutionClass::LocalService
+        | ProviderExecutionClass::SystemFramework => plan.backend_kind != BackendKind::RemoteApi,
         ProviderExecutionClass::RemoteService => plan.backend_kind == BackendKind::RemoteApi,
     };
     if compatible {

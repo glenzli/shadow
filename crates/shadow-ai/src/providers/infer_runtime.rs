@@ -9,6 +9,7 @@
 mod image_understanding;
 mod raw_foundation;
 mod semantic;
+mod subject_mask;
 
 use std::{collections::BTreeMap, fmt, io::Write, path::Path};
 
@@ -45,6 +46,7 @@ pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,
     TextEmbeddingEvidence,
 };
+pub use subject_mask::{INFER_SUBJECT_MASK_CAPABILITY, InferSubjectMaskEvidence};
 
 const MAX_DETECTIONS: usize = 4_096;
 const EXPECTED_FACE_ORIENTATION: &str = "input_pixels_no_exif_transform";

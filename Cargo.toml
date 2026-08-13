@@ -35,16 +35,19 @@ authors = ["Shadow contributors"]
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+base64 = "0.22.1"
 blake3 = "1.8.5"
 chinese-lunisolar-calendar = { version = "0.2.5", default-features = false }
 cxx = "=1.0.198"
 quick-xml = "0.39.4"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "multipart"] }
-infer-runtime-client = { git = "https://github.com/glenzli/infer-runtime.git", rev = "8588a945047cedaea62035969e479e7fb7ff795c" }
+infer-runtime-client = { git = "https://github.com/glenzli/infer-runtime.git", rev = "eedd8fab496a0c98542da121fab228b5acf326f4" }
+image = { version = "0.25.9", default-features = false, features = ["jpeg", "png"] }
 nix = { version = "0.29.0", default-features = false, features = ["fs", "socket", "uio", "user"] }
 rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+sha2 = "0.10.9"
 syn = { version = "2.0.119", features = ["full", "visit"] }
 tempfile = "3.20"
 shadow-catalog = { path = "crates/shadow-catalog" }
