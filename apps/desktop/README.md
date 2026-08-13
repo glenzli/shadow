@@ -286,8 +286,15 @@ Its implementation follows the same navigation:
   exact selected-photo inspection.
 - [`src/desktop_backend_library.cpp`](src/desktop_backend_library.cpp) owns Library queries,
   facets, albums, source-health evidence, relinking, mutable Library organization, non-destructive
-  capture/GPS corrections, batch capture-time and manual-coordinate preview/apply, and GPX
-  preview/apply projection.
+  capture/GPS corrections, batch capture-time and manual-coordinate preview/apply, GPX
+  preview/apply projection, and the narrow read-only location-reference-folder projection.
+  [`src/review_location_reference_coordinator.*`](src/review_location_reference_coordinator.hpp)
+  owns asynchronous reference-folder indexing, refresh, removal, and its QML-facing state. It
+  stores only capture-time/GPS anchor evidence; reference photos never become Library photos.
+  [`src/review_location_completion_coordinator.*`](src/review_location_completion_coordinator.hpp)
+  separately groups missing-location photos by time and combines only time-local, spatially
+  consistent anchors into an explicit suggestion. It delegates every actual coordinate write to
+  the existing preview/accept workflow.
 - [`src/desktop_backend_review.cpp`](src/desktop_backend_review.cpp) owns Review visuals,
   comparison receipts, feedback, and explicit decision mutation.
 - [`src/desktop_backend_edit.cpp`](src/desktop_backend_edit.cpp) owns Precision state, shared
@@ -930,6 +937,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   owns one selected photo's placement identity, pending coordinate, explicit confirmation, and
   retryable failure lifecycle. It delegates persistence to the existing metadata coordinator, so
   clicking the map never mutates Catalog state until the user confirms.
+  [`src/review_location_completion_coordinator.cpp`](src/review_location_completion_coordinator.cpp)
+  separately reads bounded capture-time pages and groups timestamped photos without effective GPS
+  into conservative two-hour events. Existing coordinates only become a suggestion when their
+  event-local spread is small; the coordinator neither guesses locations nor persists changes.
+  [`qml/LibraryLocationCompletionDialog.qml`](qml/LibraryLocationCompletionDialog.qml) owns the
+  optional capture-range UI and delegates a selected event to
+  [`qml/LibraryLocationBatchDialog.qml`](qml/LibraryLocationBatchDialog.qml), preserving the
+  existing preview-then-accept non-destructive write boundary.
 - [`src/review_library_organization_coordinator.cpp`](src/review_library_organization_coordinator.cpp)
   owns complete per-photo Like and color-label mutation: cross-workflow admission, current-state
   synthesis, serialized persistence, receipt identity validation, authoritative model projection,
