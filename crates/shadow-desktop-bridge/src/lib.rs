@@ -11,6 +11,7 @@ mod history_service;
 mod library_server_host;
 mod library_server_service;
 mod library_service;
+mod location_reference_service;
 mod native_path_ffi;
 mod photo_inspection_service;
 mod relink_service;
@@ -21,6 +22,7 @@ mod session_history;
 mod session_image_understanding;
 mod session_library;
 mod session_library_server;
+mod session_location_reference;
 mod session_people_analysis;
 mod session_photo_inspection;
 mod session_photo_variants;
@@ -92,6 +94,7 @@ use detail_tile_cache::EditDetailSessionCache;
 use edit_preview::{OwnedEditedPreview, WarmEditPreviewSessionCache};
 use history_service::HistoryService;
 use library_server_host::{LibraryServerHost, open_library_server_host_ffi};
+use location_reference_service::LocationReferenceService;
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
@@ -810,6 +813,26 @@ mod ffi {
         next_cursor: FfiLibraryPhotoCursor,
     }
 
+    /// Read-only description of a separate reference folder used only as a
+    /// capture-time/GPS anchor source. Its photos never enter the Library.
+    #[derive(Debug)]
+    struct FfiLocationReferenceLibrary {
+        id: String,
+        root: FfiNativePath,
+        clock_offset_seconds: i64,
+        indexed_at_unix_ms: i64,
+        anchor_count: u64,
+    }
+
+    /// Minimal reference-photo evidence consumed by location completion.
+    #[derive(Debug)]
+    struct FfiLocationReferenceAnchor {
+        library_id: String,
+        captured_at_unix_seconds: i64,
+        latitude_e7: i32,
+        longitude_e7: i32,
+    }
+
     /// One bounded spatial cell. Stable opening identity and path are present
     /// only when the cell contains exactly one logical photo.
     #[derive(Debug)]
@@ -1291,10 +1314,14 @@ mod ffi {
         center_x: f64,
         center_y: f64,
         radius_level_zero_pixels: u16,
-        /// 0 = heal, 1 = clone.
+        /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
         mode: u8,
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
+        source_rotation_degrees: f64,
+        source_scale: f64,
+        source_flip_horizontal: bool,
+        source_flip_vertical: bool,
         feather: f64,
         strength: f64,
     }
@@ -1315,10 +1342,14 @@ mod ffi {
     struct FfiRetouchStroke {
         points: Vec<FfiRetouchPoint>,
         radius_level_zero_pixels: u16,
-        /// 0 = heal, 1 = clone.
+        /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
         mode: u8,
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
+        source_rotation_degrees: f64,
+        source_scale: f64,
+        source_flip_horizontal: bool,
+        source_flip_vertical: bool,
         feather: f64,
         strength: f64,
     }
@@ -2045,6 +2076,20 @@ mod ffi {
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
         ) -> Result<u64>;
+        fn location_reference_libraries(
+            self: &DesktopSession,
+        ) -> Result<Vec<FfiLocationReferenceLibrary>>;
+        fn add_location_reference_library(
+            self: &DesktopSession,
+            root: &FfiNativePath,
+            clock_offset_seconds: i64,
+        ) -> Result<FfiLocationReferenceLibrary>;
+        fn remove_location_reference_library(self: &DesktopSession, id: &str) -> Result<bool>;
+        fn location_reference_anchors(
+            self: &DesktopSession,
+            capture_start_unix_seconds: i64,
+            capture_end_unix_seconds: i64,
+        ) -> Result<Vec<FfiLocationReferenceAnchor>>;
         // The CXX ABI carries viewport bounds as scalar fields.
         #[allow(clippy::too_many_arguments)]
         fn library_map_snapshot(
@@ -2639,6 +2684,7 @@ struct DesktopSession {
     raw_foundations: raw_foundation_service::RawFoundationService,
     raw_foundation_runtime: raw_foundation_runtime::RawFoundationRuntime,
     library: LibraryService,
+    location_references: Mutex<LocationReferenceService>,
     remote_library: RemoteLibraryService,
     library_server: LibraryServerService,
     relink: RelinkService,
@@ -2707,9 +2753,14 @@ fn open_desktop_session_at(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("library-server");
+    let location_reference_root = catalog_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("location-references");
     Ok(Box::new(DesktopSession {
         _actor: actor,
         library: LibraryService::new(catalog.clone()),
+        location_references: Mutex::new(LocationReferenceService::open(location_reference_root)?),
         remote_library,
         library_server: LibraryServerService::new(LibraryServerStorage::for_root(
             library_server_root,
