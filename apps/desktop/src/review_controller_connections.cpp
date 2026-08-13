@@ -76,6 +76,7 @@ void ReviewController::initializeCoordinatorWiring() {
             requestLibraryReset();
             refreshLibraryFacets();
             refreshTravelCollections();
+            location_completion_coordinator_.invalidate();
         }
     );
     connect(
@@ -213,6 +214,27 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewLibraryMapCoordinator::stateChanged,
         this,
         &ReviewController::libraryMapChanged
+    );
+    connect(
+        &location_completion_coordinator_,
+        &ReviewLocationCompletionCoordinator::stateChanged,
+        this,
+        &ReviewController::locationCompletionChanged
+    );
+    connect(
+        &location_reference_coordinator_,
+        &ReviewLocationReferenceCoordinator::stateChanged,
+        this,
+        &ReviewController::locationReferenceChanged
+    );
+    connect(
+        &location_reference_coordinator_,
+        &ReviewLocationReferenceCoordinator::anchorsChanged,
+        this,
+        [this]() {
+            location_completion_coordinator_.invalidate();
+            emit locationCompletionChanged();
+        }
     );
     connect(
         &organization_coordinator_,

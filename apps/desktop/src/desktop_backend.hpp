@@ -74,6 +74,16 @@ class DesktopBackend final {
         std::uint32_t limit
     ) const;
     [[nodiscard]] std::uint64_t libraryPhotoCount(const BackendLibraryPhotoFilter& filter) const;
+    [[nodiscard]] QVector<BackendLocationReferenceAnchor> locationReferenceAnchors(
+        std::int64_t capture_start_unix_seconds,
+        std::int64_t capture_end_unix_seconds
+    ) const;
+    [[nodiscard]] QVector<BackendLocationReferenceLibrary> locationReferenceLibraries() const;
+    [[nodiscard]] BackendLocationReferenceLibrary addLocationReferenceLibrary(
+        const QString& root_path,
+        std::int64_t clock_offset_seconds
+    ) const;
+    [[nodiscard]] bool removeLocationReferenceLibrary(const QString& id) const;
     [[nodiscard]] BackendLibraryMapSnapshot libraryMapSnapshot(
         const BackendLibraryPhotoFilter& filter,
         const BackendLibraryMapViewport& viewport,

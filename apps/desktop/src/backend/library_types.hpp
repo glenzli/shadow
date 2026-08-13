@@ -263,6 +263,23 @@ struct BackendLibraryPhotoPage final {
     BackendLibraryPhotoCursor next_cursor;
 };
 
+struct BackendLocationReferenceAnchor final {
+    QString library_id;
+    std::int64_t captured_at_unix_seconds = 0;
+    std::int32_t latitude_e7 = 0;
+    std::int32_t longitude_e7 = 0;
+};
+
+/// One user-selected folder used only for capture-time/GPS evidence. It is
+/// intentionally not a Library source and cannot create photo records.
+struct BackendLocationReferenceLibrary final {
+    QString id;
+    QString root_path;
+    std::int64_t clock_offset_seconds = 0;
+    std::int64_t indexed_at_unix_ms = 0;
+    std::uint64_t anchor_count = 0;
+};
+
 /// Provider-independent map request. A west bound greater than east denotes
 /// an antimeridian-crossing viewport.
 struct BackendLibraryMapViewport final {

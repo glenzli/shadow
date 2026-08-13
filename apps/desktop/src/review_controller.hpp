@@ -12,6 +12,8 @@
 #include "review_library_keyword_coordinator.hpp"
 #include "review_library_map_coordinator.hpp"
 #include "review_library_metadata_coordinator.hpp"
+#include "review_location_completion_coordinator.hpp"
+#include "review_location_reference_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
 #include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
@@ -199,6 +201,32 @@ class ReviewController final : public QObject {
     Q_PROPERTY(bool libraryMapBusy READ libraryMapBusy NOTIFY libraryMapChanged)
     Q_PROPERTY(bool libraryMapFailed READ libraryMapFailed NOTIFY libraryMapChanged)
     Q_PROPERTY(
+        QVariantList locationCompletionGroups READ locationCompletionGroups NOTIFY
+            locationCompletionChanged
+    )
+    Q_PROPERTY(
+        bool locationCompletionBusy READ locationCompletionBusy NOTIFY locationCompletionChanged
+    )
+    Q_PROPERTY(
+        bool locationCompletionTruncated READ locationCompletionTruncated NOTIFY
+            locationCompletionChanged
+    )
+    Q_PROPERTY(
+        QString locationCompletionErrorText READ locationCompletionErrorText NOTIFY
+            locationCompletionChanged
+    )
+    Q_PROPERTY(
+        QVariantList locationReferenceLibraries READ locationReferenceLibraries NOTIFY
+            locationReferenceChanged
+    )
+    Q_PROPERTY(
+        bool locationReferenceBusy READ locationReferenceBusy NOTIFY locationReferenceChanged
+    )
+    Q_PROPERTY(
+        QString locationReferenceErrorText READ locationReferenceErrorText NOTIFY
+            locationReferenceChanged
+    )
+    Q_PROPERTY(
         QVariantMap librarySystemCollectionCounts READ librarySystemCollectionCounts NOTIFY
             libraryFacetsChanged
     )
@@ -385,6 +413,13 @@ class ReviewController final : public QObject {
     [[nodiscard]] qulonglong libraryMapPhotoCount() const noexcept;
     [[nodiscard]] bool libraryMapBusy() const noexcept;
     [[nodiscard]] bool libraryMapFailed() const noexcept;
+    [[nodiscard]] QVariantList locationCompletionGroups() const;
+    [[nodiscard]] bool locationCompletionBusy() const noexcept;
+    [[nodiscard]] bool locationCompletionTruncated() const noexcept;
+    [[nodiscard]] QString locationCompletionErrorText() const;
+    [[nodiscard]] QVariantList locationReferenceLibraries() const;
+    [[nodiscard]] bool locationReferenceBusy() const noexcept;
+    [[nodiscard]] QString locationReferenceErrorText() const;
     [[nodiscard]] QString libraryAlbumId() const;
     [[nodiscard]] QVariantList libraryAlbums() const;
     [[nodiscard]] bool libraryAlbumsBusy() const noexcept;
@@ -524,6 +559,16 @@ class ReviewController final : public QObject {
         int columns,
         int rows
     );
+    Q_INVOKABLE void requestLocationCompletion(
+        qlonglong capture_start_unix_seconds,
+        qlonglong capture_end_unix_seconds
+    );
+    Q_INVOKABLE void refreshLocationReferenceLibraries();
+    Q_INVOKABLE void addLocationReferenceLibrary(
+        const QUrl& root_url,
+        qlonglong clock_offset_seconds = 0
+    );
+    Q_INVOKABLE void removeLocationReferenceLibrary(const QString& id);
     Q_INVOKABLE void refreshLibraryAlbums();
     Q_INVOKABLE void refreshLibrarySourceHealth();
     Q_INVOKABLE void verifyLibrarySource(const QString& source_path);
@@ -632,6 +677,8 @@ class ReviewController final : public QObject {
     void libraryPlaceResolutionChanged();
     void libraryKeywordsChanged();
     void libraryMapChanged();
+    void locationCompletionChanged();
+    void locationReferenceChanged();
     void librarySourceHealthChanged();
     void libraryMetadataChanged();
     void missingSourceLocationReviewChanged();
@@ -673,6 +720,8 @@ class ReviewController final : public QObject {
     ReviewLibraryPlaceResolutionCoordinator place_resolution_coordinator_;
     ReviewLibraryKeywordCoordinator keyword_coordinator_;
     ReviewLibraryMapCoordinator map_coordinator_;
+    ReviewLocationCompletionCoordinator location_completion_coordinator_;
+    ReviewLocationReferenceCoordinator location_reference_coordinator_;
     ReviewLibraryMetadataCoordinator metadata_coordinator_;
     ReviewImportCoordinator import_coordinator_;
     LocalizedUiMessage status_message_{

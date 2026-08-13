@@ -39,6 +39,38 @@ query_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewLocationCompletionCoordinator::Operations
+location_completion_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review location-completion backend is required");
+    }
+    return {
+        .page = [backend](
+                    const BackendLibraryPhotoFilter& filter,
+                    const BackendLibraryPhotoOrder order,
+                    const BackendLibraryPhotoCursor& cursor,
+                    const std::uint32_t limit
+                ) { return backend->libraryPhotoPage(filter, order, cursor, limit); },
+        .anchors = [backend](const std::int64_t start, const std::int64_t end) {
+            return backend->locationReferenceAnchors(start, end);
+        },
+    };
+}
+
+[[nodiscard]] ReviewLocationReferenceCoordinator::Operations
+location_reference_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review location-reference backend is required");
+    }
+    return {
+        .libraries = [backend]() { return backend->locationReferenceLibraries(); },
+        .add_or_rescan = [backend](const QString& root_path, const std::int64_t clock_offset_seconds) {
+            return backend->addLocationReferenceLibrary(root_path, clock_offset_seconds);
+        },
+        .remove = [backend](const QString& id) { return backend->removeLocationReferenceLibrary(id); },
+    };
+}
+
 [[nodiscard]] ReviewComparisonCoordinator::Operations
 comparison_operations(const std::shared_ptr<DesktopBackend>& backend) {
     if (!backend) {

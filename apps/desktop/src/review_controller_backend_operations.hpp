@@ -9,6 +9,8 @@
 #include "review_library_keyword_coordinator.hpp"
 #include "review_library_map_coordinator.hpp"
 #include "review_library_metadata_coordinator.hpp"
+#include "review_location_completion_coordinator.hpp"
+#include "review_location_reference_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
 #include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
@@ -42,6 +44,10 @@ keyword_operations(const std::shared_ptr<DesktopBackend>& backend);
 metadata_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] ReviewLibraryMapCoordinator::Operations
 map_operations(const std::shared_ptr<DesktopBackend>& backend);
+[[nodiscard]] ReviewLocationCompletionCoordinator::Operations
+location_completion_operations(const std::shared_ptr<DesktopBackend>& backend);
+[[nodiscard]] ReviewLocationReferenceCoordinator::Operations
+location_reference_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] ReviewLibraryPlaceResolutionCoordinator::Operations
 place_resolution_operations(const std::shared_ptr<DesktopBackend>& backend);
 [[nodiscard]] ReviewLibraryOrganizationCoordinator::Operations

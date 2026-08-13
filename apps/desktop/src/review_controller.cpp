@@ -35,6 +35,8 @@ ReviewController::ReviewController(
     ),
     keyword_coordinator_(BackendOperations::keyword_operations(backend_)),
     map_coordinator_(BackendOperations::map_operations(backend_)),
+    location_completion_coordinator_(BackendOperations::location_completion_operations(backend_)),
+    location_reference_coordinator_(BackendOperations::location_reference_operations(backend_)),
     metadata_coordinator_(BackendOperations::metadata_operations(backend_)),
     import_coordinator_(BackendOperations::import_operations(backend_)), model_(this),
     source_availability_monitor_(model_, this),

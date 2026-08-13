@@ -353,6 +353,9 @@ library_review_item(const shadow::desktop::FfiLibraryPhotoItem& source) {
         .lens_model = qstring(source.lens_model),
         .captured_at_unix_seconds = source.has_captured_at ? source.captured_at_unix_seconds : 0,
         .capture_day = qstring(source.capture_day),
+        .has_coordinates = source.has_coordinates,
+        .latitude_e7 = source.latitude_e7,
+        .longitude_e7 = source.longitude_e7,
         .place_name =
             !source.resolved_locality_label.empty() ? qstring(source.resolved_locality_label)
             : !source.resolved_place_name.empty()   ? qstring(source.resolved_place_name)
@@ -498,6 +501,62 @@ BackendLibraryPhotoPage DesktopBackend::libraryPhotoPage(
 
 std::uint64_t DesktopBackend::libraryPhotoCount(const BackendLibraryPhotoFilter& filter) const {
     return impl_->session->library_photo_count(ffi_library_filter(filter));
+}
+
+QVector<BackendLocationReferenceAnchor> DesktopBackend::locationReferenceAnchors(
+    const std::int64_t capture_start_unix_seconds,
+    const std::int64_t capture_end_unix_seconds
+) const {
+    const auto source = impl_->session->location_reference_anchors(
+        capture_start_unix_seconds, capture_end_unix_seconds
+    );
+    QVector<BackendLocationReferenceAnchor> anchors;
+    anchors.reserve(checked_qt_vector_size(source.size(), "location_reference_anchors"));
+    for (const auto& anchor : source) {
+        anchors.push_back({
+            .library_id = qstring(anchor.library_id),
+            .captured_at_unix_seconds = anchor.captured_at_unix_seconds,
+            .latitude_e7 = anchor.latitude_e7,
+            .longitude_e7 = anchor.longitude_e7,
+        });
+    }
+    return anchors;
+}
+
+QVector<BackendLocationReferenceLibrary> DesktopBackend::locationReferenceLibraries() const {
+    const auto source = impl_->session->location_reference_libraries();
+    QVector<BackendLocationReferenceLibrary> libraries;
+    libraries.reserve(checked_qt_vector_size(source.size(), "location_reference_libraries"));
+    for (const auto& library : source) {
+        libraries.push_back({
+            .id = qstring(library.id),
+            .root_path = native_path_input::qstring(library.root),
+            .clock_offset_seconds = library.clock_offset_seconds,
+            .indexed_at_unix_ms = library.indexed_at_unix_ms,
+            .anchor_count = library.anchor_count,
+        });
+    }
+    return libraries;
+}
+
+BackendLocationReferenceLibrary DesktopBackend::addLocationReferenceLibrary(
+    const QString& root_path,
+    const std::int64_t clock_offset_seconds
+) const {
+    const auto source = impl_->session->add_location_reference_library(
+        native_path_input::path(root_path), clock_offset_seconds
+    );
+    return {
+        .id = qstring(source.id),
+        .root_path = native_path_input::qstring(source.root),
+        .clock_offset_seconds = source.clock_offset_seconds,
+        .indexed_at_unix_ms = source.indexed_at_unix_ms,
+        .anchor_count = source.anchor_count,
+    };
+}
+
+bool DesktopBackend::removeLocationReferenceLibrary(const QString& id) const {
+    return impl_->session->remove_location_reference_library(id.toStdString());
 }
 
 BackendLibraryMapSnapshot DesktopBackend::libraryMapSnapshot(
