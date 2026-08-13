@@ -17,6 +17,12 @@ Launch the promoted application with:
 cargo xtask desktop-run-debug
 ```
 
+The default promotion path is intentionally fast: it keeps the workspace guard, localization gate,
+incremental package build, bundle admission, copy verification, and launch-input check, but skips
+the startup CTest. Use `cargo xtask desktop-build-promote --verify` when a change needs the
+desktop and server-manager startup smoke as well. CMake reuses the configured canonical build
+directory while still refreshing its build graph for the current source tree.
+
 The matching `.sh` and `.ps1` files in `scripts/` are thin wrappers for terminals that prefer
 platform-native launchers. Use `cargo xtask desktop-build-promote --check` to inspect resolved
 build and asset inputs

@@ -15,7 +15,10 @@ use super::{
 enum BuildRequest {
     Help,
     Check,
-    Build { validation_label: Option<String> },
+    Build {
+        validation_label: Option<String>,
+        verify_startup: bool,
+    },
 }
 
 pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<()> {
@@ -61,13 +64,19 @@ fn run_macos(request: BuildRequest) -> io::Result<()> {
         println!("RawNIND provider input: {}", provider_directory.display());
         return Ok(());
     }
-    let BuildRequest::Build { validation_label } = request else {
+    let BuildRequest::Build {
+        validation_label,
+        verify_startup,
+    } = request
+    else {
         unreachable!("help and check returned above");
     };
     let validation_label = validation_label.map_or_else(
         || {
-            short_revision(&paths.repository_root)
-                .map(|revision| format!("canonical-debug-fast-{revision}"))
+            short_revision(&paths.repository_root).map(|revision| {
+                let mode = if verify_startup { "verified" } else { "fast" };
+                format!("canonical-debug-{mode}-{revision}")
+            })
         },
         Ok,
     )?;
@@ -106,17 +115,23 @@ fn run_macos(request: BuildRequest) -> io::Result<()> {
             ]),
         "build canonical debug desktop",
     )?;
-    process::run(
-        Command::new("ctest")
-            .arg("--test-dir")
-            .arg(&paths.build_directory)
-            .args([
-                "--output-on-failure",
-                "-R",
-                "^(shadow-desktop-qml-startup|shadow-server-manager-qml-startup)$",
-            ]),
-        "run canonical debug startup smoke",
-    )?;
+    if verify_startup {
+        process::run(
+            Command::new("ctest")
+                .arg("--test-dir")
+                .arg(&paths.build_directory)
+                .args([
+                    "--output-on-failure",
+                    "-R",
+                    "^(shadow-desktop-qml-startup|shadow-server-manager-qml-startup)$",
+                ]),
+            "run canonical debug startup smoke",
+        )?;
+    } else {
+        println!(
+            "fast promotion: startup smoke skipped; use `cargo xtask desktop-build-promote --verify` when it is needed"
+        );
+    }
     let candidate = paths.build_directory.join("apps/desktop/Shadow.app");
     promotion::promote_candidate(&candidate, &validation_label)?;
     run::check()
@@ -127,15 +142,37 @@ fn parse(arguments: impl IntoIterator<Item = OsString>) -> io::Result<BuildReque
     match values.as_slice() {
         [] => Ok(BuildRequest::Build {
             validation_label: None,
+            verify_startup: false,
         }),
         [argument] if argument == "--help" || argument == "-h" => Ok(BuildRequest::Help),
         [argument] if argument == "--check" => Ok(BuildRequest::Check),
+        [verify] if verify == "--verify" => Ok(BuildRequest::Build {
+            validation_label: None,
+            verify_startup: true,
+        }),
+        [verify, check] if verify == "--verify" && check == "--check" => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--check cannot be combined with --verify",
+        )),
+        [check, verify] if check == "--check" && verify == "--verify" => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--check cannot be combined with --verify",
+        )),
+        [verify, label] if verify == "--verify" => Ok(BuildRequest::Build {
+            validation_label: Some(label.to_string_lossy().into_owned()),
+            verify_startup: true,
+        }),
         [label] => Ok(BuildRequest::Build {
             validation_label: Some(label.to_string_lossy().into_owned()),
+            verify_startup: false,
+        }),
+        [label, verify] if verify == "--verify" => Ok(BuildRequest::Build {
+            validation_label: Some(label.to_string_lossy().into_owned()),
+            verify_startup: true,
         }),
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "usage: cargo xtask desktop-build-promote [validation-label|--check]",
+            "usage: cargo xtask desktop-build-promote [--verify] [validation-label]\n       cargo xtask desktop-build-promote --check",
         )),
     }
 }
@@ -194,8 +231,10 @@ fn require_file(path: &Path, message: &str) -> io::Result<()> {
 
 fn print_usage() {
     println!(
-        "usage: cargo xtask desktop-build-promote [validation-label|--check]\n\
-         Builds the complete macOS debug app, runs startup smoke, and promotes it atomically.\n\
+        "usage: cargo xtask desktop-build-promote [--verify] [validation-label]\n\
+         cargo xtask desktop-build-promote --check\n\
+         The default path runs required packaging checks, incrementally builds, and promotes.\n\
+         Pass --verify to also run the desktop and server-manager startup smoke.\n\
          Windows compilation uses the windows-desktop-dev CMake preset until its promotion backend is added."
     );
 }

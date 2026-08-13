@@ -30,8 +30,9 @@ The POSIX and PowerShell launchers are intentionally thin wrappers around the sa
 ./scripts/run_debug.sh
 ```
 
-The first command builds and promotes a complete debug application; the second launches the
-current promoted build. Machine setup, required local assets, focused validation, and alternative
+The first command uses the fast debug path: it incrementally builds and promotes without running
+the startup test suite. Add `--verify` when a promotion also needs startup smoke coverage; the
+second command launches the current promoted build. Machine setup, required local assets, focused validation, and alternative
 developer commands are documented in the [development guide](docs/development/README.md).
 
 ## Documentation
