@@ -40,8 +40,8 @@ Window {
         root.mapActivated = true
         root.mapController.setLanguage(Qt.locale().name)
         if (locationState.hasCoordinate) {
-            root.mapController.beginMapContext(
-                locationState.latitude, locationState.longitude)
+            root.mapController.navigateToContext(
+                locationState.latitude, locationState.longitude, 13)
         } else {
             root.mapController.beginMapContext(
                 root.mapController.centerLatitude,
@@ -70,10 +70,18 @@ Window {
 
     function present(selectedTargets, initialHasCoordinate,
                      initialLatitude, initialLongitude, initialPlaceName) {
+        return presentWithSource(
+                    selectedTargets, initialHasCoordinate, initialLatitude,
+                    initialLongitude, initialPlaceName, "manual-map")
+    }
+
+    function presentWithSource(selectedTargets, initialHasCoordinate,
+                               initialLatitude, initialLongitude, initialPlaceName,
+                               initialSourceLabel) {
         root.targets = selectedTargets || []
-        if (!locationState.present(
+        if (!locationState.presentWithSource(
                 root.targets, initialHasCoordinate, initialLatitude,
-                initialLongitude, initialPlaceName))
+                initialLongitude, initialPlaceName, initialSourceLabel))
             return false
         latitudeField.text = locationState.hasCoordinate
             ? Number(locationState.latitude).toLocaleString(
