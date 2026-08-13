@@ -31,8 +31,7 @@ struct AdjustmentFootprint final {
 // same compiled ordering contract; a semantic change to segmentation, neutral-node elision,
 // or footprint accumulation must publish a new version and canonical identity.
 inline constexpr std::uint32_t edit_execution_plan_identity_version = 1;
-inline constexpr std::string_view edit_execution_plan_identity =
-    "shadow.edit-execution-plan.v1";
+inline constexpr std::string_view edit_execution_plan_identity = "shadow.edit-execution-plan.v1";
 
 // One executable node retained by a compiled plan. node_index always addresses the original
 // source span, so a backend can recover immutable parameters without copying heavyweight LUTs.
@@ -74,7 +73,8 @@ struct EditExecutionPlan final {
 [[nodiscard]] AdjustmentFootprint footprint(
     const AdjustmentParameters& parameters,
     double level_zero_to_raster_scale_x = 1.0,
-    double level_zero_to_raster_scale_y = 1.0
+    double level_zero_to_raster_scale_y = 1.0,
+    Dimensions raster_dimensions = {}
 );
 
 // Validates the complete adjustment plan without requiring image pixels. All nodes, including
