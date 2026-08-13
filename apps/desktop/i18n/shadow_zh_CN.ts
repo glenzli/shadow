@@ -1468,6 +1468,17 @@
         <source>Automatic geometry preview failed · %1</source>
         <translation>自动几何预览失败 · %1</translation>
     </message>
+    <message>
+        <location filename="../src/edit_retouch_controller.cpp" line="282"/>
+        <source>Repair source sampled</source>
+        <translation>修复源区已取样</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_retouch_controller.cpp" line="350"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="440"/>
+        <source>Sampled source is farther than the 512 px detail limit</source>
+        <translation>取样源区超出 512 像素细节范围</translation>
+    </message>
 </context>
 <context>
     <name>EditHistogram</name>
@@ -7294,6 +7305,31 @@ R %2 · G %3 · B %4</translation>
         <translation>从附近复制同形来源区域</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="130"/>
+        <source>Blend</source>
+        <translation>混合</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="142"/>
+        <source>Natural</source>
+        <translation>自然</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="143"/>
+        <source>Replace isolated spots without retaining their edges</source>
+        <translation>替换孤立瑕疵，不保留其边缘</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="153"/>
+        <source>Structure</source>
+        <translation>结构</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="154"/>
+        <source>Preserve strong lines and edges crossing the repair</source>
+        <translation>保留穿过修复区域的强线条和边缘</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="131"/>
         <source> px</source>
         <translation> 像素</translation>
@@ -7320,8 +7356,38 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRetouchTools.qml" line="143"/>
-        <source>Drag on the image to paint · Esc stops painting</source>
-        <translation>在图像上拖动画笔 · Esc 停止绘制</translation>
+        <source>Drag to paint · Option/Alt-click samples a source · Esc stops painting</source>
+        <translation>拖动绘制 · Option/Alt 点击取样源区 · Esc 停止绘制</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="157"/>
+        <source>Aligned</source>
+        <translation>对齐</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="158"/>
+        <source>Keep one source-to-target offset across new strokes</source>
+        <translation>在新笔画间保持同一源区到目标区偏移</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="171"/>
+        <source>Fixed source</source>
+        <translation>固定源区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="172"/>
+        <source>Restart every new stroke from the sampled source point</source>
+        <translation>每条新笔画都从取样源点重新开始</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="188"/>
+        <source>Return to automatic nearby source selection</source>
+        <translation>恢复自动选择附近源区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="203"/>
+        <source>Source sampled · drag to paint · Option/Alt-click samples again</source>
+        <translation>源区已取样 · 拖动绘制 · 再次 Option/Alt 点击可重新取样</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRetouchTools.qml" line="145"/>
@@ -7355,6 +7421,46 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="116"/>
         <source>Remove region %1</source>
         <translation>移除区域 %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="210"/>
+        <source>Source · %1 px</source>
+        <translation>源区 · %1 像素</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="224"/>
+        <source>Reset source</source>
+        <translation>重置源区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="225"/>
+        <source>Choose a deterministic nearby source again</source>
+        <translation>重新选择一个确定的邻近源区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="252"/>
+        <source>Source rotation</source>
+        <translation>源区旋转</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="253"/>
+        <source>Rotate the sampled source around the target anchor</source>
+        <translation>围绕目标锚点旋转取样源区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="281"/>
+        <source>Source scale</source>
+        <translation>源区缩放</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="282"/>
+        <source>Resize the sampled source texture</source>
+        <translation>缩放取样源区纹理</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="310"/>
+        <source>Mirror source</source>
+        <translation>镜像源区</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="189"/>
@@ -8931,6 +9037,11 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="229"/>
         <source>Set location for selected photos</source>
         <translation>设置所选照片的位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryMapWorkspace.qml" line="150"/>
+        <source>Complete missing photo locations</source>
+        <translation>补全缺失的照片位置</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapPlaceSearch.qml" line="95"/>
@@ -11495,6 +11606,159 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../src/smart_category_controller.cpp" line="554"/>
         <source>Enable at least one smart category.</source>
         <translation>请至少启用一个智能分类。</translation>
+    </message>
+</context>
+<context>
+    <name>LibraryLocationCompletionDialog</name>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="21"/>
+        <source>Complete Photo Locations</source>
+        <translation>补全照片位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="37"/>
+        <source>Unknown time</source>
+        <translation>未知时间</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="87"/>
+        <source>Complete locations</source>
+        <translation>补全位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="96"/>
+        <source>Review time-based events before assigning a location. Original EXIF remains unchanged.</source>
+        <translation>先按拍摄时间核对事件，再设置位置。原片 EXIF 保持不变。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="108"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="124"/>
+        <source>Capture range</source>
+        <translation>拍摄范围</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="131"/>
+        <source>Start YYYY-MM-DD</source>
+        <translation>开始 YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="141"/>
+        <source>to</source>
+        <translation>至</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="148"/>
+        <source>End YYYY-MM-DD</source>
+        <translation>结束 YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="157"/>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="169"/>
+        <source>Finding events…</source>
+        <translation>正在查找事件…</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="179"/>
+        <source>Only photos inside this capture range are considered.</source>
+        <translation>仅处理此拍摄范围内的照片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="193"/>
+        <source>Showing the first 4,096 photos in this range. Narrow the capture range to review more.</source>
+        <translation>当前仅显示此范围的前 4,096 张照片。缩小拍摄范围可继续查看。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="226"/>
+        <source>%L1 photos without location</source>
+        <translation>%L1 张没有位置的照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="236"/>
+        <source>Suggested from %L1 nearby located photos: %2</source>
+        <translation>根据附近 %L1 张已有位置的照片建议：%2</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="238"/>
+        <source>Suggested from %L1 nearby located photos</source>
+        <translation>根据附近 %L1 张已有位置的照片建议</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="247"/>
+        <source>No safe location suggestion for this event. Choose a place on the map.</source>
+        <translation>这个事件没有可靠的位置建议。请在地图上选择地点。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="267"/>
+        <source>Review suggestion</source>
+        <translation>核对建议</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="267"/>
+        <source>Choose location</source>
+        <translation>选择位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="293"/>
+        <source>No photos without location in this range</source>
+        <translation>此范围内没有缺失位置的照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="70"/>
+        <source>Choose a reference photo folder</source>
+        <translation>选择参考照片文件夹</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="145"/>
+        <source>Reference photo folders</source>
+        <translation>参考照片文件夹</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="153"/>
+        <source>Read only capture time and GPS from a phone or camera folder. These photos are not imported into your Library.</source>
+        <translation>仅读取手机或相机文件夹中的拍摄时间和 GPS。这些照片不会导入图库。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="169"/>
+        <source>Add folder</source>
+        <translation>添加文件夹</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="184"/>
+        <source>No reference folder added</source>
+        <translation>尚未添加参考文件夹</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="228"/>
+        <source>%L1 GPS anchors</source>
+        <translation>%L1 个 GPS 锚点</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="235"/>
+        <source>Clock offset</source>
+        <translation>时钟偏移</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="247"/>
+        <source>Clock offset seconds</source>
+        <translation>时钟偏移秒数</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="251"/>
+        <source>Rescan</source>
+        <translation>重新扫描</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryLocationCompletionDialog.qml" line="257"/>
+        <source>Remove</source>
+        <translation>移除</translation>
     </message>
 </context>
 <context>
