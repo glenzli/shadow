@@ -572,6 +572,8 @@ qt_add_executable(
     src/review_controller_library_management.cpp
     src/review_controller_library_keywords.cpp
     src/review_controller_library_map.cpp
+    src/review_controller_location_completion.cpp
+    src/review_controller_location_reference.cpp
     src/review_controller_library_metadata.cpp
     src/review_controller_library_query.cpp
     src/review_controller_remote_library.cpp
@@ -593,6 +595,10 @@ qt_add_executable(
     src/review_library_keyword_coordinator.hpp
     src/review_library_map_coordinator.cpp
     src/review_library_map_coordinator.hpp
+    src/review_location_completion_coordinator.cpp
+    src/review_location_completion_coordinator.hpp
+    src/review_location_reference_coordinator.cpp
+    src/review_location_reference_coordinator.hpp
     src/review_library_metadata_coordinator.cpp
     src/review_library_metadata_coordinator.hpp
     src/review_library_place_resolution_coordinator.cpp
@@ -881,6 +887,7 @@ qt_add_qml_module(
         qml/LibraryCaptureTimeBatchDialog.qml
         qml/LibraryLocationBatchDialog.qml
         qml/LibraryLocationBatchState.qml
+        qml/LibraryLocationCompletionDialog.qml
         qml/LibraryMetadataEditor.qml
         qml/LibraryMapLocationPlacementState.qml
         qml/LibraryWebMapSurface.qml

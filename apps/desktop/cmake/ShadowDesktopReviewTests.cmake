@@ -816,6 +816,74 @@
     )
 
     add_executable(
+        shadow-review-location-completion-coordinator-test
+        tests/review_location_completion_coordinator_test.cpp
+        src/review_location_completion_coordinator.cpp
+        src/review_location_completion_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-location-completion-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-location-completion-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-location-completion-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-location-completion-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-location-completion-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-location-completion-coordinator
+        COMMAND shadow-review-location-completion-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-location-reference-coordinator-test
+        tests/review_location_reference_coordinator_test.cpp
+        src/review_location_reference_coordinator.cpp
+        src/review_location_reference_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-location-reference-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-location-reference-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-location-reference-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-location-reference-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-location-reference-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-location-reference-coordinator
+        COMMAND shadow-review-location-reference-coordinator-test
+    )
+
+    add_executable(
         shadow-library-map-location-placement-test
         tests/library_map_location_placement_test.cpp
     )
@@ -948,6 +1016,61 @@
     )
     set_tests_properties(
         shadow-desktop-library-location-batch-dialog
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-library-location-completion-dialog-test
+        tests/library_location_completion_dialog_test.cpp
+    )
+    target_compile_features(
+        shadow-library-location-completion-dialog-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-library-location-completion-dialog-test
+        PRIVATE
+            Qt6::Gui
+            Qt6::Qml
+            Qt6::Quick
+            Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-library-location-completion-dialog-test
+        URI Shadow.LibraryLocationCompletionDialogContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/LibraryLocationCompletionDialog.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-library-location-completion-dialog-test
+        shadow-library-location-completion-dialog-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-library-location-completion-dialog-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-library-location-completion-dialog-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-library-location-completion-dialog
+        COMMAND shadow-library-location-completion-dialog-test
+    )
+    set_tests_properties(
+        shadow-desktop-library-location-completion-dialog
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
