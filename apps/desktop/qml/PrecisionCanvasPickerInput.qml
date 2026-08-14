@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 
 // Direct-manipulation owner for preview sampling and repair-stroke authoring.
 // The canvas supplies one generation-verified preview surface and its painted
@@ -57,6 +58,20 @@ Item {
             editor.addPointColorFromPreview(
                 normalized.x, normalized.y, readyPreviewGeneration)
         }
+    }
+
+    function sampledSourceCanvasPoint() {
+        const source = editor.retouchSampledSource
+        if (!editor.retouchSourceSampled || source === undefined
+                || !Number.isFinite(Number(source.x))
+                || !Number.isFinite(Number(source.y))) {
+            return Qt.point(-1000, -1000)
+        }
+        return previewItem.mapToItem(
+            pickerInput,
+            previewContentRect.x + Number(source.x) * previewContentRect.width,
+            previewContentRect.y + Number(source.y) * previewContentRect.height
+        )
     }
 
     PrecisionActiveStrokeCoverage {
@@ -230,6 +245,86 @@ Item {
             if (!pickerInput.editor.retouchPickerActive) {
                 pickerInput.pickPreviewColor(
                     inputArea, mouse.x, mouse.y)
+            }
+        }
+    }
+
+    // Sampling has to leave an immediately manipulable object on the canvas:
+    // it is a session-only anchor, not an authored repair region. This keeps
+    // the familiar sample → paint workflow visible before the first stroke.
+    Item {
+        id: sampledSourceMarker
+        objectName: "retouchSampledSourceMarker"
+
+        readonly property point canvasPoint: pickerInput.sampledSourceCanvasPoint()
+
+        z: 4
+        visible: pickerInput.editor.retouchPickerActive
+            && pickerInput.editor.retouchSourceSampled
+        width: 34
+        height: 34
+        x: canvasPoint.x - width / 2
+        y: canvasPoint.y - height / 2
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: 18
+            height: 18
+            radius: width / 2
+            color: Qt.rgba(
+                Theme.accent.r,
+                Theme.accent.g,
+                Theme.accent.b,
+                0.18
+            )
+            border.width: 1.5
+            border.color: Theme.accent
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: 1
+            height: 30
+            color: Theme.accent
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: 30
+            height: 1
+            color: Theme.accent
+        }
+
+        Label {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.top
+            anchors.bottomMargin: 3
+            text: qsTr("SOURCE")
+            color: Theme.accent
+            font.pixelSize: 9
+            font.bold: true
+        }
+
+        MouseArea {
+            objectName: "retouchSampledSourceMarkerHitArea"
+
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.CrossCursor
+
+            onPositionChanged: mouse => {
+                if (!pressed)
+                    return
+                const point = sampledSourceMarker.mapToItem(
+                    inputArea, mouse.x, mouse.y)
+                const normalized = pickerInput.normalizedContentPoint(
+                    inputArea, point.x, point.y)
+                if (normalized !== null) {
+                    pickerInput.editor.moveRetouchSourceFromPreview(
+                        normalized.x, normalized.y)
+                }
             }
         }
     }

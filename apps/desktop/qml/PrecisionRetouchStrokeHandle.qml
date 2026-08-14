@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 
 // Owns target/donor coverage and donor drag lifecycle for one continuous repair stroke.
 Item {
@@ -243,6 +244,16 @@ Item {
             Theme.previewCompareDivider.b,
             strokeHandle.selected ? 0.16 : 0.08
         )
+    }
+
+    Label {
+        x: strokeHandle.sourceAnchorX + strokeHandle.sourceOffsetX - width / 2
+        y: strokeHandle.sourceAnchorY + strokeHandle.sourceOffsetY - height - 8
+        visible: strokeHandle.selected && strokeHandle.points.length > 0
+        text: qsTr("SOURCE")
+        color: Theme.accent
+        font.pixelSize: 9
+        font.bold: true
     }
 
     Item {

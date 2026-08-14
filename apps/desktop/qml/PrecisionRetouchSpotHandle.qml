@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 
 // Owns the target/source visualization and drag lifecycle for one legacy point repair.
 Item {
@@ -221,6 +222,17 @@ Item {
             height: 8
             radius: 4
             color: Theme.previewCompareDivider
+        }
+
+        Label {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.top
+            anchors.bottomMargin: 3
+            visible: repairHandle.selected
+            text: qsTr("SOURCE")
+            color: Theme.accent
+            font.pixelSize: 9
+            font.bold: true
         }
 
         MouseArea {

@@ -38,6 +38,28 @@ resolved executable and managed model paths without launching the application.
 The launcher detaches by default and appends output to
 `.shadow-local-build/logs/shadow-debug.log`. Pass `--foreground` for process-attached debugging.
 
+## Local build storage
+
+Shadow keeps build output outside the repository so concurrent work cannot pollute source, but those
+external artifacts still need deliberate retention. Inspect the canonical CMake directory, default
+Cargo target root, and immutable debug releases with:
+
+```sh
+cargo xtask storage-report
+```
+
+Debug releases are immutable rollback points. The prune command is dry-run by default, always keeps
+`current-debug`, and keeps three releases unless requested otherwise. Close any old debug app before
+deleting its bundle:
+
+```sh
+cargo xtask storage-prune-debug --keep 3
+cargo xtask storage-prune-debug --keep 3 --apply
+```
+
+This command intentionally does not delete canonical or task-private Cargo/CMake directories:
+those need an owner-aware task lease rather than an age-based guess.
+
 ## Repository checks
 
 Run the broad repository gates with:

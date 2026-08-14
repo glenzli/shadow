@@ -318,7 +318,7 @@ ColumnLayout {
     Label {
         Layout.fillWidth: true
         visible: true
-        text: qsTr("Drag the linked source region on the image.")
+        text: qsTr("Select this repair, then drag its outlined source region on the image.")
         color: regionInspector.enabled ? Theme.textMuted : Theme.textDisabled
         font.pixelSize: 9
         lineHeight: 1.2

@@ -531,6 +531,10 @@ qt_add_executable(
     src/image_understanding_controller.cpp
     src/image_understanding_controller.hpp
     src/main.cpp
+    src/pipeline_launch.cpp
+    src/pipeline_launch.hpp
+    src/pipeline_run_controller.cpp
+    src/pipeline_run_controller.hpp
     src/ai_preferences.cpp
     src/ai_preferences.hpp
     src/cache_preferences.cpp
@@ -905,6 +909,7 @@ qt_add_qml_module(
         qml/SettingsAiPane.qml
         qml/SettingsStoragePane.qml
         qml/Main.qml
+        qml/PipelineEditor.qml
         qml/MainTitleBar.qml
         qml/MainLibraryFilterBar.qml
         qml/MainLibrarySortMenu.qml

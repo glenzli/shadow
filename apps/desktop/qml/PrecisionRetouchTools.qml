@@ -147,8 +147,8 @@ ColumnLayout {
                 Layout.fillWidth: true
                 compact: true
                 selected: retouch.inspector.editor.retouchSourceAligned
-                text: qsTr("Aligned")
-                toolTipText: qsTr("Keep one source-to-target offset across new strokes")
+                text: qsTr("Keep offset")
+                toolTipText: qsTr("After the first repair, keep the same source-to-target offset for each new repair")
                 onClicked: retouch.inspector.editor.setRetouchSourceAligned(true)
             }
 
@@ -157,8 +157,8 @@ ColumnLayout {
                 Layout.fillWidth: true
                 compact: true
                 selected: !retouch.inspector.editor.retouchSourceAligned
-                text: qsTr("Fixed source")
-                toolTipText: qsTr("Restart every new stroke from the sampled source point")
+                text: qsTr("Reuse point")
+                toolTipText: qsTr("Start every new repair from the exact sampled source point")
                 onClicked: retouch.inspector.editor.setRetouchSourceAligned(false)
             }
 
@@ -180,8 +180,8 @@ ColumnLayout {
             Layout.bottomMargin: 10
             text: retouch.inspector.editor.retouchPickerActive
                 ? (retouch.inspector.editor.retouchSourceSampled
-                    ? qsTr("Source sampled · drag to paint · Option/Alt-click samples again")
-                    : qsTr("Drag to paint · Option/Alt-click samples a source · Esc stops painting"))
+                    ? qsTr("Source set · drag its crosshair to move · paint the repair")
+                    : qsTr("Option/Alt-click to set a source, then paint · drag an outlined source to revise a repair"))
                 : retouch.regionCount > 0
                     ? qsTr("Select a repair region below or on the image.")
                     : qsTr("Choose Heal or Clone, then paint on the image.")

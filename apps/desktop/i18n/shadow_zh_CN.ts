@@ -7355,29 +7355,29 @@ R %2 · G %3 · B %4</translation>
         <translation>已绘制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="143"/>
-        <source>Drag to paint · Option/Alt-click samples a source · Esc stops painting</source>
-        <translation>拖动绘制 · Option/Alt 点击取样源区 · Esc 停止绘制</translation>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="185"/>
+        <source>Option/Alt-click to set a source, then paint · drag an outlined source to revise a repair</source>
+        <translation>Option/Alt 点击设置源区，然后绘制 · 拖动带轮廓的源区可调整已有修复</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="157"/>
-        <source>Aligned</source>
-        <translation>对齐</translation>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="152"/>
+        <source>Keep offset</source>
+        <translation>保持偏移</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="158"/>
-        <source>Keep one source-to-target offset across new strokes</source>
-        <translation>在新笔画间保持同一源区到目标区偏移</translation>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="153"/>
+        <source>After the first repair, keep the same source-to-target offset for each new repair</source>
+        <translation>完成第一处修复后，后续每处修复都保持相同的源区到目标区偏移</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="171"/>
-        <source>Fixed source</source>
-        <translation>固定源区</translation>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="162"/>
+        <source>Reuse point</source>
+        <translation>重用取样点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="172"/>
-        <source>Restart every new stroke from the sampled source point</source>
-        <translation>每条新笔画都从取样源点重新开始</translation>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="163"/>
+        <source>Start every new repair from the exact sampled source point</source>
+        <translation>每处新修复都从同一个精确取样点开始</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRetouchTools.qml" line="188"/>
@@ -7385,9 +7385,9 @@ R %2 · G %3 · B %4</translation>
         <translation>恢复自动选择附近源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="203"/>
-        <source>Source sampled · drag to paint · Option/Alt-click samples again</source>
-        <translation>源区已取样 · 拖动绘制 · 再次 Option/Alt 点击可重新取样</translation>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="184"/>
+        <source>Source set · drag its crosshair to move · paint the repair</source>
+        <translation>源区已设置 · 拖动十字标记可移动 · 绘制即可修复</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRetouchTools.qml" line="145"/>
@@ -7463,9 +7463,9 @@ R %2 · G %3 · B %4</translation>
         <translation>镜像源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="189"/>
-        <source>Drag the linked source region on the image.</source>
-        <translation>在图像上拖动关联的源区域。</translation>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="321"/>
+        <source>Select this repair, then drag its outlined source region on the image.</source>
+        <translation>选中此修复后，在图像上拖动其带轮廓的源区域。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionMaskCreateMenu.qml" line="153"/>
@@ -11660,6 +11660,30 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ToneCurveEditor.qml" line="457"/>
         <source>Reset curve</source>
         <translation>重置曲线</translation>
+    </message>
+</context>
+<context>
+    <name>PrecisionCanvasPickerInput</name>
+    <message>
+        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="301"/>
+        <source>SOURCE</source>
+        <translation>源区</translation>
+    </message>
+</context>
+<context>
+    <name>PrecisionRetouchSpotHandle</name>
+    <message>
+        <location filename="../qml/PrecisionRetouchSpotHandle.qml" line="233"/>
+        <source>SOURCE</source>
+        <translation>源区</translation>
+    </message>
+</context>
+<context>
+    <name>PrecisionRetouchStrokeHandle</name>
+    <message>
+        <location filename="../qml/PrecisionRetouchStrokeHandle.qml" line="253"/>
+        <source>SOURCE</source>
+        <translation>源区</translation>
     </message>
 </context>
 </TS>

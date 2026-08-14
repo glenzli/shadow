@@ -67,6 +67,7 @@ mod export_queue_service;
 mod export_service;
 mod session_cache_maintenance;
 mod session_export;
+mod session_pipeline;
 
 pub use isolated_proxy::{ProviderHostInventory, inspect_provider_host};
 pub use library_server_service::{
@@ -425,6 +426,18 @@ mod ffi {
         decode_inspections_cancelled: u64,
         issue_count: u64,
         cancelled: bool,
+    }
+
+    /// One exact source admitted into an isolated pipeline-edit session.
+    /// This is deliberately not a Review projection: its identifiers are
+    /// usable by the existing Recipe/edit services, but it carries no Library
+    /// navigation or curation state.
+    #[derive(Debug)]
+    struct FfiPipelineInput {
+        photo_id: String,
+        representation_id: String,
+        source_path: String,
+        title: String,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2018,6 +2031,10 @@ mod ffi {
         ) -> Result<FfiScanReport>;
         fn scan_progress(self: &DesktopSession, scan_id: u64) -> Result<FfiScanProgress>;
         fn cancel_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<bool>;
+        fn admit_pipeline_input(
+            self: &DesktopSession,
+            source_path: &FfiNativePath,
+        ) -> Result<FfiPipelineInput>;
         fn review_page(
             self: &DesktopSession,
             cursor_path: &str,

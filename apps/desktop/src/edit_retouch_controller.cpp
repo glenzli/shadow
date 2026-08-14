@@ -226,6 +226,16 @@ bool EditController::retouchSourceSampled() const noexcept {
     return retouch_source_anchor_.has_value();
 }
 
+QVariantMap EditController::retouchSampledSource() const {
+    if (!retouch_source_anchor_.has_value()) {
+        return {};
+    }
+    return {
+        {QStringLiteral("x"), retouch_source_anchor_->x()},
+        {QStringLiteral("y"), retouch_source_anchor_->y()},
+    };
+}
+
 void EditController::setRetouchPickerActive(const bool active) {
     if (retouch_picker_active_ == active) {
         return;
@@ -279,6 +289,25 @@ void EditController::setRetouchSourceFromPreview(
     retouch_aligned_source_offset_radii_.reset();
     emit retouchSourceChanged();
     setStatusMessage(retouch_message(QT_TRANSLATE_NOOP("EditController", "Repair source sampled")));
+}
+
+void EditController::moveRetouchSourceFromPreview(
+    const double normalized_x,
+    const double normalized_y
+) {
+    if (!active_ || interactionLocked() || !retouch_picker_active_
+        || !retouch_source_anchor_.has_value() || !std::isfinite(normalized_x)
+        || !std::isfinite(normalized_y) || normalized_x < 0.0 || normalized_x > 1.0
+        || normalized_y < 0.0 || normalized_y > 1.0) {
+        return;
+    }
+    const QPointF next_anchor(normalized_x, normalized_y);
+    if (*retouch_source_anchor_ == next_anchor) {
+        return;
+    }
+    retouch_source_anchor_ = next_anchor;
+    retouch_aligned_source_offset_radii_.reset();
+    emit retouchSourceChanged();
 }
 
 void EditController::clearRetouchSource() {

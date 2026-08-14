@@ -52,6 +52,14 @@ Application startup is split from environment-driven automation:
   registration.
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
+- [`src/pipeline_launch.*`](src/pipeline_launch.hpp) owns the versioned caller request contract for
+  `--pipeline-edit`: it validates one exact input, a caller-owned new output path, export settings,
+  and a caller-owned result path before the normal application composition begins.
+  [`src/pipeline_run_controller.*`](src/pipeline_run_controller.hpp) owns the isolated temporary
+  runtime, one-photo edit lifecycle, direct durable export, cancellation, and terminal result
+  publication. It deliberately constructs no normal Library, Review, People, or catalog-shell
+  controller. [`qml/PipelineEditor.qml`](qml/PipelineEditor.qml) is the corresponding locked
+  Precision-only window: its only terminal actions are cancel and complete/export.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
   session-only anonymous-people analysis lifecycle: worker admission, safe failure presentation,
   in-memory summary projection, rerun, localization, and clear-on-request/destruction. It delegates

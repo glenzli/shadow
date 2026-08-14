@@ -383,6 +383,9 @@ class EditController final : public QObject {
     )
     Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
     Q_PROPERTY(
+        QVariantMap retouchSampledSource READ retouchSampledSource NOTIFY retouchSourceChanged
+    )
+    Q_PROPERTY(
         bool whiteBalancePickerActive READ whiteBalancePickerActive NOTIFY
             whiteBalancePickerActiveChanged
     )
@@ -548,6 +551,7 @@ class EditController final : public QObject {
     [[nodiscard]] int retouchCreationMode() const noexcept;
     [[nodiscard]] bool retouchSourceAligned() const noexcept;
     [[nodiscard]] bool retouchSourceSampled() const noexcept;
+    [[nodiscard]] QVariantMap retouchSampledSource() const;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool hasToneCurve() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
@@ -630,6 +634,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void setRetouchCreationMode(int mode);
     Q_INVOKABLE void setRetouchSourceAligned(bool aligned);
     Q_INVOKABLE void setRetouchSourceFromPreview(double normalized_x, double normalized_y);
+    Q_INVOKABLE void moveRetouchSourceFromPreview(double normalized_x, double normalized_y);
     Q_INVOKABLE void clearRetouchSource();
     Q_INVOKABLE void addRetouchSpotFromPreview(
         double normalized_x,

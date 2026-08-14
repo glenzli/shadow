@@ -20,6 +20,8 @@
 #include "map_provider_preferences.hpp"
 #include "optics_profile_library.hpp"
 #include "people_analysis_controller.hpp"
+#include "pipeline_launch.hpp"
+#include "pipeline_run_controller.hpp"
 #include "personal_location_search.hpp"
 #include "personal_profile.hpp"
 #include "review_controller.hpp"
@@ -172,6 +174,18 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow"));
+    QString pipeline_error;
+    const auto pipeline_request = parsePipelineLaunch(
+        QCoreApplication::arguments(),
+        &pipeline_error
+    );
+    if (!pipeline_error.isEmpty()) {
+        qCritical().noquote() << "Invalid pipeline launch:" << pipeline_error;
+        return EXIT_FAILURE;
+    }
+    if (pipeline_request.has_value()) {
+        return runPipelineEdit(application, *pipeline_request);
+    }
     const QString initial_settings_section =
         requestedSettingsSection(QCoreApplication::arguments());
 

@@ -23,6 +23,10 @@ class FakeDirectStrokeEditor final : public QObject {
     Q_PROPERTY(bool stateBusy READ stateBusy NOTIFY stateBusyChanged)
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY photoGeometryChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive CONSTANT)
+    Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
+    Q_PROPERTY(
+        QVariantMap retouchSampledSource READ retouchSampledSource NOTIFY retouchSourceChanged
+    )
     Q_PROPERTY(bool pointColorPickerActive READ pointColorPickerActive CONSTANT)
     Q_PROPERTY(bool whiteBalancePickerActive READ whiteBalancePickerActive CONSTANT)
     Q_PROPERTY(bool hasSelectedGradeNode READ hasSelectedGradeNode CONSTANT)
@@ -67,6 +71,12 @@ class FakeDirectStrokeEditor final : public QObject {
     }
     [[nodiscard]] bool retouchPickerActive() const noexcept {
         return true;
+    }
+    [[nodiscard]] bool retouchSourceSampled() const noexcept {
+        return !retouch_sampled_source.isEmpty();
+    }
+    [[nodiscard]] QVariantMap retouchSampledSource() const {
+        return retouch_sampled_source;
     }
     [[nodiscard]] bool pointColorPickerActive() const noexcept {
         return false;
@@ -117,6 +127,22 @@ class FakeDirectStrokeEditor final : public QObject {
     Q_INVOKABLE void beginParameterEdit(const QString&) {}
     Q_INVOKABLE void endParameterEdit(const QString&) {}
     Q_INVOKABLE void setPhotoCropBounds(double, double, double, double) {}
+    Q_INVOKABLE void setRetouchSourceFromPreview(const double x, const double y) {
+        ++sample_source_count;
+        retouch_sampled_source = {
+            {QStringLiteral("x"), x},
+            {QStringLiteral("y"), y},
+        };
+        emit retouchSourceChanged();
+    }
+    Q_INVOKABLE void moveRetouchSourceFromPreview(const double x, const double y) {
+        ++move_source_count;
+        retouch_sampled_source = {
+            {QStringLiteral("x"), x},
+            {QStringLiteral("y"), y},
+        };
+        emit retouchSourceChanged();
+    }
     Q_INVOKABLE void addRetouchSpotFromPreview(
         double,
         double,
@@ -186,6 +212,8 @@ class FakeDirectStrokeEditor final : public QObject {
 
     int stroke_commit_count = 0;
     int spot_commit_count = 0;
+    int sample_source_count = 0;
+    int move_source_count = 0;
     int mask_commit_count = 0;
     int liquify_commit_count = 0;
     int liquify_live_begin_count = 0;
@@ -203,12 +231,14 @@ class FakeDirectStrokeEditor final : public QObject {
     int committed_retouch_height = 0;
     int liquify_brush_mode = 0;
     bool state_busy = false;
+    QVariantMap retouch_sampled_source;
 
   signals:
     void photoGeometryChanged();
     void parametersChanged();
     void selectedGradeNodeChanged();
     void stateBusyChanged();
+    void retouchSourceChanged();
     void liquifyBrushChanged();
 };
 
@@ -304,7 +334,8 @@ void sendMouse(
     const QEvent::Type type,
     const QPointF& position,
     const Qt::MouseButton button,
-    const Qt::MouseButtons buttons
+    const Qt::MouseButtons buttons,
+    const Qt::KeyboardModifiers modifiers = Qt::NoModifier
 ) {
     QMouseEvent event(
         type,
@@ -313,7 +344,7 @@ void sendMouse(
         position,
         button,
         buttons,
-        Qt::NoModifier,
+        modifiers,
         QPointingDevice::primaryPointingDevice()
     );
     QGuiApplication::sendEvent(&window, &event);
@@ -483,6 +514,47 @@ int main(int argc, char* argv[]) {
     picker->setParentItem(window.contentItem());
     window.show();
     drainBindings();
+
+    sendMouse(
+        window,
+        QEvent::MouseButtonPress,
+        QPointF{100, 120},
+        Qt::LeftButton,
+        Qt::LeftButton,
+        Qt::AltModifier
+    );
+    sendMouse(
+        window,
+        QEvent::MouseButtonRelease,
+        QPointF{100, 120},
+        Qt::LeftButton,
+        Qt::NoButton,
+        Qt::AltModifier
+    );
+    QObject* const sampled_source_marker =
+        picker->findChild<QObject*>(QStringLiteral("retouchSampledSourceMarker"));
+    if (!require(
+            editor.sample_source_count == 1 && sampled_source_marker != nullptr
+                && sampled_source_marker->property("visible").toBool(),
+            "Option/Alt sampling creates a visible source marker before painting"
+        )) {
+        return EXIT_FAILURE;
+    }
+    sendMouse(window, QEvent::MouseButtonPress, QPointF{100, 120}, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseMove, QPointF{140, 150}, Qt::NoButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseButtonRelease, QPointF{140, 150}, Qt::LeftButton, Qt::NoButton);
+    if (!require(
+            editor.move_source_count > 0
+                && std::abs(
+                       editor.retouch_sampled_source.value(QStringLiteral("x")).toDouble() - 0.35
+                   ) < 0.02
+                && std::abs(
+                       editor.retouch_sampled_source.value(QStringLiteral("y")).toDouble() - 0.5
+                   ) < 0.02,
+            "the sampled source marker directly repositions the next repair source"
+        )) {
+        return EXIT_FAILURE;
+    }
 
     sendMouse(window, QEvent::MouseButtonPress, QPointF{60, 80}, Qt::LeftButton, Qt::LeftButton);
     sendMouse(window, QEvent::MouseMove, QPointF{130, 95}, Qt::NoButton, Qt::LeftButton);

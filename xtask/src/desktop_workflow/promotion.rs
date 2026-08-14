@@ -32,7 +32,7 @@ pub(super) fn promote_candidate(candidate: &Path, validation_label: &str) -> io:
 #[cfg(target_os = "macos")]
 mod macos {
     use std::{
-        env, fs,
+        fs,
         io::{self, Write},
         os::unix::fs::symlink,
         path::{Path, PathBuf},
@@ -40,6 +40,7 @@ mod macos {
     };
 
     use super::super::{
+        acquire_canonical_debug_lock,
         layout::{AppBundlePaths, WorkflowPaths},
         process,
         provider::{self, ModelPaths},
@@ -72,12 +73,8 @@ mod macos {
         let current_link = paths.local_build_root.join("current-debug");
         ensure_symlink_or_absent(&current_link)?;
 
-        let lock_path = paths.local_build_root.join(".promote-debug-build.lock");
-        let lock_helper = paths
-            .repository_root
-            .join("scripts/acquire_debug_promotion_lock.py");
-        let lock_token = acquire_lock(&lock_helper, &lock_path)?;
-        let mut cleanup = PromotionCleanup::new(lock_helper, lock_path, lock_token);
+        let _lock = acquire_canonical_debug_lock()?;
+        let mut cleanup = PromotionCleanup::new();
 
         let revision = process::capture(
             Command::new("git")
@@ -137,7 +134,6 @@ mod macos {
 
         let canonical = AppBundlePaths::macos(current_link.join("Shadow.app"));
         verify_bundle(&canonical)?;
-        cleanup.release_lock();
         println!("canonical debug app: {}", canonical.app.display());
         println!(
             "run: cargo xtask desktop-run-debug (or {})",
@@ -301,21 +297,6 @@ mod macos {
         Ok(())
     }
 
-    fn acquire_lock(helper: &Path, lock: &Path) -> io::Result<String> {
-        let python = env::var_os("PYTHON").unwrap_or_else(|| "python3".into());
-        let owner = env::var("SHADOW_CANONICAL_DEBUG_STEWARD")
-            .unwrap_or_else(|_| format!("promotion-xtask-{}", std::process::id()));
-        process::capture(
-            Command::new(python)
-                .arg(helper)
-                .arg("acquire")
-                .arg(lock)
-                .arg("--owner")
-                .arg(owner),
-            "acquire canonical debug promotion lock",
-        )
-    }
-
     fn ensure_symlink_or_absent(path: &Path) -> io::Result<()> {
         match fs::symlink_metadata(path) {
             Ok(metadata) if metadata.file_type().is_symlink() => Ok(()),
@@ -365,36 +346,16 @@ mod macos {
     }
 
     struct PromotionCleanup {
-        helper: PathBuf,
-        lock: PathBuf,
-        token: Option<String>,
         incoming: Option<PathBuf>,
         next_link: Option<PathBuf>,
     }
 
     impl PromotionCleanup {
-        fn new(helper: PathBuf, lock: PathBuf, token: String) -> Self {
+        fn new() -> Self {
             Self {
-                helper,
-                lock,
-                token: Some(token),
                 incoming: None,
                 next_link: None,
             }
-        }
-
-        fn release_lock(&mut self) {
-            let Some(token) = self.token.take() else {
-                return;
-            };
-            let python = env::var_os("PYTHON").unwrap_or_else(|| "python3".into());
-            let _ = Command::new(python)
-                .arg(&self.helper)
-                .arg("release")
-                .arg(&self.lock)
-                .arg("--token")
-                .arg(token)
-                .status();
         }
     }
 
@@ -406,7 +367,6 @@ mod macos {
             if let Some(incoming) = self.incoming.take() {
                 let _ = fs::remove_dir_all(incoming);
             }
-            self.release_lock();
         }
     }
 

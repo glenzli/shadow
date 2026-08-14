@@ -25,6 +25,13 @@ class ExportBackend;
 
 class DesktopBackend final {
   public:
+    struct PipelineInput final {
+        QString photo_id;
+        QString representation_id;
+        QString source_path;
+        QString title;
+    };
+
     DesktopBackend(const QString& catalog_path, const QString& cache_root);
     ~DesktopBackend();
 
@@ -36,6 +43,7 @@ class DesktopBackend final {
     scanFolder(const QString& folder_path, std::uint64_t scan_id) const;
     [[nodiscard]] BackendScanProgress scanProgress(std::uint64_t scan_id) const;
     [[nodiscard]] bool cancelFolderScan(std::uint64_t scan_id) const;
+    [[nodiscard]] PipelineInput admitPipelineInput(const QString& source_path) const;
     [[nodiscard]] BackendPhotoInspection
     photoInspection(const QString& photo_id, const QString& representation_id) const;
     [[nodiscard]] BackendRemoteLibrarySnapshot

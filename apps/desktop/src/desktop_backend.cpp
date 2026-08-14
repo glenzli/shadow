@@ -3,7 +3,21 @@
 #include "photo_inspection_projection.hpp"
 
 #include <memory>
+#include <limits>
 #include <utility>
+
+namespace {
+
+[[nodiscard]] QString qstring(const rust::String& value) {
+    return QString::fromUtf8(
+        value.data(),
+        static_cast<qsizetype>(std::min<std::size_t>(
+            value.size(), static_cast<std::size_t>(std::numeric_limits<qsizetype>::max())
+        ))
+    );
+}
+
+} // namespace
 
 DesktopBackend::DesktopBackend(const QString& catalog_path, const QString& cache_root)
     : impl_(std::make_unique<Impl>(shadow::desktop::open_desktop_session(
@@ -29,6 +43,20 @@ BackendScanProgress DesktopBackend::scanProgress(const std::uint64_t scan_id) co
 
 bool DesktopBackend::cancelFolderScan(const std::uint64_t scan_id) const {
     return impl_->folder_scan_backend.cancelFolderScan(scan_id);
+}
+
+DesktopBackend::PipelineInput DesktopBackend::admitPipelineInput(
+    const QString& source_path
+) const {
+    const auto source = impl_->session->admit_pipeline_input(
+        native_path_input::path(source_path)
+    );
+    return {
+        .photo_id = qstring(source.photo_id),
+        .representation_id = qstring(source.representation_id),
+        .source_path = qstring(source.source_path),
+        .title = qstring(source.title),
+    };
 }
 
 BackendPhotoInspection DesktopBackend::photoInspection(
