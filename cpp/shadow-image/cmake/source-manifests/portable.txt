@@ -54,7 +54,6 @@ src/raw/dcp_color_development.cpp
 src/raw/dcp_color_rendering.cpp
 src/raw/dcp_parser.cpp
 src/raw/fused_raw_development.cpp
-src/raw/neural_raw_denoise/neural_raw_denoise.cpp
 src/raw/raw_denoise.cpp
 src/raw/raw_denoise_plan.cpp
 src/raw/raw_foundation.cpp

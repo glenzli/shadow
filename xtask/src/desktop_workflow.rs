@@ -9,7 +9,6 @@ mod layout;
 mod lock;
 mod process;
 mod promotion;
-mod provider;
 mod run;
 
 use std::{ffi::OsString, io, path::PathBuf};

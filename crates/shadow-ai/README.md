@@ -36,11 +36,10 @@ and gates, not implemented inference.
   coordinate extent it maps to. A denoise output records its exact source pixel
   contract, image domain, layout, sample format, tiling halo, and whether it is
   full resolution.
-- An exact public RawNIND Bayer foundation route with verified installation,
-  no-inference cache planning, bounded sidecar execution, portable
-  `.shadowrawf` provenance, and atomic managed-store publication. The same
-  planning contract can resolve a verified cache hit after application restart
-  without consuming an execution lease or running inference.
+- An Infer Runtime RawNIND Bayer foundation consumer with cache-before-runtime
+  resolution, typed handle leases, portable `.shadowrawf` provenance, and
+  atomic managed-store publication. The same cache identity can resolve a
+  verified hit after restart without admitting runtime work.
 - A promotion boundary for generated pixels: workers emit rebuildable byte
   identities, while promotion consumes the runtime-issued successful-output
   envelope and runs through an application-owned managed-store transaction.
@@ -63,8 +62,8 @@ and gates, not implemented inference.
   manifest/request vectors.
   The manifest also covers tensor I/O, preprocessing, execution targets,
   RAM/VRAM, code/weight/data license notes, redistribution, gating, and
-  side-loading. Core ML `.mlpackage` source archives are identity; extracted
-  packages, `.mlmodelc`, and device-specialized caches are rebuildable.
+  side-loading. Infer Runtime owns all model package and device-cache identity;
+  Shadow does not stage an executable local model format.
 - A separate remote-provider manifest covering rendered-RGB/mask upload scope,
   privacy, retention, training use, terms revision, offline behavior,
   idempotency, and cancellation. An application store must first sanitize,
@@ -120,13 +119,9 @@ and gates, not implemented inference.
 - A typed Infer Runtime SAM 2.1 soft-mask Consumer. Shadow verifies the native
   256×256 Gray8 probability raster and keeps only product-side staging and
   apply/discard authority; Infer Runtime owns the user-installed model,
-  compiled cache, resident worker, and cancellation. The old macOS Core ML
-  process provider remains only a lower-level diagnostic route, so point
-  refinements run only the prompt encoder and decoder. It validates the exact
-  pinned nine-file artifact inventory, uses a bounded JSON-lines protocol,
-  cooperatively cancels by terminating the child, and retries one complete
-  request after a transport failure. Model download and redistribution remain
-  outside Shadow.
+  compiled cache, resident worker, and cancellation. Shadow has no local SAM
+  provider, model inventory, or subprocess fallback. Model download and
+  redistribution remain outside Shadow.
 - An adapter over the official `infer-runtime-client` SDK at Git revision
   `8588a945047cedaea62035969e479e7fb7ff795c` for YuNet and SFace. The SDK owns
   strict `infra.discovery.registration@20260812.1` selection, exact
@@ -145,12 +140,9 @@ and gates, not implemented inference.
   inside one exact versioned embedding space. The client does not own a photo
   index, retry checkpoint, or Catalog publication.
 - [`infer_runtime/raw_foundation.rs`](src/providers/infer_runtime/raw_foundation.rs)
-  preserves the inactive RawNIND request/cache identity and cache-before-runtime
-  contract. The legacy sidecar remains the default. The official SDK 1.0.0 has
-  no typed RAW ticket, `SCM_RIGHTS` handle lease, execution, cancellation, or
-  provenance module, so an explicit Infer RAW override now fails closed before
-  transport. Activation is blocked on that dedicated SDK surface; Shadow does
-  not retain a second Core Discovery parser or generic RAW transport.
+  owns the typed RawNIND request/cache identity, capability probe, handle lease,
+  execution, cancellation, and provenance boundary. Shadow has no local
+  RawNIND sidecar or generic RAW transport fallback.
 - [`infer_runtime.rs`](src/providers/infer_runtime.rs) is now only Shadow's
   synchronous product/evidence adapter over the SDK. Product endpoint selection
   has no fixed-port fallback and no candidate-contract branch. An explicit
@@ -205,8 +197,8 @@ sampling, compositing, and the physical screen. The accompanying technical
 observation is displayed separately and is not yet copied into the feedback event.
 
 The desktop AI Mask path renders a bounded JPEG from the active edit session,
-hashes that exact input, and stages a rebuildable SAM proposal through the
-resident Core ML provider. Foreground and background clicks can be refined
+hashes that exact input, and stages a rebuildable SAM proposal through Infer
+Runtime. Foreground and background clicks can be refined
 against the cached image embedding; applying the proposal promotes the packed
 soft mask into the managed raster store before the Recipe references it.
 Cancellation, stale-result rejection, reversible invert/opacity/feather
@@ -225,9 +217,9 @@ putting vectors into the ordinary Catalog.
 ## Deliberately not implemented
 
 - No linked ONNX Runtime/Vision/CUDA/Metal/DirectML/Windows ML inference
-  adapter. ONNX YuNet/SFace execution is delegated to the separately managed
-  local infer-runtime; Core ML inference is isolated in the packaged SAM
-  provider, and the Apple Vision module remains an availability-tested boundary only.
+  adapter. YuNet/SFace, SAM, and RawNIND execution are delegated to the
+  separately managed local Infer Runtime; the Apple Vision module remains an
+  availability-tested boundary only.
 - No DINO, CLIP, depth, inpaint, diffusion, VLM, or LLM model inside Shadow.
 - No fabricated quality score, embedding, mask, recipe, or generated patch.
 - No bundled/downloaded model package and no promise that an arbitrary SAM
@@ -271,15 +263,8 @@ putting vectors into the ordinary Catalog.
 - Use [`AI_CAPABILITY_PLAN.md`](AI_CAPABILITY_PLAN.md) when selecting or
   integrating a runtime, model package, culling feature, mask generator,
   restoration provider, denoiser, or super-resolution route.
-- [`src/providers/sam2_coreml_sidecar.rs`](src/providers/sam2_coreml_sidecar.rs)
-  owns exact artifact admission and the one-shot provider adapter;
-  [`src/providers/sam2_coreml_sidecar/resident.rs`](src/providers/sam2_coreml_sidecar/resident.rs)
-  owns the recoverable resident session. The packaged native provider is
-  documented in
-  [`../../apps/desktop/providers/sam2-coreml/README.md`](../../apps/desktop/providers/sam2-coreml/README.md).
-- Use the Mac-only
-  [`SAM 2.1 Core ML probe`](../../tools/sam2-coreml-probe/README.md) only for
-  lower-level conversion compatibility diagnosis.
+- [`src/providers/infer_runtime/subject_mask.rs`](src/providers/infer_runtime/subject_mask.rs)
+  owns typed SAM capability consumption and product-side result admission.
 - Keep application scheduling, persistence, Recipe integration, and UI ownership
   in their respective crates. This README should change only when the current
   crate boundary or implemented facts change.

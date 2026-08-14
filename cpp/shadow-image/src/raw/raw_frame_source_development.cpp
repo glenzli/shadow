@@ -18,20 +18,6 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     std::optional<FusedRawFrameDevelopment> prepared_development;
     std::optional<RawBayerDenoiseResult> materialized_raw_denoise;
     RawBayerDenoiseReceipt raw_denoise_receipt;
-    if (prepared.neural_raw_denoise().execution_requested()) {
-        // Sensor clipping describes the immutable source, not values reconstructed by the neural
-        // stage. Preserve it before the RAW-to-RAW transaction changes the active plane.
-        sensor_clipping_mask =
-            project_sensor_clipping_mask(frame, prepared.diagnostic_dimensions());
-    }
-    detail::NeuralRawDenoiseResult neural_raw_denoise =
-        detail::execute_prepared_neural_raw_denoise(
-            std::move(frame),
-            prepared.neural_raw_denoise()
-        );
-    detail::NeuralRawDenoiseReceipt neural_raw_denoise_receipt =
-        std::move(neural_raw_denoise.receipt);
-    frame = std::move(neural_raw_denoise.frame);
     bool fused_dcp_applied = false;
     const DcpColorTransform* camera_profile = prepared.camera_profile();
     const bool dcp_requested =
@@ -103,7 +89,6 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
         rendered_dimensions,
         developed.demosaic_receipt,
         developed.backend,
-        neural_raw_denoise_receipt,
         raw_denoise_receipt,
         dcp_execution_backend
     );
@@ -113,10 +98,7 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
         .sensor_clipping_mask = std::move(*sensor_clipping_mask),
         .backend = developed.backend,
         .highlight_recovery = developed.highlight_recovery,
-        .raw_denoise_cache_identity = detail::combined_raw_denoise_cache_identity(
-            neural_raw_denoise_receipt,
-            raw_denoise_receipt
-        ),
+        .raw_denoise_cache_identity = raw_denoise_receipt.cache_identity,
         .source_scene_luminance_percentile = prepared.source_scene_luminance_percentile(),
     };
 }

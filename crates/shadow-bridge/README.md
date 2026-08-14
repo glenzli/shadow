@@ -155,7 +155,7 @@ The first implementation is Mac-first and accepts a UTF-8 path. This limitation 
 ## Build
 
 Cargo uses CXX 1.0.198 and compiles the same `shadow-image` translation units used by CMake.
-[`build.rs`](build.rs) reads the canonical portable, Apple/Core ML, Metal, and fallback manifests
+[`build.rs`](build.rs) reads the canonical portable, Metal, and fallback manifests
 from [`cpp/shadow-image/cmake/source-manifests/`](../../cpp/shadow-image/cmake/source-manifests/);
 CMake consumes the same files. Adding or extracting a native implementation therefore updates
 one source index, and both build graphs fail closed on malformed, duplicate, missing, or empty

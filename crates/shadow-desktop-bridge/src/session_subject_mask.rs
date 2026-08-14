@@ -7,7 +7,7 @@
 
 use anyhow::{Context, Result as AnyResult, bail};
 use shadow_ai::{
-    MaskPointPolarity, MaskPrompt, MaskPromptPoint, RasterExtent, SAM2_COREML_MAX_PROMPT_POINTS,
+    MAX_MASK_PROMPT_POINTS, MaskPointPolarity, MaskPrompt, MaskPromptPoint, RasterExtent,
     UnitInterval,
 };
 
@@ -331,8 +331,8 @@ fn validate_subject_mask_target(
 }
 
 fn subject_mask_points(points: &[ffi::FfiSubjectMaskPoint]) -> AnyResult<Vec<MaskPromptPoint>> {
-    if points.is_empty() || points.len() > SAM2_COREML_MAX_PROMPT_POINTS {
-        bail!("subject-mask prompt requires between 1 and {SAM2_COREML_MAX_PROMPT_POINTS} points");
+    if points.is_empty() || points.len() > MAX_MASK_PROMPT_POINTS {
+        bail!("subject-mask prompt requires between 1 and {MAX_MASK_PROMPT_POINTS} points");
     }
     let points = points
         .iter()

@@ -45,7 +45,7 @@ ScrollView {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Shadow runs supported AI models locally. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.")
+            text: qsTr("Shadow uses locally managed Infer Runtime capabilities. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.")
             color: Theme.textMuted
             font.pixelSize: Theme.fontMeta
             wrapMode: Text.WordWrap
@@ -96,7 +96,7 @@ ScrollView {
                 Layout.fillWidth: true
                 visible: root.editor.active && root.editor.rawDenoiseNodeMaterialized
                 text: root.editor.foundationAiDenoiseAvailable
-                    ? qsTr("Current photo: local RAW denoise model is ready.")
+                    ? qsTr("Current photo: Infer Runtime RAW Denoise is ready.")
                     : root.editor.foundationAiDenoiseStatusText
                 color: root.editor.foundationAiDenoiseAvailable
                     ? Theme.successText : Theme.textMuted
@@ -116,7 +116,7 @@ ScrollView {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Subject selection uses the local SAM 2.1 provider when installed. Photo pixels and prompts are not uploaded by this feature.")
+                text: qsTr("Subject selection uses Infer Runtime when its SAM capability is available. Photo pixels and prompts remain local to this device.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap

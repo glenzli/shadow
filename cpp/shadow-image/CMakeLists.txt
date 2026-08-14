@@ -15,6 +15,15 @@ find_package(JPEG REQUIRED)
 add_library(shadow-image-platform-runtime INTERFACE)
 add_library(Shadow::ImagePlatformRuntime ALIAS shadow-image-platform-runtime)
 
+if(APPLE)
+    find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    target_link_libraries(
+        shadow-image-platform-runtime
+        INTERFACE
+            "${SHADOW_FOUNDATION_FRAMEWORK}"
+    )
+endif()
+
 function(shadow_image_enable_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
@@ -66,16 +75,12 @@ function(shadow_image_read_source_manifest output_variable manifest_name)
 endfunction()
 
 shadow_image_read_source_manifest(SHADOW_IMAGE_PORTABLE_SOURCES portable.txt)
-shadow_image_read_source_manifest(SHADOW_IMAGE_APPLE_SOURCES apple.txt)
-shadow_image_read_source_manifest(SHADOW_IMAGE_NON_APPLE_SOURCES non-apple.txt)
 shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_SOURCES metal.txt)
 shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_STUB_SOURCES metal-stubs.txt)
 
 set(
     SHADOW_IMAGE_ALL_MANIFEST_SOURCES
     ${SHADOW_IMAGE_PORTABLE_SOURCES}
-    ${SHADOW_IMAGE_APPLE_SOURCES}
-    ${SHADOW_IMAGE_NON_APPLE_SOURCES}
     ${SHADOW_IMAGE_METAL_SOURCES}
     ${SHADOW_IMAGE_METAL_STUB_SOURCES}
 )
@@ -89,29 +94,6 @@ if(NOT SHADOW_IMAGE_SOURCE_COUNT EQUAL SHADOW_IMAGE_UNIQUE_SOURCE_COUNT)
 endif()
 
 add_library(shadow-image STATIC ${SHADOW_IMAGE_PORTABLE_SOURCES})
-if(APPLE)
-    find_library(SHADOW_COREML_FRAMEWORK CoreML REQUIRED)
-    find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
-    target_sources(
-        shadow-image
-        PRIVATE
-            ${SHADOW_IMAGE_APPLE_SOURCES}
-    )
-    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=1)
-    target_link_libraries(
-        shadow-image-platform-runtime
-        INTERFACE
-            "${SHADOW_COREML_FRAMEWORK}"
-            "${SHADOW_FOUNDATION_FRAMEWORK}"
-    )
-else()
-    target_sources(
-        shadow-image
-        PRIVATE
-            ${SHADOW_IMAGE_NON_APPLE_SOURCES}
-    )
-    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=0)
-endif()
 if(APPLE AND SHADOW_ENABLE_METAL)
     find_library(SHADOW_METAL_FRAMEWORK Metal REQUIRED)
     target_sources(
@@ -171,11 +153,6 @@ shadow_image_enable_warnings(shadow-image)
 if(SHADOW_BUILD_RAW_PROBE)
     add_executable(shadow-raw-probe tools/raw_probe.cpp)
     target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
-    target_include_directories(
-        shadow-raw-probe
-        PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/raw/neural_raw_denoise"
-    )
     shadow_image_enable_warnings(shadow-raw-probe)
 endif()
 
@@ -830,11 +807,6 @@ if(BUILD_TESTING)
         shadow-image-raw-sensor-preparation-tests
         shadow-image-raw-sensor-preparation-contract
         tests/raw_sensor_preparation_contract_test.cpp
-    )
-    shadow_image_add_contract(
-        shadow-image-neural-raw-denoise-tests
-        shadow-image-neural-raw-denoise-contract
-        tests/neural_raw_denoise_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-raw-foundation-tests

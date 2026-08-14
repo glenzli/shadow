@@ -1441,7 +1441,7 @@ mod ffi {
         raw_ai_denoise_enabled: bool,
         /// Whether the fixed node is hidden while preserving AI result intent.
         raw_ai_denoise_bypassed: bool,
-        /// 0 = RawNIND public Bayer release 5.6.0.
+        /// 0 = Infer Runtime RawNIND Bayer capability.
         raw_ai_denoise_model: u8,
         /// Fast camera-linear blend between original RAW and cached AI output.
         raw_ai_denoise_amount_percent: u8,
@@ -2546,8 +2546,8 @@ mod ffi {
         /// Explicitly retires a staged proposal that lost the UI generation
         /// race or was abandoned by the user.
         fn discard_subject_mask_proposal(self: &DesktopSession, proposal_token: u64) -> Result<()>;
-        /// Verifies the exact side-loaded RawNIND model/runtime without
-        /// decoding a source or starting inference.
+        /// Probes Infer Runtime's RawNIND capability without decoding a source
+        /// or starting inference.
         fn probe_raw_foundation_runtime(self: &DesktopSession) -> FfiRawFoundationRuntimeStatus;
         fn assess_raw_foundation_noise(
             self: &DesktopSession,
@@ -2758,10 +2758,8 @@ fn open_desktop_session_at(
         subject_mask_paths.infer_base_url_override,
         subject_mask_paths.infer_credential_file,
     )?;
-    let raw_foundation_paths = raw_foundation_runtime::config::RawFoundationRuntimePaths::discover(
-        &std::env::current_exe().context("resolve desktop executable path")?,
-        &cache_root,
-    )?;
+    let raw_foundation_paths =
+        raw_foundation_runtime::config::RawFoundationRuntimePaths::discover(&cache_root)?;
     let raw_foundation_runtime =
         raw_foundation_runtime::RawFoundationRuntime::open(raw_foundation_paths)?;
     let session_previews = Arc::new(SessionPreviewStore::default());

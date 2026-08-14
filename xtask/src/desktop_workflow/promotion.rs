@@ -43,20 +43,13 @@ mod macos {
         acquire_canonical_debug_lock,
         layout::{AppBundlePaths, WorkflowPaths},
         process,
-        provider::{self, ModelPaths},
     };
 
     pub(super) fn promote_candidate(candidate: &Path, validation_label: &str) -> io::Result<()> {
         validate_request(candidate, validation_label)?;
         let paths = WorkflowPaths::resolve()?;
         let candidate_paths = AppBundlePaths::macos(candidate.to_path_buf());
-        let models = ModelPaths::resolve()?;
         verify_bundle(&candidate_paths)?;
-        provider::verify(
-            &candidate_paths.rawnind_provider,
-            &candidate_paths.rawnind_manifest,
-            &models,
-        )?;
         lint_bundle_plists(&candidate_paths)?;
 
         fs::create_dir_all(&paths.local_build_root).map_err(|error| {
@@ -104,11 +97,6 @@ mod macos {
         )?;
         let copied_paths = AppBundlePaths::macos(copied_app);
         let digests = verify_copy_digests(&candidate_paths, &copied_paths)?;
-        provider::verify(
-            &copied_paths.rawnind_provider,
-            &copied_paths.rawnind_manifest,
-            &models,
-        )?;
         let worktree_status = git_status(&paths.repository_root)?;
         let worktree_digest = process::sha256_bytes(&worktree_status)?;
         let manifest = Manifest {
@@ -150,8 +138,6 @@ mod macos {
         server_decode_helper: String,
         geonames_index: String,
         geonames_notice: String,
-        rawnind_provider: String,
-        rawnind_manifest: String,
     }
 
     struct Manifest<'a> {
@@ -169,7 +155,6 @@ mod macos {
             ("isolated RAW decode helper", &bundle.decode_helper),
             ("Shadow Server executable", &bundle.server_executable),
             ("Shadow Server decode helper", &bundle.server_decode_helper),
-            ("AI RAW Denoise provider", &bundle.rawnind_provider),
         ] {
             if !process::is_executable(path) {
                 return Err(not_found(format!("{label} is missing: {}", path.display())));
@@ -178,11 +163,6 @@ mod macos {
         for (label, path) in [
             ("GeoNames city index", &bundle.geonames_index),
             ("GeoNames notice", &bundle.geonames_notice),
-            ("AI RAW Denoise manifest", &bundle.rawnind_manifest),
-            (
-                "AI RAW Denoise runtime base library",
-                &bundle.rawnind_runtime.join("base_library.zip"),
-            ),
         ] {
             if !path.is_file() {
                 return Err(not_found(format!("{label} is missing: {}", path.display())));
@@ -202,8 +182,6 @@ mod macos {
             (&source.server_decode_helper, &copied.server_decode_helper),
             (&source.geonames_index, &copied.geonames_index),
             (&source.geonames_notice, &copied.geonames_notice),
-            (&source.rawnind_provider, &copied.rawnind_provider),
-            (&source.rawnind_manifest, &copied.rawnind_manifest),
         ];
         let mut verified = Vec::with_capacity(pairs.len());
         for (source_path, copied_path) in pairs {
@@ -224,8 +202,6 @@ mod macos {
             server_decode_helper,
             geonames_index,
             geonames_notice,
-            rawnind_provider,
-            rawnind_manifest,
         ] = verified.try_into().map_err(|_| {
             io::Error::other("internal digest projection did not retain every bundle path")
         })?;
@@ -236,8 +212,6 @@ mod macos {
             server_decode_helper,
             geonames_index,
             geonames_notice,
-            rawnind_provider,
-            rawnind_manifest,
         })
     }
 
@@ -271,17 +245,7 @@ mod macos {
             "geonames_notice_sha256={}",
             manifest.digests.geonames_notice
         )?;
-        writeln!(
-            file,
-            "rawnind_provider_sha256={}",
-            manifest.digests.rawnind_provider
-        )?;
-        writeln!(
-            file,
-            "rawnind_manifest_sha256={}",
-            manifest.digests.rawnind_manifest
-        )?;
-        writeln!(file, "rawnind_model_verified=true")
+        Ok(())
     }
 
     fn validate_request(candidate: &Path, validation_label: &str) -> io::Result<()> {

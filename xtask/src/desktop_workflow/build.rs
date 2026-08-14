@@ -43,25 +43,13 @@ pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<(
 fn run_macos(request: BuildRequest) -> io::Result<()> {
     let paths = WorkflowPaths::resolve()?;
     let city_index = resolve_city_index(&paths);
-    let provider_directory = resolve_provider_directory(&paths);
-    let provider = provider_directory.join(WorkflowPaths::provider_name());
     require_file(&city_index, "no prepared GeoNames city index")?;
-    if !process::is_executable(&provider) {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!(
-                "no frozen RawNIND provider; set SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR (expected {})",
-                provider.display()
-            ),
-        ));
-    }
     if request == BuildRequest::Check {
         println!(
             "candidate build directory: {}",
             paths.build_directory.display()
         );
         println!("GeoNames city index input: {}", city_index.display());
-        println!("RawNIND provider input: {}", provider_directory.display());
         return Ok(());
     }
     let BuildRequest::Build {
@@ -95,10 +83,6 @@ fn run_macos(request: BuildRequest) -> io::Result<()> {
             .arg(format!(
                 "-DSHADOW_GEONAMES_CITY_INDEX_PATH={}",
                 city_index.display()
-            ))
-            .arg(format!(
-                "-DSHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR={}",
-                provider_directory.display()
             )),
         "configure canonical debug desktop",
     )?;
@@ -188,22 +172,6 @@ fn resolve_city_index(paths: &WorkflowPaths) -> PathBuf {
     } else {
         let cached = AppBundlePaths::macos(paths.current_app.clone()).geonames_index;
         if cached.is_file() { cached } else { configured }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn resolve_provider_directory(paths: &WorkflowPaths) -> PathBuf {
-    let configured = env::var_os("SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR")
-        .map_or_else(|| paths.asset_root.join("rawnind"), PathBuf::from);
-    if process::is_executable(&configured.join(WorkflowPaths::provider_name())) {
-        configured
-    } else {
-        let cached = paths.current_app.join("Contents/Helpers/RawNIND");
-        if process::is_executable(&cached.join(WorkflowPaths::provider_name())) {
-            cached
-        } else {
-            configured
-        }
     }
 }
 

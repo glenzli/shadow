@@ -63,15 +63,11 @@ const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
 
 const IMAGE_SOURCE_MANIFEST_DIRECTORY: &str = "cmake/source-manifests";
 const PORTABLE_SOURCE_MANIFEST: &str = "portable.txt";
-const APPLE_SOURCE_MANIFEST: &str = "apple.txt";
-const NON_APPLE_SOURCE_MANIFEST: &str = "non-apple.txt";
 const METAL_SOURCE_MANIFEST: &str = "metal.txt";
 const METAL_STUB_SOURCE_MANIFEST: &str = "metal-stubs.txt";
 
 struct ImageSourceManifests {
     portable: Vec<String>,
-    apple: Vec<String>,
-    non_apple: Vec<String>,
     metal: Vec<String>,
     metal_stubs: Vec<String>,
 }
@@ -162,8 +158,6 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/raw/metal_raw_denoise_encoding.hpp",
     "src/raw/metal_resident_raw_source.hpp",
     "src/raw/metal_raw_runtime.hpp",
-    "src/raw/neural_raw_denoise/coreml_neural_raw_denoise.hpp",
-    "src/raw/neural_raw_denoise/neural_raw_denoise.hpp",
     "src/raw/raw_denoise_plan.hpp",
     "src/raw/raw_frame_development_plan.hpp",
     "src/raw/raw_frame_source_development.hpp",
@@ -261,8 +255,6 @@ fn read_image_source_manifest(image_root: &Path, file_name: &str) -> Vec<String>
 fn load_image_source_manifests(image_root: &Path) -> ImageSourceManifests {
     let manifests = ImageSourceManifests {
         portable: read_image_source_manifest(image_root, PORTABLE_SOURCE_MANIFEST),
-        apple: read_image_source_manifest(image_root, APPLE_SOURCE_MANIFEST),
-        non_apple: read_image_source_manifest(image_root, NON_APPLE_SOURCE_MANIFEST),
         metal: read_image_source_manifest(image_root, METAL_SOURCE_MANIFEST),
         metal_stubs: read_image_source_manifest(image_root, METAL_STUB_SOURCE_MANIFEST),
     };
@@ -270,8 +262,6 @@ fn load_image_source_manifests(image_root: &Path) -> ImageSourceManifests {
     for source in manifests
         .portable
         .iter()
-        .chain(&manifests.apple)
-        .chain(&manifests.non_apple)
         .chain(&manifests.metal)
         .chain(&manifests.metal_stubs)
     {
@@ -376,17 +366,6 @@ fn main() {
     for relative_path in &image_sources.portable {
         build.file(image_root.join(relative_path));
     }
-    if target_os == "macos" {
-        for relative_path in &image_sources.apple {
-            build.file(image_root.join(relative_path));
-        }
-        build.define("SHADOW_IMAGE_HAS_COREML", Some("1"));
-    } else {
-        for relative_path in &image_sources.non_apple {
-            build.file(image_root.join(relative_path));
-        }
-        build.define("SHADOW_IMAGE_HAS_COREML", Some("0"));
-    }
     if metal_enabled {
         for relative_path in &image_sources.metal {
             build.file(image_root.join(relative_path));
@@ -463,7 +442,7 @@ fn main() {
     build.compile("shadow-bridge-cxx");
 
     if target_os == "macos" {
-        println!("cargo:rustc-link-lib=framework=CoreML");
+        // Metal sources use Foundation's Objective-C collection and string types.
         println!("cargo:rustc-link-lib=framework=Foundation");
     }
     if metal_enabled {
@@ -548,8 +527,6 @@ fn main() {
     track_inputs(&image_root, BRIDGE_SOURCES);
     track_inputs(&image_root, BRIDGE_ADDITIONAL_INPUTS);
     track_manifest_inputs(&image_root, &image_sources.portable);
-    track_manifest_inputs(&image_root, &image_sources.apple);
-    track_manifest_inputs(&image_root, &image_sources.non_apple);
     track_manifest_inputs(&image_root, &image_sources.metal);
     track_manifest_inputs(&image_root, &image_sources.metal_stubs);
     track_inputs(&image_root, EMBEDDED_IMAGE_ADDITIONAL_INPUTS);

@@ -1,6 +1,5 @@
 #include "raw_preview_rebinding.hpp"
 
-#include "neural_raw_denoise/neural_raw_denoise.hpp"
 #include "raw_denoise_plan.hpp"
 #include "raw_foundation_source.hpp"
 #include "raw_frame_development_plan.hpp"
@@ -24,7 +23,6 @@ namespace {
 
 struct OrdinaryRawPreviewBasis final {
     RawFrame denoised_frame;
-    detail::NeuralRawDenoiseReceipt neural_denoise;
     RawBayerDenoiseReceipt conventional_denoise;
     std::string combined_denoise_identity;
 };
@@ -271,7 +269,6 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             developed->scene_linear.dimensions,
             developed->demosaic_receipt,
             developed->backend,
-            ordinary->neural_denoise,
             ordinary->conventional_denoise,
             dcp_backend
         );
@@ -365,23 +362,15 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         prepared.frame_,
         prepared.development_.diagnostic_dimensions()
     );
-    detail::NeuralRawDenoiseResult neural = detail::execute_prepared_neural_raw_denoise(
-        std::move(prepared.frame_),
-        prepared.development_.neural_raw_denoise()
-    );
     RawBayerDenoiseResult conventional = detail::execute_prepared_raw_bayer_denoise(
-        std::move(neural.frame),
+        std::move(prepared.frame_),
         prepared.development_.raw_denoise()
     );
     OrdinaryRawPreviewBasis basis{
         .denoised_frame = std::move(conventional.frame),
-        .neural_denoise = std::move(neural.receipt),
         .conventional_denoise = std::move(conventional.receipt),
     };
-    basis.combined_denoise_identity = detail::combined_raw_denoise_cache_identity(
-        basis.neural_denoise,
-        basis.conventional_denoise
-    );
+    basis.combined_denoise_identity = basis.conventional_denoise.cache_identity;
     auto impl = std::make_unique<RawPreviewRebindingSource::Impl>(
         std::move(prepared.development_),
         std::move(prepared.pipeline_),

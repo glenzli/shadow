@@ -34,7 +34,8 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
 Application startup is split from environment-driven automation:
 
 - [`CMakeLists.txt`](CMakeLists.txt) owns desktop application assembly, packaged resources,
-  provider installation, and the final executable contract.
+  and the final executable contract. AI model executors and model assets are not packaged here;
+  the desktop is an Infer Runtime consumer.
   [`cmake/ShadowDesktopPlatformSources.cmake`](cmake/ShadowDesktopPlatformSources.cmake)
   is the single platform-source selector: the shared Qt application and QML tree remain common,
   while [`src/platform/macos/`](src/platform/macos/) owns AppKit/Metal presentation and
@@ -140,7 +141,7 @@ Application startup is split from environment-driven automation:
   keeps only field grouping and preference orchestration.
 - [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
   and EXIF-field presentation preferences. [`src/ai_preferences.*`](src/ai_preferences.hpp) owns
-  admission policy for new local AI work, background image-understanding eligibility and keyword
+  admission policy for new Infer Runtime AI work, background image-understanding eligibility and keyword
   acceptance policy, plus the default strength of newly authored RAW-denoise nodes; model discovery,
   queue checkpoints, proposals, and verification remain with their model/workflow owners.
   [`src/personal_profile.*`](src/personal_profile.hpp) is deliberately separate from application
@@ -393,10 +394,8 @@ Its implementation follows the same navigation:
   [`src/edit_raw_foundation_state.*`](src/edit_raw_foundation_state.hpp) is its Qt-free generation
   state machine. Materialized artifacts remain rebuildable Rust-owned cache state: bypassing the
   node never deletes or serializes an artifact path, and strength changes never rerun the model.
-  [`providers/rawnind-foundation/`](providers/rawnind-foundation/README.md) owns the reproducible
-  self-contained provider build and optional desktop-bundle copy contract. Public model weights
-  remain side-loaded in the versioned application-data model directory; a missing provider or
-  model is an explicit unavailable state and never selects a fallback pixel route.
+  Infer Runtime owns RawNIND model installation and execution. An unavailable Infer Runtime
+  capability is an explicit feature-unavailable state and never selects a fallback pixel route.
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
@@ -1146,8 +1145,8 @@ GeoNames attribution notice, so the normal developer entry cannot silently regre
 location provider.
 
 For the everyday complete debug refresh, prefer
-`scripts/build_and_promote_debug.sh`. It records this index and the frozen RawNIND provider as
-explicit external bundle inputs, builds only the launchable desktop targets, runs both application
+`scripts/build_and_promote_debug.sh`. It records the required GeoNames index as an explicit
+external bundle input, builds only the launchable desktop targets, runs both application
 startup smokes, and then atomically advances `current-debug`. The full `desktop-build` command is
 deliberately broader: it also builds the desktop contract executables and remains the integration
 or CI command.

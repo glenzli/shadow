@@ -266,7 +266,6 @@ PreparedRawFrameDevelopment::PreparedRawFrameDevelopment(
     const std::optional<std::uint32_t> preview_max_edge,
     RawFrameLinearTransform linear_transform,
     std::optional<DcpColorTransform> camera_profile,
-    detail::PreparedNeuralRawDenoise neural_raw_denoise,
     detail::PreparedRawBayerDenoise raw_denoise,
     const RawDevelopmentBackendMode requested_backend,
     const Dimensions reconstruction_dimensions,
@@ -275,8 +274,8 @@ PreparedRawFrameDevelopment::PreparedRawFrameDevelopment(
 ) :
     descriptor_(std::move(descriptor)), development_plan_(development_plan),
     preview_max_edge_(preview_max_edge), linear_transform_(linear_transform),
-    camera_profile_(std::move(camera_profile)), neural_raw_denoise_(std::move(neural_raw_denoise)),
-    raw_denoise_(std::move(raw_denoise)), requested_backend_(requested_backend),
+    camera_profile_(std::move(camera_profile)), raw_denoise_(std::move(raw_denoise)),
+    requested_backend_(requested_backend),
     reconstruction_dimensions_(reconstruction_dimensions),
     diagnostic_dimensions_(diagnostic_dimensions),
     source_scene_luminance_percentile_(source_scene_luminance_percentile) {}
@@ -299,11 +298,6 @@ const RawFrameLinearTransform& PreparedRawFrameDevelopment::linear_transform() c
 
 const DcpColorTransform* PreparedRawFrameDevelopment::camera_profile() const noexcept {
     return camera_profile_.has_value() ? &*camera_profile_ : nullptr;
-}
-
-const detail::PreparedNeuralRawDenoise&
-PreparedRawFrameDevelopment::neural_raw_denoise() const noexcept {
-    return neural_raw_denoise_;
 }
 
 const detail::PreparedRawBayerDenoise& PreparedRawFrameDevelopment::raw_denoise() const noexcept {
@@ -349,7 +343,6 @@ PreparedRawFrameDevelopment PreparedRawFrameDevelopment::rebind_color(
         preview_max_edge_,
         std::move(linear_transform),
         std::move(camera_profile),
-        neural_raw_denoise_,
         raw_denoise_,
         requested_backend_,
         reconstruction_dimensions_,
@@ -458,16 +451,12 @@ PreparedRawFrameDevelopment prepare_raw_frame_development(
             .preview = preview_max_edge.has_value(),
         }
     );
-    const auto neural_raw_denoise =
-        detail::prepare_neural_raw_denoise_from_environment(frame, preview_max_edge.has_value());
-
     return PreparedRawFrameDevelopment(
         frame.descriptor,
         development_plan,
         preview_max_edge,
         transform,
         std::move(camera_profile),
-        neural_raw_denoise,
         raw_denoise,
         raw_development_backend_mode_from_environment(),
         reconstruction_dimensions,
@@ -481,7 +470,6 @@ RawDevelopmentReceipt finalize_raw_frame_development_receipt(
     const Dimensions rendered_dimensions,
     const RawDemosaicReceipt& demosaic,
     const RawDevelopmentBackend backend,
-    const detail::NeuralRawDenoiseReceipt& neural_raw_denoise,
     const RawBayerDenoiseReceipt& raw_denoise,
     const DcpColorExecutionBackend dcp_execution_backend
 ) {
@@ -509,8 +497,7 @@ RawDevelopmentReceipt finalize_raw_frame_development_receipt(
         ";backend=" + std::string(raw_development_backend_identity(backend));
     receipt.development_settings_signature +=
         ";" + std::string(raw_highlight_treatment_identity(development_plan.highlight_recovery));
-    receipt.development_settings_signature +=
-        ";" + detail::combined_raw_denoise_cache_identity(neural_raw_denoise, raw_denoise);
+    receipt.development_settings_signature += ";" + raw_denoise.cache_identity;
     if (camera_profile != nullptr) {
         receipt.development_settings_signature +=
             ";color=dcp;" + dcp_color_receipt_identity(camera_profile->receipt);

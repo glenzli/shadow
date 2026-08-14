@@ -15,7 +15,6 @@ mod people;
 mod preference;
 mod providers;
 mod raw_foundation;
-mod raw_foundation_materialization;
 mod remote;
 mod resource;
 mod runtime;
@@ -90,34 +89,16 @@ pub use providers::{
     InferRuntimeAttemptSnapshot, InferRuntimeCancelResult, InferRuntimeCapabilityCatalog,
     InferRuntimeClient, InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
     InferRuntimeJobListPage, InferRuntimeJobSnapshot, InferSubjectMaskEvidence,
-    RAWNIND_FOUNDATION_ADAPTER_REVISION, RAWNIND_FOUNDATION_ARTIFACT_SET_BLAKE3,
-    RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256, RAWNIND_FOUNDATION_IMPLEMENTATION_REVISION,
-    RAWNIND_FOUNDATION_MODEL_ID, RAWNIND_FOUNDATION_MODEL_RECEIPT_PREFIX,
-    RAWNIND_FOUNDATION_MODEL_REVISION, RAWNIND_FOUNDATION_PACKAGE_SHA256,
-    RAWNIND_FOUNDATION_PLAN_RECEIPT_PREFIX, RAWNIND_FOUNDATION_PROVIDER_ID,
-    RAWNIND_FOUNDATION_RECEIPT_PREFIX, RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256,
-    RawNindFoundationInput, RawNindFoundationModelVerificationError, RawNindFoundationPlan,
-    RawNindFoundationPlanningError, RawNindFoundationProvider,
-    RawNindFoundationProviderConfigurationError, SAM2_COREML_ADAPTER_REVISION,
-    SAM2_COREML_ARTIFACT_SET_BLAKE3, SAM2_COREML_EXACT_REVISION, SAM2_COREML_MAX_PROMPT_POINTS,
-    SAM2_COREML_MODEL_ID, SAM2_COREML_MODEL_RECEIPT_PREFIX, SAM2_COREML_PROVIDER_ID,
-    SAM2_COREML_RECEIPT_PREFIX, Sam2CoreMlModelVerificationError,
-    Sam2CoreMlProviderConfigurationError, Sam2CoreMlResidentSession, Sam2CoreMlSidecarProvider,
-    SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence,
-    VerifiedRawNindFoundationInstallation, VerifiedSam2CoreMlInstallation, VisionProvenance,
-    VisionTokenizerProvenance, infer_raw_foundation_sdk_status, plan_rawnind_foundation,
-    verify_rawnind_foundation_installation, verify_sam2_coreml_installation,
+    RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256, RAWNIND_FOUNDATION_MODEL_ID,
+    RAWNIND_FOUNDATION_PACKAGE_SHA256, RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256,
+    SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance,
+    VisionTokenizerProvenance, infer_raw_foundation_sdk_status,
 };
 pub use raw_foundation::{
     MAX_RAW_FOUNDATION_IMPLEMENTATION_REVISION_BYTES, RAW_FOUNDATION_ENCODING_VERSION,
     RAW_FOUNDATION_MEDIA_TYPE, RawFoundationArtifact, RawFoundationArtifactError,
-    RawFoundationDigestField, RawFoundationProvenance, RawFoundationSourceProvenance,
-};
-pub use raw_foundation_materialization::{
-    MaterializedRawFoundation, RawFoundationMaterializationDisposition,
-    RawFoundationMaterializationError, RawFoundationMaterializationOutcome,
-    materialize_rawnind_foundation, materialize_rawnind_foundation_with_progress,
-    resolve_cached_rawnind_foundation,
+    RawFoundationDigestField, RawFoundationMaterializationDisposition, RawFoundationProvenance,
+    RawFoundationSourceProvenance,
 };
 pub use remote::{
     MAX_REMOTE_INPUTS, PREPARED_REMOTE_UPLOAD_CONTRACT_VERSION, PreparedRemoteUpload,

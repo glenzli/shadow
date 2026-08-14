@@ -26,14 +26,13 @@ mod macos {
         env,
         ffi::OsString,
         fs, io,
-        path::{Path, PathBuf},
+        path::PathBuf,
         process::{Command, Stdio},
     };
 
     use super::super::{
         layout::{AppBundlePaths, WorkflowPaths},
         process,
-        provider::{self, ModelPaths},
     };
 
     pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<()> {
@@ -47,22 +46,7 @@ mod macos {
         }
         let paths = WorkflowPaths::resolve()?;
         let bundle = AppBundlePaths::macos(paths.current_app.clone());
-        let provider_path = env::var_os("SHADOW_RAWNIND_PROVIDER_PATH")
-            .map_or_else(|| bundle.rawnind_provider.clone(), PathBuf::from);
-        let provider_root = provider_path
-            .parent()
-            .ok_or_else(|| io::Error::other("RawNIND provider path has no parent"))?;
-        let provider_runtime = provider_root.join("_rawnind_runtime");
-        let provider_manifest = env::var_os("SHADOW_RAWNIND_MANIFEST_PATH")
-            .map_or_else(|| bundle.rawnind_manifest.clone(), PathBuf::from);
-        let models = ModelPaths::resolve()?;
-        verify_launch_inputs(
-            &bundle,
-            &provider_path,
-            &provider_runtime,
-            &provider_manifest,
-        )?;
-        provider::verify(&provider_path, &provider_manifest, &models)?;
+        verify_launch_inputs(&bundle)?;
 
         if arguments
             .first()
@@ -73,9 +57,6 @@ mod macos {
             }
             println!("canonical debug app: {}", bundle.app.display());
             println!("offline city index: {}", bundle.geonames_index.display());
-            println!("AI RAW Denoise provider: {}", provider_path.display());
-            println!("AI RAW Denoise model package: {}", models.package.display());
-            println!("AI RAW Denoise model graph: {}", models.graph.display());
             return Ok(());
         }
         let foreground = arguments
@@ -104,16 +85,10 @@ mod macos {
         Ok(())
     }
 
-    fn verify_launch_inputs(
-        bundle: &AppBundlePaths,
-        provider_path: &Path,
-        provider_runtime: &Path,
-        provider_manifest: &Path,
-    ) -> io::Result<()> {
+    fn verify_launch_inputs(bundle: &AppBundlePaths) -> io::Result<()> {
         for (label, path) in [
             ("Shadow executable", bundle.shadow_executable.as_path()),
             ("RAW decode helper", bundle.decode_helper.as_path()),
-            ("AI RAW Denoise provider", provider_path),
         ] {
             if !process::is_executable(path) {
                 return Err(not_found(format!("{label} is missing: {}", path.display())));
@@ -122,11 +97,6 @@ mod macos {
         for (label, path) in [
             ("GeoNames city index", bundle.geonames_index.as_path()),
             ("GeoNames notice", bundle.geonames_notice.as_path()),
-            ("AI RAW Denoise manifest", provider_manifest),
-            (
-                "AI RAW Denoise runtime base library",
-                &provider_runtime.join("base_library.zip"),
-            ),
         ] {
             if !path.is_file() {
                 return Err(not_found(format!("{label} is missing: {}", path.display())));

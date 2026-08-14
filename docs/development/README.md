@@ -26,9 +26,8 @@ directory while still refreshing its build graph for the current source tree.
 The matching `.sh` and `.ps1` files in `scripts/` are thin wrappers for terminals that prefer
 platform-native launchers. Use `cargo xtask desktop-build-promote --check` to inspect resolved
 build and asset inputs
-without building. A first machine setup supplies `SHADOW_GEONAMES_CITY_INDEX_PATH` and
-`SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR`; later builds can reuse the dedicated local asset cache or
-the previous canonical bundle as a read-only bootstrap source.
+without building. A first machine setup supplies `SHADOW_GEONAMES_CITY_INDEX_PATH`; later builds can
+reuse the dedicated local asset cache or the previous canonical bundle as a read-only bootstrap source.
 
 Promoted builds live outside the repository under the sibling `.shadow-local-build` directory.
 Promotion creates an immutable revision-stamped release and atomically advances `current-debug`, so

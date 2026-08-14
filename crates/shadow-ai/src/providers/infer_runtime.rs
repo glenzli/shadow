@@ -40,7 +40,9 @@ pub use raw_foundation::{
     InferRawFoundationDecoderIdentity, InferRawFoundationJob, InferRawFoundationLeaseGrant,
     InferRawFoundationPriority, InferRawFoundationProvenance, InferRawFoundationProvider,
     InferRawFoundationRegisteredLease, InferRawFoundationRequest, InferRawFoundationResult,
-    InferRawFoundationSource, InferRawFoundationStaging, infer_raw_foundation_sdk_status,
+    InferRawFoundationSource, InferRawFoundationStaging, RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256,
+    RAWNIND_FOUNDATION_MODEL_ID, RAWNIND_FOUNDATION_PACKAGE_SHA256,
+    RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256, infer_raw_foundation_sdk_status,
 };
 pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,

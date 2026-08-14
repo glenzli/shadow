@@ -12,7 +12,12 @@ use serde::{Deserialize, Serialize};
 use super::{InferRuntimeClient, InferRuntimeClientError};
 
 const RAW_FOUNDATION_INTENT: &str = "raw.materialize_foundation";
-const SOURCE_PIXEL_CONTRACT_SHA256: &str =
+pub const RAWNIND_FOUNDATION_MODEL_ID: &str = "darktable-ai/rawnind-public-bayer";
+pub const RAWNIND_FOUNDATION_PACKAGE_SHA256: &str =
+    "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af";
+pub const RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256: &str =
+    "da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901";
+pub const RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256: &str =
     "e1998069001c14d01251cc3d6e2bc2aa66b807f3f17d246e7ee7270528302f7f";
 const STAGING_SCHEMA: &str = "infer.raw-foundation-staging@20260811.1";
 const STAGING_SAMPLE_FORMAT: &str = "uint16-le-row-major-active-bayer";
@@ -39,7 +44,7 @@ impl InferRawFoundationSource {
         Self {
             sha256: sha256.into(),
             size_bytes,
-            pixel_contract_sha256: SOURCE_PIXEL_CONTRACT_SHA256.into(),
+            pixel_contract_sha256: RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256.into(),
         }
     }
 }
@@ -121,7 +126,7 @@ impl InferRawFoundationRequest {
         if self.source.size_bytes == 0 || self.source.size_bytes > MAX_SOURCE_BYTES {
             return invalid_request("source size is outside the supported bound");
         }
-        if self.source.pixel_contract_sha256 != SOURCE_PIXEL_CONTRACT_SHA256 {
+        if self.source.pixel_contract_sha256 != RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256 {
             return invalid_request("source pixel contract is unsupported");
         }
         self.staging.validate()

@@ -103,8 +103,8 @@ fn cancellation_wins_over_a_racing_runtime_terminal() {
             invocation("request-2", 9),
             |_invocation, cancellation, _progress| {
                 cancellation.cancel();
-                Ok::<_, &'static str>(RawFoundationRuntimeOutcome::Failed {
-                    diagnostic: "late provider failure".into(),
+                Ok::<_, &'static str>(RawFoundationRuntimeOutcome::Unavailable {
+                    diagnostic: "late runtime unavailability".into(),
                 })
             },
         )

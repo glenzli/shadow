@@ -70,84 +70,6 @@ else()
     )
 endif()
 
-set(
-    SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR
-    ""
-    CACHE PATH
-    "Optional frozen RawNIND onedir provider copied beside the Shadow executable"
-)
-set(
-    SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME
-    "shadow-rawnind-foundation-provider${CMAKE_EXECUTABLE_SUFFIX}"
-)
-set(
-    SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY
-    "_rawnind_runtime"
-)
-if(APPLE)
-    set(
-        SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY
-        "$<TARGET_BUNDLE_DIR:shadow-desktop>/Contents/Helpers/RawNIND"
-    )
-else()
-    set(
-        SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY
-        "$<TARGET_FILE_DIR:shadow-desktop>"
-    )
-endif()
-if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
-    if(NOT IS_DIRECTORY "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}")
-        message(FATAL_ERROR
-            "SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR is not a directory: "
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}"
-        )
-    endif()
-    set(
-        SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-    )
-    set(
-        SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-    )
-    if(NOT EXISTS "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}")
-        message(FATAL_ERROR
-            "frozen RawNIND provider executable is missing: "
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}"
-        )
-    endif()
-    if(NOT IS_DIRECTORY "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}")
-        message(FATAL_ERROR
-            "frozen RawNIND provider runtime is missing: "
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}"
-        )
-    endif()
-    message(STATUS
-        "Shadow will bundle frozen RawNIND provider from "
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}"
-    )
-endif()
-set(
-    SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION
-    "${CMAKE_CURRENT_BINARY_DIR}/raw-foundation-provider-configuration.txt"
-)
-set(
-    SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION_CONTENT
-    "provider_dir=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}\nprovider_name=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}\nruntime_directory=${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}\n"
-)
-file(
-    GENERATE
-    OUTPUT "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION}"
-    CONTENT "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION_CONTENT}"
-)
-
-if(APPLE)
-    add_subdirectory(
-        providers/sam2-coreml
-        "${CMAKE_CURRENT_BINARY_DIR}/providers/sam2-coreml"
-    )
-endif()
-
 find_program(SHADOW_CARGO_EXECUTABLE cargo REQUIRED)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(SHADOW_CARGO_PROFILE release)
@@ -644,29 +566,6 @@ qt_add_executable(
     src/ui_preferences.hpp
 )
 set(
-    SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS
-    "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/install_runtime.cmake"
-    "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/model-manifest.json"
-)
-if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
-    file(
-        GLOB_RECURSE SHADOW_RAWNIND_FOUNDATION_PROVIDER_INPUTS
-        CONFIGURE_DEPENDS
-        LIST_DIRECTORIES FALSE
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/*"
-    )
-    list(
-        APPEND SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS
-        ${SHADOW_RAWNIND_FOUNDATION_PROVIDER_INPUTS}
-    )
-endif()
-set_property(
-    TARGET shadow-desktop
-    APPEND
-    PROPERTY LINK_DEPENDS ${SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS}
-)
-set(
     SHADOW_GEONAMES_BUNDLE_INPUTS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/geonames/NOTICE.txt"
 )
@@ -1135,84 +1034,6 @@ else()
             ${CMAKE_COMMAND} -E rm -f
             "${SHADOW_GEONAMES_BUNDLE_DIRECTORY}/shadow-geonames-cities-v1.tsv"
         COMMENT "Ensuring no stale GeoNames city index remains in this build"
-        VERBATIM
-    )
-endif()
-add_custom_command(
-    TARGET shadow-desktop
-    POST_BUILD
-    COMMAND
-        ${CMAKE_COMMAND} -E make_directory
-        "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}"
-    COMMAND
-        ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/model-manifest.json"
-        "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/shadow-rawnind-foundation-model-manifest.json"
-    COMMENT "Installing the canonical RawNIND model manifest for Shadow"
-    VERBATIM
-)
-if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E copy_if_different
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}"
-            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-        COMMAND
-            ${CMAKE_COMMAND}
-            "-DSHADOW_RAWNIND_SOURCE_RUNTIME=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}"
-            "-DSHADOW_RAWNIND_DESTINATION_RUNTIME=${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-            -P
-            "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/install_runtime.cmake"
-        COMMENT "Installing the self-contained RawNIND provider beside Shadow"
-        VERBATIM
-    )
-else()
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E rm -f
-            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-        COMMAND
-            ${CMAKE_COMMAND} -E remove_directory
-            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-        COMMENT "Ensuring the optional RawNIND provider is absent from this Shadow build"
-        VERBATIM
-    )
-endif()
-if(APPLE)
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E rm -f
-            "$<TARGET_FILE_DIR:shadow-desktop>/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-        COMMAND
-            ${CMAKE_COMMAND} -E rm -f
-            "$<TARGET_FILE_DIR:shadow-desktop>/shadow-rawnind-foundation-model-manifest.json"
-        COMMAND
-            ${CMAKE_COMMAND} -E remove_directory
-            "$<TARGET_FILE_DIR:shadow-desktop>/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-        COMMENT "Removing the obsolete RawNIND Contents/MacOS layout"
-        VERBATIM
-    )
-endif()
-if(APPLE)
-    add_dependencies(shadow-desktop shadow-sam2-coreml-provider)
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:shadow-sam2-coreml-provider>
-            $<TARGET_FILE_DIR:shadow-desktop>/$<TARGET_FILE_NAME:shadow-sam2-coreml-provider>
-        COMMAND
-            ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/providers/sam2-coreml/model-manifest.json"
-            "$<TARGET_FILE_DIR:shadow-desktop>/shadow-sam2-coreml-model-manifest.json"
-        COMMENT "Installing the local SAM 2.1 Core ML provider beside Shadow"
         VERBATIM
     )
 endif()

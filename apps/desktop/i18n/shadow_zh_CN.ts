@@ -10758,8 +10758,8 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="48"/>
-        <source>Shadow runs supported AI models locally. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.</source>
-        <translation>Shadow 在本机运行受支持的 AI 模型。这些权限控制新的模型任务；关闭权限不会移除或使照片已有的生成结果失效。</translation>
+        <source>Shadow uses locally managed Infer Runtime capabilities. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.</source>
+        <translation>Shadow 使用本机管理的 Infer Runtime 能力。这些权限控制新的模型任务；关闭权限不会移除或使照片已有的生成结果失效。</translation>
     </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="58"/>
@@ -10783,8 +10783,8 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="99"/>
-        <source>Current photo: local RAW denoise model is ready.</source>
-        <translation>当前照片：本地 RAW 降噪模型结果已就绪。</translation>
+        <source>Current photo: Infer Runtime RAW Denoise is ready.</source>
+        <translation>当前照片：Infer Runtime RAW 降噪已就绪。</translation>
     </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="112"/>
@@ -10793,8 +10793,8 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="119"/>
-        <source>Subject selection uses the local SAM 2.1 provider when installed. Photo pixels and prompts are not uploaded by this feature.</source>
-        <translation>主体选择会在安装后使用本地 SAM 2.1 提供程序。此功能不会上传照片像素或提示内容。</translation>
+        <source>Subject selection uses Infer Runtime when its SAM capability is available. Photo pixels and prompts remain local to this device.</source>
+        <translation>主体选择会在 Infer Runtime 的 SAM 能力可用时使用它。照片像素和提示内容始终留在本机。</translation>
     </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="128"/>

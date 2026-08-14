@@ -5,7 +5,7 @@ uses LibRaw behind provider-neutral public contracts.
 
 The line-based manifests under
 [`cmake/source-manifests/`](cmake/source-manifests/) are the single compiled-source index shared
-by CMake and direct Cargo builds. Portable, Apple/Core ML, Metal, and non-Metal fallback
+by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback
 translation units are selected there; adding Windows acceleration must add a distinct manifest
 and backend owner rather than duplicate the portable kernel or fork this library.
 
@@ -93,12 +93,9 @@ Current contract rules:
   provider-processed compatibility route. Every choice and fallback is recorded in the pipeline
   receipt and cache identity. `src/raw/raw_frame_development_plan.*` owns source validation, the
   immutable camera transform and optional DCP lifetime, source-wide luminance calibration,
-  preview/diagnostic geometry, prepared neural/conventional CFA-denoise intent, and RAW receipt
-  finalization. `src/raw/neural_raw_denoise/*` owns the optional RAW-to-RAW neural stage: calibrated
-  Bayer admission, canonical R/Gr/Gb/B packing, normalized Poisson-Gaussian conditioning, bounded
-  tile/halo assembly, the Core ML adapter, atomic fallback, and exact model/execution provenance.
-  It runs before the existing `raw_denoise_plan.*` stage; it neither reinterprets nor replaces the
-  conventional denoise setting.
+  preview/diagnostic geometry, conventional CFA-denoise intent, and RAW receipt finalization.
+  Local RAW development never loads an AI model; Infer Runtime owns RawNIND execution and publishes
+  its verified camera-RGB foundation through the distinct ingestion boundary below.
   `include/shadow/image/raw_foundation.hpp` and `src/raw/raw_foundation.cpp` own the distinct
   post-model ingestion boundary for externally materialized AI foundations. They accept only a
   verified, path-free public RawNIND identity and finite interleaved linear Camera RGB, bind its
@@ -177,35 +174,13 @@ Runtime controls:
 ```text
 SHADOW_RAW_PIPELINE=auto|raw-frame|processed
 SHADOW_IMAGE_ACCELERATION=auto|cpu|metal
-SHADOW_AI_RAW_DENOISE_MODEL=/absolute/path/to/model.mlmodelc
-SHADOW_AI_RAW_DENOISE_MODEL_IDENTITY=sha256-tree-v1:<64-lowercase-hex>
-SHADOW_AI_RAW_DENOISE_TILE_EDGE=512
-SHADOW_AI_RAW_DENOISE_HALO=32
-SHADOW_AI_RAW_DENOISE_PREVIEWS=0|1
 ```
 
 `metal` requires Metal for every eligible Bayer detail or area-preview request. Build-time
 `SHADOW_ENABLE_METAL=OFF` compiles the same public API against a cross-platform stub.
 
-The `SHADOW_AI_RAW_DENOISE_*` variables are a headless development seam, not the eventual Recipe
-or UI contract. No model is bundled or downloaded by `shadow-image`. The admitted artifact must be
-a compiled Core ML directory pinned by Shadow's deterministic tree digest. Its float32 features
-are `mosaic` `[1,4,H,W]`, `noise` `[1,8]`, and `denoised_mosaic` `[1,4,H,W]`; the tile edge in the
-environment fixes `H=W`. Preview execution is bypassed by default. Unsupported calibration,
-invalid configuration, model mismatch, loading failure, or inference failure preserves the
-original RAW plane and publishes an explicit fallback identity. Cancellation propagates without
-publishing a partial plane. A successful stage is still independent of conventional CFA denoise,
-which may execute afterward under its existing plan and backend.
-
-`shadow-image-neural-raw-denoise-contract` always runs the portable packing, tiling, fallback, and
-provenance contracts. Supplying all four
-`SHADOW_TEST_NEURAL_RAW_DENOISE_MODEL{,_IDENTITY}`, `SHADOW_TEST_NEURAL_RAW_DENOISE_TILE_EDGE`, and
-`SHADOW_TEST_NEURAL_RAW_DENOISE_HALO` variables additionally turns the same executable into a real
-Core ML checkpoint gate. That gate must pass before claiming a model artifact is runnable; image
-quality and performance still require a separate representative RAW corpus benchmark.
-[`tools/neural-raw-denoise-baseline`](../../tools/neural-raw-denoise-baseline/README.md) owns the
-synthetic-only checkpoint generator and first Core ML quality/latency smoke gate; passing it never
-promotes that checkpoint to a real-camera or product model.
+RawNIND runs only through Infer Runtime. `shadow-image` accepts its verified camera-RGB foundation;
+it never loads, validates, or gates a local model artifact.
 
 DNG technology notice: This product includes DNG technology under license by Adobe.
 

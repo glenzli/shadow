@@ -28,7 +28,7 @@ fn cache_identity_request_contract_remains_valid_before_runtime_selection() {
     assert_eq!(serialized["staging"]["schema"], STAGING_SCHEMA);
     assert_eq!(
         serialized["source"]["pixel_contract_sha256"],
-        SOURCE_PIXEL_CONTRACT_SHA256
+        RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256
     );
 }
 

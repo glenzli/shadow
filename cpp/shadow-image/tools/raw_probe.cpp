@@ -5,8 +5,6 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
-#include "neural_raw_denoise.hpp"
-
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -328,70 +326,6 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
               << "timing.raw_frame_ms=" << timer.elapsed_ms() << '\n';
 }
 
-void inspect_neural_raw_frame(image::DecodeSession& session, const fs::path& output_directory) {
-    const Stopwatch timer;
-    image::RawFrame source = session.decode_raw_frame();
-    std::vector<std::uint16_t> original_samples = source.samples;
-    const auto prepared = image::detail::prepare_neural_raw_denoise_from_environment(source, false);
-    auto result = image::detail::execute_prepared_neural_raw_denoise(std::move(source), prepared);
-    if (!result.frame.valid() || !result.receipt.valid()) {
-        throw std::runtime_error("neural RAW-only probe produced an invalid result");
-    }
-
-    std::uint64_t changed_samples = 0U;
-    long double absolute_difference = 0.0L;
-    std::uint64_t checksum = 1'469'598'103'934'665'603ULL;
-    if (original_samples.size() != result.frame.samples.size()) {
-        throw std::runtime_error("neural RAW-only probe changed the sensor plane dimensions");
-    }
-    for (std::size_t index = 0U; index < result.frame.samples.size(); ++index) {
-        const std::uint16_t denoised = result.frame.samples[index];
-        const std::uint16_t original = original_samples[index];
-        changed_samples += denoised != original ? 1U : 0U;
-        absolute_difference +=
-            std::abs(static_cast<double>(denoised) - static_cast<double>(original));
-        checksum ^= denoised;
-        checksum *= 1'099'511'628'211ULL;
-    }
-    const fs::path output_path = output_directory / "neural-raw-frame.pgm";
-    write_u16_pnm(
-        output_path,
-        result.frame.descriptor.storage_dimensions,
-        1U,
-        result.frame.samples
-    );
-    const double mean_absolute_difference =
-        result.frame.samples.empty()
-            ? 0.0
-            : static_cast<double>(
-                  absolute_difference / static_cast<long double>(result.frame.samples.size())
-              );
-
-    std::cout << "neural_raw_frame.status="
-              << image::detail::neural_raw_denoise_status_identity(result.receipt.status) << '\n'
-              << "neural_raw_frame.backend="
-              << image::detail::neural_raw_denoise_backend_identity(result.receipt.backend) << '\n'
-              << "neural_raw_frame.model_identity="
-              << (result.receipt.model_content_identity.empty()
-                      ? "none"
-                      : result.receipt.model_content_identity)
-              << '\n'
-              << "neural_raw_frame.execution_identity="
-              << (result.receipt.backend_execution_identity.empty()
-                      ? "none"
-                      : result.receipt.backend_execution_identity)
-              << '\n'
-              << "neural_raw_frame.cache_identity=" << result.receipt.cache_identity << '\n'
-              << "neural_raw_frame.diagnostic="
-              << (result.receipt.diagnostic.empty() ? "none" : result.receipt.diagnostic) << '\n'
-              << "neural_raw_frame.changed_samples=" << changed_samples << '\n'
-              << "neural_raw_frame.mean_absolute_difference_dn=" << mean_absolute_difference << '\n'
-              << "neural_raw_frame.fnv1a64=" << std::hex << std::setw(16) << std::setfill('0')
-              << checksum << std::dec << std::setfill(' ') << '\n'
-              << "neural_raw_frame.output=" << output_path.string() << '\n'
-              << "timing.neural_raw_frame_ms=" << timer.elapsed_ms() << '\n';
-}
-
 void render_reference_rgb(
     image::DecodeSession& session,
     const fs::path& output_directory,
@@ -656,7 +590,6 @@ int run(
     const bool denoise_diagnostic,
     const bool highlight_diagnostic,
     const bool raw_frame_only,
-    const bool neural_raw_only,
     const std::optional<image::RawWhiteBalance> white_balance
 ) {
     fs::create_directories(output_directory);
@@ -672,15 +605,6 @@ int run(
               << "output_directory=" << output_directory.string() << '\n'
               << "timing.open_ms=" << open_timer.elapsed_ms() << '\n';
     print_session(provider->info(), *session);
-    if (neural_raw_only) {
-        if (!session->capabilities().raw_frame) {
-            std::cout << "neural_raw_frame.status=unavailable\n"
-                      << "neural_raw_frame.reason=provider-does-not-expose-raw-frame\n";
-            return 0;
-        }
-        inspect_neural_raw_frame(*session, output_directory);
-        return 0;
-    }
     if (raw_frame_only) {
         if (!session->capabilities().raw_frame) {
             std::cout << "raw_frame.status=unavailable\n"
@@ -740,16 +664,14 @@ int main(const int argument_count, char** arguments) {
         argument_count == 4 && std::string_view(arguments[3]) == "--highlight-diagnostic";
     const bool raw_frame_only =
         argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-only";
-    const bool neural_raw_only =
-        argument_count == 4 && std::string_view(arguments[3]) == "--neural-raw-only";
     const bool manual_white_balance =
         argument_count == 6 && std::string_view(arguments[3]) == "--manual-white-balance";
     if (argument_count != 3 && !preview_only && !denoise_diagnostic && !highlight_diagnostic
-        && !raw_frame_only && !neural_raw_only && !manual_white_balance) {
+        && !raw_frame_only && !manual_white_balance) {
         std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> "
                      "[--preview-only|--denoise-diagnostic|--highlight-diagnostic|"
                      "--raw-frame-only|"
-                     "--neural-raw-only|--manual-white-balance <kelvin> <tint>]\n";
+                     "--manual-white-balance <kelvin> <tint>]\n";
         return 2;
     }
 
@@ -779,7 +701,6 @@ int main(const int argument_count, char** arguments) {
             denoise_diagnostic,
             highlight_diagnostic,
             raw_frame_only,
-            neural_raw_only,
             white_balance
         );
     } catch (const image::DecodeError& error) {

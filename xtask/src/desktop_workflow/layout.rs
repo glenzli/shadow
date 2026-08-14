@@ -4,7 +4,6 @@ use std::{
 };
 
 pub(super) const CITY_INDEX_NAME: &str = "shadow-geonames-cities-v1.tsv";
-pub(super) const PROVIDER_BASE_NAME: &str = "shadow-rawnind-foundation-provider";
 
 #[derive(Debug, Clone)]
 pub(super) struct WorkflowPaths {
@@ -47,10 +46,6 @@ impl WorkflowPaths {
             current_app,
         })
     }
-
-    pub(super) fn provider_name() -> String {
-        format!("{PROVIDER_BASE_NAME}{}", env::consts::EXE_SUFFIX)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -63,9 +58,6 @@ pub(super) struct AppBundlePaths {
     pub server_decode_helper: PathBuf,
     pub geonames_index: PathBuf,
     pub geonames_notice: PathBuf,
-    pub rawnind_provider: PathBuf,
-    pub rawnind_runtime: PathBuf,
-    pub rawnind_manifest: PathBuf,
 }
 
 impl AppBundlePaths {
@@ -75,7 +67,6 @@ impl AppBundlePaths {
         let server_app = contents.join("Applications/Shadow Server.app");
         let server_macos = server_app.join("Contents/MacOS");
         let geonames = contents.join("Resources/GeoNames");
-        let rawnind = contents.join("Helpers/RawNIND");
         Self {
             app,
             shadow_executable: macos.join("Shadow"),
@@ -85,9 +76,6 @@ impl AppBundlePaths {
             server_decode_helper: server_macos.join("shadow-image-decode-helper"),
             geonames_index: geonames.join(CITY_INDEX_NAME),
             geonames_notice: geonames.join("NOTICE.txt"),
-            rawnind_provider: rawnind.join(PROVIDER_BASE_NAME),
-            rawnind_runtime: rawnind.join("_rawnind_runtime"),
-            rawnind_manifest: rawnind.join("shadow-rawnind-foundation-model-manifest.json"),
         }
     }
 }
