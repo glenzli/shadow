@@ -399,6 +399,23 @@ DevelopedRawFoundation develop_prepared_raw_foundation(
             "AI RAW foundation amount rebinding requires a retained bounded original basis"
         );
     }
+    const bool has_explicit_camera_rgb_binding = std::any_of(
+        transform.camera_rgb_to_linear_srgb_d65.begin(),
+        transform.camera_rgb_to_linear_srgb_d65.end(),
+        [](const double coefficient) { return coefficient != 0.0; }
+    );
+    const auto& camera_rgb_to_linear_srgb = has_explicit_camera_rgb_binding
+                                                 ? transform.camera_rgb_to_linear_srgb_d65
+                                                 : transform.camera_to_linear_srgb_d65;
+    for (const double coefficient : camera_rgb_to_linear_srgb) {
+        if (!std::isfinite(coefficient)) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "AI RAW foundation colour binding requires a finite camera-RGB transform"
+            );
+        }
+    }
     const float ai_amount = static_cast<float>(amount_percent) / 100.0F;
     SceneLinearRgbFrame output{
         .dimensions = prepared.dimensions,
@@ -424,10 +441,8 @@ DevelopedRawFoundation develop_prepared_raw_foundation(
                                           prepared.samples[index + input_channel],
                                           ai_amount
                                       );
-                            value +=
-                                transform
-                                    .camera_to_linear_srgb_d65[output_channel * 3U + input_channel]
-                                * static_cast<double>(camera);
+                            value += camera_rgb_to_linear_srgb[output_channel * 3U + input_channel]
+                                     * static_cast<double>(camera);
                         }
                         output.samples[index + output_channel] = static_cast<float>(value);
                     }

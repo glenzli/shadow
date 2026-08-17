@@ -161,8 +161,8 @@ Application startup is split from environment-driven automation:
   may enforce that target only through the Catalog-proven unused-preview sweep: live, unknown,
   recently protected, and AI RAW foundation data may keep actual use above the requested target.
 - [`src/map_provider_preferences.*`](src/map_provider_preferences.hpp) owns optional external
-  map-service permissions, the persisted `auto`/Google/AMap/`none` Library basemap policy, the
-  shared road/satellite style, and the native-only Google/AMap credential lifecycle. `auto` is not
+  map-service permissions, the persisted `auto`/Google/AMap/`none` Library basemap policy,
+  the shared road/satellite style, and the native-only Google/AMap credential lifecycle. `auto` is not
   an effective provider identity: it delegates one sticky map-context choice to the Web map
   controller. With no eligible credential the controller publishes no effective provider; a
   transient credential-store failure does not erase the user's persisted policy.
@@ -207,9 +207,10 @@ Application startup is split from environment-driven automation:
   Google/AMap interactive map document, provider credential injection, WGS84/GCJ-02 boundary,
   marker state, viewport events, placement events, sticky effective-provider selection, and
   WebView failure lifecycle. In automatic mode a new or explicitly navigated mainland-China
-  context selects AMap when configured and an overseas context selects Google when configured;
+  context selects AMap when configured and an overseas
+  context selects Google when configured;
   ordinary pan/zoom never changes providers. A manually selected provider never silently falls
-  back, and unsupported AMap regions remain an explicit setup state. Credentials are
+  back, and unsupported mainland-only providers remain an explicit setup state. Credentials are
   injected directly into the private document and have no QML-readable property. The official
   provider SDK owns basemap attribution and networking; Shadow has no parallel Google Tile session,
   native tile cache, or raster-layer implementation. On macOS the WebView is a native child view,
@@ -933,8 +934,9 @@ Review presentation keeps the workspace as the composition and compatibility sur
   applies the current Library filter and aggregates effective GPS coordinates through
   [`src/review_library_map_coordinator.cpp`](src/review_library_map_coordinator.cpp); viewport
   requests are bounded, coalesced, stale-safe, and never perform geocoding. Shadow intentionally
-  embeds no provider API key. A user-supplied Google Maps JavaScript API key or AMap JS API key plus
-  security code activates only the explicitly selected provider while the Library map is visible.
+  embeds no provider API key. A user-supplied Google Maps JavaScript API or AMap JS
+  API key plus security code activates only the explicitly selected provider while the Library map
+  is visible.
   On macOS Qt WebView uses the system WebKit implementation; Windows may use WebView2 behind the
   same QML/controller contract. Country,
   administrative-area, and nearest-city enrichment is local by default and never depends on map

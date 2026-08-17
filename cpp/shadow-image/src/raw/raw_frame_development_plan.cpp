@@ -56,35 +56,8 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     return *neutral;
 }
 
-[[nodiscard]] std::array<double, 4U> cfa_white_balance_multipliers(
-    const RawFrameDescriptor& descriptor,
-    const RawWhiteBalance& white_balance
-) {
-    std::array<double, 4U> neutral{};
-    if (white_balance.mode == RawWhiteBalanceMode::as_shot) {
-        neutral = descriptor.as_shot_neutral;
-    } else {
-        const auto canonical = canonical_camera_neutral(descriptor, white_balance);
-        for (std::size_t site = 0U; site < neutral.size(); ++site) {
-            switch (descriptor.bayer_2x2[site]) {
-            case RawCfaColor::red:
-                neutral[site] = canonical[0U];
-                break;
-            case RawCfaColor::green:
-                neutral[site] = canonical[1U];
-                break;
-            case RawCfaColor::blue:
-                neutral[site] = canonical[2U];
-                break;
-            case RawCfaColor::unknown:
-                throw DecodeError(
-                    DecodeErrorCode::unsupported_layout,
-                    0,
-                    "RAW frame white balance encountered an unknown CFA colour"
-                );
-            }
-        }
-    }
+[[nodiscard]] std::array<double, 4U>
+inverse_cfa_neutral(std::array<double, 4U> neutral) {
     for (double& value : neutral) {
         if (!std::isfinite(value) || value <= 0.0) {
             throw DecodeError(
@@ -96,6 +69,48 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         value = 1.0 / value;
     }
     return neutral;
+}
+
+[[nodiscard]] std::array<double, 4U> cfa_white_balance_multipliers_from_camera_neutral(
+    const RawFrameDescriptor& descriptor,
+    const std::array<double, 3U>& camera_neutral
+) {
+    std::array<double, 4U> cfa_neutral{};
+    for (std::size_t site = 0U; site < cfa_neutral.size(); ++site) {
+        switch (descriptor.bayer_2x2[site]) {
+        case RawCfaColor::red:
+            cfa_neutral[site] = camera_neutral[0U];
+            break;
+        case RawCfaColor::green:
+            cfa_neutral[site] = camera_neutral[1U];
+            break;
+        case RawCfaColor::blue:
+            cfa_neutral[site] = camera_neutral[2U];
+            break;
+        case RawCfaColor::unknown:
+            throw DecodeError(
+                DecodeErrorCode::unsupported_layout,
+                0,
+                "RAW frame white balance encountered an unknown CFA colour"
+            );
+        }
+    }
+    return inverse_cfa_neutral(cfa_neutral);
+}
+
+[[nodiscard]] std::array<double, 4U> cfa_white_balance_multipliers(
+    const RawFrameDescriptor& descriptor,
+    const RawWhiteBalance& white_balance
+) {
+    // Preserve the two independently recorded green sites for AsShot. A manual balance has one
+    // green-normalized camera neutral and can be expanded across the CFA pattern.
+    if (white_balance.mode == RawWhiteBalanceMode::as_shot) {
+        return inverse_cfa_neutral(descriptor.as_shot_neutral);
+    }
+    return cfa_white_balance_multipliers_from_camera_neutral(
+        descriptor,
+        canonical_camera_neutral(descriptor, white_balance)
+    );
 }
 
 using Matrix3 = std::array<double, 9U>;
@@ -110,6 +125,41 @@ using Matrix3 = std::array<double, 9U>;
         }
     }
     return result;
+}
+
+// DCP's compiled matrix maps native, un-white-balanced camera RGB to linear sRGB. RawFrame
+// reconstruction applies the selected gains at CFA sites before demosaic, so bind the inverse
+// input basis into the matrix here: M(native) == M * diag(neutral)(balanced). This preserves the
+// DCP's calibrated colour result for unsaturated samples while retaining CFA-domain white balance
+// where sensor clipping is still observable.
+[[nodiscard]] Matrix3 bind_camera_matrix_after_cfa_white_balance(
+    const Matrix3& native_camera_to_srgb,
+    const std::array<double, 3U>& camera_neutral
+) {
+    Matrix3 bound = native_camera_to_srgb;
+    for (std::size_t output = 0U; output < 3U; ++output) {
+        for (std::size_t input = 0U; input < 3U; ++input) {
+            bound[output * 3U + input] *= camera_neutral[input];
+        }
+    }
+    return bound;
+}
+
+// AI foundations retain linear Camera RGB reconstructed before Shadow's CFA-site gains. Recreate
+// the same camera-domain white balance in the matrix that consumes that raster. This is the inverse
+// of the CFA-basis binding above: a DCP matrix already bound as M * diag(neutral) resolves back to
+// its native M, while a generic/decoder matrix M becomes M * diag(1 / neutral).
+[[nodiscard]] Matrix3 bind_camera_rgb_matrix_before_cfa_white_balance(
+    const Matrix3& cfa_balanced_camera_to_srgb,
+    const std::array<double, 3U>& camera_neutral
+) {
+    Matrix3 bound = cfa_balanced_camera_to_srgb;
+    for (std::size_t output = 0U; output < 3U; ++output) {
+        for (std::size_t input = 0U; input < 3U; ++input) {
+            bound[output * 3U + input] /= camera_neutral[input];
+        }
+    }
+    return bound;
 }
 
 [[nodiscard]] RawFrameLinearTransform generic_raw_frame_transform(
@@ -166,6 +216,8 @@ using Matrix3 = std::array<double, 9U>;
     const auto neutral = canonical_camera_neutral(descriptor, white_balance);
     return RawFrameLinearTransform{
         .camera_to_linear_srgb_d65 = camera_to_srgb,
+        .camera_rgb_to_linear_srgb_d65 =
+            bind_camera_rgb_matrix_before_cfa_white_balance(camera_to_srgb, neutral),
         .camera_neutral = neutral,
         .cfa_white_balance = cfa_white_balance_multipliers(descriptor, white_balance),
         .apply_cfa_white_balance = true,
@@ -371,9 +423,46 @@ RawFrameLinearTransform prepare_raw_frame_linear_transform(
                 "RAW frame colour binding received an invalid DCP transform"
             );
         }
-        return RawFrameLinearTransform{
+        // The DCP compiler is the authority for the native camera neutral of a manual
+        // temperature/tint. Its profile-calibrated solve is not interchangeable with the generic
+        // descriptor matrix used by the no-DCP route.
+        const auto neutral = camera_profile->camera_neutral;
+        // LibRaw's per-file camera matrix is the primary calibration when it is available. A
+        // DCP supplies the authored neutral and optional input-rendering stages, but its
+        // ForwardMatrix is not a substitute for a source-specific matrix supplied by the
+        // decoder. This also keeps a profile from changing a proven camera rendering merely by
+        // being installed locally.
+        if (descriptor.has_camera_to_linear_srgb_d65) {
+            return RawFrameLinearTransform{
+                .camera_to_linear_srgb_d65 = descriptor.camera_to_linear_srgb_d65,
+                .camera_rgb_to_linear_srgb_d65 = bind_camera_rgb_matrix_before_cfa_white_balance(
+                    descriptor.camera_to_linear_srgb_d65,
+                    neutral
+                ),
+                .camera_neutral = neutral,
+                .cfa_white_balance =
+                    white_balance.mode == RawWhiteBalanceMode::as_shot
+                        ? cfa_white_balance_multipliers(descriptor, white_balance)
+                        : cfa_white_balance_multipliers_from_camera_neutral(descriptor, neutral),
+                .apply_cfa_white_balance = true,
+            };
+        }
+        const Matrix3 cfa_balanced_camera_to_srgb = bind_camera_matrix_after_cfa_white_balance(
             camera_profile->camera_to_linear_srgb_d65,
-            canonical_camera_neutral(descriptor, white_balance),
+            neutral
+        );
+        return RawFrameLinearTransform{
+            .camera_to_linear_srgb_d65 = cfa_balanced_camera_to_srgb,
+            .camera_rgb_to_linear_srgb_d65 = bind_camera_rgb_matrix_before_cfa_white_balance(
+                cfa_balanced_camera_to_srgb,
+                neutral
+            ),
+            .camera_neutral = neutral,
+            .cfa_white_balance =
+                white_balance.mode == RawWhiteBalanceMode::as_shot
+                    ? cfa_white_balance_multipliers(descriptor, white_balance)
+                    : cfa_white_balance_multipliers_from_camera_neutral(descriptor, neutral),
+            .apply_cfa_white_balance = true,
         };
     }
     return generic_raw_frame_transform(descriptor, white_balance);
@@ -429,6 +518,15 @@ PreparedRawFrameDevelopment prepare_raw_frame_development(
         development_plan.white_balance,
         camera_profile.has_value() ? &*camera_profile : nullptr
     );
+    if (camera_profile.has_value() && frame.descriptor.has_camera_to_linear_srgb_d65) {
+        // A decoder-provided camera->linear-sRGB matrix is already a complete camera rendering
+        // basis. DCP HueSatMap/LookTable are authored in the output space of the DCP's own Forward
+        // (or inverse Color) matrix, so applying them after that independent decoder matrix mixes
+        // calibrated coordinate systems and can turn neutral highlights strongly chromatic. The DCP
+        // remains the authority for the manual camera neutral; only its output-space look stages are
+        // inapplicable on this route.
+        camera_profile->clear_post_matrix_stages();
+    }
     const DcpColorTransform* camera_profile_ptr =
         camera_profile.has_value() ? &*camera_profile : nullptr;
     // Measure the source once before preview downsampling, CFA denoise, and the detail branch.

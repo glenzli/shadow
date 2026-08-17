@@ -14,6 +14,15 @@ Popup {
     property int modelRevision: 0
     readonly property bool hasWorkspace:
         workspace !== null && workspace !== undefined
+    // This Popup outlives its card briefly while the gallery is reset for an
+    // import. Keep every declarative binding below this boundary so a released
+    // card cannot turn QML reevaluation into an error loop.
+    readonly property var imageUnderstandingController: hasWorkspace
+        && workspace.imageUnderstandingController !== null
+        && workspace.imageUnderstandingController !== undefined
+        ? workspace.imageUnderstandingController : null
+    readonly property bool hasImageUnderstandingController:
+        imageUnderstandingController !== null
     readonly property bool hasChanges: {
         const revision = modelRevision
         for (let index = 0; index < categoryModel.count; ++index) {
@@ -23,16 +32,16 @@ Popup {
         }
         return false
     }
-    readonly property bool advancedStateMatches: hasWorkspace
-        && workspace.imageUnderstandingController.advancedReviewPhotoId === photoId
-        && workspace.imageUnderstandingController.advancedReviewRepresentationId
+    readonly property bool advancedStateMatches: hasImageUnderstandingController
+        && imageUnderstandingController.advancedReviewPhotoId === photoId
+        && imageUnderstandingController.advancedReviewRepresentationId
             === representationId
     readonly property string advancedDisposition: advancedStateMatches
-        ? workspace.imageUnderstandingController.advancedReviewDisposition : ""
-    readonly property bool photoProposalMatches: hasWorkspace
-        && workspace.imageUnderstandingController.photoProposalAvailable
-        && workspace.imageUnderstandingController.photoProposalPhotoId === photoId
-        && workspace.imageUnderstandingController.photoProposalRepresentationId
+        ? imageUnderstandingController.advancedReviewDisposition : ""
+    readonly property bool photoProposalMatches: hasImageUnderstandingController
+        && imageUnderstandingController.photoProposalAvailable
+        && imageUnderstandingController.photoProposalPhotoId === photoId
+        && imageUnderstandingController.photoProposalRepresentationId
             === representationId
 
     width: 388
@@ -45,6 +54,8 @@ Popup {
     function openFor(item, workspaceValue, photoIdValue,
                      representationIdValue, titleValue) {
         workspace = workspaceValue
+        if (!hasImageUnderstandingController)
+            return
         photoId = String(photoIdValue)
         representationId = String(representationIdValue)
         photoTitle = String(titleValue)
@@ -63,7 +74,7 @@ Popup {
             })
         }
         ++modelRevision
-        workspace.imageUnderstandingController.loadPhotoProposal(
+        imageUnderstandingController.loadPhotoProposal(
             photoId, representationId)
         parent = Overlay.overlay
         const point = item.mapToItem(Overlay.overlay, item.width, 0)
@@ -103,7 +114,7 @@ Popup {
                 && advancedDisposition !== "accepted"
                 && advancedDisposition !== "dismissed"
                 && advancedDisposition !== "") {
-            workspace.imageUnderstandingController.dismissAdvancedReview()
+            imageUnderstandingController.dismissAdvancedReview()
         }
         close()
     }
@@ -262,7 +273,7 @@ Popup {
                     Layout.fillWidth: true
                     visible: root.photoProposalMatches
                     text: root.photoProposalMatches
-                        ? root.workspace.imageUnderstandingController.photoDescription : ""
+                        ? root.imageUnderstandingController.photoDescription : ""
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
@@ -273,7 +284,7 @@ Popup {
                     visible: root.photoProposalMatches
                     text: root.photoProposalMatches
                         ? qsTr("Suggested keywords: %1").arg(
-                            root.workspace.imageUnderstandingController
+                            root.imageUnderstandingController
                                 .photoKeywords.join(" · ")) : ""
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontMeta
@@ -292,7 +303,7 @@ Popup {
                 RowLayout {
                     Layout.fillWidth: true
                     visible: root.photoProposalMatches
-                        && root.workspace.imageUnderstandingController
+                        && root.imageUnderstandingController
                             .photoProposalDisposition === "suggested"
 
                     Item { Layout.fillWidth: true }
@@ -301,7 +312,7 @@ Popup {
                         compact: true
                         text: qsTr("Add suggested keywords")
                         onClicked:
-                            root.workspace.imageUnderstandingController
+                            root.imageUnderstandingController
                                 .acceptPhotoKeywords()
                     }
                 }
@@ -349,14 +360,18 @@ Popup {
 
                     ShadowButton {
                         compact: true
-                        visible: !root.advancedStateMatches
-                            || (!root.workspace.imageUnderstandingController.advancedReviewBusy
-                                && root.advancedDisposition.length === 0)
-                        enabled: root.hasWorkspace
-                            && !root.workspace.imageUnderstandingController.advancedReviewBusy
+                        // The popup can outlive a card during a gallery reset. Do not evaluate
+                        // any controller property (even for an invisible control) until the
+                        // retained workspace still owns one.
+                        visible: root.hasImageUnderstandingController
+                            && (!root.advancedStateMatches
+                                || (!root.imageUnderstandingController.advancedReviewBusy
+                                    && root.advancedDisposition.length === 0))
+                        enabled: root.hasImageUnderstandingController
+                            && !root.imageUnderstandingController.advancedReviewBusy
                         text: qsTr("Ask model")
                         onClicked:
-                            root.workspace.imageUnderstandingController
+                            root.imageUnderstandingController
                                 .requestAdvancedReview(
                                     root.photoId, root.representationId)
                     }
@@ -365,7 +380,7 @@ Popup {
                 RowLayout {
                     Layout.fillWidth: true
                     visible: root.advancedStateMatches
-                        && root.workspace.imageUnderstandingController.advancedReviewBusy
+                        && root.imageUnderstandingController.advancedReviewBusy
                     spacing: 7
 
                     BusyIndicator {
@@ -389,9 +404,10 @@ Popup {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Suggested category: %1")
-                            .arg(root.workspace.imageUnderstandingController
-                                .advancedReviewCategoryName)
+                        text: root.advancedDisposition === "matched"
+                            ? qsTr("Suggested category: %1")
+                                .arg(root.imageUnderstandingController
+                                    .advancedReviewCategoryName) : ""
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontMeta
                         font.weight: Font.DemiBold
@@ -402,9 +418,9 @@ Popup {
                         variant: ShadowButton.Primary
                         text: qsTr("Accept suggestion")
                         onClicked: {
-                            root.workspace.imageUnderstandingController
+                            root.imageUnderstandingController
                                 .acceptAdvancedReview()
-                            if (root.workspace.imageUnderstandingController
+                            if (root.imageUnderstandingController
                                     .advancedReviewDisposition === "accepted")
                                 root.close()
                         }
@@ -432,10 +448,10 @@ Popup {
                 Label {
                     Layout.fillWidth: true
                     visible: root.advancedStateMatches
-                        && root.workspace.imageUnderstandingController
+                        && root.imageUnderstandingController
                             .advancedReviewError.length > 0
                     text: root.advancedStateMatches
-                        ? root.workspace.imageUnderstandingController
+                        ? root.imageUnderstandingController
                             .advancedReviewError : ""
                     color: Theme.dangerText
                     font.pixelSize: Theme.fontMeta

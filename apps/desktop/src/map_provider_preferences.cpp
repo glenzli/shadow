@@ -78,6 +78,16 @@ MapProviderPreferences::MapProviderPreferences(
                                       .toString())) {
     library_map_provider_preference_present_ =
         settings_->contains(QString::fromLatin1(library_map_provider_key));
+    if (settings_->value(QString::fromLatin1(library_map_provider_key)).toString()
+        == QStringLiteral("tencent")) {
+        // Tencent Maps is retired. Preserve the user's intent to use a map,
+        // but never read or remove the retired credential (which could prompt
+        // macOS Keychain). Auto will select AMap in mainland China or Google
+        // elsewhere when an available supported credential exists.
+        library_map_provider_ = QStringLiteral("auto");
+        settings_->setValue(QString::fromLatin1(library_map_provider_key), library_map_provider_);
+        settings_->sync();
+    }
     // The pre-release native Google Tile route is intentionally retired. Migrate
     // its one useful choice into the provider-neutral WebView settings and do
     // not retain dormant tile/session preferences.
@@ -603,7 +613,9 @@ void MapProviderPreferences::recoverSoleAvailableLibraryMapProvider() {
         || library_map_provider_ != QStringLiteral("none")) {
         return;
     }
-    if (google_api_key_stored_ == amap_js_credentials_stored_) {
+    const int available = static_cast<int>(google_api_key_stored_)
+                          + static_cast<int>(amap_js_credentials_stored_);
+    if (available != 1) {
         return;
     }
     setLibraryMapProvider(QStringLiteral("auto"));

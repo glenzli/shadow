@@ -49,7 +49,7 @@ struct RawPreviewRebindingTelemetry final {
 // route while the implementation is still being validated.
 inline constexpr std::uint32_t raw_pipeline_policy_schema_version = 1U;
 inline constexpr std::uint32_t raw_pipeline_receipt_schema_version = 1U;
-inline constexpr std::uint32_t shadow_raw_frame_developer_version = 1U;
+inline constexpr std::uint32_t shadow_raw_frame_developer_version = 2U;
 
 enum class RawPipelineMode : std::uint8_t {
     automatic,

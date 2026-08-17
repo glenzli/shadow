@@ -44,7 +44,7 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: !root.providerRegionAvailable
-                    ? qsTr("AMap is unavailable in this region")
+                    ? qsTr("The selected map provider is unavailable in this region")
                     : root.providerSelected
                     ? qsTr("Complete the %1 map configuration").arg(root.providerName)
                     : qsTr("Choose a map service")
@@ -57,8 +57,8 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: !root.providerRegionAvailable
-                    ? qsTr("Use Auto or Google for photos outside mainland China. Shadow keeps one provider for the current map context instead of switching while you pan.")
-                    : qsTr("The Library map uses one interactive WebView surface. Add AMap JS API credentials or a Google Maps JavaScript API key, then choose that provider.")
+                    ? qsTr("Use Auto with a Google Maps key for photos outside mainland China. Shadow keeps one provider for the current map context instead of switching while you pan.")
+                    : qsTr("The Library map uses one interactive WebView surface. Add an AMap JS API or Google Maps JavaScript API key, then choose that provider.")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontMeta
                 horizontalAlignment: Text.AlignHCenter

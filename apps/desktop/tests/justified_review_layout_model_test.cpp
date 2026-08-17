@@ -1,6 +1,7 @@
 #include "justified_review_layout_model.hpp"
 #include "review_model.hpp"
 
+#include <QCoreApplication>
 #include <QSortFilterProxyModel>
 
 #include <cmath>
@@ -145,6 +146,29 @@ void preserves_missing_source_roles_through_the_gallery_projection() {
     );
 }
 
+void coalesces_source_notifications_into_one_layout_reset() {
+    ReviewModel photos;
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+
+    int layout_resets = 0;
+    QObject::connect(&layout, &QAbstractItemModel::modelReset, [&layout_resets]() {
+        ++layout_resets;
+    });
+
+    photos.append({photo("a", 1200, 800)});
+    photos.append({photo("b", 1200, 800)});
+    photos.append({photo("c", 1200, 800)});
+    require(layout_resets == 0, "source changes must defer the expensive gallery rebuild");
+
+    QCoreApplication::processEvents();
+    require(
+        layout_resets == 1 && layout.rowCount() == 1,
+        "one event-loop turn must combine a burst of source notifications into one layout reset"
+    );
+}
+
 void ordered_sections_split_rows_without_hiding_unassigned_photos() {
     ReviewModel photos;
     photos.replace(
@@ -274,11 +298,13 @@ void section_anchors_follow_visible_header_rows() {
 
 } // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+    QCoreApplication application(argc, argv);
     preserves_aspect_ratio_and_never_crops();
     density_changes_the_target_thumbnail_scale();
     keyboard_navigation_follows_rows_and_nearest_columns();
     preserves_missing_source_roles_through_the_gallery_projection();
+    coalesces_source_notifications_into_one_layout_reset();
     ordered_sections_split_rows_without_hiding_unassigned_photos();
     section_anchors_follow_visible_header_rows();
     return EXIT_SUCCESS;

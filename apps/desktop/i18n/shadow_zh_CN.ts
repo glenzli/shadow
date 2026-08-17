@@ -4321,8 +4321,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="106"/>
-        <source>City-level location names work offline. Add your own AMap or Google credentials only for a basemap, place search, or more precise place names.</source>
-        <translation>城市级位置名称可离线使用。仅在需要底图、地点搜索或更精确的地名时，才需添加你自己的高德或 Google 凭据。</translation>
+        <source>City-level location names work offline. Add your own Google or AMap credentials only for a basemap, place search, or more precise place names.</source>
+        <translation>城市级位置名称可离线使用。仅在需要底图、地点搜索或更精确的地名时，才需添加你自己的 Google 或高德凭据。</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="119"/>
@@ -4410,7 +4410,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="139"/>
         <source>Auto uses AMap for mainland China and Google elsewhere. It chooses once when a map context opens or you select a place in another region; ordinary panning never switches providers.</source>
-        <translation>自动模式在中国大陆使用高德地图，其他地区使用 Google。打开地图上下文或选择其他地区的地点时决定一次；普通拖动不会切换供应商。</translation>
+        <translation>自动模式在中国大陆使用高德，其他地区使用 Google。打开地图上下文或选择其他地区的地点时决定一次；普通拖动不会切换供应商。</translation>
     </message>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="155"/>
@@ -10383,8 +10383,8 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/LibraryMapProviderOverlay.qml" line="47"/>
-        <source>AMap is unavailable in this region</source>
-        <translation>高德地图在此区域不可用</translation>
+        <source>The selected map provider is unavailable in this region</source>
+        <translation>所选地图服务在此区域不可用</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapProviderOverlay.qml" line="49"/>
@@ -10398,13 +10398,13 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/LibraryMapProviderOverlay.qml" line="60"/>
-        <source>Use Auto or Google for photos outside mainland China. Shadow keeps one provider for the current map context instead of switching while you pan.</source>
-        <translation>中国大陆以外的照片请使用“自动”或 Google。Shadow 会为当前地图上下文固定一个供应商，不会在拖动时切换。</translation>
+        <source>Use Auto with a Google Maps key for photos outside mainland China. Shadow keeps one provider for the current map context instead of switching while you pan.</source>
+        <translation>中国大陆以外的照片请在“自动”模式下配置 Google Maps 密钥。Shadow 会为当前地图上下文固定一个供应商，不会在拖动时切换。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapProviderOverlay.qml" line="61"/>
-        <source>The Library map uses one interactive WebView surface. Add AMap JS API credentials or a Google Maps JavaScript API key, then choose that provider.</source>
-        <translation>图库地图使用统一的交互式 WebView 界面。请添加高德 JS API 凭据或 Google Maps JavaScript API 密钥，然后选择对应的服务商。</translation>
+        <source>The Library map uses one interactive WebView surface. Add an AMap JS API or Google Maps JavaScript API key, then choose that provider.</source>
+        <translation>图库地图使用统一的交互式 WebView 界面。请添加高德 JS API 或 Google Maps JavaScript API 密钥，然后选择对应的服务商。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapProviderOverlay.qml" line="73"/>

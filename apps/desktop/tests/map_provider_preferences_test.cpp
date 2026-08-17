@@ -250,7 +250,24 @@ int main() {
                     && !reopened.googlePlacesAllowed() && !reopened.googleReverseGeocodingAllowed()
                     && reopened.libraryMapProvider() == QStringLiteral("none")
                     && state->remove_count == 2,
-                "removing a key revokes permissions and leaves no active basemap"
+                "removing an explicitly selected key revokes its permissions and disables that map"
+            )) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    {
+        const QString retired_settings_path = root.filePath(QStringLiteral("retired-tencent.ini"));
+        QSettings retired_settings(retired_settings_path, QSettings::IniFormat);
+        retired_settings.setValue(QStringLiteral("maps/library/provider"), QStringLiteral("tencent"));
+        retired_settings.sync();
+        MapProviderPreferences migrated(retired_settings_path, fakeStore(state));
+        if (!require(
+                migrated.libraryMapProvider() == QStringLiteral("auto")
+                    && QSettings(retired_settings_path, QSettings::IniFormat)
+                           .value(QStringLiteral("maps/library/provider"))
+                           == QStringLiteral("auto"),
+                "a retired Tencent selection migrates to automatic supported-provider routing"
             )) {
             return EXIT_FAILURE;
         }

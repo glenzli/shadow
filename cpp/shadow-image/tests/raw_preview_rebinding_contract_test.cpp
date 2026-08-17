@@ -1,5 +1,9 @@
 #include "raw_pipeline_contract_test_support.hpp"
+#include "raw_pipeline_routing_test_support.hpp"
 #include "scoped_environment.hpp"
+
+#include "../src/raw/raw_frame_source_preparation.hpp"
+#include "../src/raw/raw_preview_rebinding.hpp"
 
 #include <shadow/image/raw_foundation.hpp>
 
@@ -93,6 +97,36 @@ void ordinary_raw_rebinds_without_a_second_decode() {
     }
 }
 
+void decoder_matrix_dcp_rebind_keeps_initial_color_stage_policy() {
+    auto frame = synthetic_bayer_frame();
+    SyntheticRawSession decoder(std::move(frame), "Open Camera", "Mk I");
+    const auto catalog = exact_dcp_catalog();
+    auto prepared = image::raw_pipeline_detail::prepare_raw_frame_source(
+        decoder,
+        image::preview_raw_development_plan(),
+        4U,
+        catalog
+    );
+    auto rebound = image::raw_pipeline_detail::prepare_raw_preview_rebinding(std::move(prepared));
+    const auto manual = rebound.source->bind(manual_white_balance_plan());
+
+    expect(
+        manual.raw_development_receipt.development_settings_signature.find(";huesat=none")
+                != std::string::npos
+            && manual.raw_development_receipt.development_settings_signature.find(";look=none")
+                   != std::string::npos
+            && manual.raw_development_receipt.development_settings_signature.find(";tone=none")
+                   != std::string::npos,
+        "decoder-matrix DCP rebind keeps post-matrix DCP stages disabled like initial preparation"
+    );
+    expect(
+        rebound.source->telemetry().ordinary_raw_fused_dcp_bind_count == 0U
+            && rebound.source->telemetry().dcp_cpu_execution_count == 0U
+            && rebound.source->telemetry().dcp_metal_execution_count == 0U,
+        "decoder-matrix DCP rebind does not reintroduce a separate post-matrix DCP render"
+    );
+}
+
 void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     const std::vector<float> pixels = [] {
         std::vector<float> values(4U * 4U * 3U);
@@ -141,7 +175,7 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     const std::array<image::AdjustmentNode, 0U> neutral{};
     expect(
         initial.render_rgb8(neutral).bytes != rebound.render_rgb8(neutral).bytes,
-        "AI camera-RGB foundation receives the new camera-domain colour binding"
+        "AI camera-RGB foundation receives the new white-balanced camera-domain colour binding"
     );
     expect(
         initial.render_rgb8(neutral).bytes != amount_rebound.render_rgb8(neutral).bytes
@@ -156,6 +190,7 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
 int main() {
     const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "cpu");
     ordinary_raw_rebinds_without_a_second_decode();
+    decoder_matrix_dcp_rebind_keeps_initial_color_stage_policy();
     ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode();
     return failures == 0 ? 0 : 1;
 }

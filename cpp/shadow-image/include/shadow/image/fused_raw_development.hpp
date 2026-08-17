@@ -41,19 +41,24 @@ raw_highlight_treatment_identity(RawHighlightRecoveryIntent intent) noexcept;
 // and CFA-area-preview work.
 [[nodiscard]] RawDevelopmentBackendMode raw_development_backend_mode_from_environment();
 
-// Camera RGB -> linear sRGB/Rec.709 D65, row-major, plus the optional selected white balance in
-// CFA-site order. Generic RAW must scale and saturate the selected white balance before
-// demosaic: deferring it into this matrix is not equivalent when a sensor channel has saturated.
-// DCP transforms already own their photographic white balance and leave the CFA multipliers at
-// identity.
+// Camera RGB -> linear sRGB/Rec.709 D65 bindings, row-major, plus the selected photographic white
+// balance in CFA-site order. `camera_to_linear_srgb_d65` consumes CFA-white-balanced camera RGB:
+// every RawFrame calibration route applies those gains before demosaic, where deferring them into a
+// colour matrix is not equivalent when a sensor channel has saturated. In contrast,
+// `camera_rgb_to_linear_srgb_d65` consumes an already-reconstructed *unwhite-balanced* Camera RGB
+// raster, such as a verified AI foundation. It folds in the same photographic white balance exactly
+// once. Keeping the two bindings explicit prevents the foundation path from silently losing white
+// balance or the CFA path from applying it twice. A zero camera-RGB binding is retained as a
+// compatibility default for callers that construct a legacy transform manually; foundation
+// ingestion then uses the CFA-balanced matrix exactly as older releases did.
 struct RawFrameLinearTransform final {
     std::array<double, 9U> camera_to_linear_srgb_d65{};
+    std::array<double, 9U> camera_rgb_to_linear_srgb_d65{};
     // Camera-space response to the selected neutral, normalized to green, retained for
     // provenance and human white-balance presentation.
     std::array<double, 3U> camera_neutral{1.0, 1.0, 1.0};
-    // Selected CFA-site gains. The generic route applies these to normalized sensor samples
-    // before interpolation and clips the result at the calibrated white point, matching LibRaw's
-    // scale_colors ordering for ordinary clipped highlights.
+    // Selected CFA-site gains, applied to normalized sensor samples before interpolation. This
+    // remains independent from the later camera/DCP matrix decision.
     std::array<double, 4U> cfa_white_balance{1.0, 1.0, 1.0, 1.0};
     bool apply_cfa_white_balance = false;
 

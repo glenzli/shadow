@@ -103,7 +103,7 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("City-level location names work offline. Add your own AMap or Google credentials only for a basemap, place search, or more precise place names.")
+                        text: qsTr("City-level location names work offline. Add your own Google or AMap credentials only for a basemap, place search, or more precise place names.")
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontMeta
                         wrapMode: Text.WordWrap

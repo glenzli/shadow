@@ -17,7 +17,7 @@
 
 namespace shadow::image {
 
-inline constexpr std::uint32_t dcp_color_developer_version = 1U;
+inline constexpr std::uint32_t dcp_color_developer_version = 3U;
 inline constexpr std::uint32_t dcp_color_receipt_schema_version = 1U;
 
 // CPU remains the numerical reference for DCP input rendering.  Metal is an equivalent fp32
@@ -80,10 +80,14 @@ struct DcpColorDevelopmentReceipt final {
 };
 
 struct DcpColorTransform final {
-    // Row-major Camera RGB -> linear sRGB/Rec.709 D65. Camera samples are the unclipped,
-    // black-subtracted, white-level-normalized output of Shadow's demosaic stage. White balance,
-    // D50/D65 adaptation, and BaselineExposureOffset are already folded into this matrix.
+    // Row-major native-camera RGB -> linear sRGB/Rec.709 D65. Camera samples are the unclipped,
+    // black-subtracted, white-level-normalized output of Shadow's demosaic stage. D50/D65
+    // adaptation and BaselineExposureOffset are already folded into this matrix.
     std::array<double, 9U> camera_to_linear_srgb_d65{};
+    // Exact green-normalized native-camera neutral selected while compiling this DCP. RawFrame
+    // must use this same basis for its CFA gains and matrix binding; a descriptor-only manual
+    // white-balance solve can be calibrated in a different native camera space.
+    std::array<double, 3U> camera_neutral{1.0, 1.0, 1.0};
     // DCP's optional non-matrix rendering stages run after this primary
     // transform in the DNG-defined linear ProPhoto working space.  They are
     // compiled with the profile rather than represented as user-editable
@@ -99,6 +103,11 @@ struct DcpColorTransform final {
     apply(const std::array<double, 3U>& camera_rgb) const noexcept;
 
     [[nodiscard]] bool has_post_matrix_stages() const noexcept;
+    // Retains the native neutral and compiled primary matrix, while removing
+    // output-space stages which are only meaningful after that DCP matrix.
+    // RawFrame uses this when a decoder-supplied primary camera matrix is
+    // authoritative but the DCP still provides the manual WB calibration.
+    void clear_post_matrix_stages() noexcept;
 };
 
 // Compiles one local DCP into an immutable input-rendering transform. The camera matrix,

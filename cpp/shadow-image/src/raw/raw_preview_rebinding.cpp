@@ -57,6 +57,13 @@ same_plan_except_white_balance(RawDevelopmentPlan left, RawDevelopmentPlan right
         try {
             binding.dcp =
                 compile_dcp_color_transform(*camera_profile_definition, descriptor, white_balance);
+            // Keep the rebind path identical to initial RawFrame preparation. A decoder-provided
+            // primary matrix may use a different output basis from the DCP, so only borrow the
+            // DCP's native camera neutral for manual WB and do not reactivate its post-matrix
+            // HueSat/Look/Tone stages on every slider update.
+            if (descriptor.has_camera_to_linear_srgb_d65) {
+                binding.dcp->clear_post_matrix_stages();
+            }
             binding.camera_profile_status = RawCameraProfileStatus::applied;
         } catch (const DcpColorDevelopmentError& error) {
             binding.camera_profile_status = RawCameraProfileStatus::matched_not_applied;
