@@ -189,13 +189,16 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
 
 } // namespace
 
-MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
+[[nodiscard]] MetalRawDevelopmentAttempt develop_bayer_linear_srgb_f32_metal_with_input(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
     const RawHighlightRecoveryIntent highlight_recovery,
     const RawDevelopmentQuality quality,
-    const MetalRawDevelopmentContinuations continuations
+    const MetalRawDevelopmentContinuations continuations,
+    id<MTLBuffer> input_buffer,
+    const std::size_t input_bytes,
+    std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding
 ) {
     const Dimensions reconstruction_dimensions =
         preview_max_edge.has_value()
@@ -216,31 +219,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         };
     }
 
-    std::size_t input_bytes = 0U;
-    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), input_bytes)
-        || input_bytes == 0U
+    if (input_buffer == nil || input_bytes == 0U
         || input_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
         return MetalRawDevelopmentAttempt{
             .development = std::nullopt,
             .diagnostic = "RAW sensor plane exceeds this Metal device's buffer limit",
         };
-    }
-    std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding;
-    if (continuations.raw_denoise != nullptr && continuations.raw_denoise->applied()) {
-        std::string diagnostic;
-        raw_denoise_encoding = MetalRawDenoiseEncoding::prepare(
-            frame,
-            continuations.raw_denoise->mode,
-            continuations.raw_denoise->iso_sensitivity,
-            diagnostic
-        );
-        if (!raw_denoise_encoding.has_value()) {
-            return MetalRawDevelopmentAttempt{
-                .development = std::nullopt,
-                .diagnostic = diagnostic.empty() ? "Metal could not prepare fused RAW denoise"
-                                                 : std::move(diagnostic),
-            };
-        }
     }
 
     const Dimensions output_dimensions =
@@ -368,16 +352,6 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         sensor_clipping_mask = std::move(mask);
     }
     @autoreleasepool {
-        OwnedObjectiveCObject input_buffer([metal_raw_device()
-            newBufferWithBytes:frame.samples.data()
-                        length:input_bytes
-                       options:MTLResourceStorageModeShared]);
-        if (!input_buffer) {
-            return MetalRawDevelopmentAttempt{
-                .development = std::nullopt,
-                .diagnostic = "Metal could not allocate the RAW sensor buffer",
-            };
-        }
         OwnedObjectiveCObject denoised_buffer(
             raw_denoise_encoding
                 ? [metal_raw_device() newBufferWithLength:raw_denoise_encoding->sample_bytes()
@@ -447,7 +421,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                 std::string diagnostic;
                 if (!raw_denoise_encoding->encode(
                         command_buffer,
-                        static_cast<id<MTLBuffer>>(input_buffer.get()),
+                        input_buffer,
                         static_cast<id<MTLBuffer>>(denoised_buffer.get()),
                         diagnostic
                     )) {
@@ -468,14 +442,14 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             }
             [encoder setComputePipelineState:pipeline];
             [encoder setBuffer:static_cast<id<MTLBuffer>>(
-                                   raw_denoise_encoding ? denoised_buffer.get() : input_buffer.get()
+                                   raw_denoise_encoding ? denoised_buffer.get() : input_buffer
                                )
                         offset:0U
                        atIndex:0U];
             [encoder setBuffer:static_cast<id<MTLBuffer>>(tile_buffer.get()) offset:0U atIndex:1U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
             if (continuations.project_sensor_clipping) {
-                [encoder setBuffer:static_cast<id<MTLBuffer>>(input_buffer.get())
+                [encoder setBuffer:input_buffer
                             offset:0U
                            atIndex:3U];
                 [encoder setBuffer:static_cast<id<MTLBuffer>>(clipping_tile_buffer.get())
@@ -587,6 +561,168 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         .dcp_applied = dcp_encoding != nullptr,
         .diagnostic = {},
     };
+}
+
+MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality,
+    const MetalRawDevelopmentContinuations continuations
+) {
+    if (!metal_raw_development_available()) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = metal_raw_runtime_diagnostic(),
+        };
+    }
+    std::size_t input_bytes = 0U;
+    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), input_bytes)
+        || input_bytes == 0U
+        || input_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = "RAW sensor plane exceeds this Metal device's buffer limit",
+        };
+    }
+    std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding;
+    if (continuations.raw_denoise != nullptr && continuations.raw_denoise->applied()) {
+        std::string diagnostic;
+        raw_denoise_encoding = MetalRawDenoiseEncoding::prepare(
+            frame,
+            continuations.raw_denoise->mode,
+            continuations.raw_denoise->iso_sensitivity,
+            diagnostic
+        );
+        if (!raw_denoise_encoding.has_value()) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = diagnostic.empty() ? "Metal could not prepare fused RAW denoise"
+                                                 : std::move(diagnostic),
+            };
+        }
+    }
+    @autoreleasepool {
+        OwnedObjectiveCObject input_buffer([metal_raw_device()
+            newBufferWithBytes:frame.samples.data()
+                        length:input_bytes
+                       options:MTLResourceStorageModeShared]);
+        if (!input_buffer) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = "Metal could not allocate the RAW sensor buffer",
+            };
+        }
+        return develop_bayer_linear_srgb_f32_metal_with_input(
+            frame,
+            transform,
+            preview_max_edge,
+            highlight_recovery,
+            quality,
+            continuations,
+            static_cast<id<MTLBuffer>>(input_buffer.get()),
+            input_bytes,
+            std::move(raw_denoise_encoding)
+        );
+    }
+}
+
+const std::string& metal_raw_development_diagnostic() noexcept {
+    return metal_raw_runtime_diagnostic();
+}
+
+struct MetalRawPreviewRebindingSource::Impl final {
+    const std::uint16_t* source_samples = nullptr;
+    std::size_t source_sample_count = 0U;
+    std::size_t source_bytes = 0U;
+    OwnedObjectiveCObject input_buffer;
+
+    Impl(
+        const std::uint16_t* samples,
+        const std::size_t sample_count,
+        const std::size_t bytes,
+        id<MTLBuffer> buffer
+    ) noexcept :
+        source_samples(samples), source_sample_count(sample_count), source_bytes(bytes),
+        input_buffer([buffer retain]) {}
+};
+
+MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
+    std::unique_ptr<Impl> implementation
+) noexcept :
+    implementation_(std::move(implementation)) {}
+
+MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
+    MetalRawPreviewRebindingSource&&
+) noexcept = default;
+
+MetalRawPreviewRebindingSource& MetalRawPreviewRebindingSource::operator=(
+    MetalRawPreviewRebindingSource&&
+) noexcept = default;
+
+MetalRawPreviewRebindingSource::~MetalRawPreviewRebindingSource() = default;
+
+std::optional<MetalRawPreviewRebindingSource> MetalRawPreviewRebindingSource::try_prepare(
+    const RawFrame& frame,
+    std::string& diagnostic
+) {
+    diagnostic.clear();
+    if (!metal_raw_development_available()) {
+        diagnostic = metal_raw_runtime_diagnostic();
+        return std::nullopt;
+    }
+    std::size_t source_bytes = 0U;
+    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), source_bytes)
+        || source_bytes == 0U
+        || source_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
+        diagnostic = "RAW sensor plane exceeds this Metal device's buffer limit";
+        return std::nullopt;
+    }
+    @autoreleasepool {
+        OwnedObjectiveCObject input_buffer([metal_raw_device()
+            newBufferWithBytes:frame.samples.data()
+                        length:source_bytes
+                       options:MTLResourceStorageModeShared]);
+        if (!input_buffer) {
+            diagnostic = "Metal could not retain the RAW preview sensor buffer";
+            return std::nullopt;
+        }
+        return MetalRawPreviewRebindingSource{std::make_unique<Impl>(
+            frame.samples.data(),
+            frame.samples.size(),
+            source_bytes,
+            static_cast<id<MTLBuffer>>(input_buffer.get())
+        )};
+    }
+}
+
+MetalRawDevelopmentAttempt MetalRawPreviewRebindingSource::develop(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality,
+    const MetalRawDevelopmentContinuations continuations
+) const {
+    if (!implementation_ || frame.samples.data() != implementation_->source_samples
+        || frame.samples.size() != implementation_->source_sample_count) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = "retained Metal RAW preview source no longer matches its RawFrame",
+        };
+    }
+    return develop_bayer_linear_srgb_f32_metal_with_input(
+        frame,
+        transform,
+        preview_max_edge,
+        highlight_recovery,
+        quality,
+        continuations,
+        static_cast<id<MTLBuffer>>(implementation_->input_buffer.get()),
+        implementation_->source_bytes,
+        std::nullopt
+    );
 }
 
 } // namespace shadow::image::detail

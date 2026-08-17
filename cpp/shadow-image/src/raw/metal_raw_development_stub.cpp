@@ -2,8 +2,55 @@
 
 namespace shadow::image::detail {
 
+struct MetalRawPreviewRebindingSource::Impl final {};
+
+MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
+    std::unique_ptr<Impl> implementation
+) noexcept :
+    implementation_(std::move(implementation)) {}
+
+MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
+    MetalRawPreviewRebindingSource&&
+) noexcept = default;
+
+MetalRawPreviewRebindingSource& MetalRawPreviewRebindingSource::operator=(
+    MetalRawPreviewRebindingSource&&
+) noexcept = default;
+
+MetalRawPreviewRebindingSource::~MetalRawPreviewRebindingSource() = default;
+
+std::optional<MetalRawPreviewRebindingSource> MetalRawPreviewRebindingSource::try_prepare(
+    const RawFrame&,
+    std::string& diagnostic
+) {
+    diagnostic = "Metal RAW preview rebinding is not compiled for this platform";
+    return std::nullopt;
+}
+
+MetalRawDevelopmentAttempt MetalRawPreviewRebindingSource::develop(
+    const RawFrame&,
+    const RawFrameLinearTransform&,
+    const std::optional<std::uint32_t>,
+    const RawHighlightRecoveryIntent,
+    const RawDevelopmentQuality,
+    const MetalRawDevelopmentContinuations
+) const {
+    return MetalRawDevelopmentAttempt{
+        .development = std::nullopt,
+        .sensor_clipping_mask = std::nullopt,
+        .raw_denoise_applied = false,
+        .dcp_applied = false,
+        .diagnostic = "Metal RAW preview rebinding is not compiled for this platform",
+    };
+}
+
 bool metal_raw_development_available() noexcept {
     return false;
+}
+
+const std::string& metal_raw_development_diagnostic() noexcept {
+    static const std::string diagnostic = "Metal RAW development is not compiled for this platform";
+    return diagnostic;
 }
 
 bool metal_raw_denoise_available() noexcept {

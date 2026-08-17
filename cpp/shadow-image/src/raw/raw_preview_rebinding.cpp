@@ -106,6 +106,11 @@ struct RawPreviewRebindingSource::Impl final {
     std::optional<CameraProfileDefinition> camera_profile_definition;
     SensorClippingMask sensor_clipping;
     RawPreviewBasis basis;
+#if SHADOW_IMAGE_HAS_METAL
+    // This buffer is an acceleration cache only.  It retains the already-denoised CFA plane and
+    // runs the same preview reconstruction kernel; the CPU frame remains the exact fallback.
+    std::optional<detail::MetalRawPreviewRebindingSource> ordinary_raw_metal_preview;
+#endif
     std::atomic<std::uint64_t> bind_count{0U};
     std::atomic<std::uint64_t> ordinary_raw_bind_count{0U};
     std::atomic<std::uint64_t> ordinary_raw_metal_development_count{0U};
@@ -125,11 +130,21 @@ struct RawPreviewRebindingSource::Impl final {
         std::optional<CameraProfileDefinition> profile,
         SensorClippingMask clipping,
         RawPreviewBasis preview_basis
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        std::optional<detail::MetalRawPreviewRebindingSource> metal_preview
+#endif
     ) :
         development_template(std::move(development)), pipeline_template(std::move(pipeline)),
         requested_plan_template(requested_plan), negotiation_status(negotiation),
         metadata(std::move(source_metadata)), camera_profile_definition(std::move(profile)),
-        sensor_clipping(std::move(clipping)), basis(std::move(preview_basis)) {}
+        sensor_clipping(std::move(clipping)), basis(std::move(preview_basis))
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        ordinary_raw_metal_preview(std::move(metal_preview)) {}
+#else
+    {}
+#endif
 };
 
 RawPreviewRebindingSource::RawPreviewRebindingSource(std::unique_ptr<Impl> impl) :
@@ -224,7 +239,27 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         // the exact existing backend selector and staged DCP fallback intact.
         std::optional<FusedRawFrameDevelopment> developed;
         bool fused_dcp_applied = false;
-        if (dcp_requested
+#if SHADOW_IMAGE_HAS_METAL
+        if (rebound_development.requested_backend() != RawDevelopmentBackendMode::cpu
+            && impl_->ordinary_raw_metal_preview.has_value()) {
+            auto resident_attempt = impl_->ordinary_raw_metal_preview->develop(
+                ordinary->denoised_frame,
+                rebound_development.linear_transform(),
+                rebound_development.preview_max_edge(),
+                effective_plan.highlight_recovery,
+                effective_plan.quality,
+                detail::MetalRawDevelopmentContinuations{
+                    .dcp_color_transform = dcp,
+                }
+            );
+            if (resident_attempt.development.has_value()
+                && (!dcp_requested || resident_attempt.dcp_applied)) {
+                developed = std::move(resident_attempt.development);
+                fused_dcp_applied = resident_attempt.dcp_applied;
+            }
+        }
+#endif
+        if (!developed.has_value() && dcp_requested
             && rebound_development.requested_backend() != RawDevelopmentBackendMode::cpu) {
             auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
                 ordinary->denoised_frame,
@@ -378,6 +413,13 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         .conventional_denoise = std::move(conventional.receipt),
     };
     basis.combined_denoise_identity = basis.conventional_denoise.cache_identity;
+#if SHADOW_IMAGE_HAS_METAL
+    std::string metal_preview_diagnostic;
+    auto metal_preview = detail::MetalRawPreviewRebindingSource::try_prepare(
+        basis.denoised_frame,
+        metal_preview_diagnostic
+    );
+#endif
     auto impl = std::make_unique<RawPreviewRebindingSource::Impl>(
         std::move(prepared.development_),
         std::move(prepared.pipeline_),
@@ -387,6 +429,10 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         std::move(prepared.camera_profile_definition_),
         std::move(sensor_clipping),
         RawPreviewBasis{std::move(basis)}
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        std::move(metal_preview)
+#endif
     );
     auto source = std::shared_ptr<const RawPreviewRebindingSource>(
         new RawPreviewRebindingSource(std::move(impl))
@@ -431,6 +477,10 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
         std::move(prepared.camera_profile_definition_),
         std::move(sensor_clipping),
         RawPreviewBasis{FoundationRawPreviewBasis{.camera_rgb = std::move(camera_rgb)}}
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        std::nullopt
+#endif
     );
     auto source = std::shared_ptr<const RawPreviewRebindingSource>(
         new RawPreviewRebindingSource(std::move(impl))

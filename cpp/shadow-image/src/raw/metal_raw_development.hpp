@@ -8,6 +8,7 @@
 
 #include "raw_denoise_plan.hpp"
 
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -34,6 +35,39 @@ struct MetalRawDevelopmentAttempt final {
     std::string diagnostic;
 };
 
+// Retains one already-denoised CFA sensor plane in Metal shared storage for a bounded preview
+// session.  Each development still runs the normal CFA-domain reconstruction kernel with a new
+// RawFrameLinearTransform; this is deliberately not a post-demosaic RGB white-balance shortcut.
+// The owner keeps the RawFrame alive and verifies its stable sample identity at every use.
+class MetalRawPreviewRebindingSource final {
+  public:
+    MetalRawPreviewRebindingSource(const MetalRawPreviewRebindingSource&) = delete;
+    MetalRawPreviewRebindingSource& operator=(const MetalRawPreviewRebindingSource&) = delete;
+    MetalRawPreviewRebindingSource(MetalRawPreviewRebindingSource&&) noexcept;
+    MetalRawPreviewRebindingSource& operator=(MetalRawPreviewRebindingSource&&) noexcept;
+    ~MetalRawPreviewRebindingSource();
+
+    [[nodiscard]] static std::optional<MetalRawPreviewRebindingSource> try_prepare(
+        const RawFrame& frame,
+        std::string& diagnostic
+    );
+
+    [[nodiscard]] MetalRawDevelopmentAttempt develop(
+        const RawFrame& frame,
+        const RawFrameLinearTransform& transform,
+        std::optional<std::uint32_t> preview_max_edge,
+        RawHighlightRecoveryIntent highlight_recovery,
+        RawDevelopmentQuality quality,
+        MetalRawDevelopmentContinuations continuations = {}
+    ) const;
+
+  private:
+    struct Impl;
+    explicit MetalRawPreviewRebindingSource(std::unique_ptr<Impl> implementation) noexcept;
+
+    std::unique_ptr<Impl> implementation_;
+};
+
 // This is an internal execution attempt rather than a public second RAW-denoise API. The
 // semantic decision and receipt continue to belong to raw_denoise.cpp; Metal owns only an
 // equivalent same-CFA implementation and can decline without changing that public contract.
@@ -52,6 +86,10 @@ struct MetalDcpColorDevelopmentAttempt final {
 
 // Availability is a runtime property: a macOS build may still run without a usable Metal device.
 [[nodiscard]] bool metal_raw_development_available() noexcept;
+
+// Keep the Objective-C runtime details private while allowing portable callers and contracts to
+// explain why an optional Metal execution path declined.
+[[nodiscard]] const std::string& metal_raw_development_diagnostic() noexcept;
 
 [[nodiscard]] bool metal_raw_denoise_available() noexcept;
 

@@ -3,11 +3,13 @@
 #include "scoped_environment.hpp"
 
 #include "../src/raw/raw_frame_source_preparation.hpp"
+#include "../src/raw/metal_raw_development.hpp"
 #include "../src/raw/raw_preview_rebinding.hpp"
 
 #include <shadow/image/raw_foundation.hpp>
 
 #include <array>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -21,6 +23,10 @@ constexpr std::string_view artifact_digest =
     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 constexpr std::string_view cache_key_digest =
     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+
+[[nodiscard]] bool metal_is_required() {
+    return std::getenv("SHADOW_TEST_REQUIRE_METAL") != nullptr;
+}
 
 [[nodiscard]] image::RawDevelopmentPlan manual_white_balance_plan() {
     auto plan = image::preview_raw_development_plan();
@@ -127,6 +133,99 @@ void decoder_matrix_dcp_rebind_keeps_initial_color_stage_policy() {
     );
 }
 
+void ordinary_raw_rebind_uses_the_retained_metal_source() {
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        if (metal_is_required()) {
+            expect(
+                false,
+                "the required Metal RAW preview rebinding backend is available: "
+                    + image::detail::metal_raw_development_diagnostic()
+            );
+        }
+        return;
+    }
+    const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "metal");
+    SyntheticRawSession decoder(synthetic_bayer_frame());
+    const auto initial =
+        image::prepare_warm_edit_preview(decoder, 4U, image::preview_raw_development_plan());
+    const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
+    const auto telemetry = rebound.raw_rebinding_telemetry();
+    expect(
+        decoder.raw_frame_count() == 1U && decoder.processed_count() == 0U,
+        "Metal RAW rebinding retains the decoded CFA source rather than reopening the decoder"
+    );
+    expect(
+        telemetry.bind_count == 2U && telemetry.ordinary_raw_metal_development_count == 2U
+            && telemetry.ordinary_raw_cpu_development_count == 0U,
+        "Metal RAW rebinding completes both source preparations on the GPU path"
+    );
+}
+
+void retained_metal_cfa_preview_matches_the_one_shot_kernel() {
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        if (metal_is_required()) {
+            expect(
+                false,
+                "the required Metal RAW preview rebinding backend is available: "
+                    + image::detail::metal_raw_development_diagnostic()
+            );
+        }
+        return;
+    }
+    const auto frame = synthetic_bayer_frame();
+    std::string diagnostic;
+    auto retained = image::detail::MetalRawPreviewRebindingSource::try_prepare(frame, diagnostic);
+    expect(
+        retained.has_value(),
+        "Metal preview rebinding retains one immutable CFA sensor plane when Metal is available"
+    );
+    if (!retained.has_value()) {
+        return;
+    }
+    const image::RawFrameLinearTransform transform{{
+        1.13,
+        -0.08,
+        0.02,
+        -0.04,
+        1.06,
+        -0.01,
+        0.03,
+        -0.11,
+        1.19,
+    }};
+    const auto one_shot = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+        frame,
+        transform,
+        2U,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::balanced
+    );
+    const auto rebound = retained->develop(
+        frame,
+        transform,
+        2U,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::balanced
+    );
+    expect(
+        one_shot.development.has_value() && rebound.development.has_value(),
+        "one-shot and retained Metal CFA preview routes both complete"
+    );
+    if (!one_shot.development.has_value() || !rebound.development.has_value()) {
+        return;
+    }
+    expect(
+        one_shot.development->scene_linear.dimensions == rebound.development->scene_linear.dimensions
+            && one_shot.development->scene_linear.samples
+                   == rebound.development->scene_linear.samples
+            && one_shot.development->demosaic_receipt.algorithm
+                   == rebound.development->demosaic_receipt.algorithm
+            && one_shot.development->demosaic_receipt.white_balance_applied
+                   == rebound.development->demosaic_receipt.white_balance_applied,
+        "retained CFA preview uses the exact one-shot reconstruction kernel and receipt"
+    );
+}
+
 void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     const std::vector<float> pixels = [] {
         std::vector<float> values(4U * 4U * 3U);
@@ -191,6 +290,8 @@ int main() {
     const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "cpu");
     ordinary_raw_rebinds_without_a_second_decode();
     decoder_matrix_dcp_rebind_keeps_initial_color_stage_policy();
+    ordinary_raw_rebind_uses_the_retained_metal_source();
+    retained_metal_cfa_preview_matches_the_one_shot_kernel();
     ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode();
     return failures == 0 ? 0 : 1;
 }
