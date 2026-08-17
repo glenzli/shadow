@@ -158,6 +158,22 @@ fn only_white_balance_can_share_a_rebinding_source() {
 }
 
 #[test]
+fn persisted_manual_white_balance_prepares_an_as_shot_resident_source() {
+    let requested =
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(7_350, -71).expect("manual temperature/tint"),
+        ));
+
+    let base = manual_white_balance_base_plan(requested)
+        .expect("manual white balance requires an as-shot resident preparation");
+    assert!(base.white_balance.is_as_shot());
+    assert_eq!(base.noise_reduction, requested.noise_reduction);
+    assert_eq!(base.quality, requested.quality);
+    assert_eq!(base.intent, requested.intent);
+    assert!(manual_white_balance_base_plan(RawDevelopmentPlan::preview()).is_none());
+}
+
+#[test]
 fn foundation_amount_is_an_exact_output_key_but_not_a_cold_source_key() {
     let mut full = key();
     full.raw_foundation = Some(raw_foundation_identity());

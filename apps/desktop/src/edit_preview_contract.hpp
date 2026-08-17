@@ -142,18 +142,15 @@ struct EditPreviewCancellationState final {
     bool first_interactive_frame_presented = false;
 };
 
-/// Repeated samples protect the first interactive frame in a gesture. Every
-/// other stale overview is cancellable, including a forced gesture end,
-/// photo/window transition, settled frame, or Neutral Before frame.
+/// Interactive preview is strictly latest-wins. A source-stage change may
+/// take materially longer than a Grade-only render, so protecting the first
+/// gesture sample would turn subsequent slider values into an unbounded queue.
+/// Every stale overview is therefore cancellable, including the first
+/// interactive sample before it presents.
 [[nodiscard]] constexpr bool
 should_cancel_edit_preview(const EditPreviewCancellationState state) noexcept {
-    if (state.force) {
-        return true;
-    }
-    const bool protected_first_interactive =
-        state.current_rendering && state.in_flight_policy == EditPreviewPolicy::Interactive
-        && state.gesture_active && !state.first_interactive_frame_presented;
-    return !protected_first_interactive;
+    static_cast<void>(state);
+    return true;
 }
 
 [[nodiscard]] constexpr bool accepts_edit_preview(

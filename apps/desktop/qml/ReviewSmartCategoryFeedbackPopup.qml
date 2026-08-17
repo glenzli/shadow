@@ -379,7 +379,8 @@ Popup {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: root.advancedStateMatches
+                    visible: root.hasImageUnderstandingController
+                        && root.advancedStateMatches
                         && root.imageUnderstandingController.advancedReviewBusy
                     spacing: 7
 
@@ -399,7 +400,8 @@ Popup {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: root.advancedDisposition === "matched"
+                    visible: root.hasImageUnderstandingController
+                        && root.advancedDisposition === "matched"
                     spacing: 7
 
                     Label {
@@ -429,7 +431,8 @@ Popup {
 
                 Label {
                     Layout.fillWidth: true
-                    visible: root.advancedDisposition === "none"
+                    visible: root.hasImageUnderstandingController
+                        && root.advancedDisposition === "none"
                     text: qsTr("The model found no suitable category. You can still correct the choices above.")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontMeta
@@ -438,7 +441,8 @@ Popup {
 
                 Label {
                     Layout.fillWidth: true
-                    visible: root.advancedDisposition === "uncertain"
+                    visible: root.hasImageUnderstandingController
+                        && root.advancedDisposition === "uncertain"
                     text: qsTr("The model is also uncertain. No category was changed.")
                     color: Theme.warningText
                     font.pixelSize: Theme.fontMeta
@@ -447,7 +451,8 @@ Popup {
 
                 Label {
                     Layout.fillWidth: true
-                    visible: root.advancedStateMatches
+                    visible: root.hasImageUnderstandingController
+                        && root.advancedStateMatches
                         && root.imageUnderstandingController
                             .advancedReviewError.length > 0
                     text: root.advancedStateMatches

@@ -651,26 +651,25 @@ void before_waits_for_the_latest_current_preview() {
     );
 }
 
-void first_interactive_frame_is_the_only_sample_protected_from_replacement() {
+void interactive_preview_is_latest_wins_from_the_first_sample() {
     constexpr EditPreviewCancellationState first{
         .current_rendering = true,
         .in_flight_policy = EditPreviewPolicy::Interactive,
         .gesture_active = true,
     };
-    static_assert(!should_cancel_edit_preview(first));
+    static_assert(should_cancel_edit_preview(first));
 
     auto after_first = first;
     after_first.first_interactive_frame_presented = true;
     require(
         should_cancel_edit_preview(after_first),
-        "interactive frames after the first presentation must be replaceable"
+        "interactive frames after the first presentation must remain replaceable"
     );
     auto gesture_end = first;
     gesture_end.force = true;
     require(
         should_cancel_edit_preview(gesture_end),
-        "gesture end must replace even a protected first frame with settled "
-        "output"
+        "gesture end must replace its active interactive frame with settled output"
     );
     auto settled = first;
     settled.in_flight_policy = EditPreviewPolicy::Settled;
@@ -755,7 +754,7 @@ int main() {
     detail_tiles_are_atomic_and_generation_guarded();
     stale_result_rules_are_kind_specific();
     before_waits_for_the_latest_current_preview();
-    first_interactive_frame_is_the_only_sample_protected_from_replacement();
+    interactive_preview_is_latest_wins_from_the_first_sample();
     benchmark_transport_when_requested();
     return EXIT_SUCCESS;
 }

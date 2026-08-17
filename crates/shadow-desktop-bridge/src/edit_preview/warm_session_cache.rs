@@ -19,7 +19,7 @@ use shadow_bridge::{
     OpticsSettings, PhotoEditPreviewSession, RawDevelopmentPlan, raw_development_plan_identity,
 };
 use shadow_catalog::{RepresentationFingerprint, ReviewItemRecord};
-use shadow_domain::RepresentationId;
+use shadow_domain::{RawWhiteBalance, RepresentationId};
 
 use crate::{
     isolated_proxy::{configured_helper_path, stage_isolated_raw_frame},
@@ -301,41 +301,63 @@ fn prepare_preview_session(
             Err(error) => error,
         };
 
-    if !raw_development_plan.white_balance.is_as_shot() {
-        let helper_path = configured_helper_path().ok_or_else(|| {
-            anyhow!(
-                "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare {}: {public_decoder_error}",
-                native_path.display()
-            )
-        })?;
+    // A provider-only RAW must acquire its rebindable camera-space basis when
+    // the preview opens, not lazily on the first RAW-white-balance drag.  The
+    // latter made the gesture block on Provider Host staging and left regular
+    // Grade controls behind the same single preview request.  A persisted
+    // manual white balance stages the canonical as-shot basis, then performs
+    // the requested bind in memory so every subsequent slider value shares
+    // that exact source.
+    if let Some(helper_path) = configured_helper_path() {
         let staging_root = runtime_cache_root
             .join("decode-helper")
             .join("raw-frame-staging");
-        let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
+        let staged_plan =
+            manual_white_balance_base_plan(raw_development_plan).unwrap_or(raw_development_plan);
+        let staged_result = (|| -> AnyResult<PhotoEditPreviewSession> {
+            let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
+                .with_context(|| {
+                    format!(
+                        "stage provider-neutral RawFrame after public decoder could not prepare {}: {public_decoder_error}",
+                        native_path.display()
+                    )
+                })?;
+            let staged = PhotoEditPreviewSession::open_with_staged_raw_development_plan(
+                native_path,
+                staging.manifest_path(),
+                max_edge,
+                staged_plan,
+                optics,
+            )
             .with_context(|| {
                 format!(
-                    "stage provider-neutral RawFrame for manual Foundation white balance after public decoder could not prepare {}: {public_decoder_error}",
+                    "prepare rebindable preview from the isolated RawFrame for {}",
                     native_path.display()
                 )
             })?;
-        let prepared = PhotoEditPreviewSession::open_with_staged_raw_development_plan(
-            native_path,
-            staging.manifest_path(),
-            max_edge,
-            raw_development_plan,
-            optics,
-        )
-        .with_context(|| {
-            format!(
-                "prepare manual Foundation white balance from the isolated RawFrame for {}",
-                native_path.display()
-            )
-        })?;
-        ensure_foundation_development_receipt(
-            raw_development_plan,
-            prepared.raw_pipeline_receipt(),
-        )?;
-        return Ok(prepared);
+            let prepared = if staged_plan == raw_development_plan {
+                staged
+            } else {
+                staged
+                    .rebind_raw_development_plan(raw_development_plan)
+                    .context("rebind persisted manual Foundation RAW white balance from the staged as-shot source")?
+            };
+            ensure_foundation_development_receipt(
+                raw_development_plan,
+                prepared.raw_pipeline_receipt(),
+            )?;
+            Ok(prepared)
+        })();
+        match staged_result {
+            Ok(prepared) => return Ok(prepared),
+            Err(error) if !raw_development_plan.white_balance.is_as_shot() => return Err(error),
+            Err(_) => {}
+        }
+    } else if !raw_development_plan.white_balance.is_as_shot() {
+        return Err(anyhow!(
+            "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare {}: {public_decoder_error}",
+            native_path.display()
+        ));
     }
 
     // Private providers stay outside the desktop process. The isolated helper
@@ -361,6 +383,13 @@ fn prepare_preview_session(
             native_path.display()
         )
     })
+}
+
+fn manual_white_balance_base_plan(
+    raw_development_plan: RawDevelopmentPlan,
+) -> Option<RawDevelopmentPlan> {
+    (!raw_development_plan.white_balance.is_as_shot())
+        .then(|| raw_development_plan.with_white_balance(RawWhiteBalance::AsShot))
 }
 
 #[cfg(test)]
