@@ -647,6 +647,13 @@ mod ffi {
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn open_photo_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
+        fn prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+            metadata: &FfiMetadataSnapshot,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            staging_manifest_path: &str,
+            optics: &FfiOpticsSettings,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
         fn query_libraw_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn query_photo_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn query_optics_profiles_for_metadata(

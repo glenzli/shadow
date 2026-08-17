@@ -326,7 +326,7 @@ struct PreparedWarmEditProxy final {
 }
 
 [[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_preview_reference(
-    const DecodeSession& metadata_session,
+    const AssetMetadata& metadata,
     const std::uint32_t max_edge,
     const RawDevelopmentPlan& raw_development_plan,
     RawFrame staged_frame,
@@ -343,7 +343,7 @@ struct PreparedWarmEditProxy final {
     }
     auto rebindable = raw_pipeline_detail::prepare_raw_preview_rebinding(
         raw_pipeline_detail::prepare_raw_frame_source(
-            metadata_session,
+            metadata,
             std::move(staged_frame),
             raw_development_plan,
             max_edge,
@@ -351,7 +351,7 @@ struct PreparedWarmEditProxy final {
         )
     );
     auto prepared = finish_warm_edit_proxy(
-        metadata_session.metadata(),
+        metadata,
         max_edge,
         std::move(rebindable.developed),
         optics_provider,
@@ -1233,6 +1233,24 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
     std::shared_ptr<const OpticsProvider> optics_provider,
     const OpticsSettings& optics_settings
 ) {
+    return prepare_rebindable_warm_edit_preview(
+        metadata_session.metadata(),
+        max_edge,
+        raw_development_plan,
+        std::move(staged_frame),
+        std::move(optics_provider),
+        optics_settings
+    );
+}
+
+WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const AssetMetadata& metadata,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    RawFrame staged_frame,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings
+) {
     validate_warm_edit_max_edge(max_edge);
     proxy_detail::validate_raw_development_plan_intent(
         raw_development_plan,
@@ -1240,7 +1258,7 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         "staged rebindable RAW warm edit preview"
     );
     auto prepared = prepare_warm_edit_proxy_from_preview_reference(
-        metadata_session,
+        metadata,
         max_edge,
         raw_development_plan,
         std::move(staged_frame),

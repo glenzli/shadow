@@ -22,7 +22,9 @@ use shadow_catalog::{RepresentationFingerprint, ReviewItemRecord};
 use shadow_domain::{RawWhiteBalance, RepresentationId};
 
 use crate::{
-    isolated_proxy::{configured_helper_path, stage_isolated_raw_frame},
+    isolated_proxy::{
+        configured_helper_path, snapshot_isolated_photo_metadata, stage_isolated_raw_frame,
+    },
     photo_provider::isolated_edit_raster,
     preview_cache_identity::requested_raw_development_plan_cache_matches,
     raw_foundation_render_source::{
@@ -315,6 +317,13 @@ fn prepare_preview_session(
         let staged_plan =
             manual_white_balance_base_plan(raw_development_plan).unwrap_or(raw_development_plan);
         let staged_result = (|| -> AnyResult<PhotoEditPreviewSession> {
+            // Metadata is cached by source and helper identity. It accompanies
+            // the staged RawFrame into the bridge, so the desktop process never
+            // reopens a provider-only source merely to compile its DCP and
+            // optics preparation.
+            let metadata =
+                snapshot_isolated_photo_metadata(&helper_path, runtime_cache_root, native_path)
+                    .context("snapshot isolated RAW metadata for staged preview preparation")?;
             let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
                 .with_context(|| {
                     format!(
@@ -322,19 +331,20 @@ fn prepare_preview_session(
                         native_path.display()
                     )
                 })?;
-            let staged = PhotoEditPreviewSession::open_with_staged_raw_development_plan(
-                native_path,
-                staging.manifest_path(),
-                max_edge,
-                staged_plan,
-                optics,
-            )
-            .with_context(|| {
-                format!(
-                    "prepare rebindable preview from the isolated RawFrame for {}",
-                    native_path.display()
+            let staged =
+                PhotoEditPreviewSession::open_with_staged_raw_development_plan_from_metadata(
+                    &metadata.metadata,
+                    staging.manifest_path(),
+                    max_edge,
+                    staged_plan,
+                    optics,
                 )
-            })?;
+                .with_context(|| {
+                    format!(
+                        "prepare rebindable preview from the isolated RawFrame for {}",
+                        native_path.display()
+                    )
+                })?;
             let prepared = if staged_plan == raw_development_plan {
                 staged
             } else {

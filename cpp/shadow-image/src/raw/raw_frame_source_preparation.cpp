@@ -100,6 +100,22 @@ PreparedRawFrameSource prepare_raw_frame_source(
     const std::optional<std::uint32_t> preview_max_edge,
     const CameraProfileCatalog& camera_profiles
 ) {
+    return prepare_raw_frame_source(
+        session.metadata(),
+        std::move(frame),
+        requested_plan,
+        preview_max_edge,
+        camera_profiles
+    );
+}
+
+PreparedRawFrameSource prepare_raw_frame_source(
+    AssetMetadata metadata,
+    RawFrame frame,
+    const RawDevelopmentPlan& requested_plan,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const CameraProfileCatalog& camera_profiles
+) {
     const RawDevelopmentPlanNegotiation negotiation =
         negotiate_shadow_raw_frame_development_plan(requested_plan);
     if (!negotiation.accepted()) {
@@ -121,7 +137,7 @@ PreparedRawFrameSource prepare_raw_frame_source(
     pipeline.camera_profile_developer_version = dcp_color_developer_version;
 
     const CameraProfileDefinition* camera_profile =
-        match_camera_profile(camera_profiles, session.metadata());
+        match_camera_profile(camera_profiles, metadata);
     std::optional<DcpColorTransform> dcp_transform;
     std::optional<CameraProfileDefinition> camera_profile_definition;
     pipeline.camera_profile_status = RawCameraProfileStatus::no_match;
@@ -151,7 +167,7 @@ PreparedRawFrameSource prepare_raw_frame_source(
         negotiation.effective,
         preview_max_edge,
         std::move(dcp_transform),
-        session.metadata().iso_speed
+        metadata.iso_speed
     );
     pipeline.source_scene_luminance_percentile = development.source_scene_luminance_percentile();
     return PreparedRawFrameSource(
@@ -159,7 +175,7 @@ PreparedRawFrameSource prepare_raw_frame_source(
         std::move(development),
         std::move(pipeline),
         negotiation.status,
-        session.metadata(),
+        std::move(metadata),
         std::move(camera_profile_definition)
     );
 }

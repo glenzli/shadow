@@ -387,6 +387,14 @@ class WarmEditPreviewSession final {
         const OpticsSettings& optics_settings
     );
     friend WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+        const AssetMetadata& metadata,
+        std::uint32_t max_edge,
+        const RawDevelopmentPlan& raw_development_plan,
+        RawFrame staged_frame,
+        std::shared_ptr<const OpticsProvider> optics_provider,
+        const OpticsSettings& optics_settings
+    );
+    friend WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         const DecodeSession& session,
         std::uint32_t max_edge,
         const RawDevelopmentPlan& raw_development_plan,
@@ -422,6 +430,18 @@ class WarmEditPreviewSession final {
 // balance cannot be reproduced by a provider-processed RGB fallback.
 [[nodiscard]] WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
     const DecodeSession& metadata_session,
+    std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    RawFrame staged_frame,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// A provider-neutral RawFrame and metadata snapshot emitted by the isolated
+// helper form one source-admission unit. No source path or decoder session is
+// required after that unit is established.
+[[nodiscard]] WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const AssetMetadata& metadata,
     std::uint32_t max_edge,
     const RawDevelopmentPlan& raw_development_plan,
     RawFrame staged_frame,

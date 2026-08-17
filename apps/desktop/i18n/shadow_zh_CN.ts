@@ -5905,11 +5905,6 @@ R %2 · G %3 · B %4</translation>
         <translation>未打开照片</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="211"/>
-        <source>Updating preview…</source>
-        <translation>正在更新预览…</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionCaptureMetadata.qml" line="97"/>
         <source>Preparing capture metadata…</source>
         <translation>正在准备拍摄元数据…</translation>

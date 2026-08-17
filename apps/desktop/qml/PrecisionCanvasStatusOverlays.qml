@@ -26,12 +26,8 @@ Item {
     required property int comparisonWipeHorizontal
     required property int comparisonSideBySide
 
-    property bool previewWaitMessageVisible: false
     property bool detailWaitMessageVisible: false
 
-    readonly property bool previewWaitActive:
-        editor.active && !comparisonActive && !showingFullDetail
-        && previewFrameReady && editor.rendering
     readonly property bool detailSurfaceRelevant:
         !comparisonActive && !fitView && zoomFactor >= 1.0
     readonly property bool detailWaitActive:
@@ -40,22 +36,9 @@ Item {
         && !detailImageLoadFailed
         && (editor.detailMode || editor.detailRendering)
 
-    onPreviewWaitActiveChanged: {
-        if (!previewWaitActive)
-            previewWaitMessageVisible = false
-    }
-
     onDetailWaitActiveChanged: {
         if (!detailWaitActive)
             detailWaitMessageVisible = false
-    }
-
-    Timer {
-        interval: 250
-        running: overlays.previewWaitActive
-            && !overlays.previewWaitMessageVisible
-        onTriggered: overlays.previewWaitMessageVisible =
-            overlays.previewWaitActive
     }
 
     Timer {
@@ -174,44 +157,6 @@ Item {
                 color: detailHint.failed ? Theme.errorText : Theme.textMuted
                 font.pixelSize: 9
                 elide: Text.ElideRight
-            }
-        }
-    }
-
-    Rectangle {
-        id: previewUpdatingHint
-        objectName: "precisionPreviewUpdatingHint"
-
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: 14
-        anchors.bottomMargin: 14
-        width: previewUpdatingRow.implicitWidth + 20
-        height: 30
-        radius: 4
-        visible: overlays.previewWaitActive
-            && overlays.previewWaitMessageVisible
-        color: Theme.previewHudStrongOverlay
-        border.width: 1
-        border.color: Theme.border
-
-        Row {
-            id: previewUpdatingRow
-            anchors.centerIn: parent
-            spacing: 7
-
-            BusyIndicator {
-                width: 14
-                height: 14
-                running: previewUpdatingHint.visible
-            }
-
-            Label {
-                objectName: "precisionPreviewUpdatingText"
-                text: qsTranslate(
-                    "PrecisionWorkspace", "Updating preview…")
-                color: Theme.textMuted
-                font.pixelSize: 9
             }
         }
     }

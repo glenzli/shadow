@@ -212,6 +212,17 @@ class FullEditDetailHandle final {
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_photo_utf8(rust::Str path);
+// Prepares a rebindable RAW session from the isolated helper's paired
+// provider-neutral frame and metadata snapshot. This route intentionally has
+// no source path, so it cannot reopen a private RAW in the desktop process.
+[[nodiscard]] std::unique_ptr<EditPreviewHandle>
+prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+    const FfiMetadataSnapshot& metadata,
+    std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    rust::Str staging_manifest_path,
+    const FfiOpticsSettings& optics
+);
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
 query_libraw_optics_profiles_utf8(rust::Str path);
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(rust::Str path);

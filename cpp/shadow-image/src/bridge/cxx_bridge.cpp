@@ -9,6 +9,7 @@
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/raw_frame_staging.hpp>
 #include <shadow/image/raw_white_balance.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
@@ -812,6 +813,28 @@ optics_profile_candidates_for(const image::DecodeSession& session) {
     return metadata;
 }
 
+[[nodiscard]] image::OpticsSettings optics_settings(const FfiOpticsSettings& settings) {
+    image::OpticsSettings configured{
+        settings.schema_version,
+        settings.enabled,
+        settings.correct_distortion,
+        settings.correct_tca,
+        settings.correct_vignetting,
+        settings.automatic_scale,
+        settings.manual_distortion,
+        settings.manual_tca_red_cyan,
+        settings.manual_tca_blue_yellow,
+        settings.manual_vignetting_amount,
+        settings.manual_vignetting_midpoint,
+        std::string(settings.camera_profile_maker),
+        std::string(settings.camera_profile_model),
+        std::string(settings.lens_profile_maker),
+        std::string(settings.lens_profile_model),
+    };
+    (void)image::optics_settings_signature(configured);
+    return configured;
+}
+
 } // namespace cxx_bridge_projection
 
 using namespace cxx_bridge_projection;
@@ -824,6 +847,27 @@ std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
 std::unique_ptr<DecodeHandle> open_photo_utf8(const rust::Str path) {
     auto provider = image::make_photo_decoder_provider();
     return open_provider_path(std::move(provider), filesystem_path_from_utf8(path));
+}
+
+std::unique_ptr<EditPreviewHandle>
+prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+    const FfiMetadataSnapshot& metadata,
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const rust::Str staging_manifest_path,
+    const FfiOpticsSettings& optics
+) {
+    image::RawFrame staged_frame =
+        image::read_raw_frame_staging(filesystem_path_from_utf8(staging_manifest_path));
+    auto prepared = image::prepare_rebindable_warm_edit_preview(
+        asset_metadata(metadata),
+        max_edge,
+        raw_development_plan(plan),
+        std::move(staged_frame),
+        image::make_lensfun_optics_provider(),
+        optics_settings(optics)
+    );
+    return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
 rust::Vec<FfiOpticsProfileCandidate> query_libraw_optics_profiles_utf8(const rust::Str path) {

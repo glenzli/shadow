@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use shadow_domain::ImageDimensions;
+use shadow_domain::{ImageDimensions, RawMetadataSnapshot};
 
 use super::{
     BridgeError,
@@ -12,7 +12,9 @@ use super::{
     },
     decoder::{dimensions, open_photo},
     ffi,
-    optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
+    optics::{
+        OpticsReceipt, OpticsSettings, ffi_metadata_snapshot, ffi_optics_settings, optics_receipt,
+    },
     preview_analysis::{
         AnalyzedEditPreview, EditPreviewMaskCoverageRequest, RenderedEditPreview,
         SensorClippingMask, validate_analyzed_edit_preview, validate_mask_coverage,
@@ -316,6 +318,42 @@ impl LibRawEditPreviewSession {
             max_edge,
             &ffi_raw_development_plan(raw_development_plan),
             staging_manifest,
+        )?;
+        Self::from_prepared_handle(handle)
+    }
+
+    /// Opens a rebindable RAW preview from the isolated decoder helper's
+    /// paired `RawFrame` and metadata snapshot. Unlike the legacy staged entry
+    /// point, this never reopens the original source path in the desktop
+    /// process.
+    ///
+    /// # Errors
+    ///
+    /// Returns a staging, metadata, plan, optics, resource, admission, or
+    /// invalid-output error.
+    pub fn open_with_staged_raw_development_plan_from_metadata(
+        metadata: &RawMetadataSnapshot,
+        staging_manifest_path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        validate_warm_edit_max_edge(max_edge)?;
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "staged RAW warm previews require preview RAW-development intent",
+            ));
+        }
+        let staging_manifest = staging_manifest_path
+            .to_str()
+            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        let handle = ffi::prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+            &ffi_metadata_snapshot(metadata),
+            max_edge,
+            &ffi_raw_development_plan(raw_development_plan),
+            staging_manifest,
+            &ffi_optics_settings(optics),
         )?;
         Self::from_prepared_handle(handle)
     }
