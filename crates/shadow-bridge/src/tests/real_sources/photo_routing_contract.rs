@@ -1,16 +1,75 @@
 //! Source-router provider selection, format support, and RAW-plan negotiation.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use shadow_domain::PreviewCodec;
 
 use crate::{
-    BasicEditParameters, BridgeError, PhotoEditDetailSession, PhotoEditPreviewSession,
-    RawDevelopmentPlan, RawDevelopmentQuality, RawPipelinePath, extract_best_photo_preview,
-    inspect_libraw, inspect_photo, negotiate_photo_raw_development_plan, photo_provider_version,
+    BasicEditParameters, BridgeError, OpticsSettings, PhotoEditDetailSession,
+    PhotoEditPreviewSession, RawDevelopmentPlan, RawDevelopmentQuality, RawPipelinePath,
+    extract_best_photo_preview, inspect_libraw, inspect_photo,
+    negotiate_photo_raw_development_plan, photo_provider_version,
     photo_raw_development_capabilities, photo_supported_raster_extensions,
     query_photo_optics_profiles, raw_development_plan_identity, render_photo_reference_proxy,
 };
+
+#[test]
+#[ignore = "requires SHADOW_TEST_PRIVATE_HE_RAW and SHADOW_TEST_DECODE_HELPER"]
+fn isolated_private_raw_frame_reenters_the_host_preview_bridge_from_metadata() {
+    let source = PathBuf::from(
+        std::env::var_os("SHADOW_TEST_PRIVATE_HE_RAW")
+            .expect("SHADOW_TEST_PRIVATE_HE_RAW must identify a locally decodable HE/HE* RAW"),
+    );
+    let helper = PathBuf::from(
+        std::env::var_os("SHADOW_TEST_DECODE_HELPER")
+            .expect("SHADOW_TEST_DECODE_HELPER must identify Shadow's isolated decode helper"),
+    );
+    let snapshot = inspect_photo(&source).expect("inspect the private RAW in the host bridge");
+    assert!(snapshot.capabilities.raw_frame.is_available());
+
+    let staging_root = std::env::temp_dir().join(format!(
+        "shadow-bridge-staged-private-raw-contract-{}",
+        std::process::id()
+    ));
+    fs::create_dir(&staging_root).expect("create test-private staging root");
+    let manifest = staging_root.join("frame.shadowrawi");
+    let result = Command::new(&helper)
+        .arg("raw-frame-staging")
+        .arg(&source)
+        .arg(&manifest)
+        .arg("01234567-89ab-cdef-0123-456789abcdef")
+        .output()
+        .expect("launch isolated decode helper for private RawFrame staging");
+    assert!(
+        result.status.success(),
+        "private RawFrame staging failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let preview = PhotoEditPreviewSession::open_with_staged_raw_development_plan_from_metadata(
+        &snapshot.metadata,
+        &manifest,
+        1_024,
+        RawDevelopmentPlan::preview(),
+        &OpticsSettings::default(),
+    )
+    .expect("reenter the host preview bridge with the isolated private RawFrame");
+    assert_eq!(
+        preview.raw_pipeline_receipt().path,
+        RawPipelinePath::ShadowRawFrame,
+        "the desktop-facing bridge must develop the staged CFA data rather than fall back to provider RGB"
+    );
+    let rendered = preview
+        .render(BasicEditParameters::default(), 82)
+        .expect("render a host-owned staged private RawFrame preview");
+    assert!(!rendered.bytes.is_empty());
+
+    fs::remove_dir_all(staging_root).expect("remove test-private staging root");
+}
 
 #[test]
 #[ignore = "requires SHADOW_TEST_PRIVATE_HE_RAW and a configured local private decoder provider"]

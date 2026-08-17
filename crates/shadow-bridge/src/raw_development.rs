@@ -339,7 +339,9 @@ impl Default for RawPipelineReceipt {
 
 impl RawPipelineReceipt {
     pub const CURRENT_SCHEMA_VERSION: u32 = 1;
-    pub const CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION: u32 = 1;
+    // Mirrors `shadow::image::dcp_color_developer_version`. This is part of the
+    // cross-language provenance contract, rather than the pipeline receipt schema.
+    pub const CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION: u32 = 3;
 
     #[must_use]
     pub const fn recorded(&self) -> bool {
