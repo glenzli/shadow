@@ -261,13 +261,7 @@ using Matrix3 = std::array<double, 9U>;
         for (std::uint32_t x = 0U; x < sample_columns; ++x) {
             const std::uint32_t raw_x = frame.descriptor.active_margins.left
                                         + source_coordinate(x, sample_columns, active.width);
-            const auto camera = detail::bilinear_camera_rgb_at(
-                frame,
-                raw_x,
-                raw_y,
-                &transform,
-                transform.apply_cfa_white_balance
-            );
+            const auto camera = detail::bilinear_camera_rgb_at(frame, raw_x, raw_y, &transform);
             const std::size_t index = (static_cast<std::size_t>(y) * sample_columns + x) * 3U;
             for (std::size_t output = 0U; output < 3U; ++output) {
                 double linear_srgb = 0.0;

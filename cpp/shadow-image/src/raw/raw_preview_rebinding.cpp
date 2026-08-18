@@ -430,8 +430,7 @@ std::optional<RawWhiteBalancePresentation> RawPreviewRebindingSource::pick_raw_w
                     frame,
                     static_cast<std::uint32_t>(candidate_x),
                     static_cast<std::uint32_t>(candidate_y),
-                    nullptr,
-                    false
+                    nullptr
                 );
                 if (!std::isfinite(sample.values[0]) || !std::isfinite(sample.values[1])
                     || !std::isfinite(sample.values[2]) || sample.values[0] <= 1.0e-6F

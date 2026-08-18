@@ -434,17 +434,13 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
                                   frame,
                                   raw_x,
                                   raw_y,
-                                  &transform,
-                                  highlight_recovery == RawHighlightRecoveryIntent::provider_default
-                                      && transform.apply_cfa_white_balance
+                                  &transform
                               )
                             : detail::bilinear_camera_rgb_sample_at(
                                   frame,
                                   raw_x,
                                   raw_y,
-                                  &transform,
-                                  highlight_recovery == RawHighlightRecoveryIntent::provider_default
-                                      && transform.apply_cfa_white_balance
+                                  &transform
                               );
                     const std::size_t output_index =
                         (static_cast<std::size_t>(local_y) * region.requested_core().width

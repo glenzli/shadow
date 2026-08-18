@@ -14,9 +14,10 @@ namespace detail {
 
 using CameraRgb = std::array<float, 3U>;
 
-// Camera-linear reconstruction carries only measured, normalized camera RGB. Sensor clipping is
-// projected separately from the immutable RAW plane, so source development never alters colour
-// merely because one CFA channel reached its calibrated ceiling.
+// Camera-linear reconstruction carries measured, normalized camera RGB plus any headroom produced
+// by physical CFA white balance. Sensor clipping is projected separately from the immutable RAW
+// plane, so source development never alters colour merely because one CFA channel reached its
+// calibrated ceiling.
 struct CameraRgbSample final {
     CameraRgb values{};
 };
@@ -35,16 +36,14 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation);
     const RawFrame& frame,
     std::uint32_t raw_x,
     std::uint32_t raw_y,
-    const RawFrameLinearTransform* transform = nullptr,
-    bool clamp_white_balance = false
+    const RawFrameLinearTransform* transform = nullptr
 );
 
 [[nodiscard]] CameraRgbSample bilinear_camera_rgb_sample_at(
     const RawFrame& frame,
     std::uint32_t raw_x,
     std::uint32_t raw_y,
-    const RawFrameLinearTransform* transform = nullptr,
-    bool clamp_white_balance = false
+    const RawFrameLinearTransform* transform = nullptr
 );
 
 // Detail/export reconstruction uses a directional green estimate plus local
@@ -55,8 +54,7 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation);
     const RawFrame& frame,
     std::uint32_t raw_x,
     std::uint32_t raw_y,
-    const RawFrameLinearTransform* transform = nullptr,
-    bool clamp_white_balance = false
+    const RawFrameLinearTransform* transform = nullptr
 );
 
 // Precomputes scale ratios once per preview render. Each sampling call then integrates the exact
@@ -69,8 +67,7 @@ make_bayer_area_sampling_grid(const RawFrame& frame, Dimensions target_dimension
     const BayerAreaSamplingGrid& grid,
     std::uint32_t target_x,
     std::uint32_t target_y,
-    const RawFrameLinearTransform* transform = nullptr,
-    bool clamp_white_balance = false
+    const RawFrameLinearTransform* transform = nullptr
 );
 
 [[nodiscard]] CameraRgbSample area_camera_rgb_sample_at(
@@ -78,8 +75,7 @@ make_bayer_area_sampling_grid(const RawFrame& frame, Dimensions target_dimension
     const BayerAreaSamplingGrid& grid,
     std::uint32_t target_x,
     std::uint32_t target_y,
-    const RawFrameLinearTransform* transform = nullptr,
-    bool clamp_white_balance = false
+    const RawFrameLinearTransform* transform = nullptr
 );
 
 } // namespace detail

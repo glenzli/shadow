@@ -183,8 +183,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
              &output,
              reconstruction_dimensions,
              output_dimensions,
-             area_sampling,
-             highlight_recovery](const std::uint32_t first_row, const std::uint32_t last_row) {
+             area_sampling](const std::uint32_t first_row, const std::uint32_t last_row) {
                 for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
                     for (std::uint32_t output_x = 0U; output_x < output_dimensions.width;
                          ++output_x) {
@@ -199,9 +198,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                             *area_sampling,
                             source_x,
                             source_y,
-                            &transform,
-                            highlight_recovery == RawHighlightRecoveryIntent::provider_default
-                                && transform.apply_cfa_white_balance
+                            &transform
                         );
                         const auto output_index =
                             (static_cast<std::size_t>(output_y) * output_dimensions.width
@@ -255,7 +252,7 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-white-point-before-demosaic-20260809.1";
+        return "sensor-highlights=scene-linear-cfa-headroom-through-demosaic-20260819.1";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:

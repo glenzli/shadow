@@ -44,10 +44,9 @@ struct RawDevelopmentParameters final {
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
-    std::uint32_t clamp_cfa_white_balance = 0U;
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 168U);
+static_assert(sizeof(RawDevelopmentParameters) == 164U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -147,8 +146,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions,
     const RawDevelopmentQuality quality,
-    const bool project_sensor_clipping,
-    const RawHighlightRecoveryIntent highlight_recovery
+    const bool project_sensor_clipping
 ) {
     const auto& descriptor = frame.descriptor;
     RawDevelopmentParameters parameters;
@@ -179,11 +177,6 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
-    parameters.clamp_cfa_white_balance =
-        transform.apply_cfa_white_balance
-                && highlight_recovery == RawHighlightRecoveryIntent::provider_default
-            ? 1U
-            : 0U;
     return parameters;
 }
 
@@ -392,8 +385,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             reconstruction_dimensions,
             output_dimensions,
             quality,
-            continuations.project_sensor_clipping,
-            highlight_recovery
+            continuations.project_sensor_clipping
         );
         const auto pipeline =
             area_preview ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
@@ -449,9 +441,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             [encoder setBuffer:static_cast<id<MTLBuffer>>(tile_buffer.get()) offset:0U atIndex:1U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
             if (continuations.project_sensor_clipping) {
-                [encoder setBuffer:input_buffer
-                            offset:0U
-                           atIndex:3U];
+                [encoder setBuffer:input_buffer offset:0U atIndex:3U];
                 [encoder setBuffer:static_cast<id<MTLBuffer>>(clipping_tile_buffer.get())
                             offset:0U
                            atIndex:4U];
@@ -812,6 +802,9 @@ MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develo
     const RawDevelopmentQuality quality,
     const MetalRawDevelopmentContinuations continuations
 ) const {
+    // The public rebind contract retains this receipt field. Source-domain highlight policy no
+    // longer inserts a pre-demosaic channel clip, so it does not select a different Metal kernel.
+    (void)highlight_recovery;
     const auto fail = [](std::string diagnostic) {
         return MetalRawPreviewResidentDevelopmentAttempt{
             .output = std::nullopt,
@@ -907,8 +900,7 @@ MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develo
             reconstruction_dimensions,
             output_dimensions,
             quality,
-            false,
-            highlight_recovery
+            false
         );
         parameters.output_tile_height = output_dimensions.height;
         const auto pipeline =

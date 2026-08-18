@@ -112,6 +112,106 @@ using shadow::image::test_support::failures;
     return frame;
 }
 
+void cfa_white_balance_preserves_scene_linear_headroom() {
+    const image::RawFrameLinearTransform transform{
+        .camera_to_linear_srgb_d65 =
+            {
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            },
+        .camera_rgb_to_linear_srgb_d65 =
+            {
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            },
+        .camera_neutral = {1.0, 1.0, 1.0},
+        .cfa_white_balance = {2.0, 1.0, 1.0, 1.5},
+        .apply_cfa_white_balance = true,
+    };
+    expect(transform.valid(), "the boosted-gain headroom fixture has a valid camera transform");
+    if (!transform.valid()) {
+        return;
+    }
+    const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        sensor_clipped_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu
+    );
+    const auto disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        sensor_clipped_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::disabled
+    );
+    expect(
+        image::raw_highlight_treatment_identity(cpu.highlight_recovery)
+            == "sensor-highlights=scene-linear-cfa-headroom-through-demosaic-20260819.1",
+        "the default source treatment identifies its unbounded CFA-white-balance contract"
+    );
+
+    float maximum_default_delta = 0.0F;
+    float maximum_red = 0.0F;
+    float maximum_blue = 0.0F;
+    for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); index += 3U) {
+        maximum_red = std::max(maximum_red, cpu.scene_linear.samples[index]);
+        maximum_blue = std::max(maximum_blue, cpu.scene_linear.samples[index + 2U]);
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+            maximum_default_delta = std::max(
+                maximum_default_delta,
+                std::abs(
+                    cpu.scene_linear.samples[index + channel]
+                    - disabled.scene_linear.samples[index + channel]
+                )
+            );
+        }
+    }
+    expect(
+        maximum_red > 1.9F && maximum_blue > 1.4F,
+        "CFA white-balance gains retain calibrated RAW headroom through demosaic"
+    );
+    expect(
+        maximum_default_delta <= 1.0e-6F,
+        "the default source treatment does not apply a hidden CFA-channel clip"
+    );
+
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        return;
+    }
+    const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        sensor_clipped_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::metal
+    );
+    float maximum_metal_difference = 0.0F;
+    for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); ++index) {
+        maximum_metal_difference = std::max(
+            maximum_metal_difference,
+            std::abs(cpu.scene_linear.samples[index] - metal.scene_linear.samples[index])
+        );
+    }
+    expect(
+        maximum_metal_difference <= 4.0e-5F,
+        "Metal retains the same CFA white-balance headroom as the CPU path"
+    );
+}
+
 void sensor_clipped_highlights_preserve_measured_source_colour() {
     const image::RawFrameLinearTransform transform{
         {
@@ -404,6 +504,7 @@ void sensor_clipped_highlights_preserve_measured_source_colour() {
 } // namespace
 
 int main() {
+    cfa_white_balance_preserves_scene_linear_headroom();
     sensor_clipped_highlights_preserve_measured_source_colour();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
