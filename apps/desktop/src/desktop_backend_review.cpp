@@ -20,6 +20,16 @@ BackendReviewVisual DesktopBackend::loadReviewVisual(const QString& ticket) cons
     };
 }
 
+std::uint32_t
+DesktopBackend::refreshSelectedReviewPreviews(const QStringList& visual_handles) const {
+    rust::Vec<rust::String> tickets;
+    tickets.reserve(static_cast<std::size_t>(visual_handles.size()));
+    for (const QString& visual_handle : visual_handles) {
+        tickets.emplace_back(visual_handle.toStdString());
+    }
+    return impl_->session->refresh_selected_review_previews(std::move(tickets));
+}
+
 BackendReviewComparisonPresentation DesktopBackend::prepareReviewComparison(
     const QString& left_visual_handle,
     const QString& right_visual_handle
@@ -86,9 +96,7 @@ BackendFeedbackReceipt DesktopBackend::recordReviewComparison(
     };
 }
 
-BackendForgetReceipt DesktopBackend::forgetReviewFeedback(
-    const QString& event_id
-) const {
+BackendForgetReceipt DesktopBackend::forgetReviewFeedback(const QString& event_id) const {
     const auto receipt = impl_->session->forget_review_feedback(event_id.toStdString());
     return {
         .fact_id = qstring(receipt.fact_id),
@@ -98,9 +106,7 @@ BackendForgetReceipt DesktopBackend::forgetReviewFeedback(
     };
 }
 
-BackendReviewDecisionState DesktopBackend::reviewPhotoDecisionState(
-    const QString& photo_id
-) const {
+BackendReviewDecisionState DesktopBackend::reviewPhotoDecisionState(const QString& photo_id) const {
     const auto state = impl_->session->review_photo_decision_state(photo_id.toStdString());
     return {
         .photo_id = qstring(state.photo_id),
@@ -127,12 +133,13 @@ BackendReviewDecisionMutationReceipt DesktopBackend::setReviewPhotoDecision(
         .event_id = qstring(receipt.event_id),
         .sequence = receipt.sequence,
         .occurred_at_ms = receipt.occurred_at_unix_ms,
-        .before = {
-            .photo_id = returned_photo_id,
-            .head_sequence = receipt.before_head_sequence,
-            .flag = decision_flag(receipt.before_flag),
-            .rating = receipt.before_rating,
-        },
+        .before =
+            {
+                .photo_id = returned_photo_id,
+                .head_sequence = receipt.before_head_sequence,
+                .flag = decision_flag(receipt.before_flag),
+                .rating = receipt.before_rating,
+            },
         .after = {
             .photo_id = returned_photo_id,
             .head_sequence = receipt.sequence,

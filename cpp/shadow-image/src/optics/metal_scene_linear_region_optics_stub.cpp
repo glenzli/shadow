@@ -76,6 +76,18 @@ MetalSceneLinearRegionLease develop_metal_scene_linear_region_optics(
     );
 }
 
+MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
+    const MetalRawPreviewResidentOutput&,
+    const PreparedSceneLinearRegionOptics&,
+    lensfun_modifier_plan::PreparedRegion
+) {
+    throw DecodeError(
+        DecodeErrorCode::unsupported,
+        0,
+        "Metal scene-linear preview optics is unavailable on this platform"
+    );
+}
+
 bool metal_scene_linear_region_optics_available() noexcept {
     return false;
 }

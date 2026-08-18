@@ -2412,6 +2412,10 @@ mod ffi {
             source_revision: &str,
         ) -> Result<()>;
         fn load_review_visual(self: &DesktopSession, ticket: &str) -> Result<FfiVisualPayload>;
+        fn refresh_selected_review_previews(
+            self: &DesktopSession,
+            tickets: Vec<String>,
+        ) -> Result<u32>;
         fn prepare_review_comparison(
             self: &DesktopSession,
             left_grid_handle: &str,

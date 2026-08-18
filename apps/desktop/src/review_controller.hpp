@@ -12,11 +12,11 @@
 #include "review_library_keyword_coordinator.hpp"
 #include "review_library_map_coordinator.hpp"
 #include "review_library_metadata_coordinator.hpp"
-#include "review_location_completion_coordinator.hpp"
-#include "review_location_reference_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
 #include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
+#include "review_location_completion_coordinator.hpp"
+#include "review_location_reference_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_remote_library_coordinator.hpp"
@@ -487,6 +487,7 @@ class ReviewController final : public QObject {
     void setLibraryAlbumId(const QString& album_id);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
+    Q_INVOKABLE void refreshSelectedPreviews(const QVariantList& targets);
     Q_INVOKABLE void cancelScan();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void
@@ -565,10 +566,8 @@ class ReviewController final : public QObject {
     );
     Q_INVOKABLE QString locationCompletionVisualSource(const QString& visual_handle) const;
     Q_INVOKABLE void refreshLocationReferenceLibraries();
-    Q_INVOKABLE void addLocationReferenceLibrary(
-        const QUrl& root_url,
-        qlonglong clock_offset_seconds = 0
-    );
+    Q_INVOKABLE void
+    addLocationReferenceLibrary(const QUrl& root_url, qlonglong clock_offset_seconds = 0);
     Q_INVOKABLE void removeLocationReferenceLibrary(const QString& id);
     Q_INVOKABLE void refreshLibraryAlbums();
     Q_INVOKABLE void refreshLibrarySourceHealth();

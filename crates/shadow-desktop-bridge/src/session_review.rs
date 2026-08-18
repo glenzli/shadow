@@ -19,6 +19,10 @@ impl DesktopSession {
         self.review.load_visual(ticket)
     }
 
+    pub(crate) fn refresh_selected_review_previews(&self, tickets: Vec<String>) -> AnyResult<u32> {
+        self.review.invalidate_selected_preview_visuals(tickets)
+    }
+
     pub(crate) fn prepare_review_comparison(
         &self,
         left_grid_handle: &str,

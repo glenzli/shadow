@@ -1,11 +1,11 @@
 #include "raw_preview_rebinding.hpp"
 
-#include "raw_denoise_plan.hpp"
 #include "bayer_sampling.hpp"
+#include "metal_raw_development.hpp"
+#include "raw_denoise_plan.hpp"
 #include "raw_foundation_source.hpp"
 #include "raw_frame_development_plan.hpp"
 #include "raw_frame_source_preparation.hpp"
-#include "metal_raw_development.hpp"
 
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
@@ -16,8 +16,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <optional>
 #include <string>
 #include <utility>
@@ -101,6 +105,33 @@ same_plan_except_white_balance(RawDevelopmentPlan left, RawDevelopmentPlan right
     return pipeline;
 }
 
+[[nodiscard]] bool interactive_timing_enabled() noexcept {
+    const char* value = std::getenv("SHADOW_INTERACTIVE_TIMING");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+void log_interactive_rebind_timing(
+    const bool enabled,
+    const std::uint64_t sequence,
+    const char* const stage,
+    const std::chrono::steady_clock::time_point started
+) noexcept {
+    if (!enabled) {
+        return;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started
+    );
+    std::fprintf(
+        stderr,
+        "shadow.interactive-timing component=native-raw-rebind sequence=%llu stage=%s "
+        "elapsed_ms=%lld\n",
+        static_cast<unsigned long long>(sequence),
+        stage,
+        static_cast<long long>(elapsed.count())
+    );
+}
+
 } // namespace
 
 struct RawPreviewRebindingSource::Impl final {
@@ -148,9 +179,11 @@ struct RawPreviewRebindingSource::Impl final {
         sensor_clipping(std::move(clipping)), basis(std::move(preview_basis))
 #if SHADOW_IMAGE_HAS_METAL
         ,
-        ordinary_raw_metal_preview(std::move(metal_preview)) {}
+        ordinary_raw_metal_preview(std::move(metal_preview)) {
+    }
 #else
-    {}
+    {
+    }
 #endif
 };
 
@@ -179,8 +212,7 @@ RawPreviewRebindingTelemetry RawPreviewRebindingSource::telemetry() const noexce
             impl_->foundation_amount_bind_count.load(std::memory_order_relaxed),
         .dcp_metal_execution_count =
             impl_->dcp_metal_execution_count.load(std::memory_order_relaxed),
-        .dcp_cpu_execution_count =
-            impl_->dcp_cpu_execution_count.load(std::memory_order_relaxed),
+        .dcp_cpu_execution_count = impl_->dcp_cpu_execution_count.load(std::memory_order_relaxed),
     };
 }
 
@@ -190,9 +222,7 @@ RawPreviewRebindingSource::bind(const RawDevelopmentPlan& requested_plan) const 
 }
 
 std::optional<ResidentRawPreviewRebinding>
-RawPreviewRebindingSource::try_bind_metal_resident(
-    const RawDevelopmentPlan& requested_plan
-) const {
+RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& requested_plan) const {
 #if !SHADOW_IMAGE_HAS_METAL
     static_cast<void>(requested_plan);
     return std::nullopt;
@@ -214,16 +244,31 @@ RawPreviewRebindingSource::try_bind_metal_resident(
     if (impl_->development_template.requested_backend() == RawDevelopmentBackendMode::cpu) {
         return std::nullopt;
     }
+    const bool timing_enabled = interactive_timing_enabled();
+    const auto timing_started = std::chrono::steady_clock::now();
+    const auto timing_sequence = impl_->bind_count.load(std::memory_order_relaxed) + 1U;
     CompiledPreviewColorBinding binding = compile_color_binding(
         impl_->development_template.descriptor(),
         effective_plan.white_balance,
         impl_->camera_profile_definition
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "color-binding-ready",
+        timing_started
     );
     PreparedRawFrameDevelopment rebound_development = impl_->development_template.rebind_color(
         effective_plan,
         binding.linear_transform,
         std::move(binding.dcp),
         impl_->development_template.source_scene_luminance_percentile()
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "development-plan-ready",
+        timing_started
     );
     const DcpColorTransform* dcp = rebound_development.camera_profile();
     const bool dcp_requested = dcp != nullptr && dcp->has_post_matrix_stages();
@@ -237,12 +282,23 @@ RawPreviewRebindingSource::try_bind_metal_resident(
             .dcp_color_transform = dcp,
         }
     );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "metal-development-ready",
+        timing_started
+    );
     if (!development.output.has_value() || (dcp_requested && !development.dcp_applied)) {
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "metal-development-unavailable",
+            timing_started
+        );
         return std::nullopt;
     }
-    const DcpColorExecutionBackend dcp_backend = development.dcp_applied
-                                                     ? DcpColorExecutionBackend::metal
-                                                     : DcpColorExecutionBackend::cpu;
+    const DcpColorExecutionBackend dcp_backend =
+        development.dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
     RawDevelopmentReceipt receipt = finalize_raw_frame_development_receipt(
         rebound_development,
         development.output->dimensions(),
@@ -276,6 +332,7 @@ RawPreviewRebindingSource::try_bind_metal_resident(
         impl_->ordinary_raw_fused_dcp_bind_count.fetch_add(1U, std::memory_order_relaxed);
         impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
     }
+    log_interactive_rebind_timing(timing_enabled, timing_sequence, "receipt-ready", timing_started);
     return ResidentRawPreviewRebinding{
         .output = std::move(*development.output),
         .raw_development_receipt = std::move(receipt),
@@ -422,16 +479,31 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
 
     RawDevelopmentPlan effective_plan = impl_->development_template.development_plan();
     effective_plan.white_balance = requested_plan.white_balance;
+    const bool timing_enabled = interactive_timing_enabled();
+    const auto timing_started = std::chrono::steady_clock::now();
+    const auto timing_sequence = impl_->bind_count.load(std::memory_order_relaxed) + 1U;
     CompiledPreviewColorBinding binding = compile_color_binding(
         impl_->development_template.descriptor(),
         effective_plan.white_balance,
         impl_->camera_profile_definition
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "fallback-color-binding-ready",
+        timing_started
     );
     PreparedRawFrameDevelopment rebound_development = impl_->development_template.rebind_color(
         effective_plan,
         binding.linear_transform,
         std::move(binding.dcp),
         impl_->development_template.source_scene_luminance_percentile()
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "fallback-development-plan-ready",
+        timing_started
     );
     impl_->bind_count.fetch_add(1U, std::memory_order_relaxed);
 
@@ -472,6 +544,12 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             }
         }
 #endif
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "fallback-resident-development-attempted",
+            timing_started
+        );
         if (!developed.has_value() && dcp_requested
             && rebound_development.requested_backend() != RawDevelopmentBackendMode::cpu) {
             auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
@@ -489,6 +567,12 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 fused_dcp_applied = true;
             }
         }
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "fallback-secondary-metal-attempted",
+            timing_started
+        );
         if (!developed.has_value()) {
             developed = develop_bayer_linear_srgb_f32_fused_with_backend(
                 ordinary->denoised_frame,
@@ -499,15 +583,21 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 effective_plan.quality
             );
         }
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            developed->backend == RawDevelopmentBackend::metal ? "fallback-development-ready-metal"
+                                                               : "fallback-development-ready-cpu",
+            timing_started
+        );
         impl_->ordinary_raw_bind_count.fetch_add(1U, std::memory_order_relaxed);
         if (developed->backend == RawDevelopmentBackend::metal) {
             impl_->ordinary_raw_metal_development_count.fetch_add(1U, std::memory_order_relaxed);
         } else {
             impl_->ordinary_raw_cpu_development_count.fetch_add(1U, std::memory_order_relaxed);
         }
-        DcpColorExecutionBackend dcp_backend = fused_dcp_applied
-            ? DcpColorExecutionBackend::metal
-            : DcpColorExecutionBackend::cpu;
+        DcpColorExecutionBackend dcp_backend =
+            fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
         if (fused_dcp_applied) {
             impl_->ordinary_raw_fused_dcp_bind_count.fetch_add(1U, std::memory_order_relaxed);
             impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
@@ -519,6 +609,13 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 impl_->dcp_cpu_execution_count.fetch_add(1U, std::memory_order_relaxed);
             }
         }
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            dcp_backend == DcpColorExecutionBackend::metal ? "fallback-dcp-ready-metal"
+                                                           : "fallback-dcp-ready-cpu",
+            timing_started
+        );
         RawDevelopmentReceipt receipt = finalize_raw_frame_development_receipt(
             rebound_development,
             developed->scene_linear.dimensions,
@@ -545,6 +642,12 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             developed->backend,
             effective_plan.highlight_recovery,
             ordinary->combined_denoise_identity
+        );
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "fallback-receipt-ready",
+            timing_started
         );
         return DevelopedSourceReference{
             .source = std::move(developed->scene_linear),

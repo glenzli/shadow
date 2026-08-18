@@ -87,10 +87,8 @@ class DesktopBackend final {
         std::int64_t capture_end_unix_seconds
     ) const;
     [[nodiscard]] QVector<BackendLocationReferenceLibrary> locationReferenceLibraries() const;
-    [[nodiscard]] BackendLocationReferenceLibrary addLocationReferenceLibrary(
-        const QString& root_path,
-        std::int64_t clock_offset_seconds
-    ) const;
+    [[nodiscard]] BackendLocationReferenceLibrary
+    addLocationReferenceLibrary(const QString& root_path, std::int64_t clock_offset_seconds) const;
     [[nodiscard]] bool removeLocationReferenceLibrary(const QString& id) const;
     [[nodiscard]] BackendLibraryMapSnapshot libraryMapSnapshot(
         const BackendLibraryPhotoFilter& filter,
@@ -194,6 +192,8 @@ class DesktopBackend final {
     [[nodiscard]] BackendLibraryMetadataBatchReceipt
     applyLibraryGpxImport(const QString& preview_id) const;
     [[nodiscard]] BackendReviewVisual loadReviewVisual(const QString& ticket) const;
+    [[nodiscard]] std::uint32_t
+    refreshSelectedReviewPreviews(const QStringList& visual_handles) const;
     [[nodiscard]] BackendReviewComparisonPresentation prepareReviewComparison(
         const QString& left_visual_handle,
         const QString& right_visual_handle
@@ -293,10 +293,8 @@ class DesktopBackend final {
     [[nodiscard]] BackendImageUnderstandingSnapshot imageUnderstandingSnapshot() const;
     [[nodiscard]] BackendImageUnderstandingSnapshot
     pauseImageUnderstanding(const QString& generation) const;
-    [[nodiscard]] BackendImageUnderstandingProposal imageUnderstandingProposal(
-        const QString& photo_id,
-        const QString& representation_id
-    ) const;
+    [[nodiscard]] BackendImageUnderstandingProposal
+    imageUnderstandingProposal(const QString& photo_id, const QString& representation_id) const;
     void applyImageUnderstandingKeywords(
         const QString& photo_id,
         const QString& representation_id,
@@ -310,10 +308,8 @@ class DesktopBackend final {
         const QString& taxonomy_revision,
         const QVector<BackendClassificationReviewCategory>& categories
     ) const;
-    [[nodiscard]] BackendClassificationReviewProposal advancedClassificationReview(
-        const QString& photo_id,
-        const QString& representation_id
-    ) const;
+    [[nodiscard]] BackendClassificationReviewProposal
+    advancedClassificationReview(const QString& photo_id, const QString& representation_id) const;
     [[nodiscard]] QString acceptAdvancedClassificationReview(
         const QString& photo_id,
         const QString& representation_id,

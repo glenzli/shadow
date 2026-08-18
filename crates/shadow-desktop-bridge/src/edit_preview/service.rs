@@ -4,6 +4,8 @@
 //! acquisition, render policy, the unique terminal claim, optional durable
 //! publication, and the final FFI projection in one auditable lifecycle.
 
+use std::time::Instant;
+
 use anyhow::{Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     AnalyzedEditPreview, CancellableEditPreview, EditPreviewMaskCoverageRequest,
@@ -68,6 +70,17 @@ const fn admits_recipe_preview_cache(
 
 fn preview_registry_error(error: &PreviewRenderRegistryError, token: u64) -> anyhow::Error {
     anyhow!("edit preview render token {token} is invalid: {error:?}")
+}
+
+fn interactive_timing_enabled() -> bool {
+    std::env::var("SHADOW_INTERACTIVE_TIMING").is_ok_and(|value| value == "1")
+}
+
+fn log_interactive_bridge_timing(token: u64, started: &Instant, stage: &str) {
+    eprintln!(
+        "shadow.interactive-timing token={token} component=bridge stage={stage} elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
 }
 
 fn mask_coverage_request(
@@ -174,6 +187,7 @@ impl DesktopSession {
                 optics: recipe.foundation.optics(),
                 source_environment_cache_identity: &source_environment_cache_identity,
                 raw_foundation: None,
+                interactive_timing_token: None,
             },
             normalized_x,
             normalized_y,
@@ -223,6 +237,9 @@ impl DesktopSession {
 
             let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
             let policy = EditPreviewPolicy::from_ffi(request.policy)?;
+            let interactive_timing =
+                matches!(policy, EditPreviewPolicy::Interactive) && interactive_timing_enabled();
+            let interactive_started = interactive_timing.then(Instant::now);
             if request.use_working_recipe != policy.uses_working_recipe() {
                 bail!(
                     "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
@@ -259,6 +276,9 @@ impl DesktopSession {
                 recipe.foundation.raw_ai_denoise(),
                 &foundation_cancellation,
             )?;
+            if let Some(started) = interactive_started.as_ref() {
+                log_interactive_bridge_timing(request.render_token, started, "source-ready");
+            }
             // A superseded RAW-white-balance gesture must not begin a new
             // rebind/session build after its upstream admission work is done.
             // Native rebinding itself remains the declared cancellation seam;
@@ -284,7 +304,12 @@ impl DesktopSession {
                         optics: recipe.foundation.optics(),
                         source_environment_cache_identity: &source_environment_cache_identity,
                         raw_foundation: raw_foundation.as_ref(),
+                        interactive_timing_token: interactive_timing
+                            .then_some(request.render_token),
                     })?;
+            if let Some(started) = interactive_started.as_ref() {
+                log_interactive_bridge_timing(request.render_token, started, "session-ready");
+            }
             if self
                 .edit_preview_render_tokens
                 .admission(request.render_token)
@@ -352,6 +377,9 @@ impl DesktopSession {
                     }
                 }
             };
+            if let Some(started) = interactive_started.as_ref() {
+                log_interactive_bridge_timing(request.render_token, started, "native-frame-ready");
+            }
 
             // This remains the publication linearization point. Native
             // checkpoints may have completed normally just before a host

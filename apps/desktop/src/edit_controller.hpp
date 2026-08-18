@@ -12,6 +12,7 @@
 #include "tone_curve_point_model.hpp"
 
 #include <QAbstractItemModel>
+#include <QElapsedTimer>
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QObject>
@@ -1053,6 +1054,8 @@ class EditController final : public QObject {
     quint64 detail_render_token_ = 0;
     quint64 detail_warmup_token_ = 0;
     quint64 preview_render_token_ = 0;
+    QElapsedTimer interactive_preview_timing_;
+    quint64 interactive_preview_timing_token_ = 0;
     quint64 mask_selection_revision_ = 0;
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;

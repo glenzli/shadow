@@ -4,6 +4,7 @@
 #include "../src/raw/metal_resident_raw_source.hpp"
 #include "../src/raw/raw_frame_development_plan.hpp"
 #include "../src/raw/raw_frame_source_preparation.hpp"
+#include "../src/raw/raw_preview_rebinding.hpp"
 #include "../src/raw/resident_raw_source.hpp"
 #include "raw_pipeline_routing_test_support.hpp"
 #include "scoped_environment.hpp"
@@ -432,6 +433,86 @@ void irregular_tiles_match_and_nominal_path_has_zero_readback(
     );
 }
 
+void rebindable_preview_full_frame_stays_resident_through_optics(
+    const std::filesystem::path& database
+) {
+    image::RawFrame frame = resident_fixture(0);
+    const image::AssetMetadata metadata = nikon_d850_metadata();
+    ResidentOpticsRawSession session(std::move(frame), metadata);
+    auto prepared = image::raw_pipeline_detail::prepare_raw_frame_source(
+        session,
+        resident_plan(),
+        std::nullopt,
+        nikon_d850_dcp_catalog()
+    );
+    auto rebindable =
+        image::raw_pipeline_detail::prepare_raw_preview_rebinding(std::move(prepared));
+    const auto* full = std::get_if<image::SceneLinearRgbFrame>(&rebindable.developed.source);
+    expect(
+        full != nullptr,
+        "the preview-rebind fixture retains one complete scene-linear CPU oracle"
+    );
+    if (full == nullptr) {
+        return;
+    }
+    const auto resident = rebindable.source->try_bind_metal_resident(resident_plan());
+    expect(
+        resident.has_value(),
+        "the rebindable preview develops one same-device scene-linear RGB buffer"
+    );
+    if (!resident.has_value()) {
+        return;
+    }
+    auto provider = image::make_lensfun_optics_provider(database);
+    auto optics = image::detail::prepare_scene_linear_region_optics(
+        provider.get(),
+        resident->output.dimensions(),
+        metadata,
+        optics_settings()
+    );
+    const image::GeometryPixelRect full_region{
+        0U,
+        0U,
+        resident->output.dimensions().width,
+        resident->output.dimensions().height,
+    };
+    auto region = optics.prepare_region(full_region);
+    expect(
+        optics.device_resident_eligible() && region.source_preimage().has_value()
+            && *region.source_preimage() == full_region,
+        "the full preview carries directly-adoptable optics evidence"
+    );
+    if (!optics.device_resident_eligible() || !region.source_preimage().has_value()
+        || *region.source_preimage() != full_region) {
+        return;
+    }
+    const auto expected_result = optics.lensfun_plan()->correct_scene_linear_reference(*full);
+    expect(
+        expected_result.corrected_scene_linear_rgb.has_value(),
+        "the full preview retains the CPU optics oracle for numerical comparison"
+    );
+    if (!expected_result.corrected_scene_linear_rgb.has_value()) {
+        return;
+    }
+    auto corrected = image::detail::apply_metal_scene_linear_preview_optics(
+        resident->output,
+        optics,
+        std::move(region)
+    );
+    const auto telemetry = corrected.telemetry();
+    expect(
+        corrected.valid() && telemetry.source_reupload_count == 0U
+            && telemetry.source_fp32_readback_count == 0U && telemetry.optics_dispatch_count == 1U
+            && telemetry.source_slot_pinned_through_completion == false,
+        "a RAW rebind continues through full-preview optics without host materialization"
+    );
+    expect_near(
+        corrected.debug_readback(),
+        *expected_result.corrected_scene_linear_rgb,
+        "resident rebind optics matches the same full-preview Lensfun oracle"
+    );
+}
+
 void every_orientation_matches_the_complete_oracle(const std::filesystem::path& database) {
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
         auto raw = prepare_resident_raw_pipeline(orientation, database);
@@ -678,6 +759,7 @@ int main() {
     }
     const std::filesystem::path database_path(database);
     irregular_tiles_match_and_nominal_path_has_zero_readback(database_path);
+    rebindable_preview_full_frame_stays_resident_through_optics(database_path);
     every_orientation_matches_the_complete_oracle(database_path);
     output_survives_source_plan_and_provider_destruction(database_path);
     concurrent_regions_preserve_independent_outputs(database_path);

@@ -6,6 +6,7 @@
 #include <QtConcurrent>
 
 #include <QImage>
+#include <QDebug>
 #include <QSize>
 #include <QVariantMap>
 
@@ -25,6 +26,10 @@ constexpr std::uint8_t EDIT_INTERACTIVE_PREVIEW_QUALITY = 84;
 
 [[nodiscard]] bool raw_development_unavailable(const QString& error) noexcept {
     return error.startsWith(QStringLiteral("RAW development is unavailable:"));
+}
+
+[[nodiscard]] bool interactive_timing_enabled() {
+    return qEnvironmentVariable("SHADOW_INTERACTIVE_TIMING") == QStringLiteral("1");
 }
 
 
@@ -76,6 +81,21 @@ void EditController::requestBeforePreview() {
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
     const EditPreviewKind kind = result.generation.kind();
+    if (interactive_preview_timing_token_ == result.generation.render_token) {
+        qInfo().noquote()
+            << QStringLiteral("shadow.interactive-timing token=%1 component=desktop stage=task-finished elapsed_ms=%2 terminal=%3 accepted-candidate=%4")
+                   .arg(result.generation.render_token)
+                   .arg(interactive_preview_timing_.elapsed())
+                   .arg(result.terminal == EditPreviewTerminal::Completed
+                            ? QStringLiteral("completed")
+                            : QStringLiteral("cancelled"))
+                   .arg(active_ && accepts_edit_preview(
+                       result.generation,
+                       photo_generation_,
+                       render_revision_
+                   ));
+        interactive_preview_timing_token_ = 0;
+    }
     if (preview_render_token_ == result.generation.render_token) {
         preview_render_token_ = 0;
     }
@@ -312,6 +332,15 @@ void EditController::startPreviewRender() {
     const std::uint8_t jpeg_quality = interactive
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
     preview_render_token_ = backend_->beginEditPreviewRequest();
+    if (interactive && interactive_timing_enabled()) {
+        interactive_preview_timing_.restart();
+        interactive_preview_timing_token_ = preview_render_token_;
+        qInfo().noquote()
+            << QStringLiteral("shadow.interactive-timing token=%1 component=desktop stage=task-dispatched")
+                   .arg(preview_render_token_);
+    } else {
+        interactive_preview_timing_token_ = 0;
+    }
     in_flight_preview_policy_ = policy;
     BackendGradeStack preview_stack = grade_stack_;
     if (auto_geometry_controller_) {

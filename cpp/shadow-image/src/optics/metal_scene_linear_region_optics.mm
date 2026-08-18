@@ -11,6 +11,7 @@
 #include "metal_scene_linear_region_optics_msl.hpp"
 #include "scene_linear_region_optics.hpp"
 
+#include "../raw/metal_raw_development.hpp"
 #include "../raw/metal_resident_raw_source.hpp"
 #include "../raw/resident_raw_source.hpp"
 
@@ -347,6 +348,84 @@ void validate_prepared_region(
     }
 }
 
+void validate_preview_prepared_region(
+    const MetalRawPreviewResidentOutput& source,
+    const PreparedSceneLinearRegionOptics& optics,
+    const lensfun_modifier_plan::PreparedRegion& region
+) {
+    const Dimensions full_dimensions = optics.full_dimensions();
+    const GeometryPixelRect full_rect{
+        .x = 0U,
+        .y = 0U,
+        .width = full_dimensions.width,
+        .height = full_dimensions.height,
+    };
+    const GeometryPixelRect output_rect = region.output_rect();
+    const auto& source_preimage = region.source_preimage();
+    const auto& absolute_source_coordinates = region.absolute_source_coordinates();
+    const auto& profile_vignetting_gains = region.profile_vignetting_gains();
+    manual_optics::validate_settings(region.manual_output_settings());
+    if (!optics.device_resident_eligible() || source.dimensions() != full_dimensions
+        || !optics.owns_region(region) || output_rect != full_rect
+        || region.executor_identity() != lensfun_modifier_plan::region_executor_identity) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "Metal preview optics requires one compatible full-preview region"
+        );
+    }
+    if (manual_optics::has_manual_geometry(region.manual_output_settings())
+        || !source_preimage.has_value() || *source_preimage != full_rect) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "Metal preview optics cannot safely continue cropped or manual-geometry evidence"
+        );
+    }
+    const std::size_t output_pixels = checked_rgb_bytes(
+                                          full_dimensions.width,
+                                          full_dimensions.height,
+                                          "Metal preview optics dimensions overflow"
+                                      )
+                                      / (3U * sizeof(float));
+    if (region.coordinate_remap()) {
+        if (absolute_source_coordinates.size() != output_pixels * 6U) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "Metal preview optics coordinate table does not cover its full preview"
+            );
+        }
+    } else if (!absolute_source_coordinates.empty()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "Metal preview pointwise optics unexpectedly carries remap coordinates"
+        );
+    }
+    const std::size_t expected_gains = output_pixels * 3U;
+    if (region.profile_vignetting()) {
+        if (profile_vignetting_gains.size() != expected_gains
+            || !std::all_of(
+                profile_vignetting_gains.begin(),
+                profile_vignetting_gains.end(),
+                [](const float value) { return std::isfinite(value); }
+            )) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "Metal preview optics gains do not match its full preview"
+            );
+        }
+    } else if (!profile_vignetting_gains.empty()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "Metal preview optics received profile gains for a disabled stage"
+        );
+    }
+}
+
 [[nodiscard]] MetalSceneLinearRegionOpticsParameters make_parameters(
     const Dimensions full_dimensions,
     const lensfun_modifier_plan::PreparedRegion& region
@@ -653,15 +732,16 @@ MetalSceneLinearRegionLease develop_metal_scene_linear_region_optics(
             }
             OwnedObjectiveCObject coordinate_buffer([runtime.device_
                 newBufferWithBytes:has_coordinates
-                                       ? static_cast<const void*>(absolute_source_coordinates.data())
+                                       ? static_cast<const void*>(
+                                             absolute_source_coordinates.data()
+                                         )
                                        : static_cast<const void*>(dummy_coordinates.data())
                             length:coordinate_bytes
                            options:MTLResourceStorageModeShared]);
             OwnedObjectiveCObject gain_buffer([runtime.device_
-                newBufferWithBytes:has_profile_gains ? static_cast<const void*>(
-                                                           profile_vignetting_gains.data()
-                                                       )
-                                                     : static_cast<const void*>(dummy_gain.data())
+                newBufferWithBytes:has_profile_gains
+                                       ? static_cast<const void*>(profile_vignetting_gains.data())
+                                       : static_cast<const void*>(dummy_gain.data())
                             length:gain_bytes
                            options:MTLResourceStorageModeShared]);
             OwnedObjectiveCObject dummy_source_buffer;
@@ -729,11 +809,7 @@ MetalSceneLinearRegionLease develop_metal_scene_linear_region_optics(
                         offset:0U
                        atIndex:4U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:5U];
-            [encoder dispatchThreads:MTLSizeMake(
-                                         output_rect.width,
-                                         output_rect.height,
-                                         1U
-                                     )
+            [encoder dispatchThreads:MTLSizeMake(output_rect.width, output_rect.height, 1U)
                 threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
             [encoder endEncoding];
 
@@ -784,6 +860,170 @@ MetalSceneLinearRegionLease develop_metal_scene_linear_region_optics(
             invalidate_source();
         }
         throw;
+    }
+}
+
+MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
+    const MetalRawPreviewResidentOutput& source,
+    const PreparedSceneLinearRegionOptics& optics,
+    lensfun_modifier_plan::PreparedRegion region
+) {
+    validate_preview_prepared_region(source, optics, region);
+    auto& runtime = context();
+    if (!runtime.available()) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            runtime.diagnostic_.empty() ? "Metal scene-linear preview optics is unavailable"
+                                        : runtime.diagnostic_
+        );
+    }
+    @autoreleasepool {
+        id<MTLDevice> source_device = static_cast<id<MTLDevice>>(source.native_device_handle());
+        id<MTLBuffer> source_buffer = static_cast<id<MTLBuffer>>(source.native_buffer_handle());
+        if (source_device == nil || source_buffer == nil
+            || static_cast<std::uint64_t>(source_device.registryID)
+                   != static_cast<std::uint64_t>(runtime.device_.registryID)) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "Metal preview optics source does not belong to the active device"
+            );
+        }
+        if (environment_enabled("SHADOW_TEST_METAL_SCENE_LINEAR_OPTICS_FAIL")) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "test-forced Metal scene-linear preview optics failure"
+            );
+        }
+
+        constexpr std::array<float, 2U> dummy_coordinates{0.0F, 0.0F};
+        constexpr std::array<float, 1U> dummy_gain{1.0F};
+        const auto& absolute_source_coordinates = region.absolute_source_coordinates();
+        const auto& profile_vignetting_gains = region.profile_vignetting_gains();
+        const bool has_coordinates = !absolute_source_coordinates.empty();
+        const bool has_profile_gains = !profile_vignetting_gains.empty();
+        const std::size_t coordinate_bytes =
+            has_coordinates ? checked_float_bytes(
+                                  absolute_source_coordinates.size(),
+                                  "Metal preview optics coordinate upload is too large"
+                              )
+                            : sizeof(dummy_coordinates);
+        const std::size_t gain_bytes = has_profile_gains
+                                           ? checked_float_bytes(
+                                                 profile_vignetting_gains.size(),
+                                                 "Metal preview optics gain upload is too large"
+                                             )
+                                           : sizeof(dummy_gain);
+        const std::size_t output_bytes = checked_rgb_bytes(
+            source.dimensions().width,
+            source.dimensions().height,
+            "Metal preview optics output dimensions overflow"
+        );
+        if (coordinate_bytes > static_cast<std::size_t>(runtime.device_.maxBufferLength)
+            || gain_bytes > static_cast<std::size_t>(runtime.device_.maxBufferLength)
+            || output_bytes > static_cast<std::size_t>(runtime.device_.maxBufferLength)) {
+            throw DecodeError(
+                DecodeErrorCode::resource_limit,
+                0,
+                "Metal preview optics evidence exceeds this device's buffer limit"
+            );
+        }
+        OwnedObjectiveCObject coordinate_buffer([runtime.device_
+            newBufferWithBytes:has_coordinates
+                                   ? static_cast<const void*>(absolute_source_coordinates.data())
+                                   : static_cast<const void*>(dummy_coordinates.data())
+                        length:coordinate_bytes
+                       options:MTLResourceStorageModeShared]);
+        OwnedObjectiveCObject gain_buffer([runtime.device_
+            newBufferWithBytes:has_profile_gains
+                                   ? static_cast<const void*>(profile_vignetting_gains.data())
+                                   : static_cast<const void*>(dummy_gain.data())
+                        length:gain_bytes
+                       options:MTLResourceStorageModeShared]);
+        OwnedObjectiveCObject output_buffer([runtime.device_
+            newBufferWithLength:output_bytes
+                        options:MTLResourceStorageModePrivate]);
+        OwnedObjectiveCObject failure_buffer([runtime.device_
+            newBufferWithLength:sizeof(std::uint32_t)
+                        options:MTLResourceStorageModeShared]);
+        if (!coordinate_buffer || !gain_buffer || !output_buffer || !failure_buffer) {
+            throw DecodeError(
+                DecodeErrorCode::resource_limit,
+                0,
+                "Metal preview optics could not allocate bounded resources"
+            );
+        }
+        auto* failure =
+            static_cast<std::uint32_t*>([static_cast<id<MTLBuffer>>(failure_buffer.get())
+                contents]);
+        *failure = 0U;
+        const MetalSceneLinearRegionOpticsParameters parameters =
+            make_parameters(optics.full_dimensions(), region);
+        id<MTLCommandBuffer> command_buffer = [runtime.queue_ commandBuffer];
+        id<MTLComputeCommandEncoder> encoder =
+            command_buffer == nil ? nil : [command_buffer computeCommandEncoder];
+        if (encoder == nil) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "Metal preview optics could not create a compute command"
+            );
+        }
+        const NSUInteger thread_width = std::min<NSUInteger>(
+            32U,
+            std::max<NSUInteger>(1U, runtime.pipeline_.threadExecutionWidth)
+        );
+        const NSUInteger thread_height = std::max<NSUInteger>(
+            1U,
+            std::min<NSUInteger>(8U, runtime.pipeline_.maxTotalThreadsPerThreadgroup / thread_width)
+        );
+        [encoder setComputePipelineState:runtime.pipeline_];
+        [encoder setBuffer:source_buffer offset:0U atIndex:0U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(coordinate_buffer.get())
+                    offset:0U
+                   atIndex:1U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(gain_buffer.get()) offset:0U atIndex:2U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:3U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(failure_buffer.get()) offset:0U atIndex:4U];
+        [encoder setBytes:&parameters length:sizeof(parameters) atIndex:5U];
+        [encoder dispatchThreads:MTLSizeMake(
+                                     source.dimensions().width,
+                                     source.dimensions().height,
+                                     1U
+                                 )
+            threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+        [encoder endEncoding];
+
+        const std::uint64_t fence_value =
+            runtime.next_fence_value_.fetch_add(1U, std::memory_order_relaxed);
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            throw DecodeError(DecodeErrorCode::internal, 0, command_diagnostic(command_buffer));
+        }
+        if (*failure != 0U) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "Metal preview optics detected invalid source evidence or non-finite output"
+            );
+        }
+        auto implementation = std::make_unique<MetalSceneLinearRegionLease::Impl>();
+        implementation->device = [runtime.device_ retain];
+        implementation->queue = [runtime.queue_ retain];
+        implementation->output_buffer = [static_cast<id<MTLBuffer>>(output_buffer.get()) retain];
+        implementation->dimensions = source.dimensions();
+        implementation->output_bytes = output_bytes;
+        implementation->completion_fence = fence_value;
+        implementation->coordinate_upload_count = has_coordinates ? 1U : 0U;
+        implementation->coordinate_upload_bytes =
+            has_coordinates ? static_cast<std::uint64_t>(coordinate_bytes) : 0U;
+        implementation->profile_gain_upload_count = has_profile_gains ? 1U : 0U;
+        implementation->profile_gain_upload_bytes =
+            has_profile_gains ? static_cast<std::uint64_t>(gain_bytes) : 0U;
+        return MetalSceneLinearRegionLease(std::move(implementation));
     }
 }
 

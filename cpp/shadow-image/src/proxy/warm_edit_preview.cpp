@@ -17,6 +17,8 @@
 #include <shadow/image/warm_edit_preview.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include "../optics/metal_scene_linear_region_optics.hpp"
+#include "../optics/scene_linear_region_optics.hpp"
 #include "../raw/raw_frame_source_preparation.hpp"
 #include "../raw/raw_preview_rebinding.hpp"
 #include "developed_source_raster.hpp"
@@ -28,9 +30,13 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -44,6 +50,25 @@
 #include <vector>
 
 namespace shadow::image {
+
+namespace detail {
+
+class MetalSceneLinearRegionWarmPreviewAccess final {
+  public:
+    [[nodiscard]] static void* buffer(const MetalSceneLinearRegionLease& lease) noexcept {
+        return lease.native_buffer_handle();
+    }
+
+    [[nodiscard]] static void* device(const MetalSceneLinearRegionLease& lease) noexcept {
+        return lease.native_device_handle();
+    }
+
+    [[nodiscard]] static void* queue(const MetalSceneLinearRegionLease& lease) noexcept {
+        return lease.native_queue_handle();
+    }
+};
+
+} // namespace detail
 
 namespace {
 
@@ -95,9 +120,8 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
     };
 }
 
-[[nodiscard]] FloatRgbImage resident_working_proxy(
-    const detail::MetalRawPreviewResidentOutput& output
-) {
+[[nodiscard]] FloatRgbImage
+resident_working_proxy(const detail::MetalRawPreviewResidentOutput& output) {
     return FloatRgbImage{
         .dimensions = output.dimensions(),
         .row_stride_bytes = output.row_stride_bytes(),
@@ -109,6 +133,45 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
         .level_zero_to_raster_scale_y = 1.0,
         .samples = {},
     };
+}
+
+[[nodiscard]] FloatRgbImage
+resident_working_proxy(const Dimensions dimensions, const std::size_t row_stride_bytes) {
+    return FloatRgbImage{
+        .dimensions = dimensions,
+        .row_stride_bytes = row_stride_bytes,
+        .pixel_format = FloatPixelFormat::rgb_f32_native_interleaved,
+        .transfer_function = TransferFunction::linear,
+        .reference = ImageReference::scene_referred,
+        .working_space = linear_srgb_working_space(),
+        .level_zero_to_raster_scale_x = 1.0,
+        .level_zero_to_raster_scale_y = 1.0,
+        .samples = {},
+    };
+}
+
+[[nodiscard]] bool interactive_timing_enabled() noexcept {
+    const char* value = std::getenv("SHADOW_INTERACTIVE_TIMING");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+void log_warm_rebind_timing(
+    const bool enabled,
+    const char* const stage,
+    const std::chrono::steady_clock::time_point started
+) noexcept {
+    if (!enabled) {
+        return;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started
+    );
+    std::fprintf(
+        stderr,
+        "shadow.interactive-timing component=warm-preview-rebind stage=%s elapsed_ms=%lld\n",
+        stage,
+        static_cast<long long>(elapsed.count())
+    );
 }
 
 // Packed-provider RGB optics stays on its original u16 path. For an interactive preview, reduce
@@ -589,24 +652,22 @@ bool WarmEditPreviewSession::supports_raw_development_rebinding() const noexcept
 
 bool WarmEditPreviewSession::supports_raw_white_balance_picker() const noexcept {
     return raw_rebinding_source_ != nullptr
-        && raw_rebinding_source_->supports_raw_white_balance_picker();
+           && raw_rebinding_source_->supports_raw_white_balance_picker();
 }
 
-std::optional<RawWhiteBalancePresentation>
-WarmEditPreviewSession::pick_raw_white_balance(
+std::optional<RawWhiteBalancePresentation> WarmEditPreviewSession::pick_raw_white_balance(
     const double normalized_x,
     const double normalized_y
 ) const noexcept {
     return raw_rebinding_source_ != nullptr
-        ? raw_rebinding_source_->pick_raw_white_balance(normalized_x, normalized_y)
-        : std::nullopt;
+               ? raw_rebinding_source_->pick_raw_white_balance(normalized_x, normalized_y)
+               : std::nullopt;
 }
 
 raw_pipeline_detail::RawPreviewRebindingTelemetry
 WarmEditPreviewSession::raw_rebinding_telemetry() const noexcept {
-    return raw_rebinding_source_ != nullptr
-        ? raw_rebinding_source_->telemetry()
-        : raw_pipeline_detail::RawPreviewRebindingTelemetry{};
+    return raw_rebinding_source_ != nullptr ? raw_rebinding_source_->telemetry()
+                                            : raw_pipeline_detail::RawPreviewRebindingTelemetry{};
 }
 
 WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
@@ -619,12 +680,118 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
             "this edit preview does not retain a rebindable RAW camera-space source"
         );
     }
-    // Ordinary RAW rebinds retain the same denoised CFA plane. When no host-only optics owner is
-    // present, keep the reconstructed fp32 preview on that Metal device, apply the canonical
-    // source rendering there, and adopt it directly into the warm session. Any optional stage
-    // declining this path falls through to the exact materialized route below.
-    if (retained_optics_provider_ == nullptr) {
+    const bool timing_enabled = interactive_timing_enabled();
+    const auto timing_started = std::chrono::steady_clock::now();
+    // Ordinary RAW rebinds retain the same denoised CFA plane. Keep the reconstructed fp32
+    // preview resident through any device-eligible optics evidence and the canonical source
+    // rendering stage. Unsupported optics remain on the exact materialized route below.
+    if (retained_optics_provider_ != nullptr) {
         if (auto resident = raw_rebinding_source_->try_bind_metal_resident(raw_development_plan)) {
+            log_warm_rebind_timing(timing_enabled, "resident-rebind-ready", timing_started);
+            try {
+                const Dimensions dimensions = resident->output.dimensions();
+                auto optics = detail::prepare_scene_linear_region_optics(
+                    retained_optics_provider_.get(),
+                    dimensions,
+                    raw_rebinding_source_->metadata(),
+                    retained_optics_settings_
+                );
+                if (!optics.device_resident_eligible()) {
+                    log_warm_rebind_timing(
+                        timing_enabled,
+                        "resident-optics-declined",
+                        timing_started
+                    );
+                } else {
+                    const GeometryPixelRect full_region{
+                        .x = 0U,
+                        .y = 0U,
+                        .width = dimensions.width,
+                        .height = dimensions.height,
+                    };
+                    auto corrected = detail::apply_metal_scene_linear_preview_optics(
+                        resident->output,
+                        optics,
+                        optics.prepare_region(full_region)
+                    );
+                    log_warm_rebind_timing(timing_enabled, "resident-optics-ready", timing_started);
+                    const SourceRenderingReceipt source_rendering = resolve_source_rendering(
+                        raw_rebinding_source_->metadata(),
+                        resident->pipeline_receipt
+                    );
+                    const auto source_rendering_attempt =
+                        detail::apply_source_rendering_in_place_metal(
+                            detail::MetalSceneLinearRegionWarmPreviewAccess::device(corrected),
+                            detail::MetalSceneLinearRegionWarmPreviewAccess::queue(corrected),
+                            detail::MetalSceneLinearRegionWarmPreviewAccess::buffer(corrected),
+                            corrected.dimensions(),
+                            source_rendering
+                        );
+                    if (source_rendering_attempt.applied) {
+                        const FloatRgbImage layout = resident_working_proxy(
+                            corrected.dimensions(),
+                            static_cast<std::size_t>(corrected.dimensions().width) * 3U
+                                * sizeof(float)
+                        );
+                        auto warm = detail::prepare_warm_edit_gpu_session(
+                            detail::WarmEditGpuAdoptedSource{
+                                .dimensions = corrected.dimensions(),
+                                .row_stride_bytes = layout.row_stride_bytes,
+                                .native_device_handle =
+                                    detail::MetalSceneLinearRegionWarmPreviewAccess::device(
+                                        corrected
+                                    ),
+                                .native_buffer_handle =
+                                    detail::MetalSceneLinearRegionWarmPreviewAccess::buffer(
+                                        corrected
+                                    ),
+                                .source_buffer_bytes = corrected.retained_bytes(),
+                                .external_resident_bytes =
+                                    resident->output.external_resident_bytes(),
+                                .resident_allowance_bytes =
+                                    resident->output.resident_allowance_bytes(),
+                                .working_space = layout.working_space,
+                                .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
+                                .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                            }
+                        );
+                        if (warm.session) {
+                            log_warm_rebind_timing(
+                                timing_enabled,
+                                "resident-warm-session-ready",
+                                timing_started
+                            );
+                            return WarmEditPreviewSession(
+                                layout,
+                                max_edge_,
+                                std::move(resident->raw_development_receipt),
+                                std::move(resident->pipeline_receipt),
+                                optics.receipt(),
+                                std::move(resident->sensor_clipping_mask),
+                                raw_rebinding_source_,
+                                retained_optics_provider_,
+                                retained_optics_settings_,
+                                std::move(warm.session)
+                            );
+                        }
+                    }
+                    log_warm_rebind_timing(
+                        timing_enabled,
+                        "resident-optics-warm-session-declined",
+                        timing_started
+                    );
+                }
+            } catch (const DecodeError&) {
+                // Device optics is an optional continuation. Preserve the existing precise host
+                // implementation whenever its prepared full-preview evidence cannot be admitted.
+                log_warm_rebind_timing(timing_enabled, "resident-optics-fallback", timing_started);
+            }
+        } else {
+            log_warm_rebind_timing(timing_enabled, "resident-rebind-declined", timing_started);
+        }
+    } else {
+        if (auto resident = raw_rebinding_source_->try_bind_metal_resident(raw_development_plan)) {
+            log_warm_rebind_timing(timing_enabled, "resident-rebind-ready", timing_started);
             const SourceRenderingReceipt source_rendering = resolve_source_rendering(
                 raw_rebinding_source_->metadata(),
                 resident->pipeline_receipt
@@ -637,6 +804,11 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                 source_rendering
             );
             if (source_rendering_attempt.applied) {
+                log_warm_rebind_timing(
+                    timing_enabled,
+                    "resident-source-rendering-ready",
+                    timing_started
+                );
                 const FloatRgbImage layout = resident_working_proxy(resident->output);
                 auto warm = detail::prepare_warm_edit_gpu_session(
                     detail::WarmEditGpuAdoptedSource{
@@ -653,6 +825,11 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                     }
                 );
                 if (warm.session) {
+                    log_warm_rebind_timing(
+                        timing_enabled,
+                        "resident-warm-session-ready",
+                        timing_started
+                    );
                     return WarmEditPreviewSession(
                         layout,
                         max_edge_,
@@ -666,7 +843,20 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                         std::move(warm.session)
                     );
                 }
+                log_warm_rebind_timing(
+                    timing_enabled,
+                    "resident-warm-session-declined",
+                    timing_started
+                );
+            } else {
+                log_warm_rebind_timing(
+                    timing_enabled,
+                    "resident-source-rendering-declined",
+                    timing_started
+                );
             }
+        } else {
+            log_warm_rebind_timing(timing_enabled, "resident-rebind-declined", timing_started);
         }
     }
     auto prepared = finish_warm_edit_proxy(
@@ -676,6 +866,7 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
         retained_optics_provider_.get(),
         retained_optics_settings_
     );
+    log_warm_rebind_timing(timing_enabled, "materialized-fallback-ready", timing_started);
     return WarmEditPreviewSession(
         std::move(prepared.working_proxy),
         max_edge_,

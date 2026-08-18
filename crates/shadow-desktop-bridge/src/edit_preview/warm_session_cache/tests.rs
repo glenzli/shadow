@@ -158,6 +158,33 @@ fn only_white_balance_can_share_a_rebinding_source() {
 }
 
 #[test]
+fn raw_white_balance_picker_reuses_the_same_cfa_source_across_preview_edges() {
+    let base = key();
+    let mut another_preview_edge = base.clone();
+    another_preview_edge.max_edge = 1_536;
+    assert!(
+        !base.matches(&another_preview_edge),
+        "different presentation edges remain distinct render-cache entries"
+    );
+    assert!(
+        !base.shares_rebindable_raw_source(&another_preview_edge),
+        "render rebinding keeps its bounded presentation edge"
+    );
+    assert!(
+        base.shares_raw_white_balance_picker_source(&another_preview_edge),
+        "the picker samples normalized CFA coordinates and must not fail after a preview-size change"
+    );
+
+    let mut changed_sensor_stage = another_preview_edge;
+    changed_sensor_stage.raw_development_plan.noise_reduction =
+        shadow_bridge::RawNoiseReductionIntent::NoiseRobust;
+    assert!(
+        !base.shares_raw_white_balance_picker_source(&changed_sensor_stage),
+        "a picker may never cross a RAW sensor-stage change"
+    );
+}
+
+#[test]
 fn persisted_manual_white_balance_prepares_an_as_shot_resident_source() {
     let requested =
         RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(

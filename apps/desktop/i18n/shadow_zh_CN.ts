@@ -8336,6 +8336,26 @@ Technical detail: %1</source>
         <source>Removed keyword assignments · %1 changed</source>
         <translation>已移除关键词分配 · %1 项已更改</translation>
     </message>
+    <message>
+        <location filename="../src/review_controller_library_query.cpp" line="39"/>
+        <source>Preview refresh requires selected local photos with generated proxies</source>
+        <translation>刷新预览需要选择具有已生成代理的本地照片</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller_library_query.cpp" line="51"/>
+        <source>Refresh selected previews from one source folder at a time</source>
+        <translation>请每次仅刷新同一源文件夹中的所选预览</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller_library_query.cpp" line="66"/>
+        <source>Selected previews have already been replaced</source>
+        <translation>所选预览已被替换</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller_library_query.cpp" line="76"/>
+        <source>Could not refresh the selected previews</source>
+        <translation>无法刷新所选预览</translation>
+    </message>
 </context>
 <context>
     <name>ReviewDailyCollection</name>
@@ -8606,6 +8626,16 @@ Technical detail: %1</source>
         <location filename="../qml/ReviewPhotoContextMenu.qml" line="196"/>
         <source>Add to Candidates</source>
         <translation>加入候选</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="214"/>
+        <source>Refresh selected previews</source>
+        <translation>刷新所选预览</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoContextMenu.qml" line="215"/>
+        <source>Refresh preview</source>
+        <translation>刷新预览</translation>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoContextMenu.qml" line="214"/>

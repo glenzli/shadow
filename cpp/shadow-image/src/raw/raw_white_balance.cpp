@@ -303,9 +303,11 @@ raw_white_xy_from_temperature_tint(const double temperature_kelvin, const double
     if (!locus_uv.has_value() || !normal.has_value()) {
         return std::nullopt;
     }
-    // Positive photographic tint is magenta, opposite the positive Duv
-    // direction used by the chosen locus normal.
-    const double displacement = -tint * tint_duv_per_unit;
+    // The public control follows the conventional photographic direction:
+    // positive tint moves the rendered neutral from green toward magenta.
+    // `camera_neutral_from_matrix()` already turns this authored scene white
+    // into its inverse camera-space correction, so do not invert it here.
+    const double displacement = tint * tint_duv_per_unit;
     return uv_to_xy(
         Uv1960{
             .u = locus_uv->u + normal->u * displacement,
@@ -331,7 +333,7 @@ raw_white_balance_presentation_from_xy(const double white_x, const double white_
     }
     const double du = target->u - locus->u;
     const double dv = target->v - locus->v;
-    const double tint = -(du * normal->u + dv * normal->v) / tint_duv_per_unit;
+    const double tint = (du * normal->u + dv * normal->v) / tint_duv_per_unit;
     RawWhiteBalancePresentation result{
         .temperature_kelvin = 1'000'000.0 / *mired,
         .tint = tint,

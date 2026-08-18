@@ -9,6 +9,7 @@ use std::{
     collections::VecDeque,
     path::Path,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 #[cfg(test)]
@@ -83,6 +84,21 @@ impl WarmEditPreviewSessionKey {
             && self.optics == requested.optics
             && self.raw_foundation == requested.raw_foundation
     }
+
+    /// The RAW picker samples the retained CFA using normalized source
+    /// coordinates, not pixels from the rendered preview. It can therefore
+    /// reuse a source prepared at another presentation edge, while every
+    /// source-domain and development-stage input must still match.
+    fn shares_raw_white_balance_picker_source(&self, requested: &Self) -> bool {
+        let mut requested_fixed = requested.raw_development_plan;
+        requested_fixed.white_balance = self.raw_development_plan.white_balance;
+        self.representation_id == requested.representation_id
+            && self.source == requested.source
+            && self.source_environment_cache_identity == requested.source_environment_cache_identity
+            && self.raw_development_plan == requested_fixed
+            && self.optics == requested.optics
+            && self.raw_foundation == requested.raw_foundation
+    }
 }
 
 #[derive(Debug)]
@@ -110,6 +126,9 @@ pub(crate) struct WarmEditPreviewSourceRequest<'request> {
     pub(crate) optics: &'request OpticsSettings,
     pub(crate) source_environment_cache_identity: &'request str,
     pub(crate) raw_foundation: Option<&'request RawFoundationRenderSelection>,
+    /// Debug-only correlation for one interactive request. It is deliberately
+    /// outside the cache key: tracing must never change reuse behavior.
+    pub(crate) interactive_timing_token: Option<u64>,
 }
 
 impl WarmEditPreviewSessionCache {
@@ -125,13 +144,14 @@ impl WarmEditPreviewSessionCache {
             optics,
             source_environment_cache_identity: _,
             raw_foundation,
+            interactive_timing_token,
         } = *request;
         // RAW development is immutable prepared-source provenance, not a
         // Recipe color operation. Its requested identity must participate in
         // the key before any warm reuse decision.
         let key = warm_preview_session_key(request)?;
 
-        self.get_or_prepare_with(key, || {
+        self.get_or_prepare_with_timing(key, interactive_timing_token, || {
             // A warm hit intentionally returns before path resolution and
             // quarantine admission. Persisted crash evidence blocks reopening
             // the source; it does not invalidate already decoded pixels.
@@ -195,7 +215,7 @@ impl WarmEditPreviewSessionCache {
         let Some(session) = entries
             .iter()
             .find(|entry| {
-                entry.key.shares_rebindable_raw_source(&key)
+                entry.key.shares_raw_white_balance_picker_source(&key)
                     && entry.session.supports_raw_white_balance_picker()
             })
             .map(|entry| Arc::clone(&entry.session))
@@ -205,6 +225,7 @@ impl WarmEditPreviewSessionCache {
         Ok(session.pick_raw_white_balance(normalized_x, normalized_y))
     }
 
+    #[cfg(test)]
     fn get_or_prepare_with<Prepare>(
         &self,
         key: WarmEditPreviewSessionKey,
@@ -213,12 +234,30 @@ impl WarmEditPreviewSessionCache {
     where
         Prepare: FnOnce() -> AnyResult<PhotoEditPreviewSession>,
     {
+        self.get_or_prepare_with_timing(key, None, prepare)
+    }
+
+    fn get_or_prepare_with_timing<Prepare>(
+        &self,
+        key: WarmEditPreviewSessionKey,
+        interactive_timing_token: Option<u64>,
+        prepare: Prepare,
+    ) -> AnyResult<Arc<PhotoEditPreviewSession>>
+    where
+        Prepare: FnOnce() -> AnyResult<PhotoEditPreviewSession>,
+    {
+        let timing_started = interactive_timing_token.map(|_| Instant::now());
         {
             let mut entries = self
                 .entries
                 .lock()
                 .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
             if let Some(session) = take_matching_session(&mut entries, &key)? {
+                log_interactive_session_timing(
+                    interactive_timing_token,
+                    timing_started.as_ref(),
+                    "exact-hit",
+                );
                 return Ok(session);
             }
             if let Some(source) = entries
@@ -233,6 +272,11 @@ impl WarmEditPreviewSessionCache {
                 .map(|entry| Arc::clone(&entry.session))
             {
                 drop(entries);
+                let rebind_route = if key.raw_foundation_amount_percent.is_some() {
+                    "raw-foundation-amount-rebind"
+                } else {
+                    "raw-white-balance-rebind"
+                };
                 let rebound = Arc::new(match key.raw_foundation_amount_percent {
                     Some(amount_percent) => source
                         .rebind_raw_foundation_amount(key.raw_development_plan, amount_percent)
@@ -246,6 +290,11 @@ impl WarmEditPreviewSessionCache {
                     .lock()
                     .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
                 if let Some(session) = take_matching_session(&mut entries, &key)? {
+                    log_interactive_session_timing(
+                        interactive_timing_token,
+                        timing_started.as_ref(),
+                        "rebind-raced-exact-hit",
+                    );
                     return Ok(session);
                 }
                 entries.push_front(WarmEditPreviewSessionEntry {
@@ -253,19 +302,39 @@ impl WarmEditPreviewSessionCache {
                     session: Arc::clone(&rebound),
                 });
                 entries.truncate(MAX_WARM_EDIT_PREVIEW_SESSIONS);
+                log_interactive_session_timing(
+                    interactive_timing_token,
+                    timing_started.as_ref(),
+                    rebind_route,
+                );
                 return Ok(rebound);
             }
         }
 
         // Decoder work may be slow and may itself use process-wide provider
         // gates. Never serialize unrelated warm-cache reads behind this mutex.
-        let prepared = Arc::new(prepare()?);
+        let prepared = match prepare() {
+            Ok(prepared) => Arc::new(prepared),
+            Err(error) => {
+                log_interactive_session_timing(
+                    interactive_timing_token,
+                    timing_started.as_ref(),
+                    "cold-prepare-error",
+                );
+                return Err(error);
+            }
+        };
 
         let mut entries = self
             .entries
             .lock()
             .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
         if let Some(session) = take_matching_session(&mut entries, &key)? {
+            log_interactive_session_timing(
+                interactive_timing_token,
+                timing_started.as_ref(),
+                "cold-prepare-raced-exact-hit",
+            );
             return Ok(session);
         }
         entries.push_front(WarmEditPreviewSessionEntry {
@@ -273,7 +342,25 @@ impl WarmEditPreviewSessionCache {
             session: Arc::clone(&prepared),
         });
         entries.truncate(MAX_WARM_EDIT_PREVIEW_SESSIONS);
+        log_interactive_session_timing(
+            interactive_timing_token,
+            timing_started.as_ref(),
+            "cold-prepare",
+        );
         Ok(prepared)
+    }
+}
+
+fn log_interactive_session_timing(
+    interactive_timing_token: Option<u64>,
+    started: Option<&Instant>,
+    route: &str,
+) {
+    if let (Some(token), Some(started)) = (interactive_timing_token, started) {
+        eprintln!(
+            "shadow.interactive-timing token={token} component=warm-preview-session route={route} elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
     }
 }
 

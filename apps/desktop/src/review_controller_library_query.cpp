@@ -1,8 +1,10 @@
 #include "review_controller.hpp"
 
+#include <QFileInfo>
 #include <QRegularExpression>
 
 #include <algorithm>
+#include <exception>
 
 // Library import, paging, range projection, and filter-query routing.
 
@@ -17,6 +19,70 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
         return;
     }
     query_coordinator_.clearForImportStart();
+}
+
+void ReviewController::refreshSelectedPreviews(const QVariantList& targets) {
+    const bool admitted = !scanning() && !query_coordinator_.pageRunning()
+                          && !query_coordinator_.refreshing() && !comparison_coordinator_.busy()
+                          && !decision_coordinator_.busy();
+    if (!admitted || targets.isEmpty()) {
+        return;
+    }
+
+    QString selected_folder;
+    QStringList visual_handles;
+    visual_handles.reserve(targets.size());
+    for (const QVariant& value : targets) {
+        const QVariantMap target = value.toMap();
+        const QString source_path = target.value(QStringLiteral("sourcePath")).toString();
+        const QString visual_handle = target.value(QStringLiteral("visualHandle")).toString();
+        if (source_path.isEmpty() || visual_handle.isEmpty()
+            || !target.value(QStringLiteral("sourceAvailable"), true).toBool()
+            || target.value(QStringLiteral("isRemote")).toBool()) {
+            setStatusMessage({
+                "ReviewController",
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Preview refresh requires selected local photos with generated proxies"
+                ),
+            });
+            return;
+        }
+        const QString folder = QFileInfo(source_path).absolutePath();
+        if (folder.isEmpty() || (!selected_folder.isEmpty() && folder != selected_folder)) {
+            setStatusMessage({
+                "ReviewController",
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Refresh selected previews from one source folder at a time"
+                ),
+            });
+            return;
+        }
+        selected_folder = folder;
+        visual_handles.push_back(visual_handle);
+    }
+
+    try {
+        const std::uint32_t invalidated = backend_->refreshSelectedReviewPreviews(visual_handles);
+        if (invalidated == 0) {
+            setStatusMessage({
+                "ReviewController",
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Selected previews have already been replaced"
+                ),
+            });
+            return;
+        }
+    } catch (const std::exception&) {
+        setStatusMessage({
+            "ReviewController",
+            QT_TRANSLATE_NOOP("ReviewController", "Could not refresh the selected previews"),
+        });
+        return;
+    }
+    scanFolder(QUrl::fromLocalFile(selected_folder));
 }
 
 void ReviewController::cancelScan() {
@@ -151,7 +217,7 @@ void ReviewController::setLibrarySortKey(const QString& sort_key) {
     library_sort_key_ = normalized;
     model_.setPresentationOrder(
         normalized == QStringLiteral("name") ? ReviewModel::PresentationSortKey::Name
-                                               : ReviewModel::PresentationSortKey::CaptureTime,
+                                             : ReviewModel::PresentationSortKey::CaptureTime,
         library_sort_descending_
     );
     emit libraryOrderChanged();
@@ -165,7 +231,7 @@ void ReviewController::setLibrarySortDescending(const bool descending) {
     library_sort_descending_ = descending;
     model_.setPresentationOrder(
         library_sort_key_ == QStringLiteral("name") ? ReviewModel::PresentationSortKey::Name
-                                                      : ReviewModel::PresentationSortKey::CaptureTime,
+                                                    : ReviewModel::PresentationSortKey::CaptureTime,
         descending
     );
     emit libraryOrderChanged();
