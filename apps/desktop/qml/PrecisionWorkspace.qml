@@ -66,6 +66,7 @@ Item {
 
         editor.setPointColorPickerActive(false)
         editor.setWhiteBalancePickerActive(false)
+        editor.setRawWhiteBalancePickerActive(false)
         if (nextTool !== toolRepair)
             editor.setRetouchPickerActive(false)
 
@@ -77,12 +78,15 @@ Item {
     }
 
     function leaveSpecialTool() {
-        if (activeSpecialTool === toolNone)
+        if (activeSpecialTool === toolNone) {
+            editor.setRawWhiteBalancePickerActive(false)
             return
+        }
         activeSpecialTool = toolNone
         editor.setMaskToolActive(false)
         editor.setCropToolActive(false)
         editor.setRetouchPickerActive(false)
+        editor.setRawWhiteBalancePickerActive(false)
     }
 
     function reconcileRecipeNodeSelection() {
@@ -110,6 +114,10 @@ Item {
         }
         if (editor.whiteBalancePickerActive) {
             editor.setWhiteBalancePickerActive(false)
+            return
+        }
+        if (editor.rawWhiteBalancePickerActive) {
+            editor.setRawWhiteBalancePickerActive(false)
             return
         }
         if (editor.retouchPickerActive) {
@@ -167,6 +175,7 @@ Item {
         sequence: "Escape"
         enabled: precision.visible && (precision.editor.pointColorPickerActive
             || precision.editor.whiteBalancePickerActive
+            || precision.editor.rawWhiteBalancePickerActive
             || precision.editor.retouchPickerActive
             || precision.activeSpecialTool !== precision.toolNone)
         onActivated: precision.cancelTransientInteractionOrLeaveTool()

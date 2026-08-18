@@ -767,6 +767,12 @@ mod ffi {
         fn raw_pipeline_receipt(self: &EditPreviewHandle) -> Result<FfiRawPipelineReceipt>;
         fn sensor_clipping_mask(self: &EditPreviewHandle) -> FfiSensorClippingMask;
         fn supports_raw_development_rebinding(self: &EditPreviewHandle) -> bool;
+        fn supports_raw_white_balance_picker(self: &EditPreviewHandle) -> bool;
+        fn pick_raw_white_balance(
+            self: &EditPreviewHandle,
+            normalized_x: f64,
+            normalized_y: f64,
+        ) -> FfiRawWhiteBalancePresentation;
         fn rebind_raw_development_plan(
             self: &EditPreviewHandle,
             plan: &FfiRawDevelopmentPlan,

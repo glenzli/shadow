@@ -123,27 +123,13 @@ impl WarmEditPreviewSessionCache {
             max_edge,
             raw_development_plan,
             optics,
-            source_environment_cache_identity,
+            source_environment_cache_identity: _,
             raw_foundation,
         } = *request;
         // RAW development is immutable prepared-source provenance, not a
         // Recipe color operation. Its requested identity must participate in
         // the key before any warm reuse decision.
-        let requested_raw_development_plan_identity =
-            raw_development_plan_identity(raw_development_plan)
-                .context("build requested preview RAW-development cache identity")?;
-        let key = WarmEditPreviewSessionKey {
-            representation_id: source.representation_id,
-            source: source.source,
-            max_edge,
-            source_environment_cache_identity: source_environment_cache_identity.to_owned(),
-            requested_raw_development_plan_identity,
-            raw_development_plan,
-            optics: optics.clone(),
-            raw_foundation: raw_foundation.map(|selection| selection.identity.clone()),
-            raw_foundation_amount_percent: raw_foundation
-                .map(RawFoundationRenderSelection::amount_percent),
-        };
+        let key = warm_preview_session_key(request)?;
 
         self.get_or_prepare_with(key, || {
             // A warm hit intentionally returns before path resolution and
@@ -190,6 +176,33 @@ impl WarmEditPreviewSessionCache {
                 ),
             }
         })
+    }
+
+    /// Samples only a retained source-domain RAW basis. This intentionally
+    /// never prepares, stages, decodes, or rebinds a session from a picker
+    /// click: the visible preview is the admission boundary for the tool.
+    pub(crate) fn pick_raw_white_balance(
+        &self,
+        request: &WarmEditPreviewSourceRequest<'_>,
+        normalized_x: f64,
+        normalized_y: f64,
+    ) -> AnyResult<Option<(u32, i16)>> {
+        let key = warm_preview_session_key(request)?;
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
+        let Some(session) = entries
+            .iter()
+            .find(|entry| {
+                entry.key.shares_rebindable_raw_source(&key)
+                    && entry.session.supports_raw_white_balance_picker()
+            })
+            .map(|entry| Arc::clone(&entry.session))
+        else {
+            return Ok(None);
+        };
+        Ok(session.pick_raw_white_balance(normalized_x, normalized_y))
     }
 
     fn get_or_prepare_with<Prepare>(
@@ -262,6 +275,29 @@ impl WarmEditPreviewSessionCache {
         entries.truncate(MAX_WARM_EDIT_PREVIEW_SESSIONS);
         Ok(prepared)
     }
+}
+
+fn warm_preview_session_key(
+    request: &WarmEditPreviewSourceRequest<'_>,
+) -> AnyResult<WarmEditPreviewSessionKey> {
+    let requested_raw_development_plan_identity =
+        raw_development_plan_identity(request.raw_development_plan)
+            .context("build requested preview RAW-development cache identity")?;
+    Ok(WarmEditPreviewSessionKey {
+        representation_id: request.source.representation_id,
+        source: request.source.source,
+        max_edge: request.max_edge,
+        source_environment_cache_identity: request.source_environment_cache_identity.to_owned(),
+        requested_raw_development_plan_identity,
+        raw_development_plan: request.raw_development_plan,
+        optics: request.optics.clone(),
+        raw_foundation: request
+            .raw_foundation
+            .map(|selection| selection.identity.clone()),
+        raw_foundation_amount_percent: request
+            .raw_foundation
+            .map(RawFoundationRenderSelection::amount_percent),
+    })
 }
 
 fn take_matching_session(

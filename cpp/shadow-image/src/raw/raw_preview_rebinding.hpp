@@ -4,6 +4,7 @@
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/raw_foundation.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -30,6 +31,12 @@ class RawPreviewRebindingSource final {
         std::uint8_t amount_percent
     ) const;
     [[nodiscard]] bool supports_foundation_amount_rebinding() const noexcept;
+    // Available only when the immutable preview retained its original
+    // denoised CFA frame.  Foundation/RGB compatibility paths deliberately do
+    // not expose a picker because their pixels are no longer sensor samples.
+    [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
     [[nodiscard]] const AssetMetadata& metadata() const noexcept;
     [[nodiscard]] RawPreviewRebindingTelemetry telemetry() const noexcept;
 

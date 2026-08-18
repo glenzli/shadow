@@ -12,6 +12,7 @@
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include <cstdint>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -498,6 +499,36 @@ FfiSensorClippingMask EditPreviewHandle::sensor_clipping_mask() const {
 
 bool EditPreviewHandle::supports_raw_development_rebinding() const noexcept {
     return session_.supports_raw_development_rebinding();
+}
+
+bool EditPreviewHandle::supports_raw_white_balance_picker() const noexcept {
+    return session_.supports_raw_white_balance_picker();
+}
+
+FfiRawWhiteBalancePresentation
+EditPreviewHandle::pick_raw_white_balance(
+    const double normalized_x,
+    const double normalized_y
+) const noexcept {
+    FfiRawWhiteBalancePresentation result{
+        .available = false,
+        .temperature_kelvin = 5'500U,
+        .tint = 0,
+    };
+    const auto presentation = session_.pick_raw_white_balance(normalized_x, normalized_y);
+    if (!presentation.has_value()) {
+        return result;
+    }
+    const auto temperature = std::llround(presentation->temperature_kelvin);
+    const auto tint = std::llround(presentation->tint);
+    if (temperature < 2'000LL || temperature > 25'000LL
+        || tint < -150LL || tint > 150LL) {
+        return result;
+    }
+    result.available = true;
+    result.temperature_kelvin = static_cast<std::uint32_t>(temperature);
+    result.tint = static_cast<std::int16_t>(tint);
+    return result;
 }
 
 std::unique_ptr<EditPreviewHandle>

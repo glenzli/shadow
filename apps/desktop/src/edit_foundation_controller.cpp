@@ -1,6 +1,7 @@
 #include "edit_controller.hpp"
 
 #include <cstdint>
+#include <exception>
 
 namespace {
 
@@ -10,12 +11,16 @@ constexpr int DEFAULT_TEMPERATURE_KELVIN = 5'500;
 constexpr int MIN_TINT = -150;
 constexpr int MAX_TINT = 150;
 constexpr int FOUNDATION_PREVIEW_THROTTLE_MS = 16;
-// RAW white balance changes immutable prepared-source provenance, but a warm
-// session retains the decoded/denoised camera basis. Keep the interactive
-// cadence at roughly 20 fps while the source-stage GPU hand-off is prepared:
-// this scheduler coalesces superseded work and always renders the latest value.
-// The final gesture value still renders immediately at normal quality.
-constexpr int RAW_WHITE_BALANCE_PREVIEW_THROTTLE_MS = 48;
+// Raw-white-balance interaction is admitted through the same warm immutable
+// source as every other live edit. Coalesce at display cadence; stale work is
+// cancelled by the preview scheduler rather than intentionally adding latency
+// to each slider sample.
+constexpr int RAW_WHITE_BALANCE_PREVIEW_THROTTLE_MS = 16;
+constexpr std::uint32_t RAW_WHITE_BALANCE_PICKER_PREVIEW_EDGE = 1'536U;
+
+[[nodiscard]] LocalizedUiMessage raw_white_balance_message(const char* const source) {
+    return {"EditController", source};
+}
 
 } // namespace
 
@@ -37,6 +42,59 @@ bool EditController::foundationWhiteBalanceAtCameraValue() const noexcept {
 
 bool EditController::foundationWhiteBalanceCameraValueAvailable() const noexcept {
     return grade_stack_.foundation.as_shot_white_balance_available;
+}
+
+bool EditController::rawWhiteBalancePickerActive() const noexcept {
+    return raw_white_balance_picker_active_;
+}
+
+void EditController::setRawWhiteBalancePickerActive(const bool active) {
+    if (!active_ || interactionLocked() || raw_white_balance_picker_active_ == active) {
+        return;
+    }
+    raw_white_balance_picker_active_ = active;
+    emit rawWhiteBalancePickerActiveChanged();
+    if (active) {
+        setPointColorPickerActive(false);
+        setWhiteBalancePickerActive(false);
+        setRetouchPickerActive(false);
+    }
+}
+
+void EditController::setFoundationWhiteBalanceFromSource(
+    const double normalized_x,
+    const double normalized_y
+) {
+    if (!active_ || interactionLocked() || !raw_white_balance_picker_active_) {
+        return;
+    }
+    try {
+        const auto picked = backend_->pickRawWhiteBalance(
+            photo_id_,
+            source_path_,
+            base_commit_id_,
+            grade_stack_,
+            RAW_WHITE_BALANCE_PICKER_PREVIEW_EDGE,
+            normalized_x,
+            normalized_y
+        );
+        if (!picked.available) {
+            setStatusMessage(raw_white_balance_message(QT_TRANSLATE_NOOP(
+                "EditController", "RAW White Balance picker needs the current RAW preview"
+            )));
+            return;
+        }
+        const BackendGradeStack before = grade_stack_;
+        grade_stack_.foundation.raw_white_balance_mode = 1U;
+        grade_stack_.foundation.temperature_kelvin = picked.temperature_kelvin;
+        grade_stack_.foundation.tint = picked.tint;
+        setRawWhiteBalancePickerActive(false);
+        foundationEdited(QStringLiteral("raw_white_balance/picker"), before);
+    } catch (const std::exception&) {
+        setStatusMessage(raw_white_balance_message(QT_TRANSLATE_NOOP(
+            "EditController", "RAW White Balance picker is unavailable"
+        )));
+    }
 }
 
 void EditController::setFoundationEnabled(const bool enabled) {

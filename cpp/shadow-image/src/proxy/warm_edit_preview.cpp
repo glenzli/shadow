@@ -551,6 +551,21 @@ bool WarmEditPreviewSession::supports_raw_development_rebinding() const noexcept
     return raw_rebinding_source_ != nullptr;
 }
 
+bool WarmEditPreviewSession::supports_raw_white_balance_picker() const noexcept {
+    return raw_rebinding_source_ != nullptr
+        && raw_rebinding_source_->supports_raw_white_balance_picker();
+}
+
+std::optional<RawWhiteBalancePresentation>
+WarmEditPreviewSession::pick_raw_white_balance(
+    const double normalized_x,
+    const double normalized_y
+) const noexcept {
+    return raw_rebinding_source_ != nullptr
+        ? raw_rebinding_source_->pick_raw_white_balance(normalized_x, normalized_y)
+        : std::nullopt;
+}
+
 raw_pipeline_detail::RawPreviewRebindingTelemetry
 WarmEditPreviewSession::raw_rebinding_telemetry() const noexcept {
     return raw_rebinding_source_ != nullptr

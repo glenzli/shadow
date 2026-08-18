@@ -48,6 +48,17 @@ raw_dcp_white_balance_presentation(
     const std::array<double, 3U>& camera_neutral
 ) noexcept;
 
+// Converts a measured, green-normalized camera neutral back into photographic
+// controls using the decoder-provided camera calibration. This is the
+// non-DCP counterpart to `raw_dcp_white_balance_presentation` and is used by
+// the RAW neutral picker; it never samples display RGB after demosaic or a
+// creative colour transform.
+[[nodiscard]] std::optional<RawWhiteBalancePresentation>
+raw_frame_white_balance_presentation(
+    const RawFrameDescriptor& descriptor,
+    const std::array<double, 3U>& camera_neutral
+) noexcept;
+
 [[nodiscard]] std::optional<std::array<double, 3U>> raw_frame_camera_neutral(
     const RawFrameDescriptor& descriptor,
     const RawWhiteBalance& white_balance

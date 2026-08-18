@@ -445,6 +445,35 @@ impl LibRawEditPreviewSession {
             .is_some_and(ffi::EditPreviewHandle::supports_raw_development_rebinding)
     }
 
+    /// Reports whether this session retained a sensor-domain basis suitable
+    /// for a true RAW neutral picker. Compatibility RGB sources deliberately
+    /// return false rather than inferring a camera white point from display
+    /// pixels.
+    #[must_use]
+    pub fn supports_raw_white_balance_picker(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(ffi::EditPreviewHandle::supports_raw_white_balance_picker)
+    }
+
+    /// Samples the retained CFA source at a normalized display coordinate and
+    /// returns the calibrated photographic RAW white point when available.
+    #[must_use]
+    pub fn pick_raw_white_balance(
+        &self,
+        normalized_x: f64,
+        normalized_y: f64,
+    ) -> Option<(u32, i16)> {
+        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
+            return None;
+        }
+        let handle = self.handle.as_ref()?;
+        let presentation = handle.pick_raw_white_balance(normalized_x, normalized_y);
+        presentation
+            .available
+            .then_some((presentation.temperature_kelvin, presentation.tint))
+    }
+
     /// Creates a new immutable preview session over the same decoded/denoised RAW basis.
     ///
     /// Only white balance may differ from the source session's request. The returned session owns

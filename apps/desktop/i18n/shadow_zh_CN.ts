@@ -251,6 +251,16 @@
 <context>
     <name>EditController</name>
     <message>
+        <location filename="../src/edit_foundation_controller.cpp" line="80"/>
+        <source>RAW White Balance picker needs the current RAW preview</source>
+        <translation>RAW 白平衡拾取器需要当前 RAW 预览</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_foundation_controller.cpp" line="96"/>
+        <source>RAW White Balance picker is unavailable</source>
+        <translation>RAW 白平衡拾取器当前不可用</translation>
+    </message>
+    <message>
         <location filename="../src/edit_raw_foundation_controller.cpp" line="364"/>
         <source>Analyzing source RAW noise…</source>
         <translation>正在分析源 RAW 噪声…</translation>
@@ -6004,6 +6014,11 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="28"/>
         <source>RAW WHITE BALANCE</source>
         <translation>RAW 白平衡</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="47"/>
+        <source>Pick a neutral area for RAW White Balance</source>
+        <translation>为 RAW 白平衡选取中性区域</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="104"/>

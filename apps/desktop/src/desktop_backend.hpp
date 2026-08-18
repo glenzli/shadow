@@ -335,6 +335,15 @@ class DesktopBackend final {
         EditPreviewPolicy policy,
         std::optional<EditMaskCoverageRequest> mask_coverage_request
     ) const;
+    [[nodiscard]] BackendRawWhiteBalancePickerResult pickRawWhiteBalance(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& grade_stack,
+        std::uint32_t max_edge,
+        double normalized_x,
+        double normalized_y
+    ) const;
     [[nodiscard]] std::uint64_t beginEditPreviewRequest() const noexcept;
     [[nodiscard]] bool cancelEditPreviewRequest(std::uint64_t render_token) const noexcept;
     [[nodiscard]] std::uint64_t beginSubjectMaskJob() const;

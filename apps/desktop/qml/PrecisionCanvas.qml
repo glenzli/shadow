@@ -607,7 +607,7 @@ Rectangle {
                     displayScale: canvas.displayScale
                     levelZeroWidth: canvas.imagePixelWidth
                     levelZeroHeight: canvas.imagePixelHeight
-                    interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
+                    interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive || canvas.editor.rawWhiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
                 }
 
                 HoverHandler {

@@ -47,6 +47,16 @@ nearest README or source entry for the selected owner. The root README remains p
   the real integration boundary. A legacy hotspot is a review signal, not permission for unrelated
   cleanup.
 
+## Interactive editing pipeline contract
+
+Before changing an interactive adjustment, RAW-development/rebinding route, node executor, warm
+preview session, GPU/CPU fallback, presentation surface, or preview scheduler, read
+[`docs/development/interactive-editing-pipeline.md`](docs/development/interactive-editing-pipeline.md)
+and use the project-local `$shadow-interactive-rendering` skill. Treat a responsive edit as a
+minimal invalidation-path contract, not merely as a GPU implementation detail: the change must name
+its reusable upstream state, its exact recomputation frontier, every host/device transfer, cache
+identity impact, cancellation rule, and preview/detail/export equivalence boundary.
+
 ## Canonical test topology
 
 Shadow does not keep executable Rust test bodies inline in production source. API doctests and

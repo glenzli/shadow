@@ -135,6 +135,9 @@ class EditPreviewHandle final {
     [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiSensorClippingMask sensor_clipping_mask() const;
     [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
+    [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    [[nodiscard]] FfiRawWhiteBalancePresentation
+    pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle>
     rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const;
     [[nodiscard]] bool supports_raw_foundation_amount_rebinding() const noexcept;

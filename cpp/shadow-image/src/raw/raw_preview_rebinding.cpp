@@ -1,6 +1,7 @@
 #include "raw_preview_rebinding.hpp"
 
 #include "raw_denoise_plan.hpp"
+#include "bayer_sampling.hpp"
 #include "raw_foundation_source.hpp"
 #include "raw_frame_development_plan.hpp"
 #include "raw_frame_source_preparation.hpp"
@@ -9,13 +10,19 @@
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace shadow::image::raw_pipeline_detail {
 
@@ -192,6 +199,116 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_foundation_amount(
 bool RawPreviewRebindingSource::supports_foundation_amount_rebinding() const noexcept {
     const auto* foundation = std::get_if<FoundationRawPreviewBasis>(&impl_->basis);
     return foundation != nullptr && foundation->camera_rgb.supports_amount_rebinding();
+}
+
+bool RawPreviewRebindingSource::supports_raw_white_balance_picker() const noexcept {
+    return std::holds_alternative<OrdinaryRawPreviewBasis>(impl_->basis);
+}
+
+std::optional<RawWhiteBalancePresentation> RawPreviewRebindingSource::pick_raw_white_balance(
+    const double normalized_x,
+    const double normalized_y
+) const noexcept {
+    if (!std::isfinite(normalized_x) || !std::isfinite(normalized_y) || normalized_x < 0.0
+        || normalized_x > 1.0 || normalized_y < 0.0 || normalized_y > 1.0) {
+        return std::nullopt;
+    }
+    const auto* ordinary = std::get_if<OrdinaryRawPreviewBasis>(&impl_->basis);
+    if (ordinary == nullptr) {
+        return std::nullopt;
+    }
+    try {
+        const RawFrame& frame = ordinary->denoised_frame;
+        const auto& descriptor = frame.descriptor;
+        if (!frame.valid() || descriptor.active_dimensions.width < 3U
+            || descriptor.active_dimensions.height < 3U) {
+            return std::nullopt;
+        }
+
+        const bool rotated = descriptor.orientation == 5 || descriptor.orientation == 6;
+        const auto display_width =
+            rotated ? descriptor.active_dimensions.height : descriptor.active_dimensions.width;
+        const auto display_height =
+            rotated ? descriptor.active_dimensions.width : descriptor.active_dimensions.height;
+        const auto active_x = static_cast<std::uint32_t>(
+            std::llround(normalized_x * static_cast<double>(display_width - 1U))
+        );
+        const auto active_y = static_cast<std::uint32_t>(
+            std::llround(normalized_y * static_cast<double>(display_height - 1U))
+        );
+        std::uint32_t source_x = active_x;
+        std::uint32_t source_y = active_y;
+        switch (descriptor.orientation) {
+        case 0:
+            break;
+        case 3:
+            source_x = descriptor.active_dimensions.width - 1U - active_x;
+            source_y = descriptor.active_dimensions.height - 1U - active_y;
+            break;
+        case 5:
+            source_x = descriptor.active_dimensions.width - 1U - active_y;
+            source_y = active_x;
+            break;
+        case 6:
+            source_x = active_y;
+            source_y = descriptor.active_dimensions.height - 1U - active_x;
+            break;
+        default:
+            return std::nullopt;
+        }
+        if (source_x >= descriptor.active_dimensions.width
+            || source_y >= descriptor.active_dimensions.height) {
+            return std::nullopt;
+        }
+        const auto raw_x = descriptor.active_margins.left + source_x;
+        const auto raw_y = descriptor.active_margins.top + source_y;
+        std::array<std::vector<float>, 3U> channel_values;
+        for (std::int32_t delta_y = -2; delta_y <= 2; ++delta_y) {
+            for (std::int32_t delta_x = -2; delta_x <= 2; ++delta_x) {
+                const auto candidate_x = static_cast<std::int64_t>(raw_x) + delta_x;
+                const auto candidate_y = static_cast<std::int64_t>(raw_y) + delta_y;
+                if (candidate_x < 0 || candidate_y < 0
+                    || candidate_x >= static_cast<std::int64_t>(descriptor.storage_dimensions.width)
+                    || candidate_y
+                           >= static_cast<std::int64_t>(descriptor.storage_dimensions.height)) {
+                    continue;
+                }
+                const auto sample = detail::bilinear_camera_rgb_sample_at(
+                    frame,
+                    static_cast<std::uint32_t>(candidate_x),
+                    static_cast<std::uint32_t>(candidate_y),
+                    nullptr,
+                    false
+                );
+                if (!std::isfinite(sample.values[0]) || !std::isfinite(sample.values[1])
+                    || !std::isfinite(sample.values[2]) || sample.values[0] <= 1.0e-6F
+                    || sample.values[1] <= 1.0e-6F || sample.values[2] <= 1.0e-6F) {
+                    continue;
+                }
+                for (std::size_t channel = 0U; channel < channel_values.size(); ++channel) {
+                    channel_values[channel].push_back(sample.values[channel]);
+                }
+            }
+        }
+        std::array<double, 3U> neutral{};
+        for (std::size_t channel = 0U; channel < channel_values.size(); ++channel) {
+            auto& values = channel_values[channel];
+            if (values.empty()) {
+                return std::nullopt;
+            }
+            std::sort(values.begin(), values.end());
+            neutral[channel] = values[values.size() / 2U];
+        }
+        if (impl_->camera_profile_definition.has_value()) {
+            return raw_dcp_white_balance_presentation(
+                impl_->camera_profile_definition->profile,
+                neutral
+            );
+        }
+        return raw_frame_white_balance_presentation(descriptor, neutral);
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 DevelopedSourceReference RawPreviewRebindingSource::bind_impl(

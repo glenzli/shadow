@@ -389,6 +389,10 @@ class EditController final : public QObject {
         bool whiteBalancePickerActive READ whiteBalancePickerActive NOTIFY
             whiteBalancePickerActiveChanged
     )
+    Q_PROPERTY(
+        bool rawWhiteBalancePickerActive READ rawWhiteBalancePickerActive NOTIFY
+            rawWhiteBalancePickerActiveChanged
+    )
     Q_PROPERTY(bool hasToneCurve READ hasToneCurve NOTIFY toneCurveChanged)
     Q_PROPERTY(bool toneCurveEditable READ toneCurveEditable NOTIFY toneCurveChanged)
     Q_PROPERTY(QString lutResourceId READ lutResourceId NOTIFY parametersChanged)
@@ -553,6 +557,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool retouchSourceSampled() const noexcept;
     [[nodiscard]] QVariantMap retouchSampledSource() const;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
+    [[nodiscard]] bool rawWhiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool hasToneCurve() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
     [[nodiscard]] QString lutResourceId() const;
@@ -742,6 +747,11 @@ class EditController final : public QObject {
     Q_INVOKABLE void removeSelectedPointColor();
     Q_INVOKABLE void setPointColorPickerActive(bool active);
     Q_INVOKABLE void setWhiteBalancePickerActive(bool active);
+    Q_INVOKABLE void setRawWhiteBalancePickerActive(bool active);
+    Q_INVOKABLE void setFoundationWhiteBalanceFromSource(
+        double normalized_x,
+        double normalized_y
+    );
     Q_INVOKABLE void setWhiteBalanceFromPreview(
         double normalized_x,
         double normalized_y,
@@ -860,6 +870,7 @@ class EditController final : public QObject {
     void retouchSourceChanged();
     void liquifyBrushChanged();
     void whiteBalancePickerActiveChanged();
+    void rawWhiteBalancePickerActiveChanged();
     void cropToolActiveChanged();
     void autoGeometryChanged();
 
@@ -1095,6 +1106,7 @@ class EditController final : public QObject {
     qsizetype liquify_live_index_ = -1;
     int liquify_live_kind_ = -1;
     bool white_balance_picker_active_ = false;
+    bool raw_white_balance_picker_active_ = false;
     bool crop_tool_active_ = false;
     bool mask_tool_active_ = false;
     bool mask_coverage_refresh_pending_ = false;

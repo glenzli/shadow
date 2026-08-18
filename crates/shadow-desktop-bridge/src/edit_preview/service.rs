@@ -122,6 +122,72 @@ impl DesktopSession {
             .and_then(OwnedEditedPreview::into_materialized_projection)
     }
 
+    /// Resolves a RAW neutral from the exact warm source already admitted for
+    /// the visible edit preview. A picker click is never allowed to reopen a
+    /// RAW, stage a Provider Host frame, or start a fresh preview render.
+    pub(crate) fn pick_raw_white_balance(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+        normalized_x: f64,
+        normalized_y: f64,
+    ) -> AnyResult<ffi::FfiRawWhiteBalancePickerResult> {
+        let unavailable = || ffi::FfiRawWhiteBalancePickerResult {
+            available: false,
+            temperature_kelvin: 5_500,
+            tint: 0,
+        };
+        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
+            return Ok(unavailable());
+        }
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let policy = EditPreviewPolicy::from_ffi(request.policy)?;
+        if request.use_working_recipe != policy.uses_working_recipe() {
+            bail!(
+                "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
+                request.use_working_recipe
+            );
+        }
+        let source_environment_cache_identity =
+            current_source_environment_cache_identity(&photo_provider_version());
+        let recipe = resolve_recipe_render(
+            &self.catalog,
+            &self.cache_root,
+            photo_id,
+            &request.base_commit_id,
+            &request.settings,
+            request.use_working_recipe,
+        )?;
+        // Foundation camera-RGB bases intentionally do not claim to be a CFA
+        // picker source. The cache lookup therefore uses the same explicit
+        // `None` representation the ordinary RAW preview was admitted with.
+        if recipe.foundation.raw_ai_denoise().is_enabled() {
+            return Ok(unavailable());
+        }
+        let result = self.warm_edit_preview_sessions.pick_raw_white_balance(
+            &WarmEditPreviewSourceRequest {
+                runtime_cache_root: &self.cache_root,
+                source: &source,
+                max_edge: request.max_edge,
+                raw_development_plan: recipe.foundation.preview_plan(),
+                optics: recipe.foundation.optics(),
+                source_environment_cache_identity: &source_environment_cache_identity,
+                raw_foundation: None,
+            },
+            normalized_x,
+            normalized_y,
+        )?;
+        Ok(match result {
+            Some((temperature_kelvin, tint)) => ffi::FfiRawWhiteBalancePickerResult {
+                available: true,
+                temperature_kelvin,
+                tint,
+            },
+            None => unavailable(),
+        })
+    }
+
     // Admission, native cancellation, the terminal claim, and publication form
     // one linearized transaction. Splitting that sequence would hide the race
     // invariant this function exists to make auditable.
@@ -193,6 +259,21 @@ impl DesktopSession {
                 recipe.foundation.raw_ai_denoise(),
                 &foundation_cancellation,
             )?;
+            // A superseded RAW-white-balance gesture must not begin a new
+            // rebind/session build after its upstream admission work is done.
+            // Native rebinding itself remains the declared cancellation seam;
+            // this guard eliminates queued stale requests before they cross it.
+            if self
+                .edit_preview_render_tokens
+                .admission(request.render_token)
+                .map_err(|error| preview_registry_error(&error, request.render_token))?
+                == PreviewAdmission::Cancelled
+            {
+                self.edit_preview_render_tokens
+                    .claim_terminal(request.render_token)
+                    .map_err(|error| preview_registry_error(&error, request.render_token))?;
+                return Ok(cancelled_owned_edited_preview());
+            }
             let session =
                 self.warm_edit_preview_sessions
                     .get_or_prepare(&WarmEditPreviewSourceRequest {

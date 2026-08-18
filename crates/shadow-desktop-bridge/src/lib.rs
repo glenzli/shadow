@@ -1528,6 +1528,16 @@ mod ffi {
         mask_selection_revision: u64,
     }
 
+    /// A calibrated RAW white point sampled from the already-retained CFA
+    /// source. `available = false` is an expected capability result for RGB
+    /// compatibility previews and never triggers a new decode from the UI.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiRawWhiteBalancePickerResult {
+        available: bool,
+        temperature_kelvin: u32,
+        tint: i16,
+    }
+
     /// One include/exclude click in the currently displayed final-canvas
     /// coordinate space.
     #[derive(Debug, Clone, Copy)]
@@ -2512,6 +2522,14 @@ mod ffi {
             source_path: &str,
             request: &FfiEditPreviewRequest,
         ) -> Result<Box<OwnedEditedPreview>>;
+        fn pick_raw_white_balance(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+            normalized_x: f64,
+            normalized_y: f64,
+        ) -> Result<FfiRawWhiteBalancePickerResult>;
         /// Registers a preview and its native stop handle before Qt queues its
         /// worker. Zero means registration failed.
         fn begin_basic_edit_preview(self: &DesktopSession) -> u64;

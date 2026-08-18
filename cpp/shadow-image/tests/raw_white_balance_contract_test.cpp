@@ -126,6 +126,43 @@ void libraw_calibration_resolves_a_physical_d65_camera_neutral() {
     expect((*authored)[2] > 0.70 && (*authored)[2] < 0.82, "D65 blue camera response is physical");
 }
 
+void raw_frame_camera_neutral_round_trips_through_photographic_presentation() {
+    auto descriptor = raw_descriptor();
+    descriptor.xyz_to_camera_d65 = {
+        0.8161,
+        -0.2947,
+        -0.0739,
+        -0.4811,
+        1.2668,
+        0.2389,
+        -0.0437,
+        0.1229,
+        0.6524,
+    };
+    descriptor.has_xyz_to_camera_d65 = true;
+    const auto authored = image::RawWhiteBalance{
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 5'900U,
+        .tint = -24,
+    };
+    const auto neutral = image::raw_frame_camera_neutral(descriptor, authored);
+    expect(neutral.has_value(), "camera-space RAW neutral resolves before the picker inverse");
+    const auto presentation = image::raw_frame_white_balance_presentation(descriptor, *neutral);
+    expect(presentation.has_value(), "camera-space RAW neutral has a photographic presentation");
+    expect_close(
+        presentation->temperature_kelvin,
+        5'900.0,
+        0.1,
+        "picker inverse retains camera-matrix temperature semantics"
+    );
+    expect_close(
+        presentation->tint,
+        -24.0,
+        0.05,
+        "picker inverse retains camera-matrix tint semantics"
+    );
+}
+
 void invalid_authoring_values_fail_closed() {
     expect(
         !image::raw_white_xy_from_temperature_tint(1'999.0, 0.0).has_value()
@@ -141,6 +178,7 @@ int main() {
     dcp_camera_neutral_is_an_internal_calibration_value();
     generic_raw_frame_uses_its_explicit_camera_matrix();
     libraw_calibration_resolves_a_physical_d65_camera_neutral();
+    raw_frame_camera_neutral_round_trips_through_photographic_presentation();
     invalid_authoring_values_fail_closed();
     std::cout << "shadow image RAW white-balance contract tests passed\n";
 }

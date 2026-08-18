@@ -255,6 +255,10 @@ void EditController::setRetouchPickerActive(const bool active) {
         white_balance_picker_active_ = false;
         emit whiteBalancePickerActiveChanged();
     }
+    if (active && raw_white_balance_picker_active_) {
+        raw_white_balance_picker_active_ = false;
+        emit rawWhiteBalancePickerActiveChanged();
+    }
 }
 
 void EditController::setRetouchCreationMode(const int mode) {

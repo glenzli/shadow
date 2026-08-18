@@ -10,6 +10,7 @@ tests.
 | --- | --- |
 | Find the subsystem that owns a change | [Architecture and repository map](architecture/README.md) |
 | Build, test, format, or launch Shadow | [Development guide](development/README.md) |
+| Change an interactive adjustment or preview/render path | [Interactive editing pipeline contract](development/interactive-editing-pipeline.md) |
 | Change a persistent or wire contract | [Contract versioning](contracts/versioning.md) |
 | Run the local Library Server | [Library Server operations](operations/library-server.md) |
 | Inspect repository-wide engineering constraints | [Project Skeleton](../SKELETON.md) |

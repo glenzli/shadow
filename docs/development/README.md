@@ -3,6 +3,14 @@
 This guide owns repository-wide developer workflows. Component-specific build options and focused
 tests remain documented beside their source owner.
 
+## Interactive editing pipeline
+
+Before changing a live adjustment, RAW rebinding, GPU/CPU render path, warm session, or preview
+scheduler, read the [interactive editing pipeline contract](interactive-editing-pipeline.md). It
+defines the required minimal invalidation path, source/receipt continuity, host/device-transfer
+budget, and interactive-versus-settled behavior. The project-local
+`$shadow-interactive-rendering` skill turns that contract into the required change workflow.
+
 ## Canonical debug application
 
 Build and atomically promote a complete debug application with:

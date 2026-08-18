@@ -572,6 +572,15 @@ struct BackendEditedPreview final {
     EditPreviewTerminal terminal = EditPreviewTerminal::Completed;
 };
 
+// Result of a source-domain RAW neutral picker lookup. Availability is a
+// capability result: a display-RGB compatibility preview is not allowed to
+// invent photographic temperature/tint controls from its rendered pixels.
+struct BackendRawWhiteBalancePickerResult final {
+    bool available = false;
+    std::uint32_t temperature_kelvin = 5'500U;
+    std::int16_t tint = 0;
+};
+
 struct BackendEditedDetailTile final {
     QByteArray bytes;
     std::uint32_t x = 0;

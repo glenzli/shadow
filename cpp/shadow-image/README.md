@@ -3,6 +3,11 @@
 `shadow-image` is Shadow's platform-neutral C++20 image kernel. Its first implemented provider
 uses LibRaw behind provider-neutral public contracts.
 
+Changes to an interactive render path must also follow the repository-wide
+[interactive editing pipeline contract](../../docs/development/interactive-editing-pipeline.md):
+it defines minimal invalidation, GPU continuity, cancellation, and preview/detail/export
+equivalence requirements without duplicating this source-owned implementation map.
+
 The line-based manifests under
 [`cmake/source-manifests/`](cmake/source-manifests/) are the single compiled-source index shared
 by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback

@@ -28,6 +28,7 @@
 | Identity, Recipes, Catalog, cache, and workflows | [`crates/`](crates/) through the repository map | Portable domain and persistence contracts |
 | RAW decode, development, and native image execution | [`cpp/shadow-image/README.md`](cpp/shadow-image/README.md) and [`crates/shadow-bridge/README.md`](crates/shadow-bridge/README.md) | Provider-neutral image contract across C++ and Rust |
 | Desktop presentation and long-lived application services | [`apps/desktop/README.md`](apps/desktop/README.md) and [`crates/shadow-desktop-bridge/README.md`](crates/shadow-desktop-bridge/README.md) | Qt interaction versus durable service orchestration |
+| Interactive adjustment, preview, and render performance | [`docs/development/interactive-editing-pipeline.md`](docs/development/interactive-editing-pipeline.md) | Minimal invalidation path, GPU continuity, cancellation, and preview/detail/export equivalence |
 | Local AI evidence and model-admission contracts | [`crates/shadow-ai/README.md`](crates/shadow-ai/README.md) | Model-independent evidence and explicit human authority |
 | Cross-repository validation and runnable debug build | [`docs/development/README.md`](docs/development/README.md) | Reproducible developer and release evidence |
 

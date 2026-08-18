@@ -51,7 +51,10 @@ Item {
             sourceItem, sourceX, sourceY)
         if (normalized === null)
             return
-        if (editor.whiteBalancePickerActive) {
+        if (editor.rawWhiteBalancePickerActive) {
+            editor.setFoundationWhiteBalanceFromSource(
+                normalized.x, normalized.y)
+        } else if (editor.whiteBalancePickerActive) {
             editor.setWhiteBalanceFromPreview(
                 normalized.x, normalized.y, readyPreviewGeneration)
         } else {

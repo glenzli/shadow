@@ -42,6 +42,23 @@ ColumnLayout {
         resetToolTipText: qsTr("Restore the white balance recorded by the camera")
         onResetRequested: foundation.editor.resetFoundationWhiteBalance()
 
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            spacing: 6
+            Item { Layout.fillWidth: true }
+            ShadowIconButton {
+                source: "qrc:/icons/eyedropper.svg"
+                selected: foundation.editor.rawWhiteBalancePickerActive
+                enabled: foundation.editor.active && !foundation.editor.stateBusy
+                toolTipText: qsTr("Pick a neutral area for RAW White Balance")
+                accessibleName: toolTipText
+                onClicked: foundation.editor.setRawWhiteBalancePickerActive(
+                    !foundation.editor.rawWhiteBalancePickerActive)
+            }
+        }
+
         ShadowSlider {
             objectName: "foundationWhiteBalanceTemperatureSlider"
             Layout.fillWidth: true

@@ -11,6 +11,7 @@
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_development_receipt.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 #include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/working_rgb.hpp>
@@ -209,6 +210,12 @@ class WarmEditPreviewSession final {
     // foundation but owns a fresh scene-linear proxy, DCP receipt and GPU edit session. Raster
     // sessions and legacy borrowed-optics preparations deliberately report false.
     [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
+    // A sensor-domain RAW neutral picker is intentionally narrower than
+    // rebinding: it requires an ordinary retained CFA frame, not an RGB
+    // compatibility or AI-foundation representation.
+    [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
     // Source-stage observability stays attached to the retained camera basis,
     // so a new immutable session can report cumulative rebind execution
     // without polluting Recipe/cache provenance.
