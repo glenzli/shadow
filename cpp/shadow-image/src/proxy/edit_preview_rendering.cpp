@@ -281,6 +281,14 @@ warm_gpu_geometry_context(
             throw EditError(EditErrorCode::backend_failure, std::nullopt, std::move(diagnostic));
         }
 
+        if (working_proxy.samples.empty()) {
+            throw EditError(
+                EditErrorCode::backend_failure,
+                std::nullopt,
+                "resident RAW preview requires its Metal warm session: " + diagnostic
+            );
+        }
+
         // Automatic selection is all-or-nothing at the fused boundary. A declined/failing warm
         // attempt replays adjustment and display completely on the CPU from the immutable host
         // source; it never drops into the old split Metal stages and cannot expose partial data.
@@ -332,6 +340,14 @@ warm_gpu_geometry_context(
             .rgb = std::move(display.bytes),
             .execution = std::move(receipt),
         };
+    }
+
+    if (working_proxy.samples.empty()) {
+        throw EditError(
+            EditErrorCode::backend_failure,
+            std::nullopt,
+            "resident RAW preview cannot execute with the CPU adjustment backend"
+        );
     }
 
     AdjustmentExecutionResult adjustment;
@@ -477,6 +493,14 @@ warm_gpu_geometry_context(
         if (backend_mode == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }
+    }
+
+    if (working_proxy.samples.empty()) {
+        throw EditError(
+            EditErrorCode::backend_failure,
+            std::nullopt,
+            "resident RAW preview requires its Metal warm session: " + fallback_diagnostic
+        );
     }
 
     AdjustmentExecutionResult adjustment;

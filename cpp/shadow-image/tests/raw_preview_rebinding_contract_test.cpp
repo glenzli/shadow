@@ -159,6 +159,10 @@ void ordinary_raw_rebind_uses_the_retained_metal_source() {
             && telemetry.ordinary_raw_cpu_development_count == 0U,
         "Metal RAW rebinding completes both source preparations on the GPU path"
     );
+    expect(
+        rebound.gpu_stats().resident && rebound.gpu_stats().source_upload_count == 0U,
+        "Metal RAW rebinding adopts the freshly developed device buffer without a host upload"
+    );
 }
 
 void retained_metal_cfa_preview_matches_the_one_shot_kernel() {

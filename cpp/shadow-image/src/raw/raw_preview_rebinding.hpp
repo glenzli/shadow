@@ -6,6 +6,8 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/raw_white_balance.hpp>
 
+#include "metal_raw_development.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -14,6 +16,16 @@ namespace shadow::image::raw_pipeline_detail {
 
 class PreparedRawFrameSource;
 struct PreparedRawPreviewRebinding;
+
+// Device-only equivalent of one ordinary RAW white-balance bind. It carries the exact receipts
+// alongside the fp32 output; callers may fall back to bind() when an optional Metal continuation
+// (or a host-only optics stage) is required.
+struct ResidentRawPreviewRebinding final {
+    detail::MetalRawPreviewResidentOutput output;
+    RawDevelopmentReceipt raw_development_receipt;
+    RawPipelineReceipt pipeline_receipt;
+    std::optional<SensorClippingMask> sensor_clipping_mask;
+};
 
 // Immutable sensor/camera-space owner shared by every white-balance variant of one bounded
 // preview. The ordinary RAW route retains one already-denoised RawFrame; the AI route retains
@@ -26,6 +38,8 @@ class RawPreviewRebindingSource final {
     ~RawPreviewRebindingSource();
 
     [[nodiscard]] DevelopedSourceReference bind(const RawDevelopmentPlan& requested_plan) const;
+    [[nodiscard]] std::optional<ResidentRawPreviewRebinding>
+    try_bind_metal_resident(const RawDevelopmentPlan& requested_plan) const;
     [[nodiscard]] DevelopedSourceReference bind_foundation_amount(
         const RawDevelopmentPlan& requested_plan,
         std::uint8_t amount_percent

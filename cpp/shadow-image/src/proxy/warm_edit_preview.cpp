@@ -21,6 +21,7 @@
 #include "../raw/raw_preview_rebinding.hpp"
 #include "developed_source_raster.hpp"
 #include "edit_preview_rendering.hpp"
+#include "full_edit_detail_metal_source.hpp"
 #include "jpeg_proxy_encoding.hpp"
 #include "proxy_render_request_validation.hpp"
 #include "warm_edit_gpu.hpp"
@@ -78,6 +79,36 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
             "warm edit preview max edge must be in 1..=4096"
         );
     }
+}
+
+[[nodiscard]] WorkingRgbSpace linear_srgb_working_space() {
+    return WorkingRgbSpace{
+        .id = "srgb-d65-linear",
+        .primaries =
+            {
+                Chromaticity{0.6400, 0.3300},
+                Chromaticity{0.3000, 0.6000},
+                Chromaticity{0.1500, 0.0600},
+            },
+        .white_point = {0.3127, 0.3290},
+        .luminance_coefficients = {0.2126, 0.7152, 0.0722},
+    };
+}
+
+[[nodiscard]] FloatRgbImage resident_working_proxy(
+    const detail::MetalRawPreviewResidentOutput& output
+) {
+    return FloatRgbImage{
+        .dimensions = output.dimensions(),
+        .row_stride_bytes = output.row_stride_bytes(),
+        .pixel_format = FloatPixelFormat::rgb_f32_native_interleaved,
+        .transfer_function = TransferFunction::linear,
+        .reference = ImageReference::scene_referred,
+        .working_space = linear_srgb_working_space(),
+        .level_zero_to_raster_scale_x = 1.0,
+        .level_zero_to_raster_scale_y = 1.0,
+        .samples = {},
+    };
 }
 
 // Packed-provider RGB optics stays on its original u16 path. For an interactive preview, reduce
@@ -503,7 +534,8 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     std::optional<SensorClippingMask> sensor_clipping_mask,
     std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source,
     std::shared_ptr<const OpticsProvider> retained_optics_provider,
-    OpticsSettings retained_optics_settings
+    OpticsSettings retained_optics_settings,
+    std::shared_ptr<detail::WarmEditGpuSession> adopted_warm_gpu_session
 ) :
     working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
     raw_development_receipt_(std::move(raw_development_receipt)),
@@ -513,9 +545,13 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     raw_rebinding_source_(std::move(raw_rebinding_source)),
     retained_optics_provider_(std::move(retained_optics_provider)),
     retained_optics_settings_(std::move(retained_optics_settings)) {
-    auto gpu = detail::prepare_warm_edit_gpu_session(working_proxy_);
-    warm_gpu_session_ = std::move(gpu.session);
-    warm_gpu_diagnostic_ = std::move(gpu.diagnostic);
+    if (adopted_warm_gpu_session) {
+        warm_gpu_session_ = std::move(adopted_warm_gpu_session);
+    } else {
+        auto gpu = detail::prepare_warm_edit_gpu_session(working_proxy_);
+        warm_gpu_session_ = std::move(gpu.session);
+        warm_gpu_diagnostic_ = std::move(gpu.diagnostic);
+    }
 }
 
 Dimensions WarmEditPreviewSession::dimensions() const noexcept {
@@ -582,6 +618,56 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
             0,
             "this edit preview does not retain a rebindable RAW camera-space source"
         );
+    }
+    // Ordinary RAW rebinds retain the same denoised CFA plane. When no host-only optics owner is
+    // present, keep the reconstructed fp32 preview on that Metal device, apply the canonical
+    // source rendering there, and adopt it directly into the warm session. Any optional stage
+    // declining this path falls through to the exact materialized route below.
+    if (retained_optics_provider_ == nullptr) {
+        if (auto resident = raw_rebinding_source_->try_bind_metal_resident(raw_development_plan)) {
+            const SourceRenderingReceipt source_rendering = resolve_source_rendering(
+                raw_rebinding_source_->metadata(),
+                resident->pipeline_receipt
+            );
+            const auto source_rendering_attempt = detail::apply_source_rendering_in_place_metal(
+                resident->output.native_device_handle(),
+                resident->output.native_queue_handle(),
+                resident->output.native_buffer_handle(),
+                resident->output.dimensions(),
+                source_rendering
+            );
+            if (source_rendering_attempt.applied) {
+                const FloatRgbImage layout = resident_working_proxy(resident->output);
+                auto warm = detail::prepare_warm_edit_gpu_session(
+                    detail::WarmEditGpuAdoptedSource{
+                        .dimensions = resident->output.dimensions(),
+                        .row_stride_bytes = resident->output.row_stride_bytes(),
+                        .native_device_handle = resident->output.native_device_handle(),
+                        .native_buffer_handle = resident->output.native_buffer_handle(),
+                        .source_buffer_bytes = resident->output.output_bytes(),
+                        .external_resident_bytes = resident->output.external_resident_bytes(),
+                        .resident_allowance_bytes = resident->output.resident_allowance_bytes(),
+                        .working_space = layout.working_space,
+                        .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
+                        .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                    }
+                );
+                if (warm.session) {
+                    return WarmEditPreviewSession(
+                        layout,
+                        max_edge_,
+                        std::move(resident->raw_development_receipt),
+                        std::move(resident->pipeline_receipt),
+                        OpticsProfileReceipt{},
+                        std::move(resident->sensor_clipping_mask),
+                        raw_rebinding_source_,
+                        retained_optics_provider_,
+                        retained_optics_settings_,
+                        std::move(warm.session)
+                    );
+                }
+            }
+        }
     }
     auto prepared = finish_warm_edit_proxy(
         raw_rebinding_source_->metadata(),

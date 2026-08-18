@@ -189,6 +189,102 @@ RawPreviewRebindingSource::bind(const RawDevelopmentPlan& requested_plan) const 
     return bind_impl(requested_plan, std::nullopt);
 }
 
+std::optional<ResidentRawPreviewRebinding>
+RawPreviewRebindingSource::try_bind_metal_resident(
+    const RawDevelopmentPlan& requested_plan
+) const {
+#if !SHADOW_IMAGE_HAS_METAL
+    static_cast<void>(requested_plan);
+    return std::nullopt;
+#else
+    if (!same_plan_except_white_balance(requested_plan, impl_->requested_plan_template)
+        || !valid_raw_white_balance(requested_plan.white_balance)) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "RAW preview rebinding may change only the absolute white balance"
+        );
+    }
+    const auto* ordinary = std::get_if<OrdinaryRawPreviewBasis>(&impl_->basis);
+    if (ordinary == nullptr || !impl_->ordinary_raw_metal_preview.has_value()) {
+        return std::nullopt;
+    }
+    RawDevelopmentPlan effective_plan = impl_->development_template.development_plan();
+    effective_plan.white_balance = requested_plan.white_balance;
+    if (impl_->development_template.requested_backend() == RawDevelopmentBackendMode::cpu) {
+        return std::nullopt;
+    }
+    CompiledPreviewColorBinding binding = compile_color_binding(
+        impl_->development_template.descriptor(),
+        effective_plan.white_balance,
+        impl_->camera_profile_definition
+    );
+    PreparedRawFrameDevelopment rebound_development = impl_->development_template.rebind_color(
+        effective_plan,
+        binding.linear_transform,
+        std::move(binding.dcp),
+        impl_->development_template.source_scene_luminance_percentile()
+    );
+    const DcpColorTransform* dcp = rebound_development.camera_profile();
+    const bool dcp_requested = dcp != nullptr && dcp->has_post_matrix_stages();
+    auto development = impl_->ordinary_raw_metal_preview->develop_resident(
+        ordinary->denoised_frame,
+        rebound_development.linear_transform(),
+        rebound_development.preview_max_edge(),
+        effective_plan.highlight_recovery,
+        effective_plan.quality,
+        detail::MetalRawDevelopmentContinuations{
+            .dcp_color_transform = dcp,
+        }
+    );
+    if (!development.output.has_value() || (dcp_requested && !development.dcp_applied)) {
+        return std::nullopt;
+    }
+    const DcpColorExecutionBackend dcp_backend = development.dcp_applied
+                                                     ? DcpColorExecutionBackend::metal
+                                                     : DcpColorExecutionBackend::cpu;
+    RawDevelopmentReceipt receipt = finalize_raw_frame_development_receipt(
+        rebound_development,
+        development.output->dimensions(),
+        development.demosaic_receipt,
+        RawDevelopmentBackend::metal,
+        ordinary->conventional_denoise,
+        dcp_backend
+    );
+    receipt.requested_plan = requested_plan;
+    receipt.requested_plan_identity = raw_development_plan_identity(requested_plan);
+    receipt.effective_plan = effective_plan;
+    receipt.effective_plan_identity = raw_development_plan_identity(effective_plan);
+    receipt.plan_negotiation_status = impl_->negotiation_status;
+    RawPipelineReceipt pipeline = rebound_pipeline_template(
+        impl_->pipeline_template,
+        requested_plan,
+        effective_plan,
+        binding,
+        rebound_development.source_scene_luminance_percentile()
+    );
+    pipeline = finalize_raw_frame_pipeline_receipt(
+        std::move(pipeline),
+        RawDevelopmentBackend::metal,
+        effective_plan.highlight_recovery,
+        ordinary->combined_denoise_identity
+    );
+    impl_->bind_count.fetch_add(1U, std::memory_order_relaxed);
+    impl_->ordinary_raw_bind_count.fetch_add(1U, std::memory_order_relaxed);
+    impl_->ordinary_raw_metal_development_count.fetch_add(1U, std::memory_order_relaxed);
+    if (development.dcp_applied) {
+        impl_->ordinary_raw_fused_dcp_bind_count.fetch_add(1U, std::memory_order_relaxed);
+        impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
+    }
+    return ResidentRawPreviewRebinding{
+        .output = std::move(*development.output),
+        .raw_development_receipt = std::move(receipt),
+        .pipeline_receipt = std::move(pipeline),
+        .sensor_clipping_mask = impl_->sensor_clipping,
+    };
+#endif
+}
+
 DevelopedSourceReference RawPreviewRebindingSource::bind_foundation_amount(
     const RawDevelopmentPlan& requested_plan,
     const std::uint8_t amount_percent

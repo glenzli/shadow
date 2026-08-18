@@ -35,6 +35,42 @@ struct MetalRawDevelopmentAttempt final {
     std::string diagnostic;
 };
 
+// A bounded preview reconstruction that remains on the same Metal device. It owns the output
+// buffer until a warm edit session adopts it, so a RAW white-balance rebind never has to read the
+// fp32 scene-linear raster back to the CPU merely to upload it again.
+class MetalRawPreviewResidentOutput final {
+  public:
+    MetalRawPreviewResidentOutput(const MetalRawPreviewResidentOutput&) = delete;
+    MetalRawPreviewResidentOutput& operator=(const MetalRawPreviewResidentOutput&) = delete;
+    MetalRawPreviewResidentOutput(MetalRawPreviewResidentOutput&&) noexcept;
+    MetalRawPreviewResidentOutput& operator=(MetalRawPreviewResidentOutput&&) noexcept;
+    ~MetalRawPreviewResidentOutput();
+
+    [[nodiscard]] Dimensions dimensions() const noexcept;
+    [[nodiscard]] std::size_t row_stride_bytes() const noexcept;
+    [[nodiscard]] std::uint64_t output_bytes() const noexcept;
+    [[nodiscard]] std::uint64_t external_resident_bytes() const noexcept;
+    [[nodiscard]] std::uint64_t resident_allowance_bytes() const noexcept;
+    [[nodiscard]] void* native_device_handle() const noexcept;
+    [[nodiscard]] void* native_queue_handle() const noexcept;
+    [[nodiscard]] void* native_buffer_handle() const noexcept;
+
+  private:
+    struct Impl;
+    explicit MetalRawPreviewResidentOutput(std::unique_ptr<Impl> implementation) noexcept;
+
+    std::unique_ptr<Impl> implementation_;
+
+    friend class MetalRawPreviewRebindingSource;
+};
+
+struct MetalRawPreviewResidentDevelopmentAttempt final {
+    std::optional<MetalRawPreviewResidentOutput> output;
+    RawDemosaicReceipt demosaic_receipt;
+    bool dcp_applied = false;
+    std::string diagnostic;
+};
+
 // Retains one already-denoised CFA sensor plane in Metal shared storage for a bounded preview
 // session.  Each development still runs the normal CFA-domain reconstruction kernel with a new
 // RawFrameLinearTransform; this is deliberately not a post-demosaic RGB white-balance shortcut.
@@ -53,6 +89,15 @@ class MetalRawPreviewRebindingSource final {
     );
 
     [[nodiscard]] MetalRawDevelopmentAttempt develop(
+        const RawFrame& frame,
+        const RawFrameLinearTransform& transform,
+        std::optional<std::uint32_t> preview_max_edge,
+        RawHighlightRecoveryIntent highlight_recovery,
+        RawDevelopmentQuality quality,
+        MetalRawDevelopmentContinuations continuations = {}
+    ) const;
+
+    [[nodiscard]] MetalRawPreviewResidentDevelopmentAttempt develop_resident(
         const RawFrame& frame,
         const RawFrameLinearTransform& transform,
         std::optional<std::uint32_t> preview_max_edge,

@@ -292,6 +292,116 @@ checked_add(const std::uint64_t left, const std::uint64_t right, std::uint64_t& 
 
 } // namespace
 
+MetalSourceRenderingInPlaceAttempt apply_source_rendering_in_place_metal(
+    void* const native_device_handle,
+    void* const native_queue_handle,
+    void* const native_buffer_handle,
+    const Dimensions dimensions,
+    const SourceRenderingReceipt& source_rendering
+) {
+    MetalSourceRenderingInPlaceAttempt result;
+    try {
+        auto& runtime = context();
+        const id<MTLDevice> device = static_cast<id<MTLDevice>>(native_device_handle);
+        const id<MTLCommandQueue> queue = static_cast<id<MTLCommandQueue>>(native_queue_handle);
+        const id<MTLBuffer> buffer = static_cast<id<MTLBuffer>>(native_buffer_handle);
+        if (!runtime.available()) {
+            result.diagnostic = runtime.diagnostic_.empty()
+                                    ? "Metal source rendering is unavailable"
+                                    : runtime.diagnostic_;
+            return result;
+        }
+        if (device == nil || queue == nil || buffer == nil
+            || static_cast<std::uint64_t>(device.registryID)
+                   != static_cast<std::uint64_t>(runtime.device_.registryID)) {
+            result.diagnostic = "Metal source rendering cannot adopt this device resource";
+            return result;
+        }
+        const std::uint64_t output_bytes = checked_rgb_bytes(
+            GeometryPixelRect{0U, 0U, dimensions.width, dimensions.height},
+            "Metal source-rendering output size overflows"
+        );
+        if (static_cast<std::uint64_t>(buffer.length) < output_bytes) {
+            result.diagnostic = "Metal source-rendering buffer is smaller than its RGB layout";
+            return result;
+        }
+        std::vector<SourceCurveSegment> curve = prepare_curve_segments(source_rendering);
+        if (curve.size() > std::numeric_limits<std::uint32_t>::max()) {
+            result.diagnostic = "Metal source-rendering curve is too large";
+            return result;
+        }
+        constexpr SourceCurveSegment empty_segment{};
+        const std::size_t curve_bytes =
+            curve.empty() ? sizeof(empty_segment) : curve.size() * sizeof(SourceCurveSegment);
+        OwnedObjectiveCObject curve_buffer([device
+            newBufferWithBytes:curve.empty() ? static_cast<const void*>(&empty_segment)
+                                             : static_cast<const void*>(curve.data())
+                        length:curve_bytes
+                       options:MTLResourceStorageModeShared]);
+        if (!curve_buffer) {
+            result.diagnostic = "Metal source-rendering curve allocation failed";
+            return result;
+        }
+        const double exposure = std::exp2(source_rendering.total_exposure_stops());
+        if (!std::isfinite(exposure) || exposure > std::numeric_limits<float>::max()) {
+            result.diagnostic = "Metal source-rendering exposure is invalid";
+            return result;
+        }
+        SourceRenderingParameters parameters{
+            .width = dimensions.width,
+            .height = dimensions.height,
+            .row_floats = dimensions.width * 3U,
+            .segment_count = static_cast<std::uint32_t>(curve.size()),
+            .exposure_gain = static_cast<float>(exposure),
+            .hdr_handoff_width = source_curve_hdr_handoff_width,
+            .hdr_terminal_output =
+                source_rendering.luminance_tone_curve.empty()
+                    ? 1.0F
+                    : static_cast<float>(source_rendering.luminance_tone_curve.back().output),
+            .hdr_terminal_slope =
+                static_cast<float>(terminal_slope(source_rendering.luminance_tone_curve)),
+        };
+        if (environment_enabled("SHADOW_TEST_FULL_EDIT_DETAIL_METAL_SOURCE_FAIL")) {
+            result.diagnostic = "test-forced full-detail Metal source-rendering failure";
+            return result;
+        }
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder =
+            command_buffer == nil ? nil : [command_buffer computeCommandEncoder];
+        if (encoder == nil) {
+            result.diagnostic = "Metal source rendering could not create a command";
+            return result;
+        }
+        const NSUInteger thread_width = std::min<NSUInteger>(
+            32U,
+            std::max<NSUInteger>(1U, runtime.pipeline_.threadExecutionWidth)
+        );
+        const NSUInteger thread_height = std::max<NSUInteger>(
+            1U,
+            std::min<NSUInteger>(8U, runtime.pipeline_.maxTotalThreadsPerThreadgroup / thread_width)
+        );
+        [encoder setComputePipelineState:runtime.pipeline_];
+        [encoder setBuffer:buffer offset:0U atIndex:0U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(curve_buffer.get()) offset:0U atIndex:1U];
+        [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
+        [encoder dispatchThreads:MTLSizeMake(dimensions.width, dimensions.height, 1U)
+            threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+        [encoder endEncoding];
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            result.diagnostic = command_diagnostic(command_buffer);
+            return result;
+        }
+        result.applied = true;
+        result.curve_upload_bytes = curve.empty() ? 0U : static_cast<std::uint64_t>(curve_bytes);
+        return result;
+    } catch (const std::exception& error) {
+        result.diagnostic = error.what();
+        return result;
+    }
+}
+
 FullEditDetailMetalSourcePreparation prepare_full_edit_detail_metal_source(
     raw_pipeline_detail::ResidentRawSource& source,
     const SourceRenderingReceipt& source_rendering,
@@ -378,66 +488,25 @@ FullEditDetailMetalSourcePreparation prepare_full_edit_detail_metal_source(
             return fail("full-detail Metal optics result cannot be adopted on this device");
         }
 
-        OwnedObjectiveCObject curve_buffer([device
-            newBufferWithBytes:curve.empty() ? static_cast<const void*>(&empty_segment)
-                                             : static_cast<const void*>(curve.data())
-                        length:curve_bytes
-                       options:MTLResourceStorageModeShared]);
-        if (!curve_buffer) {
-            return fail("full-detail Metal source-rendering curve allocation failed");
-        }
-        const double exposure = std::exp2(source_rendering.total_exposure_stops());
-        if (!std::isfinite(exposure) || exposure > std::numeric_limits<float>::max()) {
-            return fail("full-detail Metal source-rendering exposure is invalid");
-        }
-        SourceRenderingParameters parameters{
-            .width = working_rect.width,
-            .height = working_rect.height,
-            .row_floats = working_rect.width * 3U,
-            .segment_count = static_cast<std::uint32_t>(curve.size()),
-            .exposure_gain = static_cast<float>(exposure),
-            .hdr_handoff_width = source_curve_hdr_handoff_width,
-            .hdr_terminal_output =
-                source_rendering.luminance_tone_curve.empty()
-                    ? 1.0F
-                    : static_cast<float>(source_rendering.luminance_tone_curve.back().output),
-            .hdr_terminal_slope =
-                static_cast<float>(terminal_slope(source_rendering.luminance_tone_curve)),
-        };
-        if (environment_enabled("SHADOW_TEST_FULL_EDIT_DETAIL_METAL_SOURCE_FAIL")) {
-            return fail("test-forced full-detail Metal source-rendering failure");
-        }
-        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
-        id<MTLComputeCommandEncoder> encoder =
-            command_buffer == nil ? nil : [command_buffer computeCommandEncoder];
-        if (encoder == nil) {
-            return fail("full-detail Metal source rendering could not create a command");
-        }
-        const NSUInteger thread_width = std::min<NSUInteger>(
-            32U,
-            std::max<NSUInteger>(1U, runtime.pipeline_.threadExecutionWidth)
+        const auto source_rendering_attempt = apply_source_rendering_in_place_metal(
+            reinterpret_cast<void*>(device),
+            reinterpret_cast<void*>(queue),
+            reinterpret_cast<void*>(buffer),
+            optics.dimensions(),
+            source_rendering
         );
-        const NSUInteger thread_height = std::max<NSUInteger>(
-            1U,
-            std::min<NSUInteger>(8U, runtime.pipeline_.maxTotalThreadsPerThreadgroup / thread_width)
-        );
-        [encoder setComputePipelineState:runtime.pipeline_];
-        [encoder setBuffer:buffer offset:0U atIndex:0U];
-        [encoder setBuffer:static_cast<id<MTLBuffer>>(curve_buffer.get()) offset:0U atIndex:1U];
-        [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-        [encoder dispatchThreads:MTLSizeMake(working_rect.width, working_rect.height, 1U)
-            threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
-        [encoder endEncoding];
-        [command_buffer commit];
-        [command_buffer waitUntilCompleted];
-        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
-            return fail(command_diagnostic(command_buffer));
+        if (!source_rendering_attempt.applied) {
+            return fail(
+                source_rendering_attempt.diagnostic.empty()
+                    ? "full-detail Metal source rendering failed"
+                    : source_rendering_attempt.diagnostic
+            );
         }
         result.telemetry.raw = raw_source.telemetry();
         result.telemetry.source_rendering_dispatch_count = 1U;
         result.telemetry.source_rendering_curve_upload_count = curve.empty() ? 0U : 1U;
         result.telemetry.source_rendering_curve_upload_bytes =
-            curve.empty() ? 0U : static_cast<std::uint64_t>(curve_bytes);
+            source_rendering_attempt.curve_upload_bytes;
         result.telemetry.resident_allowance_bytes = allowance;
 
         const std::uint64_t raw_resident_bytes = raw_source.retained_bytes();

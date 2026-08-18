@@ -342,7 +342,8 @@ class WarmEditPreviewSession final {
         std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source =
             nullptr,
         std::shared_ptr<const OpticsProvider> retained_optics_provider = nullptr,
-        OpticsSettings retained_optics_settings = default_optics_settings()
+        OpticsSettings retained_optics_settings = default_optics_settings(),
+        std::shared_ptr<detail::WarmEditGpuSession> adopted_warm_gpu_session = nullptr
     );
 
     FloatRgbImage working_proxy_;

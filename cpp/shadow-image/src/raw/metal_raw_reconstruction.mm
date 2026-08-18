@@ -725,4 +725,262 @@ MetalRawDevelopmentAttempt MetalRawPreviewRebindingSource::develop(
     );
 }
 
+struct MetalRawPreviewResidentOutput::Impl final {
+    id<MTLDevice> device = nil;
+    id<MTLCommandQueue> queue = nil;
+    id<MTLBuffer> buffer = nil;
+    Dimensions output_dimensions{};
+    std::size_t output_row_stride_bytes = 0U;
+    std::uint64_t output_buffer_bytes = 0U;
+    std::uint64_t external_resident_buffer_bytes = 0U;
+    std::uint64_t resident_allowance = 0U;
+
+    Impl(
+        id<MTLDevice> source_device,
+        id<MTLCommandQueue> source_queue,
+        id<MTLBuffer> source_buffer,
+        const Dimensions dimensions,
+        const std::size_t row_stride_bytes,
+        const std::uint64_t buffer_bytes,
+        const std::uint64_t external_bytes,
+        const std::uint64_t allowance
+    ) :
+        device([source_device retain]), queue([source_queue retain]), buffer([source_buffer retain]),
+        output_dimensions(dimensions), output_row_stride_bytes(row_stride_bytes),
+        output_buffer_bytes(buffer_bytes), external_resident_buffer_bytes(external_bytes),
+        resident_allowance(allowance) {}
+
+    ~Impl() {
+        [buffer release];
+        [queue release];
+        [device release];
+    }
+};
+
+MetalRawPreviewResidentOutput::MetalRawPreviewResidentOutput(
+    std::unique_ptr<Impl> implementation
+) noexcept :
+    implementation_(std::move(implementation)) {}
+
+MetalRawPreviewResidentOutput::MetalRawPreviewResidentOutput(
+    MetalRawPreviewResidentOutput&&
+) noexcept = default;
+
+MetalRawPreviewResidentOutput& MetalRawPreviewResidentOutput::operator=(
+    MetalRawPreviewResidentOutput&&
+) noexcept = default;
+
+MetalRawPreviewResidentOutput::~MetalRawPreviewResidentOutput() = default;
+
+Dimensions MetalRawPreviewResidentOutput::dimensions() const noexcept {
+    return implementation_ == nullptr ? Dimensions{} : implementation_->output_dimensions;
+}
+
+std::size_t MetalRawPreviewResidentOutput::row_stride_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->output_row_stride_bytes;
+}
+
+std::uint64_t MetalRawPreviewResidentOutput::output_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->output_buffer_bytes;
+}
+
+std::uint64_t MetalRawPreviewResidentOutput::external_resident_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->external_resident_buffer_bytes;
+}
+
+std::uint64_t MetalRawPreviewResidentOutput::resident_allowance_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->resident_allowance;
+}
+
+void* MetalRawPreviewResidentOutput::native_device_handle() const noexcept {
+    return implementation_ == nullptr ? nullptr : reinterpret_cast<void*>(implementation_->device);
+}
+
+void* MetalRawPreviewResidentOutput::native_queue_handle() const noexcept {
+    return implementation_ == nullptr ? nullptr : reinterpret_cast<void*>(implementation_->queue);
+}
+
+void* MetalRawPreviewResidentOutput::native_buffer_handle() const noexcept {
+    return implementation_ == nullptr ? nullptr : reinterpret_cast<void*>(implementation_->buffer);
+}
+
+MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develop_resident(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality,
+    const MetalRawDevelopmentContinuations continuations
+) const {
+    const auto fail = [](std::string diagnostic) {
+        return MetalRawPreviewResidentDevelopmentAttempt{
+            .output = std::nullopt,
+            .demosaic_receipt = {},
+            .dcp_applied = false,
+            .diagnostic = std::move(diagnostic),
+        };
+    };
+    if (!implementation_ || frame.samples.data() != implementation_->source_samples
+        || frame.samples.size() != implementation_->source_sample_count) {
+        return fail("retained Metal RAW preview source no longer matches its RawFrame");
+    }
+    if (!metal_raw_development_available()) {
+        return fail(metal_raw_runtime_diagnostic());
+    }
+    if (continuations.raw_denoise != nullptr || continuations.project_sensor_clipping) {
+        return fail("resident RAW preview rebind only accepts its already-denoised CFA source");
+    }
+    const Dimensions reconstruction_dimensions =
+        preview_max_edge.has_value()
+            ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
+            : frame.descriptor.active_dimensions;
+    const bool area_preview = reconstruction_dimensions != frame.descriptor.active_dimensions;
+    if (area_preview && !metal_raw_area_preview_available()) {
+        return fail(metal_raw_area_preview_diagnostic());
+    }
+    const Dimensions output_dimensions =
+        oriented_dimensions(reconstruction_dimensions, frame.descriptor.orientation);
+    std::size_t output_row_bytes = 0U;
+    std::size_t output_bytes = 0U;
+    if (!checked_multiply(
+            static_cast<std::size_t>(output_dimensions.width),
+            3U * sizeof(float),
+            output_row_bytes
+        )
+        || !checked_multiply(
+            output_row_bytes,
+            static_cast<std::size_t>(output_dimensions.height),
+            output_bytes
+        )
+        || output_bytes == 0U
+        || output_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
+        return fail("resident RAW preview output exceeds this Metal device's buffer limit");
+    }
+    const auto pixels = output_dimensions.pixel_count();
+    if (pixels == 0U || pixels > std::numeric_limits<std::uint32_t>::max()) {
+        return fail("resident RAW preview exceeds Metal's dispatch range");
+    }
+    std::unique_ptr<MetalDcpColorEncoding> dcp_encoding;
+    if (continuations.dcp_color_transform != nullptr
+        && continuations.dcp_color_transform->has_post_matrix_stages()) {
+        std::string diagnostic;
+        dcp_encoding = MetalDcpColorEncoding::prepare(
+            *continuations.dcp_color_transform,
+            static_cast<std::uint32_t>(pixels),
+            diagnostic
+        );
+        if (!dcp_encoding) {
+            return fail(
+                diagnostic.empty() ? "Metal could not prepare resident RAW/DCP input rendering"
+                                   : std::move(diagnostic)
+            );
+        }
+    }
+    std::size_t resident_bytes = implementation_->source_bytes;
+    if (!checked_add(resident_bytes, output_bytes, resident_bytes)
+        || (dcp_encoding
+            && !checked_add(
+                resident_bytes,
+                dcp_encoding->resource_bytes(),
+                resident_bytes
+            ))) {
+        return fail("resident RAW preview working-set size overflowed");
+    }
+    const auto recommended = static_cast<std::uint64_t>(metal_raw_device().recommendedMaxWorkingSetSize);
+    const std::uint64_t allowance = recommended == 0U
+                                        ? 512ULL * 1'024ULL * 1'024ULL
+                                        : recommended / 3U;
+    if (allowance == 0U || resident_bytes > allowance) {
+        return fail("resident RAW preview exceeds Shadow's Metal working-set allowance");
+    }
+    std::lock_guard execution_lock(metal_execution_mutex());
+    @autoreleasepool {
+        OwnedObjectiveCObject output_buffer([metal_raw_device()
+            newBufferWithLength:output_bytes
+                        options:MTLResourceStorageModePrivate]);
+        if (!output_buffer) {
+            return fail("Metal could not allocate resident RAW preview output");
+        }
+        RawDevelopmentParameters parameters = make_parameters(
+            frame,
+            transform,
+            reconstruction_dimensions,
+            output_dimensions,
+            quality,
+            false,
+            highlight_recovery
+        );
+        parameters.output_tile_height = output_dimensions.height;
+        const auto pipeline =
+            area_preview ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
+        const NSUInteger thread_width =
+            std::min<NSUInteger>(32U, std::max<NSUInteger>(1U, pipeline.threadExecutionWidth));
+        const NSUInteger thread_height = std::max<NSUInteger>(
+            1U,
+            std::min<NSUInteger>(8U, pipeline.maxTotalThreadsPerThreadgroup / thread_width)
+        );
+        id<MTLCommandBuffer> command_buffer = [metal_raw_command_queue() commandBuffer];
+        id<MTLComputeCommandEncoder> encoder =
+            command_buffer == nil ? nil : [command_buffer computeCommandEncoder];
+        if (encoder == nil) {
+            return fail("Metal could not create a resident RAW reconstruction command");
+        }
+        [encoder setComputePipelineState:pipeline];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(implementation_->input_buffer.get())
+                    offset:0U
+                   atIndex:0U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:1U];
+        [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
+        [encoder dispatchThreads:MTLSizeMake(output_dimensions.width, output_dimensions.height, 1U)
+            threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+        [encoder endEncoding];
+        if (dcp_encoding) {
+            id<MTLComputeCommandEncoder> dcp_encoder = [command_buffer computeCommandEncoder];
+            std::string diagnostic;
+            if (dcp_encoder == nil
+                || !dcp_encoding->encode(
+                    dcp_encoder,
+                    static_cast<id<MTLBuffer>>(output_buffer.get()),
+                    static_cast<std::uint32_t>(pixels),
+                    diagnostic
+                )) {
+                if (dcp_encoder != nil) {
+                    [dcp_encoder endEncoding];
+                }
+                return fail(
+                    diagnostic.empty() ? "Metal could not encode resident RAW/DCP input rendering"
+                                       : std::move(diagnostic)
+                );
+            }
+            [dcp_encoder endEncoding];
+        }
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            return fail(metal_raw_command_buffer_diagnostic(command_buffer));
+        }
+        return MetalRawPreviewResidentDevelopmentAttempt{
+            .output = MetalRawPreviewResidentOutput{std::make_unique<MetalRawPreviewResidentOutput::Impl>(
+                metal_raw_device(),
+                metal_raw_command_queue(),
+                static_cast<id<MTLBuffer>>(output_buffer.get()),
+                output_dimensions,
+                output_row_bytes,
+                static_cast<std::uint64_t>(output_bytes),
+                static_cast<std::uint64_t>(implementation_->source_bytes),
+                allowance
+            )},
+            .demosaic_receipt = make_receipt(
+                frame,
+                transform,
+                area_preview                             ? RawDemosaicAlgorithm::bayer_area_preview_v1
+                : quality == RawDevelopmentQuality::high ? RawDemosaicAlgorithm::bayer_edge_aware_v1
+                                                         : RawDemosaicAlgorithm::bayer_bilinear_v1
+            ),
+            .dcp_applied = dcp_encoding != nullptr,
+            .diagnostic = {},
+        };
+    }
+}
+
 } // namespace shadow::image::detail
