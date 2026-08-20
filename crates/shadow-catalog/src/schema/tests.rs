@@ -82,9 +82,54 @@ fn rejects_prior_identity_for_a_development_reset() {
 
     assert!(matches!(
         initialize(&mut connection),
-        Err(CatalogError::DevelopmentCatalogResetRequired { found: None })
+        Err(CatalogError::DevelopmentCatalogResetRequired { found: Some(1) })
     ));
     assert!(table_exists(&connection, "catalog_schema").expect("preserve reset marker"));
+}
+
+#[test]
+fn realigns_exact_previous_dated_metadata_without_touching_catalog_data() {
+    let mut catalog = Catalog::open_in_memory().expect("open current catalog");
+    catalog
+        .connection
+        .execute(
+            "INSERT INTO photos(id, created_at_ms) VALUES (zeroblob(16), 7)",
+            [],
+        )
+        .expect("persist photo before metadata alignment");
+    catalog
+        .connection
+        .execute_batch(
+            "ALTER TABLE catalog_schema RENAME TO catalog_schema_current;
+             CREATE TABLE catalog_schema (
+                 version INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026080902),
+                 identity TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260809.2-photo-relationships'),
+                 created_at_ms INTEGER NOT NULL
+             ) STRICT;
+             INSERT INTO catalog_schema(version, identity, created_at_ms)
+             VALUES (2026080902, 'shadow-catalog-20260809.2-photo-relationships', 123);
+             DROP TABLE catalog_schema_current;",
+        )
+        .expect("seed exact equivalent metadata");
+
+    initialize(&mut catalog.connection).expect("realign equivalent dated metadata");
+
+    assert_eq!(
+        current_version(&catalog.connection).expect("current revision"),
+        SCHEMA_VERSION
+    );
+    let created_at_ms: i64 = catalog
+        .connection
+        .query_row("SELECT created_at_ms FROM catalog_schema", [], |row| {
+            row.get(0)
+        })
+        .expect("preserve metadata timestamp");
+    assert_eq!(created_at_ms, 123);
+    let photos: i64 = catalog
+        .connection
+        .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))
+        .expect("preserve catalog data");
+    assert_eq!(photos, 1);
 }
 
 #[test]

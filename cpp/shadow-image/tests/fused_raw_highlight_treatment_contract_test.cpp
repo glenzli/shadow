@@ -186,7 +186,7 @@ void cfa_white_balance_uses_an_h0_style_white_ceiling() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=shadow-cfa-evidence-v10;shoulder=continuous-cfa-headroom;target="
+            == "sensor-highlights=shadow-cfa-evidence@20260821.1;shoulder=continuous-cfa-headroom;target="
                "h0-white-ceiling+residual-neutral-0.40",
         "the default source treatment identifies its H=0-style calibrated CFA shoulder"
     );

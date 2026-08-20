@@ -11,9 +11,11 @@ use crate::{CatalogError, export_queue};
 
 /// The only on-disk Catalog revision supported by this development build.
 /// Encoded as YYYYMMDDNN, where NN is the contract's daily sequence.
-pub(crate) const SCHEMA_VERSION: i64 = 2_026_080_902;
+pub(crate) const SCHEMA_VERSION: i64 = 2_026_082_101;
 
-const SCHEMA_IDENTITY: &str = "shadow-catalog-20260809.2-photo-relationships";
+const SCHEMA_IDENTITY: &str = "shadow-catalog-20260821.1-photo-relationships";
+const PREVIOUS_EQUIVALENT_SCHEMA_VERSION: i64 = 2_026_080_902;
+const PREVIOUS_EQUIVALENT_SCHEMA_IDENTITY: &str = "shadow-catalog-20260809.2-photo-relationships";
 
 const SCHEMA_CORE: &str = r"
 CREATE TABLE photos (
@@ -929,8 +931,8 @@ CREATE INDEX locations_representation_status_current_idx
 
 const SCHEMA_STATE: &str = r"
 CREATE TABLE catalog_schema (
-    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026080902),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260809.2-photo-relationships'),
+    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 2026082101),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-20260821.1-photo-relationships'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";
@@ -956,20 +958,24 @@ const SCHEMA_COMPONENTS: &[&str] = &[
 
 pub(crate) fn initialize(connection: &mut Connection) -> Result<(), CatalogError> {
     if table_exists(connection, "catalog_schema")? {
-        let identity: Option<String> = connection
-            .query_row(
-                "SELECT identity FROM catalog_schema WHERE version = ?1",
-                [SCHEMA_VERSION],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if identity.as_deref() == Some(SCHEMA_IDENTITY)
-            && current_version(connection)? == SCHEMA_VERSION
-        {
+        let stored = catalog_schema_state(connection)?;
+        if stored.as_ref().is_some_and(|state| {
+            state.version == SCHEMA_VERSION && state.identity == SCHEMA_IDENTITY
+        }) {
+            return Ok(());
+        }
+        if stored.as_ref().is_some_and(|state| {
+            state.version == PREVIOUS_EQUIVALENT_SCHEMA_VERSION
+                && state.identity == PREVIOUS_EQUIVALENT_SCHEMA_IDENTITY
+        }) {
+            realign_equivalent_catalog_metadata(
+                connection,
+                stored.expect("checked state").created_at_ms,
+            )?;
             return Ok(());
         }
         return Err(CatalogError::DevelopmentCatalogResetRequired {
-            found: current_version(connection).ok(),
+            found: stored.map(|state| state.version),
         });
     }
 
@@ -1028,6 +1034,44 @@ pub(crate) fn current_version(connection: &Connection) -> rusqlite::Result<i64> 
         [SCHEMA_IDENTITY],
         |row| row.get(0),
     )
+}
+
+struct CatalogSchemaState {
+    version: i64,
+    identity: String,
+    created_at_ms: i64,
+}
+
+fn catalog_schema_state(connection: &Connection) -> rusqlite::Result<Option<CatalogSchemaState>> {
+    connection
+        .query_row(
+            "SELECT version, identity, created_at_ms FROM catalog_schema",
+            [],
+            |row| {
+                Ok(CatalogSchemaState {
+                    version: row.get(0)?,
+                    identity: row.get(1)?,
+                    created_at_ms: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+}
+
+fn realign_equivalent_catalog_metadata(
+    connection: &mut Connection,
+    created_at_ms: i64,
+) -> Result<(), CatalogError> {
+    let transaction = connection.transaction()?;
+    transaction.execute_batch("ALTER TABLE catalog_schema RENAME TO catalog_schema_previous;")?;
+    transaction.execute_batch(SCHEMA_STATE)?;
+    transaction.execute(
+        "INSERT INTO catalog_schema(version, identity, created_at_ms) VALUES (?1, ?2, ?3)",
+        (SCHEMA_VERSION, SCHEMA_IDENTITY, created_at_ms),
+    )?;
+    transaction.execute_batch("DROP TABLE catalog_schema_previous;")?;
+    transaction.commit()?;
+    Ok(())
 }
 
 fn legacy_version(connection: &Connection) -> rusqlite::Result<i64> {

@@ -35,8 +35,8 @@ fn recorded_ffi_raw_development_receipt() -> ffi::FfiRawDevelopmentReceipt {
         provider_version: "fixture-provider-v1".to_owned(),
         library_version: "fixture-library-v1".to_owned(),
         development_settings_signature: "fixture-request-v1".to_owned(),
-        requested_plan_identity: "shadow-raw-plan-v1;fixture=requested".to_owned(),
-        effective_plan_identity: "shadow-raw-plan-v1;fixture=effective".to_owned(),
+        requested_plan_identity: "shadow-raw-plan@20260821.1;fixture=requested".to_owned(),
+        effective_plan_identity: "shadow-raw-plan@20260821.1;fixture=effective".to_owned(),
         requested_plan: ffi::FfiRawDevelopmentPlan {
             schema_version: RawDevelopmentPlan::CURRENT_SCHEMA_VERSION,
             intent: ffi::FfiRawDevelopmentIntent::Preview,
@@ -87,9 +87,9 @@ fn recorded_ffi_raw_pipeline_receipt(path: ffi::FfiRawPipelinePath) -> ffi::FfiR
     ffi::FfiRawPipelineReceipt {
         schema_version: RawPipelineReceipt::CURRENT_SCHEMA_VERSION,
         path,
-        cache_identity: "raw-pipeline-receipt-v1;fixture=canonical".to_owned(),
+        cache_identity: "raw-pipeline-receipt@20260821.1;fixture=canonical".to_owned(),
         pipeline_identity: if is_raw_frame {
-            "shadow-raw-frame-developer-v2"
+            "shadow-raw-frame-developer@20260821.1"
         } else {
             "shadow-provider-processed-compatibility-v1"
         }
@@ -98,7 +98,11 @@ fn recorded_ffi_raw_pipeline_receipt(path: ffi::FfiRawPipelinePath) -> ffi::FfiR
         source_provider_version: "fixture-provider-v1".to_owned(),
         fallback_reason: String::new(),
         raw_frame_schema_version: if is_raw_frame { 2_026_080_601 } else { 0 },
-        raw_developer_version: u32::from(is_raw_frame),
+        raw_developer_version: if is_raw_frame {
+            RawPipelineReceipt::CURRENT_RAW_DEVELOPER_VERSION
+        } else {
+            0
+        },
         requested_plan: ffi_detail_raw_development_plan(),
         effective_plan: ffi_detail_raw_development_plan(),
         camera_profile_status: if is_raw_frame {
@@ -182,8 +186,8 @@ fn raw_development_receipt_bridge_preserves_default_and_recorded_fields() {
             provider_version: "fixture-provider-v1".to_owned(),
             library_version: "fixture-library-v1".to_owned(),
             development_settings_signature: "fixture-request-v1".to_owned(),
-            requested_plan_identity: "shadow-raw-plan-v1;fixture=requested".to_owned(),
-            effective_plan_identity: "shadow-raw-plan-v1;fixture=effective".to_owned(),
+            requested_plan_identity: "shadow-raw-plan@20260821.1;fixture=requested".to_owned(),
+            effective_plan_identity: "shadow-raw-plan@20260821.1;fixture=effective".to_owned(),
             requested_plan: RawDevelopmentPlan {
                 schema_version: RawDevelopmentPlan::CURRENT_SCHEMA_VERSION,
                 intent: RawDevelopmentIntent::Preview,
@@ -252,8 +256,11 @@ fn raw_development_receipt_bridge_preserves_default_and_recorded_fields() {
         incomplete.remove(field);
     }
     let incomplete: RawDevelopmentReceipt = serde_json::from_value(incomplete_value)
-        .expect("an incomplete v1 receipt preserves explicit unknown-plan absence");
-    assert_eq!(incomplete.schema_version, 1);
+        .expect("an incomplete dated receipt preserves explicit unknown-plan absence");
+    assert_eq!(
+        incomplete.schema_version,
+        RawDevelopmentReceipt::CURRENT_SCHEMA_VERSION
+    );
     assert!(incomplete.requested_plan_identity.is_empty());
     assert_eq!(incomplete.requested_plan, RawDevelopmentPlan::detail());
     assert_eq!(
@@ -298,10 +305,13 @@ fn raw_pipeline_receipt_bridge_is_typed_cache_stable_and_validated() {
     assert_eq!(raw_frame.path, RawPipelinePath::ShadowRawFrame);
     assert_eq!(
         raw_frame.cache_identity,
-        "raw-pipeline-receipt-v1;fixture=canonical"
+        "raw-pipeline-receipt@20260821.1;fixture=canonical"
     );
     assert_eq!(raw_frame.raw_frame_schema_version, 2_026_080_601);
-    assert_eq!(raw_frame.raw_developer_version, 1);
+    assert_eq!(
+        raw_frame.raw_developer_version,
+        RawPipelineReceipt::CURRENT_RAW_DEVELOPER_VERSION
+    );
     assert!(!raw_frame.used_fallback());
     assert_eq!(raw_frame.requested_plan, RawDevelopmentPlan::detail());
     assert_eq!(raw_frame.effective_plan, RawDevelopmentPlan::detail());
@@ -332,6 +342,14 @@ fn raw_pipeline_receipt_bridge_is_typed_cache_stable_and_validated() {
     invalid.raw_frame_schema_version = 1;
     assert!(matches!(
         raw_pipeline_receipt(invalid),
+        Err(BridgeError::InvalidRawPipelineReceipt(_))
+    ));
+
+    let mut stale_developer =
+        recorded_ffi_raw_pipeline_receipt(ffi::FfiRawPipelinePath::ShadowRawFrame);
+    stale_developer.raw_developer_version = RawPipelineReceipt::CURRENT_RAW_DEVELOPER_VERSION - 1;
+    assert!(matches!(
+        raw_pipeline_receipt(stale_developer),
         Err(BridgeError::InvalidRawPipelineReceipt(_))
     ));
 }
@@ -413,7 +431,7 @@ fn raw_development_plan_identities_are_native_canonical_and_intent_specific() {
     );
     assert_ne!(preview, detail);
     assert_ne!(detail, export);
-    assert!(preview.starts_with("shadow-raw-plan-v1;"));
+    assert!(preview.starts_with("shadow-raw-plan@20260821.1;"));
     assert!(preview.contains(";wb=as-shot"));
 
     let value = RawTemperatureTint::new(4_800, 17).expect("manual white balance");

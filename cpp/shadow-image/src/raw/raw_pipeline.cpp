@@ -214,7 +214,7 @@ std::string raw_pipeline_policy_identity(const RawPipelinePolicy& policy) {
     if (policy.schema_version != raw_pipeline_policy_schema_version) {
         throw std::invalid_argument("RAW pipeline policy schema is unsupported");
     }
-    return "raw-pipeline-policy-v1;mode=" + std::string(mode_name(policy.mode));
+    return "raw-pipeline-policy@20260821.1;mode=" + std::string(mode_name(policy.mode));
 }
 
 std::string raw_pipeline_receipt_identity(const RawPipelineReceipt& receipt) {
@@ -222,7 +222,7 @@ std::string raw_pipeline_receipt_identity(const RawPipelineReceipt& receipt) {
         throw std::invalid_argument("RAW pipeline receipt is invalid");
     }
     std::ostringstream identity;
-    identity << "raw-pipeline-receipt-v1;path=" << path_name(receipt.path)
+    identity << "raw-pipeline-receipt@20260821.1;path=" << path_name(receipt.path)
              << ";pipeline=" << receipt.pipeline_identity
              << ";provider=" << receipt.source_provider_id
              << ";provider-version=" << receipt.source_provider_version

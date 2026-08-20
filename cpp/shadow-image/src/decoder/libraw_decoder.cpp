@@ -901,18 +901,20 @@ class LibRawProvider final : public DecoderProvider {
         validate_libraw_development_settings(settings_);
         const unsigned capabilities = LibRaw::capabilities();
         info_.id = "libraw";
-        // Provider version participates in generated-proxy/cache identity. Include Shadow's
-        // reference/output contracts so a transfer or gamut-mapping change cannot reuse bytes
-        // generated under the same linked LibRaw release.
+        // Provider version participates in generated-proxy/cache identity. Its compact field
+        // names retain every contract dimension under the Catalog's bounded identity limit:
+        // c=reference, l=linear RGB, r=receipt, p=plan, f=RawFrame/noise, v=preview, d=display.
+        // Thus a transfer or gamut-mapping change cannot reuse bytes generated under the same
+        // linked LibRaw release.
         info_.version = "lr=" + std::string(LibRaw::version()) + ";cap="
-                        + std::to_string(libraw_reference_development_contract_version) + ";linear="
+                        + std::to_string(libraw_reference_development_contract_version) + ";l="
                         + std::to_string(processed_linear_reference_rgb_contract_version)
-                        + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
-                        + ";plan=" + std::to_string(raw_development_plan_schema_version)
-                        + ";frame=" + std::to_string(raw_frame_schema_version) + "-n"
-                        + std::to_string(dng_noise_profile_contract_version) + ";preview="
+                        + ";r=" + std::to_string(raw_development_receipt_schema_version)
+                        + ";p=" + std::to_string(raw_development_plan_schema_version)
+                        + ";f=" + std::to_string(raw_frame_schema_version) + "-n"
+                        + std::to_string(dng_noise_profile_contract_version) + ";v="
                         + std::to_string(libraw_embedded_preview_geometry_contract_version)
-                        + ";display=" + std::to_string(display_srgb8_output_transform_version)
+                        + ";d=" + std::to_string(display_srgb8_output_transform_version)
                         + ";s=" + compact_libraw_development_settings_identity(settings_);
         if (info_.version.size() > 128U) {
             throw std::invalid_argument("LibRaw provider cache identity exceeds 128 bytes");

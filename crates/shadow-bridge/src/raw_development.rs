@@ -79,7 +79,8 @@ impl Default for RawDevelopmentPlan {
 }
 
 impl RawDevelopmentPlan {
-    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+    /// Mirrors `shadow::image::raw_development_plan_schema_version`.
+    pub const CURRENT_SCHEMA_VERSION: u32 = 2_026_082_101;
 
     #[must_use]
     pub const fn preview() -> Self {
@@ -245,7 +246,7 @@ pub struct RawDevelopmentReceipt {
 
 impl RawDevelopmentReceipt {
     /// Matches the currently supported C++ `RawDevelopmentReceipt` schema.
-    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+    pub const CURRENT_SCHEMA_VERSION: u32 = 2_026_082_101;
 
     #[must_use]
     pub const fn recorded(&self) -> bool {
@@ -338,7 +339,10 @@ impl Default for RawPipelineReceipt {
 }
 
 impl RawPipelineReceipt {
-    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+    /// Mirrors `shadow::image::raw_pipeline_receipt_schema_version`.
+    pub const CURRENT_SCHEMA_VERSION: u32 = 2_026_082_101;
+    /// Mirrors `shadow::image::shadow_raw_frame_developer_version`.
+    pub const CURRENT_RAW_DEVELOPER_VERSION: u32 = 2_026_082_101;
     // Mirrors `shadow::image::dcp_color_developer_version`. This is part of the
     // cross-language provenance contract, rather than the pipeline receipt schema.
     pub const CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION: u32 = 3;
@@ -780,7 +784,8 @@ pub(super) fn raw_pipeline_receipt(
         match path {
             RawPipelinePath::ShadowRawFrame => {
                 if receipt.raw_frame_schema_version == 0
-                    || receipt.raw_developer_version == 0
+                    || receipt.raw_developer_version
+                        != RawPipelineReceipt::CURRENT_RAW_DEVELOPER_VERSION
                     || fallback_reason.is_some()
                 {
                     return Err(BridgeError::InvalidRawPipelineReceipt(

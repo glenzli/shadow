@@ -18,7 +18,7 @@ namespace shadow::image {
 // RawFrameDescriptor, but this stage deliberately does not apply either white balance, colour
 // calibration or noise reduction yet. A later RAW NR stage may consume only a validated numeric
 // calibration; it must never inspect a provider's opaque profile database itself.
-inline constexpr std::uint32_t raw_demosaic_receipt_schema_version = 1U;
+inline constexpr std::uint32_t raw_demosaic_receipt_schema_version = 2'026'082'101U;
 
 enum class RawDemosaicAlgorithm : std::uint8_t {
     bayer_bilinear_v1,

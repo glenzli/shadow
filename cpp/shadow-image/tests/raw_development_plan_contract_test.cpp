@@ -22,7 +22,7 @@ void raw_development_receipt_is_explicitly_absent_until_a_provider_records_it() 
         "generic processed RGB never pretends to carry RAW provenance"
     );
     expect(
-        image::raw_development_receipt_schema_version == 1U,
+        image::raw_development_receipt_schema_version == 2'026'082'101U,
         "RAW development receipt schema is explicitly versioned"
     );
 }
@@ -45,7 +45,7 @@ void raw_development_plan_is_canonical_and_capability_negotiated() {
     );
     expect(
         image::raw_development_plan_identity(detail)
-            == "shadow-raw-plan-v1;intent=detail;quality=balanced;opcodes="
+            == "shadow-raw-plan@20260821.1;intent=detail;quality=balanced;opcodes="
                "provider-default;nr=provider-default;highlights=provider-default;"
                "wb=as-shot",
         "RAW development plan identity is canonical and cache-visible"
@@ -107,7 +107,7 @@ void raw_development_plan_is_canonical_and_capability_negotiated() {
     };
     expect(
         image::raw_development_plan_identity(manual_white_balance)
-            == "shadow-raw-plan-v1;intent=detail;quality=balanced;opcodes="
+            == "shadow-raw-plan@20260821.1;intent=detail;quality=balanced;opcodes="
                "provider-default;nr=provider-default;highlights=provider-default;"
                "wb=temperature-tint:4800:17",
         "manual temperature and tint are exact and cache-visible"

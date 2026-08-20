@@ -23,7 +23,8 @@ inline constexpr std::int16_t raw_white_balance_maximum_tint = 150;
 // generated source/cache key and in RawDevelopmentReceipt, alongside the provider identity that
 // interpreted it.  A later RawFrame implementation can add sensor-domain stages without
 // changing the meaning of the current plan fields.
-inline constexpr std::uint32_t raw_development_plan_schema_version = 1U;
+// YYYYMMDDNN: the first dated revision for the plan-aware RAW source contract.
+inline constexpr std::uint32_t raw_development_plan_schema_version = 2'026'082'101U;
 
 enum class RawDevelopmentIntent : std::uint8_t {
     preview,
@@ -340,14 +341,14 @@ raw_highlight_recovery_identity_name(const RawHighlightRecoveryIntent intent) no
         || highlight_recovery.empty()) {
         throw std::invalid_argument("RAW development plan contains an unknown enum value");
     }
-    return "shadow-raw-plan-v" + std::to_string(plan.schema_version)
-           + ";intent=" + std::string(intent) + ";quality=" + std::string(quality)
+    return std::string("shadow-raw-plan@20260821.1;intent=") + std::string(intent)
+           + ";quality=" + std::string(quality)
            + ";opcodes=" + std::string(opcode_policy) + ";nr=" + std::string(noise_reduction)
            + ";highlights=" + std::string(highlight_recovery)
            + ";wb=" + detail::raw_white_balance_identity(plan.white_balance);
 }
 
-inline constexpr std::uint32_t raw_development_capabilities_schema_version = 1U;
+inline constexpr std::uint32_t raw_development_capabilities_schema_version = 2'026'082'101U;
 
 struct RawDevelopmentCapabilities final {
     std::uint32_t schema_version = raw_development_capabilities_schema_version;

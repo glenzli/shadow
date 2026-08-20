@@ -37,31 +37,31 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity remains valid for catalog content identities"
     );
     expect(
-        version.find("linear=1") != std::string_view::npos,
+        version.find(";l=1") != std::string_view::npos,
         "provider identity versions the processed-linear reference RGB contract"
     );
     expect(
-        version.find("receipt=1") != std::string_view::npos,
+        version.find(";r=2026082101") != std::string_view::npos,
         "provider identity versions RAW-development provenance semantics"
     );
     expect(
-        version.find("plan=1") != std::string_view::npos,
+        version.find(";p=2026082101") != std::string_view::npos,
         "provider identity versions the RAW development plan contract"
     );
     expect(
-        version.find("frame=2026081901-n1") != std::string_view::npos,
+        version.find(";f=2026081901-n1") != std::string_view::npos,
         "provider identity versions the owned RAW frame contract"
     );
     expect(
-        version.find("-n1;preview=") != std::string_view::npos,
+        version.find("-n1;v=") != std::string_view::npos,
         "provider identity versions embedded DNG sensor-noise calibration"
     );
     expect(
-        version.find("preview=1") != std::string_view::npos,
+        version.find(";v=1") != std::string_view::npos,
         "provider identity versions display-oriented embedded-preview geometry"
     );
     expect(
-        version.find("display=1") != std::string_view::npos,
+        version.find(";d=1") != std::string_view::npos,
         "provider identity versions the display output transform for cache "
         "invalidation"
     );

@@ -14,10 +14,10 @@ namespace shadow::image {
 // installed vendor SDK. The public Shadow repository never ships a vendor SDK, its headers, a
 // wrapper library, or camera-specific proprietary decode code. A plugin stays outside the Git
 // tree and is loaded only from an explicit local path.
-// Shadow is still in fast local iteration, so `1` denotes the only current C++ ABI rather than a
-// compatibility ladder. A RawFrame or provider-layout change means rebuilding every local module
-// and replacing the old artifact in place.
-inline constexpr std::uint32_t private_decoder_plugin_abi_version = 1U;
+// Shadow is still in fast local iteration, so this dated revision denotes the only current C++ ABI
+// rather than a compatibility ladder. A RawFrame or provider-layout change means rebuilding every
+// local module and replacing the old artifact in place.
+inline constexpr std::uint32_t private_decoder_plugin_abi_version = 2'026'082'101U;
 
 // This C-compatible descriptor is the discovery contract. The provider factory below deliberately
 // crosses a versioned *local C++* ABI, not a stable public C ABI; a private module must be built
@@ -89,8 +89,8 @@ inline constexpr std::uint64_t semantic_epoch = 0x6d4c0f7be2a19583ULL;
 
 } // namespace private_decoder_plugin_contract_detail
 
-// The ABI number intentionally remains v1 throughout pre-release development. This seal is the
-// exact build-interface handshake for that one moving ABI. It changes automatically when the
+// This dated ABI revision and seal are the exact build-interface handshake for the one moving
+// local ABI. The seal changes automatically when the
 // size/alignment of a crossing type changes; virtual-order or same-layout semantic changes rotate
 // the epoch above. It is an accidental-stale-binary guard, not a security primitive and not a
 // compatibility version. A module with any older seal is simply rebuilt and replaced.
@@ -106,17 +106,17 @@ using DestroyPrivateDecoderProviderFn = void (*)(DecoderProvider*);
 
 // A private plugin exports these four exact symbols. The scalar interface-contract function is
 // deliberately resolved and checked before the host calls the descriptor or provider factory, so
-// an older module cannot be mistaken for current merely because both still say ABI v1. `create`
+// an older module cannot be mistaken for current merely because both report an ABI revision. `create`
 // and `destroy` are paired so the private module remains responsible for any allocator/runtime
 // used by its SDK wrapper.
 inline constexpr const char* private_decoder_plugin_interface_contract_symbol =
-    "shadow_private_decoder_plugin_interface_contract_v1";
+    "shadow_private_decoder_plugin_interface_contract_20260821_1";
 inline constexpr const char* private_decoder_plugin_descriptor_symbol =
-    "shadow_private_decoder_plugin_descriptor_v1";
+    "shadow_private_decoder_plugin_descriptor_20260821_1";
 inline constexpr const char* private_decoder_plugin_create_symbol =
-    "shadow_create_private_decoder_provider_v1";
+    "shadow_create_private_decoder_provider_20260821_1";
 inline constexpr const char* private_decoder_plugin_destroy_symbol =
-    "shadow_destroy_private_decoder_provider_v1";
+    "shadow_destroy_private_decoder_provider_20260821_1";
 
 // Validates the stable part of the ABI before module construction. The dynamic loader calls this
 // too; exposing it makes a private repository able to test its artifact without copying host

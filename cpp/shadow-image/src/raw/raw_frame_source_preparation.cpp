@@ -16,7 +16,7 @@ namespace shadow::image::raw_pipeline_detail {
 namespace {
 
 inline constexpr std::string_view raw_frame_pipeline_identity =
-    "shadow-raw-frame-developer-v4:cfa-wb-before-demosaic:decoder-matrix-dcp-neutral-only:"
+    "shadow-raw-frame-developer@20260821.1:cfa-wb-before-demosaic:decoder-matrix-dcp-neutral-only:"
     "bayer-area-preview+bayer-bilinear:raw-denoise-cfa-bilateral-v1:plan-camera-neutral:"
     "camera-matrix:scene-linear-f32";
 
