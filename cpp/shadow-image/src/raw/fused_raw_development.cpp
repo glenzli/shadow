@@ -8,6 +8,7 @@
 #include "bayer_sampling.hpp"
 #include "metal_raw_development.hpp"
 #include "raw_frame_region_development.hpp"
+#include "raw_highlight_reconstruction.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -183,7 +184,8 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
              &output,
              reconstruction_dimensions,
              output_dimensions,
-             area_sampling](const std::uint32_t first_row, const std::uint32_t last_row) {
+             area_sampling,
+             highlight_recovery](const std::uint32_t first_row, const std::uint32_t last_row) {
                 for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
                     for (std::uint32_t output_x = 0U; output_x < output_dimensions.width;
                          ++output_x) {
@@ -205,7 +207,11 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                              + output_x)
                             * 3U;
                         raw_pipeline_detail::write_raw_frame_transformed_pixel(
-                            camera,
+                            detail::reconstruct_cfa_highlights(
+                                camera,
+                                transform,
+                                highlight_recovery
+                            ),
                             transform,
                             output.samples.data() + output_index
                         );
@@ -252,7 +258,8 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=scene-linear-cfa-headroom-through-demosaic-20260819.1";
+        return "sensor-highlights=shadow-cfa-evidence-v10;shoulder=continuous-cfa-headroom;target="
+               "h0-white-ceiling+residual-neutral-0.40";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:

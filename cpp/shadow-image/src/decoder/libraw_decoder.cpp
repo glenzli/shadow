@@ -175,10 +175,14 @@ raw_frame_black_level(const libraw_colordata_t& color, const int color_index) no
 }
 
 [[nodiscard]] std::uint32_t
-raw_frame_white_level(const libraw_colordata_t& color, const int color_index) noexcept {
-    const auto channel_maximum = color.linear_max[static_cast<std::size_t>(color_index)];
-    const auto black_level = raw_frame_black_level(color, color_index);
-    return channel_maximum > black_level ? channel_maximum : color.maximum;
+raw_frame_white_level(const libraw_colordata_t& color) noexcept {
+    // `linear_max` is LibRaw's per-channel boundary for the recorded linear-response region,
+    // not the CFA sample coding white.  Using it here silently makes the Bayer normalisation
+    // and sensor-clipping stages discard the remaining sensor headroom one channel at a time.
+    // LibRaw's `maximum` is the calibrated code-value white reference for this RAW frame; keep
+    // it shared across CFA sites and leave channel relationships available to later highlight
+    // treatment rather than clipping them during source preparation.
+    return color.maximum;
 }
 
 [[nodiscard]] bool positive_finite(const double value) noexcept {
@@ -778,7 +782,7 @@ class LibRawSession final : public DecodeSession {
         const auto& color = decoder_.imgdata.color;
         for (std::size_t site = 0U; site < descriptor.black_levels.size(); ++site) {
             descriptor.black_levels[site] = raw_frame_black_level(color, color_indices[site]);
-            descriptor.white_levels[site] = raw_frame_white_level(color, color_indices[site]);
+            descriptor.white_levels[site] = raw_frame_white_level(color);
         }
         descriptor.sensor_noise =
             resolve_dng_noise_profile(dng_noise_profile_, descriptor, metadata_.iso_speed);

@@ -16,6 +16,17 @@ namespace shadow::image::detail {
 
 namespace {
 
+constexpr float highlight_shoulder_start = 0.88F;
+
+[[nodiscard]] float cfa_highlight_risk(const float normalized_sensor) noexcept {
+    const float t = std::clamp(
+        (normalized_sensor - highlight_shoulder_start) / (1.0F - highlight_shoulder_start),
+        0.0F,
+        1.0F
+    );
+    return t * t * (3.0F - 2.0F * t);
+}
+
 [[nodiscard]] int rgb_channel(const RawCfaColor color) noexcept {
     switch (color) {
     case RawCfaColor::red:
@@ -42,11 +53,10 @@ namespace {
     return descriptor.bayer_2x2[cfa_site(raw_x, raw_y)];
 }
 
-[[nodiscard]] float normalized_sample(
+[[nodiscard]] float normalized_sensor_sample(
     const RawFrame& frame,
     const std::uint32_t raw_x,
-    const std::uint32_t raw_y,
-    const RawFrameLinearTransform* const transform
+    const std::uint32_t raw_y
 ) noexcept {
     const auto& descriptor = frame.descriptor;
     const auto site = cfa_site(raw_x, raw_y);
@@ -54,11 +64,43 @@ namespace {
     const auto index = static_cast<std::size_t>(raw_y) * width + raw_x;
     const double black = descriptor.black_levels[site];
     const double white = descriptor.white_levels[site];
-    double normalized = (static_cast<double>(frame.samples[index]) - black) / (white - black);
+    const double normalized = (static_cast<double>(frame.samples[index]) - black) / (white - black);
+    return static_cast<float>(normalized);
+}
+
+[[nodiscard]] float normalized_sample(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y,
+    const RawFrameLinearTransform* const transform
+) noexcept {
+    const auto site = cfa_site(raw_x, raw_y);
+    double normalized = normalized_sensor_sample(frame, raw_x, raw_y);
     if (transform != nullptr && transform->apply_cfa_white_balance) {
         normalized *= transform->cfa_white_balance[site];
     }
     return static_cast<float>(normalized);
+}
+
+[[nodiscard]] RawCfaFootprint cfa_highlight_risk_footprint_at(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y
+) noexcept {
+    const auto& dimensions = frame.descriptor.storage_dimensions;
+    const auto max_even_x = (dimensions.width - 2U) & ~1U;
+    const auto max_even_y = (dimensions.height - 2U) & ~1U;
+    const auto base_x = std::min(raw_x & ~1U, max_even_x);
+    const auto base_y = std::min(raw_y & ~1U, max_even_y);
+    RawCfaFootprint result{};
+    for (std::uint32_t dy = 0U; dy < 2U; ++dy) {
+        for (std::uint32_t dx = 0U; dx < 2U; ++dx) {
+            const auto x = base_x + dx;
+            const auto y = base_y + dy;
+            result[cfa_site(x, y)] = cfa_highlight_risk(normalized_sensor_sample(frame, x, y));
+        }
+    }
+    return result;
 }
 
 [[nodiscard]] bool in_sensor_bounds(
@@ -217,6 +259,7 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
         result.values[channel] =
             static_cast<float>(totals[channel] / static_cast<double>(counts[channel]));
     }
+    result.cfa_highlight_risk = cfa_highlight_risk_footprint_at(frame, raw_x, raw_y);
     return result;
 }
 
@@ -381,6 +424,8 @@ CameraRgbSample area_camera_rgb_sample_at(
 
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
+    std::array<float, 4U> risk_maximums{};
+    std::array<double, 4U> risk_weights{};
     for (std::uint32_t raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const double overlap_y = std::max(
             0.0,
@@ -402,6 +447,12 @@ CameraRgbSample area_camera_rgb_sample_at(
             const auto normalized = normalized_sample(frame, raw_x, raw_y, transform);
             totals[index] += normalized * weight;
             weights[index] += weight;
+            const auto site = cfa_site(raw_x, raw_y);
+            risk_maximums[site] = std::max(
+                risk_maximums[site],
+                cfa_highlight_risk(normalized_sensor_sample(frame, raw_x, raw_y))
+            );
+            risk_weights[site] += weight;
         }
     }
 
@@ -419,6 +470,20 @@ CameraRgbSample area_camera_rgb_sample_at(
             return bilinear_camera_rgb_sample_at(frame, center_x, center_y, transform);
         }
         result.values[channel] = static_cast<float>(totals[channel] / weights[channel]);
+    }
+    for (std::size_t site = 0U; site < result.cfa_highlight_risk.size(); ++site) {
+        if (risk_weights[site] <= 0.0) {
+            const auto center_x = std::min(
+                descriptor.storage_dimensions.width - 1U,
+                static_cast<std::uint32_t>((source_left + source_right) * 0.5)
+            );
+            const auto center_y = std::min(
+                descriptor.storage_dimensions.height - 1U,
+                static_cast<std::uint32_t>((source_top + source_bottom) * 0.5)
+            );
+            return bilinear_camera_rgb_sample_at(frame, center_x, center_y, transform);
+        }
+        result.cfa_highlight_risk[site] = risk_maximums[site];
     }
     return result;
 }

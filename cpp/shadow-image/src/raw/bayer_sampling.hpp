@@ -13,13 +13,15 @@ struct RawFrameLinearTransform;
 namespace detail {
 
 using CameraRgb = std::array<float, 3U>;
+using RawCfaFootprint = std::array<float, 4U>;
 
-// Camera-linear reconstruction carries measured, normalized camera RGB plus any headroom produced
-// by physical CFA white balance. Sensor clipping is projected separately from the immutable RAW
-// plane, so source development never alters colour merely because one CFA channel reached its
-// calibrated ceiling.
+// Camera-linear reconstruction carries both WB-applied camera RGB and a per-site CFA highlight
+// risk. The risk is formed from calibrated physical headroom before white balance; a bounded
+// preview retains the highest continuous risk from each CFA site, so a narrow sensor plateau is
+// not diluted into a false low-risk colour during downsampling.
 struct CameraRgbSample final {
     CameraRgb values{};
+    RawCfaFootprint cfa_highlight_risk{};
 };
 
 struct BayerAreaSamplingGrid final {

@@ -49,7 +49,7 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity versions the RAW development plan contract"
     );
     expect(
-        version.find("frame=2026080601-n1") != std::string_view::npos,
+        version.find("frame=2026081901-n1") != std::string_view::npos,
         "provider identity versions the owned RAW frame contract"
     );
     expect(
@@ -166,6 +166,16 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
         const auto frame = decoder->decode_raw_frame();
         expect(frame.valid(), "real LibRaw RAW frame preserves a complete owned sample plane");
         known_canon_black_level_fixture_keeps_common_and_component_terms(fixture, frame);
+        expect(
+            std::ranges::all_of(
+                frame.descriptor.white_levels,
+                [&decoder](const std::uint32_t white_level) {
+                    return white_level == decoder->metadata().white_level;
+                }
+            ),
+            "RawFrame uses LibRaw's calibrated coding white at every CFA site instead of "
+            "truncating a channel at linear_max"
+        );
         expect(
             frame.descriptor.provider_id == provider->info().id
                 && frame.descriptor.provider_version == provider->info().version,

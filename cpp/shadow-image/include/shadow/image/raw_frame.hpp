@@ -21,7 +21,11 @@ namespace shadow::image {
 // Shadow is still in its fast, pre-release iteration phase: this number names the one current
 // RawFrame layout, not a backwards-compatibility promise. When the layout changes, all local
 // providers are rebuilt together and obsolete artifacts are discarded.
-inline constexpr std::uint32_t raw_frame_schema_version = 2026080601U;
+// The per-site white levels name LibRaw's calibrated coding white (not the
+// channel-specific linear-response shoulder).  Bump this whenever the
+// RawFrame sample-normalisation contract changes so cached frames and their
+// downstream GPU receipts cannot mix the two semantics.
+inline constexpr std::uint32_t raw_frame_schema_version = 2026081901U;
 
 enum class RawFrameSampleEncoding : std::uint8_t {
     uint16_native,

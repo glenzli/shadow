@@ -44,9 +44,10 @@ struct RawDevelopmentParameters final {
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
+    std::uint32_t reconstruct_cfa_highlights = 0U;
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 164U);
+static_assert(sizeof(RawDevelopmentParameters) == 168U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -58,6 +59,7 @@ static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
 static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
 static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 144U);
 static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 160U);
+static_assert(offsetof(RawDevelopmentParameters, reconstruct_cfa_highlights) == 164U);
 
 [[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
@@ -146,6 +148,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions,
     const RawDevelopmentQuality quality,
+    const RawHighlightRecoveryIntent highlight_recovery,
     const bool project_sensor_clipping
 ) {
     const auto& descriptor = frame.descriptor;
@@ -177,6 +180,8 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
+    parameters.reconstruct_cfa_highlights =
+        highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
     return parameters;
 }
 
@@ -385,6 +390,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             reconstruction_dimensions,
             output_dimensions,
             quality,
+            highlight_recovery,
             continuations.project_sensor_clipping
         );
         const auto pipeline =
@@ -900,6 +906,7 @@ MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develo
             reconstruction_dimensions,
             output_dimensions,
             quality,
+            highlight_recovery,
             false
         );
         parameters.output_tile_height = output_dimensions.height;

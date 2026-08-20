@@ -1,4 +1,5 @@
 #include "raw_frame_region_development.hpp"
+#include "raw_highlight_reconstruction.hpp"
 
 #include <shadow/image/decoder_error.hpp>
 
@@ -391,9 +392,9 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
         );
     }
 
-    // This policy remains part of the prepared recipe/receipt contract. Reconstruction itself
-    // preserves measured camera RGB for both supported intents; later rendering may make an
-    // explicit, display-facing highlight decision without mutating the decoded source.
+    // Shadow's source policy is deliberately limited to a multi-channel CFA plateau. It never
+    // infers colour from a single clipped channel, and the disabled intent remains a strict
+    // measured-source reference.
     const Dimensions reconstruction = frame.descriptor.active_dimensions;
     const Dimensions output_dimensions =
         oriented_raw_dimensions(reconstruction, frame.descriptor.orientation);
@@ -447,7 +448,7 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
                          + local_x)
                         * 3U;
                     write_raw_frame_transformed_pixel(
-                        camera,
+                        detail::reconstruct_cfa_highlights(camera, transform, highlight_recovery),
                         transform,
                         output.samples.data() + output_index
                     );

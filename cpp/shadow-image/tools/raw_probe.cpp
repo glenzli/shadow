@@ -247,7 +247,130 @@ void extract_best_preview(image::DecodeSession& session, const fs::path& output_
               << "timing.thumbnail_ms=" << timer.elapsed_ms() << '\n';
 }
 
-void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_directory) {
+struct RawFrameCfaSiteStatistics final {
+    std::uint64_t sample_count = 0U;
+    std::uint64_t below_black = 0U;
+    std::uint64_t at_or_above_white = 0U;
+    std::uint16_t minimum = std::numeric_limits<std::uint16_t>::max();
+    std::uint16_t maximum = 0U;
+    double maximum_normalized = -std::numeric_limits<double>::infinity();
+    long double total = 0.0L;
+};
+
+struct RawFrameInspectionRegion final {
+    std::uint32_t x = 0U;
+    std::uint32_t y = 0U;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+};
+
+[[nodiscard]] std::uint32_t parse_inspection_coordinate(const char* text, const char* name) {
+    const unsigned long value = std::stoul(text);
+    if (value > std::numeric_limits<std::uint32_t>::max()) {
+        throw std::invalid_argument(std::string(name) + " is outside the uint32 range");
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
+struct RawFrameNormalizationCandidates final {
+    std::array<double, 3U> linear_limit_clipped_camera_rgb{};
+    std::array<double, 3U> code_max_clipped_camera_rgb{};
+    std::array<double, 3U> linear_limit_clipped_srgb{};
+    std::array<double, 3U> code_max_clipped_srgb{};
+};
+
+[[nodiscard]] std::array<double, 3U> apply_camera_matrix(
+    const std::array<double, 9U>& matrix,
+    const std::array<double, 3U>& camera_rgb
+) {
+    return {
+        matrix[0] * camera_rgb[0] + matrix[1] * camera_rgb[1] + matrix[2] * camera_rgb[2],
+        matrix[3] * camera_rgb[0] + matrix[4] * camera_rgb[1] + matrix[5] * camera_rgb[2],
+        matrix[6] * camera_rgb[0] + matrix[7] * camera_rgb[1] + matrix[8] * camera_rgb[2],
+    };
+}
+
+[[nodiscard]] std::optional<std::size_t> cfa_rgb_index(const image::RawCfaColor color) noexcept {
+    switch (color) {
+    case image::RawCfaColor::red:
+        return 0U;
+    case image::RawCfaColor::green:
+        return 1U;
+    case image::RawCfaColor::blue:
+        return 2U;
+    case image::RawCfaColor::unknown:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] RawFrameNormalizationCandidates calculate_normalization_candidates(
+    const image::RawFrame& frame,
+    const std::array<RawFrameCfaSiteStatistics, 4U>& statistics
+) {
+    if (frame.descriptor.bits_per_sample == 0U || frame.descriptor.bits_per_sample >= 32U) {
+        throw std::runtime_error("RAW-frame diagnostic requires a 1..31 bit sensor encoding");
+    }
+    const auto bounded_mean = [&](const std::size_t site, const std::uint32_t white) {
+        const auto& site_statistics = statistics[site];
+        const std::uint32_t black = frame.descriptor.black_levels[site];
+        if (site_statistics.sample_count == 0U || white <= black
+            || !std::isfinite(frame.descriptor.as_shot_neutral[site])
+            || frame.descriptor.as_shot_neutral[site] <= 0.0) {
+            throw std::runtime_error("RAW-frame diagnostic has incomplete per-site calibration");
+        }
+        const double mean = static_cast<double>(
+            site_statistics.total / static_cast<long double>(site_statistics.sample_count)
+        );
+        return std::clamp(
+            (mean - static_cast<double>(black)) / static_cast<double>(white - black),
+            0.0,
+            1.0
+        );
+    };
+    const std::uint32_t code_max =
+        (std::uint32_t{1} << frame.descriptor.bits_per_sample) - std::uint32_t{1};
+    std::array<double, 3U> linear_limit_camera_rgb{};
+    std::array<double, 3U> code_max_camera_rgb{};
+    std::array<unsigned, 3U> color_counts{};
+    for (std::size_t site = 0U; site < statistics.size(); ++site) {
+        const auto color = cfa_rgb_index(frame.descriptor.bayer_2x2[site]);
+        if (!color.has_value()) {
+            throw std::runtime_error("RAW-frame diagnostic encountered an unknown Bayer CFA colour");
+        }
+        const double white_balance = 1.0 / frame.descriptor.as_shot_neutral[site];
+        linear_limit_camera_rgb[*color] +=
+            bounded_mean(site, frame.descriptor.white_levels[site]) * white_balance;
+        code_max_camera_rgb[*color] += bounded_mean(site, code_max) * white_balance;
+        ++color_counts[*color];
+    }
+    for (std::size_t color = 0U; color < linear_limit_camera_rgb.size(); ++color) {
+        if (color_counts[color] == 0U) {
+            throw std::runtime_error("Bayer CFA statistics are missing a camera colour channel");
+        }
+        linear_limit_camera_rgb[color] /= static_cast<double>(color_counts[color]);
+        code_max_camera_rgb[color] /= static_cast<double>(color_counts[color]);
+    }
+    return RawFrameNormalizationCandidates{
+        .linear_limit_clipped_camera_rgb = linear_limit_camera_rgb,
+        .code_max_clipped_camera_rgb = code_max_camera_rgb,
+        .linear_limit_clipped_srgb = apply_camera_matrix(
+            frame.descriptor.camera_to_linear_srgb_d65,
+            linear_limit_camera_rgb
+        ),
+        .code_max_clipped_srgb = apply_camera_matrix(
+            frame.descriptor.camera_to_linear_srgb_d65,
+            code_max_camera_rgb
+        ),
+    };
+}
+
+void inspect_raw_frame(
+    image::DecodeSession& session,
+    const fs::path& output_directory,
+    const bool write_samples,
+    const std::optional<RawFrameInspectionRegion> inspection_region
+) {
     const Stopwatch timer;
     const image::RawFrame frame = session.decode_raw_frame();
     if (!frame.valid()) {
@@ -262,8 +385,42 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
         checksum *= 1'099'511'628'211ULL;
     }
 
+    std::array<RawFrameCfaSiteStatistics, 4U> cfa_site_statistics{};
+    if (!write_samples && frame.is_bayer_2x2()) {
+        const auto width = frame.descriptor.storage_dimensions.width;
+        const auto height = frame.descriptor.storage_dimensions.height;
+        const RawFrameInspectionRegion region = inspection_region.value_or(
+            RawFrameInspectionRegion{.x = 0U, .y = 0U, .width = width, .height = height}
+        );
+        if (region.width == 0U || region.height == 0U || region.x >= width || region.y >= height
+            || region.width > width - region.x || region.height > height - region.y) {
+            throw std::runtime_error("RAW-frame inspection region is outside the stored sensor");
+        }
+        for (std::uint32_t y = region.y; y < region.y + region.height; ++y) {
+            for (std::uint32_t x = region.x; x < region.x + region.width; ++x) {
+                const std::size_t site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+                const std::size_t index = static_cast<std::size_t>(y) * width + x;
+                const std::uint16_t value = frame.samples[index];
+                auto& statistics = cfa_site_statistics[site];
+                const std::uint32_t black = frame.descriptor.black_levels[site];
+                const std::uint32_t white = frame.descriptor.white_levels[site];
+                const double normalized = (static_cast<double>(value) - static_cast<double>(black))
+                                          / static_cast<double>(white - black);
+                ++statistics.sample_count;
+                statistics.below_black += value < black ? 1U : 0U;
+                statistics.at_or_above_white += value >= white ? 1U : 0U;
+                statistics.minimum = std::min(statistics.minimum, value);
+                statistics.maximum = std::max(statistics.maximum, value);
+                statistics.maximum_normalized = std::max(statistics.maximum_normalized, normalized);
+                statistics.total += value;
+            }
+        }
+    }
+
     const fs::path output_path = output_directory / "raw-frame.pgm";
-    write_u16_pnm(output_path, frame.descriptor.storage_dimensions, 1U, frame.samples);
+    if (write_samples) {
+        write_u16_pnm(output_path, frame.descriptor.storage_dimensions, 1U, frame.samples);
+    }
     const auto sample_count = static_cast<long double>(frame.samples.size());
     const auto& sensor_noise = frame.descriptor.sensor_noise;
     const char* sensor_noise_model =
@@ -322,8 +479,76 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
               << "raw_frame.mean=" << static_cast<double>(total / sample_count) << '\n'
               << "raw_frame.fnv1a64=" << std::hex << std::setw(16) << std::setfill('0') << checksum
               << std::dec << std::setfill(' ') << '\n'
-              << "raw_frame.output=" << output_path.string() << '\n'
+              << "raw_frame.output=" << (write_samples ? output_path.string() : "not-written") << '\n'
               << "timing.raw_frame_ms=" << timer.elapsed_ms() << '\n';
+    if (!write_samples && frame.is_bayer_2x2()) {
+        const RawFrameInspectionRegion region = inspection_region.value_or(
+            RawFrameInspectionRegion{
+                .x = 0U,
+                .y = 0U,
+                .width = frame.descriptor.storage_dimensions.width,
+                .height = frame.descriptor.storage_dimensions.height,
+            }
+        );
+        std::cout << "raw_frame.inspection_region=" << region.x << ',' << region.y << ','
+                  << region.width << 'x' << region.height << '\n';
+        for (std::size_t site = 0U; site < cfa_site_statistics.size(); ++site) {
+            const auto& statistics = cfa_site_statistics[site];
+            const double mean = static_cast<double>(
+                statistics.total / static_cast<long double>(statistics.sample_count)
+            );
+            const std::uint32_t code_max =
+                (std::uint32_t{1} << frame.descriptor.bits_per_sample) - std::uint32_t{1};
+            const std::uint32_t black = frame.descriptor.black_levels[site];
+            const double mean_normalized_linear_limit =
+                (mean - static_cast<double>(black))
+                / static_cast<double>(frame.descriptor.white_levels[site] - black);
+            const double mean_normalized_code_max =
+                (mean - static_cast<double>(black)) / static_cast<double>(code_max - black);
+            std::cout << "raw_frame.cfa_site." << site << ".color="
+                      << static_cast<unsigned>(frame.descriptor.bayer_2x2[site]) << '\n'
+                      << "raw_frame.cfa_site." << site << ".black="
+                      << frame.descriptor.black_levels[site] << '\n'
+                      << "raw_frame.cfa_site." << site << ".white="
+                      << frame.descriptor.white_levels[site] << '\n'
+                      << "raw_frame.cfa_site." << site << ".minimum=" << statistics.minimum
+                      << '\n'
+                      << "raw_frame.cfa_site." << site << ".maximum=" << statistics.maximum
+                      << '\n'
+                      << "raw_frame.cfa_site." << site << ".mean=" << mean << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".mean_normalized_linear_limit_unbounded="
+                      << mean_normalized_linear_limit << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".mean_normalized_code_max=" << mean_normalized_code_max << '\n'
+                      << "raw_frame.cfa_site." << site << ".max_normalized="
+                      << statistics.maximum_normalized << '\n'
+                      << "raw_frame.cfa_site." << site << ".below_black="
+                      << statistics.below_black << '\n'
+                      << "raw_frame.cfa_site." << site << ".at_or_above_white="
+                      << statistics.at_or_above_white << '\n';
+        }
+        const RawFrameNormalizationCandidates candidates =
+            calculate_normalization_candidates(frame, cfa_site_statistics);
+        std::cout << "raw_frame.candidate.note=CFA-site-mean diagnostic only; not a demosaic or rendering prediction\n"
+                  << "raw_frame.candidate.rendering_path=unchanged\n"
+                  << "raw_frame.candidate.linear_limit_clipped.camera_rgb="
+                  << candidates.linear_limit_clipped_camera_rgb[0] << ','
+                  << candidates.linear_limit_clipped_camera_rgb[1] << ','
+                  << candidates.linear_limit_clipped_camera_rgb[2] << '\n'
+                  << "raw_frame.candidate.linear_limit_clipped.linear_srgb="
+                  << candidates.linear_limit_clipped_srgb[0] << ','
+                  << candidates.linear_limit_clipped_srgb[1] << ','
+                  << candidates.linear_limit_clipped_srgb[2] << '\n'
+                  << "raw_frame.candidate.code_max_clipped.camera_rgb="
+                  << candidates.code_max_clipped_camera_rgb[0] << ','
+                  << candidates.code_max_clipped_camera_rgb[1] << ','
+                  << candidates.code_max_clipped_camera_rgb[2] << '\n'
+                  << "raw_frame.candidate.code_max_clipped.linear_srgb="
+                  << candidates.code_max_clipped_srgb[0] << ','
+                  << candidates.code_max_clipped_srgb[1] << ','
+                  << candidates.code_max_clipped_srgb[2] << '\n';
+    }
 }
 
 void render_reference_rgb(
@@ -590,6 +815,8 @@ int run(
     const bool denoise_diagnostic,
     const bool highlight_diagnostic,
     const bool raw_frame_only,
+    const bool raw_frame_statistics_only,
+    const std::optional<RawFrameInspectionRegion> raw_frame_inspection_region,
     const std::optional<image::RawWhiteBalance> white_balance
 ) {
     fs::create_directories(output_directory);
@@ -605,13 +832,18 @@ int run(
               << "output_directory=" << output_directory.string() << '\n'
               << "timing.open_ms=" << open_timer.elapsed_ms() << '\n';
     print_session(provider->info(), *session);
-    if (raw_frame_only) {
+    if (raw_frame_only || raw_frame_statistics_only) {
         if (!session->capabilities().raw_frame) {
             std::cout << "raw_frame.status=unavailable\n"
                       << "raw_frame.reason=provider-does-not-expose-raw-frame\n";
             return 0;
         }
-        inspect_raw_frame(*session, output_directory);
+        inspect_raw_frame(
+            *session,
+            output_directory,
+            raw_frame_only,
+            raw_frame_statistics_only ? raw_frame_inspection_region : std::nullopt
+        );
         return 0;
     }
     extract_best_preview(*session, output_directory);
@@ -648,7 +880,7 @@ int run(
         render_reference_rgb(*session, output_directory, white_balance);
         return 0;
     }
-    inspect_raw_frame(*session, output_directory);
+    inspect_raw_frame(*session, output_directory, true, std::nullopt);
     render_reference_rgb(*session, output_directory, white_balance);
     return 0;
 }
@@ -664,18 +896,33 @@ int main(const int argument_count, char** arguments) {
         argument_count == 4 && std::string_view(arguments[3]) == "--highlight-diagnostic";
     const bool raw_frame_only =
         argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-only";
+    const bool raw_frame_statistics_only =
+        argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-stats";
+    const bool raw_frame_statistics_region =
+        argument_count == 8 && std::string_view(arguments[3]) == "--raw-frame-stats-region";
     const bool manual_white_balance =
         argument_count == 6 && std::string_view(arguments[3]) == "--manual-white-balance";
     if (argument_count != 3 && !preview_only && !denoise_diagnostic && !highlight_diagnostic
-        && !raw_frame_only && !manual_white_balance) {
+        && !raw_frame_only && !raw_frame_statistics_only && !raw_frame_statistics_region
+        && !manual_white_balance) {
         std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> "
                      "[--preview-only|--denoise-diagnostic|--highlight-diagnostic|"
-                     "--raw-frame-only|"
+                     "--raw-frame-only|--raw-frame-stats|"
+                     "--raw-frame-stats-region <x> <y> <width> <height>|"
                      "--manual-white-balance <kelvin> <tint>]\n";
         return 2;
     }
 
     try {
+        std::optional<RawFrameInspectionRegion> raw_frame_inspection_region;
+        if (raw_frame_statistics_region) {
+            raw_frame_inspection_region = RawFrameInspectionRegion{
+                .x = parse_inspection_coordinate(arguments[4], "inspection x"),
+                .y = parse_inspection_coordinate(arguments[5], "inspection y"),
+                .width = parse_inspection_coordinate(arguments[6], "inspection width"),
+                .height = parse_inspection_coordinate(arguments[7], "inspection height"),
+            };
+        }
         std::optional<image::RawWhiteBalance> white_balance;
         if (manual_white_balance) {
             const auto temperature = std::stoul(arguments[4]);
@@ -701,6 +948,8 @@ int main(const int argument_count, char** arguments) {
             denoise_diagnostic,
             highlight_diagnostic,
             raw_frame_only,
+            raw_frame_statistics_only || raw_frame_statistics_region,
+            raw_frame_inspection_region,
             white_balance
         );
     } catch (const image::DecodeError& error) {

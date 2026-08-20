@@ -154,6 +154,13 @@ if(SHADOW_BUILD_RAW_PROBE)
     add_executable(shadow-raw-probe tools/raw_probe.cpp)
     target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-raw-probe)
+
+    # Narrow diagnostic for comparing a vendor-developed RGB reference with the
+    # exact CFA/WB/matrix stages Shadow owns.  It intentionally produces only
+    # numeric evidence and never participates in the desktop render path.
+    add_executable(shadow-raw-stage-probe tools/raw_stage_probe.cpp)
+    target_link_libraries(shadow-raw-stage-probe PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-raw-stage-probe)
 endif()
 
 #The desktop starts this tiny executable for untrusted or proprietary RAW
