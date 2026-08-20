@@ -424,7 +424,7 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
   expect(cpu.valid() &&
              cpu_identity ==
                  "shadow-edit-preview-execution-v1;adjustment=cpu-v1;plan=1;"
-                 "display=cpu-v1;display-contract=1;route=staged",
+                 "display=cpu-v1;display-contract=2;route=staged",
          "the current CPU adjustment/display route has one canonical cache "
          "identity");
 

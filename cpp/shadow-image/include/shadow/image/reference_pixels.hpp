@@ -27,12 +27,14 @@ struct PixelBuffer final {
 // those decode semantics must increment this cache-visible contract version.
 inline constexpr std::uint32_t processed_linear_reference_rgb_contract_version = 1U;
 inline constexpr float processed_linear_reference_maximum_adjustment_threshold = 0.0F;
-// The v1 output accepts both standardized scene-referred RAW RGB and standardized display-referred
-// raster RGB. RAW first receives Shadow's neutral scene-to-display curve; JPEG/SDR HEIF keeps
-// its existing display rendering and receives only gamut mapping plus the sRGB OETF. JPEG proxy
-// encoding uses 4:4:4 sampling so this output contract does not discard chroma detail after
-// rendering. It is a deterministic SDR display rendering, not a camera-JPEG emulation.
-inline constexpr std::uint32_t display_srgb8_output_transform_version = 1U;
+// The v2 output accepts both standardized scene-referred RAW RGB and standardized display-referred
+// raster RGB. Scene-referred RAW uses LibRaw H=0's BT.709-style transfer expressed in linear
+// sRGB before the common sRGB OETF: unit scene white remains display white and super-white clips
+// instead of receiving a filmic shoulder. JPEG/SDR HEIF keeps its existing display rendering and
+// receives only gamut mapping plus the sRGB OETF. JPEG proxy encoding uses 4:4:4 sampling so this
+// output contract does not discard chroma detail after rendering. It is a deterministic SDR display
+// rendering, not a camera-JPEG emulation.
+inline constexpr std::uint32_t display_srgb8_output_transform_version = 2U;
 // The gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
 // above the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code
 // step.

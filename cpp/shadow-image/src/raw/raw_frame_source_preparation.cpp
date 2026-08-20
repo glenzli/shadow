@@ -16,7 +16,7 @@ namespace shadow::image::raw_pipeline_detail {
 namespace {
 
 inline constexpr std::string_view raw_frame_pipeline_identity =
-    "shadow-raw-frame-developer@20260821.2:cfa-wb-before-demosaic:decoder-matrix-dcp-neutral-only:"
+    "shadow-raw-frame-developer@20260821.4:cfa-wb-before-demosaic:decoder-matrix-dcp-neutral-only:"
     "bayer-area-preview+bayer-bilinear:raw-denoise-cfa-bilateral-v1:plan-camera-neutral:"
     "camera-matrix:scene-linear-f32";
 
@@ -253,6 +253,8 @@ DevelopedSourceReference materialize_prepared_raw_frame_source(PreparedRawFrameS
         .raw_development_receipt = std::move(raw_receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = std::move(developed.sensor_clipping_mask),
+        .sensor_highlight_chroma_confidence =
+            std::move(developed.sensor_highlight_chroma_confidence),
     };
 }
 

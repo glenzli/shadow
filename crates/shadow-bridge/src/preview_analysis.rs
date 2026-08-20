@@ -34,7 +34,10 @@ pub const EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION: u32 = 1;
-pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 1;
+// Must match `shadow::image::display_srgb8_output_transform_version` in the native image
+// kernel. The paired native-identity assertion in `analyzed_output_contract` makes a future
+// C++ display-transform revision fail at the bridge boundary before it reaches the desktop.
+pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 2;
 
 /// Per-preview-pixel source headroom information projected from unprocessed RAW samples.
 ///

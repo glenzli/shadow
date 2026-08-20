@@ -89,16 +89,23 @@ inline float scene_luminance_to_display_luminance(float luminance) {
     if (!(luminance > 0.0f)) {
         return 0.0f;
     }
-    constexpr float maximum_safe_luminance = 1.0e6f;
-    constexpr float a = 2.51f;
-    constexpr float b = 0.03f;
-    constexpr float c = 2.43f;
-    constexpr float d = 0.59f;
-    constexpr float e = 0.14f;
-    const float scene = min(luminance, maximum_safe_luminance);
-    const float curved =
-        scene * (a * scene + b) / (scene * (c * scene + d) + e);
-    return clamp(curved / (a / c), 0.0f, 1.0f);
+    constexpr float scene_white = 1.0f;
+    constexpr float rec709_linear_threshold = 0.018f;
+    constexpr float rec709_slope = 4.5f;
+    constexpr float rec709_power = 0.45f;
+    constexpr float rec709_gain = 1.099f;
+    constexpr float rec709_offset = 0.099f;
+    constexpr float srgb_encoded_threshold = 0.04045f;
+    constexpr float srgb_linear_slope = 12.92f;
+    constexpr float srgb_gain = 1.055f;
+    constexpr float srgb_offset = 0.055f;
+    const float scene = clamp(luminance, 0.0f, scene_white);
+    const float rec709_encoded = scene < rec709_linear_threshold
+        ? rec709_slope * scene
+        : rec709_gain * pow(scene, rec709_power) - rec709_offset;
+    return rec709_encoded <= srgb_encoded_threshold
+        ? rec709_encoded / srgb_linear_slope
+        : pow((rec709_encoded + srgb_offset) / srgb_gain, 2.4f);
 }
 
 inline float3 neutral_scene_display_curve(float3 input) {

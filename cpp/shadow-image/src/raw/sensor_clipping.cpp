@@ -4,6 +4,7 @@
 
 #include "../concurrency/row_scheduler.hpp"
 
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -117,6 +118,13 @@ bool SensorClippingMask::valid() const noexcept {
         shadows += (sample & sensor_shadow_clipped) != 0U ? 1U : 0U;
     }
     return highlights == highlight_pixel_count && shadows == shadow_pixel_count;
+}
+
+bool SensorHighlightChromaConfidence::valid() const noexcept {
+    const auto count = dimensions.pixel_count();
+    return schema_version == sensor_highlight_chroma_confidence_schema_version && count != 0U
+           && count <= static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
+           && samples.size() == static_cast<std::size_t>(count);
 }
 
 SensorClippingMask project_sensor_clipping_mask(
@@ -236,6 +244,99 @@ SensorClippingMask project_sensor_clipping_mask(
             DecodeErrorCode::corrupt_data,
             0,
             "sensor clipping diagnostics produced an invalid output mask"
+        );
+    }
+    return output;
+}
+
+SensorHighlightChromaConfidence project_sensor_highlight_chroma_confidence(
+    const RawFrame& frame,
+    const Dimensions target_dimensions
+) {
+    if (!frame.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "sensor highlight confidence requires a valid owned RAW frame"
+        );
+    }
+    const std::size_t target_count = checked_mask_size(target_dimensions);
+    const auto& descriptor = frame.descriptor;
+    const Dimensions oriented_active = oriented_dimensions(
+        descriptor.active_dimensions,
+        descriptor.orientation
+    );
+    SensorHighlightChromaConfidence output;
+    output.dimensions = target_dimensions;
+    output.samples.resize(target_count);
+    const auto storage_width = static_cast<std::size_t>(descriptor.storage_dimensions.width);
+    detail::parallel_for_rows(
+        target_dimensions.height,
+        8U,
+        [&frame, &output, &descriptor, target_dimensions, oriented_active, storage_width](
+            const std::uint32_t first_target_y,
+            const std::uint32_t last_target_y
+        ) {
+            for (std::uint32_t target_y = first_target_y; target_y < last_target_y; ++target_y) {
+                const auto oriented_y_begin = target_bin_begin(
+                    target_y, oriented_active.height, target_dimensions.height
+                );
+                const auto oriented_y_end = target_bin_end(
+                    target_y, oriented_active.height, target_dimensions.height
+                );
+                for (std::uint32_t target_x = 0U; target_x < target_dimensions.width; ++target_x) {
+                    const auto oriented_x_begin = target_bin_begin(
+                        target_x, oriented_active.width, target_dimensions.width
+                    );
+                    const auto oriented_x_end = target_bin_end(
+                        target_x, oriented_active.width, target_dimensions.width
+                    );
+                    float least_headroom = 1.0F;
+                    for (std::uint32_t oriented_y = oriented_y_begin;
+                         oriented_y < oriented_y_end;
+                         ++oriented_y) {
+                        for (std::uint32_t oriented_x = oriented_x_begin;
+                             oriented_x < oriented_x_end;
+                             ++oriented_x) {
+                            const Dimensions active = coordinate_from_display_orientation(
+                                descriptor.active_dimensions,
+                                descriptor.orientation,
+                                oriented_x,
+                                oriented_y
+                            );
+                            const std::uint32_t raw_x = descriptor.active_margins.left + active.width;
+                            const std::uint32_t raw_y = descriptor.active_margins.top + active.height;
+                            const auto site = cfa_site(raw_x, raw_y);
+                            const float black = static_cast<float>(descriptor.black_levels[site]);
+                            const float white = static_cast<float>(descriptor.white_levels[site]);
+                            const float sample = static_cast<float>(frame.samples[
+                                static_cast<std::size_t>(raw_y) * storage_width + raw_x
+                            ]);
+                            const float normalized = (sample - black) / (white - black);
+                            least_headroom = std::min(
+                                least_headroom,
+                                1.0F - std::clamp(normalized, 0.0F, 1.0F)
+                            );
+                        }
+                    }
+                    // Ignore the large, well-measured portion of the range and use a smooth
+                    // shoulder over the final quarter-stop-ish sensor interval.  The adjustment
+                    // path applies this only while Highlights is being pulled down.
+                    const float t = std::clamp((least_headroom - 0.01F) / 0.24F, 0.0F, 1.0F);
+                    const float confidence = t * t * (3.0F - 2.0F * t);
+                    output.samples[static_cast<std::size_t>(target_y) * target_dimensions.width
+                                   + target_x] = static_cast<std::uint8_t>(std::lround(
+                        confidence * 255.0F
+                    ));
+                }
+            }
+        }
+    );
+    if (!output.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::corrupt_data,
+            0,
+            "sensor highlight confidence produced an invalid output map"
         );
     }
     return output;

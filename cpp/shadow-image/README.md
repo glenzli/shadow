@@ -134,18 +134,18 @@ Current contract rules:
   exact-DCP admission, final RawFrame pipeline receipt, and unforgeable source identity shared by
   materialized and resident consumers. Only that owner may prepare region optics for publication,
   so independently prepared or cross-source camera/optics state is rejected before CFA work or
-  device upload. `src/raw/raw_highlight_reconstruction.*` owns Shadow's source-stage CFA highlight
-  policy: the default treatment uses each physical CFA site's calibrated remaining headroom to
-  form a continuous shoulder before the site reaches white. A bounded preview retains the highest
-  such risk per CFA site while keeping its RGB area integration unchanged. A single high-risk site
-  stays measured, so genuinely saturated coloured lights retain their path; once a second site
-  loses confidence, the already-white-balanced components are smoothly limited to the canonical
-  white point. A residual 40% scene-neutral stabilization may then suppress false plateau colour,
-  but it neither rebuilds detail nor runs for a single saturated colour. This keeps the result
-  deliberately comparable to LibRaw H=0 rather than H=3. This is a source-evidence policy,
-  not a vendor curve or output-space desaturation. `disabled` is consequently an exact
-  diagnostic/reference route, and the selected policy is part of the developed cache identity.
-  CPU and Metal reconstruction apply the same policy before their camera transforms.
+  device upload. The default source treatment applies selected CFA gains (normalized by their
+  minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
+  carries it above one. A sample at physical sensor white is limited at the white point because it
+  contains no further measured headroom; no post-demosaic highlight blending or rebuild is
+  performed. Alongside the binary clipping diagnostic, source preparation projects one continuous
+  pre-WB CFA confidence byte per bounded warm-preview output pixel. It is immutable source evidence: only a negative
+  Highlights edit may use low confidence to contain unmeasured Oklab chroma, while ordinary
+  exposure and all high-confidence colour retain their normal path. The final display path, after
+  editable nodes, is the LibRaw H=0 reference mapping. `disabled` stays an
+  explicit unbounded diagnostic plan for compatibility, while the selected policy remains part of
+  the developed cache identity. CPU and Metal apply the same CFA-scale route before their camera
+  transforms.
   `src/raw/raw_frame_source_development.*` consumes that preparation for the complete
   CPU/Metal materialization transaction. `src/raw/raw_frame_region_development.*` owns the exact
   CPU region contract: oriented output cores, active-sensor reconstruction coordinates,
@@ -204,9 +204,9 @@ DNG technology notice: This product includes DNG technology under license by Ado
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
 `metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, source-clipping projection, and
-the same CFA-admitted post-WB white ceiling plus bounded residual stabilization mirrored by the CPU
-region developer; partial colour highlights remain measured and no missing detail is rebuilt before
-the camera matrix;
+the same editable CFA-scale-and-physical-white-ceiling contract mirrored by the CPU region
+developer; WB-induced fp32 headroom reaches the resident GPU edit source and no missing detail or
+post-demosaic colour is rebuilt before the camera matrix;
 `metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;
 `metal_raw_reconstruction_msl.hpp` owns balanced/high-quality detail and CFA-area previews; and
 `metal_dcp_color_msl.hpp` owns DCP post-processing. Host execution is split by transaction:

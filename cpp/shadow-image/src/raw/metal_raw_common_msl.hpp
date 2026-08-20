@@ -31,7 +31,8 @@ struct RawDevelopmentParameters {
     float camera_to_linear_srgb[9];
     float cfa_white_balance[4];
     uint apply_cfa_white_balance;
-    uint reconstruct_cfa_highlights;
+    float cfa_white_balance_scale;
+    uint cap_physical_sensor_white;
 };
 
 inline uint cfa_site(uint x, uint y) {
@@ -57,9 +58,13 @@ inline float normalized_sample(
     uint y
 ) {
     const uint site = cfa_site(x, y);
-    float normalized = normalized_sensor_sample(samples, parameters, x, y);
+    const float sensor_normalized = normalized_sensor_sample(samples, parameters, x, y);
+    float normalized = sensor_normalized;
     if (parameters.apply_cfa_white_balance != 0u) {
-        normalized *= parameters.cfa_white_balance[site];
+        normalized *= parameters.cfa_white_balance[site] * parameters.cfa_white_balance_scale;
+    }
+    if (parameters.cap_physical_sensor_white != 0u && sensor_normalized >= 1.0f) {
+        normalized = min(normalized, 1.0f);
     }
     return normalized;
 }
@@ -166,96 +171,7 @@ inline uchar sensor_clipping_flags(
 
 struct CameraRgbSample {
     float3 values;
-    float4 cfa_highlight_risk;
 };
-
-inline float cfa_highlight_risk(const float normalized_sensor) {
-    const float t = clamp((normalized_sensor - 0.88f) / 0.12f, 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
-inline float4 cfa_highlight_risk_footprint_at(
-    device const ushort* samples,
-    constant RawDevelopmentParameters& parameters,
-    uint raw_x,
-    uint raw_y
-) {
-    const uint max_even_x = (parameters.storage_width - 2u) & ~1u;
-    const uint max_even_y = (parameters.storage_height - 2u) & ~1u;
-    const uint base_x = min(raw_x & ~1u, max_even_x);
-    const uint base_y = min(raw_y & ~1u, max_even_y);
-    return float4(
-        cfa_highlight_risk(normalized_sensor_sample(samples, parameters, base_x, base_y)),
-        cfa_highlight_risk(normalized_sensor_sample(samples, parameters, base_x + 1u, base_y)),
-        cfa_highlight_risk(normalized_sensor_sample(samples, parameters, base_x, base_y + 1u)),
-        cfa_highlight_risk(normalized_sensor_sample(samples, parameters, base_x + 1u, base_y + 1u))
-    );
-}
-
-inline CameraRgbSample reconstruct_cfa_highlights(
-    CameraRgbSample camera,
-    constant RawDevelopmentParameters& parameters
-) {
-    if (parameters.reconstruct_cfa_highlights == 0u) {
-        return camera;
-    }
-    const float exhausted_fraction = dot(clamp(camera.cfa_highlight_risk, 0.0f, 1.0f), float4(0.25f));
-    const float multiple_t = clamp((exhausted_fraction - 0.25f) / 0.25f, 0.0f, 1.0f);
-    const float white_ceiling_strength = multiple_t * multiple_t * (3.0f - 2.0f * multiple_t);
-    if (white_ceiling_strength <= 0.0f) {
-        return camera;
-    }
-    // Match raw_highlight_reconstruction.cpp exactly: first apply H=0-style component clipping,
-    // then a deliberately small residual stabilization only for unequal CFA headroom.
-    const float peak_before_ceiling = max(camera.values.x, max(camera.values.y, camera.values.z));
-    if (peak_before_ceiling <= 1.0f) {
-        return camera;
-    }
-    camera.values += (min(camera.values, float3(1.0f)) - camera.values) * white_ceiling_strength;
-    const float a = parameters.camera_to_linear_srgb[0];
-    const float b = parameters.camera_to_linear_srgb[1];
-    const float c = parameters.camera_to_linear_srgb[2];
-    const float d = parameters.camera_to_linear_srgb[3];
-    const float e = parameters.camera_to_linear_srgb[4];
-    const float f = parameters.camera_to_linear_srgb[5];
-    const float g = parameters.camera_to_linear_srgb[6];
-    const float h = parameters.camera_to_linear_srgb[7];
-    const float i = parameters.camera_to_linear_srgb[8];
-    const float determinant = a * (e * i - f * h) - b * (d * i - f * g)
-                              + c * (d * h - e * g);
-    if (!isfinite(determinant) || abs(determinant) < 1.0e-9f) {
-        return camera;
-    }
-    const float3 neutral_direction = float3(
-        ((e * i - f * h) + (c * h - b * i) + (b * f - c * e)) / determinant,
-        ((f * g - d * i) + (a * i - c * g) + (c * d - a * f)) / determinant,
-        ((d * h - e * g) + (b * g - a * h) + (a * e - b * d)) / determinant
-    );
-    if (!isfinite(neutral_direction.x) || !isfinite(neutral_direction.y)
-        || !isfinite(neutral_direction.z) || neutral_direction.x <= 0.0f
-        || neutral_direction.y <= 0.0f || neutral_direction.z <= 0.0f) {
-        return camera;
-    }
-    const float3 scene = float3(
-        dot(float3(a, b, c), camera.values),
-        dot(float3(d, e, f), camera.values),
-        dot(float3(g, h, i), camera.values)
-    );
-    const float energy = max(0.0f, (scene.x + scene.y + scene.z) / 3.0f);
-    const float minimum_risk = min(
-        min(camera.cfa_highlight_risk.x, camera.cfa_highlight_risk.y),
-        min(camera.cfa_highlight_risk.z, camera.cfa_highlight_risk.w)
-    );
-    const float maximum_risk = max(
-        max(camera.cfa_highlight_risk.x, camera.cfa_highlight_risk.y),
-        max(camera.cfa_highlight_risk.z, camera.cfa_highlight_risk.w)
-    );
-    const float imbalance_t = clamp((maximum_risk - minimum_risk - 0.15f) / 0.60f, 0.0f, 1.0f);
-    const float residual_evidence = imbalance_t * imbalance_t * (3.0f - 2.0f * imbalance_t);
-    camera.values +=
-        (neutral_direction * energy - camera.values) * (0.40f * white_ceiling_strength * residual_evidence);
-    return camera;
-}
 
 inline CameraRgbSample camera_rgb_at(
     device const ushort* samples,
@@ -283,14 +199,11 @@ inline CameraRgbSample camera_rgb_at(
             counts[channel] += 1u;
         }
     }
-    return CameraRgbSample{
-        float3(
-            totals[0] / float(counts[0]),
-            totals[1] / float(counts[1]),
-            totals[2] / float(counts[2])
-        ),
-        cfa_highlight_risk_footprint_at(samples, parameters, raw_x, raw_y)
-    };
+    return CameraRgbSample{float3(
+        totals[0] / float(counts[0]),
+        totals[1] / float(counts[1]),
+        totals[2] / float(counts[2])
+    )};
 }
 
 )METAL";

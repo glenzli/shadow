@@ -13,15 +13,23 @@ struct RawFrameLinearTransform;
 namespace detail {
 
 using CameraRgb = std::array<float, 3U>;
-using RawCfaFootprint = std::array<float, 4U>;
+// Editable RAW keeps the exact CFA white-balance scale before demosaic but retains the resulting
+// float headroom. Only a sample that has reached its physical sensor white may be limited at the
+// white point, so an unsaturated sample amplified above one by white balance stays editable.
+// The policy is explicit so diagnostic/AI routes retain their existing measured-source contract.
+struct BayerCfaSamplingPolicy final {
+    float white_balance_scale = 1.0F;
+    bool cap_physical_sensor_white = false;
+};
 
-// Camera-linear reconstruction carries both WB-applied camera RGB and a per-site CFA highlight
-// risk. The risk is formed from calibrated physical headroom before white balance; a bounded
-// preview retains the highest continuous risk from each CFA site, so a narrow sensor plateau is
-// not diluted into a false low-risk colour during downsampling.
+[[nodiscard]] BayerCfaSamplingPolicy
+editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept;
+
+// Camera-linear reconstruction carries CFA-white-balanced samples after the selected source
+// policy. The editable path retains measured post-WB headroom and never infers a replacement
+// colour from a sensor plateau after demosaic.
 struct CameraRgbSample final {
     CameraRgb values{};
-    RawCfaFootprint cfa_highlight_risk{};
 };
 
 struct BayerAreaSamplingGrid final {
@@ -38,14 +46,16 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation);
     const RawFrame& frame,
     std::uint32_t raw_x,
     std::uint32_t raw_y,
-    const RawFrameLinearTransform* transform = nullptr
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {}
 );
 
 [[nodiscard]] CameraRgbSample bilinear_camera_rgb_sample_at(
     const RawFrame& frame,
     std::uint32_t raw_x,
     std::uint32_t raw_y,
-    const RawFrameLinearTransform* transform = nullptr
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {}
 );
 
 // Detail/export reconstruction uses a directional green estimate plus local
@@ -56,7 +66,8 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation);
     const RawFrame& frame,
     std::uint32_t raw_x,
     std::uint32_t raw_y,
-    const RawFrameLinearTransform* transform = nullptr
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {}
 );
 
 // Precomputes scale ratios once per preview render. Each sampling call then integrates the exact
@@ -69,7 +80,8 @@ make_bayer_area_sampling_grid(const RawFrame& frame, Dimensions target_dimension
     const BayerAreaSamplingGrid& grid,
     std::uint32_t target_x,
     std::uint32_t target_y,
-    const RawFrameLinearTransform* transform = nullptr
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {}
 );
 
 [[nodiscard]] CameraRgbSample area_camera_rgb_sample_at(
@@ -77,7 +89,8 @@ make_bayer_area_sampling_grid(const RawFrame& frame, Dimensions target_dimension
     const BayerAreaSamplingGrid& grid,
     std::uint32_t target_x,
     std::uint32_t target_y,
-    const RawFrameLinearTransform* transform = nullptr
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {}
 );
 
 } // namespace detail

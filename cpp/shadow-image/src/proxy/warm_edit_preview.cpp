@@ -300,6 +300,8 @@ struct PreparedWarmEditProxy final {
     RawDevelopmentReceipt raw_development_receipt = std::move(developed.raw_development_receipt);
     std::optional<SensorClippingMask> sensor_clipping_mask =
         std::move(developed.sensor_clipping_mask);
+    std::optional<SensorHighlightChromaConfidence> sensor_highlight_chroma_confidence =
+        std::move(developed.sensor_highlight_chroma_confidence);
     const SourceRenderingReceipt source_rendering = std::visit(
         [&](const auto& value) {
             return resolve_source_rendering(value, metadata, developed.pipeline_receipt);
@@ -374,6 +376,12 @@ struct PreparedWarmEditProxy final {
     if (sensor_clipping_mask.has_value()
         && sensor_clipping_mask->dimensions != working_proxy.dimensions) {
         sensor_clipping_mask.reset();
+    }
+    if (sensor_highlight_chroma_confidence.has_value()
+        && sensor_highlight_chroma_confidence->dimensions == working_proxy.dimensions
+        && sensor_highlight_chroma_confidence->valid()) {
+        working_proxy.raw_highlight_chroma_confidence =
+            std::move(sensor_highlight_chroma_confidence->samples);
     }
     return {
         .working_proxy = std::move(working_proxy),
@@ -728,11 +736,17 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                             source_rendering
                         );
                     if (source_rendering_attempt.applied) {
-                        const FloatRgbImage layout = resident_working_proxy(
+                        FloatRgbImage layout = resident_working_proxy(
                             corrected.dimensions(),
                             static_cast<std::size_t>(corrected.dimensions().width) * 3U
                                 * sizeof(float)
                         );
+                        if (resident->sensor_highlight_chroma_confidence.has_value()
+                            && resident->sensor_highlight_chroma_confidence->dimensions
+                                   == layout.dimensions) {
+                            layout.raw_highlight_chroma_confidence =
+                                resident->sensor_highlight_chroma_confidence->samples;
+                        }
                         auto warm = detail::prepare_warm_edit_gpu_session(
                             detail::WarmEditGpuAdoptedSource{
                                 .dimensions = corrected.dimensions(),
@@ -753,6 +767,8 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                                 .working_space = layout.working_space,
                                 .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
                                 .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                                .raw_highlight_chroma_confidence =
+                                    layout.raw_highlight_chroma_confidence,
                             }
                         );
                         if (warm.session) {
@@ -809,7 +825,13 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                     "resident-source-rendering-ready",
                     timing_started
                 );
-                const FloatRgbImage layout = resident_working_proxy(resident->output);
+                FloatRgbImage layout = resident_working_proxy(resident->output);
+                if (resident->sensor_highlight_chroma_confidence.has_value()
+                    && resident->sensor_highlight_chroma_confidence->dimensions
+                           == layout.dimensions) {
+                    layout.raw_highlight_chroma_confidence =
+                        resident->sensor_highlight_chroma_confidence->samples;
+                }
                 auto warm = detail::prepare_warm_edit_gpu_session(
                     detail::WarmEditGpuAdoptedSource{
                         .dimensions = resident->output.dimensions(),
@@ -822,6 +844,8 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                         .working_space = layout.working_space,
                         .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
                         .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                        .raw_highlight_chroma_confidence =
+                            layout.raw_highlight_chroma_confidence,
                     }
                 );
                 if (warm.session) {

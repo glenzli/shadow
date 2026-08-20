@@ -234,7 +234,6 @@ inline float3 develop_bayer_scene_linear_at(
     CameraRgbSample camera = parameters.reconstruction_quality == 2u
         ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
         : camera_rgb_at(samples, parameters, raw_x, raw_y);
-    camera = reconstruct_cfa_highlights(camera, parameters);
     const float3 camera_values = camera.values;
     const float red =
         parameters.camera_to_linear_srgb[0] * camera_values.x
@@ -370,8 +369,6 @@ kernel void develop_bayer_area_preview(
     );
     float totals[3] = {0.0f, 0.0f, 0.0f};
     float weights[3] = {0.0f, 0.0f, 0.0f};
-    float risk_maximums[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    float risk_weights[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const float overlap_y = max(
             0.0f,
@@ -387,12 +384,6 @@ kernel void develop_bayer_area_preview(
             const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
             totals[channel] += normalized * weight;
             weights[channel] += weight;
-            const uint site = cfa_site(raw_x, raw_y);
-            risk_maximums[site] = max(
-                risk_maximums[site],
-                cfa_highlight_risk(normalized_sensor_sample(samples, parameters, raw_x, raw_y))
-            );
-            risk_weights[site] += weight;
         }
     }
     // An active footprint always contains each CFA colour for supported previews. Preserve the
@@ -407,22 +398,13 @@ kernel void develop_bayer_area_preview(
     );
     CameraRgbSample camera = (
         weights[0] <= 0.0f || weights[1] <= 0.0f || weights[2] <= 0.0f
-        || risk_weights[0] <= 0.0f || risk_weights[1] <= 0.0f
-        || risk_weights[2] <= 0.0f || risk_weights[3] <= 0.0f
     ) ? camera_rgb_at(samples, parameters, center_x, center_y) : CameraRgbSample{
         float3(
             totals[0] / weights[0],
             totals[1] / weights[1],
             totals[2] / weights[2]
-        ),
-        float4(
-            risk_maximums[0],
-            risk_maximums[1],
-            risk_maximums[2],
-            risk_maximums[3]
         )
     };
-    camera = reconstruct_cfa_highlights(camera, parameters);
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);

@@ -56,6 +56,7 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
     WarmMetalContext& context,
     const WarmGpuResidentLayout& layout,
     const WarmGpuSlotBuffers& slot,
+    id<MTLBuffer> source_highlight_chroma_confidence,
     id<MTLBuffer> input,
     const WarmGpuNeighbourhoodStage& stage,
     id<MTLBuffer> neighbourhood_geometry,
@@ -452,7 +453,8 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
                 [encoder setBuffer:input offset:0U atIndex:0U];
                 [encoder setBuffer:coefficient_a offset:0U atIndex:1U];
                 [encoder setBuffer:output offset:0U atIndex:2U];
-                [encoder setBytes:&selective_tone length:sizeof(selective_tone) atIndex:3U];
+                [encoder setBuffer:source_highlight_chroma_confidence offset:0U atIndex:3U];
+                [encoder setBytes:&selective_tone length:sizeof(selective_tone) atIndex:4U];
                 dispatch(context.selective_tone_apply_pipeline());
                 return output;
             } else if constexpr (std::is_same_v<Stage, WarmTextureStage>) {

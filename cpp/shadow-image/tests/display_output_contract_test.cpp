@@ -142,6 +142,10 @@ void cpu_oracle_preserves_the_scene_and_display_contracts() {
         scene_output.bytes != display_output.bytes,
         "scene-referred input receives the scene curve while display input bypasses it"
     );
+    expect(
+        scene_output.bytes[2U * 3U] >= 104U && scene_output.bytes[2U * 3U] <= 105U,
+        "scene-referred 18-percent gray uses LibRaw H=0's BT.709 transfer before RGB8 encoding"
+    );
 
     // The first six palette entries are neutral. The common dither value must be shared by all
     // three channels, including black, middle gray, super-white and negative scene samples.
@@ -167,8 +171,8 @@ void cpu_oracle_preserves_the_scene_and_display_contracts() {
         "display-referred super-white maps to display white"
     );
     expect(
-        scene_output.bytes[5U * 3U] < 255U,
-        "scene-referred super-white retains the neutral shoulder below hard white"
+        scene_output.bytes[4U * 3U] == 255U && scene_output.bytes[5U * 3U] == 255U,
+        "scene-referred unit white and super-white follow LibRaw H=0's hard display clip"
     );
 }
 

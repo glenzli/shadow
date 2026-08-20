@@ -289,16 +289,23 @@ inline float scene_luminance_to_display_luminance(float luminance) {
     if (!(luminance > 0.0f)) {
         return 0.0f;
     }
-    const float maximum_safe_luminance = 1.0e6f;
-    const float a = 2.51f;
-    const float b = 0.03f;
-    const float c = 2.43f;
-    const float d = 0.59f;
-    const float e = 0.14f;
-    const float scene = min(luminance, maximum_safe_luminance);
-    const float curved =
-        scene * (a * scene + b) / (scene * (c * scene + d) + e);
-    return clamp(curved / (a / c), 0.0f, 1.0f);
+    const float scene_white = 1.0f;
+    const float rec709_linear_threshold = 0.018f;
+    const float rec709_slope = 4.5f;
+    const float rec709_power = 0.45f;
+    const float rec709_gain = 1.099f;
+    const float rec709_offset = 0.099f;
+    const float srgb_encoded_threshold = 0.04045f;
+    const float srgb_linear_slope = 12.92f;
+    const float srgb_gain = 1.055f;
+    const float srgb_offset = 0.055f;
+    const float scene = clamp(luminance, 0.0f, scene_white);
+    const float rec709_encoded = scene < rec709_linear_threshold
+        ? rec709_slope * scene
+        : rec709_gain * pow(scene, rec709_power) - rec709_offset;
+    return rec709_encoded <= srgb_encoded_threshold
+        ? rec709_encoded / srgb_linear_slope
+        : pow((rec709_encoded + srgb_offset) / srgb_gain, 2.4f);
 }
 
 inline float3 neutral_scene_display_curve(float3 input) {
@@ -1978,7 +1985,8 @@ kernel void warm_selective_tone_apply_v1(
     device const float* input [[buffer(0)]],
     device const float* mask [[buffer(1)]],
     device float* output [[buffer(2)]],
-    constant WarmSelectiveToneParameters& parameters [[buffer(3)]],
+    device const uchar* cfa_chroma_confidence [[buffer(3)]],
+    constant WarmSelectiveToneParameters& parameters [[buffer(4)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= parameters.width || position.y >= parameters.height) {
@@ -2033,6 +2041,13 @@ kernel void warm_selective_tone_apply_v1(
         const float lightness_gain = exp2((adjusted_ev - mask_ev) / 3.0f);
         if (lightness_gain > 0.0f && isfinite(lightness_gain)) {
             lab.x *= lightness_gain;
+            const float highlight_pull = clamp(-parameters.highlights, 0.0f, 1.0f);
+            const float region = clamp((mask_ev - 0.35f) / 1.35f, 0.0f, 1.0f);
+            const float smooth_region = region * region * (3.0f - 2.0f * region);
+            const float confidence = float(cfa_chroma_confidence[pixel]) / 255.0f;
+            const float containment = highlight_pull * smooth_region * (1.0f - confidence);
+            lab.y *= 1.0f - containment;
+            lab.z *= 1.0f - containment;
             adjusted = multiply_rows(
                 parameters.xyz_to_rgb_row_0,
                 parameters.xyz_to_rgb_row_1,

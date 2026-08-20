@@ -16,17 +16,6 @@ namespace shadow::image::detail {
 
 namespace {
 
-constexpr float highlight_shoulder_start = 0.88F;
-
-[[nodiscard]] float cfa_highlight_risk(const float normalized_sensor) noexcept {
-    const float t = std::clamp(
-        (normalized_sensor - highlight_shoulder_start) / (1.0F - highlight_shoulder_start),
-        0.0F,
-        1.0F
-    );
-    return t * t * (3.0F - 2.0F * t);
-}
-
 [[nodiscard]] int rgb_channel(const RawCfaColor color) noexcept {
     switch (color) {
     case RawCfaColor::red:
@@ -72,35 +61,23 @@ constexpr float highlight_shoulder_start = 0.88F;
     const RawFrame& frame,
     const std::uint32_t raw_x,
     const std::uint32_t raw_y,
-    const RawFrameLinearTransform* const transform
+    const RawFrameLinearTransform* const transform,
+    const BayerCfaSamplingPolicy sampling_policy
 ) noexcept {
     const auto site = cfa_site(raw_x, raw_y);
-    double normalized = normalized_sensor_sample(frame, raw_x, raw_y);
+    const float sensor_normalized = normalized_sensor_sample(frame, raw_x, raw_y);
+    double normalized = sensor_normalized;
     if (transform != nullptr && transform->apply_cfa_white_balance) {
-        normalized *= transform->cfa_white_balance[site];
+        normalized *= transform->cfa_white_balance[site] * sampling_policy.white_balance_scale;
+    }
+    // Do not turn a white-balance gain into an early source clip. A sample below physical sensor
+    // white may legitimately become greater than one and must reach the scene-linear edit graph.
+    // Sensor-white samples have no further measured headroom, so retain the H=0 ceiling only for
+    // that physical saturation evidence; no colour or detail is reconstructed here.
+    if (sampling_policy.cap_physical_sensor_white && sensor_normalized >= 1.0F) {
+        normalized = std::min(normalized, 1.0);
     }
     return static_cast<float>(normalized);
-}
-
-[[nodiscard]] RawCfaFootprint cfa_highlight_risk_footprint_at(
-    const RawFrame& frame,
-    const std::uint32_t raw_x,
-    const std::uint32_t raw_y
-) noexcept {
-    const auto& dimensions = frame.descriptor.storage_dimensions;
-    const auto max_even_x = (dimensions.width - 2U) & ~1U;
-    const auto max_even_y = (dimensions.height - 2U) & ~1U;
-    const auto base_x = std::min(raw_x & ~1U, max_even_x);
-    const auto base_y = std::min(raw_y & ~1U, max_even_y);
-    RawCfaFootprint result{};
-    for (std::uint32_t dy = 0U; dy < 2U; ++dy) {
-        for (std::uint32_t dx = 0U; dx < 2U; ++dx) {
-            const auto x = base_x + dx;
-            const auto y = base_y + dy;
-            result[cfa_site(x, y)] = cfa_highlight_risk(normalized_sensor_sample(frame, x, y));
-        }
-    }
-    return result;
 }
 
 [[nodiscard]] bool in_sensor_bounds(
@@ -117,12 +94,13 @@ constexpr float highlight_shoulder_start = 0.88F;
     const RawFrame& frame,
     const std::uint32_t raw_x,
     const std::uint32_t raw_y,
-    const RawFrameLinearTransform* const transform
+    const RawFrameLinearTransform* const transform,
+    const BayerCfaSamplingPolicy sampling_policy
 ) noexcept {
     const auto& descriptor = frame.descriptor;
     const auto center_colour = cfa_color_at(descriptor, raw_x, raw_y);
     if (center_colour == RawCfaColor::green) {
-        return normalized_sample(frame, raw_x, raw_y, transform);
+        return normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
     }
     if (center_colour != RawCfaColor::red && center_colour != RawCfaColor::blue) {
         return std::nullopt;
@@ -155,13 +133,25 @@ constexpr float highlight_shoulder_start = 0.88F;
                    != center_colour) {
             return std::nullopt;
         }
-        const float left = normalized_sample(frame, as_u32(left_x), as_u32(left_y), transform);
-        const float right = normalized_sample(frame, as_u32(right_x), as_u32(right_y), transform);
-        const float far_left =
-            normalized_sample(frame, as_u32(far_left_x), as_u32(far_left_y), transform);
-        const float far_right =
-            normalized_sample(frame, as_u32(far_right_x), as_u32(far_right_y), transform);
-        const float center = normalized_sample(frame, raw_x, raw_y, transform);
+        const float left =
+            normalized_sample(frame, as_u32(left_x), as_u32(left_y), transform, sampling_policy);
+        const float right =
+            normalized_sample(frame, as_u32(right_x), as_u32(right_y), transform, sampling_policy);
+        const float far_left = normalized_sample(
+            frame,
+            as_u32(far_left_x),
+            as_u32(far_left_y),
+            transform,
+            sampling_policy
+        );
+        const float far_right = normalized_sample(
+            frame,
+            as_u32(far_right_x),
+            as_u32(far_right_y),
+            transform,
+            sampling_policy
+        );
+        const float center = normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
         const float chroma_laplacian = 2.0F * center - far_left - far_right;
         const float estimate = 0.5F * (left + right) + 0.25F * chroma_laplacian;
         const float gradient = std::abs(left - right) + std::abs(chroma_laplacian);
@@ -187,6 +177,19 @@ constexpr float highlight_shoulder_start = 0.88F;
 }
 
 } // namespace
+
+BayerCfaSamplingPolicy
+editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept {
+    if (!transform.apply_cfa_white_balance) {
+        return {};
+    }
+    const auto minimum =
+        *std::min_element(transform.cfa_white_balance.begin(), transform.cfa_white_balance.end());
+    return BayerCfaSamplingPolicy{
+        .white_balance_scale = static_cast<float>(1.0 / minimum),
+        .cap_physical_sensor_white = true,
+    };
+}
 
 void validate_bayer_frame(const RawFrame& frame, const char* operation) {
     if (!frame.valid()) {
@@ -217,7 +220,8 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
     const RawFrame& frame,
     const std::uint32_t raw_x,
     const std::uint32_t raw_y,
-    const RawFrameLinearTransform* const transform
+    const RawFrameLinearTransform* const transform,
+    const BayerCfaSamplingPolicy sampling_policy
 ) {
     const auto& descriptor = frame.descriptor;
     const auto width = descriptor.storage_dimensions.width;
@@ -241,7 +245,7 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
                 continue;
             }
             const auto index = static_cast<std::size_t>(channel);
-            const auto normalized = normalized_sample(frame, x, y, transform);
+            const auto normalized = normalized_sample(frame, x, y, transform, sampling_policy);
             totals[index] += normalized;
             ++counts[index];
         }
@@ -259,7 +263,6 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
         result.values[channel] =
             static_cast<float>(totals[channel] / static_cast<double>(counts[channel]));
     }
-    result.cfa_highlight_risk = cfa_highlight_risk_footprint_at(frame, raw_x, raw_y);
     return result;
 }
 
@@ -267,22 +270,25 @@ CameraRgb bilinear_camera_rgb_at(
     const RawFrame& frame,
     const std::uint32_t raw_x,
     const std::uint32_t raw_y,
-    const RawFrameLinearTransform* const transform
+    const RawFrameLinearTransform* const transform,
+    const BayerCfaSamplingPolicy sampling_policy
 ) {
-    return bilinear_camera_rgb_sample_at(frame, raw_x, raw_y, transform).values;
+    return bilinear_camera_rgb_sample_at(frame, raw_x, raw_y, transform, sampling_policy).values;
 }
 
 CameraRgbSample edge_aware_camera_rgb_sample_at(
     const RawFrame& frame,
     const std::uint32_t raw_x,
     const std::uint32_t raw_y,
-    const RawFrameLinearTransform* const transform
+    const RawFrameLinearTransform* const transform,
+    const BayerCfaSamplingPolicy sampling_policy
 ) {
-    const CameraRgbSample bilinear = bilinear_camera_rgb_sample_at(frame, raw_x, raw_y, transform);
+    const CameraRgbSample bilinear =
+        bilinear_camera_rgb_sample_at(frame, raw_x, raw_y, transform, sampling_policy);
     const auto& descriptor = frame.descriptor;
     const auto center_colour = cfa_color_at(descriptor, raw_x, raw_y);
     const int center_channel = rgb_channel(center_colour);
-    const auto green = directional_green_estimate(frame, raw_x, raw_y, transform);
+    const auto green = directional_green_estimate(frame, raw_x, raw_y, transform, sampling_policy);
     if (center_channel < 0 || !green.has_value()) {
         return bilinear;
     }
@@ -292,7 +298,8 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     const auto reconstruct_colour_difference = [&](const RawCfaColor target_colour,
                                                    const std::size_t target_channel) {
         if (center_colour == target_colour) {
-            result.values[target_channel] = normalized_sample(frame, raw_x, raw_y, transform);
+            result.values[target_channel] =
+                normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
             return;
         }
         double weighted_sum = 0.0;
@@ -318,14 +325,17 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
                 if (cfa_color_at(descriptor, x, y) != target_colour) {
                     continue;
                 }
-                const auto neighbour_green = directional_green_estimate(frame, x, y, transform);
+                const auto neighbour_green =
+                    directional_green_estimate(frame, x, y, transform, sampling_policy);
                 if (!neighbour_green.has_value()) {
                     continue;
                 }
                 const double weight = dx == 0 || dy == 0 ? 1.0 : 0.7071067811865476;
                 weighted_sum +=
                     weight
-                    * (static_cast<double>(normalized_sample(frame, x, y, transform))
+                    * (static_cast<double>(
+                           normalized_sample(frame, x, y, transform, sampling_policy)
+                       )
                        + static_cast<double>(*green) - static_cast<double>(*neighbour_green));
                 total_weight += weight;
             }
@@ -364,7 +374,8 @@ CameraRgbSample area_camera_rgb_sample_at(
     const BayerAreaSamplingGrid& grid,
     const std::uint32_t target_x,
     const std::uint32_t target_y,
-    const RawFrameLinearTransform* const transform
+    const RawFrameLinearTransform* const transform,
+    const BayerCfaSamplingPolicy sampling_policy
 ) {
     const auto& descriptor = frame.descriptor;
     // This is also reached by the isolated decode helper.  A malformed provider frame or a
@@ -424,8 +435,6 @@ CameraRgbSample area_camera_rgb_sample_at(
 
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
-    std::array<float, 4U> risk_maximums{};
-    std::array<double, 4U> risk_weights{};
     for (std::uint32_t raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const double overlap_y = std::max(
             0.0,
@@ -444,15 +453,10 @@ CameraRgbSample area_camera_rgb_sample_at(
             }
             const double weight = overlap_x * overlap_y;
             const auto index = static_cast<std::size_t>(channel);
-            const auto normalized = normalized_sample(frame, raw_x, raw_y, transform);
+            const auto normalized =
+                normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
             totals[index] += normalized * weight;
             weights[index] += weight;
-            const auto site = cfa_site(raw_x, raw_y);
-            risk_maximums[site] = std::max(
-                risk_maximums[site],
-                cfa_highlight_risk(normalized_sensor_sample(frame, raw_x, raw_y))
-            );
-            risk_weights[site] += weight;
         }
     }
 
@@ -467,23 +471,15 @@ CameraRgbSample area_camera_rgb_sample_at(
                 descriptor.storage_dimensions.height - 1U,
                 static_cast<std::uint32_t>((source_top + source_bottom) * 0.5)
             );
-            return bilinear_camera_rgb_sample_at(frame, center_x, center_y, transform);
+            return bilinear_camera_rgb_sample_at(
+                frame,
+                center_x,
+                center_y,
+                transform,
+                sampling_policy
+            );
         }
         result.values[channel] = static_cast<float>(totals[channel] / weights[channel]);
-    }
-    for (std::size_t site = 0U; site < result.cfa_highlight_risk.size(); ++site) {
-        if (risk_weights[site] <= 0.0) {
-            const auto center_x = std::min(
-                descriptor.storage_dimensions.width - 1U,
-                static_cast<std::uint32_t>((source_left + source_right) * 0.5)
-            );
-            const auto center_y = std::min(
-                descriptor.storage_dimensions.height - 1U,
-                static_cast<std::uint32_t>((source_top + source_bottom) * 0.5)
-            );
-            return bilinear_camera_rgb_sample_at(frame, center_x, center_y, transform);
-        }
-        result.cfa_highlight_risk[site] = risk_maximums[site];
     }
     return result;
 }
@@ -493,9 +489,11 @@ CameraRgb area_camera_rgb_at(
     const BayerAreaSamplingGrid& grid,
     const std::uint32_t target_x,
     const std::uint32_t target_y,
-    const RawFrameLinearTransform* const transform
+    const RawFrameLinearTransform* const transform,
+    const BayerCfaSamplingPolicy sampling_policy
 ) {
-    return area_camera_rgb_sample_at(frame, grid, target_x, target_y, transform).values;
+    return area_camera_rgb_sample_at(frame, grid, target_x, target_y, transform, sampling_policy)
+        .values;
 }
 
 } // namespace shadow::image::detail

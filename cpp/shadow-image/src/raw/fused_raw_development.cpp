@@ -8,7 +8,6 @@
 #include "bayer_sampling.hpp"
 #include "metal_raw_development.hpp"
 #include "raw_frame_region_development.hpp"
-#include "raw_highlight_reconstruction.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -147,6 +146,10 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             ? proxy_dimensions(descriptor.active_dimensions, *preview_max_edge)
             : descriptor.active_dimensions;
     const bool area_preview = reconstruction_dimensions != descriptor.active_dimensions;
+    const detail::BayerCfaSamplingPolicy cfa_sampling =
+        highlight_recovery == RawHighlightRecoveryIntent::provider_default
+            ? detail::editable_raw_cfa_sampling_policy(transform)
+            : detail::BayerCfaSamplingPolicy{};
     const auto area_sampling =
         area_preview ? std::optional<detail::BayerAreaSamplingGrid>(
                            detail::make_bayer_area_sampling_grid(frame, reconstruction_dimensions)
@@ -185,7 +188,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
              reconstruction_dimensions,
              output_dimensions,
              area_sampling,
-             highlight_recovery](const std::uint32_t first_row, const std::uint32_t last_row) {
+             cfa_sampling](const std::uint32_t first_row, const std::uint32_t last_row) {
                 for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
                     for (std::uint32_t output_x = 0U; output_x < output_dimensions.width;
                          ++output_x) {
@@ -200,18 +203,15 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                             *area_sampling,
                             source_x,
                             source_y,
-                            &transform
+                            &transform,
+                            cfa_sampling
                         );
                         const auto output_index =
                             (static_cast<std::size_t>(output_y) * output_dimensions.width
                              + output_x)
                             * 3U;
                         raw_pipeline_detail::write_raw_frame_transformed_pixel(
-                            detail::reconstruct_cfa_highlights(
-                                camera,
-                                transform,
-                                highlight_recovery
-                            ),
+                            camera,
                             transform,
                             output.samples.data() + output_index
                         );
@@ -258,9 +258,8 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=shadow-cfa-evidence@20260821.2;shoulder=continuous-cfa-headroom;"
-               "target="
-               "h0-white-ceiling+residual-neutral-imbalance-gated-0.40";
+        return "sensor-highlights=editable-cfa-confidence@20260821.6;recovery=none;"
+               "source=measured-cfa-wb;display=libraw-h0";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:

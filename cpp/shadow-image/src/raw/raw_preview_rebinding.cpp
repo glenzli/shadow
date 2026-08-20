@@ -143,6 +143,7 @@ struct RawPreviewRebindingSource::Impl final {
     AssetMetadata metadata;
     std::optional<CameraProfileDefinition> camera_profile_definition;
     SensorClippingMask sensor_clipping;
+    SensorHighlightChromaConfidence sensor_highlight_chroma_confidence;
     RawPreviewBasis basis;
 #if SHADOW_IMAGE_HAS_METAL
     // This buffer is an acceleration cache only.  It retains the already-denoised CFA plane and
@@ -167,6 +168,7 @@ struct RawPreviewRebindingSource::Impl final {
         AssetMetadata source_metadata,
         std::optional<CameraProfileDefinition> profile,
         SensorClippingMask clipping,
+        SensorHighlightChromaConfidence highlight_chroma_confidence,
         RawPreviewBasis preview_basis
 #if SHADOW_IMAGE_HAS_METAL
         ,
@@ -176,7 +178,9 @@ struct RawPreviewRebindingSource::Impl final {
         development_template(std::move(development)), pipeline_template(std::move(pipeline)),
         requested_plan_template(requested_plan), negotiation_status(negotiation),
         metadata(std::move(source_metadata)), camera_profile_definition(std::move(profile)),
-        sensor_clipping(std::move(clipping)), basis(std::move(preview_basis))
+        sensor_clipping(std::move(clipping)),
+        sensor_highlight_chroma_confidence(std::move(highlight_chroma_confidence)),
+        basis(std::move(preview_basis))
 #if SHADOW_IMAGE_HAS_METAL
         ,
         ordinary_raw_metal_preview(std::move(metal_preview)) {
@@ -338,6 +342,7 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = impl_->sensor_clipping,
+        .sensor_highlight_chroma_confidence = impl_->sensor_highlight_chroma_confidence,
     };
 #endif
 }
@@ -653,6 +658,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             .raw_development_receipt = std::move(receipt),
             .pipeline_receipt = std::move(pipeline),
             .sensor_clipping_mask = impl_->sensor_clipping,
+            .sensor_highlight_chroma_confidence = impl_->sensor_highlight_chroma_confidence,
         };
     }
 
@@ -710,6 +716,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = impl_->sensor_clipping,
+        .sensor_highlight_chroma_confidence = impl_->sensor_highlight_chroma_confidence,
     };
 }
 
@@ -719,6 +726,11 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         prepared.frame_,
         prepared.development_.diagnostic_dimensions()
     );
+    SensorHighlightChromaConfidence sensor_highlight_chroma_confidence =
+        project_sensor_highlight_chroma_confidence(
+            prepared.frame_,
+            prepared.development_.diagnostic_dimensions()
+        );
     RawBayerDenoiseResult conventional = detail::execute_prepared_raw_bayer_denoise(
         std::move(prepared.frame_),
         prepared.development_.raw_denoise()
@@ -743,6 +755,7 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
         std::move(sensor_clipping),
+        std::move(sensor_highlight_chroma_confidence),
         RawPreviewBasis{std::move(basis)}
 #if SHADOW_IMAGE_HAS_METAL
         ,
@@ -777,6 +790,8 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
     );
     SensorClippingMask sensor_clipping =
         project_sensor_clipping_mask(prepared.frame_, camera_rgb.dimensions);
+    SensorHighlightChromaConfidence sensor_highlight_chroma_confidence =
+        project_sensor_highlight_chroma_confidence(prepared.frame_, camera_rgb.dimensions);
     prepared.pipeline_.requested_plan = requested_plan;
     prepared.pipeline_.effective_plan = prepared.development_.development_plan();
     const RawDevelopmentPlanNegotiationStatus negotiation_status =
@@ -791,6 +806,7 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
         std::move(sensor_clipping),
+        std::move(sensor_highlight_chroma_confidence),
         RawPreviewBasis{FoundationRawPreviewBasis{.camera_rgb = std::move(camera_rgb)}}
 #if SHADOW_IMAGE_HAS_METAL
         ,

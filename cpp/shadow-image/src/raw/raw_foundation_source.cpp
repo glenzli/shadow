@@ -130,6 +130,11 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
     );
     SensorClippingMask sensor_clipping =
         project_sensor_clipping_mask(prepared.frame_, developed.scene_linear.dimensions);
+    SensorHighlightChromaConfidence sensor_highlight_chroma_confidence =
+        project_sensor_highlight_chroma_confidence(
+            prepared.frame_,
+            developed.scene_linear.dimensions
+        );
 
     DcpColorExecutionBackend dcp_execution_backend = DcpColorExecutionBackend::cpu;
     const DcpColorTransform* camera_profile = prepared.development_.camera_profile();
@@ -157,6 +162,7 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
         .raw_development_receipt = std::move(raw_receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = std::move(sensor_clipping),
+        .sensor_highlight_chroma_confidence = std::move(sensor_highlight_chroma_confidence),
     };
 }
 

@@ -49,7 +49,6 @@ src/edit/tone_curve.cpp
 src/edit/working_color_math.cpp
 src/raw/bayer_demosaic.cpp
 src/raw/bayer_sampling.cpp
-src/raw/raw_highlight_reconstruction.cpp
 src/raw/camera_profile_catalog.cpp
 src/raw/dcp_color_development.cpp
 src/raw/dcp_color_rendering.cpp

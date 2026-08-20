@@ -44,10 +44,11 @@ struct RawDevelopmentParameters final {
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
-    std::uint32_t reconstruct_cfa_highlights = 0U;
+    float cfa_white_balance_scale = 1.0F;
+    std::uint32_t cap_physical_sensor_white = 0U;
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 168U);
+static_assert(sizeof(RawDevelopmentParameters) == 172U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -59,7 +60,8 @@ static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
 static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
 static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 144U);
 static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 160U);
-static_assert(offsetof(RawDevelopmentParameters, reconstruct_cfa_highlights) == 164U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance_scale) == 164U);
+static_assert(offsetof(RawDevelopmentParameters, cap_physical_sensor_white) == 168U);
 
 [[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
@@ -180,8 +182,15 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
-    parameters.reconstruct_cfa_highlights =
-        highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
+    if (highlight_recovery == RawHighlightRecoveryIntent::provider_default
+        && transform.apply_cfa_white_balance) {
+        const auto minimum = *std::min_element(
+            transform.cfa_white_balance.begin(),
+            transform.cfa_white_balance.end()
+        );
+        parameters.cfa_white_balance_scale = static_cast<float>(1.0 / minimum);
+        parameters.cap_physical_sensor_white = 1U;
+    }
     return parameters;
 }
 

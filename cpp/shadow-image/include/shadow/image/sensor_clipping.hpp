@@ -13,6 +13,7 @@ namespace shadow::image {
 // longer contain recoverable headroom before Shadow applies white balance, demosaic, colour
 // transforms, tone mapping, or creative adjustments.
 inline constexpr std::uint32_t sensor_clipping_mask_schema_version = 1U;
+inline constexpr std::uint32_t sensor_highlight_chroma_confidence_schema_version = 1U;
 
 enum SensorClippingMaskBit : std::uint8_t {
     sensor_highlight_clipped = 1U << 0U,
@@ -30,6 +31,20 @@ struct SensorClippingMask final {
     [[nodiscard]] bool valid() const noexcept;
 };
 
+// One pre-white-balance CFA evidence value per display-oriented output pixel.  `255` means all
+// contributing CFA samples retain comfortable physical headroom; smaller values mean that at
+// least one measured CFA channel is approaching its calibrated white level.  It is deliberately
+// separate from SensorClippingMask: a value can be low before any sample is actually clipped.
+// The map is not a Recipe operation and never reconstructs colour; a later highlight edit may
+// only use it to avoid treating unreliable chroma as measured detail.
+struct SensorHighlightChromaConfidence final {
+    std::uint32_t schema_version = sensor_highlight_chroma_confidence_schema_version;
+    Dimensions dimensions;
+    std::vector<std::uint8_t> samples;
+
+    [[nodiscard]] bool valid() const noexcept;
+};
+
 // Projects the active RawFrame into the supplied display dimensions. A target cell is marked as
 // highlight-clipped when any source CFA sample reaches its calibrated white level. It is marked
 // as shadow-clipped only when every source sample in that cell is at or below its own calibrated
@@ -41,5 +56,8 @@ struct SensorClippingMask final {
 // same exact target bins beside reconstruction from the original, pre-denoise sensor buffer.
 [[nodiscard]] SensorClippingMask
 project_sensor_clipping_mask(const RawFrame& frame, Dimensions target_dimensions);
+
+[[nodiscard]] SensorHighlightChromaConfidence
+project_sensor_highlight_chroma_confidence(const RawFrame& frame, Dimensions target_dimensions);
 
 } // namespace shadow::image

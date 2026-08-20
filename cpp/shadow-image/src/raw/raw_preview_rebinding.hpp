@@ -25,6 +25,7 @@ struct ResidentRawPreviewRebinding final {
     RawDevelopmentReceipt raw_development_receipt;
     RawPipelineReceipt pipeline_receipt;
     std::optional<SensorClippingMask> sensor_clipping_mask;
+    std::optional<SensorHighlightChromaConfidence> sensor_highlight_chroma_confidence;
 };
 
 // Immutable sensor/camera-space owner shared by every white-balance variant of one bounded

@@ -118,7 +118,7 @@ void processed_linear_grayscale_is_encoded_once_and_padding_is_ignored() {
     );
 }
 
-void neutral_scene_display_curve_retains_highlight_separation() {
+void neutral_scene_display_curve_uses_the_libraw_h0_white_clip() {
     constexpr image::Dimensions dimensions{1, 1};
     auto source = reference_rgb(dimensions);
     source.samples = {32'768U, 32'768U, 32'768U};
@@ -139,12 +139,12 @@ void neutral_scene_display_curve_retains_highlight_separation() {
         {0, 0, 1, 1}
     );
     expect(
-        one_stop.bytes[0] < two_stops.bytes[0] && two_stops.bytes[0] < 255U
+        one_stop.bytes[0] == 255U && two_stops.bytes[0] == 255U
             && one_stop.bytes[0] == one_stop.bytes[1]
             && one_stop.bytes[1] == one_stop.bytes[2]
             && two_stops.bytes[0] == two_stops.bytes[1]
             && two_stops.bytes[1] == two_stops.bytes[2],
-        "neutral display rendering rolls scene highlights into distinct SDR values"
+        "neutral display rendering preserves LibRaw H=0's unit-white hard clip"
     );
 }
 
@@ -189,7 +189,7 @@ void processed_linear_contract_is_required_before_editing() {
 }
 
 void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
-    static_assert(image::display_srgb8_output_transform_version == 1U);
+    static_assert(image::display_srgb8_output_transform_version == 2U);
     static_assert(image::display_srgb8_gamut_search_iterations <= 16U);
     static_assert(image::display_srgb8_maximum_oklab_chroma == 0.5);
 
@@ -246,7 +246,7 @@ void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
 
 int main() {
     processed_linear_grayscale_is_encoded_once_and_padding_is_ignored();
-    neutral_scene_display_curve_retains_highlight_separation();
+    neutral_scene_display_curve_uses_the_libraw_h0_white_clip();
     display_quantization_dither_breaks_flat_8bit_contours_without_chroma_noise();
     processed_linear_contract_is_required_before_editing();
     display_gamut_mapping_preserves_oklab_hue_with_bounded_work();

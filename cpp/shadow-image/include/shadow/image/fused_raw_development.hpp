@@ -66,8 +66,9 @@ struct RawFrameLinearTransform final {
 };
 
 // The fused renderer returns scene-linear fp32 working RGB and demosaic provenance. It never
-// allocates a full-resolution float Camera-RGB image, but intentionally retains the transformed
-// result above 1.0 so later highlight controls operate on measured RAW headroom.
+// allocates a full-resolution float Camera-RGB image. CFA white balance remains pre-demosaic, but
+// a sub-white sensor sample may remain above one after that gain so later scene-linear highlight
+// controls can recover its measured separation before the final LibRaw H=0 display mapping.
 struct FusedRawFrameDevelopment final {
     SceneLinearRgbFrame scene_linear;
     RawDemosaicReceipt demosaic_receipt;

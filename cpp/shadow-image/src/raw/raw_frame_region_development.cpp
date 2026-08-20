@@ -1,5 +1,4 @@
 #include "raw_frame_region_development.hpp"
-#include "raw_highlight_reconstruction.hpp"
 
 #include <shadow/image/decoder_error.hpp>
 
@@ -392,9 +391,13 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
         );
     }
 
-    // Shadow's source policy is deliberately limited to a multi-channel CFA plateau. It never
-    // infers colour from a single clipped channel, and the disabled intent remains a strict
-    // measured-source reference.
+    // Keep black-subtracted CFA samples through white balance before demosaic. The editable source
+    // retains WB-induced float headroom; only a physically sensor-clipped sample is limited, with
+    // no post-demosaic colour reconstruction or neutral pull.
+    const detail::BayerCfaSamplingPolicy cfa_sampling =
+        highlight_recovery == RawHighlightRecoveryIntent::provider_default
+            ? detail::editable_raw_cfa_sampling_policy(transform)
+            : detail::BayerCfaSamplingPolicy{};
     const Dimensions reconstruction = frame.descriptor.active_dimensions;
     const Dimensions output_dimensions =
         oriented_raw_dimensions(reconstruction, frame.descriptor.orientation);
@@ -435,20 +438,22 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
                                   frame,
                                   raw_x,
                                   raw_y,
-                                  &transform
+                                  &transform,
+                                  cfa_sampling
                               )
                             : detail::bilinear_camera_rgb_sample_at(
                                   frame,
                                   raw_x,
                                   raw_y,
-                                  &transform
+                                  &transform,
+                                  cfa_sampling
                               );
                     const std::size_t output_index =
                         (static_cast<std::size_t>(local_y) * region.requested_core().width
                          + local_x)
                         * 3U;
                     write_raw_frame_transformed_pixel(
-                        detail::reconstruct_cfa_highlights(camera, transform, highlight_recovery),
+                        camera,
                         transform,
                         output.samples.data() + output_index
                     );

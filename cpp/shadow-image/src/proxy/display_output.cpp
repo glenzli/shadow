@@ -163,17 +163,29 @@ void validate_source_and_request(const FloatRgbImage& source, const DisplayOutpu
     if (!(luminance > 0.0)) {
         return 0.0;
     }
-    constexpr double maximum_safe_luminance = 1.0e6;
-    constexpr double a = 2.51;
-    constexpr double b = 0.03;
-    constexpr double c = 2.43;
-    constexpr double d = 0.59;
-    constexpr double e = 0.14;
-    const auto curve = [=](const double value) noexcept {
-        return value * (a * value + b) / (value * (c * value + d) + e);
-    };
-    const double scene = std::min(luminance, maximum_safe_luminance);
-    return std::clamp(curve(scene) / (a / c), 0.0, 1.0);
+    // LibRaw's user-facing `-g 2.222 4.5` request stores 1 / 2.222 and 4.5
+    // internally. Its resulting BT.709-style encoded value is not sRGB's
+    // encoded value, while Shadow's final RGB8 boundary remains sRGB. Convert
+    // the LibRaw code value back to linear sRGB here, then let the shared
+    // sRGB OETF below emit the matching display code. H=0 is a standard clip:
+    // once scene white has reached one, no filmic shoulder may turn it gray.
+    constexpr double scene_white = 1.0;
+    constexpr double rec709_linear_threshold = 0.018;
+    constexpr double rec709_slope = 4.5;
+    constexpr double rec709_power = 0.45;
+    constexpr double rec709_gain = 1.099;
+    constexpr double rec709_offset = 0.099;
+    constexpr double srgb_encoded_threshold = 0.04045;
+    constexpr double srgb_linear_slope = 12.92;
+    constexpr double srgb_gain = 1.055;
+    constexpr double srgb_offset = 0.055;
+    const double scene = std::clamp(luminance, 0.0, scene_white);
+    const double rec709_encoded = scene < rec709_linear_threshold
+        ? rec709_slope * scene
+        : rec709_gain * std::pow(scene, rec709_power) - rec709_offset;
+    return rec709_encoded <= srgb_encoded_threshold
+        ? rec709_encoded / srgb_linear_slope
+        : std::pow((rec709_encoded + srgb_offset) / srgb_gain, 2.4);
 }
 
 [[nodiscard]] LinearRgb apply_neutral_scene_display_curve(const LinearRgb& input) noexcept {

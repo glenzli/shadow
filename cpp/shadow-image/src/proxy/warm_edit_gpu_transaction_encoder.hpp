@@ -25,6 +25,7 @@ void bind_warm_gpu_adjustment(
     WarmMetalContext& context,
     const WarmGpuResidentLayout& layout,
     const WarmGpuSlotBuffers& slot,
+    id<MTLBuffer> source_highlight_chroma_confidence,
     id<MTLBuffer> input,
     const PreparedWarmTransaction& transaction
 );

@@ -1,4 +1,3 @@
-#include "../src/raw/raw_highlight_reconstruction.hpp"
 #include "contract_test_assertions.hpp"
 #include "fused_raw_contract_test_support.hpp"
 
@@ -29,9 +28,9 @@ using shadow::image::test_support::failures;
     for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
         for (std::uint32_t x = 0U; x < frame.descriptor.storage_dimensions.width; ++x) {
             const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
-            // All four CFA sites are at calibrated sensor white. This models a complete sensor
-            // plateau: the default Shadow treatment may scale its over-white, already
-            // white-balanced vector; diagnostic disabled mode keeps measurements untouched.
+            // All four CFA sites are at calibrated sensor white. The editable source may limit
+            // this true plateau, unlike a sub-white sample amplified above one by RAW white
+            // balance.
             frame.samples
                 [static_cast<std::size_t>(y) * frame.descriptor.storage_dimensions.width + x] =
                 static_cast<std::uint16_t>(frame.descriptor.white_levels[site]);
@@ -138,7 +137,7 @@ using shadow::image::test_support::failures;
     return frame;
 }
 
-void cfa_white_balance_uses_an_h0_style_white_ceiling() {
+void cfa_white_balance_retains_editable_headroom_before_display_h0() {
     const image::RawFrameLinearTransform transform{
         .camera_to_linear_srgb_d65 =
             {
@@ -187,10 +186,9 @@ void cfa_white_balance_uses_an_h0_style_white_ceiling() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=shadow-cfa-evidence@20260821.2;shoulder=continuous-cfa-headroom;"
-               "target="
-               "h0-white-ceiling+residual-neutral-imbalance-gated-0.40",
-        "the default source treatment identifies its H=0-style calibrated CFA shoulder"
+            == "sensor-highlights=editable-cfa-confidence@20260821.6;recovery=none;"
+               "source=measured-cfa-wb;display=libraw-h0",
+        "the source receipt identifies editable CFA headroom and final LibRaw H=0 display"
     );
 
     float maximum_default_delta = 0.0F;
@@ -238,8 +236,39 @@ void cfa_white_balance_uses_an_h0_style_white_ceiling() {
         "disabled mode retains the measured CFA-white-balance channel separation"
     );
     expect(
-        maximum_default_delta > 0.1F && maximum_default_chroma < 1.0e-5F,
-        "a complete CFA plateau reaches the post-WB white ceiling without rebuilding colour"
+        maximum_default_delta > 0.4F && maximum_default_chroma <= 1.0e-6F,
+        "physical sensor-white CFA samples reach the white ceiling without a colour rebuild"
+    );
+
+    const auto near_white = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        near_white_but_unclipped_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu
+    );
+    const auto near_white_disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        near_white_but_unclipped_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::disabled
+    );
+    float maximum_near_white_delta = 0.0F;
+    float maximum_near_white_value = 0.0F;
+    for (std::size_t index = 0U; index < near_white.scene_linear.samples.size(); ++index) {
+        maximum_near_white_delta = std::max(
+            maximum_near_white_delta,
+            std::abs(
+                near_white.scene_linear.samples[index]
+                - near_white_disabled.scene_linear.samples[index]
+            )
+        );
+        maximum_near_white_value =
+            std::max(maximum_near_white_value, near_white.scene_linear.samples[index]);
+    }
+    expect(
+        maximum_near_white_delta <= 1.0e-6F && maximum_near_white_value > 1.5F,
+        "a sub-white CFA sample retains white-balance-induced headroom for later highlight edits"
     );
 
     if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
@@ -260,64 +289,7 @@ void cfa_white_balance_uses_an_h0_style_white_ceiling() {
     }
     expect(
         maximum_metal_difference <= 4.0e-5F,
-        "Metal matches the CPU H=0-style CFA white ceiling"
-    );
-}
-
-void residual_neutralization_requires_unequal_cfa_headroom() {
-    const image::RawFrameLinearTransform transform{
-        .camera_to_linear_srgb_d65 =
-            {
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-            },
-        .camera_rgb_to_linear_srgb_d65 =
-            {
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-            },
-        .camera_neutral = {1.0, 1.0, 1.0},
-    };
-    const image::detail::CameraRgbSample uniform{
-        .values = {1.2F, 0.5F, 1.2F},
-        .cfa_highlight_risk = {1.0F, 1.0F, 1.0F, 1.0F},
-    };
-    const auto uniform_result = image::detail::reconstruct_cfa_highlights(
-        uniform,
-        transform,
-        image::RawHighlightRecoveryIntent::provider_default
-    );
-    expect(
-        std::abs(uniform_result.values[0U] - 1.0F) <= 1.0e-6F
-            && std::abs(uniform_result.values[1U] - 0.5F) <= 1.0e-6F
-            && std::abs(uniform_result.values[2U] - 1.0F) <= 1.0e-6F,
-        "a uniformly exhausted CFA footprint keeps the H=0 component ceiling without neutral pull"
-    );
-
-    auto imbalanced = uniform;
-    imbalanced.cfa_highlight_risk = {1.0F, 0.0F, 1.0F, 0.0F};
-    const auto imbalanced_result = image::detail::reconstruct_cfa_highlights(
-        imbalanced,
-        transform,
-        image::RawHighlightRecoveryIntent::provider_default
-    );
-    expect(
-        imbalanced_result.values[1U] > uniform_result.values[1U] + 0.1F,
-        "unequal CFA headroom retains the bounded residual neutralization for false plateau chroma"
+        "Metal matches the CPU LibRaw H=0 measured-CFA path"
     );
 }
 
@@ -402,12 +374,12 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
             }
         }
         expect(
-            maximum_default_delta > 0.05F,
-            "the default policy applies its CFA-admitted white ceiling to a multi-site plateau"
+            maximum_default_delta > 0.4F,
+            "the physical sensor-white ceiling is distinct from the unbounded diagnostic path"
         );
         expect(
-            maximum_reconstructed_chroma < maximum_disabled_chroma * 0.20F,
-            "the default policy suppresses residual plateau colour after the H=0-style ceiling"
+            maximum_reconstructed_chroma <= 1.0e-6F && maximum_disabled_chroma > 0.4F,
+            "the physical sensor-white CFA plateau reaches the source white ceiling before demosaic"
         );
     }
 
@@ -462,15 +434,11 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
             max_channel > min_channel + 0.25F,
             "a single clipped CFA colour is not mistaken for a neutral highlight plateau"
         );
-        for (std::size_t channel = 0U; channel < 3U; ++channel) {
-            expect(
-                std::abs(
-                    one_channel.scene_linear.samples[index + channel]
-                    - one_channel_disabled.scene_linear.samples[index + channel]
-                ) <= 1.0e-6F,
-                "a single clipped CFA colour stays byte-for-byte on the measured path"
-            );
-        }
+        expect(
+            one_channel.scene_linear.samples[index]
+                < one_channel_disabled.scene_linear.samples[index] - 0.5F,
+            "a physically clipped CFA colour is limited at the source white point"
+        );
     }
 
     const image::RawFrameLinearTransform canon_transform{
@@ -549,7 +517,7 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
     }
     expect(
         maximum_default_delta <= 1.0e-6F,
-        "sub-white CFA samples stay exactly measured until a post-WB component exceeds white"
+        "sub-white CFA samples stay exactly measured until the physical sensor reaches white"
     );
 
     const image::RawFrameLinearTransform identity{{
@@ -642,7 +610,7 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
     expect(
         maximum_shoulder_delta <= 1.0e-6F
             && std::abs(maximum_shoulder_chroma - maximum_shoulder_disabled_chroma) <= 1.0e-6F,
-        "the shoulder does not alter measured camera colour before the post-WB white ceiling"
+        "the source path does not alter measured camera colour below physical sensor white"
     );
 
     const auto saturated_red = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -703,7 +671,7 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
     }
     expect(
         maximum_enabled_difference <= enabled_parity_tolerance,
-        "Metal matches the CPU H=0-style CFA white ceiling within bounded fp32 parity"
+        "Metal matches the CPU editable CFA-headroom path within bounded fp32 parity"
     );
 
     const auto disabled_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -735,8 +703,7 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
 } // namespace
 
 int main() {
-    cfa_white_balance_uses_an_h0_style_white_ceiling();
-    residual_neutralization_requires_unequal_cfa_headroom();
+    cfa_white_balance_retains_editable_headroom_before_display_h0();
     sensor_clipped_highlights_respect_h0_boundaries();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -50,10 +50,11 @@ struct ResidentRawDevelopmentParameters final {
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
-    std::uint32_t reconstruct_cfa_highlights = 0U;
+    float cfa_white_balance_scale = 1.0F;
+    std::uint32_t cap_physical_sensor_white = 0U;
 };
 
-static_assert(sizeof(ResidentRawDevelopmentParameters) == 168U);
+static_assert(sizeof(ResidentRawDevelopmentParameters) == 172U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, orientation) == 40U);
@@ -63,7 +64,8 @@ static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_channels) == 60U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 108U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance) == 144U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, apply_cfa_white_balance) == 160U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruct_cfa_highlights) == 164U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance_scale) == 164U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cap_physical_sensor_white) == 168U);
 
 [[nodiscard]] bool environment_enabled(const char* name) noexcept {
     const char* value = std::getenv(name);
@@ -183,8 +185,15 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
-    parameters.reconstruct_cfa_highlights =
-        plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
+    if (plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default
+        && transform.apply_cfa_white_balance) {
+        const auto minimum = *std::min_element(
+            transform.cfa_white_balance.begin(),
+            transform.cfa_white_balance.end()
+        );
+        parameters.cfa_white_balance_scale = static_cast<float>(1.0 / minimum);
+        parameters.cap_physical_sensor_white = 1U;
+    }
     return parameters;
 }
 
