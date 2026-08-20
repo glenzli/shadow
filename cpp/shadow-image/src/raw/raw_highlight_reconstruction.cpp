@@ -25,6 +25,21 @@ namespace {
     return smoothstep(0.25F, 0.50F, exhausted_fraction);
 }
 
+[[nodiscard]] float highlight_residual_chroma_evidence(const RawCfaFootprint& cfa_risk) noexcept {
+    float minimum_risk = 1.0F;
+    float maximum_risk = 0.0F;
+    for (const float risk : cfa_risk) {
+        const float bounded = std::clamp(risk, 0.0F, 1.0F);
+        minimum_risk = std::min(minimum_risk, bounded);
+        maximum_risk = std::max(maximum_risk, bounded);
+    }
+    // A uniformly exhausted footprint is a plausible achromatic illuminant: H=0 component
+    // clipping is sufficient and retains its natural coloured shoulder. Residual
+    // neutralization is evidence for unequal CFA headroom, where the residual channel
+    // separation is no longer reliable after the ceiling.
+    return smoothstep(0.15F, 0.75F, maximum_risk - minimum_risk);
+}
+
 [[nodiscard]] std::array<float, 3U>
 scene_neutral_camera_direction(const RawFrameLinearTransform& transform) noexcept {
     const auto& m = transform.camera_to_linear_srgb_d65;
@@ -87,9 +102,9 @@ CameraRgbSample reconstruct_cfa_highlights(
     // cfa_highlight_risk is formed from physical black/white-normalized headroom before white
     // balance and before preview downsampling; gains cannot create sensor evidence. First use
     // ordinary H=0-style component clipping. This does not estimate a missing channel or rebuild
-    // spatial detail. A strictly bounded residual neutral pull then prevents a two-green plateau
-    // from retaining false magenta/green after the camera matrix; it is deliberately much weaker
-    // than the earlier reconstruction policy and cannot affect a single-site coloured light.
+    // spatial detail. A strictly bounded residual neutral pull is admitted only when the
+    // footprint also shows unequal CFA headroom, preventing a two-green plateau from retaining
+    // false magenta/green while leaving a uniformly exhausted illuminant on the H=0 path.
     const float peak_before_ceiling =
         std::max({camera.values[0U], camera.values[1U], camera.values[2U]});
     if (peak_before_ceiling <= 1.0F) {
@@ -104,7 +119,11 @@ CameraRgbSample reconstruct_cfa_highlights(
     }
     constexpr float maximum_residual_chroma_suppression = 0.40F;
     const float residual_chroma_suppression =
-        maximum_residual_chroma_suppression * white_ceiling_strength;
+        maximum_residual_chroma_suppression * white_ceiling_strength
+        * highlight_residual_chroma_evidence(camera.cfa_highlight_risk);
+    if (residual_chroma_suppression <= 0.0F) {
+        return camera;
+    }
     const float energy = scene_linear_energy(camera, transform);
     for (std::size_t channel = 0U; channel < camera.values.size(); ++channel) {
         const float neutral_target = neutral_direction[channel] * energy;

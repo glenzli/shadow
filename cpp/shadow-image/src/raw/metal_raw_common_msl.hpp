@@ -206,7 +206,7 @@ inline CameraRgbSample reconstruct_cfa_highlights(
         return camera;
     }
     // Match raw_highlight_reconstruction.cpp exactly: first apply H=0-style component clipping,
-    // then a deliberately small residual stabilization for a multi-site plateau only.
+    // then a deliberately small residual stabilization only for unequal CFA headroom.
     const float peak_before_ceiling = max(camera.values.x, max(camera.values.y, camera.values.z));
     if (peak_before_ceiling <= 1.0f) {
         return camera;
@@ -242,7 +242,18 @@ inline CameraRgbSample reconstruct_cfa_highlights(
         dot(float3(g, h, i), camera.values)
     );
     const float energy = max(0.0f, (scene.x + scene.y + scene.z) / 3.0f);
-    camera.values += (neutral_direction * energy - camera.values) * (0.40f * white_ceiling_strength);
+    const float minimum_risk = min(
+        min(camera.cfa_highlight_risk.x, camera.cfa_highlight_risk.y),
+        min(camera.cfa_highlight_risk.z, camera.cfa_highlight_risk.w)
+    );
+    const float maximum_risk = max(
+        max(camera.cfa_highlight_risk.x, camera.cfa_highlight_risk.y),
+        max(camera.cfa_highlight_risk.z, camera.cfa_highlight_risk.w)
+    );
+    const float imbalance_t = clamp((maximum_risk - minimum_risk - 0.15f) / 0.60f, 0.0f, 1.0f);
+    const float residual_evidence = imbalance_t * imbalance_t * (3.0f - 2.0f * imbalance_t);
+    camera.values +=
+        (neutral_direction * energy - camera.values) * (0.40f * white_ceiling_strength * residual_evidence);
     return camera;
 }
 

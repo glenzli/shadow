@@ -16,7 +16,7 @@ namespace shadow::image::raw_pipeline_detail {
 namespace {
 
 inline constexpr std::string_view raw_frame_pipeline_identity =
-    "shadow-raw-frame-developer@20260821.1:cfa-wb-before-demosaic:decoder-matrix-dcp-neutral-only:"
+    "shadow-raw-frame-developer@20260821.2:cfa-wb-before-demosaic:decoder-matrix-dcp-neutral-only:"
     "bayer-area-preview+bayer-bilinear:raw-denoise-cfa-bilateral-v1:plan-camera-neutral:"
     "camera-matrix:scene-linear-f32";
 
@@ -136,8 +136,7 @@ PreparedRawFrameSource prepare_raw_frame_source(
     pipeline.camera_profile_catalog_identity = camera_profiles.identity;
     pipeline.camera_profile_developer_version = dcp_color_developer_version;
 
-    const CameraProfileDefinition* camera_profile =
-        match_camera_profile(camera_profiles, metadata);
+    const CameraProfileDefinition* camera_profile = match_camera_profile(camera_profiles, metadata);
     std::optional<DcpColorTransform> dcp_transform;
     std::optional<CameraProfileDefinition> camera_profile_definition;
     pipeline.camera_profile_status = RawCameraProfileStatus::no_match;

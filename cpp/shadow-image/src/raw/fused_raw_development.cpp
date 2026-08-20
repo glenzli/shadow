@@ -258,8 +258,9 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=shadow-cfa-evidence@20260821.1;shoulder=continuous-cfa-headroom;target="
-               "h0-white-ceiling+residual-neutral-0.40";
+        return "sensor-highlights=shadow-cfa-evidence@20260821.2;shoulder=continuous-cfa-headroom;"
+               "target="
+               "h0-white-ceiling+residual-neutral-imbalance-gated-0.40";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:

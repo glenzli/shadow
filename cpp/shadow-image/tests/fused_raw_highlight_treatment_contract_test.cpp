@@ -1,3 +1,4 @@
+#include "../src/raw/raw_highlight_reconstruction.hpp"
 #include "contract_test_assertions.hpp"
 #include "fused_raw_contract_test_support.hpp"
 
@@ -186,8 +187,9 @@ void cfa_white_balance_uses_an_h0_style_white_ceiling() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=shadow-cfa-evidence@20260821.1;shoulder=continuous-cfa-headroom;target="
-               "h0-white-ceiling+residual-neutral-0.40",
+            == "sensor-highlights=shadow-cfa-evidence@20260821.2;shoulder=continuous-cfa-headroom;"
+               "target="
+               "h0-white-ceiling+residual-neutral-imbalance-gated-0.40",
         "the default source treatment identifies its H=0-style calibrated CFA shoulder"
     );
 
@@ -259,6 +261,63 @@ void cfa_white_balance_uses_an_h0_style_white_ceiling() {
     expect(
         maximum_metal_difference <= 4.0e-5F,
         "Metal matches the CPU H=0-style CFA white ceiling"
+    );
+}
+
+void residual_neutralization_requires_unequal_cfa_headroom() {
+    const image::RawFrameLinearTransform transform{
+        .camera_to_linear_srgb_d65 =
+            {
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            },
+        .camera_rgb_to_linear_srgb_d65 =
+            {
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            },
+        .camera_neutral = {1.0, 1.0, 1.0},
+    };
+    const image::detail::CameraRgbSample uniform{
+        .values = {1.2F, 0.5F, 1.2F},
+        .cfa_highlight_risk = {1.0F, 1.0F, 1.0F, 1.0F},
+    };
+    const auto uniform_result = image::detail::reconstruct_cfa_highlights(
+        uniform,
+        transform,
+        image::RawHighlightRecoveryIntent::provider_default
+    );
+    expect(
+        std::abs(uniform_result.values[0U] - 1.0F) <= 1.0e-6F
+            && std::abs(uniform_result.values[1U] - 0.5F) <= 1.0e-6F
+            && std::abs(uniform_result.values[2U] - 1.0F) <= 1.0e-6F,
+        "a uniformly exhausted CFA footprint keeps the H=0 component ceiling without neutral pull"
+    );
+
+    auto imbalanced = uniform;
+    imbalanced.cfa_highlight_risk = {1.0F, 0.0F, 1.0F, 0.0F};
+    const auto imbalanced_result = image::detail::reconstruct_cfa_highlights(
+        imbalanced,
+        transform,
+        image::RawHighlightRecoveryIntent::provider_default
+    );
+    expect(
+        imbalanced_result.values[1U] > uniform_result.values[1U] + 0.1F,
+        "unequal CFA headroom retains the bounded residual neutralization for false plateau chroma"
     );
 }
 
@@ -677,6 +736,7 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
 
 int main() {
     cfa_white_balance_uses_an_h0_style_white_ceiling();
+    residual_neutralization_requires_unequal_cfa_headroom();
     sensor_clipped_highlights_respect_h0_boundaries();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
