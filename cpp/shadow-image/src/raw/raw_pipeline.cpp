@@ -132,7 +132,8 @@ RawDevelopmentCapabilities shadow_raw_frame_development_capabilities() noexcept 
         | raw_noise_reduction_intent_mask(RawNoiseReductionIntent::noise_robust);
     capabilities.supported_highlight_recovery_intents =
         raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::provider_default)
-        | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::disabled);
+        | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::disabled)
+        | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::aggressive);
     return capabilities;
 }
 

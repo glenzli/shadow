@@ -52,9 +52,10 @@ struct ResidentRawDevelopmentParameters final {
     std::uint32_t apply_cfa_white_balance = 0U;
     float cfa_white_balance_scale = 1.0F;
     std::uint32_t cap_physical_sensor_white = 0U;
+    std::uint32_t feather_highlight_chroma_neutralization = 0U;
 };
 
-static_assert(sizeof(ResidentRawDevelopmentParameters) == 172U);
+static_assert(sizeof(ResidentRawDevelopmentParameters) == 176U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, orientation) == 40U);
@@ -66,6 +67,9 @@ static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance) == 1
 static_assert(offsetof(ResidentRawDevelopmentParameters, apply_cfa_white_balance) == 160U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance_scale) == 164U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, cap_physical_sensor_white) == 168U);
+static_assert(
+    offsetof(ResidentRawDevelopmentParameters, feather_highlight_chroma_neutralization) == 172U
+);
 
 [[nodiscard]] bool environment_enabled(const char* name) noexcept {
     const char* value = std::getenv(name);
@@ -185,7 +189,8 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
-    if (plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default
+    if ((plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default
+         || plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive)
         && transform.apply_cfa_white_balance) {
         const auto minimum = *std::min_element(
             transform.cfa_white_balance.begin(),
@@ -194,6 +199,8 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.cfa_white_balance_scale = static_cast<float>(1.0 / minimum);
         parameters.cap_physical_sensor_white = 1U;
     }
+    parameters.feather_highlight_chroma_neutralization =
+        plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive ? 1U : 0U;
     return parameters;
 }
 

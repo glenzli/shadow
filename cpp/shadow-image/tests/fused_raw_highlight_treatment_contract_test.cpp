@@ -137,6 +137,29 @@ using shadow::image::test_support::failures;
     return frame;
 }
 
+[[nodiscard]] image::RawFrame mixed_highlight_boundary_frame() {
+    auto frame = synthetic_frame(0);
+    for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < frame.descriptor.storage_dimensions.width; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const auto colour = frame.descriptor.bayer_2x2[site];
+            const bool clipped_side = x >= frame.descriptor.storage_dimensions.width / 2U;
+            const std::uint16_t sample = colour == image::RawCfaColor::red
+                                             ? static_cast<std::uint16_t>(
+                                                   clipped_side
+                                                       ? frame.descriptor.white_levels[site]
+                                                       : frame.descriptor.white_levels[site] - 8U
+                                               )
+                                             : static_cast<std::uint16_t>(
+                                                   frame.descriptor.white_levels[site] - 80U
+                                               );
+            frame.samples[static_cast<std::size_t>(y) * frame.descriptor.storage_dimensions.width
+                          + x] = sample;
+        }
+    }
+    return frame;
+}
+
 void cfa_white_balance_retains_editable_headroom_before_display_h0() {
     const image::RawFrameLinearTransform transform{
         .camera_to_linear_srgb_d65 =
@@ -411,6 +434,56 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
         "disabled source treatment preserves measured clipped sensor colours for diagnostics"
     );
 
+    const auto mixed_boundary = mixed_highlight_boundary_frame();
+    const auto default_boundary = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        mixed_boundary,
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu
+    );
+    const auto aggressive_boundary = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        mixed_boundary,
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::aggressive
+    );
+    expect(
+        aggressive_boundary.valid()
+            && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
+                   == "sensor-highlights=cfa-near-white-feathered-risk@20260822.4;"
+                      "recovery=none;source=spatial-confidence-neutral-chroma;display=libraw-h0",
+        "aggressive repair is cache-visible and remains an explicit non-reconstruction policy"
+    );
+    float default_boundary_chroma = 0.0F;
+    float aggressive_boundary_chroma = 0.0F;
+    for (std::size_t index = 0U; index < default_boundary.scene_linear.samples.size(); index += 3U) {
+        const auto& default_samples = default_boundary.scene_linear.samples;
+        const auto& aggressive_samples = aggressive_boundary.scene_linear.samples;
+        default_boundary_chroma += std::max({
+            default_samples[index],
+            default_samples[index + 1U],
+            default_samples[index + 2U],
+        }) - std::min({
+            default_samples[index],
+            default_samples[index + 1U],
+            default_samples[index + 2U],
+        });
+        aggressive_boundary_chroma += std::max({
+            aggressive_samples[index],
+            aggressive_samples[index + 1U],
+            aggressive_samples[index + 2U],
+        }) - std::min({
+            aggressive_samples[index],
+            aggressive_samples[index + 1U],
+            aggressive_samples[index + 2U],
+        });
+    }
+    expect(
+        aggressive_boundary_chroma + 1.0e-3F < default_boundary_chroma,
+        "aggressive repair feathering reduces false highlight chroma across a mixed CFA boundary"
+    );
+
     const auto one_channel = image::develop_bayer_linear_srgb_f32_fused_with_backend(
         single_channel_clipped_frame(),
         transform,
@@ -672,6 +745,35 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
     expect(
         maximum_enabled_difference <= enabled_parity_tolerance,
         "Metal matches the CPU editable CFA-headroom path within bounded fp32 parity"
+    );
+
+    const auto aggressive_cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        mixed_highlight_boundary_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::aggressive
+    );
+    const auto aggressive_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        mixed_highlight_boundary_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::metal,
+        image::RawHighlightRecoveryIntent::aggressive
+    );
+    float maximum_aggressive_difference = 0.0F;
+    for (std::size_t index = 0U; index < aggressive_cpu.scene_linear.samples.size(); ++index) {
+        maximum_aggressive_difference = std::max(
+            maximum_aggressive_difference,
+            std::abs(
+                aggressive_cpu.scene_linear.samples[index]
+                - aggressive_metal.scene_linear.samples[index]
+            )
+        );
+    }
+    expect(
+        maximum_aggressive_difference <= 4.0e-5F,
+        "Metal matches the CPU aggressive CFA-confidence feathering path"
     );
 
     const auto disabled_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(

@@ -60,7 +60,8 @@ void validate_request(
         );
     }
     if (highlight_recovery != RawHighlightRecoveryIntent::provider_default
-        && highlight_recovery != RawHighlightRecoveryIntent::disabled) {
+        && highlight_recovery != RawHighlightRecoveryIntent::disabled
+        && highlight_recovery != RawHighlightRecoveryIntent::aggressive) {
         throw DecodeError(
             DecodeErrorCode::unsupported,
             0,
@@ -149,7 +150,9 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     const detail::BayerCfaSamplingPolicy cfa_sampling =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
             ? detail::editable_raw_cfa_sampling_policy(transform)
-            : detail::BayerCfaSamplingPolicy{};
+            : highlight_recovery == RawHighlightRecoveryIntent::aggressive
+                ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
+                : detail::BayerCfaSamplingPolicy{};
     const auto area_sampling =
         area_preview ? std::optional<detail::BayerAreaSamplingGrid>(
                            detail::make_bayer_area_sampling_grid(frame, reconstruction_dimensions)
@@ -263,8 +266,10 @@ raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexce
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
-    case RawHighlightRecoveryIntent::aggressive:
         return "sensor-highlights=unsupported";
+    case RawHighlightRecoveryIntent::aggressive:
+        return "sensor-highlights=cfa-near-white-feathered-risk@20260822.4;"
+               "recovery=none;source=spatial-confidence-neutral-chroma;display=libraw-h0";
     }
     return "sensor-highlights=unknown";
 }
@@ -325,7 +330,8 @@ bool FusedRawFrameDevelopment::valid() const noexcept {
         backend == RawDevelopmentBackend::cpu || backend == RawDevelopmentBackend::metal;
     const bool known_highlight_treatment =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
-        || highlight_recovery == RawHighlightRecoveryIntent::disabled;
+        || highlight_recovery == RawHighlightRecoveryIntent::disabled
+        || highlight_recovery == RawHighlightRecoveryIntent::aggressive;
     if (!known_backend || !known_highlight_treatment || width == 0U || height == 0U
         || !scene_linear.valid() || !valid_demosaic_receipt(demosaic_receipt)) {
         return false;

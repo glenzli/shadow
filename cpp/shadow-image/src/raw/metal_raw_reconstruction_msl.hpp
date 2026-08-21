@@ -221,9 +221,21 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
         green.value,
         result.values.z
     );
-    result.highlight_chroma_neutralization = highlight_chroma_risk(
-        observed == 0u ? 0.0f : float(at_white) / float(observed)
-    ) * bright_highlight_support(result.values);
+    const float exact_physical_white_coverage = observed == 0u
+        ? 0.0f : float(at_white) / float(observed);
+    const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
+        ? feathered_highlight_sensor_evidence(samples, parameters, raw_x, raw_y, 3u)
+        : exact_physical_white_coverage;
+    result.highlight_chroma_neutralization = (parameters.feather_highlight_chroma_neutralization != 0u
+        ? aggressive_highlight_chroma_risk(
+              physical_white_coverage,
+              exact_physical_white_coverage
+          )
+        : highlight_chroma_risk(physical_white_coverage))
+        * bright_highlight_support(
+            result.values,
+            parameters.feather_highlight_chroma_neutralization != 0u
+        );
     return result;
 }
 
@@ -438,9 +450,33 @@ kernel void develop_bayer_area_preview(
         ),
         observed_weight <= 0.0f ? 0.0f : physical_white_weight / observed_weight
     };
-    camera.highlight_chroma_neutralization = highlight_chroma_risk(
-        camera.highlight_chroma_neutralization
-    ) * bright_highlight_support(camera.values);
+    const float exact_physical_white_coverage = camera.highlight_chroma_neutralization;
+    const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
+        ? feathered_highlight_sensor_evidence(
+              samples,
+              parameters,
+              center_x,
+              center_y,
+              clamp(
+                  uint(ceil(1.5f * max(
+                      float(parameters.active_width) / float(parameters.reconstruction_width),
+                      float(parameters.active_height) / float(parameters.reconstruction_height)
+                  ))),
+                  2u,
+                  16u
+              )
+          )
+        : camera.highlight_chroma_neutralization;
+    camera.highlight_chroma_neutralization = (parameters.feather_highlight_chroma_neutralization != 0u
+        ? aggressive_highlight_chroma_risk(
+              physical_white_coverage,
+              exact_physical_white_coverage
+          )
+        : highlight_chroma_risk(physical_white_coverage))
+        * bright_highlight_support(
+            camera.values,
+            parameters.feather_highlight_chroma_neutralization != 0u
+        );
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);

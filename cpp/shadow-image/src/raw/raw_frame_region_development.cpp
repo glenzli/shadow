@@ -401,7 +401,8 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
     detail::validate_bayer_frame(frame, "resident RAW region development");
     if (!transform.valid()
         || (highlight_recovery != RawHighlightRecoveryIntent::provider_default
-            && highlight_recovery != RawHighlightRecoveryIntent::disabled)) {
+            && highlight_recovery != RawHighlightRecoveryIntent::disabled
+            && highlight_recovery != RawHighlightRecoveryIntent::aggressive)) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
@@ -410,12 +411,15 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
     }
 
     // Keep black-subtracted CFA samples through white balance before demosaic. The editable source
-    // retains WB-induced float headroom; only a physically sensor-clipped sample is limited, with
-    // no post-demosaic colour reconstruction or neutral pull.
+    // retains WB-induced float headroom. The default uses the exact CFA footprint; opt-in
+    // aggressive repair feathers only physical-white evidence before the same camera-domain
+    // neutral pull. Neither route reconstructs colour or detail.
     const detail::BayerCfaSamplingPolicy cfa_sampling =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
             ? detail::editable_raw_cfa_sampling_policy(transform)
-            : detail::BayerCfaSamplingPolicy{};
+            : highlight_recovery == RawHighlightRecoveryIntent::aggressive
+                ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
+                : detail::BayerCfaSamplingPolicy{};
     const Dimensions reconstruction = frame.descriptor.active_dimensions;
     const Dimensions output_dimensions =
         oriented_raw_dimensions(reconstruction, frame.descriptor.orientation);

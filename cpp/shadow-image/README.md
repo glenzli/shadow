@@ -145,10 +145,13 @@ Current contract rules:
   measured chroma. This is shared
   by bounded preview, resident GPU preview, full-detail, and export; no post-demosaic highlight
   blending, map sidecar, or colour rebuild is performed. The final display path, after editable
-  nodes, is the LibRaw H=0 reference mapping. `disabled` stays an
-  explicit unbounded diagnostic plan for compatibility, while the selected policy remains part of
-  the developed cache identity. CPU and Metal apply the same CFA-scale route before their camera
-  transforms.
+  nodes, is the LibRaw H=0 reference mapping. `disabled` stays an explicit unbounded diagnostic
+  plan for compatibility. The opt-in `aggressive` policy is a separate repair route: it spatially
+  feathers the physical-white and near-white CFA confidence before the same camera-domain neutral
+  pull. It intentionally sacrifices uncertain highlight chroma to hide a false-colour contour, but never
+  copies neighbouring hue, fabricates luminance/detail, or changes the default path. The selected
+  policy remains part of the developed cache identity. CPU and Metal apply the same CFA-scale route
+  before their camera transforms.
   `src/raw/raw_frame_source_development.*` consumes that preparation for the complete
   CPU/Metal materialization transaction. `src/raw/raw_frame_region_development.*` owns the exact
   CPU region contract: oriented output cores, active-sensor reconstruction coordinates,

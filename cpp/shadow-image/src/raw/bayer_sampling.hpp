@@ -20,10 +20,17 @@ using CameraRgb = std::array<float, 3U>;
 struct BayerCfaSamplingPolicy final {
     float white_balance_scale = 1.0F;
     bool cap_physical_sensor_white = false;
+    // Opt-in repair mode only. It spatially feathers the physical-white evidence before
+    // neutralization, deliberately sacrificing uncertain highlight chroma to avoid a hard
+    // false-colour boundary. It never invents a colour or a luminance value.
+    bool feather_highlight_chroma_neutralization = false;
 };
 
 [[nodiscard]] BayerCfaSamplingPolicy
 editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept;
+
+[[nodiscard]] BayerCfaSamplingPolicy
+aggressive_highlight_repair_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept;
 
 // Camera-linear reconstruction carries CFA-white-balanced samples after the selected source
 // policy.  Physical sensor-white is source evidence, not an instruction to reconstruct detail:
