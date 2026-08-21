@@ -335,31 +335,26 @@ void selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage() {
          "preserved edge");
 }
 
-void selective_tone_contains_only_low_confidence_highlight_chroma() {
-  auto input = rgb_image(2, {2.8F, 0.45F, 2.1F, 2.8F, 0.45F, 2.1F});
+void selective_tone_preserves_highlight_chroma_after_source_treatment() {
+  auto input = rgb_image(1, {2.8F, 0.45F, 2.1F});
   input.working_space = linear_srgb();
   const std::array node{
       image::AdjustmentNode{
-          .node_id = "cfa-contained-highlights",
+          .node_id = "source-treated-highlights",
           .parameter_schema_version = image::selective_tone_parameter_schema_version,
           .implementation_version = image::selective_tone_implementation_version,
           .parameters = image::SelectiveToneAdjustment{.highlights = -1.0},
       },
   };
-  const auto unconstrained = image::execute_adjustment_nodes(input, node);
-  input.raw_highlight_chroma_confidence = {0U, 255U};
-  const auto constrained = image::execute_adjustment_nodes(input, node);
-  const auto chroma = [](const image::FloatRgbImage& value, const std::size_t pixel) {
+  const auto output = image::execute_adjustment_nodes(input, node);
+  const auto chroma = [](const image::FloatRgbImage& value) {
     const auto lab = oklab_from_linear_srgb({
-        value.samples[pixel * 3U], value.samples[pixel * 3U + 1U],
-        value.samples[pixel * 3U + 2U],
+        value.samples[0], value.samples[1], value.samples[2],
     });
     return std::hypot(lab[1], lab[2]);
   };
-  expect(chroma(constrained, 0U) < chroma(unconstrained, 0U) * 0.20,
-         "negative Highlights neutralizes only a CFA-low-confidence bright chroma");
-  expect_close_double(chroma(constrained, 1U), chroma(unconstrained, 1U), 2.0e-5,
-                      "negative Highlights preserves high-confidence bright chroma");
+  expect_close_double(chroma(output), chroma(input), 2.0e-5,
+                      "selective tone is a pure Oklab-lightness adjustment after RAW source treatment");
 }
 
 } // namespace
@@ -372,6 +367,6 @@ int main() {
   selective_tone_endpoints_reach_ordinary_detail_without_clipping();
   selective_tone_combined_extremes_are_monotonic_and_smooth();
   selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage();
-  selective_tone_contains_only_low_confidence_highlight_chroma();
+  selective_tone_preserves_highlight_chroma_after_source_treatment();
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

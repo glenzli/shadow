@@ -196,7 +196,6 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const WarmEditGpuAdoptedSou
         .level_zero_to_raster_scale_x = source.level_zero_to_raster_scale_x,
         .level_zero_to_raster_scale_y = source.level_zero_to_raster_scale_y,
         .samples = {},
-        .raw_highlight_chroma_confidence = source.raw_highlight_chroma_confidence,
     };
     auto preparation = prepare_warm_gpu_resident_resources(
         layout,

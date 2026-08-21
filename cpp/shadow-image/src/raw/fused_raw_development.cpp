@@ -258,8 +258,8 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=editable-cfa-confidence@20260821.6;recovery=none;"
-               "source=measured-cfa-wb;display=libraw-h0";
+        return "sensor-highlights=cfa-physical-white-continuous-risk@20260821.12;recovery=none;"
+               "source=measured-camera-luminance-continuous-neutral-chroma;display=libraw-h0";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:

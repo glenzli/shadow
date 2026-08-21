@@ -300,8 +300,6 @@ struct PreparedWarmEditProxy final {
     RawDevelopmentReceipt raw_development_receipt = std::move(developed.raw_development_receipt);
     std::optional<SensorClippingMask> sensor_clipping_mask =
         std::move(developed.sensor_clipping_mask);
-    std::optional<SensorHighlightChromaConfidence> sensor_highlight_chroma_confidence =
-        std::move(developed.sensor_highlight_chroma_confidence);
     const SourceRenderingReceipt source_rendering = std::visit(
         [&](const auto& value) {
             return resolve_source_rendering(value, metadata, developed.pipeline_receipt);
@@ -371,17 +369,11 @@ struct PreparedWarmEditProxy final {
     }
     apply_source_rendering(working_proxy, source_rendering);
     // Optical providers currently retain preview raster geometry. If an adapter ever returns a
-    // different extent, a pre-warp sensor map would be misleading; omit it instead of stretching
+    // different extent, a pre-warp sensor mask would be misleading; omit it instead of stretching
     // it or reopening the RAW source just for diagnostics.
     if (sensor_clipping_mask.has_value()
         && sensor_clipping_mask->dimensions != working_proxy.dimensions) {
         sensor_clipping_mask.reset();
-    }
-    if (sensor_highlight_chroma_confidence.has_value()
-        && sensor_highlight_chroma_confidence->dimensions == working_proxy.dimensions
-        && sensor_highlight_chroma_confidence->valid()) {
-        working_proxy.raw_highlight_chroma_confidence =
-            std::move(sensor_highlight_chroma_confidence->samples);
     }
     return {
         .working_proxy = std::move(working_proxy),
@@ -741,12 +733,6 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                             static_cast<std::size_t>(corrected.dimensions().width) * 3U
                                 * sizeof(float)
                         );
-                        if (resident->sensor_highlight_chroma_confidence.has_value()
-                            && resident->sensor_highlight_chroma_confidence->dimensions
-                                   == layout.dimensions) {
-                            layout.raw_highlight_chroma_confidence =
-                                resident->sensor_highlight_chroma_confidence->samples;
-                        }
                         auto warm = detail::prepare_warm_edit_gpu_session(
                             detail::WarmEditGpuAdoptedSource{
                                 .dimensions = corrected.dimensions(),
@@ -767,8 +753,6 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                                 .working_space = layout.working_space,
                                 .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
                                 .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
-                                .raw_highlight_chroma_confidence =
-                                    layout.raw_highlight_chroma_confidence,
                             }
                         );
                         if (warm.session) {
@@ -826,12 +810,6 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                     timing_started
                 );
                 FloatRgbImage layout = resident_working_proxy(resident->output);
-                if (resident->sensor_highlight_chroma_confidence.has_value()
-                    && resident->sensor_highlight_chroma_confidence->dimensions
-                           == layout.dimensions) {
-                    layout.raw_highlight_chroma_confidence =
-                        resident->sensor_highlight_chroma_confidence->samples;
-                }
                 auto warm = detail::prepare_warm_edit_gpu_session(
                     detail::WarmEditGpuAdoptedSource{
                         .dimensions = resident->output.dimensions(),
@@ -844,8 +822,6 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                         .working_space = layout.working_space,
                         .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
                         .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
-                        .raw_highlight_chroma_confidence =
-                            layout.raw_highlight_chroma_confidence,
                     }
                 );
                 if (warm.session) {

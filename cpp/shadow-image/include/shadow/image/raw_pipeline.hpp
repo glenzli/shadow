@@ -125,10 +125,6 @@ struct DevelopedSourceReference final {
     // They remain optional because raster and provider-processed compatibility routes have no
     // truthful sensor-domain data to report.
     std::optional<SensorClippingMask> sensor_clipping_mask;
-    // Continuous RAW-only companion evidence for highlight chroma containment.  It shares the
-    // developed display dimensions and is dropped, rather than warped, by a geometry-changing
-    // independent optics provider.
-    std::optional<SensorHighlightChromaConfidence> sensor_highlight_chroma_confidence;
 };
 
 [[nodiscard]] constexpr RawPipelinePolicy default_raw_pipeline_policy() noexcept {

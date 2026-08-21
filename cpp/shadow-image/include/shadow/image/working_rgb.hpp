@@ -68,9 +68,6 @@ struct FloatRgbImage final {
     double level_zero_to_raster_scale_x = 1.0;
     double level_zero_to_raster_scale_y = 1.0;
     std::vector<float> samples;
-    // Empty for decoded/provider-rendered sources.  When present it has exactly one pre-WB CFA
-    // confidence value per pixel and accompanies the immutable RAW source into Selective Tone.
-    std::vector<std::uint8_t> raw_highlight_chroma_confidence;
 };
 
 } // namespace shadow::image

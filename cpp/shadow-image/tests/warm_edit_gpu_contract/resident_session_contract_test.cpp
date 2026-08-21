@@ -121,7 +121,7 @@ void resident_backend_matches_cpu_oracle() {
     const auto initial_stats = preparation.session->stats();
     expect(
         initial_stats.resident && initial_stats.source_upload_count == 1U
-            && initial_stats.gpu_buffer_allocation_count == 10U && initial_stats.render_count == 0U,
+            && initial_stats.gpu_buffer_allocation_count == 9U && initial_stats.render_count == 0U,
         "resident backend starts with one source, one dummy side table, and two four-buffer slots"
     );
 

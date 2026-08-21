@@ -1985,8 +1985,7 @@ kernel void warm_selective_tone_apply_v1(
     device const float* input [[buffer(0)]],
     device const float* mask [[buffer(1)]],
     device float* output [[buffer(2)]],
-    device const uchar* cfa_chroma_confidence [[buffer(3)]],
-    constant WarmSelectiveToneParameters& parameters [[buffer(4)]],
+    constant WarmSelectiveToneParameters& parameters [[buffer(3)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= parameters.width || position.y >= parameters.height) {
@@ -2041,13 +2040,6 @@ kernel void warm_selective_tone_apply_v1(
         const float lightness_gain = exp2((adjusted_ev - mask_ev) / 3.0f);
         if (lightness_gain > 0.0f && isfinite(lightness_gain)) {
             lab.x *= lightness_gain;
-            const float highlight_pull = clamp(-parameters.highlights, 0.0f, 1.0f);
-            const float region = clamp((mask_ev - 0.35f) / 1.35f, 0.0f, 1.0f);
-            const float smooth_region = region * region * (3.0f - 2.0f * region);
-            const float confidence = float(cfa_chroma_confidence[pixel]) / 255.0f;
-            const float containment = highlight_pull * smooth_region * (1.0f - confidence);
-            lab.y *= 1.0f - containment;
-            lab.z *= 1.0f - containment;
             adjusted = multiply_rows(
                 parameters.xyz_to_rgb_row_0,
                 parameters.xyz_to_rgb_row_1,

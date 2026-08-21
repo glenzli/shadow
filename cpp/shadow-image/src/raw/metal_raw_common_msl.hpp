@@ -171,7 +171,40 @@ inline uchar sensor_clipping_flags(
 
 struct CameraRgbSample {
     float3 values;
+    float highlight_chroma_neutralization;
 };
+
+inline bool physical_sensor_white(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint x,
+    const uint y
+) {
+    return parameters.cap_physical_sensor_white != 0u
+        && normalized_sensor_sample(samples, parameters, x, y) >= 1.0f;
+}
+
+inline float3 neutralize_untrusted_camera_highlight_chroma(
+    const float3 camera_rgb,
+    const float chroma_neutralization
+) {
+    const float weight = clamp(chroma_neutralization, 0.0f, 1.0f);
+    if (weight == 0.0f) {
+        return camera_rgb;
+    }
+    const float luminance = dot(camera_rgb, float3(0.25f, 0.5f, 0.25f));
+    return mix(camera_rgb, float3(luminance), weight);
+}
+
+inline float bright_highlight_support(const float3 values) {
+    const float t = clamp((min(values.x, min(values.y, values.z)) - 0.70f) / 0.20f, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+inline float highlight_chroma_risk(const float coverage) {
+    const float remaining = 1.0f - clamp(coverage, 0.0f, 1.0f);
+    return 1.0f - remaining * remaining * remaining * remaining;
+}
 
 inline CameraRgbSample camera_rgb_at(
     device const ushort* samples,
@@ -181,6 +214,8 @@ inline CameraRgbSample camera_rgb_at(
 ) {
     float totals[3] = {0.0f, 0.0f, 0.0f};
     uint counts[3] = {0u, 0u, 0u};
+    uint observed = 0u;
+    uint at_white = 0u;
     for (int dy = -1; dy <= 1; ++dy) {
         const int candidate_y = int(raw_y) + dy;
         if (candidate_y < 0 || candidate_y >= int(parameters.storage_height)) {
@@ -197,13 +232,20 @@ inline CameraRgbSample camera_rgb_at(
             const float normalized = normalized_sample(samples, parameters, x, y);
             totals[channel] += normalized;
             counts[channel] += 1u;
+            observed += 1u;
+            at_white += physical_sensor_white(samples, parameters, x, y) ? 1u : 0u;
         }
     }
-    return CameraRgbSample{float3(
+    const float3 values = float3(
         totals[0] / float(counts[0]),
         totals[1] / float(counts[1]),
         totals[2] / float(counts[2])
-    )};
+    );
+    return CameraRgbSample{
+        values,
+        highlight_chroma_risk(observed == 0u ? 0.0f : float(at_white) / float(observed))
+            * bright_highlight_support(values)
+    };
 }
 
 )METAL";

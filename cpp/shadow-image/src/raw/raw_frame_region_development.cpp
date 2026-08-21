@@ -362,11 +362,29 @@ void write_raw_frame_transformed_pixel(
         camera.values[1],
         camera.values[2],
     };
+    // Once a physical white sits in a bright CFA footprint, that neutral-highlight RGB ratio is
+    // no longer measured data. Neutralize that camera-RGB ratio before the camera matrix, where
+    // LibRaw H=0 likewise establishes highlight colour; preserve the Bayer-weighted camera signal
+    // and spatial structure. Doing this after the matrix creates a display-grey plateau whose
+    // luminance does not follow the camera calibration.
+    const double chroma_neutralization = std::clamp(
+        static_cast<double>(camera.highlight_chroma_neutralization),
+        0.0,
+        1.0
+    );
+    std::array<double, 3U> adjusted_camera = camera_values;
+    if (chroma_neutralization > 0.0) {
+        const double camera_luminance = 0.25 * camera_values[0] + 0.5 * camera_values[1]
+            + 0.25 * camera_values[2];
+        for (auto& component : adjusted_camera) {
+            component += chroma_neutralization * (camera_luminance - component);
+        }
+    }
     std::array<double, 3U> scene_linear{};
     for (std::size_t output = 0U; output < 3U; ++output) {
         for (std::size_t input = 0U; input < 3U; ++input) {
-            scene_linear[output] +=
-                transform.camera_to_linear_srgb_d65[output * 3U + input] * camera_values[input];
+            scene_linear[output] += transform.camera_to_linear_srgb_d65[output * 3U + input]
+                                    * adjusted_camera[input];
         }
     }
     for (std::size_t output = 0U; output < 3U; ++output) {

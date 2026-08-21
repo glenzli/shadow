@@ -26,10 +26,14 @@ struct BayerCfaSamplingPolicy final {
 editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept;
 
 // Camera-linear reconstruction carries CFA-white-balanced samples after the selected source
-// policy. The editable path retains measured post-WB headroom and never infers a replacement
-// colour from a sensor plateau after demosaic.
+// policy.  Physical sensor-white is source evidence, not an instruction to reconstruct detail:
+// the common scene-linear writer retains measured luminance and neutralizes only its unreliable
+// chroma before an edit can amplify it.
 struct CameraRgbSample final {
     CameraRgb values{};
+    // Source-local blend weight for discarding an unmeasured neutral-highlight chroma ratio.
+    // It is derived only from the contributing CFA footprint and never survives as a preview map.
+    float highlight_chroma_neutralization = 0.0F;
 };
 
 struct BayerAreaSamplingGrid final {
@@ -59,9 +63,8 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation);
 );
 
 // Detail/export reconstruction uses a directional green estimate plus local
-// colour-difference interpolation. This stays in the sensor domain; clipping
-// is projected independently from the immutable RAW plane for a later,
-// explicit rendering or diagnostic stage.
+// colour-difference interpolation. It remains in the sensor domain and carries
+// physical-white evidence through the same source-stage treatment as preview.
 [[nodiscard]] CameraRgbSample edge_aware_camera_rgb_sample_at(
     const RawFrame& frame,
     std::uint32_t raw_x,

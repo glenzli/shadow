@@ -177,6 +177,26 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     const uint raw_y
 ) {
     CameraRgbSample result = camera_rgb_at(samples, parameters, raw_x, raw_y);
+    uint observed = 0u;
+    uint at_white = 0u;
+    for (int dy = -2; dy <= 2; ++dy) {
+        for (int dx = -2; dx <= 2; ++dx) {
+            const int candidate_x = int(raw_x) + dx;
+            const int candidate_y = int(raw_y) + dy;
+            if (candidate_x < 0 || candidate_y < 0
+                || candidate_x >= int(parameters.storage_width)
+                || candidate_y >= int(parameters.storage_height)) {
+                continue;
+            }
+            observed += 1u;
+            at_white += physical_sensor_white(
+                samples,
+                parameters,
+                uint(candidate_x),
+                uint(candidate_y)
+            ) ? 1u : 0u;
+        }
+    }
     const DirectionalGreenEstimate green =
         directional_green_estimate(samples, parameters, raw_x, raw_y);
     if (!green.valid) {
@@ -201,6 +221,9 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
         green.value,
         result.values.z
     );
+    result.highlight_chroma_neutralization = highlight_chroma_risk(
+        observed == 0u ? 0.0f : float(at_white) / float(observed)
+    ) * bright_highlight_support(result.values);
     return result;
 }
 
@@ -234,7 +257,10 @@ inline float3 develop_bayer_scene_linear_at(
     CameraRgbSample camera = parameters.reconstruction_quality == 2u
         ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
         : camera_rgb_at(samples, parameters, raw_x, raw_y);
-    const float3 camera_values = camera.values;
+    const float3 camera_values = neutralize_untrusted_camera_highlight_chroma(
+        camera.values,
+        camera.highlight_chroma_neutralization
+    );
     const float red =
         parameters.camera_to_linear_srgb[0] * camera_values.x
         + parameters.camera_to_linear_srgb[1] * camera_values.y
@@ -369,6 +395,8 @@ kernel void develop_bayer_area_preview(
     );
     float totals[3] = {0.0f, 0.0f, 0.0f};
     float weights[3] = {0.0f, 0.0f, 0.0f};
+    float observed_weight = 0.0f;
+    float physical_white_weight = 0.0f;
     for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const float overlap_y = max(
             0.0f,
@@ -384,6 +412,10 @@ kernel void develop_bayer_area_preview(
             const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
             totals[channel] += normalized * weight;
             weights[channel] += weight;
+            observed_weight += weight;
+            if (physical_sensor_white(samples, parameters, raw_x, raw_y)) {
+                physical_white_weight += weight;
+            }
         }
     }
     // An active footprint always contains each CFA colour for supported previews. Preserve the
@@ -403,13 +435,20 @@ kernel void develop_bayer_area_preview(
             totals[0] / weights[0],
             totals[1] / weights[1],
             totals[2] / weights[2]
-        )
+        ),
+        observed_weight <= 0.0f ? 0.0f : physical_white_weight / observed_weight
     };
+    camera.highlight_chroma_neutralization = highlight_chroma_risk(
+        camera.highlight_chroma_neutralization
+    ) * bright_highlight_support(camera.values);
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
     }
-    const float3 camera_values = camera.values;
+    const float3 camera_values = neutralize_untrusted_camera_highlight_chroma(
+        camera.values,
+        camera.highlight_chroma_neutralization
+    );
     const float red =
         parameters.camera_to_linear_srgb[0] * camera_values.x
         + parameters.camera_to_linear_srgb[1] * camera_values.y

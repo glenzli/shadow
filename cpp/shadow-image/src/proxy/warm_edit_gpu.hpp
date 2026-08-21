@@ -70,7 +70,6 @@ struct WarmEditGpuAdoptedSource final {
     WorkingRgbSpace working_space;
     double level_zero_to_raster_scale_x = 1.0;
     double level_zero_to_raster_scale_y = 1.0;
-    std::vector<std::uint8_t> raw_highlight_chroma_confidence;
 };
 
 // The resident backend owns one immutable source upload and two independently synchronized output

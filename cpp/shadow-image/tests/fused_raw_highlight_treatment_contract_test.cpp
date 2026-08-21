@@ -186,9 +186,9 @@ void cfa_white_balance_retains_editable_headroom_before_display_h0() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=editable-cfa-confidence@20260821.6;recovery=none;"
-               "source=measured-cfa-wb;display=libraw-h0",
-        "the source receipt identifies editable CFA headroom and final LibRaw H=0 display"
+            == "sensor-highlights=cfa-physical-white-continuous-risk@20260821.12;recovery=none;"
+               "source=measured-camera-luminance-continuous-neutral-chroma;display=libraw-h0",
+        "the source receipt identifies continuous physical-white chroma neutralization and final LibRaw H=0 display"
     );
 
     float maximum_default_delta = 0.0F;

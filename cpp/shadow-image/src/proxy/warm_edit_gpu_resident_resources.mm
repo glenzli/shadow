@@ -148,7 +148,6 @@ struct ResidentSideTable final {
 struct WarmGpuResidentResources::Impl final {
     id<MTLDevice> device = nil;
     id<MTLBuffer> source = nil;
-    id<MTLBuffer> source_highlight_chroma_confidence = nil;
     // A valid non-null binding is required even when one side table is empty. One immutable
     // zero buffer safely serves every empty table without treating emptiness as a cache upload.
     id<MTLBuffer> empty_side_table = nil;
@@ -194,7 +193,6 @@ struct WarmGpuResidentResources::Impl final {
             [slot.adjusted release];
         }
         [empty_side_table release];
-        [source_highlight_chroma_confidence release];
         [source release];
         brush_index_tables.clear();
         retouch_geometry_tables.clear();
@@ -861,10 +859,6 @@ id<MTLBuffer> WarmGpuResidentResources::source_buffer() const noexcept {
     return impl_->source;
 }
 
-id<MTLBuffer> WarmGpuResidentResources::source_highlight_chroma_confidence_buffer() const noexcept {
-    return impl_->source_highlight_chroma_confidence;
-}
-
 std::size_t WarmGpuResidentResources::operation_capacity() const noexcept {
     return maximum_warm_adjustment_operations;
 }
@@ -1132,8 +1126,6 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     std::size_t adjusted_sample_count = 0U;
     std::size_t adjusted_bytes = 0U;
     std::size_t rgb8_bytes = 0U;
-    const std::size_t highlight_confidence_bytes =
-        static_cast<std::size_t>(source.dimensions.pixel_count());
     if (!checked_multiply(sample_count, sizeof(float), source_bytes)
         || !checked_multiply(
             static_cast<std::size_t>(source.dimensions.pixel_count()),
@@ -1168,8 +1160,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     const std::size_t maximum_buffer_bytes = static_cast<std::size_t>(device.maxBufferLength);
     if (source_bytes > maximum_buffer_bytes || adjusted_bytes > maximum_buffer_bytes
         || rgb8_bytes > maximum_buffer_bytes || operation_buffer_bytes > maximum_buffer_bytes
-        || empty_side_table_bytes > maximum_buffer_bytes
-        || highlight_confidence_bytes > maximum_buffer_bytes) {
+        || empty_side_table_bytes > maximum_buffer_bytes) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
             .diagnostic = "warm-preview resident buffers exceed this Metal device's limit",
@@ -1189,8 +1180,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         || !checked_add(per_slot_bytes, operation_buffer_bytes, per_slot_bytes)
         || !checked_add(per_slot_bytes, sizeof(WarmStatus), per_slot_bytes)
         || !checked_multiply(per_slot_bytes, warm_slot_count, slots_bytes)
-        || !checked_add(source_bytes, highlight_confidence_bytes, resident_bytes)
-        || !checked_add(resident_bytes, slots_bytes, resident_bytes)
+        || !checked_add(source_bytes, slots_bytes, resident_bytes)
         || !checked_add(resident_bytes, empty_side_table_bytes, resident_bytes)) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
@@ -1254,7 +1244,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     impl->stats = WarmEditPreviewGpuStats{
         .resident = true,
         .source_upload_count = adopting ? 0U : 1U,
-        .gpu_buffer_allocation_count = (adopting ? 1U : 2U) + warm_slot_count * 4U,
+        .gpu_buffer_allocation_count = (adopting ? 0U : 1U) + warm_slot_count * 4U,
         .resident_bytes = resident_bytes,
     };
 
@@ -1269,21 +1259,6 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
                 .diagnostic =
                     adopting ? "Metal could not retain the adopted immutable warm-preview source"
                              : "Metal could not upload the immutable warm-preview source",
-            };
-        }
-        std::vector<std::uint8_t> default_confidence;
-        const std::uint8_t* confidence = source.raw_highlight_chroma_confidence.data();
-        if (source.raw_highlight_chroma_confidence.size() != highlight_confidence_bytes) {
-            default_confidence.assign(highlight_confidence_bytes, 255U);
-            confidence = default_confidence.data();
-        }
-        impl->source_highlight_chroma_confidence = [device newBufferWithBytes:confidence
-                                                                        length:highlight_confidence_bytes
-                                                                       options:MTLResourceStorageModeShared];
-        if (impl->source_highlight_chroma_confidence == nil) {
-            return WarmGpuResidentPreparation{
-                .resources = nullptr,
-                .diagnostic = "Metal could not upload immutable RAW highlight confidence",
             };
         }
         const MetalCurveSegment empty_side_table{};

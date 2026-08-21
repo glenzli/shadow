@@ -207,8 +207,7 @@ namespace {
     const Vector3& input,
     const WorkingSpaceTransform& color_transform,
     const PreparedGuidedSelectiveTone& prepared,
-    const double mask_ev,
-    const double cfa_chroma_confidence
+    const double mask_ev
 ) noexcept {
     Vector3 lab = working_rgb_to_oklab(color_transform, input);
     if (!(lab[0] > 0.0) || !std::isfinite(lab[0])) {
@@ -225,17 +224,6 @@ namespace {
         return input;
     }
     lab[0] *= std::cbrt(gain);
-    // A pure Oklab-lightness edit preserves chroma.  For a RAW highlight with exhausted
-    // pre-WB CFA headroom that would reveal a WB-amplified channel error as magenta.  Contain
-    // only that unmeasured chroma while Highlights is pulled down; do not reconstruct detail or
-    // change ordinary/high-confidence colour.
-    const double highlight_pull = std::clamp(-prepared.highlights(), 0.0, 1.0);
-    const double region = std::clamp((mask_ev - 0.35) / 1.35, 0.0, 1.0);
-    const double smooth_region = region * region * (3.0 - 2.0 * region);
-    const double containment = highlight_pull * smooth_region
-        * (1.0 - std::clamp(cfa_chroma_confidence, 0.0, 1.0));
-    lab[1] *= 1.0 - containment;
-    lab[2] *= 1.0 - containment;
     return oklab_to_working_rgb(color_transform, lab);
 }
 
@@ -574,8 +562,6 @@ void apply_prepared_guided_selective_tone_cpu(
     const std::size_t width = image.dimensions.width;
     const std::size_t height = image.dimensions.height;
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
-    const bool has_cfa_confidence = image.raw_highlight_chroma_confidence.size()
-        == static_cast<std::size_t>(image.dimensions.pixel_count());
     const std::uint32_t radius_x = prepared.mask_radius_x();
     const std::uint32_t radius_y = prepared.mask_radius_y();
     const std::size_t window_width = selective_tone_box_window_length(radius_x);
@@ -689,12 +675,7 @@ void apply_prepared_guided_selective_tone_cpu(
                 input,
                 color_transform,
                 prepared,
-                mask_ev,
-                has_cfa_confidence
-                    ? static_cast<double>(image.raw_highlight_chroma_confidence[
-                          static_cast<std::size_t>(y) * width + x
-                      ]) / 255.0
-                    : 1.0
+                mask_ev
             );
             image.samples[sample] =
                 checked_edit_pixel_float(output[0], node_index, node);

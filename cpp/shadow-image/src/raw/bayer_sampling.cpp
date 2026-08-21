@@ -57,6 +57,16 @@ namespace {
     return static_cast<float>(normalized);
 }
 
+[[nodiscard]] bool physical_sensor_white(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y,
+    const BayerCfaSamplingPolicy sampling_policy
+) noexcept {
+    return sampling_policy.cap_physical_sensor_white
+           && normalized_sensor_sample(frame, raw_x, raw_y) >= 1.0F;
+}
+
 [[nodiscard]] float normalized_sample(
     const RawFrame& frame,
     const std::uint32_t raw_x,
@@ -88,6 +98,55 @@ namespace {
     return raw_x >= 0 && raw_y >= 0
            && raw_x < static_cast<std::int64_t>(descriptor.storage_dimensions.width)
            && raw_y < static_cast<std::int64_t>(descriptor.storage_dimensions.height);
+}
+
+[[nodiscard]] float physical_sensor_white_coverage_in_window(
+    const RawFrame& frame,
+    const std::uint32_t center_x,
+    const std::uint32_t center_y,
+    const std::int32_t radius,
+    const BayerCfaSamplingPolicy sampling_policy
+) noexcept {
+    const auto& descriptor = frame.descriptor;
+    std::uint32_t observed = 0U;
+    std::uint32_t at_white = 0U;
+    for (std::int32_t dy = -radius; dy <= radius; ++dy) {
+        for (std::int32_t dx = -radius; dx <= radius; ++dx) {
+            const auto candidate_x = static_cast<std::int64_t>(center_x) + dx;
+            const auto candidate_y = static_cast<std::int64_t>(center_y) + dy;
+            if (!in_sensor_bounds(descriptor, candidate_x, candidate_y)) {
+                continue;
+            }
+            ++observed;
+            at_white += physical_sensor_white(
+                            frame,
+                            static_cast<std::uint32_t>(candidate_x),
+                            static_cast<std::uint32_t>(candidate_y),
+                            sampling_policy
+                        )
+                            ? 1U
+                            : 0U;
+        }
+    }
+    return observed == 0U ? 0.0F
+                          : static_cast<float>(at_white) / static_cast<float>(observed);
+}
+
+[[nodiscard]] float bright_highlight_support(const CameraRgb& values) noexcept {
+    // A clipped coloured emitter can still have meaningful measured colour. Treat a channel ratio
+    // as unreliable only when a physical white is embedded in an otherwise bright RGB footprint.
+    const float minimum = *std::min_element(values.begin(), values.end());
+    const float t = std::clamp((minimum - 0.70F) / 0.20F, 0.0F, 1.0F);
+    return t * t * (3.0F - 2.0F);
+}
+
+[[nodiscard]] float highlight_chroma_risk(const float coverage) noexcept {
+    // One clipped CFA contribution can invalidate the reconstructed colour difference of its
+    // whole Bayer cell. Convert fractional footprint coverage to the chance that at least one of
+    // four CFA sites contributing to a camera-RGB estimate is clipped. This remains continuous at
+    // footprint boundaries, unlike a pixel-level "any channel" gate.
+    const float remaining = 1.0F - std::clamp(coverage, 0.0F, 1.0F);
+    return 1.0F - remaining * remaining * remaining * remaining;
 }
 
 [[nodiscard]] std::optional<float> directional_green_estimate(
@@ -228,6 +287,9 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
     const auto height = descriptor.storage_dimensions.height;
     std::array<double, 3U> totals{};
     std::array<std::uint32_t, 3U> counts{};
+    CameraRgbSample result;
+    std::uint32_t observed = 0U;
+    std::uint32_t at_white = 0U;
     for (int dy = -1; dy <= 1; ++dy) {
         const auto candidate_y = static_cast<std::int64_t>(raw_y) + dy;
         if (candidate_y < 0 || candidate_y >= static_cast<std::int64_t>(height)) {
@@ -248,10 +310,11 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
             const auto normalized = normalized_sample(frame, x, y, transform, sampling_policy);
             totals[index] += normalized;
             ++counts[index];
+            ++observed;
+            at_white += physical_sensor_white(frame, x, y, sampling_policy) ? 1U : 0U;
         }
     }
 
-    CameraRgbSample result;
     for (std::size_t channel = 0U; channel < result.values.size(); ++channel) {
         if (counts[channel] == 0U) {
             throw DecodeError(
@@ -263,6 +326,12 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
         result.values[channel] =
             static_cast<float>(totals[channel] / static_cast<double>(counts[channel]));
     }
+    result.highlight_chroma_neutralization = observed == 0U
+                                                ? 0.0F
+                                                : highlight_chroma_risk(
+                                                      static_cast<float>(at_white)
+                                                      / static_cast<float>(observed)
+                                                  ) * bright_highlight_support(result.values);
     return result;
 }
 
@@ -294,6 +363,16 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     }
 
     CameraRgbSample result = bilinear;
+    // Directional reconstruction reads as far as two sensor sites away.  Its physical-white
+    // coverage becomes a continuous source-local blend, so a footprint edge cannot turn into a
+    // display-sized neutral patch.
+    result.highlight_chroma_neutralization = physical_sensor_white_coverage_in_window(
+        frame,
+        raw_x,
+        raw_y,
+        2,
+        sampling_policy
+    );
     result.values[1U] = *green;
     const auto reconstruct_colour_difference = [&](const RawCfaColor target_colour,
                                                    const std::size_t target_channel) {
@@ -346,6 +425,9 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     };
     reconstruct_colour_difference(RawCfaColor::red, 0U);
     reconstruct_colour_difference(RawCfaColor::blue, 2U);
+    result.highlight_chroma_neutralization = highlight_chroma_risk(
+        result.highlight_chroma_neutralization
+    ) * bright_highlight_support(result.values);
     return result;
 }
 
@@ -435,6 +517,9 @@ CameraRgbSample area_camera_rgb_sample_at(
 
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
+    CameraRgbSample result;
+    double observed_weight = 0.0;
+    double physical_white_weight = 0.0;
     for (std::uint32_t raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const double overlap_y = std::max(
             0.0,
@@ -457,10 +542,13 @@ CameraRgbSample area_camera_rgb_sample_at(
                 normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
             totals[index] += normalized * weight;
             weights[index] += weight;
+            observed_weight += weight;
+            if (physical_sensor_white(frame, raw_x, raw_y, sampling_policy)) {
+                physical_white_weight += weight;
+            }
         }
     }
 
-    CameraRgbSample result;
     for (std::size_t channel = 0U; channel < result.values.size(); ++channel) {
         if (weights[channel] <= 0.0) {
             const auto center_x = std::min(
@@ -481,6 +569,11 @@ CameraRgbSample area_camera_rgb_sample_at(
         }
         result.values[channel] = static_cast<float>(totals[channel] / weights[channel]);
     }
+    result.highlight_chroma_neutralization = observed_weight <= 0.0
+                                                ? 0.0F
+                                                : highlight_chroma_risk(static_cast<float>(
+                                                      physical_white_weight / observed_weight
+                                                  )) * bright_highlight_support(result.values);
     return result;
 }
 

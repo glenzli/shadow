@@ -54,7 +54,6 @@ id<MTLBuffer> encode_warm_gpu_transaction_prefix(
     WarmMetalContext& context,
     const WarmGpuResidentLayout& layout,
     const WarmGpuSlotBuffers& slot,
-    id<MTLBuffer> source_highlight_chroma_confidence,
     id<MTLBuffer> input,
     const PreparedWarmTransaction& transaction
 ) {
@@ -72,7 +71,6 @@ id<MTLBuffer> encode_warm_gpu_transaction_prefix(
             context,
             layout,
             slot,
-            source_highlight_chroma_confidence,
             slot.adjusted,
             render_pass.neighbourhood,
             pass.neighbourhood_geometry.get(),

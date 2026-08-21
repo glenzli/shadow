@@ -136,13 +136,16 @@ Current contract rules:
   so independently prepared or cross-source camera/optics state is rejected before CFA work or
   device upload. The default source treatment applies selected CFA gains (normalized by their
   minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
-  carries it above one. A sample at physical sensor white is limited at the white point because it
-  contains no further measured headroom; no post-demosaic highlight blending or rebuild is
-  performed. Alongside the binary clipping diagnostic, source preparation projects one continuous
-  pre-WB CFA confidence byte per bounded warm-preview output pixel. It is immutable source evidence: only a negative
-  Highlights edit may use low confidence to contain unmeasured Oklab chroma, while ordinary
-  exposure and all high-confidence colour retain their normal path. The final display path, after
-  editable nodes, is the LibRaw H=0 reference mapping. `disabled` stays an
+  carries it above one. A sampled physical-sensor-white footprint with bright companion channels
+  has no trustworthy neutral-highlight ratio: its CFA footprint coverage becomes the continuous
+  risk that a contributing Bayer cell contains a clipped site, then combines with the companion
+  signal as a source-local weight. Before the camera transform Shadow retains the measured
+  Bayer-weighted camera luminance and spatial structure while smoothly neutralizing only that
+  unreliable chroma before the editable graph. Isolated clipped coloured emitters retain their
+  measured chroma. This is shared
+  by bounded preview, resident GPU preview, full-detail, and export; no post-demosaic highlight
+  blending, map sidecar, or colour rebuild is performed. The final display path, after editable
+  nodes, is the LibRaw H=0 reference mapping. `disabled` stays an
   explicit unbounded diagnostic plan for compatibility, while the selected policy remains part of
   the developed cache identity. CPU and Metal apply the same CFA-scale route before their camera
   transforms.

@@ -381,7 +381,6 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                 context,
                 layout,
                 slot,
-                resident.source_highlight_chroma_confidence_buffer(),
                 current,
                 layer.transaction
             );

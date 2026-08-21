@@ -37,11 +37,8 @@ void sensor_clipping_marks_sensor_endpoints_without_confusing_dark_content() {
   frame.samples[static_cast<std::size_t>(1U) * 4U + 1U] = 1'000U;
 
   const auto mask = image::project_sensor_clipping_mask(frame, {4U, 4U});
-  const auto confidence = image::project_sensor_highlight_chroma_confidence(frame, {4U, 4U});
   expect(mask.valid(),
          "sensor clipping projection returns a self-consistent mask");
-  expect(confidence.valid() && confidence.samples[5U] == 0U && confidence.samples[0U] == 255U,
-         "CFA confidence is continuous source evidence, distinct from the binary clipping mask");
   expect(mask.highlight_pixel_count == 1U && mask.shadow_pixel_count == 15U &&
              (mask.samples[5U] & image::sensor_highlight_clipped) != 0U &&
              (mask.samples[5U] & image::sensor_shadow_clipped) == 0U,

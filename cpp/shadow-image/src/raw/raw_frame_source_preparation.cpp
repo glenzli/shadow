@@ -253,8 +253,6 @@ DevelopedSourceReference materialize_prepared_raw_frame_source(PreparedRawFrameS
         .raw_development_receipt = std::move(raw_receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = std::move(developed.sensor_clipping_mask),
-        .sensor_highlight_chroma_confidence =
-            std::move(developed.sensor_highlight_chroma_confidence),
     };
 }
 
