@@ -6,6 +6,7 @@
 #include "raw_foundation_source.hpp"
 #include "raw_frame_source_development.hpp"
 #include "raw_frame_source_preparation.hpp"
+#include "raw_source_reconstruction.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -394,9 +395,10 @@ DevelopedSourceReference develop_source_reference(
         );
     }
 
-    RawDevelopmentPlan effective_plan = requested_plan;
-    effective_plan.noise_reduction = RawNoiseReductionIntent::disabled;
-    effective_plan.highlight_recovery = RawHighlightRecoveryIntent::disabled;
+    const RawDevelopmentPlan effective_plan = raw_pipeline_detail::source_reconstruction_effective_plan(
+        requested_plan,
+        raw_pipeline_detail::SourceReconstructionKind::ai_camera_rgb
+    );
     auto prepared = raw_pipeline_detail::prepare_raw_frame_source(
         session,
         effective_plan,

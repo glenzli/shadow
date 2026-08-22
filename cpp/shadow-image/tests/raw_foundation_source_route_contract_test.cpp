@@ -1,5 +1,7 @@
 #include "raw_pipeline_routing_test_support.hpp"
 
+#include "../src/raw/raw_source_reconstruction.hpp"
+
 #include <shadow/image/raw_foundation.hpp>
 
 #include <algorithm>
@@ -173,11 +175,42 @@ void artifact_identity_changes_the_canonical_pipeline_identity() {
     );
 }
 
+void source_reconstruction_policy_preserves_sensor_cfa_and_disables_overlapping_ai_stages() {
+    image::RawDevelopmentPlan requested = image::preview_raw_development_plan();
+    requested.noise_reduction = image::RawNoiseReductionIntent::noise_robust;
+    requested.highlight_recovery = image::RawHighlightRecoveryIntent::aggressive;
+
+    const auto sensor = image::raw_pipeline_detail::source_reconstruction_effective_plan(
+        requested,
+        image::raw_pipeline_detail::SourceReconstructionKind::sensor_cfa
+    );
+    const auto ai = image::raw_pipeline_detail::source_reconstruction_effective_plan(
+        requested,
+        image::raw_pipeline_detail::SourceReconstructionKind::ai_camera_rgb
+    );
+    expect(
+        sensor == requested
+            && image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(
+                image::raw_pipeline_detail::SourceReconstructionKind::sensor_cfa
+            ),
+        "sensor-CFA source reconstruction keeps its authored RAW development stages"
+    );
+    expect(
+        ai.noise_reduction == image::RawNoiseReductionIntent::disabled
+            && ai.highlight_recovery == image::RawHighlightRecoveryIntent::disabled
+            && !image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(
+                image::raw_pipeline_detail::SourceReconstructionKind::ai_camera_rgb
+            ),
+        "AI camera-RGB source reconstruction disables only Bayer-only stages"
+    );
+}
+
 } // namespace
 
 int main() {
     verified_foundation_is_the_only_reconstruction_source();
     artifact_mismatch_and_processed_policy_fail_closed();
     artifact_identity_changes_the_canonical_pipeline_identity();
+    source_reconstruction_policy_preserves_sensor_cfa_and_disables_overlapping_ai_stages();
     return failures == 0 ? 0 : 1;
 }
