@@ -1,4 +1,5 @@
 #include "raw_foundation_source.hpp"
+#include "raw_source_reconstruction.hpp"
 
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
@@ -122,14 +123,19 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
     RawPipelineReceipt pipeline = std::move(prepared.pipeline_);
     pipeline.requested_plan = requested_plan;
     pipeline.effective_plan = effective_plan;
-    DevelopedRawFoundation developed = develop_raw_foundation(
-        foundation,
-        prepared.frame_,
-        prepared.development_.linear_transform(),
-        prepared.development_.preview_max_edge()
+    AiCameraRgbSourceReconstructionBasis source_basis{
+        .camera_rgb = prepare_raw_foundation_camera_rgb(
+            foundation,
+            prepared.frame_,
+            prepared.development_.preview_max_edge()
+        ),
+    };
+    source_basis.sensor_clipping =
+        project_sensor_clipping_mask(prepared.frame_, source_basis.camera_rgb.dimensions);
+    DevelopedRawFoundation developed = develop_prepared_raw_foundation(
+        source_basis.camera_rgb,
+        prepared.development_.linear_transform()
     );
-    SensorClippingMask sensor_clipping =
-        project_sensor_clipping_mask(prepared.frame_, developed.scene_linear.dimensions);
 
     DcpColorExecutionBackend dcp_execution_backend = DcpColorExecutionBackend::cpu;
     const DcpColorTransform* camera_profile = prepared.development_.camera_profile();
@@ -156,7 +162,7 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
         .source = std::move(developed.scene_linear),
         .raw_development_receipt = std::move(raw_receipt),
         .pipeline_receipt = std::move(pipeline),
-        .sensor_clipping_mask = std::move(sensor_clipping),
+        .sensor_clipping_mask = std::move(source_basis.sensor_clipping),
     };
 }
 

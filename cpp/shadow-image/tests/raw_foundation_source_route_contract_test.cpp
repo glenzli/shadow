@@ -97,7 +97,7 @@ void verified_foundation_is_the_only_reconstruction_source() {
         developed.sensor_clipping_mask.has_value() && developed.sensor_clipping_mask->valid()
             && developed.sensor_clipping_mask->dimensions
                    == image::Dimensions{.width = 2U, .height = 2U},
-        "source sensor clipping remains aligned with the AI preview"
+        "common AI source basis carries sensor clipping evidence aligned with the preview"
     );
 }
 
