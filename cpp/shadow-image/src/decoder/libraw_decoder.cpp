@@ -185,6 +185,28 @@ raw_frame_black_level(const libraw_colordata_t& color, const int color_index) no
     return color.maximum;
 }
 
+[[nodiscard]] std::optional<std::array<std::uint32_t, 4U>> raw_frame_linear_response_limits(
+    const libraw_colordata_t& color,
+    const std::array<int, 4U>& color_indices,
+    const std::array<std::uint32_t, 4U>& black_levels,
+    const std::array<std::uint32_t, 4U>& white_levels
+) noexcept {
+    std::array<std::uint32_t, 4U> limits{};
+    for (std::size_t site = 0U; site < limits.size(); ++site) {
+        const auto color_index = static_cast<std::size_t>(color_indices[site]);
+        const auto limit = color.linear_max[color_index];
+        // LibRaw leaves this field at zero when the camera has no calibrated
+        // response-boundary metadata.  Partial metadata is not enough to make
+        // a colour-confidence decision, so keep the entire optional contract
+        // unavailable rather than filling missing channels heuristically.
+        if (limit <= black_levels[site] || limit > white_levels[site]) {
+            return std::nullopt;
+        }
+        limits[site] = limit;
+    }
+    return limits;
+}
+
 [[nodiscard]] bool positive_finite(const double value) noexcept {
     return std::isfinite(value) && value > 0.0;
 }
@@ -790,6 +812,15 @@ class LibRawSession final : public DecodeSession {
         for (std::size_t site = 0U; site < descriptor.black_levels.size(); ++site) {
             descriptor.black_levels[site] = raw_frame_black_level(color, color_indices[site]);
             descriptor.white_levels[site] = raw_frame_white_level(color);
+        }
+        if (const auto limits = raw_frame_linear_response_limits(
+                color,
+                color_indices,
+                descriptor.black_levels,
+                descriptor.white_levels
+            )) {
+            descriptor.linear_response_limits = *limits;
+            descriptor.has_linear_response_limits = true;
         }
         descriptor.sensor_noise =
             resolve_dng_noise_profile(dng_noise_profile_, descriptor, metadata_.iso_speed);

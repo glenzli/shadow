@@ -36,6 +36,18 @@ void raw_frame_is_owned_unprocessed_and_bayer_guarded() {
   expect(frame.is_bayer_2x2(),
          "Bayer stages require an explicit two-by-two CFA layout");
 
+  auto response_limited = frame;
+  response_limited.descriptor.linear_response_limits = {
+      15'000U, 15'001U, 15'002U, 15'003U,
+  };
+  response_limited.descriptor.has_linear_response_limits = true;
+  expect(response_limited.valid(),
+         "a complete per-site response boundary is distinct from coding white");
+  response_limited.descriptor.linear_response_limits[2U] =
+      response_limited.descriptor.black_levels[2U];
+  expect(!response_limited.valid(),
+         "a response boundary at or below black is rejected rather than guessed");
+
   auto half_identified = frame;
   half_identified.descriptor.provider_id = "fixture";
   expect(!half_identified.valid(),

@@ -41,15 +41,17 @@ struct RawDevelopmentParameters final {
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
+    float linear_response_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
     float cfa_white_balance_scale = 1.0F;
     std::uint32_t cap_physical_sensor_white = 0U;
     std::uint32_t feather_highlight_chroma_neutralization = 0U;
+    std::uint32_t has_linear_response_limits = 0U;
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 176U);
+static_assert(sizeof(RawDevelopmentParameters) == 196U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -58,12 +60,14 @@ static_assert(offsetof(RawDevelopmentParameters, reconstruction_quality) == 56U)
 static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 60U);
 static_assert(offsetof(RawDevelopmentParameters, black_levels) == 76U);
 static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
-static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 144U);
-static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 160U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance_scale) == 164U);
-static_assert(offsetof(RawDevelopmentParameters, cap_physical_sensor_white) == 168U);
-static_assert(offsetof(RawDevelopmentParameters, feather_highlight_chroma_neutralization) == 172U);
+static_assert(offsetof(RawDevelopmentParameters, linear_response_minus_black) == 108U);
+static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 124U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 160U);
+static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 176U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance_scale) == 180U);
+static_assert(offsetof(RawDevelopmentParameters, cap_physical_sensor_white) == 184U);
+static_assert(offsetof(RawDevelopmentParameters, feather_highlight_chroma_neutralization) == 188U);
+static_assert(offsetof(RawDevelopmentParameters, has_linear_response_limits) == 192U);
 
 [[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
@@ -175,6 +179,11 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.black_levels[site] = static_cast<float>(descriptor.black_levels[site]);
         parameters.white_minus_black[site] =
             static_cast<float>(descriptor.white_levels[site] - descriptor.black_levels[site]);
+        parameters.linear_response_minus_black[site] = static_cast<float>(
+            (descriptor.has_linear_response_limits ? descriptor.linear_response_limits[site]
+                                                    : descriptor.white_levels[site])
+            - descriptor.black_levels[site]
+        );
     }
     for (std::size_t index = 0U; index < 9U; ++index) {
         parameters.camera_to_linear_srgb[index] =
@@ -197,6 +206,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     }
     parameters.feather_highlight_chroma_neutralization =
         highlight_recovery == RawHighlightRecoveryIntent::aggressive ? 1U : 0U;
+    parameters.has_linear_response_limits = descriptor.has_linear_response_limits ? 1U : 0U;
     return parameters;
 }
 

@@ -121,6 +121,13 @@ using shadow::image::test_support::failures;
     return frame;
 }
 
+[[nodiscard]] image::RawFrame two_channel_linear_response_boundary_frame() {
+    auto frame = two_channel_shoulder_frame(850U);
+    frame.descriptor.linear_response_limits = {850U, 860U, 870U, 880U};
+    frame.descriptor.has_linear_response_limits = true;
+    return frame;
+}
+
 [[nodiscard]] image::RawFrame saturated_red_frame() {
     auto frame = synthetic_frame(0);
     for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
@@ -209,7 +216,7 @@ void cfa_white_balance_retains_editable_headroom_before_display_h0() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-channel-headroom-continuous-risk@20260822.6;recovery=none;"
+            == "sensor-highlights=cfa-linear-response-continuous-risk@20260822.7;recovery=none;"
                "source=two-channel-evidence-neutral-chroma;display=libraw-h0",
         "the source receipt identifies continuous per-channel CFA evidence and final LibRaw H=0 display"
     );
@@ -292,6 +299,55 @@ void cfa_white_balance_retains_editable_headroom_before_display_h0() {
     expect(
         maximum_near_white_delta <= 1.0e-6F && maximum_near_white_value > 1.5F,
         "a sub-white CFA sample retains white-balance-induced headroom for later highlight edits"
+    );
+
+    const auto response_limited = two_channel_linear_response_boundary_frame();
+    const auto response_default = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        response_limited,
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu
+    );
+    const auto response_disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        response_limited,
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::disabled
+    );
+    float response_default_chroma = 0.0F;
+    float response_disabled_chroma = 0.0F;
+    for (std::size_t index = 0U; index < response_default.scene_linear.samples.size(); index += 3U) {
+        const auto& default_samples = response_default.scene_linear.samples;
+        const auto& disabled_samples = response_disabled.scene_linear.samples;
+        response_default_chroma = std::max(
+            response_default_chroma,
+            std::max({
+                default_samples[index],
+                default_samples[index + 1U],
+                default_samples[index + 2U],
+            }) - std::min({
+                default_samples[index],
+                default_samples[index + 1U],
+                default_samples[index + 2U],
+            })
+        );
+        response_disabled_chroma = std::max(
+            response_disabled_chroma,
+            std::max({
+                disabled_samples[index],
+                disabled_samples[index + 1U],
+                disabled_samples[index + 2U],
+            }) - std::min({
+                disabled_samples[index],
+                disabled_samples[index + 1U],
+                disabled_samples[index + 2U],
+            })
+        );
+    }
+    expect(
+        response_default_chroma + 1.0e-4F < response_disabled_chroma,
+        "a calibrated response boundary continuously lowers only untrustworthy two-channel highlight chroma"
     );
 
     if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
@@ -451,7 +507,7 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-channel-headroom-near-white-feathered-risk@20260822.6;"
+                   == "sensor-highlights=cfa-linear-response-near-limit-feathered-risk@20260822.7;"
                       "recovery=none;source=two-channel-evidence-spatial-neutral-chroma;display=libraw-h0",
         "aggressive repair is cache-visible and remains an explicit non-reconstruction policy"
     );

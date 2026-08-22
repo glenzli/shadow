@@ -17,7 +17,7 @@ namespace shadow::image {
 // Shadow is still in fast local iteration, so this dated revision denotes the only current C++ ABI
 // rather than a compatibility ladder. A RawFrame or provider-layout change means rebuilding every
 // local module and replacing the old artifact in place.
-inline constexpr std::uint32_t private_decoder_plugin_abi_version = 2'026'082'101U;
+inline constexpr std::uint32_t private_decoder_plugin_abi_version = 2'026'082'201U;
 
 // This C-compatible descriptor is the discovery contract. The provider factory below deliberately
 // crosses a versioned *local C++* ABI, not a stable public C ABI; a private module must be built
@@ -110,13 +110,13 @@ using DestroyPrivateDecoderProviderFn = void (*)(DecoderProvider*);
 // and `destroy` are paired so the private module remains responsible for any allocator/runtime
 // used by its SDK wrapper.
 inline constexpr const char* private_decoder_plugin_interface_contract_symbol =
-    "shadow_private_decoder_plugin_interface_contract_20260821_1";
+    "shadow_private_decoder_plugin_interface_contract_20260822_1";
 inline constexpr const char* private_decoder_plugin_descriptor_symbol =
-    "shadow_private_decoder_plugin_descriptor_20260821_1";
+    "shadow_private_decoder_plugin_descriptor_20260822_1";
 inline constexpr const char* private_decoder_plugin_create_symbol =
-    "shadow_create_private_decoder_provider_20260821_1";
+    "shadow_create_private_decoder_provider_20260822_1";
 inline constexpr const char* private_decoder_plugin_destroy_symbol =
-    "shadow_destroy_private_decoder_provider_20260821_1";
+    "shadow_destroy_private_decoder_provider_20260822_1";
 
 // Validates the stable part of the ABI before module construction. The dynamic loader calls this
 // too; exposing it makes a private repository able to test its artifact without copying host

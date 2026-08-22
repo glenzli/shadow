@@ -28,12 +28,14 @@ struct RawDevelopmentParameters {
     uint cfa_channels[4];
     float black_levels[4];
     float white_minus_black[4];
+    float linear_response_minus_black[4];
     float camera_to_linear_srgb[9];
     float cfa_white_balance[4];
     uint apply_cfa_white_balance;
     float cfa_white_balance_scale;
     uint cap_physical_sensor_white;
     uint feather_highlight_chroma_neutralization;
+    uint has_linear_response_limits;
 };
 
 inline uint cfa_site(uint x, uint y) {
@@ -50,6 +52,21 @@ inline float normalized_sensor_sample(
     const uint sample_index = y * parameters.storage_width + x;
     return (float(samples[sample_index]) - parameters.black_levels[site])
         / parameters.white_minus_black[site];
+}
+
+inline float normalized_linear_response_sample(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    uint x,
+    uint y
+) {
+    if (parameters.has_linear_response_limits == 0u) {
+        return normalized_sensor_sample(samples, parameters, x, y);
+    }
+    const uint site = cfa_site(x, y);
+    const uint sample_index = y * parameters.storage_width + x;
+    return (float(samples[sample_index]) - parameters.black_levels[site])
+        / parameters.linear_response_minus_black[site];
 }
 
 inline float normalized_sample(
@@ -198,7 +215,7 @@ inline float highlight_sensor_evidence(
     if (parameters.cap_physical_sensor_white == 0u) {
         return 0.0f;
     }
-    const float normalized = normalized_sensor_sample(samples, parameters, x, y);
+    const float normalized = normalized_linear_response_sample(samples, parameters, x, y);
     const float shoulder_start = parameters.feather_highlight_chroma_neutralization != 0u
         ? 0.88f : 0.92f;
     const float t = clamp(

@@ -261,14 +261,14 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-channel-headroom-continuous-risk@20260822.6;recovery=none;"
+        return "sensor-highlights=cfa-linear-response-continuous-risk@20260822.7;recovery=none;"
                "source=two-channel-evidence-neutral-chroma;display=libraw-h0";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
         return "sensor-highlights=unsupported";
     case RawHighlightRecoveryIntent::aggressive:
-        return "sensor-highlights=cfa-channel-headroom-near-white-feathered-risk@20260822.6;"
+        return "sensor-highlights=cfa-linear-response-near-limit-feathered-risk@20260822.7;"
                "recovery=none;source=two-channel-evidence-spatial-neutral-chroma;display=libraw-h0";
     }
     return "sensor-highlights=unknown";

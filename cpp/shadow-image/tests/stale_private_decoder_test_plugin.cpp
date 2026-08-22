@@ -21,22 +21,22 @@ constexpr PrivateDecoderPluginDescriptor descriptor{
 
 } // namespace
 
-extern "C" std::uint64_t shadow_private_decoder_plugin_interface_contract_20260821_1() {
+extern "C" std::uint64_t shadow_private_decoder_plugin_interface_contract_20260822_1() {
     return pre_gps_interface_contract_token;
 }
 
 // The factory aborts so the host contract test proves the mismatched scalar seal is rejected before
 // any provider object can be constructed or any stale C++ layout is dereferenced.
 extern "C" const PrivateDecoderPluginDescriptor*
-shadow_private_decoder_plugin_descriptor_20260821_1() {
+shadow_private_decoder_plugin_descriptor_20260822_1() {
     return &descriptor;
 }
 
-extern "C" DecoderProvider* shadow_create_private_decoder_provider_20260821_1() {
+extern "C" DecoderProvider* shadow_create_private_decoder_provider_20260822_1() {
     std::abort();
 }
 
-extern "C" void shadow_destroy_private_decoder_provider_20260821_1(DecoderProvider*) {
+extern "C" void shadow_destroy_private_decoder_provider_20260822_1(DecoderProvider*) {
     std::abort();
 }
 

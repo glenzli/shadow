@@ -57,6 +57,23 @@ namespace {
     return static_cast<float>(normalized);
 }
 
+[[nodiscard]] float normalized_linear_response_sample(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y
+) noexcept {
+    const auto& descriptor = frame.descriptor;
+    const auto site = cfa_site(raw_x, raw_y);
+    if (!descriptor.has_linear_response_limits) {
+        return normalized_sensor_sample(frame, raw_x, raw_y);
+    }
+    const auto width = static_cast<std::size_t>(descriptor.storage_dimensions.width);
+    const auto index = static_cast<std::size_t>(raw_y) * width + raw_x;
+    const double black = descriptor.black_levels[site];
+    const double limit = descriptor.linear_response_limits[site];
+    return static_cast<float>((static_cast<double>(frame.samples[index]) - black) / (limit - black));
+}
+
 [[nodiscard]] bool physical_sensor_white(
     const RawFrame& frame,
     const std::uint32_t raw_x,
@@ -146,7 +163,7 @@ namespace {
     if (!sampling_policy.cap_physical_sensor_white) {
         return 0.0F;
     }
-    const float normalized = normalized_sensor_sample(frame, raw_x, raw_y);
+    const float normalized = normalized_linear_response_sample(frame, raw_x, raw_y);
     // The default starts continuously reducing chroma confidence before a channel reaches its
     // calibrated white.  A strict physical-white gate left a red/blue pair completely intact
     // until the final code value, which is exactly the magenta contour a deep highlight pull can

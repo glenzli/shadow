@@ -21,11 +21,11 @@ namespace shadow::image {
 // Shadow is still in its fast, pre-release iteration phase: this number names the one current
 // RawFrame layout, not a backwards-compatibility promise. When the layout changes, all local
 // providers are rebuilt together and obsolete artifacts are discarded.
-// The per-site white levels name LibRaw's calibrated coding white (not the
-// channel-specific linear-response shoulder).  Bump this whenever the
-// RawFrame sample-normalisation contract changes so cached frames and their
-// downstream GPU receipts cannot mix the two semantics.
-inline constexpr std::uint32_t raw_frame_schema_version = 2026081901U;
+// The per-site white levels name the calibrated coding white, while the
+// optional per-site linear-response limits name the end of the sensor's
+// calibrated linear region.  Bump this whenever either semantic changes so
+// cached frames and their downstream GPU receipts cannot mix the two.
+inline constexpr std::uint32_t raw_frame_schema_version = 2026082201U;
 
 enum class RawFrameSampleEncoding : std::uint8_t {
     uint16_native,
@@ -124,6 +124,13 @@ struct RawFrameDescriptor final {
     std::uint32_t bits_per_sample = 0;
     std::array<std::uint32_t, 4U> black_levels{};
     std::array<std::uint32_t, 4U> white_levels{};
+    // Optional end of the calibrated linear-response range at each sensor
+    // site, in the same unprocessed code-value domain as black/white.  It is
+    // deliberately not a replacement for `white_levels`: samples between this
+    // limit and coding white remain editable scene data, but their CFA chroma
+    // ratio receives progressively less confidence near a highlight.
+    std::array<std::uint32_t, 4U> linear_response_limits{};
+    bool has_linear_response_limits = false;
     std::array<double, 4U> as_shot_neutral{};
     // Optional resolved source calibration for later RAW-domain denoise. A provider must leave
     // this unavailable rather than guessing by scanning an arbitrary profile binary.
@@ -185,6 +192,12 @@ struct RawFrame final {
             if (descriptor.black_levels[index] >= descriptor.white_levels[index]
                 || !std::isfinite(descriptor.as_shot_neutral[index])
                 || descriptor.as_shot_neutral[index] <= 0.0) {
+                return false;
+            }
+            if (descriptor.has_linear_response_limits
+                && (descriptor.linear_response_limits[index] <= descriptor.black_levels[index]
+                    || descriptor.linear_response_limits[index]
+                           > descriptor.white_levels[index])) {
                 return false;
             }
         }

@@ -50,7 +50,7 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity versions the RAW development plan contract"
     );
     expect(
-        version.find(";f=2026081901-n1-g2") != std::string_view::npos,
+        version.find(";f=2026082201-n1-g2") != std::string_view::npos,
         "provider identity versions the owned RAW frame and active-area contracts"
     );
     expect(

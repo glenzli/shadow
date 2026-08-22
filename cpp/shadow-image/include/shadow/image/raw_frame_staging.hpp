@@ -8,7 +8,7 @@
 
 namespace shadow::image {
 
-inline constexpr std::string_view raw_frame_staging_schema = "shadow-raw-frame-staging-20260806.1";
+inline constexpr std::string_view raw_frame_staging_schema = "shadow-raw-frame-staging-20260822.1";
 
 struct RawFrameStagingReceipt final {
     std::filesystem::path manifest_path;
