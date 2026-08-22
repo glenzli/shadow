@@ -136,19 +136,18 @@ Current contract rules:
   so independently prepared or cross-source camera/optics state is rejected before CFA work or
   device upload. The default source treatment applies selected CFA gains (normalized by their
   minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
-  carries it above one. A sampled physical-sensor-white footprint with bright companion channels
-  has no trustworthy neutral-highlight ratio: its CFA footprint coverage becomes the continuous
-  risk that a contributing Bayer cell contains a clipped site, then combines with the companion
-  signal as a source-local weight. Before the camera transform Shadow retains the measured
-  Bayer-weighted camera luminance and spatial structure while smoothly neutralizing only that
-  unreliable chroma before the editable graph. Isolated clipped coloured emitters retain their
-  measured chroma. This is shared
+  carries it above one. Each reconstructed camera channel retains a continuous calibrated-CFA
+  headroom risk beginning before physical sensor white. A single saturated channel remains
+  measured colour evidence; when a second independently sampled channel loses headroom and their
+  evidence diverges, its relative chroma is no longer measured. Before the camera transform
+  Shadow retains the Bayer-weighted camera luminance and spatial structure while smoothly
+  neutralizing only that two-channel-unreliable chroma before the editable graph. This is shared
   by bounded preview, resident GPU preview, full-detail, and export; no post-demosaic highlight
   blending, map sidecar, or colour rebuild is performed. The final display path, after editable
   nodes, is the LibRaw H=0 reference mapping. `disabled` stays an explicit unbounded diagnostic
   plan for compatibility. The opt-in `aggressive` policy is a separate repair route: it spatially
   feathers the physical-white and near-white CFA confidence before the same camera-domain neutral
-  pull. It intentionally sacrifices uncertain highlight chroma to hide a false-colour contour, but never
+  pull. It intentionally sacrifices more uncertain highlight chroma to hide a false-colour contour, but never
   copies neighbouring hue, fabricates luminance/detail, or changes the default path. The selected
   policy remains part of the developed cache identity. CPU and Metal apply the same CFA-scale route
   before their camera transforms.
