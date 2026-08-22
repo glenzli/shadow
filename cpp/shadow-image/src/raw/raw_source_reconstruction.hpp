@@ -1,8 +1,12 @@
 #pragma once
 
+#include <shadow/image/raw_denoise.hpp>
+#include <shadow/image/raw_foundation.hpp>
 #include <shadow/image/raw_pipeline.hpp>
 
 #include <cstdint>
+#include <string>
+#include <variant>
 
 namespace shadow::image::raw_pipeline_detail {
 
@@ -13,6 +17,32 @@ enum class SourceReconstructionKind : std::uint8_t {
     sensor_cfa,
     ai_camera_rgb,
 };
+
+// These are owned, immutable source bases for a warm RAW preview. They remain
+// distinct because source format, valid operations, and retained evidence are
+// fundamentally different; the variant gives downstream source-integrity and
+// camera-development stages one explicit handoff contract instead of a
+// foundation-only side route.
+struct SensorCfaSourceReconstructionBasis final {
+    RawFrame denoised_frame;
+    RawBayerDenoiseReceipt conventional_denoise;
+    std::string combined_denoise_identity;
+};
+
+struct AiCameraRgbSourceReconstructionBasis final {
+    PreparedRawFoundationCameraRgb camera_rgb;
+};
+
+using SourceReconstructionBasis =
+    std::variant<SensorCfaSourceReconstructionBasis, AiCameraRgbSourceReconstructionBasis>;
+
+[[nodiscard]] constexpr SourceReconstructionKind source_reconstruction_kind(
+    const SourceReconstructionBasis& basis
+) noexcept {
+    return std::holds_alternative<SensorCfaSourceReconstructionBasis>(basis)
+               ? SourceReconstructionKind::sensor_cfa
+               : SourceReconstructionKind::ai_camera_rgb;
+}
 
 // AI camera RGB is already a reconstructed source. Re-running Bayer-only
 // denoise or Bayer highlight recovery after that boundary would be invalid and
@@ -32,6 +62,12 @@ enum class SourceReconstructionKind : std::uint8_t {
     const SourceReconstructionKind reconstruction
 ) noexcept {
     return reconstruction == SourceReconstructionKind::sensor_cfa;
+}
+
+[[nodiscard]] constexpr bool source_reconstruction_retains_sensor_cfa(
+    const SourceReconstructionBasis& basis
+) noexcept {
+    return source_reconstruction_retains_sensor_cfa(source_reconstruction_kind(basis));
 }
 
 } // namespace shadow::image::raw_pipeline_detail

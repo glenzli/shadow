@@ -5,6 +5,7 @@
 #include "../src/raw/raw_frame_source_preparation.hpp"
 #include "../src/raw/metal_raw_development.hpp"
 #include "../src/raw/raw_preview_rebinding.hpp"
+#include "../src/raw/raw_source_reconstruction.hpp"
 
 #include <shadow/image/raw_foundation.hpp>
 
@@ -288,6 +289,28 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     );
 }
 
+void source_reconstruction_basis_names_retained_sensor_capability() {
+    image::raw_pipeline_detail::SensorCfaSourceReconstructionBasis sensor{
+        .denoised_frame = synthetic_bayer_frame(),
+    };
+    image::raw_pipeline_detail::AiCameraRgbSourceReconstructionBasis ai{
+        .camera_rgb = {
+            .dimensions = {.width = 1U, .height = 1U},
+            .row_stride_bytes = 3U * sizeof(float),
+            .samples = {0.25F, 0.5F, 0.75F},
+            .source_camera_rgb_dimensions = {.width = 1U, .height = 1U},
+            .foundation_cache_identity = "test-foundation",
+        },
+    };
+    const image::raw_pipeline_detail::SourceReconstructionBasis sensor_basis{std::move(sensor)};
+    const image::raw_pipeline_detail::SourceReconstructionBasis ai_basis{std::move(ai)};
+    expect(
+        image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(sensor_basis)
+            && !image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(ai_basis),
+        "the common source-reconstruction basis exposes retained CFA evidence explicitly"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -297,5 +320,6 @@ int main() {
     ordinary_raw_rebind_uses_the_retained_metal_source();
     retained_metal_cfa_preview_matches_the_one_shot_kernel();
     ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode();
+    source_reconstruction_basis_names_retained_sensor_capability();
     return failures == 0 ? 0 : 1;
 }

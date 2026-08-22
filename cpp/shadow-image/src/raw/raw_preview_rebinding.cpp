@@ -26,25 +26,11 @@
 #include <optional>
 #include <string>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace shadow::image::raw_pipeline_detail {
 
 namespace {
-
-struct SensorCfaPreviewBasis final {
-    RawFrame denoised_frame;
-    RawBayerDenoiseReceipt conventional_denoise;
-    std::string combined_denoise_identity;
-};
-
-struct AiCameraRgbPreviewBasis final {
-    PreparedRawFoundationCameraRgb camera_rgb;
-};
-
-using SourceReconstructionPreviewBasis =
-    std::variant<SensorCfaPreviewBasis, AiCameraRgbPreviewBasis>;
 
 struct CompiledPreviewColorBinding final {
     RawFrameLinearTransform linear_transform;
@@ -145,7 +131,7 @@ struct RawPreviewRebindingSource::Impl final {
     AssetMetadata metadata;
     std::optional<CameraProfileDefinition> camera_profile_definition;
     SensorClippingMask sensor_clipping;
-    SourceReconstructionPreviewBasis basis;
+    SourceReconstructionBasis basis;
 #if SHADOW_IMAGE_HAS_METAL
     // This buffer is an acceleration cache only.  It retains the already-denoised CFA plane and
     // runs the same preview reconstruction kernel; the CPU frame remains the exact fallback.
@@ -169,7 +155,7 @@ struct RawPreviewRebindingSource::Impl final {
         AssetMetadata source_metadata,
         std::optional<CameraProfileDefinition> profile,
         SensorClippingMask clipping,
-        SourceReconstructionPreviewBasis preview_basis
+        SourceReconstructionBasis preview_basis
 #if SHADOW_IMAGE_HAS_METAL
         ,
         std::optional<detail::MetalRawPreviewRebindingSource> metal_preview
@@ -238,7 +224,7 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
             "RAW preview rebinding may change only the absolute white balance"
         );
     }
-    const auto* ordinary = std::get_if<SensorCfaPreviewBasis>(&impl_->basis);
+    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
     if (ordinary == nullptr || !impl_->ordinary_raw_metal_preview.has_value()) {
         return std::nullopt;
     }
@@ -353,12 +339,12 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_foundation_amount(
 }
 
 bool RawPreviewRebindingSource::supports_foundation_amount_rebinding() const noexcept {
-    const auto* foundation = std::get_if<AiCameraRgbPreviewBasis>(&impl_->basis);
+    const auto* foundation = std::get_if<AiCameraRgbSourceReconstructionBasis>(&impl_->basis);
     return foundation != nullptr && foundation->camera_rgb.supports_amount_rebinding();
 }
 
 bool RawPreviewRebindingSource::supports_raw_white_balance_picker() const noexcept {
-    return std::holds_alternative<SensorCfaPreviewBasis>(impl_->basis);
+    return source_reconstruction_retains_sensor_cfa(impl_->basis);
 }
 
 std::optional<RawWhiteBalancePresentation> RawPreviewRebindingSource::pick_raw_white_balance(
@@ -369,7 +355,7 @@ std::optional<RawWhiteBalancePresentation> RawPreviewRebindingSource::pick_raw_w
         || normalized_x > 1.0 || normalized_y < 0.0 || normalized_y > 1.0) {
         return std::nullopt;
     }
-    const auto* ordinary = std::get_if<SensorCfaPreviewBasis>(&impl_->basis);
+    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
     if (ordinary == nullptr) {
         return std::nullopt;
     }
@@ -509,7 +495,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
     );
     impl_->bind_count.fetch_add(1U, std::memory_order_relaxed);
 
-    if (const auto* ordinary = std::get_if<SensorCfaPreviewBasis>(&impl_->basis)) {
+    if (const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis)) {
         if (foundation_amount_percent.has_value()) {
             throw DecodeError(
                 DecodeErrorCode::invalid_request,
@@ -659,7 +645,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         };
     }
 
-    const auto& foundation = std::get<AiCameraRgbPreviewBasis>(impl_->basis);
+    const auto& foundation = std::get<AiCameraRgbSourceReconstructionBasis>(impl_->basis);
     impl_->foundation_camera_rgb_bind_count.fetch_add(1U, std::memory_order_relaxed);
     if (foundation_amount_percent.has_value()) {
         impl_->foundation_amount_bind_count.fetch_add(1U, std::memory_order_relaxed);
@@ -726,7 +712,7 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         std::move(prepared.frame_),
         prepared.development_.raw_denoise()
     );
-    SensorCfaPreviewBasis basis{
+    SensorCfaSourceReconstructionBasis basis{
         .denoised_frame = std::move(conventional.frame),
         .conventional_denoise = std::move(conventional.receipt),
     };
@@ -746,7 +732,7 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
         std::move(sensor_clipping),
-        SourceReconstructionPreviewBasis{std::move(basis)}
+        SourceReconstructionBasis{std::move(basis)}
 #if SHADOW_IMAGE_HAS_METAL
         ,
         std::move(metal_preview)
@@ -794,7 +780,9 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
         std::move(sensor_clipping),
-        SourceReconstructionPreviewBasis{AiCameraRgbPreviewBasis{.camera_rgb = std::move(camera_rgb)}}
+        SourceReconstructionBasis{
+            AiCameraRgbSourceReconstructionBasis{.camera_rgb = std::move(camera_rgb)}
+        }
 #if SHADOW_IMAGE_HAS_METAL
         ,
         std::nullopt
