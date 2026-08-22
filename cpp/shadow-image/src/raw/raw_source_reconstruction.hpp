@@ -6,6 +6,7 @@
 #include <shadow/image/sensor_clipping.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -85,6 +86,25 @@ using SourceReconstructionBasis =
         },
         basis
     );
+}
+
+// Prepares the exact owned AI source basis once. Both ordinary source
+// materialization and warm preview rebinding use this helper, so the active
+// sensor alignment, orientation, bounded-preview dimensions, and clipping
+// evidence cannot drift between those consumers.
+[[nodiscard]] inline AiCameraRgbSourceReconstructionBasis
+prepare_ai_camera_rgb_source_reconstruction(
+    const RawFoundationCameraRgbView& foundation,
+    const RawFrame& source_frame,
+    const std::optional<std::uint32_t> preview_max_edge
+) {
+    AiCameraRgbSourceReconstructionBasis basis{
+        .camera_rgb =
+            prepare_raw_foundation_camera_rgb(foundation, source_frame, preview_max_edge),
+    };
+    basis.sensor_clipping =
+        project_sensor_clipping_mask(source_frame, basis.camera_rgb.dimensions);
+    return basis;
 }
 
 } // namespace shadow::image::raw_pipeline_detail

@@ -205,6 +205,22 @@ void source_reconstruction_policy_preserves_sensor_cfa_and_disables_overlapping_
     );
 }
 
+void ai_source_basis_preparation_unifies_camera_rgb_and_sensor_evidence() {
+    std::vector<float> pixels(4U * 4U * 3U, 0.25F);
+    const auto basis = image::raw_pipeline_detail::prepare_ai_camera_rgb_source_reconstruction(
+        foundation(pixels),
+        synthetic_bayer_frame(),
+        2U
+    );
+    expect(
+        basis.camera_rgb.valid()
+            && basis.camera_rgb.dimensions == image::Dimensions{.width = 2U, .height = 2U}
+            && basis.sensor_clipping.valid()
+            && basis.sensor_clipping.dimensions == basis.camera_rgb.dimensions,
+        "AI source preparation couples one camera-RGB basis to aligned immutable sensor evidence"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -212,5 +228,6 @@ int main() {
     artifact_mismatch_and_processed_policy_fail_closed();
     artifact_identity_changes_the_canonical_pipeline_identity();
     source_reconstruction_policy_preserves_sensor_cfa_and_disables_overlapping_ai_stages();
+    ai_source_basis_preparation_unifies_camera_rgb_and_sensor_evidence();
     return failures == 0 ? 0 : 1;
 }

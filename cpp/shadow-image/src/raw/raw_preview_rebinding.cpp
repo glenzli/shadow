@@ -756,13 +756,12 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
             "verified AI RAW foundation does not match the decoded source geometry"
         );
     }
-    PreparedRawFoundationCameraRgb camera_rgb = prepare_raw_foundation_camera_rgb(
-        foundation,
-        prepared.frame_,
-        prepared.development_.preview_max_edge()
-    );
-    SensorClippingMask sensor_clipping =
-        project_sensor_clipping_mask(prepared.frame_, camera_rgb.dimensions);
+    AiCameraRgbSourceReconstructionBasis source_basis =
+        prepare_ai_camera_rgb_source_reconstruction(
+            foundation,
+            prepared.frame_,
+            prepared.development_.preview_max_edge()
+        );
     prepared.pipeline_.requested_plan = requested_plan;
     prepared.pipeline_.effective_plan = prepared.development_.development_plan();
     const RawDevelopmentPlanNegotiationStatus negotiation_status =
@@ -776,12 +775,7 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
         negotiation_status,
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
-        SourceReconstructionBasis{
-            AiCameraRgbSourceReconstructionBasis{
-                .camera_rgb = std::move(camera_rgb),
-                .sensor_clipping = std::move(sensor_clipping),
-            }
-        }
+        SourceReconstructionBasis{std::move(source_basis)}
 #if SHADOW_IMAGE_HAS_METAL
         ,
         std::nullopt
