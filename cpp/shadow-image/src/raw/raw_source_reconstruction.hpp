@@ -3,6 +3,7 @@
 #include <shadow/image/raw_denoise.hpp>
 #include <shadow/image/raw_foundation.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/sensor_clipping.hpp>
 
 #include <cstdint>
 #include <string>
@@ -27,10 +28,15 @@ struct SensorCfaSourceReconstructionBasis final {
     RawFrame denoised_frame;
     RawBayerDenoiseReceipt conventional_denoise;
     std::string combined_denoise_identity;
+    SensorClippingMask sensor_clipping;
 };
 
 struct AiCameraRgbSourceReconstructionBasis final {
     PreparedRawFoundationCameraRgb camera_rgb;
+    // This remains derived from the immutable sensor frame, never inferred
+    // from AI camera RGB, so both reconstruction kinds expose one exact source
+    // evidence contract to the later highlight-integrity stage.
+    SensorClippingMask sensor_clipping;
 };
 
 using SourceReconstructionBasis =
@@ -68,6 +74,17 @@ using SourceReconstructionBasis =
     const SourceReconstructionBasis& basis
 ) noexcept {
     return source_reconstruction_retains_sensor_cfa(source_reconstruction_kind(basis));
+}
+
+[[nodiscard]] inline const SensorClippingMask& source_reconstruction_sensor_clipping(
+    const SourceReconstructionBasis& basis
+) noexcept {
+    return std::visit(
+        [](const auto& reconstruction) -> const SensorClippingMask& {
+            return reconstruction.sensor_clipping;
+        },
+        basis
+    );
 }
 
 } // namespace shadow::image::raw_pipeline_detail

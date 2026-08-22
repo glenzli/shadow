@@ -130,7 +130,6 @@ struct RawPreviewRebindingSource::Impl final {
         RawDevelopmentPlanNegotiationStatus::rejected;
     AssetMetadata metadata;
     std::optional<CameraProfileDefinition> camera_profile_definition;
-    SensorClippingMask sensor_clipping;
     SourceReconstructionBasis basis;
 #if SHADOW_IMAGE_HAS_METAL
     // This buffer is an acceleration cache only.  It retains the already-denoised CFA plane and
@@ -154,7 +153,6 @@ struct RawPreviewRebindingSource::Impl final {
         const RawDevelopmentPlanNegotiationStatus negotiation,
         AssetMetadata source_metadata,
         std::optional<CameraProfileDefinition> profile,
-        SensorClippingMask clipping,
         SourceReconstructionBasis preview_basis
 #if SHADOW_IMAGE_HAS_METAL
         ,
@@ -164,7 +162,6 @@ struct RawPreviewRebindingSource::Impl final {
         development_template(std::move(development)), pipeline_template(std::move(pipeline)),
         requested_plan_template(requested_plan), negotiation_status(negotiation),
         metadata(std::move(source_metadata)), camera_profile_definition(std::move(profile)),
-        sensor_clipping(std::move(clipping)),
         basis(std::move(preview_basis))
 #if SHADOW_IMAGE_HAS_METAL
         ,
@@ -326,7 +323,7 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
         .output = std::move(*development.output),
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
-        .sensor_clipping_mask = impl_->sensor_clipping,
+        .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
     };
 #endif
 }
@@ -641,7 +638,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             .source = std::move(developed->scene_linear),
             .raw_development_receipt = std::move(receipt),
             .pipeline_receipt = std::move(pipeline),
-            .sensor_clipping_mask = impl_->sensor_clipping,
+            .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
         };
     }
 
@@ -698,7 +695,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         .source = std::move(developed.scene_linear),
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
-        .sensor_clipping_mask = impl_->sensor_clipping,
+        .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
     };
 }
 
@@ -715,6 +712,7 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
     SensorCfaSourceReconstructionBasis basis{
         .denoised_frame = std::move(conventional.frame),
         .conventional_denoise = std::move(conventional.receipt),
+        .sensor_clipping = std::move(sensor_clipping),
     };
     basis.combined_denoise_identity = basis.conventional_denoise.cache_identity;
 #if SHADOW_IMAGE_HAS_METAL
@@ -731,7 +729,6 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         prepared.plan_negotiation_status_,
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
-        std::move(sensor_clipping),
         SourceReconstructionBasis{std::move(basis)}
 #if SHADOW_IMAGE_HAS_METAL
         ,
@@ -779,9 +776,11 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
         negotiation_status,
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
-        std::move(sensor_clipping),
         SourceReconstructionBasis{
-            AiCameraRgbSourceReconstructionBasis{.camera_rgb = std::move(camera_rgb)}
+            AiCameraRgbSourceReconstructionBasis{
+                .camera_rgb = std::move(camera_rgb),
+                .sensor_clipping = std::move(sensor_clipping),
+            }
         }
 #if SHADOW_IMAGE_HAS_METAL
         ,

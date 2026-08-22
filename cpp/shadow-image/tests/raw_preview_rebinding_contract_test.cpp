@@ -292,6 +292,11 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
 void source_reconstruction_basis_names_retained_sensor_capability() {
     image::raw_pipeline_detail::SensorCfaSourceReconstructionBasis sensor{
         .denoised_frame = synthetic_bayer_frame(),
+        .sensor_clipping = {
+            .dimensions = {.width = 1U, .height = 1U},
+            .samples = {image::sensor_highlight_clipped},
+            .highlight_pixel_count = 1U,
+        },
     };
     image::raw_pipeline_detail::AiCameraRgbSourceReconstructionBasis ai{
         .camera_rgb = {
@@ -301,13 +306,20 @@ void source_reconstruction_basis_names_retained_sensor_capability() {
             .source_camera_rgb_dimensions = {.width = 1U, .height = 1U},
             .foundation_cache_identity = "test-foundation",
         },
+        .sensor_clipping = {
+            .dimensions = {.width = 1U, .height = 1U},
+            .samples = {image::sensor_highlight_clipped},
+            .highlight_pixel_count = 1U,
+        },
     };
     const image::raw_pipeline_detail::SourceReconstructionBasis sensor_basis{std::move(sensor)};
     const image::raw_pipeline_detail::SourceReconstructionBasis ai_basis{std::move(ai)};
     expect(
         image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(sensor_basis)
-            && !image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(ai_basis),
-        "the common source-reconstruction basis exposes retained CFA evidence explicitly"
+            && !image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(ai_basis)
+            && image::raw_pipeline_detail::source_reconstruction_sensor_clipping(sensor_basis).valid()
+            && image::raw_pipeline_detail::source_reconstruction_sensor_clipping(ai_basis).valid(),
+        "the common source-reconstruction basis exposes one immutable sensor-evidence contract"
     );
 }
 
