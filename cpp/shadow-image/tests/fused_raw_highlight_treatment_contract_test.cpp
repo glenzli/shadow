@@ -209,9 +209,9 @@ void cfa_white_balance_retains_editable_headroom_before_display_h0() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-physical-white-continuous-risk@20260821.12;recovery=none;"
-               "source=measured-camera-luminance-continuous-neutral-chroma;display=libraw-h0",
-        "the source receipt identifies continuous physical-white chroma neutralization and final LibRaw H=0 display"
+            == "sensor-highlights=cfa-channel-headroom-continuous-risk@20260822.6;recovery=none;"
+               "source=two-channel-evidence-neutral-chroma;display=libraw-h0",
+        "the source receipt identifies continuous per-channel CFA evidence and final LibRaw H=0 display"
     );
 
     float maximum_default_delta = 0.0F;
@@ -451,8 +451,8 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-near-white-feathered-risk@20260822.4;"
-                      "recovery=none;source=spatial-confidence-neutral-chroma;display=libraw-h0",
+                   == "sensor-highlights=cfa-channel-headroom-near-white-feathered-risk@20260822.6;"
+                      "recovery=none;source=two-channel-evidence-spatial-neutral-chroma;display=libraw-h0",
         "aggressive repair is cache-visible and remains an explicit non-reconstruction policy"
     );
     float default_boundary_chroma = 0.0F;
@@ -638,8 +638,8 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
         );
     }
     expect(
-        std::abs(maximum_multi_site_chroma - maximum_multi_site_disabled_chroma) <= 1.0e-6F,
-        "a saturated multi-site colour remains measured when no post-WB component exceeds white"
+        maximum_multi_site_chroma + 0.25F < maximum_multi_site_disabled_chroma,
+        "two independently saturated CFA colours lose their untrustworthy shared chroma before a grade can amplify it"
     );
 
     const auto shoulder = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -681,9 +681,9 @@ void sensor_clipped_highlights_respect_h0_boundaries() {
         );
     }
     expect(
-        maximum_shoulder_delta <= 1.0e-6F
-            && std::abs(maximum_shoulder_chroma - maximum_shoulder_disabled_chroma) <= 1.0e-6F,
-        "the source path does not alter measured camera colour below physical sensor white"
+        maximum_shoulder_delta > 1.0e-3F
+            && maximum_shoulder_chroma + 1.0e-3F < maximum_shoulder_disabled_chroma,
+        "a near-white two-channel CFA shoulder begins a continuous neutral pull before a hard clip contour forms"
     );
 
     const auto saturated_red = image::develop_bayer_linear_srgb_f32_fused_with_backend(

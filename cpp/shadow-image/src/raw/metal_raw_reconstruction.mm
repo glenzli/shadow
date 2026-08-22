@@ -184,15 +184,16 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
-    if ((highlight_recovery == RawHighlightRecoveryIntent::provider_default
-         || highlight_recovery == RawHighlightRecoveryIntent::aggressive)
-        && transform.apply_cfa_white_balance) {
-        const auto minimum = *std::min_element(
-            transform.cfa_white_balance.begin(),
-            transform.cfa_white_balance.end()
-        );
-        parameters.cfa_white_balance_scale = static_cast<float>(1.0 / minimum);
+    if (highlight_recovery == RawHighlightRecoveryIntent::provider_default
+        || highlight_recovery == RawHighlightRecoveryIntent::aggressive) {
         parameters.cap_physical_sensor_white = 1U;
+        if (transform.apply_cfa_white_balance) {
+            const auto minimum = *std::min_element(
+                transform.cfa_white_balance.begin(),
+                transform.cfa_white_balance.end()
+            );
+            parameters.cfa_white_balance_scale = static_cast<float>(1.0 / minimum);
+        }
     }
     parameters.feather_highlight_chroma_neutralization =
         highlight_recovery == RawHighlightRecoveryIntent::aggressive ? 1U : 0U;

@@ -226,16 +226,19 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
         ? feathered_highlight_sensor_evidence(samples, parameters, raw_x, raw_y, 3u)
         : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = (parameters.feather_highlight_chroma_neutralization != 0u
-        ? aggressive_highlight_chroma_risk(
-              physical_white_coverage,
-              exact_physical_white_coverage
-          )
-        : highlight_chroma_risk(physical_white_coverage))
-        * bright_highlight_support(
-            result.values,
-            parameters.feather_highlight_chroma_neutralization != 0u
+    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
+        result.values,
+        result.highlight_channel_evidence
+    );
+    if (parameters.feather_highlight_chroma_neutralization != 0u) {
+        result.highlight_chroma_neutralization = max(
+            result.highlight_chroma_neutralization,
+            aggressive_highlight_chroma_risk(
+                physical_white_coverage,
+                exact_physical_white_coverage
+            ) * aggressive_bright_highlight_support(result.values)
         );
+    }
     return result;
 }
 
@@ -407,6 +410,7 @@ kernel void develop_bayer_area_preview(
     );
     float totals[3] = {0.0f, 0.0f, 0.0f};
     float weights[3] = {0.0f, 0.0f, 0.0f};
+    float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
     float observed_weight = 0.0f;
     float physical_white_weight = 0.0f;
     for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
@@ -424,6 +428,8 @@ kernel void develop_bayer_area_preview(
             const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
             totals[channel] += normalized * weight;
             weights[channel] += weight;
+            channel_evidence_totals[channel] +=
+                highlight_sensor_evidence(samples, parameters, raw_x, raw_y) * weight;
             observed_weight += weight;
             if (physical_sensor_white(samples, parameters, raw_x, raw_y)) {
                 physical_white_weight += weight;
@@ -448,6 +454,11 @@ kernel void develop_bayer_area_preview(
             totals[1] / weights[1],
             totals[2] / weights[2]
         ),
+        float3(
+            channel_evidence_totals[0] / weights[0],
+            channel_evidence_totals[1] / weights[1],
+            channel_evidence_totals[2] / weights[2]
+        ),
         observed_weight <= 0.0f ? 0.0f : physical_white_weight / observed_weight
     };
     const float exact_physical_white_coverage = camera.highlight_chroma_neutralization;
@@ -467,16 +478,19 @@ kernel void develop_bayer_area_preview(
               )
           )
         : camera.highlight_chroma_neutralization;
-    camera.highlight_chroma_neutralization = (parameters.feather_highlight_chroma_neutralization != 0u
-        ? aggressive_highlight_chroma_risk(
-              physical_white_coverage,
-              exact_physical_white_coverage
-          )
-        : highlight_chroma_risk(physical_white_coverage))
-        * bright_highlight_support(
-            camera.values,
-            parameters.feather_highlight_chroma_neutralization != 0u
+    camera.highlight_chroma_neutralization = highlight_chroma_neutralization(
+        camera.values,
+        camera.highlight_channel_evidence
+    );
+    if (parameters.feather_highlight_chroma_neutralization != 0u) {
+        camera.highlight_chroma_neutralization = max(
+            camera.highlight_chroma_neutralization,
+            aggressive_highlight_chroma_risk(
+                physical_white_coverage,
+                exact_physical_white_coverage
+            ) * aggressive_bright_highlight_support(camera.values)
         );
+    }
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);

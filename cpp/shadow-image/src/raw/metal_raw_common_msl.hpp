@@ -172,6 +172,7 @@ inline uchar sensor_clipping_flags(
 
 struct CameraRgbSample {
     float3 values;
+    float3 highlight_channel_evidence;
     float highlight_chroma_neutralization;
 };
 
@@ -185,9 +186,9 @@ inline bool physical_sensor_white(
         && normalized_sensor_sample(samples, parameters, x, y) >= 1.0f;
 }
 
-// Opt-in only: feather sensor-headroom confidence, not the reconstructed colour. Physical white
-// receives full confidence; the last 10% of measured sensor headroom is deliberately treated as
-// uncertain chroma evidence. This mirrors the CPU repair mode without inventing detail.
+// Each CFA colour carries continuous sensor-headroom evidence. The default starts near calibrated
+// white so two diverging saturated channels cannot retain a false magenta/cyan ratio until the
+// final code value. The opt-in repair widens this shoulder but still invents neither hue nor detail.
 inline float highlight_sensor_evidence(
     device const ushort* samples,
     constant RawDevelopmentParameters& parameters,
@@ -198,13 +199,13 @@ inline float highlight_sensor_evidence(
         return 0.0f;
     }
     const float normalized = normalized_sensor_sample(samples, parameters, x, y);
-    if (normalized >= 1.0f) {
-        return 1.0f;
-    }
-    if (parameters.feather_highlight_chroma_neutralization == 0u) {
-        return 0.0f;
-    }
-    const float t = clamp((normalized - 0.90f) / 0.10f, 0.0f, 1.0f);
+    const float shoulder_start = parameters.feather_highlight_chroma_neutralization != 0u
+        ? 0.88f : 0.92f;
+    const float t = clamp(
+        (normalized - shoulder_start) / (1.0f - shoulder_start),
+        0.0f,
+        1.0f
+    );
     return t * t * (3.0f - 2.0f * t);
 }
 
@@ -253,19 +254,23 @@ inline float3 neutralize_untrusted_camera_highlight_chroma(
     return mix(camera_rgb, float3(luminance), weight);
 }
 
-inline float bright_highlight_support(
+inline float highlight_chroma_neutralization(
     const float3 values,
-    const bool accept_destructive_near_white_colour_loss = false
+    const float3 channel_evidence
 ) {
-    const float t = clamp((min(values.x, min(values.y, values.z)) - 0.70f) / 0.20f, 0.0f, 1.0f);
-    const float neutral_support = t * t * (3.0f - 2.0f * t);
-    if (!accept_destructive_near_white_colour_loss) {
-        return neutral_support;
-    }
+    const float first = min(channel_evidence.x, min(channel_evidence.y, channel_evidence.z));
+    const float third = max(channel_evidence.x, max(channel_evidence.y, channel_evidence.z));
+    const float second = channel_evidence.x + channel_evidence.y + channel_evidence.z - first - third;
+    const float evidence_imbalance = third - first;
+    const float peak_signal = max(values.x, max(values.y, values.z));
+    const float t = clamp((peak_signal - 0.55f) / 0.30f, 0.0f, 1.0f);
+    return second * evidence_imbalance * t * t * (3.0f - 2.0f * t);
+}
+
+inline float aggressive_bright_highlight_support(const float3 values) {
     const float luminance = dot(values, float3(0.25f, 0.5f, 0.25f));
-    const float luminance_t = clamp((luminance - 0.60f) / 0.30f, 0.0f, 1.0f);
-    const float luminance_support = luminance_t * luminance_t * (3.0f - 2.0f * luminance_t);
-    return max(neutral_support, luminance_support);
+    const float t = clamp((luminance - 0.60f) / 0.30f, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
 }
 
 inline float highlight_chroma_risk(const float coverage) {
@@ -292,6 +297,7 @@ inline CameraRgbSample camera_rgb_at(
 ) {
     float totals[3] = {0.0f, 0.0f, 0.0f};
     uint counts[3] = {0u, 0u, 0u};
+    float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
     uint observed = 0u;
     uint at_white = 0u;
     for (int dy = -1; dy <= 1; ++dy) {
@@ -309,6 +315,8 @@ inline CameraRgbSample camera_rgb_at(
             const uint channel = parameters.cfa_channels[cfa_site(x, y)];
             const float normalized = normalized_sample(samples, parameters, x, y);
             totals[channel] += normalized;
+            channel_evidence_totals[channel] +=
+                highlight_sensor_evidence(samples, parameters, x, y);
             counts[channel] += 1u;
             observed += 1u;
             at_white += physical_sensor_white(samples, parameters, x, y) ? 1u : 0u;
@@ -319,6 +327,11 @@ inline CameraRgbSample camera_rgb_at(
         totals[1] / float(counts[1]),
         totals[2] / float(counts[2])
     );
+    const float3 channel_evidence = float3(
+        channel_evidence_totals[0] / float(counts[0]),
+        channel_evidence_totals[1] / float(counts[1]),
+        channel_evidence_totals[2] / float(counts[2])
+    );
     const float exact_physical_white_coverage = observed == 0u
         ? 0.0f : float(at_white) / float(observed);
     const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
@@ -326,16 +339,16 @@ inline CameraRgbSample camera_rgb_at(
         : exact_physical_white_coverage;
     return CameraRgbSample{
         values,
-        (parameters.feather_highlight_chroma_neutralization != 0u
-             ? aggressive_highlight_chroma_risk(
-                   physical_white_coverage,
-                   exact_physical_white_coverage
-               )
-             : highlight_chroma_risk(physical_white_coverage))
-            * bright_highlight_support(
-                values,
-                parameters.feather_highlight_chroma_neutralization != 0u
-            )
+        channel_evidence,
+        parameters.feather_highlight_chroma_neutralization != 0u
+            ? max(
+                  highlight_chroma_neutralization(values, channel_evidence),
+                  aggressive_highlight_chroma_risk(
+                      physical_white_coverage,
+                      exact_physical_white_coverage
+                  ) * aggressive_bright_highlight_support(values)
+              )
+            : highlight_chroma_neutralization(values, channel_evidence)
     };
 }
 

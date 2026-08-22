@@ -147,13 +147,17 @@ namespace {
         return 0.0F;
     }
     const float normalized = normalized_sensor_sample(frame, raw_x, raw_y);
-    if (normalized >= 1.0F) {
-        return 1.0F;
-    }
-    if (!sampling_policy.feather_highlight_chroma_neutralization) {
-        return 0.0F;
-    }
-    const float t = std::clamp((normalized - 0.90F) / 0.10F, 0.0F, 1.0F);
+    // The default starts continuously reducing chroma confidence before a channel reaches its
+    // calibrated white.  A strict physical-white gate left a red/blue pair completely intact
+    // until the final code value, which is exactly the magenta contour a deep highlight pull can
+    // reveal.  The optional destructive repair broadens only this evidence shoulder.
+    const float shoulder_start = sampling_policy.feather_highlight_chroma_neutralization ? 0.88F
+                                                                                          : 0.92F;
+    const float t = std::clamp(
+        (normalized - shoulder_start) / (1.0F - shoulder_start),
+        0.0F,
+        1.0F
+    );
     return t * t * (3.0F - 2.0F * t);
 }
 
@@ -199,25 +203,32 @@ namespace {
                                : static_cast<float>(evidence_weight / total_weight);
 }
 
-[[nodiscard]] float bright_highlight_support(
+[[nodiscard]] float highlight_chroma_neutralization(
     const CameraRgb& values,
-    const bool accept_destructive_near_white_colour_loss = false
+    const CameraRgb& channel_evidence
 ) noexcept {
-    // A clipped coloured emitter can still have meaningful measured colour. Treat a channel ratio
-    // as unreliable only when a physical white is embedded in an otherwise bright RGB footprint.
-    const float minimum = *std::min_element(values.begin(), values.end());
-    const float t = std::clamp((minimum - 0.70F) / 0.20F, 0.0F, 1.0F);
-    const float neutral_support = t * t * (3.0F - 2.0F * t);
-    if (!accept_destructive_near_white_colour_loss) {
-        return neutral_support;
-    }
-    // An opt-in repair accepts losing the colour of a strongly coloured but near-sensor-white
-    // highlight. Keep the default's all-channel guard untouched; this broader luminance guard is
-    // reachable only from the destructive route and still requires local sensor-headroom evidence.
+    // A single clipped colour can be a real coloured emitter.  Once a second independently
+    // sampled CFA colour loses headroom, however, their relative chroma is no longer measured.
+    // The middle evidence value is therefore a continuous two-channel gate, not the old discrete
+    // "several clipped sites" threshold.  It remains zero for a single saturated red/green/blue
+    // source, while a red+blue or green+blue false-colour shoulder converges toward neutral.
+    CameraRgb ordered = channel_evidence;
+    std::sort(ordered.begin(), ordered.end());
+    const float second_channel_evidence = ordered[1U];
+    // Equal headroom loss in all three channels is a neutral sensor shoulder. It has no
+    // untrustworthy *ratio* to repair and, before the physical ceiling, may simply reflect the
+    // RAW white-balance scale. Only diverging channel headroom exposes the false-colour evidence.
+    const float evidence_imbalance = ordered[2U] - ordered[0U];
+    const float peak_signal = *std::max_element(values.begin(), values.end());
+    const float t = std::clamp((peak_signal - 0.55F) / 0.30F, 0.0F, 1.0F);
+    const float bright_support = t * t * (3.0F - 2.0F * t);
+    return second_channel_evidence * evidence_imbalance * bright_support;
+}
+
+[[nodiscard]] float aggressive_bright_highlight_support(const CameraRgb& values) noexcept {
     const float luminance = 0.25F * values[0] + 0.5F * values[1] + 0.25F * values[2];
-    const float luminance_t = std::clamp((luminance - 0.60F) / 0.30F, 0.0F, 1.0F);
-    const float luminance_support = luminance_t * luminance_t * (3.0F - 2.0F * luminance_t);
-    return std::max(neutral_support, luminance_support);
+    const float t = std::clamp((luminance - 0.60F) / 0.30F, 0.0F, 1.0F);
+    return t * t * (3.0F - 2.0F * t);
 }
 
 [[nodiscard]] float highlight_chroma_risk(const float coverage) noexcept {
@@ -332,15 +343,19 @@ namespace {
 
 BayerCfaSamplingPolicy
 editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept {
-    if (!transform.apply_cfa_white_balance) {
-        return {};
+    BayerCfaSamplingPolicy policy;
+    // Physical sensor headroom comes from calibrated CFA black/white levels, not from whether a
+    // particular RAW white-balance transform is active. Keep the source evidence available for
+    // camera-neutral and manual-WB inputs as well; only the gain normalisation itself is optional.
+    policy.cap_physical_sensor_white = true;
+    if (transform.apply_cfa_white_balance) {
+        const auto minimum = *std::min_element(
+            transform.cfa_white_balance.begin(),
+            transform.cfa_white_balance.end()
+        );
+        policy.white_balance_scale = static_cast<float>(1.0 / minimum);
     }
-    const auto minimum =
-        *std::min_element(transform.cfa_white_balance.begin(), transform.cfa_white_balance.end());
-    return BayerCfaSamplingPolicy{
-        .white_balance_scale = static_cast<float>(1.0 / minimum),
-        .cap_physical_sensor_white = true,
-    };
+    return policy;
 }
 
 BayerCfaSamplingPolicy
@@ -387,6 +402,7 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
     const auto height = descriptor.storage_dimensions.height;
     std::array<double, 3U> totals{};
     std::array<std::uint32_t, 3U> counts{};
+    std::array<double, 3U> channel_evidence_totals{};
     CameraRgbSample result;
     std::uint32_t observed = 0U;
     std::uint32_t at_white = 0U;
@@ -409,6 +425,8 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
             const auto index = static_cast<std::size_t>(channel);
             const auto normalized = normalized_sample(frame, x, y, transform, sampling_policy);
             totals[index] += normalized;
+            channel_evidence_totals[index] +=
+                highlight_sensor_evidence(frame, x, y, sampling_policy);
             ++counts[index];
             ++observed;
             at_white += physical_sensor_white(frame, x, y, sampling_policy) ? 1U : 0U;
@@ -425,6 +443,9 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
         }
         result.values[channel] =
             static_cast<float>(totals[channel] / static_cast<double>(counts[channel]));
+        result.highlight_channel_evidence[channel] = static_cast<float>(
+            channel_evidence_totals[channel] / static_cast<double>(counts[channel])
+        );
     }
     const float exact_physical_white_coverage = observed == 0U
                                                     ? 0.0F
@@ -439,16 +460,19 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
                                                     sampling_policy
                                                 )
                                               : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = (sampling_policy.feather_highlight_chroma_neutralization
-                                                 ? aggressive_highlight_chroma_risk(
-                                                       physical_white_coverage,
-                                                       exact_physical_white_coverage
-                                                   )
-                                                 : highlight_chroma_risk(physical_white_coverage))
-                                             * bright_highlight_support(
-                                                 result.values,
-                                                 sampling_policy.feather_highlight_chroma_neutralization
-                                             );
+    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
+        result.values,
+        result.highlight_channel_evidence
+    );
+    if (sampling_policy.feather_highlight_chroma_neutralization) {
+        result.highlight_chroma_neutralization = std::max(
+            result.highlight_chroma_neutralization,
+            aggressive_highlight_chroma_risk(
+                physical_white_coverage,
+                exact_physical_white_coverage
+            ) * aggressive_bright_highlight_support(result.values)
+        );
+    }
     return result;
 }
 
@@ -542,7 +566,13 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     };
     reconstruct_colour_difference(RawCfaColor::red, 0U);
     reconstruct_colour_difference(RawCfaColor::blue, 2U);
-    const float exact_physical_white_coverage = result.highlight_chroma_neutralization;
+    const float exact_physical_white_coverage = physical_sensor_white_coverage_in_window(
+        frame,
+        raw_x,
+        raw_y,
+        2,
+        sampling_policy
+    );
     const float physical_white_coverage = sampling_policy.feather_highlight_chroma_neutralization
                                               ? feathered_highlight_sensor_evidence(
                                                     frame,
@@ -552,16 +582,19 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
                                                     sampling_policy
                                                 )
                                               : result.highlight_chroma_neutralization;
-    result.highlight_chroma_neutralization = (sampling_policy.feather_highlight_chroma_neutralization
-                                                 ? aggressive_highlight_chroma_risk(
-                                                       physical_white_coverage,
-                                                       exact_physical_white_coverage
-                                                   )
-                                                 : highlight_chroma_risk(physical_white_coverage))
-                                             * bright_highlight_support(
-                                                 result.values,
-                                                 sampling_policy.feather_highlight_chroma_neutralization
-                                             );
+    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
+        result.values,
+        result.highlight_channel_evidence
+    );
+    if (sampling_policy.feather_highlight_chroma_neutralization) {
+        result.highlight_chroma_neutralization = std::max(
+            result.highlight_chroma_neutralization,
+            aggressive_highlight_chroma_risk(
+                physical_white_coverage,
+                exact_physical_white_coverage
+            ) * aggressive_bright_highlight_support(result.values)
+        );
+    }
     return result;
 }
 
@@ -651,6 +684,7 @@ CameraRgbSample area_camera_rgb_sample_at(
 
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
+    std::array<double, 3U> channel_evidence_totals{};
     CameraRgbSample result;
     double observed_weight = 0.0;
     double physical_white_weight = 0.0;
@@ -676,6 +710,9 @@ CameraRgbSample area_camera_rgb_sample_at(
                 normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
             totals[index] += normalized * weight;
             weights[index] += weight;
+            channel_evidence_totals[index] += static_cast<double>(
+                highlight_sensor_evidence(frame, raw_x, raw_y, sampling_policy)
+            ) * weight;
             observed_weight += weight;
             if (physical_sensor_white(frame, raw_x, raw_y, sampling_policy)) {
                 physical_white_weight += weight;
@@ -702,6 +739,9 @@ CameraRgbSample area_camera_rgb_sample_at(
             );
         }
         result.values[channel] = static_cast<float>(totals[channel] / weights[channel]);
+        result.highlight_channel_evidence[channel] = static_cast<float>(
+            channel_evidence_totals[channel] / weights[channel]
+        );
     }
     const auto center_x = std::min(
         descriptor.storage_dimensions.width - 1U,
@@ -730,16 +770,19 @@ CameraRgbSample area_camera_rgb_sample_at(
                                                     sampling_policy
                                                 )
                                               : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = (sampling_policy.feather_highlight_chroma_neutralization
-                                                 ? aggressive_highlight_chroma_risk(
-                                                       physical_white_coverage,
-                                                       exact_physical_white_coverage
-                                                   )
-                                                 : highlight_chroma_risk(physical_white_coverage))
-                                             * bright_highlight_support(
-                                                 result.values,
-                                                 sampling_policy.feather_highlight_chroma_neutralization
-                                             );
+    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
+        result.values,
+        result.highlight_channel_evidence
+    );
+    if (sampling_policy.feather_highlight_chroma_neutralization) {
+        result.highlight_chroma_neutralization = std::max(
+            result.highlight_chroma_neutralization,
+            aggressive_highlight_chroma_risk(
+                physical_white_coverage,
+                exact_physical_white_coverage
+            ) * aggressive_bright_highlight_support(result.values)
+        );
+    }
     return result;
 }
 
