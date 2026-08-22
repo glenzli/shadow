@@ -165,7 +165,8 @@ Current contract rules:
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - `RawFrame` intentionally copies LibRaw memory and preserves raw-coordinate samples, active
-  margins, CFA layout, per-CFA black/white calibration, as-shot neutral, an optional explicit
+  margins (preferring LibRaw's standard RAW inset over legacy rendered-image margins), CFA layout,
+  per-CFA black/white calibration, as-shot neutral, an optional explicit
   Camera RGB -> XYZ D50 matrix, the optional physical XYZ D65 -> Camera RGB calibration used to
   derive manual temperature/tint neutrals, optional exact embedded sensor-noise calibration, and pending DNG
   opcode declarations. It is explicitly

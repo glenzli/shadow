@@ -11,6 +11,7 @@
 #include <shadow/image/reference_pixels.hpp>
 
 #include "dng_noise_profile.hpp"
+#include "libraw_raw_geometry.hpp"
 #include "libraw_reference_development.hpp"
 #include "libraw_runtime.hpp"
 
@@ -174,8 +175,7 @@ raw_frame_black_level(const libraw_colordata_t& color, const int color_index) no
     return combined_black_level(color.black, color.cblack[index]);
 }
 
-[[nodiscard]] std::uint32_t
-raw_frame_white_level(const libraw_colordata_t& color) noexcept {
+[[nodiscard]] std::uint32_t raw_frame_white_level(const libraw_colordata_t& color) noexcept {
     // `linear_max` is LibRaw's per-channel boundary for the recorded linear-response region,
     // not the CFA sample coding white.  Using it here silently makes the Bayer normalisation
     // and sensor-clipping stages discard the remaining sensor headroom one channel at a time.
@@ -440,12 +440,18 @@ preview_format(const LibRaw_internal_thumbnail_formats format) noexcept {
     }
 }
 
-[[nodiscard]] Margins image_margins(const libraw_image_sizes_t& sizes) noexcept {
-    const auto used_width = static_cast<std::uint32_t>(sizes.left_margin) + sizes.width;
-    const auto used_height = static_cast<std::uint32_t>(sizes.top_margin) + sizes.height;
-    const auto right = sizes.raw_width > used_width ? sizes.raw_width - used_width : 0U;
-    const auto bottom = sizes.raw_height > used_height ? sizes.raw_height - used_height : 0U;
-    return Margins{sizes.left_margin, sizes.top_margin, right, bottom};
+[[nodiscard]] detail::LibRawRawFrameGeometryInput
+raw_frame_geometry_input(const libraw_image_sizes_t& sizes) noexcept {
+    const auto& inset = sizes.raw_inset_crops[0];
+    return {
+        sizes.raw_width,
+        sizes.raw_height,
+        sizes.width,
+        sizes.height,
+        sizes.left_margin,
+        sizes.top_margin,
+        detail::LibRawRawInsetCrop{inset.cleft, inset.ctop, inset.cwidth, inset.cheight},
+    };
 }
 
 [[nodiscard]] std::optional<double> libraw_gps_coordinate(
@@ -486,8 +492,9 @@ preview_format(const LibRaw_internal_thumbnail_formats format) noexcept {
     metadata.dng_version = dng_version_string(identity.dng_version);
     metadata.raw_count = identity.raw_count;
     metadata.raw_dimensions = Dimensions{sizes.raw_width, sizes.raw_height};
-    metadata.image_dimensions = Dimensions{sizes.width, sizes.height};
-    metadata.margins = image_margins(sizes);
+    const auto raw_geometry = detail::raw_frame_geometry(raw_frame_geometry_input(sizes));
+    metadata.image_dimensions = raw_geometry.active_dimensions;
+    metadata.margins = raw_geometry.active_margins;
     metadata.orientation = sizes.flip;
     metadata.cfa_pattern = cfa_pattern(decoder);
     metadata.sensor_colors = static_cast<std::uint32_t>(identity.colors);
@@ -903,17 +910,19 @@ class LibRawProvider final : public DecoderProvider {
         info_.id = "libraw";
         // Provider version participates in generated-proxy/cache identity. Its compact field
         // names retain every contract dimension under the Catalog's bounded identity limit:
-        // c=reference, l=linear RGB, r=receipt, p=plan, f=RawFrame/noise, v=preview, d=display.
+        // c=reference, l=linear RGB, r=receipt, p=plan, f=RawFrame/noise/geometry, v=preview,
+        // d=display.
         // Thus a transfer or gamut-mapping change cannot reuse bytes generated under the same
         // linked LibRaw release.
-        info_.version = "lr=" + std::string(LibRaw::version()) + ";cap="
-                        + std::to_string(libraw_reference_development_contract_version) + ";l="
-                        + std::to_string(processed_linear_reference_rgb_contract_version)
+        info_.version = "lr=" + std::string(LibRaw::version())
+                        + ";cap=" + std::to_string(libraw_reference_development_contract_version)
+                        + ";l=" + std::to_string(processed_linear_reference_rgb_contract_version)
                         + ";r=" + std::to_string(raw_development_receipt_schema_version)
                         + ";p=" + std::to_string(raw_development_plan_schema_version)
                         + ";f=" + std::to_string(raw_frame_schema_version) + "-n"
-                        + std::to_string(dng_noise_profile_contract_version) + ";v="
-                        + std::to_string(libraw_embedded_preview_geometry_contract_version)
+                        + std::to_string(dng_noise_profile_contract_version) + "-g"
+                        + std::to_string(detail::libraw_raw_frame_geometry_contract_version)
+                        + ";v=" + std::to_string(libraw_embedded_preview_geometry_contract_version)
                         + ";d=" + std::to_string(display_srgb8_output_transform_version)
                         + ";s=" + compact_libraw_development_settings_identity(settings_);
         if (info_.version.size() > 128U) {
