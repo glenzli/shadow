@@ -1,6 +1,8 @@
 #include "raw_foundation_source.hpp"
 #include "raw_source_reconstruction.hpp"
 
+#include "clipped_highlight_reconstruction.hpp"
+
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/sensor_clipping.hpp>
@@ -15,7 +17,7 @@ namespace shadow::image::raw_pipeline_detail {
 namespace {
 
 inline constexpr std::string_view raw_foundation_pipeline_identity =
-    "shadow-raw-foundation-developer-v1:verified-linear-camera-rgb:"
+    "shadow-raw-foundation-developer-v2:verified-linear-camera-rgb:"
     "camera-matrix:scene-linear-f32";
 
 } // namespace
@@ -126,13 +128,19 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
     AiCameraRgbSourceReconstructionBasis source_basis = prepare_ai_camera_rgb_source_reconstruction(
         foundation,
         prepared.frame_,
-        prepared.development_.preview_max_edge(),
-        requested_plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive
+        prepared.development_.preview_max_edge()
     );
     DevelopedRawFoundation developed = develop_prepared_raw_foundation(
         source_basis.camera_rgb,
         prepared.development_.linear_transform()
     );
+    if (uses_clipped_highlight_surface_reconstruction(requested_plan.highlight_recovery)) {
+        static_cast<void>(reconstruct_clipped_highlight_surface(
+            developed.scene_linear,
+            source_basis.sensor_clipping,
+            source_basis.highlight_chroma_risk
+        ));
+    }
 
     DcpColorExecutionBackend dcp_execution_backend = DcpColorExecutionBackend::cpu;
     const DcpColorTransform* camera_profile = prepared.development_.camera_profile();

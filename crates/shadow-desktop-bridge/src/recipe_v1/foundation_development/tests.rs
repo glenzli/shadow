@@ -114,36 +114,36 @@ fn manual_white_balance_rejects_rgb_isolation_while_as_shot_allows_it() {
 }
 
 #[test]
-fn highlight_repair_requires_and_preserves_the_sensor_domain_rawframe_plan() {
-    let snapshot = RecipeSnapshot::new_with_input_settings(
-        1,
-        RecipeInputSettings::default().with_raw_highlight_repair_enabled(true),
-        Vec::new(),
-    )
-    .expect("build highlight repair Foundation");
-    let resolved = ResolvedFoundationDevelopment::from_snapshot(&snapshot);
-    for plan in [
-        resolved.preview_plan(),
-        resolved.detail_plan(),
-        resolved.export_plan(),
-    ] {
-        assert_eq!(
-            plan.highlight_recovery,
-            RawHighlightRecoveryIntent::Aggressive
-        );
-        assert!(ensure_foundation_allows_rgb_fallback(plan).is_err());
-        ensure_foundation_development_receipt(
-            plan,
-            &receipt(RawPipelinePath::ShadowRawFrame, plan, plan),
+fn clipped_highlight_continuity_is_the_default_source_contract() {
+    for historical_switch in [false, true] {
+        let snapshot = RecipeSnapshot::new_with_input_settings(
+            1,
+            RecipeInputSettings::default().with_raw_highlight_repair_enabled(historical_switch),
+            Vec::new(),
         )
-        .expect("exact RawFrame highlight repair receipt");
+        .expect("build default highlight-continuity Foundation");
+        let resolved = ResolvedFoundationDevelopment::from_snapshot(&snapshot);
+        for plan in [
+            resolved.preview_plan(),
+            resolved.detail_plan(),
+            resolved.export_plan(),
+        ] {
+            assert_eq!(
+                plan.highlight_recovery,
+                RawHighlightRecoveryIntent::ProviderDefault
+            );
+            ensure_foundation_development_receipt(
+                plan,
+                &receipt(RawPipelinePath::ShadowRawFrame, plan, plan),
+            )
+            .expect("RawFrame executes the default clipped-highlight source contract");
+            ensure_foundation_development_receipt(
+                plan,
+                &receipt(RawPipelinePath::DecodedRaster, plan, plan),
+            )
+            .expect("ordinary RGB remains a legal no-sensor-evidence fallback");
+            ensure_foundation_allows_rgb_fallback(plan)
+                .expect("default continuity does not make non-RAW photos unavailable");
+        }
     }
-
-    let requested = resolved.preview_plan();
-    let degraded = receipt(
-        RawPipelinePath::ShadowRawFrame,
-        requested,
-        RawDevelopmentPlan::preview(),
-    );
-    assert!(ensure_foundation_development_receipt(requested, &degraded).is_err());
 }

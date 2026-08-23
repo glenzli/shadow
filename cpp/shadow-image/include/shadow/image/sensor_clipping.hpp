@@ -34,18 +34,19 @@ struct SensorClippingMask final {
 // clipping mask it records when CFA chroma is no longer trustworthy before any white balance or
 // colour transform: 0 means the measured chroma remains trustworthy and 255 means either
 // multi-channel headroom has diverged or every channel shares the terminal response shoulder.
-// When optional clipped-boundary softening is requested, the same immutable source projection also
-// owns one aligned transition weight: 0 means no cosmetic boundary treatment and 255 means the
-// pixel lies in the terminal clipped core. Keeping both planes together gives CPU and resident-GPU
-// edit paths one source identity and one upload without turning either plane into reconstructed
-// colour, luminance, or detail.
-inline constexpr std::uint32_t highlight_chroma_risk_map_schema_version = 2U;
+// Spatial luminance reconstruction belongs to RAW source preparation; keeping this sidecar to one
+// R8 plane preserves the smallest CPU/Metal Selective Tone hot path.
+inline constexpr std::uint32_t highlight_chroma_risk_map_schema_version = 4U;
 
 struct HighlightChromaRiskMap final {
     std::uint32_t schema_version = highlight_chroma_risk_map_schema_version;
     Dimensions dimensions;
     std::vector<std::uint8_t> samples;
-    std::vector<std::uint8_t> boundary_transition_samples;
+    // True only when RAW source preparation has replaced physical clipping with a continuous
+    // low-frequency colour surface. The physical mask remains factual for diagnostics, while
+    // Selective Tone consumes these reconstructed continuous risk samples without overriding
+    // them back to a binary physical-white decision.
+    bool source_surface_reconstructed = false;
 
     [[nodiscard]] bool valid() const noexcept;
 };
@@ -65,10 +66,7 @@ project_sensor_clipping_mask(const RawFrame& frame, Dimensions target_dimensions
 // Projects continuous CFA headroom disagreement and a common terminal shoulder into the same
 // display grid as `SensorClippingMask`. This is source invariant: changing RAW white balance
 // changes the camera rendering, not whether a sensor channel had remaining headroom.
-[[nodiscard]] HighlightChromaRiskMap project_highlight_chroma_risk_map(
-    const RawFrame& frame,
-    Dimensions target_dimensions,
-    bool soften_clipped_boundaries = false
-);
+[[nodiscard]] HighlightChromaRiskMap
+project_highlight_chroma_risk_map(const RawFrame& frame, Dimensions target_dimensions);
 
 } // namespace shadow::image

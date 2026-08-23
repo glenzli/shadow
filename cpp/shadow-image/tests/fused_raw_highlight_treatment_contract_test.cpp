@@ -280,9 +280,10 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-opposed-linear-limit@20260823.2;"
-               "recovery=one-sided+shared-chroma;headroom=sub-white-fp32",
-        "the source receipt identifies one-sided CFA reconstruction and retained sub-white headroom"
+            == "sensor-highlights=cfa-opposed-linear-limit@20260823.4;"
+               "recovery=one-sided+shared-chroma;headroom=sub-white-fp32;"
+               "clipped-highlight-surface=low-frequency-push-pull-luminance-protected-v2",
+        "the default source receipt identifies continuous clipped-highlight reconstruction"
     );
 
     float maximum_default_delta = 0.0F;
@@ -590,9 +591,10 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-opposed-linear-limit-feathered@20260823.2;"
-                      "recovery=one-sided+spatial-chroma;headroom=sub-white-fp32",
-        "aggressive boundary feathering is explicit and cache-visible"
+                   == "sensor-highlights=cfa-opposed-linear-limit-feathered@20260823.4;"
+                      "recovery=one-sided+spatial-chroma;headroom=sub-white-fp32;"
+                      "clipped-highlight-surface=low-frequency-push-pull-luminance-protected-v2",
+        "legacy aggressive source-surface reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;
     float aggressive_boundary_chroma = 0.0F;

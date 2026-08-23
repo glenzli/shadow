@@ -1327,6 +1327,11 @@ The current UI authors fixed, complete Grade Nodes rather than exposing arbitrar
 Processed-RGB white balance uses the fast adjustment/GPU path with temperature/tint and a
 neutral-area picker. Photo-local RAW white balance is explicitly separate: it authors absolute
 camera-domain development and currently rebuilds the prepared RAW source after a coalesced drag.
+Clipped-highlight continuity is an automatic RawFrame source-development property rather than a
+user-facing switch. It prepares one reusable low-frequency source surface only when sensor clipping
+exists; later Highlight/White gestures continue to regrade that warm source without another decode,
+neighbourhood pass, or host/device transfer. Preview, detail, and export consume the same source
+semantics, while ordinary decoded RGB remains a legal no-sensor-evidence fallback.
 The application-wide LUT Library
 can persist multiple source folders, recursively validate 3D `.cube` resources and expose stable
 content identities in a dedicated manager. Valid resources are copied into an application-owned,

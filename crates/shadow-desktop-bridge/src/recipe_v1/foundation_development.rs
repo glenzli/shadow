@@ -41,13 +41,10 @@ impl ResolvedFoundationDevelopment {
     ) -> Self {
         Self {
             white_balance: foundation.effective_raw_white_balance(),
-            highlight_recovery: if foundation.enabled()
-                && foundation.input_settings().raw_highlight_repair_enabled()
-            {
-                RawHighlightRecoveryIntent::Aggressive
-            } else {
-                RawHighlightRecoveryIntent::ProviderDefault
-            },
+            // Continuous clipped-highlight reconstruction is now the normal RawFrame source
+            // contract. The historical Recipe boolean remains readable for compatibility but no
+            // longer selects a different render or exposes a user-facing switch.
+            highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
             raw_ai_denoise,
             optics: resolved_optics_settings(foundation),
         }
@@ -162,9 +159,7 @@ pub(crate) fn ensure_foundation_development_receipt(
         || receipt.effective_plan.white_balance != requested_plan.white_balance
         || receipt.effective_plan.highlight_recovery != requested_plan.highlight_recovery
     {
-        bail!(
-            "Foundation RAW white balance or highlight repair requires Shadow's sensor-domain RawFrame path"
-        );
+        bail!("manual Foundation RAW white balance requires Shadow's sensor-domain RawFrame path");
     }
     Ok(())
 }
@@ -176,8 +171,7 @@ pub(crate) fn ensure_foundation_allows_rgb_fallback(
         || requested_plan.highlight_recovery == RawHighlightRecoveryIntent::Aggressive
     {
         bail!(
-            "manual Foundation RAW white balance or highlight repair cannot use an isolated \
-             provider-processed RGB fallback"
+            "manual Foundation RAW white balance cannot use an isolated provider-processed RGB fallback"
         );
     }
     Ok(())

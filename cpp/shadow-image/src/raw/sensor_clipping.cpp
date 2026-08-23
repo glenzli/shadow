@@ -178,8 +178,7 @@ bool HighlightChromaRiskMap::valid() const noexcept {
     const auto count = dimensions.pixel_count();
     return schema_version == highlight_chroma_risk_map_schema_version && count != 0U
            && count <= static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-           && samples.size() == static_cast<std::size_t>(count)
-           && boundary_transition_samples.size() == static_cast<std::size_t>(count);
+           && samples.size() == static_cast<std::size_t>(count);
 }
 
 SensorClippingMask
@@ -338,98 +337,8 @@ void feather_terminal_highlight_chroma_boundaries(HighlightChromaRiskMap& map) {
     }
 }
 
-// Prepare a bounded, resolution-scaled shoulder around terminal physical clipping. This is a
-// cosmetic transition weight, not recovered source data: the clipped core stays flat and the
-// weight only lets the later Selective Tone node ease its chroma and luminance treatment across
-// the boundary. A two-pass chamfer transform is O(pixels), so source preparation does not grow
-// with the chosen feather radius and slider events never repeat this work.
-void prepare_highlight_boundary_transition(HighlightChromaRiskMap& map) {
-    constexpr std::uint32_t minimum_radius = 2U;
-    constexpr std::uint32_t maximum_radius = 12U;
-    constexpr std::uint32_t radius_scale_divisor = 256U;
-    constexpr std::uint16_t axial_step = 3U;
-    constexpr std::uint16_t diagonal_step = 4U;
-
-    const auto width = map.dimensions.width;
-    const auto height = map.dimensions.height;
-    const auto short_edge = std::min(width, height);
-    const auto scaled_radius =
-        short_edge / radius_scale_divisor + (short_edge % radius_scale_divisor == 0U ? 0U : 1U);
-    const auto radius = std::clamp(scaled_radius, minimum_radius, maximum_radius);
-    const auto maximum_distance = static_cast<std::uint16_t>(radius * axial_step);
-    const auto unreachable = static_cast<std::uint16_t>(maximum_distance + diagonal_step);
-    std::vector<std::uint16_t> distances(map.samples.size(), unreachable);
-
-    for (std::size_t index = 0U; index < distances.size(); ++index) {
-        const float seed = static_cast<float>(map.boundary_transition_samples[index]) / 255.0F;
-        if (seed <= 0.0F) {
-            continue;
-        }
-        distances[index] = static_cast<std::uint16_t>(
-            std::lround((1.0F - seed) * static_cast<float>(maximum_distance))
-        );
-    }
-
-    const auto relax = [&distances, width, height, unreachable](
-                           const std::uint32_t x,
-                           const std::uint32_t y,
-                           const int offset_x,
-                           const int offset_y,
-                           const std::uint16_t step
-                       ) {
-        const auto neighbour_x = static_cast<std::int64_t>(x) + offset_x;
-        const auto neighbour_y = static_cast<std::int64_t>(y) + offset_y;
-        if (neighbour_x < 0 || neighbour_y < 0 || neighbour_x >= static_cast<std::int64_t>(width)
-            || neighbour_y >= static_cast<std::int64_t>(height)) {
-            return;
-        }
-        const auto index = static_cast<std::size_t>(y) * width + x;
-        const auto neighbour =
-            static_cast<std::size_t>(neighbour_y) * width + static_cast<std::uint32_t>(neighbour_x);
-        const auto candidate = static_cast<std::uint16_t>(std::min<std::uint32_t>(
-            static_cast<std::uint32_t>(distances[neighbour]) + step,
-            unreachable
-        ));
-        distances[index] = std::min(distances[index], candidate);
-    };
-
-    for (std::uint32_t y = 0U; y < height; ++y) {
-        for (std::uint32_t x = 0U; x < width; ++x) {
-            relax(x, y, -1, 0, axial_step);
-            relax(x, y, 0, -1, axial_step);
-            relax(x, y, -1, -1, diagonal_step);
-            relax(x, y, 1, -1, diagonal_step);
-        }
-    }
-    for (std::uint32_t y = height; y-- > 0U;) {
-        for (std::uint32_t x = width; x-- > 0U;) {
-            relax(x, y, 1, 0, axial_step);
-            relax(x, y, 0, 1, axial_step);
-            relax(x, y, 1, 1, diagonal_step);
-            relax(x, y, -1, 1, diagonal_step);
-        }
-    }
-
-    for (std::size_t index = 0U; index < distances.size(); ++index) {
-        const float normalized =
-            1.0F
-            - std::clamp(
-                static_cast<float>(distances[index]) / static_cast<float>(maximum_distance),
-                0.0F,
-                1.0F
-            );
-        const float transition = normalized * normalized * (3.0F - 2.0F * normalized);
-        const auto encoded = static_cast<std::uint8_t>(std::lround(transition * 255.0F));
-        map.boundary_transition_samples[index] = encoded;
-        map.samples[index] = std::max(map.samples[index], encoded);
-    }
-}
-
-HighlightChromaRiskMap project_highlight_chroma_risk_map(
-    const RawFrame& frame,
-    const Dimensions target_dimensions,
-    const bool soften_clipped_boundaries
-) {
+HighlightChromaRiskMap
+project_highlight_chroma_risk_map(const RawFrame& frame, const Dimensions target_dimensions) {
     if (!frame.valid()) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
@@ -452,16 +361,10 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
     HighlightChromaRiskMap output;
     output.dimensions = target_dimensions;
     output.samples.resize(target_count);
-    output.boundary_transition_samples.resize(target_count);
     detail::parallel_for_rows(
         target_dimensions.height,
         8U,
-        [&frame,
-         &output,
-         &descriptor,
-         target_dimensions,
-         oriented_active,
-         soften_clipped_boundaries](
+        [&frame, &output, &descriptor, target_dimensions, oriented_active](
             const std::uint32_t first_target_y,
             const std::uint32_t last_target_y
         ) {
@@ -477,8 +380,6 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
                         target_bin_end(target_x, oriented_active.width, target_dimensions.width);
                     std::array<double, 3U> sums{};
                     std::array<double, 3U> weights{};
-                    std::uint32_t observed_samples = 0U;
-                    std::uint32_t physical_white_samples = 0U;
                     for (std::uint32_t oriented_y = oriented_y_begin; oriented_y < oriented_y_end;
                          ++oriented_y) {
                         for (std::uint32_t oriented_x = oriented_x_begin;
@@ -498,14 +399,6 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
                             if (channel < 0) {
                                 continue;
                             }
-                            const auto site = cfa_site(raw_x, raw_y);
-                            const auto raw_sample = frame.samples
-                                                        [static_cast<std::size_t>(raw_y)
-                                                             * descriptor.storage_dimensions.width
-                                                         + raw_x];
-                            ++observed_samples;
-                            physical_white_samples +=
-                                raw_sample >= descriptor.white_levels[site] ? 1U : 0U;
                             const float sample =
                                 normalized_linear_response_sample(frame, raw_x, raw_y);
                             // The CFA response starts losing chroma reliability before its
@@ -548,24 +441,11 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
                         std::lround(std::clamp(risk, 0.0F, 1.0F) * 255.0F)
                     );
                     output.samples[output_index] = encoded_risk;
-                    if (soften_clipped_boundaries && observed_samples != 0U) {
-                        const float physical_coverage = static_cast<float>(physical_white_samples)
-                                                        / static_cast<float>(observed_samples);
-                        const float terminal_seed =
-                            encoded_risk >= 224U ? static_cast<float>(encoded_risk) / 255.0F : 0.0F;
-                        output.boundary_transition_samples[output_index] =
-                            static_cast<std::uint8_t>(
-                                std::lround(std::max(physical_coverage, terminal_seed) * 255.0F)
-                            );
-                    }
                 }
             }
         }
     );
     feather_terminal_highlight_chroma_boundaries(output);
-    if (soften_clipped_boundaries) {
-        prepare_highlight_boundary_transition(output);
-    }
     if (!output.valid()) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,

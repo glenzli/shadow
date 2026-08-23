@@ -99,9 +99,9 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
         "into middle gray"
     );
     expect(
-        std::abs(adjusted.samples[3] - middle_gray) < 0.002F,
-        "opposed endpoint controls leave scene-linear middle gray effectively "
-        "neutral"
+        adjusted.samples[3] >= middle_gray && adjusted.samples[3] < middle_gray * 1.10F,
+        "opposed endpoint controls keep scene-linear middle gray in a narrow range without "
+        "requiring a negative White tail to cancel the Black control"
     );
     expect(
         adjusted.samples[6] < white && adjusted.samples[6] > 0.0F,
@@ -240,9 +240,46 @@ void selective_tone_endpoints_reach_ordinary_detail_without_clipping() {
         "only near zero"
     );
     expect(
-        output.samples[3] < input.samples[3] * 0.70F && output.samples[3] > 0.0F,
+        output.samples[3] < input.samples[3] * 0.85F && output.samples[3] > 0.0F,
         "Whites has a practical shoulder at ordinary +2.2 EV detail without "
         "clipping"
+    );
+}
+
+void selective_tone_negative_highlights_preserve_midtone_and_superwhite_energy() {
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "energy-preserving-negative-highlight-shoulder",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -1.0,
+                .whites = -1.0,
+            },
+        },
+    };
+    const auto output_ev = [&node](const double source_ev) {
+        const float value = static_cast<float>(0.18 * std::exp2(source_ev));
+        const auto output =
+            image::execute_adjustment_nodes(rgb_image(1, {value, value, value}), node);
+        return std::log2(static_cast<double>(output.samples[0]) / 0.18);
+    };
+
+    expect(
+        std::abs(output_ev(0.0)) < 2.0e-5,
+        "full negative Highlight and White leave 18% middle gray neutral"
+    );
+    expect(
+        output_ev(2.0) > 1.05 && output_ev(2.0) < 1.20,
+        "full negative Highlight and White recover ordinary +2 EV detail without crushing it"
+    );
+    expect(
+        output_ev(4.0) > 1.80 && output_ev(4.0) < 1.95,
+        "the coupled shoulder keeps a bright endpoint after strong recovery"
+    );
+    expect(
+        output_ev(8.0) - output_ev(6.0) > 1.95,
+        "the bounded shoulder restores nearly 1:1 slope in super-white scene data"
     );
 }
 
@@ -430,6 +467,27 @@ void selective_tone_neutralizes_only_physically_clipped_recovered_highlights() {
         "strong negative highlight recovery fades only sensor-clipped chroma that cannot be "
         "measured"
     );
+    image::HighlightChromaRiskMap reconstructed_risk{
+        .dimensions = input.dimensions,
+        .samples = {0U},
+        .source_surface_reconstructed = true,
+    };
+    const auto reconstructed = image::execute_adjustment_nodes(
+        input,
+        node,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = input.dimensions,
+            .sensor_clipping_mask = &clipping,
+            .highlight_chroma_risk_map = &reconstructed_risk,
+        }
+    );
+    expect_close_double(
+        chroma(reconstructed),
+        chroma(ordinary),
+        2.0e-5,
+        "a reconstructed source surface keeps its continuous colour instead of reapplying the "
+        "binary physical-white decision"
+    );
 
     const std::array moderate_node{
         image::AdjustmentNode{
@@ -479,15 +537,9 @@ void selective_tone_neutralizes_continuous_cfa_chroma_risk_only_during_recovery(
         });
         return std::hypot(lab[1], lab[2]);
     };
-    const auto luminance = [](const image::FloatRgbImage& value) {
-        return static_cast<double>(value.samples[0]) * 0.2126
-               + static_cast<double>(value.samples[1]) * 0.7152
-               + static_cast<double>(value.samples[2]) * 0.0722;
-    };
     image::HighlightChromaRiskMap risk{
         .dimensions = input.dimensions,
         .samples = {255U},
-        .boundary_transition_samples = {0U},
     };
     const auto recovered = image::execute_adjustment_nodes(
         input,
@@ -501,83 +553,6 @@ void selective_tone_neutralizes_continuous_cfa_chroma_risk_only_during_recovery(
         chroma(recovered) < chroma(input) * 0.05,
         "continuous CFA chroma risk neutralizes deep recovered highlights without requiring a "
         "physical-white bit"
-    );
-
-    risk.boundary_transition_samples[0U] = 255U;
-    const auto softened = image::execute_adjustment_nodes(
-        input,
-        node,
-        image::AdjustmentExecutionContext{
-            .full_dimensions = input.dimensions,
-            .highlight_chroma_risk_map = &risk,
-        }
-    );
-    expect(
-        luminance(softened) > luminance(recovered) * 1.05 && luminance(softened) < luminance(input),
-        "an opted-in clipped-boundary shoulder retains a bounded amount of highlight luminance"
-    );
-    expect(
-        chroma(softened) < chroma(input) * 0.05,
-        "the luminance shoulder does not restore unmeasured clipped chroma"
-    );
-
-    auto strip = rgb_image(
-        5,
-        {
-            2.8F,
-            0.45F,
-            2.1F,
-            2.8F,
-            0.45F,
-            2.1F,
-            2.8F,
-            0.45F,
-            2.1F,
-            2.8F,
-            0.45F,
-            2.1F,
-            2.8F,
-            0.45F,
-            2.1F,
-        }
-    );
-    strip.working_space = linear_srgb();
-    image::HighlightChromaRiskMap transition{
-        .dimensions = strip.dimensions,
-        .samples = {255U, 255U, 255U, 255U, 255U},
-        .boundary_transition_samples = {0U, 64U, 128U, 192U, 255U},
-    };
-    const auto transition_output = image::execute_adjustment_nodes(
-        strip,
-        node,
-        image::AdjustmentExecutionContext{
-            .full_dimensions = strip.dimensions,
-            .highlight_chroma_risk_map = &transition,
-        }
-    );
-    std::array<double, 5U> transition_luminance{};
-    for (std::size_t pixel = 0U; pixel < transition_luminance.size(); ++pixel) {
-        const auto sample = pixel * 3U;
-        transition_luminance[pixel] =
-            static_cast<double>(transition_output.samples[sample]) * 0.2126
-            + static_cast<double>(transition_output.samples[sample + 1U]) * 0.7152
-            + static_cast<double>(transition_output.samples[sample + 2U]) * 0.0722;
-    }
-    bool monotonic_transition = true;
-    double maximum_transition_step = 0.0;
-    for (std::size_t pixel = 1U; pixel < transition_luminance.size(); ++pixel) {
-        monotonic_transition =
-            monotonic_transition && transition_luminance[pixel] > transition_luminance[pixel - 1U];
-        maximum_transition_step = std::max(
-            maximum_transition_step,
-            transition_luminance[pixel] - transition_luminance[pixel - 1U]
-        );
-    }
-    expect(
-        monotonic_transition
-            && maximum_transition_step
-                   < (transition_luminance.back() - transition_luminance.front()) * 0.40,
-        "the prepared clipped-boundary shoulder produces a smooth monotonic luminance ramp"
     );
 
     const auto neutral = image::execute_adjustment_nodes(
@@ -609,6 +584,7 @@ int main() {
     selective_tone_uses_fixed_photographer_facing_zones();
     selective_tone_weights_are_smooth_and_preserve_oklab_chroma();
     selective_tone_endpoints_reach_ordinary_detail_without_clipping();
+    selective_tone_negative_highlights_preserve_midtone_and_superwhite_energy();
     selective_tone_combined_extremes_are_monotonic_and_smooth();
     selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage();
     selective_tone_preserves_highlight_chroma_after_source_treatment();

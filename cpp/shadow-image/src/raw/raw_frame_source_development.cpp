@@ -3,6 +3,7 @@
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/raw_denoise.hpp>
 
+#include "clipped_highlight_reconstruction.hpp"
 #include "metal_raw_development.hpp"
 #include "raw_denoise_plan.hpp"
 
@@ -15,11 +16,8 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     RawFrame frame = std::move(prepared_source.frame_);
     PreparedRawFrameDevelopment prepared = std::move(prepared_source.development_);
     std::optional<SensorClippingMask> sensor_clipping_mask;
-    HighlightChromaRiskMap highlight_chroma_risk_map = project_highlight_chroma_risk_map(
-        frame,
-        prepared.diagnostic_dimensions(),
-        prepared.development_plan().highlight_recovery == RawHighlightRecoveryIntent::aggressive
-    );
+    HighlightChromaRiskMap highlight_chroma_risk_map =
+        project_highlight_chroma_risk_map(frame, prepared.diagnostic_dimensions());
     std::optional<FusedRawFrameDevelopment> prepared_development;
     std::optional<RawBayerDenoiseResult> materialized_raw_denoise;
     RawBayerDenoiseReceipt raw_denoise_receipt;
@@ -27,6 +25,11 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     const DcpColorTransform* camera_profile = prepared.camera_profile();
     const bool dcp_requested =
         camera_profile != nullptr && camera_profile->has_post_matrix_stages();
+    const bool reconstruct_clipped_surface =
+        uses_clipped_highlight_surface_reconstruction(
+            prepared.development_plan().highlight_recovery
+        );
+    const bool fused_dcp_requested = dcp_requested && !reconstruct_clipped_surface;
     if (prepared.requested_backend() != RawDevelopmentBackendMode::cpu) {
         auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
             frame,
@@ -35,7 +38,7 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
             prepared.development_plan().highlight_recovery,
             prepared.development_plan().quality,
             detail::MetalRawDevelopmentContinuations{
-                .dcp_color_transform = dcp_requested ? camera_profile : nullptr,
+                .dcp_color_transform = fused_dcp_requested ? camera_profile : nullptr,
                 .raw_denoise = prepared.raw_denoise().applied() ? &prepared.raw_denoise() : nullptr,
                 .project_sensor_clipping = !sensor_clipping_mask.has_value(),
             }
@@ -44,7 +47,7 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
             sensor_clipping_mask.has_value() || fused_attempt.sensor_clipping_mask.has_value();
         if (fused_attempt.development.has_value() && clipping_available
             && fused_attempt.raw_denoise_applied == prepared.raw_denoise().applied()
-            && fused_attempt.dcp_applied == dcp_requested) {
+            && fused_attempt.dcp_applied == fused_dcp_requested) {
             prepared_development = std::move(fused_attempt.development);
             if (!sensor_clipping_mask.has_value()) {
                 sensor_clipping_mask = std::move(fused_attempt.sensor_clipping_mask);
@@ -77,6 +80,13 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     FusedRawFrameDevelopment developed = std::move(*prepared_development);
     const Dimensions rendered_dimensions = developed.scene_linear.dimensions;
     DevelopedSourcePixels output = std::move(developed.scene_linear);
+    if (reconstruct_clipped_surface) {
+        static_cast<void>(reconstruct_clipped_highlight_surface(
+            std::get<SceneLinearRgbFrame>(output),
+            *sensor_clipping_mask,
+            highlight_chroma_risk_map
+        ));
+    }
     DcpColorExecutionBackend dcp_execution_backend =
         fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
     if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {

@@ -104,18 +104,14 @@ source_reconstruction_highlight_chroma_risk(const SourceReconstructionBasis& bas
 prepare_ai_camera_rgb_source_reconstruction(
     const RawFoundationCameraRgbView& foundation,
     const RawFrame& source_frame,
-    const std::optional<std::uint32_t> preview_max_edge,
-    const bool soften_clipped_boundaries = false
+    const std::optional<std::uint32_t> preview_max_edge
 ) {
     AiCameraRgbSourceReconstructionBasis basis{
         .camera_rgb = prepare_raw_foundation_camera_rgb(foundation, source_frame, preview_max_edge),
     };
     basis.sensor_clipping = project_sensor_clipping_mask(source_frame, basis.camera_rgb.dimensions);
-    basis.highlight_chroma_risk = project_highlight_chroma_risk_map(
-        source_frame,
-        basis.camera_rgb.dimensions,
-        soften_clipped_boundaries
-    );
+    basis.highlight_chroma_risk =
+        project_highlight_chroma_risk_map(source_frame, basis.camera_rgb.dimensions);
     return basis;
 }
 

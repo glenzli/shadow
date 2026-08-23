@@ -302,8 +302,9 @@ struct BackendGradeStack final {
         // Bypassing preserves every authored Foundation value while required
         // source decoding remains active.
         bool enabled = true;
-        // A source-plan option: enabling it selects camera-domain CFA colour
-        // neutralization once, while ordinary Grade sliders stay warm-GPU.
+        // Historical Recipe/FFI compatibility bit. Clipped-highlight continuity is now the
+        // provider-default RawFrame source contract, so the desktop exposes no authoring control
+        // and rendering does not branch on this value.
         bool raw_highlight_repair_enabled = false;
 
         struct Optics final {

@@ -28,10 +28,6 @@ bool EditController::foundationEnabled() const noexcept {
     return grade_stack_.foundation.enabled;
 }
 
-bool EditController::foundationHighlightRepairEnabled() const noexcept {
-    return grade_stack_.foundation.raw_highlight_repair_enabled;
-}
-
 int EditController::foundationWhiteBalanceTemperature() const noexcept {
     return static_cast<int>(grade_stack_.foundation.temperature_kelvin);
 }
@@ -109,18 +105,6 @@ void EditController::setFoundationEnabled(const bool enabled) {
     const BackendGradeStack before = grade_stack_;
     grade_stack_.foundation.enabled = enabled;
     foundationEdited(QStringLiteral("enabled"), before);
-}
-
-void EditController::setFoundationHighlightRepairEnabled(const bool enabled) {
-    if (!active_ || interactionLocked()
-        || grade_stack_.foundation.raw_highlight_repair_enabled == enabled) {
-        return;
-    }
-    const BackendGradeStack before = grade_stack_;
-    grade_stack_.foundation.raw_highlight_repair_enabled = enabled;
-    // This changes the reusable source plan exactly once. Subsequent light and
-    // colour adjustments bind to its new warm RawFrame rather than re-decoding.
-    foundationEdited(QStringLiteral("raw_highlight_repair/enabled"), before);
 }
 
 void EditController::setFoundationWhiteBalanceTemperature(

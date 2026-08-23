@@ -50,6 +50,7 @@ src/edit/working_color_math.cpp
 src/raw/bayer_demosaic.cpp
 src/raw/bayer_sampling.cpp
 src/raw/camera_profile_catalog.cpp
+src/raw/clipped_highlight_reconstruction.cpp
 src/raw/dcp_color_development.cpp
 src/raw/dcp_color_rendering.cpp
 src/raw/dcp_parser.cpp

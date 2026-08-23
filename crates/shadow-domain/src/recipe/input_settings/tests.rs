@@ -26,7 +26,7 @@ fn legacy_input_settings_default_to_an_enabled_foundation() {
 }
 
 #[test]
-fn highlight_repair_is_an_explicit_backward_compatible_source_option() {
+fn historical_highlight_repair_bit_remains_round_trip_compatible() {
     let enabled = RecipeInputSettings::default().with_raw_highlight_repair_enabled(true);
     assert!(enabled.raw_highlight_repair_enabled());
     let encoded = serde_json::to_value(&enabled).expect("serialize enabled highlight repair");

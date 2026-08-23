@@ -6078,31 +6078,6 @@ R %2 · G %3 · B %4</translation>
         <translation>在绿色到洋红色轴上移动 RAW 的绝对白点。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="118"/>
-        <source>RAW HIGHLIGHT REPAIR</source>
-        <translation>RAW 高光修复</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="120"/>
-        <source>Boundary feather</source>
-        <translation>边界柔化</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="121"/>
-        <source>Off</source>
-        <translation>关闭</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="122"/>
-        <source>Softens the boundary between clipped RAW highlights and adjacent valid pixels. It does not reconstruct missing detail or colour.</source>
-        <translation>柔化裁切 RAW 高光与相邻有效像素之间的边界；不会重建缺失的细节或颜色。</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="133"/>
-        <source>Soften clipped highlight boundaries</source>
-        <translation>柔化裁切高光边界</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="251"/>
         <source>Foundational atmosphere and frequency controls evaluated before creative color grading.</source>
         <translation>在创意调色前计算的基础空气感与频率控制。</translation>

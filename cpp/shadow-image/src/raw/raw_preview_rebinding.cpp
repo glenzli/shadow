@@ -1,6 +1,7 @@
 #include "raw_preview_rebinding.hpp"
 
 #include "bayer_sampling.hpp"
+#include "clipped_highlight_reconstruction.hpp"
 #include "metal_raw_development.hpp"
 #include "raw_denoise_plan.hpp"
 #include "raw_foundation_source.hpp"
@@ -227,6 +228,12 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
     }
     RawDevelopmentPlan effective_plan = impl_->development_template.development_plan();
     effective_plan.white_balance = requested_plan.white_balance;
+    // Continuous highlight recovery owns a host-side low-frequency source reconstruction. Decline
+    // direct resident publication once so normal materialized binding can prepare that immutable
+    // source; subsequent grade sliders still reuse its warm GPU session.
+    if (uses_clipped_highlight_surface_reconstruction(effective_plan.highlight_recovery)) {
+        return std::nullopt;
+    }
     if (impl_->development_template.requested_backend() == RawDevelopmentBackendMode::cpu) {
         return std::nullopt;
     }
@@ -503,6 +510,9 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         }
         const DcpColorTransform* dcp = rebound_development.camera_profile();
         const bool dcp_requested = dcp != nullptr && dcp->has_post_matrix_stages();
+        const bool reconstruct_clipped_surface =
+            uses_clipped_highlight_surface_reconstruction(effective_plan.highlight_recovery);
+        const bool fused_dcp_requested = dcp_requested && !reconstruct_clipped_surface;
         // The initial RAW source development already folds DCP input rendering into its Metal
         // tile transaction. Do the same for a white-balance rebind: otherwise a bounded Metal
         // reconstruction is copied to the host, uploaded once more for DCP, then copied back
@@ -520,11 +530,11 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 effective_plan.highlight_recovery,
                 effective_plan.quality,
                 detail::MetalRawDevelopmentContinuations{
-                    .dcp_color_transform = dcp,
+                    .dcp_color_transform = fused_dcp_requested ? dcp : nullptr,
                 }
             );
             if (resident_attempt.development.has_value()
-                && (!dcp_requested || resident_attempt.dcp_applied)) {
+                && (!fused_dcp_requested || resident_attempt.dcp_applied)) {
                 developed = std::move(resident_attempt.development);
                 fused_dcp_applied = resident_attempt.dcp_applied;
             }
@@ -536,7 +546,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             "fallback-resident-development-attempted",
             timing_started
         );
-        if (!developed.has_value() && dcp_requested
+        if (!developed.has_value() && fused_dcp_requested
             && rebound_development.requested_backend() != RawDevelopmentBackendMode::cpu) {
             auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
                 ordinary->denoised_frame,
@@ -581,6 +591,14 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             impl_->ordinary_raw_metal_development_count.fetch_add(1U, std::memory_order_relaxed);
         } else {
             impl_->ordinary_raw_cpu_development_count.fetch_add(1U, std::memory_order_relaxed);
+        }
+        HighlightChromaRiskMap highlight_chroma_risk = ordinary->highlight_chroma_risk;
+        if (reconstruct_clipped_surface) {
+            static_cast<void>(reconstruct_clipped_highlight_surface(
+                developed->scene_linear,
+                ordinary->sensor_clipping,
+                highlight_chroma_risk
+            ));
         }
         DcpColorExecutionBackend dcp_backend =
             fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
@@ -640,7 +658,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             .raw_development_receipt = std::move(receipt),
             .pipeline_receipt = std::move(pipeline),
             .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
-            .highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis),
+            .highlight_chroma_risk_map = std::move(highlight_chroma_risk),
         };
     }
 
@@ -659,6 +677,14 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                                                  foundation.camera_rgb,
                                                  rebound_development.linear_transform()
                                              );
+    HighlightChromaRiskMap highlight_chroma_risk = foundation.highlight_chroma_risk;
+    if (uses_clipped_highlight_surface_reconstruction(requested_plan.highlight_recovery)) {
+        static_cast<void>(reconstruct_clipped_highlight_surface(
+            developed.scene_linear,
+            foundation.sensor_clipping,
+            highlight_chroma_risk
+        ));
+    }
     DcpColorExecutionBackend dcp_backend = DcpColorExecutionBackend::cpu;
     const DcpColorTransform* dcp = rebound_development.camera_profile();
     if (dcp != nullptr && dcp->has_post_matrix_stages()) {
@@ -698,7 +724,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
-        .highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis),
+        .highlight_chroma_risk_map = std::move(highlight_chroma_risk),
     };
 }
 
@@ -710,8 +736,7 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
     );
     HighlightChromaRiskMap highlight_chroma_risk = project_highlight_chroma_risk_map(
         prepared.frame_,
-        prepared.development_.diagnostic_dimensions(),
-        requested_plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive
+        prepared.development_.diagnostic_dimensions()
     );
     RawBayerDenoiseResult conventional = detail::execute_prepared_raw_bayer_denoise(
         std::move(prepared.frame_),
@@ -768,8 +793,7 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
     AiCameraRgbSourceReconstructionBasis source_basis = prepare_ai_camera_rgb_source_reconstruction(
         foundation,
         prepared.frame_,
-        prepared.development_.preview_max_edge(),
-        requested_plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive
+        prepared.development_.preview_max_edge()
     );
     prepared.pipeline_.requested_plan = requested_plan;
     prepared.pipeline_.effective_plan = prepared.development_.development_plan();

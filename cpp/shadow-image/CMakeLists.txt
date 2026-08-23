@@ -251,6 +251,11 @@ if(BUILD_TESTING)
         tests/sensor_clipping_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-clipped-highlight-reconstruction-tests
+        shadow-image-clipped-highlight-reconstruction-contract
+        tests/clipped_highlight_reconstruction_contract_test.cpp
+    )
+    shadow_image_add_contract(
         shadow-image-bayer-demosaic-tests
         shadow-image-bayer-demosaic-contract
         tests/bayer_demosaic_contract_test.cpp

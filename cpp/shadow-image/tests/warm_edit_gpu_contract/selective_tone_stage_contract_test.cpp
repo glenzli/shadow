@@ -168,8 +168,6 @@ void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
         .dimensions = dimensions,
         .samples =
             std::vector<std::uint8_t>(static_cast<std::size_t>(dimensions.pixel_count()), 255U),
-        .boundary_transition_samples =
-            std::vector<std::uint8_t>(static_cast<std::size_t>(dimensions.pixel_count()), 255U),
     };
     auto preparation =
         image::detail::prepare_warm_edit_gpu_session(source, &clipping, &highlight_evidence);
@@ -218,6 +216,41 @@ void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
         std::cerr << "Selective Tone clipping-evidence parity max=" << maximum_error << '\n';
     }
     expect(linear_parity, "the resident Metal source-clipping recovery matches the CPU reference");
+
+    highlight_evidence.samples.assign(highlight_evidence.samples.size(), 0U);
+    highlight_evidence.source_surface_reconstructed = true;
+    auto reconstructed_preparation =
+        image::detail::prepare_warm_edit_gpu_session(source, &clipping, &highlight_evidence);
+    expect(
+        reconstructed_preparation.session != nullptr,
+        "resident Metal accepts reconstructed source-surface evidence"
+    );
+    if (!reconstructed_preparation.session) {
+        return;
+    }
+    const auto reconstructed_gpu = reconstructed_preparation.session->render(nodes, plan, true);
+    const auto reconstructed_cpu = image::execute_adjustment_nodes_with_backend(
+        source,
+        nodes,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = dimensions,
+            .sensor_clipping_mask = &clipping,
+            .highlight_chroma_risk_map = &highlight_evidence,
+        },
+        image::AdjustmentBackendMode::cpu
+    );
+    double reconstructed_maximum_error = 0.0;
+    expect(
+        reconstructed_gpu.output.has_value()
+            && reconstructed_gpu.output->analyzed_linear.has_value()
+            && linear_close(
+                *reconstructed_gpu.output->analyzed_linear,
+                reconstructed_cpu.pixels,
+                reconstructed_maximum_error,
+                1.5e-3
+            ),
+        "resident Metal preserves reconstructed highlight colour with CPU parity"
+    );
 }
 
 template <typename Callable>

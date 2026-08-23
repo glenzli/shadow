@@ -95,10 +95,6 @@ class EditController final : public QObject {
             foundationChanged
     )
     Q_PROPERTY(
-        bool foundationHighlightRepairEnabled READ foundationHighlightRepairEnabled WRITE
-            setFoundationHighlightRepairEnabled NOTIFY foundationChanged
-    )
-    Q_PROPERTY(
         int foundationWhiteBalanceTemperature READ foundationWhiteBalanceTemperature WRITE
             setFoundationWhiteBalanceTemperature NOTIFY foundationChanged
     )
@@ -456,7 +452,6 @@ class EditController final : public QObject {
     [[nodiscard]] QString recipeRecoveryErrorText() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] bool foundationEnabled() const noexcept;
-    [[nodiscard]] bool foundationHighlightRepairEnabled() const noexcept;
     [[nodiscard]] int foundationWhiteBalanceTemperature() const noexcept;
     [[nodiscard]] int foundationWhiteBalanceTint() const noexcept;
     [[nodiscard]] bool foundationWhiteBalanceAtCameraValue() const noexcept;
@@ -581,7 +576,6 @@ class EditController final : public QObject {
     void setSaturationFactor(double value);
     void setLutIntensity(double value);
     void setFoundationEnabled(bool enabled);
-    void setFoundationHighlightRepairEnabled(bool enabled);
     void setFoundationWhiteBalanceTemperature(int temperature_kelvin);
     void setFoundationWhiteBalanceTint(int tint);
     void setFoundationAiDenoiseEnabled(bool enabled);

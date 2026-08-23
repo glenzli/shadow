@@ -148,23 +148,27 @@ Current contract rules:
   risk rises when independently sampled channels lose headroom and their evidence diverges. A
   terminal shared-clipping component feathers its confidence one display bin into adjacent valid
   bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this
-  sidecar beside its reusable source. When the opt-in aggressive policy is selected, the same
-  projection also prepares an aligned, resolution-scaled R8 terminal-boundary transition with an
-  O(pixels) chamfer pass. The transition does not reconstruct source data: during negative
-  Highlight/White recovery it only eases the neutral pull across the clipped contour and retains a
-  bounded fraction of recovered luminance in the unknowable core. Both planes share one lifecycle
-  and one packed resident upload; slider events add no source work or neighbourhood pass. The warm
-  preview binds it once to the resident GPU edit session (or the matching CPU fallback). During
-  actual negative highlight/white recovery, Selective Tone progressively pulls chroma toward neutral in
+  sidecar beside its reusable source. The provider-default RAW policy also replaces physically
+  clipped topology with a low-frequency scene-linear surface reconstructed from measured
+  neighbours. A push-pull guide is bounded to 384 pixels on its longest edge; the full raster
+  receives one in-place linear pass, and a brightness gate keeps its small exterior chroma shoulder
+  from crossing an adjacent dark subject. Reconstruction retains the clipped core within one
+  quarter stop of its measured luminance and follows the reliable boundary chromaticity with only
+  a small neutral safety pull. It therefore prevents a warm clipped surface from becoming a dark
+  grey island while still synthesizing only luminance and colour trend, never texture.
+  Detail/export materializes this source once instead of inferring a different surface independently
+  in resident tiles. DCP input rendering follows the reconstruction, so the spatial estimate
+  remains a RAW source operation. The warm preview then binds the prepared source and one R8
+  chroma-risk plane once to the resident GPU edit session (or the matching CPU fallback); slider
+  events add no source work, neighbourhood pass, or extra evidence plane. During actual negative highlight/white
+  recovery, Selective Tone progressively pulls chroma toward neutral in
   proportion to that source risk while preserving its ordinary Oklab-lightness behavior elsewhere.
   It never reconstructs spatial detail or invents a neighbouring hue. `disabled` stays an explicit
-  unbounded diagnostic plan for compatibility. The opt-in `aggressive` policy is a separate repair
-  route: it spatially feathers the physical-white and near-white CFA confidence before the same
-  camera-domain neutral pull. Peak-channel support keeps that feather active beside a dark edge
-  without making average footprint luminance a gate. It intentionally sacrifices more uncertain
-  highlight chroma to hide a false-colour contour, but never copies neighbouring hue, fabricates
-  luminance/detail, or changes the default path. The selected policy remains part of the developed
-  cache identity. CPU and Metal apply the same CFA-scale route before their camera transforms.
+  unbounded diagnostic plan. The historical `aggressive` value remains a compatible diagnostic
+  alias that adds its earlier CFA-scale spatial chroma feather before the same default surface
+  reconstruction; no desktop authoring switch selects it. The effective policy and reconstruction
+  identity remain part of the developed cache identity. CPU and Metal apply the same CFA-scale
+  route before their camera transforms.
   `src/raw/raw_frame_source_development.*` consumes that preparation for the complete
   CPU/Metal materialization transaction. `src/raw/raw_frame_region_development.*` owns the exact
   CPU region contract: oriented output cores, active-sensor reconstruction coordinates,

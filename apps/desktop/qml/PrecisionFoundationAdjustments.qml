@@ -115,30 +115,6 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
-        title: qsTr("RAW HIGHLIGHT REPAIR")
-        summary: foundation.editor.foundationHighlightRepairEnabled
-            ? qsTr("Boundary feather")
-            : qsTr("Off")
-        toolTipText: qsTr("Softens the boundary between clipped RAW highlights and adjacent valid pixels. It does not reconstruct missing detail or colour.")
-        resetAvailable: foundation.editor.foundationHighlightRepairEnabled
-        resetEnabled: foundation.editor.active && !foundation.editor.stateBusy
-        resetObjectName: "foundationHighlightRepairResetButton"
-        onResetRequested: foundation.editor.foundationHighlightRepairEnabled = false
-
-        ShadowSwitch {
-            objectName: "foundationHighlightRepairSwitch"
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            text: qsTr("Soften clipped highlight boundaries")
-            checked: foundation.editor.foundationHighlightRepairEnabled
-            enabled: foundation.editor.active && !foundation.editor.stateBusy
-            onToggled: foundation.editor.foundationHighlightRepairEnabled = checked
-        }
-    }
-
-    ShadowAdjustmentSection {
-        Layout.fillWidth: true
         visible: !foundation.editor.foundationSelected
         enabled: foundation.gradeControlsEnabled
         opacity: enabled ? 1.0 : 0.42

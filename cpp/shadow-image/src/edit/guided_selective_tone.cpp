@@ -107,6 +107,16 @@ upper_ev_hinge(const double value, const double boundary, const double softness)
     return softness * log2_one_plus_exp2((value - boundary) / softness);
 }
 
+// A compact C2 transition with exactly zero influence before the start and a finite plateau
+// after the span. Unlike an unbounded upper hinge, its derivative returns to zero in
+// super-white scene data, so an extreme recovery cannot collapse every brighter source value
+// onto the same display shoulder.
+[[nodiscard]] double
+smootherstep_window(const double value, const double start, const double span) noexcept {
+    const double normalized = std::clamp((value - start) / span, 0.0, 1.0);
+    return normalized * normalized * normalized * (normalized * (normalized * 6.0 - 15.0) + 10.0);
+}
+
 [[nodiscard]] double adjusted_selective_tone_ev(
     const double mask_ev,
     const PreparedGuidedSelectiveTone& prepared
@@ -172,20 +182,47 @@ upper_ev_hinge(const double value, const double boundary, const double softness)
         recovery_softness_ev,
         recovery_strength
     );
+    // Positive Highlight/White edits retain the established open-ended fields. Negative
+    // recovery is different: composing two open-ended hinges leaves only 3.36% of the source
+    // slope when both controls are at -100, which darkens ordinary highlights and packs all
+    // super-white values into a narrow band. Couple the negative controls into two overlapping
+    // finite shoulders instead. Highlights starts at middle gray and reaches a one-stop budget
+    // over 3.4 EV; Whites starts at +0.3 EV and contributes another 1.4 stops over 5.5 EV. The
+    // quintic windows are C2 at both ends, have exactly zero midtone tail, and their combined
+    // derivative is at most 0.866 at full strength. The mapping therefore remains monotonic
+    // with at least 13.4% local slope before returning to 1:1 in the super-whites.
     adjusted_ev = apply_upper(
         adjusted_ev,
-        prepared.highlights(),
+        std::max(0.0, prepared.highlights()),
         highlight_boundary_ev,
         recovery_softness_ev,
         recovery_strength
     );
     adjusted_ev = apply_upper(
         adjusted_ev,
-        prepared.whites(),
+        std::max(0.0, prepared.whites()),
         endpoint_boundary_ev,
         endpoint_softness_ev,
         endpoint_strength
     );
+    constexpr double negative_highlight_capacity_ev = 1.0;
+    constexpr double negative_highlight_start_ev = 0.0;
+    constexpr double negative_highlight_span_ev = 3.4;
+    constexpr double negative_white_capacity_ev = 1.4;
+    constexpr double negative_white_start_ev = 0.3;
+    constexpr double negative_white_span_ev = 5.5;
+    const double negative_highlights = std::max(0.0, -prepared.highlights());
+    const double negative_whites = std::max(0.0, -prepared.whites());
+    const double shoulder_source_ev = adjusted_ev;
+    adjusted_ev -= negative_highlights * negative_highlight_capacity_ev
+                   * smootherstep_window(
+                       shoulder_source_ev,
+                       negative_highlight_start_ev,
+                       negative_highlight_span_ev
+                   );
+    adjusted_ev -=
+        negative_whites * negative_white_capacity_ev
+        * smootherstep_window(shoulder_source_ev, negative_white_start_ev, negative_white_span_ev);
 
     return adjusted_ev;
 }
@@ -195,19 +232,17 @@ upper_ev_hinge(const double value, const double boundary, const double softness)
     const WorkingSpaceTransform& color_transform,
     const PreparedGuidedSelectiveTone& prepared,
     const double mask_ev,
-    const double highlight_chroma_risk,
-    const double highlight_boundary_transition
+    const double highlight_chroma_risk
 ) noexcept {
     Vector3 lab = working_rgb_to_oklab(color_transform, input);
     if (!(lab[0] > 0.0) || !std::isfinite(lab[0])) {
         return input;
     }
 
-    // The EV field is evaluated against the guided mask, not individual pixel luminance. An
-    // explicitly prepared clipped-boundary transition may retain a small fraction of a strong
-    // negative recovery: it keeps the unknowable clipped core slightly luminous while the
-    // surrounding measured shoulder approaches it continuously. This never synthesizes texture
-    // and is exactly neutral when the optional RAW boundary treatment is disabled.
+    // The EV field is evaluated against the guided mask, not individual pixel luminance. Any
+    // clipped-surface continuity has already been established by RAW source preparation; keeping
+    // a separate core-luminance override here would reveal that source mask again under a strong
+    // negative recovery.
     const double requested_adjusted_ev = adjusted_selective_tone_ev(mask_ev, prepared);
     const double recovered_ev = std::max(0.0, mask_ev - requested_adjusted_ev);
     constexpr double recovery_start_ev = 0.05;
@@ -216,12 +251,7 @@ upper_ev_hinge(const double value, const double boundary, const double softness)
         std::clamp((recovered_ev - recovery_start_ev) / recovery_width_ev, 0.0, 1.0);
     const double recovery_pull =
         recovery_normalized * recovery_normalized * (3.0 - 2.0 * recovery_normalized);
-    constexpr double clipped_recovery_retention = 0.14;
-    const double boundary_transition = std::clamp(highlight_boundary_transition, 0.0, 1.0);
-    const double adjusted_ev =
-        requested_adjusted_ev
-        + recovered_ev * clipped_recovery_retention * boundary_transition * recovery_pull;
-    const double stops = adjusted_ev - mask_ev;
+    const double stops = requested_adjusted_ev - mask_ev;
     const double gain = std::exp2(stops);
     if (!(gain > 0.0) || !std::isfinite(gain)) {
         return input;
@@ -685,8 +715,11 @@ void apply_prepared_guided_selective_tone_cpu(
             const std::uint64_t full_y = static_cast<std::uint64_t>(context.origin_y) + y;
             const auto full_index =
                 static_cast<std::size_t>(full_y * context.full_dimensions.width + full_x);
+            const bool source_surface_reconstructed =
+                context.highlight_chroma_risk_map != nullptr
+                && context.highlight_chroma_risk_map->source_surface_reconstructed;
             const bool physically_highlight_clipped =
-                context.sensor_clipping_mask != nullptr
+                !source_surface_reconstructed && context.sensor_clipping_mask != nullptr
                 && (context.sensor_clipping_mask->samples[full_index] & sensor_highlight_clipped)
                        != 0U;
             const double continuous_highlight_risk =
@@ -694,19 +727,12 @@ void apply_prepared_guided_selective_tone_cpu(
                     ? static_cast<double>(context.highlight_chroma_risk_map->samples[full_index])
                           / 255.0
                     : 0.0;
-            const double highlight_boundary_transition =
-                context.highlight_chroma_risk_map != nullptr
-                    ? static_cast<double>(
-                          context.highlight_chroma_risk_map->boundary_transition_samples[full_index]
-                      ) / 255.0
-                    : 0.0;
             const Vector3 output = apply_selective_tone_at_mask(
                 input,
                 color_transform,
                 prepared,
                 mask_ev,
-                physically_highlight_clipped ? 1.0 : continuous_highlight_risk,
-                highlight_boundary_transition
+                physically_highlight_clipped ? 1.0 : continuous_highlight_risk
             );
             image.samples[sample] = checked_edit_pixel_float(output[0], node_index, node);
             image.samples[sample + 1U] = checked_edit_pixel_float(output[1], node_index, node);

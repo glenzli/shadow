@@ -1986,6 +1986,12 @@ inline float warm_upper_ev_hinge(float value, float boundary, float softness) {
     return softness * warm_log2_one_plus_exp2((value - boundary) / softness);
 }
 
+inline float warm_smootherstep_window(float value, float start, float span) {
+    const float normalized = clamp((value - start) / span, 0.0f, 1.0f);
+    return normalized * normalized * normalized
+           * (normalized * (normalized * 6.0f - 15.0f) + 10.0f);
+}
+
 kernel void warm_selective_tone_apply_v1(
     device const float* input [[buffer(0)]],
     device const float* mask [[buffer(1)]],
@@ -2031,17 +2037,38 @@ kernel void warm_selective_tone_apply_v1(
                 shadow_boundary_ev,
                 recovery_softness_ev
             );
-        requested_adjusted_ev += recovery_strength * parameters.highlights
+        requested_adjusted_ev += recovery_strength * max(0.0f, parameters.highlights)
             * warm_upper_ev_hinge(
                 requested_adjusted_ev,
                 highlight_boundary_ev,
                 recovery_softness_ev
             );
-        requested_adjusted_ev += endpoint_strength * parameters.whites
+        requested_adjusted_ev += endpoint_strength * max(0.0f, parameters.whites)
             * warm_upper_ev_hinge(
                 requested_adjusted_ev,
                 endpoint_boundary_ev,
                 endpoint_softness_ev
+            );
+        constexpr float negative_highlight_capacity_ev = 1.0f;
+        constexpr float negative_highlight_start_ev = 0.0f;
+        constexpr float negative_highlight_span_ev = 3.4f;
+        constexpr float negative_white_capacity_ev = 1.4f;
+        constexpr float negative_white_start_ev = 0.3f;
+        constexpr float negative_white_span_ev = 5.5f;
+        const float shoulder_source_ev = requested_adjusted_ev;
+        requested_adjusted_ev -= max(0.0f, -parameters.highlights)
+            * negative_highlight_capacity_ev
+            * warm_smootherstep_window(
+                shoulder_source_ev,
+                negative_highlight_start_ev,
+                negative_highlight_span_ev
+            );
+        requested_adjusted_ev -= max(0.0f, -parameters.whites)
+            * negative_white_capacity_ev
+            * warm_smootherstep_window(
+                shoulder_source_ev,
+                negative_white_start_ev,
+                negative_white_span_ev
             );
         constexpr float recovery_start_ev = 0.05f;
         constexpr float recovery_width_ev = 0.50f;
@@ -2053,21 +2080,14 @@ kernel void warm_selective_tone_apply_v1(
         );
         const float recovery_pull = recovery_normalized * recovery_normalized
                                     * (3.0f - 2.0f * recovery_normalized);
-        constexpr float clipped_recovery_retention = 0.14f;
-        const uint highlight_evidence_index = pixel * 2u;
-        const float highlight_boundary_transition =
-            float(highlight_clipping[highlight_evidence_index + 1u]) / 255.0f;
-        const float adjusted_ev = requested_adjusted_ev
-                                  + recovered_ev * clipped_recovery_retention
-                                        * highlight_boundary_transition * recovery_pull;
-        const float lightness_gain = exp2((adjusted_ev - mask_ev) / 3.0f);
+        const float lightness_gain = exp2((requested_adjusted_ev - mask_ev) / 3.0f);
         if (lightness_gain > 0.0f && isfinite(lightness_gain)) {
             lab.x *= lightness_gain;
-            // The first plane of the resident R8 pair is continuous CFA headroom disagreement;
-            // physical sensor white is encoded as 255. Preserve Oklab opponent channels for
+            // The resident R8 plane is continuous CFA headroom disagreement; physical sensor
+            // white is encoded as 255. Preserve Oklab opponent channels for
             // ordinary pixels, then smooth only source-unreliable chroma during negative recovery.
             const float highlight_chroma_risk =
-                float(highlight_clipping[highlight_evidence_index]) / 255.0f;
+                float(highlight_clipping[pixel]) / 255.0f;
             if (highlight_chroma_risk > 0.0f) {
                 // Keep this in lockstep with the CPU reference: source-evidenced chroma must
                 // begin fading at the first meaningful recovered stop, so intermediate slider

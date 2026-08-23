@@ -231,8 +231,8 @@ pub struct RecipeInputSettings {
     optics: RecipeOpticsSettings,
     #[serde(default, skip_serializing_if = "RawWhiteBalance::is_as_shot")]
     raw_white_balance: RawWhiteBalance,
-    // This remains opt-in because it deliberately neutralizes colour where
-    // clipped CFA samples no longer provide trustworthy chroma evidence.
+    // Historical Recipe v1 compatibility bit. Current rendering always uses the provider-default
+    // clipped-highlight continuity contract and exposes no authoring switch.
     #[serde(default, skip_serializing_if = "bool_is_false")]
     raw_highlight_repair_enabled: bool,
     // Recipe v1 keeps this sibling singleton in the historical

@@ -1162,7 +1162,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     if (!checked_multiply(sample_count, sizeof(float), source_bytes)
         || !checked_multiply(
             static_cast<std::size_t>(source.dimensions.pixel_count()),
-            2U * sizeof(std::uint8_t),
+            sizeof(std::uint8_t),
             highlight_evidence_bytes
         )
         || !checked_multiply(
@@ -1309,15 +1309,13 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
                 const std::uint8_t continuous = highlight_chroma_risk_map != nullptr
                                                     ? highlight_chroma_risk_map->samples[index]
                                                     : 0U;
-                const std::uint8_t boundary =
+                const bool source_surface_reconstructed =
                     highlight_chroma_risk_map != nullptr
-                        ? highlight_chroma_risk_map->boundary_transition_samples[index]
-                        : 0U;
+                    && highlight_chroma_risk_map->source_surface_reconstructed;
                 const bool physical =
-                    sensor_clipping_mask != nullptr
+                    !source_surface_reconstructed && sensor_clipping_mask != nullptr
                     && (sensor_clipping_mask->samples[index] & sensor_highlight_clipped) != 0U;
-                encoded_evidence[index * 2U] = physical ? 255U : continuous;
-                encoded_evidence[index * 2U + 1U] = boundary;
+                encoded_evidence[index] = physical ? 255U : continuous;
             }
             impl->highlight_clipping = [device newBufferWithBytes:encoded_evidence.data()
                                                            length:highlight_evidence_bytes
