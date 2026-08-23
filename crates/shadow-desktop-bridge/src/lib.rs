@@ -319,13 +319,15 @@ mod ffi {
         reused_existing: bool,
     }
 
-    /// Native-only configuration for this Mac's managed remote-Library listener.
+    /// Device-local configuration for the managed remote-Library listener.
     #[derive(Debug)]
     struct FfiLibraryServerConfig {
         bind_address: String,
         authorization: String,
         display_name: String,
-        share_roots: Vec<String>,
+        /// Filesystem roots retain their native payload; display strings must
+        /// never be used to reopen a shared folder.
+        share_roots: Vec<FfiNativePath>,
         serves_originals: bool,
     }
 

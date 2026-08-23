@@ -9,6 +9,7 @@ project(
 
 option(SHADOW_BUILD_RAW_PROBE "Build the LibRaw vertical-spike probe" ON)
 option(SHADOW_BUILD_DESKTOP "Build the Qt Quick desktop application" OFF)
+option(SHADOW_BUILD_SERVER_MANAGER "Build the standalone Shadow Server manager" OFF)
 option(SHADOW_ENABLE_METAL "Build the macOS Metal image backend" ${APPLE})
 option(
     SHADOW_REQUIRE_METAL_TESTS
@@ -63,6 +64,6 @@ endif()
 include(CTest)
 add_subdirectory(cpp/shadow-image)
 
-if(SHADOW_BUILD_DESKTOP)
+if(SHADOW_BUILD_DESKTOP OR SHADOW_BUILD_SERVER_MANAGER)
     add_subdirectory(apps/desktop)
 endif()

@@ -41,7 +41,7 @@
       "generator": "Ninja",
       "binaryDir": "${sourceParentDir}/.shadow-local-build/${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "BUILD_TESTING": "ON",
         "SHADOW_BUILD_RAW_PROBE": "ON",
@@ -57,6 +57,15 @@
       "displayName": "Shadow Windows desktop development",
       "cacheVariables": {
         "SHADOW_BUILD_DESKTOP": "ON",
+        "SHADOW_VCPKG_ICONV_PREFIX": "${sourceParentDir}/.shadow-local-vcpkg/${presetName}/x64-windows/usr/local"
+      }
+    },
+    {
+      "name": "windows-server-dev",
+      "inherits": "windows-native-dev",
+      "displayName": "Shadow Windows Server development",
+      "cacheVariables": {
+        "SHADOW_BUILD_SERVER_MANAGER": "ON",
         "SHADOW_VCPKG_ICONV_PREFIX": "${sourceParentDir}/.shadow-local-vcpkg/${presetName}/x64-windows/usr/local"
       }
     }
@@ -81,6 +90,10 @@
     {
       "name": "windows-desktop-dev",
       "configurePreset": "windows-desktop-dev"
+    },
+    {
+      "name": "windows-server-dev",
+      "configurePreset": "windows-server-dev"
     }
   ],
   "testPresets": [
@@ -94,6 +107,13 @@
     {
       "name": "windows-native-dev",
       "configurePreset": "windows-native-dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-server-dev",
+      "configurePreset": "windows-server-dev",
       "output": {
         "outputOnFailure": true
       }

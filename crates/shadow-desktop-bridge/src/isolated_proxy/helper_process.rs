@@ -70,6 +70,16 @@ fn execute_decode_helper_with_timeout(
     let mut child = command
         .spawn()
         .with_context(|| format!("start isolated RAW decoder {}", helper_path.display()))?;
+    let process_tree = match HelperProcessTree::attach(&mut child) {
+        Ok(tree) => tree,
+        Err(error) => {
+            // A failed Windows Job assignment must not turn process isolation
+            // into an escaped decoder process.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
     let stdout = child
         .stdout
         .take()
@@ -87,14 +97,14 @@ fn execute_decode_helper_with_timeout(
             Ok(Some(status)) => break status,
             Ok(None) if started_at.elapsed() >= timeout => {
                 timed_out = true;
-                terminate_helper_process_tree(&mut child);
+                terminate_helper_process_tree(&mut child, &process_tree);
                 break child
                     .wait()
                     .context("wait for timed-out isolated RAW decoder")?;
             }
             Ok(None) => thread::sleep(HELPER_POLL_INTERVAL),
             Err(error) => {
-                terminate_helper_process_tree(&mut child);
+                terminate_helper_process_tree(&mut child, &process_tree);
                 let _ = child.wait();
                 return Err(error).context("poll isolated RAW decoder");
             }
@@ -107,11 +117,11 @@ fn execute_decode_helper_with_timeout(
     let stdout = receive_helper_pipe_until(&stdout_reader, "stdout", drain_deadline)?;
     let stderr = receive_helper_pipe_until(&stderr_reader, "stderr", drain_deadline)?;
     if stdout.is_none() || stderr.is_none() {
-        // On Unix this kills the dedicated helper process group, including
-        // ordinary descendants that kept a pipe open. On other platforms the
-        // direct child has already been reaped, but the parent still returns
-        // on the same bounded deadline instead of joining a stuck reader.
-        terminate_helper_process_tree(&mut child);
+        // This kills the Unix helper process group or the Windows Job Object,
+        // including ordinary descendants that kept a pipe open. The parent
+        // then returns on the same bounded deadline instead of joining a
+        // stuck reader.
+        terminate_helper_process_tree(&mut child, &process_tree);
         return Ok(HelperExecution::TimedOut(HelperProcessOutput {
             status,
             stdout: stdout.unwrap_or_default(),
@@ -142,7 +152,8 @@ fn configure_helper_process_group(command: &mut Command) {
     let _ = command;
 }
 
-fn terminate_helper_process_tree(child: &mut Child) {
+fn terminate_helper_process_tree(child: &mut Child, process_tree: &HelperProcessTree) {
+    process_tree.terminate();
     #[cfg(unix)]
     {
         // The group id is the helper's PID because configure_helper_process_group
@@ -156,6 +167,95 @@ fn terminate_helper_process_tree(child: &mut Child) {
         }
     }
     let _ = child.kill();
+}
+
+/// Owns the Windows process tree for exactly one isolated decoder operation.
+/// Closing a configured Job Object is a final fail-safe on every return path;
+/// explicit termination below also makes timeouts release inherited pipes
+/// promptly. Unix process-group setup remains the corresponding mechanism
+/// there.
+#[derive(Debug)]
+struct HelperProcessTree {
+    #[cfg(windows)]
+    job: windows_sys::Win32::Foundation::HANDLE,
+}
+
+impl HelperProcessTree {
+    fn attach(child: &mut Child) -> Result<Self> {
+        #[cfg(windows)]
+        {
+            use std::{mem, os::windows::io::AsRawHandle as _, ptr};
+            use windows_sys::Win32::{
+                Foundation::{CloseHandle, HANDLE},
+                System::JobObjects::{
+                    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+                    SetInformationJobObject,
+                },
+            };
+
+            // SAFETY: null security attributes and name request the default,
+            // unnamed Job Object owned by this process.
+            let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+            if job.is_null() {
+                return Err(std::io::Error::last_os_error()).context("create decoder Job Object");
+            }
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { mem::zeroed() };
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            // SAFETY: `limits` is initialized for the documented information
+            // class and lives until the call returns.
+            let limits_set = unsafe {
+                SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    (&raw const limits).cast(),
+                    mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                )
+            };
+            if limits_set == 0 {
+                // SAFETY: this branch owns the just-created valid handle.
+                unsafe { CloseHandle(job) };
+                return Err(std::io::Error::last_os_error())
+                    .context("configure decoder Job Object cleanup");
+            }
+            let process: HANDLE = child.as_raw_handle().cast();
+            // SAFETY: `process` is the live direct child handle and `job` is
+            // the configured Job Object above.
+            if unsafe { AssignProcessToJobObject(job, process) } == 0 {
+                // SAFETY: closing the Job Object kills no assigned process on
+                // this error path and releases the handle we own.
+                unsafe { CloseHandle(job) };
+                return Err(std::io::Error::last_os_error())
+                    .context("assign isolated decoder to Job Object");
+            }
+            return Ok(Self { job });
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = child;
+            Ok(Self {})
+        }
+    }
+
+    fn terminate(&self) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+            // SAFETY: this object exclusively owns the Job Object handle.
+            // Ignore a race with an already-exited helper tree.
+            let _ = unsafe { TerminateJobObject(self.job, 1) };
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for HelperProcessTree {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        // SAFETY: the Job Object handle was created by attach and is released
+        // exactly once here. KILL_ON_JOB_CLOSE is the shutdown backstop.
+        unsafe { CloseHandle(self.job) };
+    }
 }
 
 fn read_capped_stream(mut stream: impl Read) -> io::Result<Vec<u8>> {
@@ -220,5 +320,5 @@ pub(super) fn helper_stderr_suffix(stderr: &[u8]) -> String {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;

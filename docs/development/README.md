@@ -66,20 +66,33 @@ when the toolchain is installed elsewhere.
 
 ## Windows compile contract
 
-The Mac-first source tree exposes `windows-native-dev` and `windows-desktop-dev` CMake presets.
+The Mac-first source tree exposes `windows-native-dev`, `windows-server-dev`, and
+`windows-desktop-dev` CMake presets.
 They select the vcpkg toolchain, keep installed packages outside the repository, disable Metal,
 and supply the compatibility prefix used by vcpkg Iconv layouts that install beneath
 `usr/local`. The checked-in `vcpkg.json` owns the Windows native and Qt dependency set.
+Windows development presets use `RelWithDebInfo`: Rust static archives use the release dynamic
+MSVC runtime even in Cargo's development profile, so this keeps the C++, Qt, and Rust boundary on
+one runtime while retaining debug symbols.
 
 ```powershell
-cmake --preset windows-desktop-dev
-cmake --build --preset windows-desktop-dev --target shadow-desktop-rust-build
+cmake --preset windows-server-dev
+cmake --build --preset windows-server-dev --target shadow-server-manager
+ctest --preset windows-server-dev -R shadow-server-manager-qml-startup
+cmake --install ..\.shadow-local-build\windows-server-dev --prefix ..\.shadow-local-dist\windows-server-dev
 ```
 
-The Windows workflow runs the native-path fixtures, configures that desktop graph, compiles the
-Rust/CXX bridge, and builds the portable image kernel. Runtime launch and immutable debug promotion
-remain platform backends behind the shared xtask commands; the macOS backends are implemented here,
-and Windows can add its backend without changing the command contract.
+`windows-server-dev` builds the independent Shadow Server manager without requiring the photo
+application's Qt WebView dependency. It is the Windows bring-up target for local-network Library
+sharing; `windows-desktop-dev` remains the full photo-application graph. The install command creates
+a self-contained Server Manager directory under `.shadow-local-dist/windows-server-dev`, including
+the Qt/QML runtime, non-Qt DLL dependencies, and the isolated decode helper.
+
+The Windows workflow runs the native-path fixtures, configures the selected Server or desktop
+graph, compiles the Rust/CXX bridge, and builds the portable image kernel. Runtime launch and
+immutable debug promotion remain platform backends behind the shared xtask commands; the macOS
+backends are implemented here, and Windows can add its backend without changing the command
+contract.
 
 Repository instructions require build output outside the source tree. Agents and concurrent tasks
 must use task-private external Cargo and CMake directories; see [AGENTS.md](../../AGENTS.md) for the

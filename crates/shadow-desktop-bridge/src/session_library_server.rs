@@ -1,9 +1,12 @@
-use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+use std::{net::SocketAddr, str::FromStr};
 
 use anyhow::{Context, Result as AnyResult};
 use shadow_library_sharing::AuthorizationToken;
 
-use crate::{DesktopSession, LibraryServerSnapshot, LibraryServerStartRequest, ffi};
+use crate::{
+    DesktopSession, LibraryServerSnapshot, LibraryServerStartRequest, ffi,
+    native_path_ffi::path_from_ffi,
+};
 
 impl DesktopSession {
     pub(crate) fn library_server_snapshot(&self) -> AnyResult<ffi::FfiLibraryServerSnapshot> {
@@ -38,10 +41,17 @@ pub(crate) fn start_request(
         bind_address,
         authorization,
         display_name: config.display_name.clone(),
-        share_roots: config.share_roots.iter().map(PathBuf::from).collect(),
+        share_roots: config
+            .share_roots
+            .iter()
+            .map(path_from_ffi)
+            .collect::<AnyResult<_>>()?,
         serves_originals: config.serves_originals,
     })
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(crate) fn project_snapshot(snapshot: LibraryServerSnapshot) -> ffi::FfiLibraryServerSnapshot {
     ffi::FfiLibraryServerSnapshot {

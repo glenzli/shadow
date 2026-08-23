@@ -1,7 +1,10 @@
 find_package(
     Qt6 6.11.1 REQUIRED
-    COMPONENTS Core Concurrent LinguistTools Network Quick QuickControls2 Svg WebView Widgets
+    COMPONENTS Core Concurrent LinguistTools Network Quick QuickControls2 Svg Widgets
 )
+if(SHADOW_BUILD_DESKTOP)
+    find_package(Qt6 6.11.1 REQUIRED COMPONENTS WebView)
+endif()
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
 set(
@@ -45,6 +48,15 @@ qt_standard_project_setup(
     REQUIRES 6.11
     I18N_SOURCE_LANGUAGE en
     I18N_TRANSLATED_LANGUAGES zh_CN
+)
+
+# Theme is used by both the full desktop module and the independently built
+# Server Manager. Register it before either module is declared so a
+# server-only build keeps the singleton contract instead of resolving
+# Theme.* to QML defaults.
+set_source_files_properties(
+    qml/Theme.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE
 )
 
 set(
@@ -241,6 +253,12 @@ target_link_libraries(
     shadow-desktop-rust
     INTERFACE Shadow::ImagePlatformRuntime
 )
+if(WIN32)
+    # Rust's MSVC static archives always use the release dynamic CRT, including
+    # Cargo's dev profile. Match the native boundary and propagate the Windows
+    # system libraries that a static archive cannot link by itself.
+    target_link_libraries(shadow-desktop-rust INTERFACE bcrypt ntdll)
+endif()
 
 add_library(
     shadow-desktop-export-backend
@@ -364,6 +382,7 @@ else()
     )
 endif()
 
+if(SHADOW_BUILD_DESKTOP)
 qt_add_executable(
     shadow-desktop
     MACOSX_BUNDLE
@@ -794,10 +813,7 @@ if(APPLE)
     )
 endif()
 
-set_source_files_properties(
-    qml/Theme.qml
-    PROPERTIES QT_QML_SINGLETON_TYPE TRUE
-)
+endif()
 
 qt_add_executable(
     shadow-server-manager
@@ -816,6 +832,10 @@ qt_add_qml_module(
         qml/Theme.qml
 )
 target_compile_features(shadow-server-manager PRIVATE cxx_std_20)
+target_compile_definitions(
+    shadow-server-manager
+    PRIVATE "SHADOW_DECODE_HELPER_FILE_NAME=\"shadow-image-decode-helper${CMAKE_EXECUTABLE_SUFFIX}\""
+)
 target_include_directories(
     shadow-server-manager
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -856,6 +876,37 @@ set_target_properties(
         OUTPUT_NAME "Shadow Server"
 )
 
+if(WIN32)
+    # Keep the Server Manager independently deployable while the full photo
+    # application is still being brought up on Windows. Qt's deployment script
+    # supplies QML imports and plugins; CMake resolves the non-Qt DLL closure
+    # needed by the controller. The decode helper's DLL imports are a subset
+    # of the controller's closure, so resolving it separately would present
+    # CMake with duplicate JPEG DLL copies from two build directories.
+    if(POLICY CMP0207)
+        cmake_policy(SET CMP0207 NEW)
+    endif()
+    install(
+        TARGETS shadow-server-manager
+        RUNTIME_DEPENDENCIES
+            DIRECTORIES "$<TARGET_FILE_DIR:Qt6::Core>"
+            PRE_EXCLUDE_REGEXES
+                "^api-ms-.*"
+                "^ext-ms-.*"
+            POST_EXCLUDE_REGEXES
+                ".*[/\\\\][Ww][Ii][Nn][Dd][Oo][Ww][Ss][/\\\\][Ss][Yy][Ss][Tt][Ee][Mm]32[/\\\\].*"
+        RUNTIME DESTINATION "."
+    )
+    install(TARGETS shadow-image-decode-helper RUNTIME DESTINATION ".")
+    qt_generate_deploy_qml_app_script(
+        TARGET shadow-server-manager
+        OUTPUT_SCRIPT shadow_server_manager_deploy_script
+        NO_TRANSLATIONS
+    )
+    install(SCRIPT "${shadow_server_manager_deploy_script}")
+endif()
+
+if(SHADOW_BUILD_DESKTOP)
 qt_add_qml_module(
     shadow-desktop
     URI Shadow.App
@@ -1018,19 +1069,6 @@ qt_add_qml_module(
         qml/ShadowTabButton.qml
         qml/Theme.qml
         qml/ToneCurveEditor.qml
-)
-
-qt_add_translations(
-    TARGETS shadow-desktop shadow-server-manager
-    SOURCE_TARGETS shadow-desktop shadow-server-manager shadow-library-server-control
-    TS_FILE_BASE shadow
-    TS_FILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/i18n"
-    RESOURCE_PREFIX "/i18n"
-    LUPDATE_TARGET shadow-desktop-update-translations
-    LUPDATE_OPTIONS -no-obsolete
-    LRELEASE_TARGET shadow-desktop-release-translations
-    LRELEASE_OPTIONS -nounfinished
-    NO_GENERATE_PLURALS_TS_FILE
 )
 
 target_compile_features(shadow-desktop PRIVATE cxx_std_20)
@@ -1240,5 +1278,29 @@ set_target_properties(
         MACOSX_BUNDLE_BUNDLE_VERSION "2"
         OUTPUT_NAME "Shadow"
 )
+endif()
 
-include(cmake/ShadowDesktopTests.cmake)
+set(SHADOW_TRANSLATION_TARGETS shadow-server-manager)
+set(SHADOW_TRANSLATION_SOURCE_TARGETS shadow-server-manager shadow-library-server-control)
+if(SHADOW_BUILD_DESKTOP)
+    list(PREPEND SHADOW_TRANSLATION_TARGETS shadow-desktop)
+    list(PREPEND SHADOW_TRANSLATION_SOURCE_TARGETS shadow-desktop)
+endif()
+qt_add_translations(
+    TARGETS ${SHADOW_TRANSLATION_TARGETS}
+    SOURCE_TARGETS ${SHADOW_TRANSLATION_SOURCE_TARGETS}
+    TS_FILE_BASE shadow
+    TS_FILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/i18n"
+    RESOURCE_PREFIX "/i18n"
+    LUPDATE_TARGET shadow-desktop-update-translations
+    LUPDATE_OPTIONS -no-obsolete
+    LRELEASE_TARGET shadow-desktop-release-translations
+    LRELEASE_OPTIONS -nounfinished
+    NO_GENERATE_PLURALS_TS_FILE
+)
+
+if(SHADOW_BUILD_DESKTOP)
+    include(cmake/ShadowDesktopTests.cmake)
+else()
+    include(cmake/ShadowServerManagerTests.cmake)
+endif()

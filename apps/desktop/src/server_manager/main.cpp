@@ -64,6 +64,7 @@ void installSystemTranslation(QApplication& application, QTranslator& translator
 } // namespace
 
 int main(int argc, char* argv[]) {
+    const bool smoke_test = qEnvironmentVariableIsSet("SHADOW_SERVER_MANAGER_SMOKE_TEST");
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
@@ -71,9 +72,9 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setApplicationName(QStringLiteral("Shadow Server"));
 
     const QString decode_helper_path = QDir(QCoreApplication::applicationDirPath())
-                                           .filePath(QStringLiteral("shadow-image-decode-helper"));
+                                           .filePath(QStringLiteral(SHADOW_DECODE_HELPER_FILE_NAME));
     qputenv("SHADOW_DISABLE_PRIVATE_DECODER", QByteArrayLiteral("1"));
-    if (QFileInfo(decode_helper_path).isExecutable()) {
+    if (!smoke_test && QFileInfo(decode_helper_path).isExecutable()) {
         qputenv("SHADOW_DECODE_HELPER_PATH", decode_helper_path.toUtf8());
     }
 
@@ -92,7 +93,6 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     LibraryServerHost host(QDir(data_root).filePath(QStringLiteral("library-server")));
-    const bool smoke_test = qEnvironmentVariableIsSet("SHADOW_SERVER_MANAGER_SMOKE_TEST");
     LibraryServerController controller(
         host.operations(),
         sharedServerSettings(data_root),
