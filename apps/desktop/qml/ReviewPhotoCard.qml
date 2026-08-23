@@ -45,7 +45,8 @@ Item {
     readonly property bool visualLoadFailed: thumbnail.status === Image.Error
     readonly property bool remotePreviewUnavailable: isRemote
         && (visualSource.length === 0 || visualLoadFailed)
-    readonly property bool remoteServerOffline: remotePreviewUnavailable
+    readonly property bool remoteServerOffline: isRemote
+        && remoteConnectionId.length > 0
         && workspace.remoteLibraryConnectionOffline(remoteConnectionId)
     readonly property bool hasMetadata: Boolean(entry.hasMetadata)
     readonly property string cameraMake: String(entry.cameraMake || "")
@@ -216,6 +217,7 @@ Item {
                 ReviewRemoteSourceIndicator {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: card.remoteServerOffline
+                    cached: card.remoteOriginalCached
                     offline: true
                     iconSize: 28
                 }
@@ -335,7 +337,6 @@ Item {
                         objectName: "cardCaptionRemoteSourceIndicator"
                         visible: card.isRemote
                         cached: card.remoteOriginalCached
-                            && !card.remotePreviewUnavailable
                         offline: card.remoteServerOffline
                         iconSize: 13
                     }

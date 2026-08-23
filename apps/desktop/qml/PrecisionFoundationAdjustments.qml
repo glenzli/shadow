@@ -117,9 +117,9 @@ ColumnLayout {
         Layout.fillWidth: true
         title: qsTr("RAW HIGHLIGHT REPAIR")
         summary: foundation.editor.foundationHighlightRepairEnabled
-            ? qsTr("Soft transition")
+            ? qsTr("Boundary feather")
             : qsTr("Off")
-        toolTipText: qsTr("Neutralizes unreliable clipped RAW colour across a soft local transition. It does not reconstruct missing detail or colour.")
+        toolTipText: qsTr("Softens the boundary between clipped RAW highlights and adjacent valid pixels. It does not reconstruct missing detail or colour.")
         resetAvailable: foundation.editor.foundationHighlightRepairEnabled
         resetEnabled: foundation.editor.active && !foundation.editor.stateBusy
         resetObjectName: "foundationHighlightRepairResetButton"
@@ -130,7 +130,7 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            text: qsTr("Soft highlight transition")
+            text: qsTr("Soften clipped highlight boundaries")
             checked: foundation.editor.foundationHighlightRepairEnabled
             enabled: foundation.editor.active && !foundation.editor.stateBusy
             onToggled: foundation.editor.foundationHighlightRepairEnabled = checked

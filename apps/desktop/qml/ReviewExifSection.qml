@@ -13,11 +13,9 @@ ColumnLayout {
 
     signal openMetadataRequested()
 
-    readonly property bool remotePreviewUnavailable:
-        exifSection.review.selectedIsRemote
-        && exifSection.review.selectedVisualSource.length === 0
     readonly property bool remoteServerOffline:
-        exifSection.remotePreviewUnavailable
+        exifSection.review.selectedIsRemote
+        && exifSection.review.selectedRemoteConnectionId.length > 0
         && exifSection.review.remoteLibraryConnectionOffline(
             exifSection.review.selectedRemoteConnectionId)
 
@@ -63,7 +61,6 @@ ColumnLayout {
         ReviewRemoteSourceIndicator {
             visible: exifSection.review.selectedIsRemote
             cached: exifSection.review.selectedRemoteOriginalCached
-                && !exifSection.remotePreviewUnavailable
             offline: exifSection.remoteServerOffline
             iconSize: 13
         }
@@ -79,10 +76,14 @@ ColumnLayout {
             Layout.fillWidth: true
             text: exifSection.review.selectedIsRemote
                 ? (exifSection.remoteServerOffline
+                    && exifSection.review.selectedRemoteOriginalCached
+                    ? qsTranslate(
+                        "ReviewWorkspace",
+                        "Server Library · offline · cached locally")
+                    : exifSection.remoteServerOffline
                     ? qsTranslate(
                         "ReviewWorkspace", "Server Library · offline")
                     : exifSection.review.selectedRemoteOriginalCached
-                        && !exifSection.remotePreviewUnavailable
                     ? qsTranslate(
                         "ReviewWorkspace", "Server Library · cached locally")
                     : qsTranslate("ReviewWorkspace", "Server Library"))

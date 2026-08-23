@@ -6084,8 +6084,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="120"/>
-        <source>Soft transition</source>
-        <translation>柔和过渡</translation>
+        <source>Boundary feather</source>
+        <translation>边界柔化</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="121"/>
@@ -6094,13 +6094,13 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="122"/>
-        <source>Neutralizes unreliable clipped RAW colour across a soft local transition. It does not reconstruct missing detail or colour.</source>
-        <translation>通过柔和的局部过渡中和不可信的 RAW 裁切色彩；不会重建缺失的细节或颜色。</translation>
+        <source>Softens the boundary between clipped RAW highlights and adjacent valid pixels. It does not reconstruct missing detail or colour.</source>
+        <translation>柔化裁切 RAW 高光与相邻有效像素之间的边界；不会重建缺失的细节或颜色。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="133"/>
-        <source>Soft highlight transition</source>
-        <translation>柔和高光过渡</translation>
+        <source>Soften clipped highlight boundaries</source>
+        <translation>柔化裁切高光边界</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="251"/>
@@ -10622,6 +10622,11 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>服务器离线</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewRemoteSourceIndicator.qml" line="22"/>
+        <source>Server offline; remote original cached locally</source>
+        <translation>服务器离线；远程原片已缓存到本机</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewExifSection.qml" line="58"/>
         <source>SOURCE</source>
         <translation>来源</translation>
@@ -10640,6 +10645,11 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ReviewExifSection.qml" line="82"/>
         <source>Server Library · offline</source>
         <translation>服务器图库 · 离线</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewExifSection.qml" line="82"/>
+        <source>Server Library · offline · cached locally</source>
+        <translation>服务器图库 · 离线 · 已缓存到本机</translation>
     </message>
     <message>
         <location filename="../qml/ReviewComparisonState.qml" line="33"/>

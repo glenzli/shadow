@@ -45,12 +45,13 @@ Slider {
         resetRequested(boundedNeutral)
     }
 
-    // A passive observer augments the Slider without becoming the hit-test
-    // target above it. Keeping this on the control (instead of its custom
-    // handle item) lets the Slider retain the exclusive drag lifecycle.
+    // Observe double clicks without taking the Slider's pointer grab. Keeping
+    // this on the control (instead of its custom handle item) lets the native
+    // Slider own every press-and-drag sequence.
     TapHandler {
         acceptedButtons: Qt.LeftButton
         gesturePolicy: TapHandler.DragThreshold
+        grabPermissions: PointerHandler.TakeOverForbidden
         onDoubleTapped: control.requestNeutralReset()
     }
 
