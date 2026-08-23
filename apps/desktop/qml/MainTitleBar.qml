@@ -74,6 +74,10 @@ ToolBar {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             spacing: 10
+            // Windows keeps the descriptive native caption for the taskbar,
+            // accessibility, and system window UI. Drawing the decorative
+            // brand in the same expanded title-bar area overlaps that caption.
+            visible: Qt.platform.os !== "windows"
 
             Label {
                 text: "SHADOW"
@@ -93,6 +97,11 @@ ToolBar {
 
         Row {
             anchors.horizontalCenter: parent.horizontalCenter
+            // The content item excludes the asymmetric Windows caption-button
+            // inset, so compensate by half that difference to keep workspace
+            // navigation centered on the full window rather than the safe area.
+            anchors.horizontalCenterOffset: Qt.platform.os === "windows"
+                ? (titleBar.rightPadding - titleBar.leftPadding) / 2 : 0
             anchors.verticalCenter: parent.verticalCenter
             height: titleBar.availableHeight
             spacing: 10
