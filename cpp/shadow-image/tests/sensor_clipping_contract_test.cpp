@@ -129,6 +129,45 @@ void highlight_chroma_risk_marks_disagreement_and_shared_terminal_shoulder() {
   expect(early_disagreement.valid() && early_disagreement.samples[0U] > 60U,
          "two CFA channels entering the early calibrated shoulder receive a gradual risk signal");
 
+  // Only terminal shared clipping receives a prepared one-cell feather.  The
+  // continuous earlier disagreement shoulder must remain local so ordinary
+  // bright colour does not inherit a neutralising halo.
+  frame.descriptor.storage_dimensions = {10U, 10U};
+  frame.descriptor.active_dimensions = {10U, 10U};
+  frame.samples.assign(100U, 650U);
+  for (std::uint32_t y = 4U; y <= 5U; ++y) {
+    for (std::uint32_t x = 4U; x <= 5U; ++x) {
+      frame.samples[static_cast<std::size_t>(y) * 10U + x] =
+          ((x & 1U) == (y & 1U)) ? 720U : 620U;
+    }
+  }
+  const auto isolated_early_disagreement =
+      image::project_highlight_chroma_risk_map(frame, {5U, 5U});
+  expect(isolated_early_disagreement.valid()
+             && isolated_early_disagreement.samples[12U] > 0U
+             && isolated_early_disagreement.samples[12U] < 224U
+             && isolated_early_disagreement.samples[11U] == 0U,
+         "an early CFA disagreement shoulder stays local to its source bin");
+
+  frame.samples.assign(100U, 650U);
+  for (std::uint32_t y = 4U; y <= 5U; ++y) {
+    for (std::uint32_t x = 4U; x <= 5U; ++x) {
+      frame.samples[static_cast<std::size_t>(y) * 10U + x] = 795U;
+    }
+  }
+  const auto terminal_boundary = image::project_highlight_chroma_risk_map(frame, {5U, 5U});
+  expect(terminal_boundary.valid()
+             && terminal_boundary.samples[12U] > 240U
+             && terminal_boundary.samples[11U] > 0U
+             && terminal_boundary.samples[11U] < terminal_boundary.samples[12U]
+             && terminal_boundary.samples[6U] > 0U
+             && terminal_boundary.samples[6U] < terminal_boundary.samples[11U]
+             && terminal_boundary.samples[0U] == 0U,
+         "a terminal clipped component grows one prepared boundary feather without leaking");
+
+  frame.descriptor.storage_dimensions = {4U, 4U};
+  frame.descriptor.active_dimensions = {4U, 4U};
+
   frame.samples.assign(16U, 650U);
   const auto ordinary_highlight = image::project_highlight_chroma_risk_map(frame, {2U, 2U});
   expect(ordinary_highlight.valid() && ordinary_highlight.samples[0U] == 0U,

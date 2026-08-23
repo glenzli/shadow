@@ -138,9 +138,10 @@ Current contract rules:
   minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
   carries it above one. It also projects an immutable, display-sized R8 CFA-chroma-risk sidecar
   from the same calibrated linear-response limits used by source development, rather than treating
-  physical sensor white as the only reliability boundary. A single near-white channel remains
-  measured colour evidence; risk rises only when independently sampled channels lose headroom and
-  their evidence diverges. Bounded warm preview retains this sidecar beside its reusable source and
+physical sensor white as the only reliability boundary. A single near-white channel remains
+measured colour evidence; risk rises only when independently sampled channels lose headroom and
+their evidence diverges. A terminal shared-clipping component also feathers its confidence one
+display bin into adjacent valid bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this sidecar beside its reusable source and
   binds it once to the resident GPU edit session (or the matching CPU fallback). During actual
   negative highlight/white recovery, Selective Tone progressively pulls chroma toward neutral in
   proportion to that source risk while preserving its ordinary Oklab-lightness behavior elsewhere.

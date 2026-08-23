@@ -307,6 +307,56 @@ SensorClippingMask project_sensor_clipping_mask(
     return output;
 }
 
+// The risk map drives a selective neutral pull later in the RAW pipeline.  A
+// terminally clipped component can end abruptly beside a valid pixel after
+// preview downsampling, which makes that pull look like a contour when the
+// user lowers highlights.  Feather only that terminal component by one output
+// pixel while preparing the source.  The early, CFA-disagreement shoulder is
+// deliberately left untouched: spreading it would desaturate ordinary bright
+// colour and repeat the midtone side effect this map is meant to avoid.
+void feather_terminal_highlight_chroma_boundaries(HighlightChromaRiskMap& map) {
+    constexpr std::uint8_t terminal_seed = 224U;
+    constexpr float axial_transfer = 0.56F;
+    constexpr float diagonal_transfer = 0.36F;
+    constexpr std::array<std::array<int, 2U>, 8U> neighbours{{
+        {{-1, -1}}, {{0, -1}}, {{1, -1}}, {{-1, 0}},
+        {{1, 0}}, {{-1, 1}}, {{0, 1}}, {{1, 1}},
+    }};
+
+    const auto source_samples = map.samples;
+    const auto width = map.dimensions.width;
+    const auto height = map.dimensions.height;
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const auto index = static_cast<std::size_t>(y) * width + x;
+            auto feathered = source_samples[index];
+            for (const auto& offset : neighbours) {
+                const auto neighbour_x = static_cast<std::int64_t>(x) + offset[0];
+                const auto neighbour_y = static_cast<std::int64_t>(y) + offset[1];
+                if (neighbour_x < 0 || neighbour_y < 0
+                    || neighbour_x >= static_cast<std::int64_t>(width)
+                    || neighbour_y >= static_cast<std::int64_t>(height)) {
+                    continue;
+                }
+                const auto neighbour = source_samples[
+                    static_cast<std::size_t>(neighbour_y) * width
+                    + static_cast<std::uint32_t>(neighbour_x)
+                ];
+                if (neighbour < terminal_seed) {
+                    continue;
+                }
+                const auto transfer = offset[0] == 0 || offset[1] == 0
+                                          ? axial_transfer : diagonal_transfer;
+                feathered = std::max(
+                    feathered,
+                    static_cast<std::uint8_t>(std::lround(static_cast<float>(neighbour) * transfer))
+                );
+            }
+            map.samples[index] = feathered;
+        }
+    }
+}
+
 HighlightChromaRiskMap project_highlight_chroma_risk_map(
     const RawFrame& frame,
     const Dimensions target_dimensions
@@ -421,6 +471,7 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
             }
         }
     );
+    feather_terminal_highlight_chroma_boundaries(output);
     if (!output.valid()) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,
