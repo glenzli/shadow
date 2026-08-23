@@ -2018,51 +2018,60 @@ kernel void warm_selective_tone_apply_v1(
         constexpr float highlight_boundary_ev = 0.75f;
         constexpr float recovery_softness_ev = 0.95f;
         const float mask_ev = mask[pixel];
-        float adjusted_ev = mask_ev;
-        adjusted_ev += endpoint_strength * parameters.blacks
+        float requested_adjusted_ev = mask_ev;
+        requested_adjusted_ev += endpoint_strength * parameters.blacks
             * warm_lower_ev_hinge(
-                adjusted_ev,
+                requested_adjusted_ev,
                 -endpoint_boundary_ev,
                 endpoint_softness_ev
             );
-        adjusted_ev += recovery_strength * parameters.shadows
+        requested_adjusted_ev += recovery_strength * parameters.shadows
             * warm_lower_ev_hinge(
-                adjusted_ev,
+                requested_adjusted_ev,
                 shadow_boundary_ev,
                 recovery_softness_ev
             );
-        adjusted_ev += recovery_strength * parameters.highlights
+        requested_adjusted_ev += recovery_strength * parameters.highlights
             * warm_upper_ev_hinge(
-                adjusted_ev,
+                requested_adjusted_ev,
                 highlight_boundary_ev,
                 recovery_softness_ev
             );
-        adjusted_ev += endpoint_strength * parameters.whites
+        requested_adjusted_ev += endpoint_strength * parameters.whites
             * warm_upper_ev_hinge(
-                adjusted_ev,
+                requested_adjusted_ev,
                 endpoint_boundary_ev,
                 endpoint_softness_ev
             );
+        constexpr float recovery_start_ev = 0.05f;
+        constexpr float recovery_width_ev = 0.50f;
+        const float recovered_ev = max(0.0f, mask_ev - requested_adjusted_ev);
+        const float recovery_normalized = clamp(
+            (recovered_ev - recovery_start_ev) / recovery_width_ev,
+            0.0f,
+            1.0f
+        );
+        const float recovery_pull = recovery_normalized * recovery_normalized
+                                    * (3.0f - 2.0f * recovery_normalized);
+        constexpr float clipped_recovery_retention = 0.14f;
+        const uint highlight_evidence_index = pixel * 2u;
+        const float highlight_boundary_transition =
+            float(highlight_clipping[highlight_evidence_index + 1u]) / 255.0f;
+        const float adjusted_ev = requested_adjusted_ev
+                                  + recovered_ev * clipped_recovery_retention
+                                        * highlight_boundary_transition * recovery_pull;
         const float lightness_gain = exp2((adjusted_ev - mask_ev) / 3.0f);
         if (lightness_gain > 0.0f && isfinite(lightness_gain)) {
             lab.x *= lightness_gain;
-            // The resident R8 sidecar is continuous CFA headroom disagreement; physical sensor
-            // white is encoded as 255. Preserve Oklab opponent channels for ordinary pixels,
-            // then smooth only source-unreliable chroma during negative recovery.
-            const float highlight_chroma_risk = float(highlight_clipping[pixel]) / 255.0f;
+            // The first plane of the resident R8 pair is continuous CFA headroom disagreement;
+            // physical sensor white is encoded as 255. Preserve Oklab opponent channels for
+            // ordinary pixels, then smooth only source-unreliable chroma during negative recovery.
+            const float highlight_chroma_risk =
+                float(highlight_clipping[highlight_evidence_index]) / 255.0f;
             if (highlight_chroma_risk > 0.0f) {
                 // Keep this in lockstep with the CPU reference: source-evidenced chroma must
                 // begin fading at the first meaningful recovered stop, so intermediate slider
                 // positions cannot expose the same false magenta that a full pull suppresses.
-                constexpr float recovery_start_ev = 0.05f;
-                constexpr float recovery_width_ev = 0.50f;
-                const float recovered_ev = max(0.0f, mask_ev - adjusted_ev);
-                const float normalized = clamp(
-                    (recovered_ev - recovery_start_ev) / recovery_width_ev,
-                    0.0f,
-                    1.0f
-                );
-                const float recovery_pull = normalized * normalized * (3.0f - 2.0f * normalized);
                 const float chroma_pull = recovery_pull * sqrt(highlight_chroma_risk);
                 lab.yz *= 1.0f - chroma_pull;
             }

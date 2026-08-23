@@ -15,9 +15,10 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     RawFrame frame = std::move(prepared_source.frame_);
     PreparedRawFrameDevelopment prepared = std::move(prepared_source.development_);
     std::optional<SensorClippingMask> sensor_clipping_mask;
-    const HighlightChromaRiskMap highlight_chroma_risk_map = project_highlight_chroma_risk_map(
+    HighlightChromaRiskMap highlight_chroma_risk_map = project_highlight_chroma_risk_map(
         frame,
-        prepared.diagnostic_dimensions()
+        prepared.diagnostic_dimensions(),
+        prepared.development_plan().highlight_recovery == RawHighlightRecoveryIntent::aggressive
     );
     std::optional<FusedRawFrameDevelopment> prepared_development;
     std::optional<RawBayerDenoiseResult> materialized_raw_denoise;
@@ -100,7 +101,7 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
         .source = std::move(output),
         .raw_development_receipt = std::move(receipt),
         .sensor_clipping_mask = std::move(*sensor_clipping_mask),
-        .highlight_chroma_risk_map = highlight_chroma_risk_map,
+        .highlight_chroma_risk_map = std::move(highlight_chroma_risk_map),
         .backend = developed.backend,
         .highlight_recovery = developed.highlight_recovery,
         .raw_denoise_cache_identity = raw_denoise_receipt.cache_identity,

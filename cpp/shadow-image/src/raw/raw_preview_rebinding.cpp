@@ -710,7 +710,8 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
     );
     HighlightChromaRiskMap highlight_chroma_risk = project_highlight_chroma_risk_map(
         prepared.frame_,
-        prepared.development_.diagnostic_dimensions()
+        prepared.development_.diagnostic_dimensions(),
+        requested_plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive
     );
     RawBayerDenoiseResult conventional = detail::execute_prepared_raw_bayer_denoise(
         std::move(prepared.frame_),
@@ -764,12 +765,12 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
             "verified AI RAW foundation does not match the decoded source geometry"
         );
     }
-    AiCameraRgbSourceReconstructionBasis source_basis =
-        prepare_ai_camera_rgb_source_reconstruction(
-            foundation,
-            prepared.frame_,
-            prepared.development_.preview_max_edge()
-        );
+    AiCameraRgbSourceReconstructionBasis source_basis = prepare_ai_camera_rgb_source_reconstruction(
+        foundation,
+        prepared.frame_,
+        prepared.development_.preview_max_edge(),
+        requested_plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive
+    );
     prepared.pipeline_.requested_plan = requested_plan;
     prepared.pipeline_.effective_plan = prepared.development_.development_plan();
     const RawDevelopmentPlanNegotiationStatus negotiation_status =

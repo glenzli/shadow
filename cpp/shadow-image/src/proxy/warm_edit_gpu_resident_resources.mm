@@ -1155,15 +1155,15 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     }
 
     std::size_t source_bytes = 0U;
-    std::size_t clipping_bytes = 0U;
+    std::size_t highlight_evidence_bytes = 0U;
     std::size_t adjusted_sample_count = 0U;
     std::size_t adjusted_bytes = 0U;
     std::size_t rgb8_bytes = 0U;
     if (!checked_multiply(sample_count, sizeof(float), source_bytes)
         || !checked_multiply(
             static_cast<std::size_t>(source.dimensions.pixel_count()),
-            sizeof(std::uint8_t),
-            clipping_bytes
+            2U * sizeof(std::uint8_t),
+            highlight_evidence_bytes
         )
         || !checked_multiply(
             static_cast<std::size_t>(source.dimensions.pixel_count()),
@@ -1176,7 +1176,8 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
             3U,
             rgb8_bytes
         )
-        || source_bytes == 0U || clipping_bytes == 0U || adjusted_bytes == 0U || rgb8_bytes == 0U) {
+        || source_bytes == 0U || highlight_evidence_bytes == 0U || adjusted_bytes == 0U
+        || rgb8_bytes == 0U) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
             .diagnostic = "warm-preview resident Metal buffer size overflowed",
@@ -1196,7 +1197,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         maximum_warm_adjustment_operations * sizeof(MetalAdjustmentOp);
     constexpr std::size_t empty_side_table_bytes = sizeof(MetalCurveSegment);
     const std::size_t maximum_buffer_bytes = static_cast<std::size_t>(device.maxBufferLength);
-    if (source_bytes > maximum_buffer_bytes || clipping_bytes > maximum_buffer_bytes
+    if (source_bytes > maximum_buffer_bytes || highlight_evidence_bytes > maximum_buffer_bytes
         || adjusted_bytes > maximum_buffer_bytes || rgb8_bytes > maximum_buffer_bytes
         || operation_buffer_bytes > maximum_buffer_bytes
         || empty_side_table_bytes > maximum_buffer_bytes) {
@@ -1219,7 +1220,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         || !checked_add(per_slot_bytes, operation_buffer_bytes, per_slot_bytes)
         || !checked_add(per_slot_bytes, sizeof(WarmStatus), per_slot_bytes)
         || !checked_multiply(per_slot_bytes, warm_slot_count, slots_bytes)
-        || !checked_add(source_bytes, clipping_bytes, resident_bytes)
+        || !checked_add(source_bytes, highlight_evidence_bytes, resident_bytes)
         || !checked_add(resident_bytes, slots_bytes, resident_bytes)
         || !checked_add(resident_bytes, empty_side_table_bytes, resident_bytes)) {
         return WarmGpuResidentPreparation{
@@ -1302,24 +1303,30 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
             };
         }
         if (sensor_clipping_mask != nullptr || highlight_chroma_risk_map != nullptr) {
-            std::vector<std::uint8_t> encoded_evidence(clipping_bytes, 0U);
-            for (std::size_t index = 0U; index < encoded_evidence.size(); ++index) {
+            const auto pixel_count = static_cast<std::size_t>(source.dimensions.pixel_count());
+            std::vector<std::uint8_t> encoded_evidence(highlight_evidence_bytes, 0U);
+            for (std::size_t index = 0U; index < pixel_count; ++index) {
                 const std::uint8_t continuous = highlight_chroma_risk_map != nullptr
                                                     ? highlight_chroma_risk_map->samples[index]
                                                     : 0U;
-                const bool physical = sensor_clipping_mask != nullptr
-                                      && (sensor_clipping_mask->samples[index]
-                                          & sensor_highlight_clipped) != 0U;
-                encoded_evidence[index] = physical ? 255U : continuous;
+                const std::uint8_t boundary =
+                    highlight_chroma_risk_map != nullptr
+                        ? highlight_chroma_risk_map->boundary_transition_samples[index]
+                        : 0U;
+                const bool physical =
+                    sensor_clipping_mask != nullptr
+                    && (sensor_clipping_mask->samples[index] & sensor_highlight_clipped) != 0U;
+                encoded_evidence[index * 2U] = physical ? 255U : continuous;
+                encoded_evidence[index * 2U + 1U] = boundary;
             }
             impl->highlight_clipping = [device newBufferWithBytes:encoded_evidence.data()
-                                                            length:clipping_bytes
-                                                           options:MTLResourceStorageModeShared];
+                                                           length:highlight_evidence_bytes
+                                                          options:MTLResourceStorageModeShared];
         } else {
-            impl->highlight_clipping = [device newBufferWithLength:clipping_bytes
+            impl->highlight_clipping = [device newBufferWithLength:highlight_evidence_bytes
                                                            options:MTLResourceStorageModeShared];
             if (impl->highlight_clipping != nil) {
-                std::memset(impl->highlight_clipping.contents, 0, clipping_bytes);
+                std::memset(impl->highlight_clipping.contents, 0, highlight_evidence_bytes);
             }
         }
         if (impl->highlight_clipping == nil) {

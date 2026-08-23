@@ -19,10 +19,8 @@ namespace {
     return orientation == 5 || orientation == 6;
 }
 
-[[nodiscard]] Dimensions oriented_dimensions(
-    Dimensions dimensions,
-    const std::int32_t orientation
-) noexcept {
+[[nodiscard]] Dimensions
+oriented_dimensions(Dimensions dimensions, const std::int32_t orientation) noexcept {
     if (transpose_orientation(orientation)) {
         std::swap(dimensions.width, dimensions.height);
     }
@@ -40,8 +38,7 @@ namespace {
     const std::uint32_t source_extent,
     const std::uint32_t target_extent
 ) noexcept {
-    const std::uint64_t numerator = static_cast<std::uint64_t>(target_coordinate)
-        * source_extent;
+    const std::uint64_t numerator = static_cast<std::uint64_t>(target_coordinate) * source_extent;
     const std::uint64_t quotient = numerator / target_extent;
     const std::uint64_t remainder = numerator % target_extent;
     return static_cast<std::uint32_t>(quotient + (remainder == 0U ? 0U : 1U));
@@ -52,8 +49,8 @@ namespace {
     const std::uint32_t source_extent,
     const std::uint32_t target_extent
 ) noexcept {
-    const std::uint64_t numerator = (static_cast<std::uint64_t>(target_coordinate) + 1U)
-        * source_extent;
+    const std::uint64_t numerator =
+        (static_cast<std::uint64_t>(target_coordinate) + 1U) * source_extent;
     const std::uint64_t quotient = numerator / target_extent;
     const std::uint64_t remainder = numerator % target_extent;
     return static_cast<std::uint32_t>(quotient + (remainder == 0U ? 0U : 1U));
@@ -106,7 +103,8 @@ namespace {
 
 [[nodiscard]] std::size_t checked_mask_size(const Dimensions dimensions) {
     const auto count = dimensions.pixel_count();
-    if (count == 0U || count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+    if (count == 0U
+        || count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,
@@ -125,9 +123,9 @@ namespace {
     const auto site = cfa_site(raw_x, raw_y);
     const float black = static_cast<float>(descriptor.black_levels[site]);
     const float white = static_cast<float>(descriptor.white_levels[site]);
-    const float sample = static_cast<float>(frame.samples[
-        static_cast<std::size_t>(raw_y) * descriptor.storage_dimensions.width + raw_x
-    ]);
+    const float sample = static_cast<float>(
+        frame.samples[static_cast<std::size_t>(raw_y) * descriptor.storage_dimensions.width + raw_x]
+    );
     return std::clamp((sample - black) / std::max(white - black, 1.0F), 0.0F, 1.0F);
 }
 
@@ -143,9 +141,9 @@ namespace {
     }
     const float black = static_cast<float>(descriptor.black_levels[site]);
     const float limit = static_cast<float>(descriptor.linear_response_limits[site]);
-    const float sample = static_cast<float>(frame.samples[
-        static_cast<std::size_t>(raw_y) * descriptor.storage_dimensions.width + raw_x
-    ]);
+    const float sample = static_cast<float>(
+        frame.samples[static_cast<std::size_t>(raw_y) * descriptor.storage_dimensions.width + raw_x]
+    );
     return std::clamp((sample - black) / std::max(limit - black, 1.0F), 0.0F, 1.0F);
 }
 
@@ -158,11 +156,9 @@ namespace {
 
 bool SensorClippingMask::valid() const noexcept {
     const auto count = dimensions.pixel_count();
-    if (
-        schema_version != sensor_clipping_mask_schema_version || count == 0U
+    if (schema_version != sensor_clipping_mask_schema_version || count == 0U
         || count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-        || samples.size() != static_cast<std::size_t>(count)
-    ) {
+        || samples.size() != static_cast<std::size_t>(count)) {
         return false;
     }
 
@@ -182,13 +178,12 @@ bool HighlightChromaRiskMap::valid() const noexcept {
     const auto count = dimensions.pixel_count();
     return schema_version == highlight_chroma_risk_map_schema_version && count != 0U
            && count <= static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-           && samples.size() == static_cast<std::size_t>(count);
+           && samples.size() == static_cast<std::size_t>(count)
+           && boundary_transition_samples.size() == static_cast<std::size_t>(count);
 }
 
-SensorClippingMask project_sensor_clipping_mask(
-    const RawFrame& frame,
-    const Dimensions target_dimensions
-) {
+SensorClippingMask
+project_sensor_clipping_mask(const RawFrame& frame, const Dimensions target_dimensions) {
     if (!frame.valid()) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
@@ -198,10 +193,8 @@ SensorClippingMask project_sensor_clipping_mask(
     }
     const std::size_t target_count = checked_mask_size(target_dimensions);
     const auto& descriptor = frame.descriptor;
-    const Dimensions oriented_active = oriented_dimensions(
-        descriptor.active_dimensions,
-        descriptor.orientation
-    );
+    const Dimensions oriented_active =
+        oriented_dimensions(descriptor.active_dimensions, descriptor.orientation);
     if (oriented_active.width == 0U || oriented_active.height == 0U) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
@@ -218,43 +211,24 @@ SensorClippingMask project_sensor_clipping_mask(
     detail::parallel_for_rows(
         target_dimensions.height,
         8U,
-        [&frame,
-         &output,
-         &descriptor,
-         target_dimensions,
-         oriented_active,
-         storage_width](const std::uint32_t first_target_y, const std::uint32_t last_target_y) {
-            for (std::uint32_t target_y = first_target_y;
-                 target_y < last_target_y;
-                 ++target_y) {
-                const auto oriented_y_begin = target_bin_begin(
-                    target_y,
-                    oriented_active.height,
-                    target_dimensions.height
-                );
-                const auto oriented_y_end = target_bin_end(
-                    target_y,
-                    oriented_active.height,
-                    target_dimensions.height
-                );
-                for (std::uint32_t target_x = 0U;
-                     target_x < target_dimensions.width;
-                     ++target_x) {
-                    const auto oriented_x_begin = target_bin_begin(
-                        target_x,
-                        oriented_active.width,
-                        target_dimensions.width
-                    );
-                    const auto oriented_x_end = target_bin_end(
-                        target_x,
-                        oriented_active.width,
-                        target_dimensions.width
-                    );
+        [&frame, &output, &descriptor, target_dimensions, oriented_active, storage_width](
+            const std::uint32_t first_target_y,
+            const std::uint32_t last_target_y
+        ) {
+            for (std::uint32_t target_y = first_target_y; target_y < last_target_y; ++target_y) {
+                const auto oriented_y_begin =
+                    target_bin_begin(target_y, oriented_active.height, target_dimensions.height);
+                const auto oriented_y_end =
+                    target_bin_end(target_y, oriented_active.height, target_dimensions.height);
+                for (std::uint32_t target_x = 0U; target_x < target_dimensions.width; ++target_x) {
+                    const auto oriented_x_begin =
+                        target_bin_begin(target_x, oriented_active.width, target_dimensions.width);
+                    const auto oriented_x_end =
+                        target_bin_end(target_x, oriented_active.width, target_dimensions.width);
                     bool observed = false;
                     bool all_shadow = true;
                     bool any_highlight = false;
-                    for (std::uint32_t oriented_y = oriented_y_begin;
-                         oriented_y < oriented_y_end;
+                    for (std::uint32_t oriented_y = oriented_y_begin; oriented_y < oriented_y_end;
                          ++oriented_y) {
                         for (std::uint32_t oriented_x = oriented_x_begin;
                              oriented_x < oriented_x_end;
@@ -265,16 +239,18 @@ SensorClippingMask project_sensor_clipping_mask(
                                 oriented_x,
                                 oriented_y
                             );
-                            const std::uint32_t raw_x = descriptor.active_margins.left + active.width;
-                            const std::uint32_t raw_y = descriptor.active_margins.top + active.height;
+                            const std::uint32_t raw_x =
+                                descriptor.active_margins.left + active.width;
+                            const std::uint32_t raw_y =
+                                descriptor.active_margins.top + active.height;
                             const auto site = cfa_site(raw_x, raw_y);
-                            const auto sample = frame.samples[
-                                static_cast<std::size_t>(raw_y) * storage_width + raw_x
-                            ];
+                            const auto sample =
+                                frame.samples
+                                    [static_cast<std::size_t>(raw_y) * storage_width + raw_x];
                             observed = true;
                             all_shadow = all_shadow && sample <= descriptor.black_levels[site];
-                            any_highlight = any_highlight
-                                || sample >= descriptor.white_levels[site];
+                            any_highlight =
+                                any_highlight || sample >= descriptor.white_levels[site];
                         }
                     }
 
@@ -285,9 +261,9 @@ SensorClippingMask project_sensor_clipping_mask(
                     if (any_highlight) {
                         flags = static_cast<std::uint8_t>(flags | sensor_highlight_clipped);
                     }
-                    output.samples[
-                        static_cast<std::size_t>(target_y) * target_dimensions.width + target_x
-                    ] = flags;
+                    output.samples
+                        [static_cast<std::size_t>(target_y) * target_dimensions.width + target_x] =
+                        flags;
                 }
             }
         }
@@ -319,8 +295,14 @@ void feather_terminal_highlight_chroma_boundaries(HighlightChromaRiskMap& map) {
     constexpr float axial_transfer = 0.56F;
     constexpr float diagonal_transfer = 0.36F;
     constexpr std::array<std::array<int, 2U>, 8U> neighbours{{
-        {{-1, -1}}, {{0, -1}}, {{1, -1}}, {{-1, 0}},
-        {{1, 0}}, {{-1, 1}}, {{0, 1}}, {{1, 1}},
+        {{-1, -1}},
+        {{0, -1}},
+        {{1, -1}},
+        {{-1, 0}},
+        {{1, 0}},
+        {{-1, 1}},
+        {{0, 1}},
+        {{1, 1}},
     }};
 
     const auto source_samples = map.samples;
@@ -338,15 +320,14 @@ void feather_terminal_highlight_chroma_boundaries(HighlightChromaRiskMap& map) {
                     || neighbour_y >= static_cast<std::int64_t>(height)) {
                     continue;
                 }
-                const auto neighbour = source_samples[
-                    static_cast<std::size_t>(neighbour_y) * width
-                    + static_cast<std::uint32_t>(neighbour_x)
-                ];
+                const auto neighbour = source_samples
+                    [static_cast<std::size_t>(neighbour_y) * width
+                     + static_cast<std::uint32_t>(neighbour_x)];
                 if (neighbour < terminal_seed) {
                     continue;
                 }
-                const auto transfer = offset[0] == 0 || offset[1] == 0
-                                          ? axial_transfer : diagonal_transfer;
+                const auto transfer =
+                    offset[0] == 0 || offset[1] == 0 ? axial_transfer : diagonal_transfer;
                 feathered = std::max(
                     feathered,
                     static_cast<std::uint8_t>(std::lround(static_cast<float>(neighbour) * transfer))
@@ -357,9 +338,97 @@ void feather_terminal_highlight_chroma_boundaries(HighlightChromaRiskMap& map) {
     }
 }
 
+// Prepare a bounded, resolution-scaled shoulder around terminal physical clipping. This is a
+// cosmetic transition weight, not recovered source data: the clipped core stays flat and the
+// weight only lets the later Selective Tone node ease its chroma and luminance treatment across
+// the boundary. A two-pass chamfer transform is O(pixels), so source preparation does not grow
+// with the chosen feather radius and slider events never repeat this work.
+void prepare_highlight_boundary_transition(HighlightChromaRiskMap& map) {
+    constexpr std::uint32_t minimum_radius = 2U;
+    constexpr std::uint32_t maximum_radius = 12U;
+    constexpr std::uint32_t radius_scale_divisor = 256U;
+    constexpr std::uint16_t axial_step = 3U;
+    constexpr std::uint16_t diagonal_step = 4U;
+
+    const auto width = map.dimensions.width;
+    const auto height = map.dimensions.height;
+    const auto short_edge = std::min(width, height);
+    const auto scaled_radius =
+        short_edge / radius_scale_divisor + (short_edge % radius_scale_divisor == 0U ? 0U : 1U);
+    const auto radius = std::clamp(scaled_radius, minimum_radius, maximum_radius);
+    const auto maximum_distance = static_cast<std::uint16_t>(radius * axial_step);
+    const auto unreachable = static_cast<std::uint16_t>(maximum_distance + diagonal_step);
+    std::vector<std::uint16_t> distances(map.samples.size(), unreachable);
+
+    for (std::size_t index = 0U; index < distances.size(); ++index) {
+        const float seed = static_cast<float>(map.boundary_transition_samples[index]) / 255.0F;
+        if (seed <= 0.0F) {
+            continue;
+        }
+        distances[index] = static_cast<std::uint16_t>(
+            std::lround((1.0F - seed) * static_cast<float>(maximum_distance))
+        );
+    }
+
+    const auto relax = [&distances, width, height, unreachable](
+                           const std::uint32_t x,
+                           const std::uint32_t y,
+                           const int offset_x,
+                           const int offset_y,
+                           const std::uint16_t step
+                       ) {
+        const auto neighbour_x = static_cast<std::int64_t>(x) + offset_x;
+        const auto neighbour_y = static_cast<std::int64_t>(y) + offset_y;
+        if (neighbour_x < 0 || neighbour_y < 0 || neighbour_x >= static_cast<std::int64_t>(width)
+            || neighbour_y >= static_cast<std::int64_t>(height)) {
+            return;
+        }
+        const auto index = static_cast<std::size_t>(y) * width + x;
+        const auto neighbour =
+            static_cast<std::size_t>(neighbour_y) * width + static_cast<std::uint32_t>(neighbour_x);
+        const auto candidate = static_cast<std::uint16_t>(std::min<std::uint32_t>(
+            static_cast<std::uint32_t>(distances[neighbour]) + step,
+            unreachable
+        ));
+        distances[index] = std::min(distances[index], candidate);
+    };
+
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            relax(x, y, -1, 0, axial_step);
+            relax(x, y, 0, -1, axial_step);
+            relax(x, y, -1, -1, diagonal_step);
+            relax(x, y, 1, -1, diagonal_step);
+        }
+    }
+    for (std::uint32_t y = height; y-- > 0U;) {
+        for (std::uint32_t x = width; x-- > 0U;) {
+            relax(x, y, 1, 0, axial_step);
+            relax(x, y, 0, 1, axial_step);
+            relax(x, y, 1, 1, diagonal_step);
+            relax(x, y, -1, 1, diagonal_step);
+        }
+    }
+
+    for (std::size_t index = 0U; index < distances.size(); ++index) {
+        const float normalized =
+            1.0F
+            - std::clamp(
+                static_cast<float>(distances[index]) / static_cast<float>(maximum_distance),
+                0.0F,
+                1.0F
+            );
+        const float transition = normalized * normalized * (3.0F - 2.0F * normalized);
+        const auto encoded = static_cast<std::uint8_t>(std::lround(transition * 255.0F));
+        map.boundary_transition_samples[index] = encoded;
+        map.samples[index] = std::max(map.samples[index], encoded);
+    }
+}
+
 HighlightChromaRiskMap project_highlight_chroma_risk_map(
     const RawFrame& frame,
-    const Dimensions target_dimensions
+    const Dimensions target_dimensions,
+    const bool soften_clipped_boundaries
 ) {
     if (!frame.valid()) {
         throw DecodeError(
@@ -370,10 +439,8 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
     }
     const std::size_t target_count = checked_mask_size(target_dimensions);
     const auto& descriptor = frame.descriptor;
-    const Dimensions oriented_active = oriented_dimensions(
-        descriptor.active_dimensions,
-        descriptor.orientation
-    );
+    const Dimensions oriented_active =
+        oriented_dimensions(descriptor.active_dimensions, descriptor.orientation);
     if (oriented_active.width == 0U || oriented_active.height == 0U) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
@@ -385,31 +452,34 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
     HighlightChromaRiskMap output;
     output.dimensions = target_dimensions;
     output.samples.resize(target_count);
+    output.boundary_transition_samples.resize(target_count);
     detail::parallel_for_rows(
         target_dimensions.height,
         8U,
-        [&frame, &output, &descriptor, target_dimensions, oriented_active](
+        [&frame,
+         &output,
+         &descriptor,
+         target_dimensions,
+         oriented_active,
+         soften_clipped_boundaries](
             const std::uint32_t first_target_y,
             const std::uint32_t last_target_y
         ) {
             for (std::uint32_t target_y = first_target_y; target_y < last_target_y; ++target_y) {
-                const auto oriented_y_begin = target_bin_begin(
-                    target_y, oriented_active.height, target_dimensions.height
-                );
-                const auto oriented_y_end = target_bin_end(
-                    target_y, oriented_active.height, target_dimensions.height
-                );
+                const auto oriented_y_begin =
+                    target_bin_begin(target_y, oriented_active.height, target_dimensions.height);
+                const auto oriented_y_end =
+                    target_bin_end(target_y, oriented_active.height, target_dimensions.height);
                 for (std::uint32_t target_x = 0U; target_x < target_dimensions.width; ++target_x) {
-                    const auto oriented_x_begin = target_bin_begin(
-                        target_x, oriented_active.width, target_dimensions.width
-                    );
-                    const auto oriented_x_end = target_bin_end(
-                        target_x, oriented_active.width, target_dimensions.width
-                    );
+                    const auto oriented_x_begin =
+                        target_bin_begin(target_x, oriented_active.width, target_dimensions.width);
+                    const auto oriented_x_end =
+                        target_bin_end(target_x, oriented_active.width, target_dimensions.width);
                     std::array<double, 3U> sums{};
                     std::array<double, 3U> weights{};
-                    for (std::uint32_t oriented_y = oriented_y_begin;
-                         oriented_y < oriented_y_end;
+                    std::uint32_t observed_samples = 0U;
+                    std::uint32_t physical_white_samples = 0U;
+                    for (std::uint32_t oriented_y = oriented_y_begin; oriented_y < oriented_y_end;
                          ++oriented_y) {
                         for (std::uint32_t oriented_x = oriented_x_begin;
                              oriented_x < oriented_x_end;
@@ -420,17 +490,24 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
                                 oriented_x,
                                 oriented_y
                             );
-                            const std::uint32_t raw_x = descriptor.active_margins.left + active.width;
-                            const std::uint32_t raw_y = descriptor.active_margins.top + active.height;
+                            const std::uint32_t raw_x =
+                                descriptor.active_margins.left + active.width;
+                            const std::uint32_t raw_y =
+                                descriptor.active_margins.top + active.height;
                             const int channel = rgb_channel(descriptor, raw_x, raw_y);
                             if (channel < 0) {
                                 continue;
                             }
-                            const float sample = normalized_linear_response_sample(
-                                frame,
-                                raw_x,
-                                raw_y
-                            );
+                            const auto site = cfa_site(raw_x, raw_y);
+                            const auto raw_sample = frame.samples
+                                                        [static_cast<std::size_t>(raw_y)
+                                                             * descriptor.storage_dimensions.width
+                                                         + raw_x];
+                            ++observed_samples;
+                            physical_white_samples +=
+                                raw_sample >= descriptor.white_levels[site] ? 1U : 0U;
+                            const float sample =
+                                normalized_linear_response_sample(frame, raw_x, raw_y);
                             // The CFA response starts losing chroma reliability before its
                             // terminal plateau.  Begin this continuous shoulder evidence early
                             // enough to cover the Sony-style halo surrounding a shared clipped
@@ -443,9 +520,10 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
                     }
                     std::array<float, 3U> evidence{};
                     for (std::size_t channel = 0U; channel < evidence.size(); ++channel) {
-                        evidence[channel] = weights[channel] > 0.0
-                                                ? static_cast<float>(sums[channel] / weights[channel])
-                                                : 0.0F;
+                        evidence[channel] =
+                            weights[channel] > 0.0
+                                ? static_cast<float>(sums[channel] / weights[channel])
+                                : 0.0F;
                     }
                     auto sorted = evidence;
                     std::sort(sorted.begin(), sorted.end());
@@ -454,8 +532,8 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
                     // Divergent multi-channel headroom is the usual false-chroma case. Keeping
                     // it separate protects a genuinely saturated one-colour emitter, whose
                     // least-affected CFA channel remains well below the shoulder.
-                    const float disagreement_risk = two_channel_loss
-                                                    * smoothstep(0.02F, 0.35F, imbalance);
+                    const float disagreement_risk =
+                        two_channel_loss * smoothstep(0.02F, 0.35F, imbalance);
                     // A common final shoulder is also chroma-unreliable even when the channels
                     // agree. Sony's sun core exposes this: all three CFA responses flatten
                     // together, so an agreement-only map leaves a false hue for the later
@@ -464,14 +542,30 @@ HighlightChromaRiskMap project_highlight_chroma_risk_map(
                     // response shoulder; ordinary highlights and one-colour emitters stay out.
                     const float shared_terminal_risk = smoothstep(0.75F, 0.98F, sorted[0U]);
                     const float risk = std::max(disagreement_risk, shared_terminal_risk);
-                    output.samples[
-                        static_cast<std::size_t>(target_y) * target_dimensions.width + target_x
-                    ] = static_cast<std::uint8_t>(std::lround(std::clamp(risk, 0.0F, 1.0F) * 255.0F));
+                    const auto output_index =
+                        static_cast<std::size_t>(target_y) * target_dimensions.width + target_x;
+                    const auto encoded_risk = static_cast<std::uint8_t>(
+                        std::lround(std::clamp(risk, 0.0F, 1.0F) * 255.0F)
+                    );
+                    output.samples[output_index] = encoded_risk;
+                    if (soften_clipped_boundaries && observed_samples != 0U) {
+                        const float physical_coverage = static_cast<float>(physical_white_samples)
+                                                        / static_cast<float>(observed_samples);
+                        const float terminal_seed =
+                            encoded_risk >= 224U ? static_cast<float>(encoded_risk) / 255.0F : 0.0F;
+                        output.boundary_transition_samples[output_index] =
+                            static_cast<std::uint8_t>(
+                                std::lround(std::max(physical_coverage, terminal_seed) * 255.0F)
+                            );
+                    }
                 }
             }
         }
     );
     feather_terminal_highlight_chroma_boundaries(output);
+    if (soften_clipped_boundaries) {
+        prepare_highlight_boundary_transition(output);
+    }
     if (!output.valid()) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,

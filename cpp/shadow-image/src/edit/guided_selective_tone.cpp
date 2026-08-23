@@ -195,17 +195,32 @@ upper_ev_hinge(const double value, const double boundary, const double softness)
     const WorkingSpaceTransform& color_transform,
     const PreparedGuidedSelectiveTone& prepared,
     const double mask_ev,
-    const double highlight_chroma_risk
+    const double highlight_chroma_risk,
+    const double highlight_boundary_transition
 ) noexcept {
     Vector3 lab = working_rgb_to_oklab(color_transform, input);
     if (!(lab[0] > 0.0) || !std::isfinite(lab[0])) {
         return input;
     }
 
-    // The EV field is evaluated against the guided mask, not individual pixel luminance. Apply
-    // the resulting scene gain to Oklab L (its cube root) rather than scaling RGB channels: the
-    // local recovery remains edge-aware while hue and chroma stay perceptually stable.
-    const double adjusted_ev = adjusted_selective_tone_ev(mask_ev, prepared);
+    // The EV field is evaluated against the guided mask, not individual pixel luminance. An
+    // explicitly prepared clipped-boundary transition may retain a small fraction of a strong
+    // negative recovery: it keeps the unknowable clipped core slightly luminous while the
+    // surrounding measured shoulder approaches it continuously. This never synthesizes texture
+    // and is exactly neutral when the optional RAW boundary treatment is disabled.
+    const double requested_adjusted_ev = adjusted_selective_tone_ev(mask_ev, prepared);
+    const double recovered_ev = std::max(0.0, mask_ev - requested_adjusted_ev);
+    constexpr double recovery_start_ev = 0.05;
+    constexpr double recovery_width_ev = 0.50;
+    const double recovery_normalized =
+        std::clamp((recovered_ev - recovery_start_ev) / recovery_width_ev, 0.0, 1.0);
+    const double recovery_pull =
+        recovery_normalized * recovery_normalized * (3.0 - 2.0 * recovery_normalized);
+    constexpr double clipped_recovery_retention = 0.14;
+    const double boundary_transition = std::clamp(highlight_boundary_transition, 0.0, 1.0);
+    const double adjusted_ev =
+        requested_adjusted_ev
+        + recovered_ev * clipped_recovery_retention * boundary_transition * recovery_pull;
     const double stops = adjusted_ev - mask_ev;
     const double gain = std::exp2(stops);
     if (!(gain > 0.0) || !std::isfinite(gain)) {
@@ -224,14 +239,8 @@ upper_ev_hinge(const double value, const double boundary, const double softness)
         // than leaving a mid-strength dead zone.  Otherwise a full slider pull can look neutral
         // while the same clipped highlight becomes falsely magenta halfway through the gesture.
         // The C1 smoothstep still preserves a continuous, non-destructive transition.
-        constexpr double recovery_start_ev = 0.05;
-        constexpr double recovery_width_ev = 0.50;
-        const double recovered_ev = std::max(0.0, mask_ev - adjusted_ev);
-        const double normalized =
-            std::clamp((recovered_ev - recovery_start_ev) / recovery_width_ev, 0.0, 1.0);
-        const double recovery_pull = normalized * normalized * (3.0 - 2.0 * normalized);
-        const double chroma_pull = recovery_pull
-                                   * std::sqrt(std::clamp(highlight_chroma_risk, 0.0, 1.0));
+        const double chroma_pull =
+            recovery_pull * std::sqrt(std::clamp(highlight_chroma_risk, 0.0, 1.0));
         lab[1] *= 1.0 - chroma_pull;
         lab[2] *= 1.0 - chroma_pull;
     }
@@ -674,24 +683,30 @@ void apply_prepared_guided_selective_tone_cpu(
             }
             const std::uint64_t full_x = static_cast<std::uint64_t>(context.origin_x) + x;
             const std::uint64_t full_y = static_cast<std::uint64_t>(context.origin_y) + y;
+            const auto full_index =
+                static_cast<std::size_t>(full_y * context.full_dimensions.width + full_x);
             const bool physically_highlight_clipped =
                 context.sensor_clipping_mask != nullptr
-                && (context.sensor_clipping_mask->samples
-                        [static_cast<std::size_t>(full_y * context.full_dimensions.width + full_x)]
-                    & sensor_highlight_clipped)
+                && (context.sensor_clipping_mask->samples[full_index] & sensor_highlight_clipped)
                        != 0U;
             const double continuous_highlight_risk =
                 context.highlight_chroma_risk_map != nullptr
-                    ? static_cast<double>(context.highlight_chroma_risk_map->samples[
-                          static_cast<std::size_t>(full_y * context.full_dimensions.width + full_x)
-                      ]) / 255.0
+                    ? static_cast<double>(context.highlight_chroma_risk_map->samples[full_index])
+                          / 255.0
+                    : 0.0;
+            const double highlight_boundary_transition =
+                context.highlight_chroma_risk_map != nullptr
+                    ? static_cast<double>(
+                          context.highlight_chroma_risk_map->boundary_transition_samples[full_index]
+                      ) / 255.0
                     : 0.0;
             const Vector3 output = apply_selective_tone_at_mask(
                 input,
                 color_transform,
                 prepared,
                 mask_ev,
-                physically_highlight_clipped ? 1.0 : continuous_highlight_risk
+                physically_highlight_clipped ? 1.0 : continuous_highlight_risk,
+                highlight_boundary_transition
             );
             image.samples[sample] = checked_edit_pixel_float(output[0], node_index, node);
             image.samples[sample + 1U] = checked_edit_pixel_float(output[1], node_index, node);

@@ -162,8 +162,22 @@ void highlight_chroma_risk_marks_disagreement_and_shared_terminal_shoulder() {
              && terminal_boundary.samples[11U] < terminal_boundary.samples[12U]
              && terminal_boundary.samples[6U] > 0U
              && terminal_boundary.samples[6U] < terminal_boundary.samples[11U]
-             && terminal_boundary.samples[0U] == 0U,
+             && terminal_boundary.samples[0U] == 0U
+             && terminal_boundary.boundary_transition_samples[12U] == 0U,
          "a terminal clipped component grows one prepared boundary feather without leaking");
+
+  const auto softened_terminal_boundary =
+      image::project_highlight_chroma_risk_map(frame, {5U, 5U}, true);
+  expect(softened_terminal_boundary.valid()
+             && softened_terminal_boundary.boundary_transition_samples[12U] > 240U
+             && softened_terminal_boundary.boundary_transition_samples[11U] > 80U
+             && softened_terminal_boundary.boundary_transition_samples[11U]
+                    < softened_terminal_boundary.boundary_transition_samples[12U]
+             && softened_terminal_boundary.boundary_transition_samples[10U] == 0U
+             && softened_terminal_boundary.samples[11U]
+                    >= softened_terminal_boundary.boundary_transition_samples[11U],
+         "opt-in terminal recovery prepares a bounded multi-cell transition without changing "
+         "the default sidecar");
 
   frame.descriptor.storage_dimensions = {4U, 4U};
   frame.descriptor.active_dimensions = {4U, 4U};

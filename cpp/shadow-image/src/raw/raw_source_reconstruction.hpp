@@ -45,9 +45,8 @@ struct AiCameraRgbSourceReconstructionBasis final {
 using SourceReconstructionBasis =
     std::variant<SensorCfaSourceReconstructionBasis, AiCameraRgbSourceReconstructionBasis>;
 
-[[nodiscard]] constexpr SourceReconstructionKind source_reconstruction_kind(
-    const SourceReconstructionBasis& basis
-) noexcept {
+[[nodiscard]] constexpr SourceReconstructionKind
+source_reconstruction_kind(const SourceReconstructionBasis& basis) noexcept {
     return std::holds_alternative<SensorCfaSourceReconstructionBasis>(basis)
                ? SourceReconstructionKind::sensor_cfa
                : SourceReconstructionKind::ai_camera_rgb;
@@ -67,21 +66,18 @@ using SourceReconstructionBasis =
     return requested_plan;
 }
 
-[[nodiscard]] constexpr bool source_reconstruction_retains_sensor_cfa(
-    const SourceReconstructionKind reconstruction
-) noexcept {
+[[nodiscard]] constexpr bool
+source_reconstruction_retains_sensor_cfa(const SourceReconstructionKind reconstruction) noexcept {
     return reconstruction == SourceReconstructionKind::sensor_cfa;
 }
 
-[[nodiscard]] constexpr bool source_reconstruction_retains_sensor_cfa(
-    const SourceReconstructionBasis& basis
-) noexcept {
+[[nodiscard]] constexpr bool
+source_reconstruction_retains_sensor_cfa(const SourceReconstructionBasis& basis) noexcept {
     return source_reconstruction_retains_sensor_cfa(source_reconstruction_kind(basis));
 }
 
-[[nodiscard]] inline const SensorClippingMask& source_reconstruction_sensor_clipping(
-    const SourceReconstructionBasis& basis
-) noexcept {
+[[nodiscard]] inline const SensorClippingMask&
+source_reconstruction_sensor_clipping(const SourceReconstructionBasis& basis) noexcept {
     return std::visit(
         [](const auto& reconstruction) -> const SensorClippingMask& {
             return reconstruction.sensor_clipping;
@@ -90,9 +86,8 @@ using SourceReconstructionBasis =
     );
 }
 
-[[nodiscard]] inline const HighlightChromaRiskMap& source_reconstruction_highlight_chroma_risk(
-    const SourceReconstructionBasis& basis
-) noexcept {
+[[nodiscard]] inline const HighlightChromaRiskMap&
+source_reconstruction_highlight_chroma_risk(const SourceReconstructionBasis& basis) noexcept {
     return std::visit(
         [](const auto& reconstruction) -> const HighlightChromaRiskMap& {
             return reconstruction.highlight_chroma_risk;
@@ -109,16 +104,18 @@ using SourceReconstructionBasis =
 prepare_ai_camera_rgb_source_reconstruction(
     const RawFoundationCameraRgbView& foundation,
     const RawFrame& source_frame,
-    const std::optional<std::uint32_t> preview_max_edge
+    const std::optional<std::uint32_t> preview_max_edge,
+    const bool soften_clipped_boundaries = false
 ) {
     AiCameraRgbSourceReconstructionBasis basis{
-        .camera_rgb =
-            prepare_raw_foundation_camera_rgb(foundation, source_frame, preview_max_edge),
+        .camera_rgb = prepare_raw_foundation_camera_rgb(foundation, source_frame, preview_max_edge),
     };
-    basis.sensor_clipping =
-        project_sensor_clipping_mask(source_frame, basis.camera_rgb.dimensions);
-    basis.highlight_chroma_risk =
-        project_highlight_chroma_risk_map(source_frame, basis.camera_rgb.dimensions);
+    basis.sensor_clipping = project_sensor_clipping_mask(source_frame, basis.camera_rgb.dimensions);
+    basis.highlight_chroma_risk = project_highlight_chroma_risk_map(
+        source_frame,
+        basis.camera_rgb.dimensions,
+        soften_clipped_boundaries
+    );
     return basis;
 }
 

@@ -479,9 +479,15 @@ void selective_tone_neutralizes_continuous_cfa_chroma_risk_only_during_recovery(
         });
         return std::hypot(lab[1], lab[2]);
     };
+    const auto luminance = [](const image::FloatRgbImage& value) {
+        return static_cast<double>(value.samples[0]) * 0.2126
+               + static_cast<double>(value.samples[1]) * 0.7152
+               + static_cast<double>(value.samples[2]) * 0.0722;
+    };
     image::HighlightChromaRiskMap risk{
         .dimensions = input.dimensions,
         .samples = {255U},
+        .boundary_transition_samples = {0U},
     };
     const auto recovered = image::execute_adjustment_nodes(
         input,
@@ -495,6 +501,83 @@ void selective_tone_neutralizes_continuous_cfa_chroma_risk_only_during_recovery(
         chroma(recovered) < chroma(input) * 0.05,
         "continuous CFA chroma risk neutralizes deep recovered highlights without requiring a "
         "physical-white bit"
+    );
+
+    risk.boundary_transition_samples[0U] = 255U;
+    const auto softened = image::execute_adjustment_nodes(
+        input,
+        node,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = input.dimensions,
+            .highlight_chroma_risk_map = &risk,
+        }
+    );
+    expect(
+        luminance(softened) > luminance(recovered) * 1.05 && luminance(softened) < luminance(input),
+        "an opted-in clipped-boundary shoulder retains a bounded amount of highlight luminance"
+    );
+    expect(
+        chroma(softened) < chroma(input) * 0.05,
+        "the luminance shoulder does not restore unmeasured clipped chroma"
+    );
+
+    auto strip = rgb_image(
+        5,
+        {
+            2.8F,
+            0.45F,
+            2.1F,
+            2.8F,
+            0.45F,
+            2.1F,
+            2.8F,
+            0.45F,
+            2.1F,
+            2.8F,
+            0.45F,
+            2.1F,
+            2.8F,
+            0.45F,
+            2.1F,
+        }
+    );
+    strip.working_space = linear_srgb();
+    image::HighlightChromaRiskMap transition{
+        .dimensions = strip.dimensions,
+        .samples = {255U, 255U, 255U, 255U, 255U},
+        .boundary_transition_samples = {0U, 64U, 128U, 192U, 255U},
+    };
+    const auto transition_output = image::execute_adjustment_nodes(
+        strip,
+        node,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = strip.dimensions,
+            .highlight_chroma_risk_map = &transition,
+        }
+    );
+    std::array<double, 5U> transition_luminance{};
+    for (std::size_t pixel = 0U; pixel < transition_luminance.size(); ++pixel) {
+        const auto sample = pixel * 3U;
+        transition_luminance[pixel] =
+            static_cast<double>(transition_output.samples[sample]) * 0.2126
+            + static_cast<double>(transition_output.samples[sample + 1U]) * 0.7152
+            + static_cast<double>(transition_output.samples[sample + 2U]) * 0.0722;
+    }
+    bool monotonic_transition = true;
+    double maximum_transition_step = 0.0;
+    for (std::size_t pixel = 1U; pixel < transition_luminance.size(); ++pixel) {
+        monotonic_transition =
+            monotonic_transition && transition_luminance[pixel] > transition_luminance[pixel - 1U];
+        maximum_transition_step = std::max(
+            maximum_transition_step,
+            transition_luminance[pixel] - transition_luminance[pixel - 1U]
+        );
+    }
+    expect(
+        monotonic_transition
+            && maximum_transition_step
+                   < (transition_luminance.back() - transition_luminance.front()) * 0.40,
+        "the prepared clipped-boundary shoulder produces a smooth monotonic luminance ramp"
     );
 
     const auto neutral = image::execute_adjustment_nodes(

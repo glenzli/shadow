@@ -123,12 +123,12 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
     RawPipelineReceipt pipeline = std::move(prepared.pipeline_);
     pipeline.requested_plan = requested_plan;
     pipeline.effective_plan = effective_plan;
-    AiCameraRgbSourceReconstructionBasis source_basis =
-        prepare_ai_camera_rgb_source_reconstruction(
-            foundation,
-            prepared.frame_,
-            prepared.development_.preview_max_edge()
-        );
+    AiCameraRgbSourceReconstructionBasis source_basis = prepare_ai_camera_rgb_source_reconstruction(
+        foundation,
+        prepared.frame_,
+        prepared.development_.preview_max_edge(),
+        requested_plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive
+    );
     DevelopedRawFoundation developed = develop_prepared_raw_foundation(
         source_basis.camera_rgb,
         prepared.development_.linear_transform()

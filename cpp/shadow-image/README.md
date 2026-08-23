@@ -148,9 +148,14 @@ Current contract rules:
   risk rises when independently sampled channels lose headroom and their evidence diverges. A
   terminal shared-clipping component feathers its confidence one display bin into adjacent valid
   bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this
-  sidecar beside its reusable source and
-  binds it once to the resident GPU edit session (or the matching CPU fallback). During actual
-  negative highlight/white recovery, Selective Tone progressively pulls chroma toward neutral in
+  sidecar beside its reusable source. When the opt-in aggressive policy is selected, the same
+  projection also prepares an aligned, resolution-scaled R8 terminal-boundary transition with an
+  O(pixels) chamfer pass. The transition does not reconstruct source data: during negative
+  Highlight/White recovery it only eases the neutral pull across the clipped contour and retains a
+  bounded fraction of recovered luminance in the unknowable core. Both planes share one lifecycle
+  and one packed resident upload; slider events add no source work or neighbourhood pass. The warm
+  preview binds it once to the resident GPU edit session (or the matching CPU fallback). During
+  actual negative highlight/white recovery, Selective Tone progressively pulls chroma toward neutral in
   proportion to that source risk while preserving its ordinary Oklab-lightness behavior elsewhere.
   It never reconstructs spatial detail or invents a neighbouring hue. `disabled` stays an explicit
   unbounded diagnostic plan for compatibility. The opt-in `aggressive` policy is a separate repair

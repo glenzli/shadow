@@ -164,7 +164,15 @@ void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
         ),
         .highlight_pixel_count = dimensions.pixel_count(),
     };
-    auto preparation = image::detail::prepare_warm_edit_gpu_session(source, &clipping);
+    image::HighlightChromaRiskMap highlight_evidence{
+        .dimensions = dimensions,
+        .samples =
+            std::vector<std::uint8_t>(static_cast<std::size_t>(dimensions.pixel_count()), 255U),
+        .boundary_transition_samples =
+            std::vector<std::uint8_t>(static_cast<std::size_t>(dimensions.pixel_count()), 255U),
+    };
+    auto preparation =
+        image::detail::prepare_warm_edit_gpu_session(source, &clipping, &highlight_evidence);
     if (!preparation.session) {
         expect(
             std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
@@ -199,6 +207,7 @@ void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
         image::AdjustmentExecutionContext{
             .full_dimensions = dimensions,
             .sensor_clipping_mask = &clipping,
+            .highlight_chroma_risk_map = &highlight_evidence,
         },
         image::AdjustmentBackendMode::cpu
     );
