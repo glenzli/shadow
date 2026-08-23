@@ -30,6 +30,7 @@ struct SensorCfaSourceReconstructionBasis final {
     RawBayerDenoiseReceipt conventional_denoise;
     std::string combined_denoise_identity;
     SensorClippingMask sensor_clipping;
+    HighlightChromaRiskMap highlight_chroma_risk;
 };
 
 struct AiCameraRgbSourceReconstructionBasis final {
@@ -38,6 +39,7 @@ struct AiCameraRgbSourceReconstructionBasis final {
     // from AI camera RGB, so both reconstruction kinds expose one exact source
     // evidence contract to the later highlight-integrity stage.
     SensorClippingMask sensor_clipping;
+    HighlightChromaRiskMap highlight_chroma_risk;
 };
 
 using SourceReconstructionBasis =
@@ -88,6 +90,17 @@ using SourceReconstructionBasis =
     );
 }
 
+[[nodiscard]] inline const HighlightChromaRiskMap& source_reconstruction_highlight_chroma_risk(
+    const SourceReconstructionBasis& basis
+) noexcept {
+    return std::visit(
+        [](const auto& reconstruction) -> const HighlightChromaRiskMap& {
+            return reconstruction.highlight_chroma_risk;
+        },
+        basis
+    );
+}
+
 // Prepares the exact owned AI source basis once. Both ordinary source
 // materialization and warm preview rebinding use this helper, so the active
 // sensor alignment, orientation, bounded-preview dimensions, and clipping
@@ -104,6 +117,8 @@ prepare_ai_camera_rgb_source_reconstruction(
     };
     basis.sensor_clipping =
         project_sensor_clipping_mask(source_frame, basis.camera_rgb.dimensions);
+    basis.highlight_chroma_risk =
+        project_highlight_chroma_risk_map(source_frame, basis.camera_rgb.dimensions);
     return basis;
 }
 

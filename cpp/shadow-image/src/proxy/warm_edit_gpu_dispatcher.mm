@@ -91,24 +91,20 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         );
         if (!geometry.plan.has_value()) {
             return failed(
-                geometry.diagnostic.empty()
-                    ? "session-resident Metal photo geometry is unavailable"
-                    : std::move(geometry.diagnostic)
+                geometry.diagnostic.empty() ? "session-resident Metal photo geometry is unavailable"
+                                            : std::move(geometry.diagnostic)
             );
         }
         geometry_plan = std::move(*geometry.plan);
-        auto buffer = resident.acquire_liquify_geometry_buffer(
-            geometry_plan->liquify_words,
-            cancellation
-        );
+        auto buffer =
+            resident.acquire_liquify_geometry_buffer(geometry_plan->liquify_words, cancellation);
         if (buffer.cancelled) {
             return cancelled();
         }
         if (!buffer.buffer) {
             return failed(
-                buffer.diagnostic.empty()
-                    ? "session-resident Metal has no photo Liquify side table"
-                    : std::move(buffer.diagnostic)
+                buffer.diagnostic.empty() ? "session-resident Metal has no photo Liquify side table"
+                                          : std::move(buffer.diagnostic)
             );
         }
         geometry_liquify_buffer = std::move(buffer.buffer);
@@ -175,6 +171,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             resident_layout,
             slot,
             resident.source_buffer(),
+            resident.highlight_clipping_buffer(),
             transaction
         );
 
@@ -208,10 +205,10 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
                 current == slot.adjusted ? slot.denoised : slot.adjusted;
             const std::uint32_t geometry_input_row_floats =
                 current == resident.source_buffer()
-                ? source_row_floats
-                : static_cast<std::uint32_t>(
-                    resident_layout.adjusted_row_stride_bytes / sizeof(float)
-                );
+                    ? source_row_floats
+                    : static_cast<std::uint32_t>(
+                          resident_layout.adjusted_row_stride_bytes / sizeof(float)
+                      );
             encode_warm_gpu_geometry(
                 encoder,
                 context,
@@ -224,8 +221,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             );
             current = geometry_output;
             output_dimensions = geometry_plan->output_dimensions;
-            output_sample_count =
-                static_cast<std::size_t>(output_dimensions.pixel_count()) * 3U;
+            output_sample_count = static_cast<std::size_t>(output_dimensions.pixel_count()) * 3U;
             output_linear_bytes = output_sample_count * sizeof(float);
             output_rgb8_bytes = output_sample_count;
             output_scale_x = geometry_plan->output_level_zero_to_raster_scale_x;
@@ -241,8 +237,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             display_invocation.perceptual_range_entry_count = 0U;
             display_invocation.selective_color_entry_count = 0U;
         }
-        id<MTLBuffer> final_adjusted =
-            current == slot.adjusted ? slot.denoised : slot.adjusted;
+        id<MTLBuffer> final_adjusted = current == slot.adjusted ? slot.denoised : slot.adjusted;
         [encoder setComputePipelineState:context.display_pipeline()];
         [encoder setBuffer:current offset:0U atIndex:0U];
         [encoder setBuffer:final_adjusted offset:0U atIndex:1U];
@@ -250,17 +245,11 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         [encoder setBuffer:slot.before_operations
                     offset:transaction.final_program.operation_offset_bytes
                    atIndex:3U];
-        [encoder setBytes:&display_invocation
-                   length:sizeof(display_invocation)
-                  atIndex:4U];
+        [encoder setBytes:&display_invocation length:sizeof(display_invocation) atIndex:4U];
         [encoder setBytes:&display length:sizeof(display) atIndex:5U];
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
-        [encoder setBuffer:transaction.final_program.buffers.curve.get()
-                    offset:0U
-                   atIndex:7U];
-        [encoder setBuffer:transaction.final_program.buffers.lut.get()
-                    offset:0U
-                   atIndex:8U];
+        [encoder setBuffer:transaction.final_program.buffers.curve.get() offset:0U atIndex:7U];
+        [encoder setBuffer:transaction.final_program.buffers.lut.get() offset:0U atIndex:8U];
         [encoder setBuffer:transaction.final_program.buffers.perceptual_mixer.get()
                     offset:0U
                    atIndex:9U];
@@ -275,35 +264,28 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
 
         std::shared_ptr<WarmEditGpuPresentationSurface> presentation_surface;
         std::string presentation_fallback_diagnostic;
-        if (
-            render_context.output_intent
-                == WarmEditGpuOutputIntent::metal_presentation_surface
-            && !retain_linear_for_analysis
-        ) {
+        if (render_context.output_intent == WarmEditGpuOutputIntent::metal_presentation_surface
+            && !retain_linear_for_analysis) {
             resident.record_presentation_surface_request();
             auto preparation_surface =
-                prepare_warm_edit_gpu_presentation_surface(
-                    context.device(),
-                    output_dimensions
-                );
+                prepare_warm_edit_gpu_presentation_surface(context.device(), output_dimensions);
             if (preparation_surface.surface) {
                 const std::string presentation_diagnostic =
                     encode_warm_edit_gpu_presentation_surface(
                         command_buffer,
                         slot.rgb8,
                         *preparation_surface.surface
-                );
+                    );
                 if (presentation_diagnostic.empty()) {
-                    presentation_surface =
-                        std::move(preparation_surface.surface);
+                    presentation_surface = std::move(preparation_surface.surface);
                 } else {
                     presentation_fallback_diagnostic = presentation_diagnostic;
                 }
             } else {
                 presentation_fallback_diagnostic =
                     preparation_surface.diagnostic.empty()
-                    ? "Metal presentation surface preparation was unavailable"
-                    : std::move(preparation_surface.diagnostic);
+                        ? "Metal presentation surface preparation was unavailable"
+                        : std::move(preparation_surface.diagnostic);
             }
         }
         if (cancellation.stop_requested()) {
@@ -320,12 +302,13 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         if (status->flags != 0U) {
             std::string diagnostic =
                 "session-resident Metal warm preview produced an invalid result";
-            for (const PreparedWarmProgram* program :
-                 warm_gpu_transaction_programs(transaction)) {
+            for (const PreparedWarmProgram* program : warm_gpu_transaction_programs(transaction)) {
                 if (status->earliest_step < program->program.operations.size()) {
-                    diagnostic += " near source node " + std::to_string(
-                        program->program.operations[status->earliest_step].source_node_index
-                    );
+                    diagnostic +=
+                        " near source node "
+                        + std::to_string(
+                            program->program.operations[status->earliest_step].source_node_index
+                        );
                     break;
                 }
             }
@@ -339,12 +322,10 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
 
         RenderResult result{
             .dimensions = output_dimensions,
-            .rgb8 = presentation_surface
-                ? std::vector<std::uint8_t>{}
-                : std::vector<std::uint8_t>(output_rgb8_bytes),
+            .rgb8 = presentation_surface ? std::vector<std::uint8_t>{}
+                                         : std::vector<std::uint8_t>(output_rgb8_bytes),
             .presentation_surface = std::move(presentation_surface),
-            .presentation_fallback_diagnostic =
-                std::move(presentation_fallback_diagnostic),
+            .presentation_fallback_diagnostic = std::move(presentation_fallback_diagnostic),
             .analyzed_linear = std::nullopt,
             .had_active_adjustments =
                 transaction.had_active_adjustments || geometry_plan.has_value(),
@@ -368,11 +349,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
                 .level_zero_to_raster_scale_y = output_scale_y,
                 .samples = std::vector<float>(output_sample_count),
             };
-            std::memcpy(
-                linear.samples.data(),
-                [final_adjusted contents],
-                output_linear_bytes
-            );
+            std::memcpy(linear.samples.data(), [final_adjusted contents], output_linear_bytes);
             result.analyzed_linear = std::move(linear);
         }
         if (cancellation.stop_requested()) {

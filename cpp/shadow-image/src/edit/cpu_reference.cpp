@@ -480,7 +480,8 @@ void apply_node(
                     image,
                     node,
                     index,
-                    prepared_selective_tone
+                    prepared_selective_tone,
+                    context
                 );
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
                 const PerceptualColorStages stages = classify_perceptual_color(parameters);

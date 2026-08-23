@@ -1986,6 +1986,7 @@ kernel void warm_selective_tone_apply_v1(
     device const float* mask [[buffer(1)]],
     device float* output [[buffer(2)]],
     constant WarmSelectiveToneParameters& parameters [[buffer(3)]],
+    device const uchar* highlight_clipping [[buffer(4)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= parameters.width || position.y >= parameters.height) {
@@ -2040,6 +2041,26 @@ kernel void warm_selective_tone_apply_v1(
         const float lightness_gain = exp2((adjusted_ev - mask_ev) / 3.0f);
         if (lightness_gain > 0.0f && isfinite(lightness_gain)) {
             lab.x *= lightness_gain;
+            // The resident R8 sidecar is continuous CFA headroom disagreement; physical sensor
+            // white is encoded as 255. Preserve Oklab opponent channels for ordinary pixels,
+            // then smooth only source-unreliable chroma during negative recovery.
+            const float highlight_chroma_risk = float(highlight_clipping[pixel]) / 255.0f;
+            if (highlight_chroma_risk > 0.0f) {
+                // Keep this in lockstep with the CPU reference: source-evidenced chroma must
+                // begin fading at the first meaningful recovered stop, so intermediate slider
+                // positions cannot expose the same false magenta that a full pull suppresses.
+                constexpr float recovery_start_ev = 0.05f;
+                constexpr float recovery_width_ev = 0.50f;
+                const float recovered_ev = max(0.0f, mask_ev - adjusted_ev);
+                const float normalized = clamp(
+                    (recovered_ev - recovery_start_ev) / recovery_width_ev,
+                    0.0f,
+                    1.0f
+                );
+                const float recovery_pull = normalized * normalized * (3.0f - 2.0f * normalized);
+                const float chroma_pull = recovery_pull * sqrt(highlight_chroma_risk);
+                lab.yz *= 1.0f - chroma_pull;
+            }
             adjusted = multiply_rows(
                 parameters.xyz_to_rgb_row_0,
                 parameters.xyz_to_rgb_row_1,

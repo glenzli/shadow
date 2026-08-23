@@ -11,16 +11,11 @@ void dispatch_warm_gpu_raster(
     id<MTLComputePipelineState> pipeline,
     const Dimensions dimensions
 ) {
-    const NSUInteger thread_width = std::min<NSUInteger>(
-        32U,
-        std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
-    );
+    const NSUInteger thread_width =
+        std::min<NSUInteger>(32U, std::max<NSUInteger>(1U, pipeline.threadExecutionWidth));
     const NSUInteger thread_height = std::max<NSUInteger>(
         1U,
-        std::min<NSUInteger>(
-            8U,
-            pipeline.maxTotalThreadsPerThreadgroup / thread_width
-        )
+        std::min<NSUInteger>(8U, pipeline.maxTotalThreadsPerThreadgroup / thread_width)
     );
     [encoder dispatchThreads:MTLSizeMake(dimensions.width, dimensions.height, 1U)
         threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
@@ -35,9 +30,7 @@ void bind_warm_gpu_adjustment(
 ) {
     [encoder setBuffer:input offset:0U atIndex:0U];
     [encoder setBuffer:output offset:0U atIndex:1U];
-    [encoder setBuffer:slot.before_operations
-                offset:prepared.operation_offset_bytes
-               atIndex:3U];
+    [encoder setBuffer:slot.before_operations offset:prepared.operation_offset_bytes atIndex:3U];
     [encoder setBytes:&prepared.program.invocation
                length:sizeof(prepared.program.invocation)
               atIndex:4U];
@@ -55,12 +48,12 @@ id<MTLBuffer> encode_warm_gpu_transaction_prefix(
     const WarmGpuResidentLayout& layout,
     const WarmGpuSlotBuffers& slot,
     id<MTLBuffer> input,
+    id<MTLBuffer> highlight_clipping,
     const PreparedWarmTransaction& transaction
 ) {
     id<MTLBuffer> current = input;
     for (const PreparedWarmPass& pass : transaction.passes) {
-        const WarmGpuRenderPass& render_pass =
-            transaction.render_plan.passes[pass.plan_index];
+        const WarmGpuRenderPass& render_pass = transaction.render_plan.passes[pass.plan_index];
         [encoder setComputePipelineState:context.adjustment_pipeline()];
         // Pixel-local kernels load one pixel completely before writing it. In-place execution is
         // safe and avoids a redundant full-raster copy between neighborhood stages.
@@ -74,9 +67,8 @@ id<MTLBuffer> encode_warm_gpu_transaction_prefix(
             slot.adjusted,
             render_pass.neighbourhood,
             pass.neighbourhood_geometry.get(),
-            pass.post.has_value()
-                ? pass.post->program.invocation
-                : pass.before.program.invocation
+            highlight_clipping,
+            pass.post.has_value() ? pass.post->program.invocation : pass.before.program.invocation
         );
         if (pass.post.has_value()) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];

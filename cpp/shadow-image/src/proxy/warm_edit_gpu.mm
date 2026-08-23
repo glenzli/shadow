@@ -127,7 +127,11 @@ WarmEditPreviewGpuStats WarmEditGpuSession::stats() const noexcept {
     return impl_->resident->stats_snapshot();
 }
 
-WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source) {
+WarmEditGpuPreparation prepare_warm_edit_gpu_session(
+    const FloatRgbImage& source,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map
+) {
     auto& context = metal_context();
     if (!context.valid()) {
         return WarmEditGpuPreparation{
@@ -140,7 +144,10 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source
     // records the cached reason instead of stalling the first slider movement.
     static_cast<void>(prewarm_warm_edit_gpu_presentation_surface(context.device()));
 
-    auto preparation = prepare_warm_gpu_resident_resources(source, context.device());
+    auto preparation =
+        prepare_warm_gpu_resident_resources(
+            source, context.device(), sensor_clipping_mask, highlight_chroma_risk_map
+        );
     if (!preparation.resources) {
         return WarmEditGpuPreparation{
             .session = nullptr,
@@ -202,7 +209,9 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const WarmEditGpuAdoptedSou
         context.device(),
         buffer,
         source.external_resident_bytes,
-        source.resident_allowance_bytes
+        source.resident_allowance_bytes,
+        source.sensor_clipping_mask,
+        source.highlight_chroma_risk_map
     );
     if (!preparation.resources) {
         return WarmEditGpuPreparation{

@@ -342,7 +342,7 @@ impl RawPipelineReceipt {
     /// Mirrors `shadow::image::raw_pipeline_receipt_schema_version`.
     pub const CURRENT_SCHEMA_VERSION: u32 = 2_026_082_101;
     /// Mirrors `shadow::image::shadow_raw_frame_developer_version`.
-    pub const CURRENT_RAW_DEVELOPER_VERSION: u32 = 2_026_082_101;
+    pub const CURRENT_RAW_DEVELOPER_VERSION: u32 = 2_026_082_202;
     // Mirrors `shadow::image::dcp_color_developer_version`. This is part of the
     // cross-language provenance contract, rather than the pipeline receipt schema.
     pub const CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION: u32 = 3;

@@ -32,7 +32,7 @@ fn write_fixture(root: &std::path::Path, extra: &str) -> std::path::PathBuf {
     let sample_path = root.join("frame.shadowrawi.u16le");
     fs::write(&sample_path, [0_u8, 1, 2, 3].repeat(8)).expect("sample fixture");
     let manifest = format!(
-        "{PROTOCOL} descriptor_contract=active-camera-colour-20260806.1 width=4 height=4 cfa=RGGB black=64,64,64,64 white=16383,16383,16383,16383 orientation=0 bits_per_sample=14 as_shot_neutral=1,1,1,1 camera_to_xyz_d50=1,0,0,0,1,0,0,0,1 xyz_to_camera_d65=- camera_to_linear_srgb_d65=- pending_dng_opcode_bytes=0,0,0 provider_id_hex=736861646f772e746573742e726177 provider_version_hex=7631 sample_bytes=32{extra}\n"
+        "{PROTOCOL} descriptor_contract=active-camera-colour-response-20260822.1 width=4 height=4 cfa=RGGB black=64,64,64,64 white=16383,16383,16383,16383 linear_response=15100,15101,15102,15103 has_linear_response=1 orientation=0 bits_per_sample=14 as_shot_neutral=1,1,1,1 camera_to_xyz_d50=1,0,0,0,1,0,0,0,1 xyz_to_camera_d65=- camera_to_linear_srgb_d65=- pending_dng_opcode_bytes=0,0,0 provider_id_hex=736861646f772e746573742e726177 provider_version_hex=7631 sample_bytes=32{extra}\n"
     );
     fs::write(&manifest_path, manifest).expect("manifest fixture");
     manifest_path

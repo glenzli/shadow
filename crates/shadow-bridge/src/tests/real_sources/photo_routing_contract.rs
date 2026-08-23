@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-use shadow_domain::PreviewCodec;
+use shadow_domain::{PreviewCodec, RawTemperatureTint, RawWhiteBalance};
 
 use crate::{
     BasicEditParameters, BridgeError, OpticsSettings, PhotoEditDetailSession,
@@ -63,10 +63,35 @@ fn isolated_private_raw_frame_reenters_the_host_preview_bridge_from_metadata() {
         RawPipelinePath::ShadowRawFrame,
         "the desktop-facing bridge must develop the staged CFA data rather than fall back to provider RGB"
     );
+    assert!(
+        preview.supports_raw_development_rebinding(),
+        "the staged provider-neutral frame must retain a camera-space RAW basis"
+    );
+    let manual_white_balance =
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(5_900, 12).expect("construct manual RAW white balance"),
+        ));
+    let rebound = preview
+        .rebind_raw_development_plan(manual_white_balance)
+        .expect("rebind staged private RawFrame white balance without reopening the source");
+    assert_eq!(
+        rebound.raw_pipeline_receipt().path,
+        RawPipelinePath::ShadowRawFrame,
+        "a staged RAW white-balance rebind stays on the host CFA route"
+    );
+    assert_eq!(
+        rebound.raw_pipeline_receipt().requested_plan,
+        manual_white_balance,
+        "a staged RAW white-balance rebind records the exact requested plan"
+    );
     let rendered = preview
         .render(BasicEditParameters::default(), 82)
         .expect("render a host-owned staged private RawFrame preview");
     assert!(!rendered.bytes.is_empty());
+    let rebound_rendered = rebound
+        .render(BasicEditParameters::default(), 82)
+        .expect("render a rebound host-owned staged private RawFrame preview");
+    assert!(!rebound_rendered.bytes.is_empty());
 
     fs::remove_dir_all(staging_root).expect("remove test-private staging root");
 }

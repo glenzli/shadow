@@ -9,7 +9,7 @@ use std::time::Instant;
 use anyhow::{Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     AnalyzedEditPreview, CancellableEditPreview, EditPreviewMaskCoverageRequest,
-    OwnedInteractivePreviewFrame, photo_provider_version,
+    OwnedInteractivePreviewFrame, RawPipelineReceipt, photo_provider_version,
 };
 
 use super::{
@@ -80,6 +80,24 @@ fn log_interactive_bridge_timing(token: u64, started: &Instant, stage: &str) {
     eprintln!(
         "shadow.interactive-timing token={token} component=bridge stage={stage} elapsed_ms={}",
         started.elapsed().as_millis()
+    );
+}
+
+/// Records only route provenance while the explicitly enabled interactive timing trace is active.
+///
+/// This deliberately omits source identities, cache keys, fallback diagnostics, and image data.
+/// It lets a local debug session establish whether a gesture reused a staged `RawFrame`, a public
+/// decoded raster, or a provider-processed compatibility source before we alter RAW semantics.
+fn log_interactive_raw_route(token: u64, receipt: &RawPipelineReceipt) {
+    eprintln!(
+        "shadow.interactive-raw-route token={token} path={:?} requested_highlight={:?} effective_highlight={:?} raw_frame_schema_version={} raw_developer_version={} provider_id={:?} provider_version={:?}",
+        receipt.path,
+        receipt.requested_plan.highlight_recovery,
+        receipt.effective_plan.highlight_recovery,
+        receipt.raw_frame_schema_version,
+        receipt.raw_developer_version,
+        receipt.source_provider_id,
+        receipt.source_provider_version,
     );
 }
 
@@ -309,6 +327,7 @@ impl DesktopSession {
                     })?;
             if let Some(started) = interactive_started.as_ref() {
                 log_interactive_bridge_timing(request.render_token, started, "session-ready");
+                log_interactive_raw_route(request.render_token, session.raw_pipeline_receipt());
             }
             if self
                 .edit_preview_render_tokens

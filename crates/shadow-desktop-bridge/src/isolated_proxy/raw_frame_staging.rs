@@ -20,12 +20,12 @@ use super::helper_process::{
     helper_stderr_suffix,
 };
 
-const PROTOCOL: &str = "shadow-raw-frame-staging-20260806.1";
-const DESCRIPTOR_CONTRACT: &str = "active-camera-colour-20260806.1";
+const PROTOCOL: &str = "shadow-raw-frame-staging-20260822.1";
+const DESCRIPTOR_CONTRACT: &str = "active-camera-colour-response-20260822.1";
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 const MAX_SAMPLE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_DIMENSION: u32 = 100_000;
-const EXPECTED_FIELDS: [&str; 16] = [
+const EXPECTED_FIELDS: [&str; 18] = [
     "as_shot_neutral",
     "bits_per_sample",
     "black",
@@ -34,6 +34,8 @@ const EXPECTED_FIELDS: [&str; 16] = [
     "cfa",
     "descriptor_contract",
     "height",
+    "has_linear_response",
+    "linear_response",
     "orientation",
     "pending_dng_opcode_bytes",
     "provider_id_hex",
@@ -246,6 +248,21 @@ fn open_staged_frame(manifest_path: &Path) -> Result<(PathBuf, File, IsolatedRaw
     {
         bail!("isolated RAW frame staging sensor levels are unsupported");
     }
+    let linear_response = parse_levels(
+        required_field(&fields, "linear_response")?,
+        "linear-response",
+    )?;
+    if parse_bool01(
+        required_field(&fields, "has_linear_response")?,
+        "linear-response availability",
+    )? && black_levels
+        .iter()
+        .zip(linear_response)
+        .zip(white_levels)
+        .any(|((black, response), white)| response <= *black || response > white)
+    {
+        bail!("isolated RAW frame staging linear-response limits are unsupported");
+    }
     let sample_bytes = parse_field::<u64>(&fields, "sample_bytes")?;
     let expected_bytes = u64::from(width)
         .checked_mul(u64::from(height))
@@ -353,6 +370,14 @@ fn parse_levels(value: &str, label: &str) -> Result<[u16; 4]> {
         .ok()
         .and_then(|values| values.try_into().ok())
         .ok_or_else(|| anyhow::anyhow!("isolated RAW frame staging {label} levels are invalid"))
+}
+
+fn parse_bool01(value: &str, label: &str) -> Result<bool> {
+    match value {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => bail!("isolated RAW frame staging {label} is invalid"),
+    }
 }
 
 fn decode_identity(value: &str) -> Result<String> {

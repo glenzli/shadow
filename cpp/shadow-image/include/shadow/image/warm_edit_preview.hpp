@@ -203,6 +203,8 @@ class WarmEditPreviewSession final {
     // Optional source-domain clip classification retained from the same RawFrame development.
     // It never asks a provider to decode the source again merely to drive an optional zebra.
     [[nodiscard]] const std::optional<SensorClippingMask>& sensor_clipping_mask() const noexcept;
+    [[nodiscard]] const std::optional<HighlightChromaRiskMap>& highlight_chroma_risk_map()
+        const noexcept;
     // Runtime-only observability for tests and future diagnostics. These counters never enter
     // Recipe, catalog, or cache identities.
     [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;
@@ -339,6 +341,7 @@ class WarmEditPreviewSession final {
         RawPipelineReceipt raw_pipeline_receipt,
         OpticsProfileReceipt optics_receipt,
         std::optional<SensorClippingMask> sensor_clipping_mask,
+        std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map,
         std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source =
             nullptr,
         std::shared_ptr<const OpticsProvider> retained_optics_provider = nullptr,
@@ -352,6 +355,7 @@ class WarmEditPreviewSession final {
     RawPipelineReceipt raw_pipeline_receipt_;
     OpticsProfileReceipt optics_receipt_;
     std::optional<SensorClippingMask> sensor_clipping_mask_;
+    std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map_;
     std::shared_ptr<detail::WarmEditGpuSession> warm_gpu_session_;
     std::string warm_gpu_diagnostic_;
     std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source_;

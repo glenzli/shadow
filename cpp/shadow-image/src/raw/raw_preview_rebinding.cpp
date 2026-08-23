@@ -324,6 +324,7 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
+        .highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis),
     };
 #endif
 }
@@ -639,6 +640,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             .raw_development_receipt = std::move(receipt),
             .pipeline_receipt = std::move(pipeline),
             .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
+            .highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis),
         };
     }
 
@@ -696,12 +698,17 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
+        .highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis),
     };
 }
 
 PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource prepared) {
     const RawDevelopmentPlan requested_plan = prepared.pipeline_.requested_plan;
     SensorClippingMask sensor_clipping = project_sensor_clipping_mask(
+        prepared.frame_,
+        prepared.development_.diagnostic_dimensions()
+    );
+    HighlightChromaRiskMap highlight_chroma_risk = project_highlight_chroma_risk_map(
         prepared.frame_,
         prepared.development_.diagnostic_dimensions()
     );
@@ -713,6 +720,7 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         .denoised_frame = std::move(conventional.frame),
         .conventional_denoise = std::move(conventional.receipt),
         .sensor_clipping = std::move(sensor_clipping),
+        .highlight_chroma_risk = std::move(highlight_chroma_risk),
     };
     basis.combined_denoise_identity = basis.conventional_denoise.cache_identity;
 #if SHADOW_IMAGE_HAS_METAL

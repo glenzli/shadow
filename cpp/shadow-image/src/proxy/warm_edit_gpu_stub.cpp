@@ -86,7 +86,11 @@ WarmEditPreviewGpuStats WarmEditGpuSession::stats() const noexcept {
     return {};
 }
 
-WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage&) {
+WarmEditGpuPreparation prepare_warm_edit_gpu_session(
+    const FloatRgbImage&,
+    const SensorClippingMask*,
+    const HighlightChromaRiskMap*
+) {
     return WarmEditGpuPreparation{
         .session = nullptr,
         .diagnostic = "session-resident Metal warm preview is unavailable on this platform",

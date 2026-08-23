@@ -136,15 +136,16 @@ Current contract rules:
   so independently prepared or cross-source camera/optics state is rejected before CFA work or
   device upload. The default source treatment applies selected CFA gains (normalized by their
   minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
-  carries it above one. Each reconstructed camera channel retains a continuous calibrated-CFA
-  headroom risk beginning before physical sensor white. A single saturated channel remains
-  measured colour evidence; when a second independently sampled channel loses headroom and their
-  evidence diverges, its relative chroma is no longer measured. Before the camera transform
-  Shadow retains the Bayer-weighted camera luminance and spatial structure while smoothly
-  neutralizing only that two-channel-unreliable chroma before the editable graph. This is shared
-  by bounded preview, resident GPU preview, full-detail, and export; no post-demosaic highlight
-  blending, map sidecar, or colour rebuild is performed. The final display path, after editable
-  nodes, is the LibRaw H=0 reference mapping. `disabled` stays an explicit unbounded diagnostic
+  carries it above one. It also projects an immutable, display-sized R8 CFA-chroma-risk sidecar
+  from the same calibrated linear-response limits used by source development, rather than treating
+  physical sensor white as the only reliability boundary. A single near-white channel remains
+  measured colour evidence; risk rises only when independently sampled channels lose headroom and
+  their evidence diverges. Bounded warm preview retains this sidecar beside its reusable source and
+  binds it once to the resident GPU edit session (or the matching CPU fallback). During actual
+  negative highlight/white recovery, Selective Tone progressively pulls chroma toward neutral in
+  proportion to that source risk while preserving its ordinary Oklab-lightness behavior elsewhere.
+  It never reconstructs spatial detail or invents a neighbouring hue. The final display path,
+  after editable nodes, is the LibRaw H=0 reference mapping. `disabled` stays an explicit unbounded diagnostic
   plan for compatibility. The opt-in `aggressive` policy is a separate repair route: it spatially
   feathers the physical-white and near-white CFA confidence before the same camera-domain neutral
   pull. It intentionally sacrifices more uncertain highlight chroma to hide a false-colour contour, but never

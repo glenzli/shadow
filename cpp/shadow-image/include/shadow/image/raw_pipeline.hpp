@@ -49,7 +49,7 @@ struct RawPreviewRebindingTelemetry final {
 // route while the implementation is still being validated.
 inline constexpr std::uint32_t raw_pipeline_policy_schema_version = 2'026'082'101U;
 inline constexpr std::uint32_t raw_pipeline_receipt_schema_version = 2'026'082'101U;
-inline constexpr std::uint32_t shadow_raw_frame_developer_version = 2'026'082'201U;
+inline constexpr std::uint32_t shadow_raw_frame_developer_version = 2'026'082'202U;
 
 enum class RawPipelineMode : std::uint8_t {
     automatic,
@@ -125,6 +125,9 @@ struct DevelopedSourceReference final {
     // They remain optional because raster and provider-processed compatibility routes have no
     // truthful sensor-domain data to report.
     std::optional<SensorClippingMask> sensor_clipping_mask;
+    // Continuous CFA headroom disagreement, retained beside the binary physical-white mask for
+    // late highlight edits. It is source evidence, not a pixel operation or recipe setting.
+    std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map;
 };
 
 [[nodiscard]] constexpr RawPipelinePolicy default_raw_pipeline_policy() noexcept {

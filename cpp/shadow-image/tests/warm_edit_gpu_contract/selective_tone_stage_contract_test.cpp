@@ -4,6 +4,7 @@
 #include <shadow/image/adjustment_execution.hpp>
 #include <shadow/image/display_output.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include "../../src/proxy/warm_edit_gpu.hpp"
@@ -147,6 +148,69 @@ void resident_gpu_selective_tone_is_complete_or_declines() {
     }
 }
 
+void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
+    constexpr image::Dimensions dimensions{193U, 113U};
+    auto source = make_random_image(dimensions.width, dimensions.height, false);
+    for (std::size_t sample = 0U; sample < source.samples.size(); sample += 3U) {
+        source.samples[sample] = 2.8F;
+        source.samples[sample + 1U] = 0.45F;
+        source.samples[sample + 2U] = 2.1F;
+    }
+    image::SensorClippingMask clipping{
+        .dimensions = dimensions,
+        .samples = std::vector<std::uint8_t>(
+            static_cast<std::size_t>(dimensions.pixel_count()),
+            image::sensor_highlight_clipped
+        ),
+        .highlight_pixel_count = dimensions.pixel_count(),
+    };
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source, &clipping);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU clipped-highlight policy was required but no resident Metal session could be "
+            "prepared"
+        );
+        return;
+    }
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "sensor-clipped-highlight-recovery",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -0.47,
+            },
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    const auto gpu = preparation.session->render(nodes, plan, true);
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value(),
+        "resident Metal executes source-evidenced highlight recovery"
+    );
+    if (!gpu.output || !gpu.output->analyzed_linear) {
+        return;
+    }
+    const auto cpu = image::execute_adjustment_nodes_with_backend(
+        source,
+        nodes,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = dimensions,
+            .sensor_clipping_mask = &clipping,
+        },
+        image::AdjustmentBackendMode::cpu
+    );
+    double maximum_error = 0.0;
+    const bool linear_parity =
+        linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 1.5e-3);
+    if (!linear_parity) {
+        std::cerr << "Selective Tone clipping-evidence parity max=" << maximum_error << '\n';
+    }
+    expect(linear_parity, "the resident Metal source-clipping recovery matches the CPU reference");
+}
+
 template <typename Callable>
 [[nodiscard]] double median_milliseconds(const std::size_t iterations, Callable&& callable) {
     std::vector<double> samples;
@@ -224,6 +288,7 @@ void benchmark_selective_tone_when_requested() {
 int run_resident_gpu_selective_tone_contract() {
     failures = 0;
     resident_gpu_selective_tone_is_complete_or_declines();
+    resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy();
     benchmark_selective_tone_when_requested();
     return failures;
 }

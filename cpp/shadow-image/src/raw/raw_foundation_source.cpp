@@ -160,6 +160,7 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
         .raw_development_receipt = std::move(raw_receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = std::move(source_basis.sensor_clipping),
+        .highlight_chroma_risk_map = std::move(source_basis.highlight_chroma_risk),
     };
 }
 

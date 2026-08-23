@@ -269,6 +269,7 @@ struct PreparedWarmEditProxy final {
     RawPipelineReceipt raw_pipeline_receipt;
     OpticsProfileReceipt optics_receipt;
     std::optional<SensorClippingMask> sensor_clipping_mask;
+    std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map;
     std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source;
 };
 
@@ -300,6 +301,8 @@ struct PreparedWarmEditProxy final {
     RawDevelopmentReceipt raw_development_receipt = std::move(developed.raw_development_receipt);
     std::optional<SensorClippingMask> sensor_clipping_mask =
         std::move(developed.sensor_clipping_mask);
+    std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map =
+        std::move(developed.highlight_chroma_risk_map);
     const SourceRenderingReceipt source_rendering = std::visit(
         [&](const auto& value) {
             return resolve_source_rendering(value, metadata, developed.pipeline_receipt);
@@ -375,12 +378,17 @@ struct PreparedWarmEditProxy final {
         && sensor_clipping_mask->dimensions != working_proxy.dimensions) {
         sensor_clipping_mask.reset();
     }
+    if (highlight_chroma_risk_map.has_value()
+        && highlight_chroma_risk_map->dimensions != working_proxy.dimensions) {
+        highlight_chroma_risk_map.reset();
+    }
     return {
         .working_proxy = std::move(working_proxy),
         .raw_development_receipt = std::move(raw_development_receipt),
         .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
         .optics_receipt = std::move(receipt),
         .sensor_clipping_mask = std::move(sensor_clipping_mask),
+        .highlight_chroma_risk_map = std::move(highlight_chroma_risk_map),
         .raw_rebinding_source = nullptr,
     };
 }
@@ -595,6 +603,7 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     RawPipelineReceipt raw_pipeline_receipt,
     OpticsProfileReceipt optics_receipt,
     std::optional<SensorClippingMask> sensor_clipping_mask,
+    std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map,
     std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source,
     std::shared_ptr<const OpticsProvider> retained_optics_provider,
     OpticsSettings retained_optics_settings,
@@ -605,13 +614,18 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
     optics_receipt_(std::move(optics_receipt)),
     sensor_clipping_mask_(std::move(sensor_clipping_mask)),
+    highlight_chroma_risk_map_(std::move(highlight_chroma_risk_map)),
     raw_rebinding_source_(std::move(raw_rebinding_source)),
     retained_optics_provider_(std::move(retained_optics_provider)),
     retained_optics_settings_(std::move(retained_optics_settings)) {
     if (adopted_warm_gpu_session) {
         warm_gpu_session_ = std::move(adopted_warm_gpu_session);
     } else {
-        auto gpu = detail::prepare_warm_edit_gpu_session(working_proxy_);
+        auto gpu = detail::prepare_warm_edit_gpu_session(
+            working_proxy_,
+            sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+            highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr
+        );
         warm_gpu_session_ = std::move(gpu.session);
         warm_gpu_diagnostic_ = std::move(gpu.diagnostic);
     }
@@ -640,6 +654,11 @@ const OpticsProfileReceipt& WarmEditPreviewSession::optics_receipt() const noexc
 const std::optional<SensorClippingMask>&
 WarmEditPreviewSession::sensor_clipping_mask() const noexcept {
     return sensor_clipping_mask_;
+}
+
+const std::optional<HighlightChromaRiskMap>&
+WarmEditPreviewSession::highlight_chroma_risk_map() const noexcept {
+    return highlight_chroma_risk_map_;
 }
 
 WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
@@ -753,6 +772,13 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                                 .working_space = layout.working_space,
                                 .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
                                 .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                                .sensor_clipping_mask = resident->sensor_clipping_mask.has_value()
+                                                            ? &*resident->sensor_clipping_mask
+                                                            : nullptr,
+                                .highlight_chroma_risk_map =
+                                    resident->highlight_chroma_risk_map.has_value()
+                                        ? &*resident->highlight_chroma_risk_map
+                                        : nullptr,
                             }
                         );
                         if (warm.session) {
@@ -768,6 +794,7 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                                 std::move(resident->pipeline_receipt),
                                 optics.receipt(),
                                 std::move(resident->sensor_clipping_mask),
+                                std::move(resident->highlight_chroma_risk_map),
                                 raw_rebinding_source_,
                                 retained_optics_provider_,
                                 retained_optics_settings_,
@@ -822,6 +849,12 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                         .working_space = layout.working_space,
                         .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
                         .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                        .sensor_clipping_mask = resident->sensor_clipping_mask.has_value()
+                                                    ? &*resident->sensor_clipping_mask
+                                                    : nullptr,
+                        .highlight_chroma_risk_map = resident->highlight_chroma_risk_map.has_value()
+                                                         ? &*resident->highlight_chroma_risk_map
+                                                         : nullptr,
                     }
                 );
                 if (warm.session) {
@@ -837,6 +870,7 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                         std::move(resident->pipeline_receipt),
                         OpticsProfileReceipt{},
                         std::move(resident->sensor_clipping_mask),
+                        std::move(resident->highlight_chroma_risk_map),
                         raw_rebinding_source_,
                         retained_optics_provider_,
                         retained_optics_settings_,
@@ -874,6 +908,7 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         raw_rebinding_source_,
         retained_optics_provider_,
         retained_optics_settings_
@@ -910,6 +945,7 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_foundation_amount(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         raw_rebinding_source_,
         retained_optics_provider_,
         retained_optics_settings_
@@ -997,6 +1033,8 @@ EncodedProxy WarmEditPreviewSession::render_jpeg_layers(
         layers,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         false,
         {},
         std::nullopt,
@@ -1029,6 +1067,8 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
         layers,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         true,
         {},
         std::nullopt,
@@ -1077,6 +1117,8 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_c
         nodes,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         false,
         cancellation,
         detail::WarmEditGpuOutputIntent::host_rgb8
@@ -1103,6 +1145,8 @@ WarmEditPreviewSession::render_interactive_frame_cancellable(
         nodes,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         false,
         cancellation,
         detail::WarmEditGpuOutputIntent::metal_presentation_surface
@@ -1150,6 +1194,8 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_l
         layers,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         false,
         cancellation,
         std::nullopt,
@@ -1178,6 +1224,8 @@ WarmEditPreviewSession::render_rgb8_layers_with_mask_coverage_cancellable(
         layers,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         false,
         cancellation,
         target_layer_index,
@@ -1210,6 +1258,8 @@ WarmEditPreviewSession::render_interactive_frame_layers_with_mask_coverage_cance
         layers,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         false,
         cancellation,
         target_layer_index,
@@ -1260,6 +1310,8 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_jpeg_c
         nodes,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         false,
         cancellation,
         detail::WarmEditGpuOutputIntent::host_rgb8
@@ -1300,6 +1352,8 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
         nodes,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         true,
         cancellation,
         detail::WarmEditGpuOutputIntent::host_rgb8
@@ -1357,6 +1411,8 @@ WarmEditPreviewSession::render_jpeg_with_analysis_layers_and_mask_coverage_cance
         layers,
         geometry,
         liquify,
+        sensor_clipping_mask_.has_value() ? &*sensor_clipping_mask_ : nullptr,
+        highlight_chroma_risk_map_.has_value() ? &*highlight_chroma_risk_map_ : nullptr,
         true,
         cancellation,
         target_layer_index,
@@ -1447,6 +1503,7 @@ WarmEditPreviewSession prepare_warm_edit_preview(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         optics_provider == nullptr ? std::move(prepared.raw_rebinding_source) : nullptr
     );
 }
@@ -1480,6 +1537,7 @@ WarmEditPreviewSession prepare_warm_edit_preview(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         optics_provider == nullptr ? std::move(prepared.raw_rebinding_source) : nullptr
     );
 }
@@ -1511,6 +1569,7 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         std::move(prepared.raw_rebinding_source),
         std::move(optics_provider),
         optics_settings
@@ -1564,6 +1623,7 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         std::move(prepared.raw_rebinding_source),
         std::move(optics_provider),
         optics_settings
@@ -1599,6 +1659,7 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         std::move(prepared.raw_rebinding_source),
         std::move(optics_provider),
         optics_settings
@@ -1636,6 +1697,7 @@ WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt),
         std::move(prepared.sensor_clipping_mask),
+        std::move(prepared.highlight_chroma_risk_map),
         std::move(prepared.raw_rebinding_source),
         std::move(optics_provider),
         optics_settings

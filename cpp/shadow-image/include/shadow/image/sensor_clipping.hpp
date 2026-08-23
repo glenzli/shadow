@@ -30,6 +30,21 @@ struct SensorClippingMask final {
     [[nodiscard]] bool valid() const noexcept;
 };
 
+// A display-oriented, source-domain confidence sidecar for highlight chroma. Unlike the binary
+// clipping mask it records when CFA chroma is no longer trustworthy before any white balance or
+// colour transform: 0 means the measured chroma remains trustworthy and 255 means either
+// multi-channel headroom has diverged or every channel shares the terminal response shoulder.
+// It is deliberately not a reconstruction result and never invents detail or hue.
+inline constexpr std::uint32_t highlight_chroma_risk_map_schema_version = 1U;
+
+struct HighlightChromaRiskMap final {
+    std::uint32_t schema_version = highlight_chroma_risk_map_schema_version;
+    Dimensions dimensions;
+    std::vector<std::uint8_t> samples;
+
+    [[nodiscard]] bool valid() const noexcept;
+};
+
 // Projects the active RawFrame into the supplied display dimensions. A target cell is marked as
 // highlight-clipped when any source CFA sample reaches its calibrated white level. It is marked
 // as shadow-clipped only when every source sample in that cell is at or below its own calibrated
@@ -41,5 +56,11 @@ struct SensorClippingMask final {
 // same exact target bins beside reconstruction from the original, pre-denoise sensor buffer.
 [[nodiscard]] SensorClippingMask
 project_sensor_clipping_mask(const RawFrame& frame, Dimensions target_dimensions);
+
+// Projects continuous CFA headroom disagreement and a common terminal shoulder into the same
+// display grid as `SensorClippingMask`. This is source invariant: changing RAW white balance
+// changes the camera rendering, not whether a sensor channel had remaining headroom.
+[[nodiscard]] HighlightChromaRiskMap
+project_highlight_chroma_risk_map(const RawFrame& frame, Dimensions target_dimensions);
 
 } // namespace shadow::image

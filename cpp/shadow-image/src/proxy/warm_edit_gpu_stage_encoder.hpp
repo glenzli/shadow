@@ -21,6 +21,7 @@ ensure_warm_gpu_stage_resources(WarmGpuSlotLease& slot, const WarmGpuNeighbourho
     id<MTLBuffer> input,
     const WarmGpuNeighbourhoodStage& stage,
     id<MTLBuffer> neighbourhood_geometry,
+    id<MTLBuffer> highlight_clipping,
     const MetalAdjustmentInvocation& color_invocation
 );
 

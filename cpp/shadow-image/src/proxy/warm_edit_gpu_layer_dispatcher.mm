@@ -128,10 +128,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             );
         }
         geometry_plan = std::move(*geometry.plan);
-        auto buffer = resident.acquire_liquify_geometry_buffer(
-            geometry_plan->liquify_words,
-            cancellation
-        );
+        auto buffer =
+            resident.acquire_liquify_geometry_buffer(geometry_plan->liquify_words, cancellation);
         if (buffer.cancelled) {
             return cancelled();
         }
@@ -166,10 +164,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         }
         RetainedMetalBuffer brush_index_buffer;
         if (entry.brush_index.has_value()) {
-            auto buffer_attempt = resident.acquire_brush_index_buffer(
-                entry.brush_index->words,
-                cancellation
-            );
+            auto buffer_attempt =
+                resident.acquire_brush_index_buffer(entry.brush_index->words, cancellation);
             if (buffer_attempt.cancelled) {
                 return cancelled();
             }
@@ -226,8 +222,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
     if (!display_preparation.transaction.has_value()) {
         return failed(std::move(display_preparation.diagnostic));
     }
-    PreparedWarmTransaction display_transaction =
-        std::move(*display_preparation.transaction);
+    PreparedWarmTransaction display_transaction = std::move(*display_preparation.transaction);
 
     auto slot_lease = resident.acquire_slot(cancellation);
     if (!slot_lease.has_value()) {
@@ -240,8 +235,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         if (!diagnostic.empty()) {
             return failed(diagnostic);
         }
-        needs_layer_snapshot = needs_layer_snapshot
-            || layer_plan.active_layers[layer.plan_index].needs_blend;
+        needs_layer_snapshot =
+            needs_layer_snapshot || layer_plan.active_layers[layer.plan_index].needs_blend;
     }
     if (needs_layer_snapshot) {
         const std::string diagnostic = slot_lease->ensure_layer_resources();
@@ -250,8 +245,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         }
     }
     if (layer_plan.mask_coverage.has_value()) {
-        const std::string diagnostic =
-            slot_lease->ensure_mask_coverage_resources();
+        const std::string diagnostic = slot_lease->ensure_mask_coverage_resources();
         if (!diagnostic.empty()) {
             return failed(diagnostic);
         }
@@ -271,22 +265,15 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
 
     @autoreleasepool {
         for (const PreparedWarmLayer& layer : prepared_layers) {
-            copy_warm_gpu_transaction_operations(
-                slot.before_operations,
-                layer.transaction
-            );
+            copy_warm_gpu_transaction_operations(slot.before_operations, layer.transaction);
         }
-        copy_warm_gpu_transaction_operations(
-            slot.before_operations,
-            display_transaction
-        );
+        copy_warm_gpu_transaction_operations(slot.before_operations, display_transaction);
         auto* status = static_cast<WarmStatus*>([slot.status contents]);
         *status = WarmStatus{};
         const WarmDisplayParameters display{
             .output_origin_x = render_context.display_origin_x,
             .output_origin_y = render_context.display_origin_y,
-            .apply_scene_curve =
-                layout.reference == ImageReference::scene_referred ? 1U : 0U,
+            .apply_scene_curve = layout.reference == ImageReference::scene_referred ? 1U : 0U,
             .retain_linear = retain_linear_for_analysis ? 1U : 0U,
         };
 
@@ -299,20 +286,16 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
 
         id<MTLBuffer> current = resident.source_buffer();
         const auto encode_mask_coverage = [&](id<MTLBuffer> input) {
-            WarmLayerBlendParameters parameters =
-                layer_plan.mask_coverage->mask.parameters;
+            WarmLayerBlendParameters parameters = layer_plan.mask_coverage->mask.parameters;
             parameters.input_row_floats =
-                input == resident.source_buffer()
-                ? source_row_floats
-                : packed_row_floats;
+                input == resident.source_buffer() ? source_row_floats : packed_row_floats;
             const WarmGpuBrushIndex* brush_index =
                 layer_plan.mask_coverage->mask.brush_index.has_value()
-                ? &*layer_plan.mask_coverage->mask.brush_index
-                : nullptr;
-            id<MTLBuffer> brush_buffer =
-                mask_coverage_brush_index_buffer
-                ? mask_coverage_brush_index_buffer.get()
-                : slot.before_operations;
+                    ? &*layer_plan.mask_coverage->mask.brush_index
+                    : nullptr;
+            id<MTLBuffer> brush_buffer = mask_coverage_brush_index_buffer
+                                             ? mask_coverage_brush_index_buffer.get()
+                                             : slot.before_operations;
             [encoder setComputePipelineState:context.mask_coverage_pipeline()];
             [encoder setBuffer:input offset:0U atIndex:0U];
             [encoder setBuffer:slot.mask_coverage_linear offset:0U atIndex:1U];
@@ -320,30 +303,19 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:3U];
             [encoder setBuffer:slot.status offset:0U atIndex:4U];
             [encoder setBuffer:brush_buffer
-                        offset:brush_index == nullptr
-                            ? 0U
-                            : brush_index->capsule_offset_bytes
+                        offset:brush_index == nullptr ? 0U : brush_index->capsule_offset_bytes
                        atIndex:5U];
             [encoder setBuffer:brush_buffer
-                        offset:brush_index == nullptr
-                            ? 0U
-                            : brush_index->cell_range_offset_bytes
+                        offset:brush_index == nullptr ? 0U : brush_index->cell_range_offset_bytes
                        atIndex:6U];
             [encoder setBuffer:brush_buffer
-                        offset:brush_index == nullptr
-                            ? 0U
-                            : brush_index->reference_offset_bytes
+                        offset:brush_index == nullptr ? 0U : brush_index->reference_offset_bytes
                        atIndex:7U];
-            dispatch_warm_gpu_raster(
-                encoder,
-                context.mask_coverage_pipeline(),
-                layout.dimensions
-            );
+            dispatch_warm_gpu_raster(encoder, context.mask_coverage_pipeline(), layout.dimensions);
         };
 
         std::size_t prepared_layer_index = 0U;
-        for (std::size_t authored_layer_index = 0U;
-             authored_layer_index < layers.size();
+        for (std::size_t authored_layer_index = 0U; authored_layer_index < layers.size();
              ++authored_layer_index) {
             if (layer_plan.mask_coverage.has_value()
                 && layer_plan.mask_coverage->layer_index == authored_layer_index) {
@@ -352,28 +324,20 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             if (prepared_layer_index >= prepared_layers.size()) {
                 continue;
             }
-            const PreparedWarmLayer& layer =
-                prepared_layers[prepared_layer_index];
-            WarmGpuLayerPlanEntry& entry =
-                layer_plan.active_layers[layer.plan_index];
+            const PreparedWarmLayer& layer = prepared_layers[prepared_layer_index];
+            WarmGpuLayerPlanEntry& entry = layer_plan.active_layers[layer.plan_index];
             if (entry.layer_index != authored_layer_index) {
                 continue;
             }
             ++prepared_layer_index;
             if (entry.needs_blend) {
                 entry.blend.input_row_floats =
-                    current == resident.source_buffer()
-                    ? source_row_floats
-                    : packed_row_floats;
+                    current == resident.source_buffer() ? source_row_floats : packed_row_floats;
                 [encoder setComputePipelineState:context.layer_copy_pipeline()];
                 [encoder setBuffer:current offset:0U atIndex:0U];
                 [encoder setBuffer:slot.layer_before offset:0U atIndex:1U];
                 [encoder setBytes:&entry.blend length:sizeof(entry.blend) atIndex:2U];
-                dispatch_warm_gpu_raster(
-                    encoder,
-                    context.layer_copy_pipeline(),
-                    layout.dimensions
-                );
+                dispatch_warm_gpu_raster(encoder, context.layer_copy_pipeline(), layout.dimensions);
             }
 
             current = encode_warm_gpu_transaction_prefix(
@@ -382,6 +346,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                 layout,
                 slot,
                 current,
+                resident.highlight_clipping_buffer(),
                 layer.transaction
             );
             if (!layer.transaction.final_program.program.operations.empty()) {
@@ -395,44 +360,33 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                     output,
                     layer.transaction.final_program
                 );
-                dispatch_warm_gpu_raster(
-                    encoder,
-                    context.adjustment_pipeline(),
-                    layout.dimensions
-                );
+                dispatch_warm_gpu_raster(encoder, context.adjustment_pipeline(), layout.dimensions);
                 current = output;
             }
 
             if (entry.needs_blend) {
                 const WarmGpuBrushIndex* brush_index =
                     entry.brush_index.has_value() ? &*entry.brush_index : nullptr;
-                id<MTLBuffer> brush_buffer =
-                    layer.brush_index_buffer
-                    ? layer.brush_index_buffer.get()
-                    : slot.before_operations;
-                id<MTLBuffer> precomputed_coverage =
-                    entry.blend.use_precomputed_coverage != 0U
-                    ? slot.mask_coverage_linear
-                    : slot.before_operations;
+                id<MTLBuffer> brush_buffer = layer.brush_index_buffer
+                                                 ? layer.brush_index_buffer.get()
+                                                 : slot.before_operations;
+                id<MTLBuffer> precomputed_coverage = entry.blend.use_precomputed_coverage != 0U
+                                                         ? slot.mask_coverage_linear
+                                                         : slot.before_operations;
                 [encoder setComputePipelineState:context.layer_blend_pipeline()];
                 [encoder setBuffer:slot.layer_before offset:0U atIndex:0U];
                 [encoder setBuffer:current offset:0U atIndex:1U];
                 [encoder setBytes:&entry.blend length:sizeof(entry.blend) atIndex:2U];
                 [encoder setBuffer:slot.status offset:0U atIndex:3U];
                 [encoder setBuffer:brush_buffer
-                            offset:brush_index == nullptr
-                                ? 0U
-                                : brush_index->capsule_offset_bytes
+                            offset:brush_index == nullptr ? 0U : brush_index->capsule_offset_bytes
                            atIndex:4U];
+                [encoder
+                    setBuffer:brush_buffer
+                       offset:brush_index == nullptr ? 0U : brush_index->cell_range_offset_bytes
+                      atIndex:5U];
                 [encoder setBuffer:brush_buffer
-                            offset:brush_index == nullptr
-                                ? 0U
-                                : brush_index->cell_range_offset_bytes
-                           atIndex:5U];
-                [encoder setBuffer:brush_buffer
-                            offset:brush_index == nullptr
-                                ? 0U
-                                : brush_index->reference_offset_bytes
+                            offset:brush_index == nullptr ? 0U : brush_index->reference_offset_bytes
                            atIndex:6U];
                 [encoder setBuffer:precomputed_coverage offset:0U atIndex:7U];
                 dispatch_warm_gpu_raster(
@@ -443,8 +397,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             }
         }
 
-        const PreparedWarmProgram& display_program =
-            display_transaction.final_program;
+        const PreparedWarmProgram& display_program = display_transaction.final_program;
         Dimensions output_dimensions = layout.dimensions;
         std::size_t output_sample_count = layout.adjusted_sample_count;
         std::size_t output_linear_bytes = layout.adjusted_bytes;
@@ -471,8 +424,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             );
             current = geometry_output;
             output_dimensions = geometry_plan->output_dimensions;
-            output_sample_count =
-                static_cast<std::size_t>(output_dimensions.pixel_count()) * 3U;
+            output_sample_count = static_cast<std::size_t>(output_dimensions.pixel_count()) * 3U;
             output_linear_bytes = output_sample_count * sizeof(float);
             output_rgb8_bytes = output_sample_count;
             output_scale_x = geometry_plan->output_level_zero_to_raster_scale_x;
@@ -481,29 +433,18 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             display_invocation.height = output_dimensions.height;
             display_invocation.input_row_floats = output_dimensions.width * 3U;
             display_invocation.output_row_floats = output_dimensions.width * 3U;
-            output_mask_coverage_bytes =
-                static_cast<std::size_t>(output_dimensions.pixel_count());
+            output_mask_coverage_bytes = static_cast<std::size_t>(output_dimensions.pixel_count());
             if (layer_plan.mask_coverage.has_value()) {
-                const WarmPhotoGeometryParameters mask_geometry =
-                    geometry_plan->parameters;
-                [encoder setComputePipelineState:
-                             context.mask_coverage_geometry_pipeline()];
-                [encoder setBuffer:slot.mask_coverage_linear
-                            offset:0U
-                           atIndex:0U];
-                [encoder setBuffer:slot.mask_coverage_r8
-                            offset:0U
-                           atIndex:1U];
-                [encoder setBytes:&mask_geometry
-                           length:sizeof(mask_geometry)
-                          atIndex:2U];
+                const WarmPhotoGeometryParameters mask_geometry = geometry_plan->parameters;
+                [encoder setComputePipelineState:context.mask_coverage_geometry_pipeline()];
+                [encoder setBuffer:slot.mask_coverage_linear offset:0U atIndex:0U];
+                [encoder setBuffer:slot.mask_coverage_r8 offset:0U atIndex:1U];
+                [encoder setBytes:&mask_geometry length:sizeof(mask_geometry) atIndex:2U];
                 [encoder setBuffer:slot.status offset:0U atIndex:3U];
                 [encoder setBytes:&geometry_plan->liquify_parameters
                            length:sizeof(geometry_plan->liquify_parameters)
                           atIndex:4U];
-                [encoder setBuffer:geometry_liquify_buffer.get()
-                            offset:0U
-                           atIndex:5U];
+                [encoder setBuffer:geometry_liquify_buffer.get() offset:0U atIndex:5U];
                 dispatch_warm_gpu_raster(
                     encoder,
                     context.mask_coverage_geometry_pipeline(),
@@ -511,8 +452,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                 );
             }
         }
-        id<MTLBuffer> final_adjusted =
-            current == slot.adjusted ? slot.denoised : slot.adjusted;
+        id<MTLBuffer> final_adjusted = current == slot.adjusted ? slot.denoised : slot.adjusted;
         [encoder setComputePipelineState:context.display_pipeline()];
         [encoder setBuffer:current offset:0U atIndex:0U];
         [encoder setBuffer:final_adjusted offset:0U atIndex:1U];
@@ -520,56 +460,41 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         [encoder setBuffer:slot.before_operations
                     offset:display_program.operation_offset_bytes
                    atIndex:3U];
-        [encoder setBytes:&display_invocation
-                   length:sizeof(display_invocation)
-                  atIndex:4U];
+        [encoder setBytes:&display_invocation length:sizeof(display_invocation) atIndex:4U];
         [encoder setBytes:&display length:sizeof(display) atIndex:5U];
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
         [encoder setBuffer:display_program.buffers.curve.get() offset:0U atIndex:7U];
         [encoder setBuffer:display_program.buffers.lut.get() offset:0U atIndex:8U];
-        [encoder setBuffer:display_program.buffers.perceptual_mixer.get()
-                    offset:0U
-                   atIndex:9U];
-        [encoder setBuffer:display_program.buffers.perceptual_range.get()
-                    offset:0U
-                   atIndex:10U];
-        [encoder setBuffer:display_program.buffers.selective_color.get()
-                    offset:0U
-                   atIndex:11U];
+        [encoder setBuffer:display_program.buffers.perceptual_mixer.get() offset:0U atIndex:9U];
+        [encoder setBuffer:display_program.buffers.perceptual_range.get() offset:0U atIndex:10U];
+        [encoder setBuffer:display_program.buffers.selective_color.get() offset:0U atIndex:11U];
         dispatch_warm_gpu_raster(encoder, context.display_pipeline(), output_dimensions);
         [encoder endEncoding];
 
         std::shared_ptr<WarmEditGpuPresentationSurface> presentation_surface;
         std::string presentation_fallback_diagnostic;
-        if (
-            render_context.output_intent
-                == WarmEditGpuOutputIntent::metal_presentation_surface
-            && !retain_linear_for_analysis
-        ) {
+        if (render_context.output_intent == WarmEditGpuOutputIntent::metal_presentation_surface
+            && !retain_linear_for_analysis) {
             resident.record_presentation_surface_request();
             auto preparation_surface =
-                prepare_warm_edit_gpu_presentation_surface(
-                    context.device(),
-                    output_dimensions
-                );
+                prepare_warm_edit_gpu_presentation_surface(context.device(), output_dimensions);
             if (preparation_surface.surface) {
                 const std::string presentation_diagnostic =
                     encode_warm_edit_gpu_presentation_surface(
                         command_buffer,
                         slot.rgb8,
                         *preparation_surface.surface
-                );
+                    );
                 if (presentation_diagnostic.empty()) {
-                    presentation_surface =
-                        std::move(preparation_surface.surface);
+                    presentation_surface = std::move(preparation_surface.surface);
                 } else {
                     presentation_fallback_diagnostic = presentation_diagnostic;
                 }
             } else {
                 presentation_fallback_diagnostic =
                     preparation_surface.diagnostic.empty()
-                    ? "Metal presentation surface preparation was unavailable"
-                    : std::move(preparation_surface.diagnostic);
+                        ? "Metal presentation surface preparation was unavailable"
+                        : std::move(preparation_surface.diagnostic);
             }
         }
         if (cancellation.stop_requested()) {
@@ -586,9 +511,9 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         if (status->flags != 0U) {
             return failed(
                 "session-resident Metal layer blend produced an invalid result"
-                " (flags=" + std::to_string(status->flags)
-                + ", earliest-step=" + std::to_string(status->earliest_step)
-                + ")"
+                " (flags="
+                + std::to_string(status->flags)
+                + ", earliest-step=" + std::to_string(status->earliest_step) + ")"
             );
         }
         if (presentation_surface) {
@@ -599,16 +524,13 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
 
         RenderResult result{
             .dimensions = output_dimensions,
-            .rgb8 = presentation_surface
-                ? std::vector<std::uint8_t>{}
-                : std::vector<std::uint8_t>(output_rgb8_bytes),
+            .rgb8 = presentation_surface ? std::vector<std::uint8_t>{}
+                                         : std::vector<std::uint8_t>(output_rgb8_bytes),
             .presentation_surface = std::move(presentation_surface),
-            .presentation_fallback_diagnostic =
-                std::move(presentation_fallback_diagnostic),
+            .presentation_fallback_diagnostic = std::move(presentation_fallback_diagnostic),
             .analyzed_linear = std::nullopt,
             .mask_coverage = std::nullopt,
-            .had_active_adjustments =
-                !prepared_layers.empty() || geometry_plan.has_value(),
+            .had_active_adjustments = !prepared_layers.empty() || geometry_plan.has_value(),
         };
         if (cancellation.stop_requested()) {
             return cancelled();
@@ -621,8 +543,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                 .layer_index = layer_plan.mask_coverage->layer_index,
                 .dimensions = output_dimensions,
                 .row_stride_bytes = output_dimensions.width,
-                .samples =
-                    std::vector<std::uint8_t>(output_mask_coverage_bytes),
+                .samples = std::vector<std::uint8_t>(output_mask_coverage_bytes),
             };
             std::memcpy(
                 mask.samples.data(),
@@ -644,11 +565,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                 .level_zero_to_raster_scale_y = output_scale_y,
                 .samples = std::vector<float>(output_sample_count),
             };
-            std::memcpy(
-                linear.samples.data(),
-                [final_adjusted contents],
-                output_linear_bytes
-            );
+            std::memcpy(linear.samples.data(), [final_adjusted contents], output_linear_bytes);
             result.analyzed_linear = std::move(linear);
         }
         if (cancellation.stop_requested()) {
