@@ -135,40 +135,61 @@ Current contract rules:
   materialized and resident consumers. Only that owner may prepare region optics for publication,
   so independently prepared or cross-source camera/optics state is rejected before CFA work or
   device upload. The default source treatment applies selected CFA gains (normalized by their
-  minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
-  carries it above one. Each reconstruction footprint also retains exact per-colour physical-white
-  coverage. Before the camera matrix, a near-terminal channel may move only upward toward the
-  cube-root mean of its two locally reconstructed opposing colours; this recovers a plausible
-  neutral highlight shoulder without spreading a neighbouring object's hue, and leaves a
-  one-colour emitter unchanged when its opposing reference is lower. Shared three-colour physical
-  clipping then continuously removes only the remaining unmeasured residual chroma. This local fp32
-  evidence work is fused into the existing CPU/Metal sampling pass and creates no full-frame side
-  buffer, extra pass, or device transfer.
+  minimum) before demosaic and retains scene-referred fp32 headroom for every terminal CFA phase.
+  Projecting an isolated terminal phase back to a common ceiling creates the Bayer-aligned edge
+  step it was intended to prevent; physical-white topology therefore remains a separate signal,
+  and only a shared three-colour terminal core may reconstruct missing luminance. Each
+  reconstruction footprint separately retains exact per-colour physical-white coverage. Before
+  the camera matrix, a near-terminal channel may move only upward toward the cube-root mean of its
+  two locally reconstructed opposing colours; this recovers a plausible neutral highlight
+  shoulder without spreading a neighbouring object's hue, and leaves a one-colour emitter
+  unchanged when its opposing reference is lower. Reduced CFA-area previews
+  keep measured and response-shoulder contributions separate for each colour until the final area
+  average. An opposed estimate may replace only a response-shoulder photosite using its local
+  opposing colours; a reliable dark fixture contribution sharing the same preview bin remains
+  exact. This removes both the false pink ratio and the compensating preview-width yellow/grey
+  contour without expanding write ownership. Area previews then skip post-demosaic scene-RGB
+  surface replacement because that stage can no longer distinguish the two subjects after
+  integration. Native detail/export uses the same CFA-site ownership inside its existing bilinear
+  dependency halo, so ordinary Bayer sources stay eligible for resident CPU/Metal execution. The
+  repair stays in the existing fused sampling pass and adds no full-frame side buffer, pass, or
+  device transfer.
   The source also projects an immutable, display-sized R8 CFA-chroma-risk sidecar from the same
   calibrated linear-response limits. A single near-white channel remains measured colour evidence;
   risk rises when independently sampled channels lose headroom and their evidence diverges. A
   terminal shared-clipping component feathers its confidence one display bin into adjacent valid
   bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this
-  sidecar beside its reusable source. The provider-default RAW policy also replaces physically
-  clipped chromaticity and luminance topology with a low-frequency scene-linear estimate from
-  local evidence. A push-pull guide is bounded to 384 pixels on its longest edge; its reliable
+  sidecar beside its reusable source. Camera-RGB compatibility sources, including verified AI RAW
+  foundations that no longer retain individual CFA photosites, use a separate bounded
+  post-demosaic fallback. Its push-pull guide is bounded to 384 pixels on its longest edge; its
+  reliable
   colour branch excludes physical clipping and non-clipped samples whose CFA colour is already
   marked unreliable, while a separately smoothed bright-observation branch retains local light
-  shape. The full raster receives one in-place linear pass. Local clipping density distinguishes a
-  coherent missing RGB surface from
-  an isolated projected CFA hit, leaving sparse hits measured instead of growing Bayer-phase hairs
-  along a high-contrast edge. A luminance gate applies to clipped projection bins, preventing a bin
-  that straddles a clipped lamp and a dark fixture from being painted as part of the light. The
-  reliable measured guide supplies boundary chromaticity. The deep terminal core keeps locally
-  observed colour when it agrees with that boundary; a contradictory core is continuously
-  desaturated instead of importing a distant hue. A broader highlight-supported luminance blur
-  contributes through a bell at the physical boundary and replaces only the unknowable deep
-  clipped surface, retaining local energy while suppressing quantised plateaus. Adjacent dark
-  subjects have zero support and the far measured exterior remains unchanged. The remaining CFA
-  risk decays by the actual chroma blend instead of being cleared at the first touched pixel. This
+  shape. The existing R8 physical-clipping mask uses a separate bit when every CFA colour in the
+  local reconstruction footprint has reached white. Only coherent support from that shared core
+  may drive the low-frequency luminance surface; single/two-channel clips remain measured instead
+  of growing Bayer-phase hairs along a high-contrast edge. A luminance gate applies to clipped
+  projection bins, preventing a bin that straddles a clipped lamp and a dark fixture from being
+  painted as part of the light. Ordinary Bayer preview/detail/export does not enter this
+  post-demosaic stage. The
+  reliable measured guide supplies camera-space boundary chromaticity. The guide retains its
+  original measurement confidence after push-pull initialization: measured boundary bins stay
+  fixed, while inferred bins relax only inward through coherent clipping support. They do not
+  become new colour seeds, so the repair neither imports a circular search hue nor paints that hue
+  outside the segment. Retained WB headroom passes through a monotonic, locally anchored
+  logarithmic shoulder inside factual shared clipping; unclipped pixels may receive chroma repair
+  only where the native R8 risk map explicitly owns it and retain exact measured luminance. The
+  risk projection remains local to each output pixel's own CFA footprint. Wider neighbourhoods
+  estimate replacement colour but never enlarge write ownership, matching darktable's separation
+  between candidate gathering and damaged-site replacement. This removes the former
+  symmetric boundary bell, whose dip could become a second arc after an extreme highlight pull,
+  while retaining light energy and suppressing quantised core plateaus. Adjacent dark
+  subjects have zero support and the measured exterior remains unchanged. Once the source pass has
+  consumed the sidecar's colour-loss evidence, it clears that evidence before the grade path. This
   prevents either reconstruction or later recovery from drawing a dark island, bright dome, or
   second clipping-mask contour while still correcting false colour without inventing texture.
-  Detail/export materializes this source once instead of inferring a different surface independently
+  Camera-RGB fallback detail/export materializes this source once instead of inferring a different
+  surface independently
   in resident tiles. DCP input rendering follows the reconstruction, so the spatial estimate
   remains a RAW source operation. The warm preview then binds the prepared source and one R8
   chroma-risk plane once to the resident GPU edit session (or the matching CPU fallback); slider

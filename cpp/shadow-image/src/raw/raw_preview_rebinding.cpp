@@ -228,12 +228,6 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
     }
     RawDevelopmentPlan effective_plan = impl_->development_template.development_plan();
     effective_plan.white_balance = requested_plan.white_balance;
-    // Continuous highlight recovery owns a host-side low-frequency source reconstruction. Decline
-    // direct resident publication once so normal materialized binding can prepare that immutable
-    // source; subsequent grade sliders still reuse its warm GPU session.
-    if (uses_clipped_highlight_surface_reconstruction(effective_plan.highlight_recovery)) {
-        return std::nullopt;
-    }
     if (impl_->development_template.requested_backend() == RawDevelopmentBackendMode::cpu) {
         return std::nullopt;
     }
@@ -326,12 +320,16 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
         impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
     }
     log_interactive_rebind_timing(timing_enabled, timing_sequence, "receipt-ready", timing_started);
+    auto highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis);
+    if (uses_cfa_owned_highlight_reconstruction(effective_plan.highlight_recovery)) {
+        complete_cfa_owned_highlight_reconstruction(highlight_chroma_risk_map);
+    }
     return ResidentRawPreviewRebinding{
         .output = std::move(*development.output),
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
-        .highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis),
+        .highlight_chroma_risk_map = std::move(highlight_chroma_risk_map),
     };
 #endif
 }
@@ -510,9 +508,9 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         }
         const DcpColorTransform* dcp = rebound_development.camera_profile();
         const bool dcp_requested = dcp != nullptr && dcp->has_post_matrix_stages();
-        const bool reconstruct_clipped_surface =
-            uses_clipped_highlight_surface_reconstruction(effective_plan.highlight_recovery);
-        const bool fused_dcp_requested = dcp_requested && !reconstruct_clipped_surface;
+        const bool reconstruct_cfa_highlights =
+            uses_cfa_owned_highlight_reconstruction(effective_plan.highlight_recovery);
+        const bool fused_dcp_requested = dcp_requested;
         // The initial RAW source development already folds DCP input rendering into its Metal
         // tile transaction. Do the same for a white-balance rebind: otherwise a bounded Metal
         // reconstruction is copied to the host, uploaded once more for DCP, then copied back
@@ -593,12 +591,8 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             impl_->ordinary_raw_cpu_development_count.fetch_add(1U, std::memory_order_relaxed);
         }
         HighlightChromaRiskMap highlight_chroma_risk = ordinary->highlight_chroma_risk;
-        if (reconstruct_clipped_surface) {
-            static_cast<void>(reconstruct_clipped_highlight_surface(
-                developed->scene_linear,
-                ordinary->sensor_clipping,
-                highlight_chroma_risk
-            ));
+        if (reconstruct_cfa_highlights) {
+            complete_cfa_owned_highlight_reconstruction(highlight_chroma_risk);
         }
         DcpColorExecutionBackend dcp_backend =
             fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
@@ -682,7 +676,8 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         static_cast<void>(reconstruct_clipped_highlight_surface(
             developed.scene_linear,
             foundation.sensor_clipping,
-            highlight_chroma_risk
+            highlight_chroma_risk,
+            &rebound_development.linear_transform()
         ));
     }
     DcpColorExecutionBackend dcp_backend = DcpColorExecutionBackend::cpu;

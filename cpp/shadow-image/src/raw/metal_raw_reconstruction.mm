@@ -543,7 +543,9 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         }
     }
     if (sensor_clipping_mask.has_value()) {
-        for (const std::uint8_t flags : sensor_clipping_mask->samples) {
+        for (std::size_t pixel = 0U; pixel < sensor_clipping_mask->samples.size(); ++pixel) {
+            const std::uint8_t packed = sensor_clipping_mask->samples[pixel];
+            const std::uint8_t flags = packed & sensor_clipping_flag_mask;
             sensor_clipping_mask->highlight_pixel_count +=
                 (flags & sensor_highlight_clipped) != 0U ? 1U : 0U;
             sensor_clipping_mask->shadow_pixel_count +=

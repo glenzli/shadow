@@ -20,6 +20,15 @@ using CameraRgb = std::array<float, 3U>;
 struct BayerCfaSamplingPolicy final {
     float white_balance_scale = 1.0F;
     bool cap_physical_sensor_white = false;
+    // Physical-white detection and topology remain active, but a terminal photosite may retain its
+    // CFA white-balance-scaled fp32 value instead of being projected onto a common 1.0 ceiling.
+    // Editable RAW uses this scene-referred domain; diagnostics may disable it to compare the old
+    // common-white projection without changing clipping evidence or reconstruction policy.
+    bool preserve_terminal_white_balance_headroom = false;
+    // A bounded diagnostic may admit physical-white WB headroom only when all CFA colours in the
+    // local reconstruction footprint are terminal. Production keeps this false: projecting an
+    // isolated terminal phase to a common ceiling creates a Bayer-aligned spatial discontinuity.
+    bool require_shared_terminal_headroom = false;
     // Production editable policies enable the source-local opposed reconstruction. Diagnostics may
     // disable it while retaining identical white-balance and physical-white normalization so the
     // post-demosaic delta has a controlled baseline.

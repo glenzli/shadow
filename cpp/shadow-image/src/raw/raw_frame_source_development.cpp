@@ -25,11 +25,9 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     const DcpColorTransform* camera_profile = prepared.camera_profile();
     const bool dcp_requested =
         camera_profile != nullptr && camera_profile->has_post_matrix_stages();
-    const bool reconstruct_clipped_surface =
-        uses_clipped_highlight_surface_reconstruction(
-            prepared.development_plan().highlight_recovery
-        );
-    const bool fused_dcp_requested = dcp_requested && !reconstruct_clipped_surface;
+    const bool reconstruct_cfa_highlights =
+        uses_cfa_owned_highlight_reconstruction(prepared.development_plan().highlight_recovery);
+    const bool fused_dcp_requested = dcp_requested;
     if (prepared.requested_backend() != RawDevelopmentBackendMode::cpu) {
         auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
             frame,
@@ -80,12 +78,13 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
     FusedRawFrameDevelopment developed = std::move(*prepared_development);
     const Dimensions rendered_dimensions = developed.scene_linear.dimensions;
     DevelopedSourcePixels output = std::move(developed.scene_linear);
-    if (reconstruct_clipped_surface) {
-        static_cast<void>(reconstruct_clipped_highlight_surface(
-            std::get<SceneLinearRgbFrame>(output),
-            *sensor_clipping_mask,
-            highlight_chroma_risk_map
-        ));
+    if (reconstruct_cfa_highlights) {
+        // Bayer development already replaces only evidence-owned CFA contributions before the
+        // camera matrix. A second scene-RGB surface write cannot distinguish a clipped lamp from a
+        // reliable neighbour inside the same reconstructed footprint and would redraw that mixed
+        // pixel as a colour contour. Publish that the source evidence was consumed without
+        // touching RGB; the same ownership holds for area preview and native detail/export.
+        complete_cfa_owned_highlight_reconstruction(highlight_chroma_risk_map);
     }
     DcpColorExecutionBackend dcp_execution_backend =
         fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;

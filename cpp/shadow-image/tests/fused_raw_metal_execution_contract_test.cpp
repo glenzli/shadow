@@ -273,54 +273,75 @@ void metal_area_preview_preserves_the_cfa_footprint_contract() {
         1.57,
     }};
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
-        const auto frame = synthetic_frame(orientation);
-        const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
-            frame,
-            transform,
-            3U,
-            image::RawDevelopmentBackendMode::cpu
-        );
-        const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
-            frame,
-            transform,
-            3U,
-            image::RawDevelopmentBackendMode::metal
-        );
-        const auto repeated = image::develop_bayer_linear_srgb_f32_fused_with_backend(
-            frame,
-            transform,
-            3U,
-            image::RawDevelopmentBackendMode::metal
-        );
-        expect(
-            metal.valid() && metal.backend == image::RawDevelopmentBackend::metal
-                && metal.demosaic_receipt.algorithm
-                       == image::RawDemosaicAlgorithm::bayer_area_preview_v1,
-            "Metal area preview retains the typed CFA-footprint receipt"
-        );
-        expect(
-            metal.scene_linear.dimensions == cpu.scene_linear.dimensions
-                && metal.scene_linear.samples.size() == cpu.scene_linear.samples.size(),
-            "Metal area preview preserves CPU output dimensions and packing"
-        );
-        expect(
-            metal.scene_linear.samples == repeated.scene_linear.samples,
-            "Metal area preview is byte deterministic"
-        );
-        float maximum_error = 0.0F;
-        double total_error = 0.0;
-        for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); ++index) {
-            const float error =
-                std::abs(cpu.scene_linear.samples[index] - metal.scene_linear.samples[index]);
-            maximum_error = std::max(maximum_error, error);
-            total_error += error;
+        for (const bool terminal_boundary : {false, true}) {
+            auto frame = synthetic_frame(orientation);
+            if (terminal_boundary) {
+                const auto& descriptor = frame.descriptor;
+                const auto first_x = descriptor.active_margins.left;
+                const auto first_y = descriptor.active_margins.top;
+                const auto terminal_x = first_x + descriptor.active_dimensions.width / 2U;
+                for (std::uint32_t y = first_y; y < first_y + descriptor.active_dimensions.height;
+                     ++y) {
+                    for (std::uint32_t x = terminal_x;
+                         x < first_x + descriptor.active_dimensions.width;
+                         ++x) {
+                        const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+                        const auto sample =
+                            static_cast<std::size_t>(y) * descriptor.storage_dimensions.width + x;
+                        frame.samples[sample] =
+                            static_cast<std::uint16_t>(descriptor.white_levels[site]);
+                    }
+                }
+            }
+            const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+                frame,
+                transform,
+                3U,
+                image::RawDevelopmentBackendMode::cpu
+            );
+            const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+                frame,
+                transform,
+                3U,
+                image::RawDevelopmentBackendMode::metal
+            );
+            const auto repeated = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+                frame,
+                transform,
+                3U,
+                image::RawDevelopmentBackendMode::metal
+            );
+            expect(
+                metal.valid() && metal.backend == image::RawDevelopmentBackend::metal
+                    && metal.demosaic_receipt.algorithm
+                           == image::RawDemosaicAlgorithm::bayer_area_preview_v1,
+                "Metal area preview retains the typed CFA-footprint receipt"
+            );
+            expect(
+                metal.scene_linear.dimensions == cpu.scene_linear.dimensions
+                    && metal.scene_linear.samples.size() == cpu.scene_linear.samples.size(),
+                "Metal area preview preserves CPU output dimensions and packing"
+            );
+            expect(
+                metal.scene_linear.samples == repeated.scene_linear.samples,
+                "Metal area preview is byte deterministic"
+            );
+            float maximum_error = 0.0F;
+            double total_error = 0.0;
+            for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); ++index) {
+                const float error =
+                    std::abs(cpu.scene_linear.samples[index] - metal.scene_linear.samples[index]);
+                maximum_error = std::max(maximum_error, error);
+                total_error += error;
+            }
+            const double mean_error =
+                cpu.scene_linear.samples.empty()
+                    ? 0.0
+                    : static_cast<double>(total_error)
+                          / static_cast<double>(cpu.scene_linear.samples.size());
+            expect(maximum_error <= 4.0e-5F, "Metal area preview stays within fp32 CPU tolerance");
+            expect(mean_error <= 1.0e-5, "Metal area preview stays within fp32 mean tolerance");
         }
-        const double mean_error = cpu.scene_linear.samples.empty()
-                                      ? 0.0
-                                      : static_cast<double>(total_error)
-                                            / static_cast<double>(cpu.scene_linear.samples.size());
-        expect(maximum_error <= 4.0e-5F, "Metal area preview stays within fp32 CPU tolerance");
-        expect(mean_error <= 1.0e-5, "Metal area preview stays within fp32 mean tolerance");
     }
 }
 

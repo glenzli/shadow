@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <ranges>
 #include <stdexcept>
 #include <utility>
 
@@ -166,6 +167,28 @@ canonical_as_shot_balance(const RawFrameDescriptor& descriptor) noexcept {
     return t * t * (3.0F - 2.0F * t);
 }
 
+[[nodiscard]] std::uint8_t quantized_shared_highlight_coverage(
+    const std::array<std::uint32_t, 3U>& observed,
+    const std::array<std::uint32_t, 3U>& highlights
+) noexcept {
+    float coverage = 1.0F;
+    for (std::size_t channel = 0U; channel < observed.size(); ++channel) {
+        if (observed[channel] == 0U) {
+            return 0U;
+        }
+        coverage = std::min(
+            coverage,
+            static_cast<float>(highlights[channel]) / static_cast<float>(observed[channel])
+        );
+    }
+    const auto quantized = static_cast<std::uint32_t>(
+        std::lround(coverage * static_cast<float>(sensor_shared_highlight_coverage_levels))
+    );
+    return static_cast<std::uint8_t>(
+        std::min<std::uint32_t>(quantized, sensor_shared_highlight_coverage_levels)
+    );
+}
+
 } // namespace
 
 bool SensorClippingMask::valid() const noexcept {
@@ -179,13 +202,28 @@ bool SensorClippingMask::valid() const noexcept {
     std::uint64_t highlights = 0U;
     std::uint64_t shadows = 0U;
     for (const auto sample : samples) {
-        if ((sample & ~(sensor_highlight_clipped | sensor_shadow_clipped)) != 0U) {
+        const auto coverage =
+            static_cast<std::uint8_t>(sample >> sensor_shared_highlight_coverage_shift);
+        if (coverage > 0U && (sample & sensor_highlight_clipped) == 0U) {
             return false;
         }
         highlights += (sample & sensor_highlight_clipped) != 0U ? 1U : 0U;
         shadows += (sample & sensor_shadow_clipped) != 0U ? 1U : 0U;
     }
     return highlights == highlight_pixel_count && shadows == shadow_pixel_count;
+}
+
+float SensorClippingMask::shared_highlight_coverage_at(const std::size_t pixel) const noexcept {
+    if (pixel >= samples.size()) {
+        return 0.0F;
+    }
+    const auto quantized =
+        static_cast<std::uint8_t>(samples[pixel] >> sensor_shared_highlight_coverage_shift);
+    if (quantized > 0U) {
+        return static_cast<float>(quantized)
+               / static_cast<float>(sensor_shared_highlight_coverage_levels);
+    }
+    return (samples[pixel] & sensor_shared_highlight_clipped) != 0U ? 1.0F : 0.0F;
 }
 
 bool HighlightChromaRiskMap::valid() const noexcept {
@@ -241,6 +279,8 @@ project_sensor_clipping_mask(const RawFrame& frame, const Dimensions target_dime
                     bool observed = false;
                     bool all_shadow = true;
                     bool any_highlight = false;
+                    std::array<std::uint32_t, 3U> channel_observed{};
+                    std::array<std::uint32_t, 3U> channel_highlights{};
                     for (std::uint32_t oriented_y = oriented_y_begin; oriented_y < oriented_y_end;
                          ++oriented_y) {
                         for (std::uint32_t oriented_x = oriented_x_begin;
@@ -264,8 +304,73 @@ project_sensor_clipping_mask(const RawFrame& frame, const Dimensions target_dime
                             all_shadow = all_shadow && sample <= descriptor.black_levels[site];
                             any_highlight =
                                 any_highlight || sample >= descriptor.white_levels[site];
+                            const int channel = rgb_channel(descriptor, raw_x, raw_y);
+                            if (channel >= 0) {
+                                ++channel_observed[static_cast<std::size_t>(channel)];
+                                channel_highlights[static_cast<std::size_t>(channel)] +=
+                                    sample >= descriptor.white_levels[site] ? 1U : 0U;
+                            }
                         }
                     }
+
+                    // Native-size output cells contain only one CFA site. For the stricter shared
+                    // terminal fact, use the same bounded 3x3 colour footprint that feeds the
+                    // bilinear reconstruction; downsampled bins already contain their exact area.
+                    const bool incomplete_colour_footprint =
+                        std::ranges::any_of(channel_observed, [](const std::uint32_t count) {
+                            return count == 0U;
+                        });
+                    if (incomplete_colour_footprint && target_dimensions == oriented_active) {
+                        channel_observed.fill(0U);
+                        channel_highlights.fill(0U);
+                        const std::uint32_t centre_x = oriented_x_begin;
+                        const std::uint32_t centre_y = oriented_y_begin;
+                        const std::uint32_t support_x_begin = centre_x > 0U ? centre_x - 1U : 0U;
+                        const std::uint32_t support_y_begin = centre_y > 0U ? centre_y - 1U : 0U;
+                        const std::uint32_t support_x_end =
+                            std::min(oriented_active.width, centre_x + 2U);
+                        const std::uint32_t support_y_end =
+                            std::min(oriented_active.height, centre_y + 2U);
+                        for (std::uint32_t support_y = support_y_begin; support_y < support_y_end;
+                             ++support_y) {
+                            for (std::uint32_t support_x = support_x_begin;
+                                 support_x < support_x_end;
+                                 ++support_x) {
+                                const Dimensions active = coordinate_from_display_orientation(
+                                    descriptor.active_dimensions,
+                                    descriptor.orientation,
+                                    support_x,
+                                    support_y
+                                );
+                                const std::uint32_t raw_x =
+                                    descriptor.active_margins.left + active.width;
+                                const std::uint32_t raw_y =
+                                    descriptor.active_margins.top + active.height;
+                                const auto site = cfa_site(raw_x, raw_y);
+                                const int channel = rgb_channel(descriptor, raw_x, raw_y);
+                                if (channel < 0) {
+                                    continue;
+                                }
+                                const auto source_sample =
+                                    frame.samples
+                                        [static_cast<std::size_t>(raw_y) * storage_width + raw_x];
+                                ++channel_observed[static_cast<std::size_t>(channel)];
+                                channel_highlights[static_cast<std::size_t>(channel)] +=
+                                    source_sample >= descriptor.white_levels[site] ? 1U : 0U;
+                            }
+                        }
+                    }
+
+                    const bool shared_highlight =
+                        std::ranges::all_of(
+                            channel_observed,
+                            [](const std::uint32_t count) { return count > 0U; }
+                        )
+                        && std::equal(
+                            channel_observed.begin(),
+                            channel_observed.end(),
+                            channel_highlights.begin()
+                        );
 
                     std::uint8_t flags = 0U;
                     if (observed && all_shadow) {
@@ -274,9 +379,18 @@ project_sensor_clipping_mask(const RawFrame& frame, const Dimensions target_dime
                     if (any_highlight) {
                         flags = static_cast<std::uint8_t>(flags | sensor_highlight_clipped);
                     }
+                    if (shared_highlight) {
+                        flags = static_cast<std::uint8_t>(
+                            flags | sensor_highlight_clipped | sensor_shared_highlight_clipped
+                        );
+                    }
+                    const auto coverage =
+                        quantized_shared_highlight_coverage(channel_observed, channel_highlights);
                     output.samples
                         [static_cast<std::size_t>(target_y) * target_dimensions.width + target_x] =
-                        flags;
+                        static_cast<std::uint8_t>(
+                            flags | (coverage << sensor_shared_highlight_coverage_shift)
+                        );
                 }
             }
         }
@@ -294,61 +408,6 @@ project_sensor_clipping_mask(const RawFrame& frame, const Dimensions target_dime
         );
     }
     return output;
-}
-
-// The risk map drives a selective neutral pull later in the RAW pipeline.  A
-// terminally clipped component can end abruptly beside a valid pixel after
-// preview downsampling, which makes that pull look like a contour when the
-// user lowers highlights.  Feather only that terminal component by one output
-// pixel while preparing the source.  The early, CFA-disagreement shoulder is
-// deliberately left untouched: spreading it would desaturate ordinary bright
-// colour and repeat the midtone side effect this map is meant to avoid.
-void feather_terminal_highlight_chroma_boundaries(HighlightChromaRiskMap& map) {
-    constexpr std::uint8_t terminal_seed = 224U;
-    constexpr float axial_transfer = 0.56F;
-    constexpr float diagonal_transfer = 0.36F;
-    constexpr std::array<std::array<int, 2U>, 8U> neighbours{{
-        {{-1, -1}},
-        {{0, -1}},
-        {{1, -1}},
-        {{-1, 0}},
-        {{1, 0}},
-        {{-1, 1}},
-        {{0, 1}},
-        {{1, 1}},
-    }};
-
-    const auto source_samples = map.samples;
-    const auto width = map.dimensions.width;
-    const auto height = map.dimensions.height;
-    for (std::uint32_t y = 0U; y < height; ++y) {
-        for (std::uint32_t x = 0U; x < width; ++x) {
-            const auto index = static_cast<std::size_t>(y) * width + x;
-            auto feathered = source_samples[index];
-            for (const auto& offset : neighbours) {
-                const auto neighbour_x = static_cast<std::int64_t>(x) + offset[0];
-                const auto neighbour_y = static_cast<std::int64_t>(y) + offset[1];
-                if (neighbour_x < 0 || neighbour_y < 0
-                    || neighbour_x >= static_cast<std::int64_t>(width)
-                    || neighbour_y >= static_cast<std::int64_t>(height)) {
-                    continue;
-                }
-                const auto neighbour = source_samples
-                    [static_cast<std::size_t>(neighbour_y) * width
-                     + static_cast<std::uint32_t>(neighbour_x)];
-                if (neighbour < terminal_seed) {
-                    continue;
-                }
-                const auto transfer =
-                    offset[0] == 0 || offset[1] == 0 ? axial_transfer : diagonal_transfer;
-                feathered = std::max(
-                    feathered,
-                    static_cast<std::uint8_t>(std::lround(static_cast<float>(neighbour) * transfer))
-                );
-            }
-            map.samples[index] = feathered;
-        }
-    }
 }
 
 HighlightChromaRiskMap
@@ -476,7 +535,6 @@ project_highlight_chroma_risk_map(const RawFrame& frame, const Dimensions target
             }
         }
     );
-    feather_terminal_highlight_chroma_boundaries(output);
     if (!output.valid()) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,

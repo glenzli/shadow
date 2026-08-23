@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 
 #include <cstdlib>
 
@@ -187,6 +188,70 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
         "demosaic"
     );
 
+    auto headroom_frame = frame;
+    headroom_frame.samples[2U * 7U + 3U] = 1'000U;
+    const auto isolated_terminal = image::detail::opposed_highlight_cfa_sample_at(
+        headroom_frame,
+        3U,
+        2U,
+        &transform,
+        treatment
+    );
+    expect(
+        std::abs(isolated_terminal.measured - 2.0F) < 1.0e-6F,
+        "production retains white-balanced fp32 headroom for an isolated terminal CFA phase"
+    );
+
+    auto shared_only_diagnostic = treatment;
+    shared_only_diagnostic.require_shared_terminal_headroom = true;
+    const auto projected_isolated_terminal = image::detail::opposed_highlight_cfa_sample_at(
+        headroom_frame,
+        3U,
+        2U,
+        &transform,
+        shared_only_diagnostic
+    );
+    expect(
+        std::abs(projected_isolated_terminal.measured - 1.0F) < 1.0e-6F,
+        "the shared-only diagnostic can still project an isolated terminal phase to common white"
+    );
+
+    auto shared_headroom_frame = headroom_frame;
+    for (std::uint32_t y = 1U; y <= 3U; ++y) {
+        for (std::uint32_t x = 2U; x <= 4U; ++x) {
+            shared_headroom_frame.samples[static_cast<std::size_t>(y) * 7U + x] = 1'000U;
+        }
+    }
+    const auto scene_referred = treatment;
+    const auto retained_headroom = image::detail::opposed_highlight_cfa_sample_at(
+        shared_headroom_frame,
+        3U,
+        2U,
+        &transform,
+        scene_referred
+    );
+    expect(
+        retained_headroom.terminal_candidate
+            && std::abs(retained_headroom.measured - 2.0F) < 1.0e-6F
+            && std::abs(retained_headroom.reconstructed - retained_headroom.measured) < 1.0e-6F,
+        "the production scene-referred domain retains CFA white-balance headroom in a shared "
+        "physical-white core"
+    );
+
+    auto common_white_diagnostic = treatment;
+    common_white_diagnostic.preserve_terminal_white_balance_headroom = false;
+    const auto projected_common_white = image::detail::opposed_highlight_cfa_sample_at(
+        shared_headroom_frame,
+        3U,
+        2U,
+        &transform,
+        common_white_diagnostic
+    );
+    expect(
+        std::abs(projected_common_white.measured - 1.0F) < 1.0e-6F,
+        "the old common-white projection remains available only to bounded diagnostics"
+    );
+
     const auto below_threshold =
         image::detail::opposed_highlight_cfa_sample_at(frame, 4U, 4U, &transform, treatment);
     expect(
@@ -234,11 +299,75 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
     );
 }
 
+void area_opposed_reconstruction_preserves_reliable_mixed_pixel_contributions() {
+    image::RawFrame frame;
+    frame.descriptor.schema_version = image::raw_frame_schema_version;
+    frame.descriptor.storage_dimensions = {4U, 4U};
+    frame.descriptor.active_dimensions = {4U, 4U};
+    frame.descriptor.sample_encoding = image::RawFrameSampleEncoding::uint16_native;
+    frame.descriptor.cfa_layout = image::RawFrameCfaLayout::bayer_2x2;
+    frame.descriptor.bayer_2x2 = {
+        image::RawCfaColor::red,
+        image::RawCfaColor::green,
+        image::RawCfaColor::green,
+        image::RawCfaColor::blue,
+    };
+    frame.descriptor.cfa_pattern = "RGGB";
+    frame.descriptor.bits_per_sample = 12U;
+    frame.descriptor.black_levels = {0U, 0U, 0U, 0U};
+    frame.descriptor.white_levels = {1'000U, 1'000U, 1'000U, 1'000U};
+    frame.descriptor.as_shot_neutral = {1.0, 1.0, 1.0, 1.0};
+    frame.samples.resize(16U);
+    for (std::uint32_t y = 0U; y < 4U; ++y) {
+        for (std::uint32_t x = 0U; x < 4U; ++x) {
+            // One output pixel deliberately straddles a reliable dark subject and a fully
+            // terminal light. The two halves must remain separate contributions to its area
+            // average even though they share the final RGB tuple.
+            frame.samples[static_cast<std::size_t>(y) * 4U + x] = x < 2U ? 100U : 1'000U;
+        }
+    }
+    expect(frame.valid(), "mixed-subject area fixture is a valid Bayer RAW frame");
+
+    image::RawFrameLinearTransform transform;
+    transform.apply_cfa_white_balance = true;
+    transform.cfa_white_balance = {1.0, 2.0, 2.0, 2.0};
+    const auto treatment = image::detail::editable_raw_cfa_sampling_policy(transform);
+    const auto grid = image::detail::make_bayer_area_sampling_grid(frame, {1U, 1U});
+    const auto sample =
+        image::detail::area_camera_rgb_sample_at(frame, grid, 0U, 0U, &transform, treatment);
+    auto untreated = treatment;
+    untreated.reconstruct_terminal_highlights = false;
+    const auto measured =
+        image::detail::area_camera_rgb_sample_at(frame, grid, 0U, 0U, &transform, untreated);
+
+    expect(
+        std::abs(sample.highlight_channel_evidence[0U] - 0.5F) < 1.0e-6F
+            && std::abs(sample.highlight_channel_evidence[1U] - 0.5F) < 1.0e-6F
+            && std::abs(sample.highlight_channel_evidence[2U] - 0.5F) < 1.0e-6F,
+        "area highlight evidence owns exactly the terminal half of every CFA channel"
+    );
+    const bool owned_repair_matches =
+        std::abs(measured.values[0U] - 0.55F) < 1.0e-5F && sample.values[0U] > 0.65F
+        && sample.values[0U] < 0.75F && std::abs(sample.values[1U] - measured.values[1U]) < 1.0e-5F
+        && std::abs(sample.values[2U] - measured.values[2U]) < 1.0e-5F;
+    if (!owned_repair_matches) {
+        std::cerr << "area owned repair measured/repaired=" << measured.values[0U] << '/'
+                  << sample.values[0U] << ',' << measured.values[1U] << '/' << sample.values[1U]
+                  << ',' << measured.values[2U] << '/' << sample.values[2U] << '\n';
+    }
+    expect(
+        owned_repair_matches,
+        "area opposed repair reconstructs only the terminal red photosites from their local "
+        "bright-side neighbours while preserving the dark half's measured contribution"
+    );
+}
+
 } // namespace
 
 int main() {
     bayer_bilinear_demosaic_keeps_the_sensor_domain_explicit();
     edge_aware_demosaic_drops_directional_phase_at_a_saturated_frontier();
     opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic();
+    area_opposed_reconstruction_preserves_reliable_mixed_pixel_contributions();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

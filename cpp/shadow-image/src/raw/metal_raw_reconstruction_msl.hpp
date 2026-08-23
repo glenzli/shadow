@@ -480,11 +480,22 @@ kernel void develop_bayer_area_preview(
             );
             const uint channel = parameters.cfa_channels[cfa_site(raw_x, raw_y)];
             const float weight = overlap_x * overlap_y;
-            const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
-            totals[channel] += normalized * weight;
-            weights[channel] += weight;
             const float channel_evidence =
                 highlight_sensor_evidence(samples, parameters, raw_x, raw_y);
+            const float measured =
+                unreconstructed_normalized_sample(samples, parameters, raw_x, raw_y);
+            const float reconstructed = opposed_highlight_reconstructed_sample(
+                samples,
+                parameters,
+                raw_x,
+                raw_y,
+                measured,
+                channel_evidence
+            );
+            // Estimate and write only the response-shoulder CFA contribution before area
+            // integration. Reliable samples sharing this preview bin remain exact.
+            totals[channel] += reconstructed * weight;
+            weights[channel] += weight;
             channel_evidence_totals[channel] += channel_evidence * weight;
             observed_weight += weight;
             const bool is_at_white = physical_sensor_white(samples, parameters, raw_x, raw_y);
@@ -544,11 +555,9 @@ kernel void develop_bayer_area_preview(
                   )
               )
             : camera.highlight_chroma_neutralization;
-        camera.highlight_chroma_neutralization = max(
-            highlight_chroma_neutralization(
-                camera.values,
-                camera.highlight_channel_evidence
-            ),
+        camera.highlight_chroma_neutralization = smoothstep(
+            0.88f,
+            0.995f,
             shared_physical_white_neutralization(camera.physical_white_coverage)
         );
         if (parameters.feather_highlight_chroma_neutralization != 0u) {

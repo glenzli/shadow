@@ -261,17 +261,19 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-opposed-evidence-preserving@20260824.9;"
-               "recovery=local-opposed+shared-chroma+surface-guided;headroom=sub-white-fp32;"
-               "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13";
+        return "sensor-highlights=cfa-opposed-photosite-owned@20260824.13;"
+               "recovery=local-opposed+photosite-evidence-shoulder;"
+               "headroom=physical-white-wb-fp32;"
+               "clipped-highlight=cfa-photosite-owned-v18";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
         return "sensor-highlights=unsupported";
     case RawHighlightRecoveryIntent::aggressive:
-        return "sensor-highlights=cfa-opposed-evidence-preserving-feathered@20260824.9;"
-               "recovery=local-opposed+spatial-chroma+surface-guided;headroom=sub-white-fp32;"
-               "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13";
+        return "sensor-highlights=cfa-opposed-photosite-owned-feathered@20260824.13;"
+               "recovery=local-opposed+photosite-evidence-spatial-chroma;"
+               "headroom=physical-white-wb-fp32;"
+               "clipped-highlight=cfa-photosite-owned-v18";
     }
     return "sensor-highlights=unknown";
 }

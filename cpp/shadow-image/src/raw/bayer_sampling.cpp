@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,6 +42,11 @@ namespace {
     const std::uint32_t raw_y
 ) noexcept {
     return descriptor.bayer_2x2[cfa_site(raw_x, raw_y)];
+}
+
+[[nodiscard]] float smoothstep(const float low, const float high, const float value) noexcept {
+    const float unit = std::clamp((value - low) / (high - low), 0.0F, 1.0F);
+    return unit * unit * (3.0F - 2.0F * unit);
 }
 
 [[nodiscard]] float normalized_sensor_sample(
@@ -87,6 +93,41 @@ namespace {
            && normalized_sensor_sample(frame, raw_x, raw_y) >= 1.0F;
 }
 
+[[nodiscard]] bool shared_terminal_cfa_footprint(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y
+) noexcept {
+    const auto& descriptor = frame.descriptor;
+    std::array<std::uint32_t, 3U> observed{};
+    std::array<std::uint32_t, 3U> terminal{};
+    for (int dy = -1; dy <= 1; ++dy) {
+        const int candidate_y = static_cast<int>(raw_y) + dy;
+        if (candidate_y < 0
+            || candidate_y >= static_cast<int>(descriptor.storage_dimensions.height)) {
+            continue;
+        }
+        for (int dx = -1; dx <= 1; ++dx) {
+            const int candidate_x = static_cast<int>(raw_x) + dx;
+            if (candidate_x < 0
+                || candidate_x >= static_cast<int>(descriptor.storage_dimensions.width)) {
+                continue;
+            }
+            const auto x = static_cast<std::uint32_t>(candidate_x);
+            const auto y = static_cast<std::uint32_t>(candidate_y);
+            const int channel = rgb_channel(cfa_color_at(descriptor, x, y));
+            if (channel < 0) {
+                continue;
+            }
+            ++observed[static_cast<std::size_t>(channel)];
+            terminal[static_cast<std::size_t>(channel)] +=
+                normalized_sensor_sample(frame, x, y) >= 1.0F ? 1U : 0U;
+        }
+    }
+    return std::ranges::all_of(observed, [](const std::uint32_t count) { return count > 0U; })
+           && std::equal(observed.begin(), observed.end(), terminal.begin());
+}
+
 [[nodiscard]] float unreconstructed_normalized_sample(
     const RawFrame& frame,
     const std::uint32_t raw_x,
@@ -102,11 +143,18 @@ namespace {
     }
     // Do not turn a white-balance gain into an early source clip. A sample below physical sensor
     // white may legitimately become greater than one and must reach the scene-linear edit graph.
-    // Sensor-white samples have no further measured headroom, so retain a common source ceiling
-    // only for that physical saturation evidence. Opposed reconstruction is applied later to the
-    // complete per-colour footprint, where its exact clipping topology is available.
+    // A sensor-white sample has no additional measured response, but its white-balanced fp32 value
+    // still carries scene-referred energy. Editable RAW retains that domain for every CFA phase and
+    // carries physical-white topology separately into the bounded shared-core source shoulder.
+    // Diagnostics may request a shared-only projection, but production does not reintroduce a
+    // Bayer-aligned 1.0 step at isolated terminal sites.
     if (sampling_policy.cap_physical_sensor_white && sensor_normalized >= 1.0F) {
-        normalized = std::min(normalized, 1.0);
+        const bool retain_headroom = sampling_policy.preserve_terminal_white_balance_headroom
+                                     && (!sampling_policy.require_shared_terminal_headroom
+                                         || shared_terminal_cfa_footprint(frame, raw_x, raw_y));
+        if (!retain_headroom) {
+            normalized = std::min(normalized, 1.0);
+        }
     }
     return static_cast<float>(normalized);
 }
@@ -515,8 +563,8 @@ CfaOpposedHighlightSample opposed_highlight_cfa_sample_at(
     // superpixel supplies one mean per CFA colour; the current colour is estimated from the cube of
     // the mean of the two opposing cube roots. `max` keeps the operation one-sided, so a saturated
     // coloured emitter and already-brighter response are never pulled down. The scene-global
-    // chrominance offset used by darktable is intentionally diagnostic-only here: in Shadow's
-    // common-white numeric domain it amplifies the 1.0 boundary into a visible colour ring.
+    // chrominance offset used by darktable is intentionally diagnostic-only here: it can amplify a
+    // terminal CFA discontinuity into a visible colour ring instead of preserving local colour.
     const auto reference = opposed_reference_at(frame, raw_x, raw_y, transform, sampling_policy);
     if (!reference.has_value()) {
         return result;
@@ -685,6 +733,8 @@ editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexc
     // particular RAW white-balance transform is active. Keep the source evidence available for
     // camera-neutral and manual-WB inputs as well; only the gain normalisation itself is optional.
     policy.cap_physical_sensor_white = true;
+    policy.preserve_terminal_white_balance_headroom = true;
+    policy.require_shared_terminal_headroom = false;
     policy.reconstruct_terminal_highlights = true;
     if (transform.apply_cfa_white_balance) {
         const auto minimum = *std::min_element(
@@ -1053,12 +1103,26 @@ CameraRgbSample area_camera_rgb_sample_at(
             }
             const double weight = overlap_x * overlap_y;
             const auto index = static_cast<std::size_t>(channel);
-            const auto normalized =
-                normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
-            totals[index] += normalized * weight;
-            weights[index] += weight;
             const float channel_evidence =
                 highlight_sensor_evidence(frame, raw_x, raw_y, sampling_policy);
+            const float measured =
+                unreconstructed_normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
+            float reconstructed = measured;
+            if (sampling_policy.reconstruct_terminal_highlights && channel_evidence > 0.0F) {
+                const auto reference =
+                    opposed_reference_at(frame, raw_x, raw_y, transform, sampling_policy);
+                if (reference.has_value()) {
+                    reconstructed =
+                        std::max(measured, std::lerp(measured, *reference, channel_evidence));
+                }
+            }
+            // Estimate and write at the damaged photosite before its contribution enters the area
+            // average. A preview bin may straddle a clipped lamp and a measured dark fixture;
+            // reliable samples in that bin remain exact, while only the response-shoulder sample
+            // borrows the two locally opposed colours. This is the darktable ownership boundary
+            // and cannot paint a preview-width contour outside the damaged CFA support.
+            totals[index] += reconstructed * weight;
+            weights[index] += weight;
             channel_evidence_totals[index] += static_cast<double>(channel_evidence) * weight;
             observed_weight += weight;
             const bool is_at_white = physical_sensor_white(frame, raw_x, raw_y, sampling_policy);
@@ -1119,8 +1183,13 @@ CameraRgbSample area_camera_rgb_sample_at(
                   sampling_policy
               )
             : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = std::max(
-        highlight_chroma_neutralization(result.values, result.highlight_channel_evidence),
+    // Area-opposed repair owns the anti-aliased terminal boundary. Only an essentially complete
+    // three-colour plateau has lost every ratio and may be pulled to camera-neutral here. A
+    // partially covered output pixel remains the correctly integrated mixture of repaired light
+    // and its measured neighbour instead of becoming an extra neutral/yellow contour.
+    result.highlight_chroma_neutralization = smoothstep(
+        0.88F,
+        0.995F,
         shared_physical_white_neutralization(result.physical_white_coverage)
     );
     if (sampling_policy.feather_highlight_chroma_neutralization) {

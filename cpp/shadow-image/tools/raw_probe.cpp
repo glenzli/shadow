@@ -7,6 +7,7 @@
 
 #include "../src/raw/bayer_sampling.hpp"
 #include "../src/raw/raw_frame_development_plan.hpp"
+#include "raw_highlight_cfa_diagnostic.hpp"
 
 #include <algorithm>
 #include <array>
@@ -54,6 +55,28 @@ void write_binary(const fs::path& path, const std::span<const std::uint8_t> byte
     output.write(
         reinterpret_cast<const char*>(bytes.data()),
         static_cast<std::streamsize>(bytes.size())
+    );
+    if (!output) {
+        throw std::runtime_error("cannot write " + path.string());
+    }
+}
+
+void write_u8_pgm(
+    const fs::path& path,
+    const image::Dimensions dimensions,
+    const std::span<const std::uint8_t> samples
+) {
+    if (dimensions.pixel_count() != samples.size()) {
+        throw std::runtime_error("PGM buffer length does not match its dimensions");
+    }
+    std::ofstream output(path, std::ios::binary);
+    if (!output) {
+        throw std::runtime_error("cannot create " + path.string());
+    }
+    output << "P5\n" << dimensions.width << ' ' << dimensions.height << "\n255\n";
+    output.write(
+        reinterpret_cast<const char*>(samples.data()),
+        static_cast<std::streamsize>(samples.size())
     );
     if (!output) {
         throw std::runtime_error("cannot write " + path.string());
@@ -424,7 +447,6 @@ void render_highlight_cfa_diagnostic(
     if (largest.size() > 64U) {
         largest.resize(64U);
     }
-
     const fs::path csv_path = output_directory / "highlight-cfa-largest-deltas.csv";
     std::ofstream csv(csv_path);
     if (!csv) {
@@ -527,8 +549,9 @@ void render_highlight_cfa_diagnostic(
                       : static_cast<double>(
                             demosaic_luminance_delta / static_cast<long double>(demosaic_samples)
                         ))
-              << '\n'
-              << "highlight_cfa_diagnostic.csv=" << csv_path.string() << '\n'
+              << '\n';
+    image::probe_detail::render_highlight_cfa_domain_diagnostic(frame, transform, output_directory);
+    std::cout << "highlight_cfa_diagnostic.csv=" << csv_path.string() << '\n'
               << "timing.highlight_cfa_diagnostic_ms=" << timer.elapsed_ms() << '\n';
 }
 
@@ -1064,6 +1087,17 @@ void render_warm_highlight_diagnostic(
         output_directory / "warm-highlight-aggressive-recovered.jpg",
         aggressive_recovered.proxy.bytes
     );
+    fs::path shared_coverage_path;
+    if (const auto& clipping = enabled.sensor_clipping_mask(); clipping.has_value()) {
+        std::vector<std::uint8_t> coverage(clipping->samples.size());
+        for (std::size_t pixel = 0U; pixel < coverage.size(); ++pixel) {
+            coverage[pixel] = static_cast<std::uint8_t>(
+                std::lround(clipping->shared_highlight_coverage_at(pixel) * 255.0F)
+            );
+        }
+        shared_coverage_path = output_directory / "warm-highlight-shared-coverage.pgm";
+        write_u8_pgm(shared_coverage_path, clipping->dimensions, coverage);
+    }
     std::cout << "highlight_diagnostic.status=ok\n"
               << "highlight_diagnostic.default_output="
               << (output_directory / "warm-highlight-default.jpg").string() << '\n'
@@ -1074,7 +1108,9 @@ void render_warm_highlight_diagnostic(
               << "highlight_diagnostic.disabled_recovered_output="
               << (output_directory / "warm-highlight-disabled-recovered.jpg").string() << '\n'
               << "highlight_diagnostic.aggressive_recovered_output="
-              << (output_directory / "warm-highlight-aggressive-recovered.jpg").string() << '\n';
+              << (output_directory / "warm-highlight-aggressive-recovered.jpg").string() << '\n'
+              << "highlight_diagnostic.shared_coverage_output=" << shared_coverage_path.string()
+              << '\n';
 }
 
 int run(

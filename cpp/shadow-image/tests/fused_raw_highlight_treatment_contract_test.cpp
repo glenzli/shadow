@@ -300,17 +300,22 @@ void area_highlight_opposed_repair_is_one_sided() {
     float maximum_delta = 0.0F;
     float enabled_maximum_chroma = 0.0F;
     float disabled_maximum_chroma = 0.0F;
-    bool enabled_never_lowered = true;
+    float minimum_luminance_delta = std::numeric_limits<float>::max();
     for (std::size_t index = 0U; index < enabled.scene_linear.samples.size(); ++index) {
         maximum_delta = std::max(
             maximum_delta,
             std::abs(enabled.scene_linear.samples[index] - disabled.scene_linear.samples[index])
         );
-        enabled_never_lowered = enabled_never_lowered
-                                && enabled.scene_linear.samples[index]
-                                       >= disabled.scene_linear.samples[index] - 1.0e-6F;
     }
     for (std::size_t index = 0U; index < enabled.scene_linear.samples.size(); index += 3U) {
+        const auto enabled_luminance = 0.2126F * enabled.scene_linear.samples[index]
+                                       + 0.7152F * enabled.scene_linear.samples[index + 1U]
+                                       + 0.0722F * enabled.scene_linear.samples[index + 2U];
+        const auto disabled_luminance = 0.2126F * disabled.scene_linear.samples[index]
+                                        + 0.7152F * disabled.scene_linear.samples[index + 1U]
+                                        + 0.0722F * disabled.scene_linear.samples[index + 2U];
+        minimum_luminance_delta =
+            std::min(minimum_luminance_delta, enabled_luminance - disabled_luminance);
         enabled_maximum_chroma = std::max(
             enabled_maximum_chroma,
             std::max({
@@ -338,10 +343,17 @@ void area_highlight_opposed_repair_is_one_sided() {
                 })
         );
     }
+    if (!(maximum_delta > 1.0e-3F && minimum_luminance_delta >= -1.0e-6F
+          && enabled_maximum_chroma + 0.05F < disabled_maximum_chroma)) {
+        std::cerr << "area highlight diagnostic: delta=" << maximum_delta
+                  << " enabled-chroma=" << enabled_maximum_chroma
+                  << " disabled-chroma=" << disabled_maximum_chroma
+                  << " min-luma-delta=" << minimum_luminance_delta << '\n';
+    }
     expect(
-        maximum_delta > 1.0e-3F && enabled_never_lowered
+        maximum_delta > 1.0e-3F && minimum_luminance_delta >= -1.0e-6F
             && enabled_maximum_chroma + 0.05F < disabled_maximum_chroma,
-        "default area sampling repairs only upward and suppresses false clipped-edge chroma"
+        "default area sampling preserves luminance and suppresses false clipped-edge chroma"
     );
 
     if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
@@ -415,10 +427,11 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-opposed-evidence-preserving@20260824.9;"
-               "recovery=local-opposed+shared-chroma+surface-guided;headroom=sub-white-fp32;"
-               "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13",
-        "the default source receipt identifies continuous clipped-highlight reconstruction"
+            == "sensor-highlights=cfa-opposed-photosite-owned@20260824.13;"
+               "recovery=local-opposed+photosite-evidence-shoulder;"
+               "headroom=physical-white-wb-fp32;"
+               "clipped-highlight=cfa-photosite-owned-v18",
+        "the default source receipt identifies photosite-owned clipped-highlight reconstruction"
     );
 
     float maximum_default_delta = 0.0F;
@@ -466,9 +479,16 @@ void cfa_white_balance_retains_editable_headroom() {
         "disabled mode retains the measured CFA-white-balance channel separation"
     );
     expect(
-        maximum_default_delta > 0.4F && maximum_default_chroma <= 1.0e-6F,
-        "physical sensor-white CFA samples reach the white ceiling without a colour rebuild"
+        maximum_default_delta > 0.1F && maximum_default_chroma + 0.4F < maximum_disabled_chroma,
+        "an entirely clipped CFA frame suppresses unsupported WB colour when it has no measured "
+        "boundary"
     );
+    if (!(maximum_default_delta > 0.1F
+          && maximum_default_chroma + 0.4F < maximum_disabled_chroma)) {
+        std::cerr << "full clipped headroom diagnostic: delta=" << maximum_default_delta
+                  << " default-chroma=" << maximum_default_chroma
+                  << " disabled-chroma=" << maximum_disabled_chroma << '\n';
+    }
 
     const auto near_white = image::develop_bayer_linear_srgb_f32_fused_with_backend(
         near_white_but_unclipped_frame(),
@@ -672,13 +692,23 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
             }
         }
         expect(
-            maximum_default_delta > 0.4F,
-            "the physical sensor-white ceiling is distinct from the unbounded diagnostic path"
+            maximum_default_delta > 0.1F,
+            "an entirely clipped source reconstructs unsupported WB colour when no measured "
+            "boundary exists"
         );
         expect(
-            maximum_reconstructed_chroma <= 1.0e-6F && maximum_disabled_chroma > 0.4F,
-            "the physical sensor-white CFA plateau reaches the source white ceiling before demosaic"
+            maximum_reconstructed_chroma + 0.3F < maximum_disabled_chroma
+                && maximum_disabled_chroma > 0.4F,
+            "a boundary-free physical-white plateau suppresses unsupported WB-scaled colour"
         );
+        if (!(maximum_default_delta > 0.1F
+              && maximum_reconstructed_chroma + 0.3F < maximum_disabled_chroma)) {
+            std::cerr << "boundary-free plateau diagnostic: max-edge="
+                      << (max_edge.has_value() ? std::to_string(*max_edge) : "full")
+                      << " delta=" << maximum_default_delta
+                      << " default-chroma=" << maximum_reconstructed_chroma
+                      << " disabled-chroma=" << maximum_disabled_chroma << '\n';
+        }
     }
 
     const auto disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -726,11 +756,11 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-opposed-evidence-preserving-feathered@20260824.9;"
-                      "recovery=local-opposed+spatial-chroma+surface-guided;headroom=sub-white-"
-                      "fp32;"
-                      "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13",
-        "legacy aggressive source-surface reconstruction remains cache-visible"
+                   == "sensor-highlights=cfa-opposed-photosite-owned-feathered@20260824.13;"
+                      "recovery=local-opposed+photosite-evidence-spatial-chroma;"
+                      "headroom=physical-white-wb-fp32;"
+                      "clipped-highlight=cfa-photosite-owned-v18",
+        "legacy aggressive CFA reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;
     float aggressive_boundary_chroma = 0.0F;
@@ -914,9 +944,12 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
             "a single clipped CFA colour is not mistaken for a neutral highlight plateau"
         );
         expect(
-            one_channel.scene_linear.samples[index]
-                < one_channel_disabled.scene_linear.samples[index] - 0.5F,
-            "a physically clipped CFA colour is limited at the source white point"
+            std::abs(
+                one_channel.scene_linear.samples[index]
+                - one_channel_disabled.scene_linear.samples[index]
+            ) <= 1.0e-6F,
+            "an isolated physically clipped CFA phase retains measured WB headroom instead of "
+            "being projected to a common ceiling"
         );
     }
 

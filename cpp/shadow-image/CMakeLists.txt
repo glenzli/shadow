@@ -151,7 +151,11 @@ endif()
 shadow_image_enable_warnings(shadow-image)
 
 if(SHADOW_BUILD_RAW_PROBE)
-    add_executable(shadow-raw-probe tools/raw_probe.cpp)
+    add_executable(
+        shadow-raw-probe
+        tools/raw_probe.cpp
+        tools/raw_highlight_cfa_diagnostic.cpp
+    )
     target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-raw-probe)
 

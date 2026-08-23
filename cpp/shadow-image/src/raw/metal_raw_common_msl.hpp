@@ -69,6 +69,38 @@ inline float normalized_linear_response_sample(
         / parameters.linear_response_minus_black[site];
 }
 
+inline bool shared_terminal_cfa_footprint(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint center_x,
+    const uint center_y
+) {
+    uint channel_observed[3] = {0u, 0u, 0u};
+    uint channel_terminal[3] = {0u, 0u, 0u};
+    for (int dy = -1; dy <= 1; ++dy) {
+        const int candidate_y = int(center_y) + dy;
+        if (candidate_y < 0 || candidate_y >= int(parameters.storage_height)) {
+            continue;
+        }
+        for (int dx = -1; dx <= 1; ++dx) {
+            const int candidate_x = int(center_x) + dx;
+            if (candidate_x < 0 || candidate_x >= int(parameters.storage_width)) {
+                continue;
+            }
+            const uint x = uint(candidate_x);
+            const uint y = uint(candidate_y);
+            const uint channel = parameters.cfa_channels[cfa_site(x, y)];
+            channel_observed[channel] += 1u;
+            channel_terminal[channel] +=
+                normalized_sensor_sample(samples, parameters, x, y) >= 1.0f ? 1u : 0u;
+        }
+    }
+    return channel_observed[0] > 0u && channel_observed[1] > 0u
+        && channel_observed[2] > 0u && channel_observed[0] == channel_terminal[0]
+        && channel_observed[1] == channel_terminal[1]
+        && channel_observed[2] == channel_terminal[2];
+}
+
 inline float unreconstructed_normalized_sample(
     device const ushort* samples,
     constant RawDevelopmentParameters& parameters,
@@ -81,21 +113,22 @@ inline float unreconstructed_normalized_sample(
     if (parameters.apply_cfa_white_balance != 0u) {
         normalized *= parameters.cfa_white_balance[site] * parameters.cfa_white_balance_scale;
     }
-    if (parameters.cap_physical_sensor_white != 0u && sensor_normalized >= 1.0f) {
-        normalized = min(normalized, 1.0f);
-    }
+    // Keep the white-balanced fp32 headroom of every terminal CFA phase. Projecting an isolated
+    // phase back to a common 1.0 ceiling reintroduces a Bayer-aligned step at bright/dark edges.
+    // Physical-white topology remains separate, and only its shared RGB core may later reconstruct
+    // missing low-frequency luminance.
     return normalized;
 }
 
-inline float normalized_sample(
+inline float opposed_highlight_reconstructed_sample(
     device const ushort* samples,
     constant RawDevelopmentParameters& parameters,
     uint x,
-    uint y
+    uint y,
+    const float measured,
+    const float evidence
 ) {
-    const float measured = unreconstructed_normalized_sample(samples, parameters, x, y);
-    if (parameters.cap_physical_sensor_white == 0u
-        || normalized_sensor_sample(samples, parameters, x, y) < 0.987f) {
+    if (evidence <= 0.0f) {
         return measured;
     }
 
@@ -133,7 +166,28 @@ inline float normalized_sample(
     );
     const float opposed_reference =
         opposing_root_mean * opposing_root_mean * opposing_root_mean;
-    return max(measured, opposed_reference);
+    return max(measured, mix(measured, opposed_reference, clamp(evidence, 0.0f, 1.0f)));
+}
+
+inline float normalized_sample(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    uint x,
+    uint y
+) {
+    const float measured = unreconstructed_normalized_sample(samples, parameters, x, y);
+    if (parameters.cap_physical_sensor_white == 0u
+        || normalized_sensor_sample(samples, parameters, x, y) < 0.987f) {
+        return measured;
+    }
+    return opposed_highlight_reconstructed_sample(
+        samples,
+        parameters,
+        x,
+        y,
+        measured,
+        1.0f
+    );
 }
 
 inline uint clipping_target_bin_begin(
@@ -198,7 +252,53 @@ inline uchar sensor_clipping_flags(
             >= parameters.black_levels[site] + parameters.white_minus_black[site]) {
             flags |= 1u;
         }
-        return flags;
+        uint channel_observed[3] = {0u, 0u, 0u};
+        uint channel_highlights[3] = {0u, 0u, 0u};
+        const uint support_x_begin = output_x > 0u ? output_x - 1u : 0u;
+        const uint support_y_begin = output_y > 0u ? output_y - 1u : 0u;
+        const uint support_x_end = min(oriented_width, output_x + 2u);
+        const uint support_y_end = min(oriented_height, output_y + 2u);
+        for (uint support_y = support_y_begin; support_y < support_y_end; ++support_y) {
+            for (uint support_x = support_x_begin; support_x < support_x_end; ++support_x) {
+                const uint2 support_active =
+                    clipping_active_coordinate(parameters, support_x, support_y);
+                const uint support_raw_x = parameters.margin_left + support_active.x;
+                const uint support_raw_y = parameters.margin_top + support_active.y;
+                const uint support_site = cfa_site(support_raw_x, support_raw_y);
+                const uint channel = parameters.cfa_channels[support_site];
+                const ushort support_sample = original_samples[
+                    support_raw_y * parameters.storage_width + support_raw_x
+                ];
+                channel_observed[channel] += 1u;
+                channel_highlights[channel] +=
+                    float(support_sample)
+                            >= parameters.black_levels[support_site]
+                                   + parameters.white_minus_black[support_site]
+                        ? 1u : 0u;
+            }
+        }
+        const bool shared_highlight = channel_observed[0] > 0u && channel_observed[1] > 0u
+            && channel_observed[2] > 0u && channel_observed[0] == channel_highlights[0]
+            && channel_observed[1] == channel_highlights[1]
+            && channel_observed[2] == channel_highlights[2];
+        if (shared_highlight) {
+            flags |= 5u;
+        }
+        float shared_coverage = 0.0f;
+        if (channel_observed[0] > 0u && channel_observed[1] > 0u
+            && channel_observed[2] > 0u) {
+            shared_coverage = min(
+                float(channel_highlights[0]) / float(channel_observed[0]),
+                min(
+                    float(channel_highlights[1]) / float(channel_observed[1]),
+                    float(channel_highlights[2]) / float(channel_observed[2])
+                )
+            );
+        }
+        const uchar quantized_coverage = uchar(
+            min(31.0f, floor(shared_coverage * 31.0f + 0.5f))
+        );
+        return uchar(flags | uchar(quantized_coverage << 3u));
     }
     const uint oriented_x_begin =
         clipping_target_bin_begin(output_x, oriented_width, parameters.output_width);
@@ -211,6 +311,8 @@ inline uchar sensor_clipping_flags(
     bool observed = false;
     bool all_shadow = true;
     bool any_highlight = false;
+    uint channel_observed[3] = {0u, 0u, 0u};
+    uint channel_highlights[3] = {0u, 0u, 0u};
     for (uint oriented_y = oriented_y_begin; oriented_y < oriented_y_end; ++oriented_y) {
         for (uint oriented_x = oriented_x_begin; oriented_x < oriented_x_end; ++oriented_x) {
             const uint2 active =
@@ -221,9 +323,12 @@ inline uchar sensor_clipping_flags(
             const ushort sample = original_samples[raw_y * parameters.storage_width + raw_x];
             observed = true;
             all_shadow = all_shadow && float(sample) <= parameters.black_levels[site];
-            any_highlight = any_highlight
-                || float(sample)
-                    >= parameters.black_levels[site] + parameters.white_minus_black[site];
+            const bool is_highlight = float(sample)
+                >= parameters.black_levels[site] + parameters.white_minus_black[site];
+            any_highlight = any_highlight || is_highlight;
+            const uint channel = parameters.cfa_channels[site];
+            channel_observed[channel] += 1u;
+            channel_highlights[channel] += is_highlight ? 1u : 0u;
         }
     }
     uchar flags = 0u;
@@ -233,7 +338,28 @@ inline uchar sensor_clipping_flags(
     if (any_highlight) {
         flags |= 1u;
     }
-    return flags;
+    const bool shared_highlight = channel_observed[0] > 0u && channel_observed[1] > 0u
+        && channel_observed[2] > 0u && channel_observed[0] == channel_highlights[0]
+        && channel_observed[1] == channel_highlights[1]
+        && channel_observed[2] == channel_highlights[2];
+    if (shared_highlight) {
+        flags |= 5u;
+    }
+    float shared_coverage = 0.0f;
+    if (channel_observed[0] > 0u && channel_observed[1] > 0u
+        && channel_observed[2] > 0u) {
+        shared_coverage = min(
+            float(channel_highlights[0]) / float(channel_observed[0]),
+            min(
+                float(channel_highlights[1]) / float(channel_observed[1]),
+                float(channel_highlights[2]) / float(channel_observed[2])
+            )
+        );
+    }
+    const uchar quantized_coverage = uchar(
+        min(31.0f, floor(shared_coverage * 31.0f + 0.5f))
+    );
+    return uchar(flags | uchar(quantized_coverage << 3u));
 }
 
 struct CameraRgbSample {

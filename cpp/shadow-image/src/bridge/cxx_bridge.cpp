@@ -100,7 +100,15 @@ namespace cxx_bridge_projection {
     result.shadow_pixel_count = mask.shadow_pixel_count;
     result.samples.reserve(mask.samples.size());
     for (const auto sample : mask.samples) {
-        result.samples.push_back(sample);
+        // The native R8 packs private shared-highlight coverage above the two public diagnostic
+        // bits. Keep the established Rust/desktop wire contract binary: consumers receive only
+        // factual highlight/shadow flags, while the continuous evidence remains inside the warm
+        // render session that owns highlight reconstruction.
+        result.samples.push_back(
+            static_cast<std::uint8_t>(
+                sample & (image::sensor_highlight_clipped | image::sensor_shadow_clipped)
+            )
+        );
     }
     return result;
 }

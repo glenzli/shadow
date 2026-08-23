@@ -72,6 +72,41 @@ void sensor_clipping_marks_sensor_endpoints_without_confusing_dark_content() {
         "downsampled rotated clipping diagnostics retain exact any-highlight "
         "and all-shadow semantics"
     );
+
+    frame.descriptor.storage_dimensions = {5U, 5U};
+    frame.descriptor.active_dimensions = {5U, 5U};
+    frame.descriptor.orientation = 0;
+    frame.samples.assign(25U, 500U);
+    for (std::uint32_t y = 1U; y <= 3U; ++y) {
+        for (std::uint32_t x = 1U; x <= 3U; ++x) {
+            frame.samples[static_cast<std::size_t>(y) * 5U + x] = 1'000U;
+        }
+    }
+    const auto shared_core = image::project_sensor_clipping_mask(frame, {5U, 5U});
+    expect(
+        shared_core.valid()
+            && (shared_core.samples[12U] & image::sensor_shared_highlight_clipped) != 0U
+            && (shared_core.samples[6U] & image::sensor_shared_highlight_clipped) == 0U,
+        "the clipping mask distinguishes a deep three-colour terminal footprint from its "
+        "single-channel physical boundary"
+    );
+
+    frame.descriptor.storage_dimensions = {4U, 4U};
+    frame.descriptor.active_dimensions = {4U, 4U};
+    frame.samples.assign(16U, 500U);
+    for (std::uint32_t y = 0U; y < 2U; ++y) {
+        for (std::uint32_t x = 0U; x < 4U; ++x) {
+            frame.samples[static_cast<std::size_t>(y) * 4U + x] = 1'000U;
+        }
+    }
+    const auto half_covered = image::project_sensor_clipping_mask(frame, {1U, 1U});
+    expect(
+        half_covered.valid() && (half_covered.samples[0U] & image::sensor_highlight_clipped) != 0U
+            && (half_covered.samples[0U] & image::sensor_shared_highlight_clipped) == 0U
+            && std::abs(half_covered.shared_highlight_coverage_at(0U) - 16.0F / 31.0F) < 1.0e-6F,
+        "a preview bin that is half terminal in every CFA colour retains fractional write "
+        "ownership instead of becoming a binary clipped pixel"
+    );
 }
 
 void highlight_chroma_risk_marks_disagreement_and_shared_terminal_shoulder() {
@@ -133,9 +168,9 @@ void highlight_chroma_risk_marks_disagreement_and_shared_terminal_shoulder() {
         "two CFA channels entering the early calibrated shoulder receive a gradual risk signal"
     );
 
-    // Only terminal shared clipping receives a prepared one-cell feather.  The
-    // continuous earlier disagreement shoulder must remain local so ordinary
-    // bright colour does not inherit a neutralising halo.
+    // Both the continuous disagreement shoulder and terminal shared clipping
+    // remain local to their own CFA projection bin. A wider neighbourhood may
+    // provide reconstruction colour, but it must never enlarge write ownership.
     frame.descriptor.storage_dimensions = {10U, 10U};
     frame.descriptor.active_dimensions = {10U, 10U};
     frame.samples.assign(100U, 650U);
@@ -163,12 +198,9 @@ void highlight_chroma_risk_marks_disagreement_and_shared_terminal_shoulder() {
     const auto terminal_boundary = image::project_highlight_chroma_risk_map(frame, {5U, 5U});
     expect(
         terminal_boundary.valid() && terminal_boundary.samples[12U] > 240U
-            && terminal_boundary.samples[11U] > 0U
-            && terminal_boundary.samples[11U] < terminal_boundary.samples[12U]
-            && terminal_boundary.samples[6U] > 0U
-            && terminal_boundary.samples[6U] < terminal_boundary.samples[11U]
+            && terminal_boundary.samples[11U] == 0U && terminal_boundary.samples[6U] == 0U
             && terminal_boundary.samples[0U] == 0U,
-        "a terminal clipped component grows one prepared boundary feather without leaking"
+        "a terminal clipped component does not grow a second colour-write contour"
     );
 
     frame.descriptor.storage_dimensions = {4U, 4U};

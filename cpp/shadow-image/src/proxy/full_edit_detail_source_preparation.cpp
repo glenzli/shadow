@@ -303,26 +303,17 @@ PreparedFullEditDetailSource prepare_full_edit_detail_source(
         if (prepared.has_value()) {
             detail::PreparedSceneLinearRegionOptics region_optics =
                 prepared->prepare_region_optics(optics_provider, optics_settings);
-            // Continuous highlight treatment needs one complete low-frequency source surface.
-            // Region residency cannot infer a trend across an arbitrarily large clipped component,
-            // so materialize this source once instead of changing detail/export semantics by tile.
-            const bool reconstruct_clipped_surface =
-                raw_pipeline_detail::uses_clipped_highlight_surface_reconstruction(
-                    raw_development_plan.highlight_recovery
-                );
-            if (!reconstruct_clipped_surface
-                && raw_pipeline_detail::cpu_resident_raw_source_supported(
-                    *prepared,
-                    region_optics
-                )) {
+            // Ordinary Bayer highlight recovery is photosite-owned and bounded to the region's
+            // existing CFA dependency halo. It therefore preserves exact detail/export semantics
+            // without forcing a complete scene-RGB materialization.
+            if (raw_pipeline_detail::cpu_resident_raw_source_supported(*prepared, region_optics)) {
                 auto resident = raw_pipeline_detail::prepare_resident_raw_source(
                     std::move(*prepared),
                     std::move(region_optics)
                 );
                 return prepare_resident_source(std::move(resident), session.metadata());
             }
-            if (!reconstruct_clipped_surface
-                && prepared->development().requested_backend() != RawDevelopmentBackendMode::cpu
+            if (prepared->development().requested_backend() != RawDevelopmentBackendMode::cpu
                 && full_detail_source_allows_metal_publication(requirements)) {
                 auto metal_resident = raw_pipeline_detail::try_prepare_metal_resident_raw_source(
                     std::move(*prepared),

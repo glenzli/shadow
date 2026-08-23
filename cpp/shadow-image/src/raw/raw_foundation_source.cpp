@@ -138,7 +138,8 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
         static_cast<void>(reconstruct_clipped_highlight_surface(
             developed.scene_linear,
             source_basis.sensor_clipping,
-            source_basis.highlight_chroma_risk
+            source_basis.highlight_chroma_risk,
+            &prepared.development_.linear_transform()
         ));
     }
 
