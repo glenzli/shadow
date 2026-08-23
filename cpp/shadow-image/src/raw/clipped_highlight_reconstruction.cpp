@@ -18,8 +18,23 @@ namespace {
 constexpr std::uint32_t maximum_guide_edge = 384U;
 constexpr float minimum_luminance = 1.0e-6F;
 // Physical clipping destroys colour and texture, not the fact that the core was bright. Permit the
-// low-frequency guide to remove at most one quarter stop from measured clipped luminance.
-constexpr float minimum_clipped_luminance_retention = 0.84089642F;
+// low-frequency guide to remove at most one eighth stop from measured clipped luminance.
+constexpr float minimum_clipped_luminance_retention = 0.91700404F;
+// A sparse clipped protrusion at a saturated edge is much more likely to be CFA phase than a
+// coherent highlight surface. Let that fringe follow the guide farther while the density ramp
+// below restores the one-eighth-stop floor in the dense core.
+constexpr float minimum_sparse_clipped_luminance_retention = 0.72F;
+// The first still-measured shoulder samples are the bridge between the reconstructed core and the
+// ordinary scene. Pull only a bounded bright outlier toward the guide, while still lifting a dim
+// shoulder toward this fraction of it.
+constexpr float minimum_measured_shoulder_guide_retention = 0.94F;
+constexpr float minimum_measured_shoulder_luminance_retention = 0.90F;
+// A projected output pixel is factually clipped when any contributing CFA sample reaches sensor
+// white, but that is not evidence that the whole RGB surface is missing. Require spatially
+// coherent clipping before replacing it with the low-frequency surface; this tapers isolated
+// Bayer-phase hits instead of growing edge hairs.
+constexpr float surface_reconstruction_support_begin = 0.035F;
+constexpr float surface_reconstruction_support_full = 0.20F;
 constexpr std::array<float, 3U> luminance_weights{0.2126F, 0.7152F, 0.0722F};
 
 struct GuideLevel final {
@@ -96,6 +111,7 @@ struct GuideLevel final {
 [[nodiscard]] GuideLevel prepare_finest_guide(
     const SceneLinearRgbFrame& source,
     const SensorClippingMask& clipping,
+    const HighlightChromaRiskMap& highlight_chroma_risk,
     const Dimensions dimensions
 ) {
     GuideLevel guide{
@@ -122,21 +138,31 @@ struct GuideLevel final {
                     const auto pixel =
                         static_cast<std::size_t>(source_y) * source.dimensions.width + source_x;
                     ++total_count;
-                    if ((clipping.samples[pixel] & sensor_highlight_clipped) != 0U) {
-                        continue;
-                    }
                     const auto sample = pixel * 3U;
                     const float red = std::max(0.0F, source.samples[sample]);
                     const float green = std::max(0.0F, source.samples[sample + 1U]);
                     const float blue = std::max(0.0F, source.samples[sample + 2U]);
                     const float luminance = positive_luminance(red, green, blue);
+                    if ((clipping.samples[pixel] & sensor_highlight_clipped) != 0U) {
+                        continue;
+                    }
+                    const float chroma_confidence =
+                        1.0F
+                        - smoothstep(
+                            0.08F,
+                            0.70F,
+                            static_cast<float>(highlight_chroma_risk.samples[pixel]) / 255.0F
+                        );
+                    if (chroma_confidence <= 0.0F) {
+                        continue;
+                    }
                     const float sum = std::max(red + green + blue, minimum_luminance);
                     // A physical highlight may border a dark silhouette. That silhouette is
                     // trustworthy image content but not a plausible continuation of the lost
                     // highlight surface, so admit measured guide samples continuously by their
                     // scene-linear highlight luminance instead of letting a black edge pull the
                     // entire reconstruction down.
-                    const float weight = smoothstep(0.18F, 0.75F, luminance);
+                    const float weight = smoothstep(0.18F, 0.75F, luminance) * chroma_confidence;
                     log_luminance_sum += static_cast<double>(std::log2(luminance)) * weight;
                     chroma_r_sum += static_cast<double>(red / sum) * weight;
                     chroma_g_sum += static_cast<double>(green / sum) * weight;
@@ -306,8 +332,11 @@ void smooth_guide(
     box_blur_once(values, dimensions, radius);
 }
 
-[[nodiscard]] std::vector<float>
-prepare_clipping_influence(const SensorClippingMask& clipping, const Dimensions dimensions) {
+[[nodiscard]] std::vector<float> prepare_clipping_influence(
+    const SensorClippingMask& clipping,
+    const HighlightChromaRiskMap& highlight_chroma_risk,
+    const Dimensions dimensions
+) {
     std::vector<float> influence(checked_count(dimensions));
     for (std::uint32_t guide_y = 0U; guide_y < dimensions.height; ++guide_y) {
         const auto source_y_begin =
@@ -317,18 +346,23 @@ prepare_clipping_influence(const SensorClippingMask& clipping, const Dimensions 
             const auto source_x_begin =
                 bin_begin(guide_x, clipping.dimensions.width, dimensions.width);
             const auto source_x_end = bin_end(guide_x, clipping.dimensions.width, dimensions.width);
-            std::uint64_t clipped = 0U;
+            double influence_sum = 0.0;
             std::uint64_t total = 0U;
             for (std::uint32_t source_y = source_y_begin; source_y < source_y_end; ++source_y) {
                 for (std::uint32_t source_x = source_x_begin; source_x < source_x_end; ++source_x) {
                     const auto pixel =
                         static_cast<std::size_t>(source_y) * clipping.dimensions.width + source_x;
-                    clipped += (clipping.samples[pixel] & sensor_highlight_clipped) != 0U ? 1U : 0U;
+                    const float risk =
+                        static_cast<float>(highlight_chroma_risk.samples[pixel]) / 255.0F;
+                    const float seed = (clipping.samples[pixel] & sensor_highlight_clipped) != 0U
+                                           ? 1.0F
+                                           : 0.85F * risk;
+                    influence_sum += seed;
                     ++total;
                 }
             }
             influence[static_cast<std::size_t>(guide_y) * dimensions.width + guide_x] =
-                total == 0U ? 0.0F : static_cast<float>(clipped) / static_cast<float>(total);
+                total == 0U ? 0.0F : static_cast<float>(influence_sum / static_cast<double>(total));
         }
     }
     const auto short_edge = std::min(dimensions.width, dimensions.height);
@@ -358,7 +392,12 @@ ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
     ClippedHighlightReconstructionStats stats{
         .clipped_pixel_count = sensor_clipping.highlight_pixel_count,
     };
-    if (stats.clipped_pixel_count == 0U
+    const bool has_continuous_risk = std::any_of(
+        highlight_chroma_risk.samples.begin(),
+        highlight_chroma_risk.samples.end(),
+        [](const std::uint8_t risk) { return risk != 0U; }
+    );
+    if ((!has_continuous_risk && stats.clipped_pixel_count == 0U)
         || stats.clipped_pixel_count == scene_linear.dimensions.pixel_count()) {
         return stats;
     }
@@ -366,7 +405,12 @@ ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
 
     stats.guide_dimensions = guide_dimensions(scene_linear.dimensions);
     std::vector<GuideLevel> pyramid;
-    pyramid.push_back(prepare_finest_guide(scene_linear, sensor_clipping, stats.guide_dimensions));
+    pyramid.push_back(prepare_finest_guide(
+        scene_linear,
+        sensor_clipping,
+        highlight_chroma_risk,
+        stats.guide_dimensions
+    ));
     while (pyramid.back().dimensions.width > 1U || pyramid.back().dimensions.height > 1U) {
         pyramid.push_back(reduce_guide(pyramid.back()));
     }
@@ -383,7 +427,7 @@ ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
     smooth_guide(guide.chroma_r, guide.dimensions, guide_smoothing_radius);
     smooth_guide(guide.chroma_g, guide.dimensions, guide_smoothing_radius);
     const std::vector<float> influence =
-        prepare_clipping_influence(sensor_clipping, guide.dimensions);
+        prepare_clipping_influence(sensor_clipping, highlight_chroma_risk, guide.dimensions);
 
     for (std::uint32_t y = 0U; y < scene_linear.dimensions.height; ++y) {
         const float guide_y = (static_cast<float>(y) + 0.5F)
@@ -435,14 +479,21 @@ ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
             target_chroma_b = std::lerp(target_chroma_b, 1.0F / 3.0F, neutral_pull);
             // Do not let reconstruction become a second highlight tone mapper. The clipped core
             // may follow a brighter low-frequency guide, but it cannot be pulled down by more than
-            // a quarter stop. The exterior shoulder changes chromaticity at constant luminance.
-            const float target_luminance = clipped
-                                               ? std::max(
-                                                     guide_luminance,
-                                                     input_luminance
-                                                         * minimum_clipped_luminance_retention
-                                                 )
-                                               : input_luminance;
+            // an eighth stop. The measured exterior is never darkened; its first bright samples
+            // may lift toward the guide so the clipped/unclipped frontier shares one luminance
+            // shoulder instead of preserving the CFA projection staircase.
+            const float dense_core = smoothstep(0.20F, 0.70F, local_influence);
+            const float clipped_luminance_retention = std::lerp(
+                minimum_sparse_clipped_luminance_retention,
+                minimum_clipped_luminance_retention,
+                dense_core
+            );
+            const float target_luminance =
+                clipped ? std::max(guide_luminance, input_luminance * clipped_luminance_retention)
+                        : std::max(
+                              guide_luminance * minimum_measured_shoulder_guide_retention,
+                              input_luminance * minimum_measured_shoulder_luminance_retention
+                          );
             const float target_unit_luminance = target_chroma_r * luminance_weights[0U]
                                                 + target_chroma_g * luminance_weights[1U]
                                                 + target_chroma_b * luminance_weights[2U];
@@ -454,29 +505,41 @@ ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
                 target_chroma_b * target_scale,
             };
 
-            // A symmetric blur is roughly 0.5 at the binary mask boundary. Renormalize its
-            // exterior half so the first measured highlight pixel meets the fully reconstructed
-            // clipped pixel continuously; the later brightness gate still rejects a dark edge.
-            const float blend_influence = clipped ? 1.0F : std::min(1.0F, local_influence * 2.0F);
-            const float spatial_blend = smoothstep(0.02F, 0.98F, blend_influence);
-            float blend = spatial_blend;
-            if (!clipped) {
-                const float brightness_gate = smoothstep(
-                    0.45F,
-                    0.90F,
-                    input_luminance / std::max(guide_luminance, minimum_luminance)
-                );
-                blend = spatial_blend * brightness_gate;
-            }
+            // A symmetric blur is roughly 0.5 at the boundary of a coherent clipped surface.
+            // Sparse CFA hits retain their measured projection instead of being promoted to a
+            // fully missing RGB surface; thin protrusions taper as their local support falls.
+            // The exterior half remains renormalized so measured highlight pixels meet a dense
+            // reconstructed core continuously. The later brightness gate still rejects a dark
+            // edge.
+            const float spatial_blend =
+                clipped ? smoothstep(
+                              surface_reconstruction_support_begin,
+                              surface_reconstruction_support_full,
+                              local_influence
+                          )
+                        : smoothstep(0.02F, 0.98F, std::min(1.0F, local_influence * 2.0F));
+            // Projection bins can straddle a clipped lamp and a dark fixture. Even when such a
+            // pixel carries factual clipping and coherent mask support, its repaired RGB remains
+            // strong ownership evidence for the dark edge. Dense bright cores pass the looser
+            // clipped threshold; an exterior shoulder still uses the stricter measured-light
+            // threshold.
+            const float brightness_ratio =
+                input_luminance / std::max(guide_luminance, minimum_luminance);
+            const float brightness_gate = clipped ? smoothstep(0.45F, 0.85F, brightness_ratio)
+                                                  : smoothstep(0.50F, 0.92F, brightness_ratio);
+            const float blend = spatial_blend * brightness_gate;
             if (blend <= 0.0F) {
                 continue;
             }
             scene_linear.samples[sample] = std::lerp(input_r, target[0U], blend);
             scene_linear.samples[sample + 1U] = std::lerp(input_g, target[1U], blend);
             scene_linear.samples[sample + 2U] = std::lerp(input_b, target[2U], blend);
-            highlight_chroma_risk.samples[pixel] = static_cast<std::uint8_t>(std::lround(
-                static_cast<float>(highlight_chroma_risk.samples[pixel]) * (1.0F - blend)
-            ));
+            // Once this owner changes a pixel, its output chroma comes from the continuous guide
+            // rather than the original CFA ratio. Clear that obsolete warning completely so the
+            // later grade cannot reveal the old lattice by neutralising only part of the newly
+            // continuous shoulder. A rejected sparse or dark-edge sample never reaches this point
+            // and therefore keeps its factual risk evidence.
+            highlight_chroma_risk.samples[pixel] = 0U;
             ++stats.blended_pixel_count;
         }
     }

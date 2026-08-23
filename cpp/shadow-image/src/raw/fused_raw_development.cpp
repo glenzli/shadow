@@ -261,17 +261,19 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-opposed-linear-limit@20260823.4;"
-               "recovery=one-sided+shared-chroma;headroom=sub-white-fp32;"
-               "clipped-highlight-surface=low-frequency-push-pull-luminance-protected-v2";
+        return "sensor-highlights=cfa-evidence-preserving@20260824.7;"
+               "recovery=shared-chroma+surface-guided;headroom=sub-white-fp32;"
+               "clipped-highlight-surface="
+               "risk-excluded-support-gated-push-pull-luma-shoulder-v4";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
         return "sensor-highlights=unsupported";
     case RawHighlightRecoveryIntent::aggressive:
-        return "sensor-highlights=cfa-opposed-linear-limit-feathered@20260823.4;"
-               "recovery=one-sided+spatial-chroma;headroom=sub-white-fp32;"
-               "clipped-highlight-surface=low-frequency-push-pull-luminance-protected-v2";
+        return "sensor-highlights=cfa-evidence-preserving-feathered@20260824.7;"
+               "recovery=spatial-chroma+surface-guided;headroom=sub-white-fp32;"
+               "clipped-highlight-surface="
+               "risk-excluded-support-gated-push-pull-luma-shoulder-v4";
     }
     return "sensor-highlights=unknown";
 }

@@ -2049,10 +2049,13 @@ kernel void warm_selective_tone_apply_v1(
                 endpoint_boundary_ev,
                 endpoint_softness_ev
             );
-        constexpr float negative_highlight_capacity_ev = 1.0f;
+        // Match the CPU's finite energy-retaining shoulder exactly. Keeping each capacity below
+        // one stop prevents an extreme combined pull from making the highlight core look globally
+        // underexposed while the compact windows remain monotonic and return to 1:1.
+        constexpr float negative_highlight_capacity_ev = 0.75f;
         constexpr float negative_highlight_start_ev = 0.0f;
         constexpr float negative_highlight_span_ev = 3.4f;
-        constexpr float negative_white_capacity_ev = 1.4f;
+        constexpr float negative_white_capacity_ev = 0.85f;
         constexpr float negative_white_start_ev = 0.3f;
         constexpr float negative_white_span_ev = 5.5f;
         const float shoulder_source_ev = requested_adjusted_ev;

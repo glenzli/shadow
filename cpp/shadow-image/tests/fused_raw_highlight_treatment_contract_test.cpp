@@ -231,6 +231,106 @@ using shadow::image::test_support::failures;
     return frame;
 }
 
+[[nodiscard]] image::RawFrame mixed_dark_and_clipped_area_footprint_frame() {
+    auto frame = synthetic_frame(0);
+    for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < frame.descriptor.storage_dimensions.width; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const auto colour = frame.descriptor.bayer_2x2[site];
+            const bool bright_side = x >= 4U;
+            std::uint16_t sample =
+                static_cast<std::uint16_t>(frame.descriptor.black_levels[site] + 50U);
+            if (bright_side) {
+                sample =
+                    colour == image::RawCfaColor::green
+                        ? static_cast<std::uint16_t>(frame.descriptor.white_levels[site])
+                        : static_cast<std::uint16_t>(frame.descriptor.black_levels[site] + 900U);
+            }
+            frame.samples
+                [static_cast<std::size_t>(y) * frame.descriptor.storage_dimensions.width + x] =
+                sample;
+        }
+    }
+    return frame;
+}
+
+void area_highlight_evidence_preserves_mixed_edge_contributions() {
+    const image::RawFrameLinearTransform transform{
+        .camera_to_linear_srgb_d65 =
+            {
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            },
+        .camera_rgb_to_linear_srgb_d65 =
+            {
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            },
+        .camera_neutral = {1.0, 1.0, 1.0},
+        .cfa_white_balance = {2.0, 1.0, 1.0, 2.0},
+        .apply_cfa_white_balance = true,
+    };
+    const auto enabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        mixed_dark_and_clipped_area_footprint_frame(),
+        transform,
+        1U,
+        image::RawDevelopmentBackendMode::cpu
+    );
+    const auto disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        mixed_dark_and_clipped_area_footprint_frame(),
+        transform,
+        1U,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::disabled
+    );
+    float maximum_delta = 0.0F;
+    for (std::size_t index = 0U; index < enabled.scene_linear.samples.size(); ++index) {
+        maximum_delta = std::max(
+            maximum_delta,
+            std::abs(enabled.scene_linear.samples[index] - disabled.scene_linear.samples[index])
+        );
+    }
+    expect(
+        maximum_delta <= 1.0e-6F,
+        "default area sampling preserves every measured contribution in a mixed edge footprint"
+    );
+
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        return;
+    }
+    const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        mixed_dark_and_clipped_area_footprint_frame(),
+        transform,
+        1U,
+        image::RawDevelopmentBackendMode::metal
+    );
+    float maximum_metal_delta = 0.0F;
+    for (std::size_t index = 0U; index < enabled.scene_linear.samples.size(); ++index) {
+        maximum_metal_delta = std::max(
+            maximum_metal_delta,
+            std::abs(enabled.scene_linear.samples[index] - metal.scene_linear.samples[index])
+        );
+    }
+    expect(
+        maximum_metal_delta <= 4.0e-5F,
+        "Metal matches evidence-preserving CPU area sampling on a clipped hard edge"
+    );
+}
+
 void cfa_white_balance_retains_editable_headroom() {
     const image::RawFrameLinearTransform transform{
         .camera_to_linear_srgb_d65 =
@@ -280,9 +380,10 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-opposed-linear-limit@20260823.4;"
-               "recovery=one-sided+shared-chroma;headroom=sub-white-fp32;"
-               "clipped-highlight-surface=low-frequency-push-pull-luminance-protected-v2",
+            == "sensor-highlights=cfa-evidence-preserving@20260824.7;"
+               "recovery=shared-chroma+surface-guided;headroom=sub-white-fp32;"
+               "clipped-highlight-surface="
+               "risk-excluded-support-gated-push-pull-luma-shoulder-v4",
         "the default source receipt identifies continuous clipped-highlight reconstruction"
     );
 
@@ -360,7 +461,7 @@ void cfa_white_balance_retains_editable_headroom() {
     }
     expect(
         near_white_was_never_lowered && maximum_near_white_value > 1.5F,
-        "near-limit opposed repair never clips white-balance-induced fp32 headroom"
+        "near-limit evidence processing never clips white-balance-induced fp32 headroom"
     );
 
     const auto response_limited = two_channel_linear_response_boundary_frame();
@@ -434,7 +535,7 @@ void cfa_white_balance_retains_editable_headroom() {
     }
     expect(
         maximum_metal_difference <= 4.0e-5F,
-        "Metal matches the CPU physical-white opposed reconstruction path"
+        "Metal matches the CPU physical-white evidence path"
     );
 }
 
@@ -591,9 +692,10 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-opposed-linear-limit-feathered@20260823.4;"
-                      "recovery=one-sided+spatial-chroma;headroom=sub-white-fp32;"
-                      "clipped-highlight-surface=low-frequency-push-pull-luminance-protected-v2",
+                   == "sensor-highlights=cfa-evidence-preserving-feathered@20260824.7;"
+                      "recovery=spatial-chroma+surface-guided;headroom=sub-white-fp32;"
+                      "clipped-highlight-surface="
+                      "risk-excluded-support-gated-push-pull-luma-shoulder-v4",
         "legacy aggressive source-surface reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;
@@ -737,7 +839,8 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     }
     const bool nikon_flat_top_repaired =
         nikon_default_never_lowered
-        && nikon_default_bright_maximum_chroma + 0.05F < nikon_disabled_bright_maximum_chroma
+        && std::abs(nikon_default_bright_maximum_chroma - nikon_disabled_bright_maximum_chroma)
+               <= 1.0e-6F
         && nikon_aggressive_maximum_chroma + 0.05F < nikon_default_maximum_chroma;
     if (!nikon_flat_top_repaired) {
         std::cerr << "Nikon near-limit diagnostic: default-max-chroma="
@@ -750,8 +853,8 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     }
     expect(
         nikon_flat_top_repaired,
-        "near-limit opposed repair lowers the worst Nikon-style green-flat-top false chroma "
-        "without lowering a measured channel"
+        "the default path preserves a Nikon-style near-limit CFA ratio for continuous surface "
+        "reconstruction while aggressive mode remains an explicit chroma pull"
     );
 
     const auto one_channel = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -1057,7 +1160,7 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
         8.0F * std::numeric_limits<float>::epsilon() * std::max(1.0F, maximum_slanted_magnitude);
     expect(
         maximum_slanted_difference <= slanted_parity_tolerance,
-        "Metal matches CPU opposed reconstruction on a slanted shared-clipping boundary"
+        "Metal matches CPU highlight evidence on a slanted shared-clipping boundary"
     );
 
     const auto scaled_cpu_metal_parity = [](const auto& reference, const auto& candidate) {
@@ -1089,7 +1192,7 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     );
     expect(
         scaled_cpu_metal_parity(nikon_default, nikon_metal),
-        "Metal matches CPU near-limit opposed repair on a Nikon-style flat top"
+        "Metal matches CPU near-limit evidence on a Nikon-style flat top"
     );
 
     const auto nikon_area_cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -1175,11 +1278,11 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     }
     expect(
         nikon_high_repaired,
-        "high-quality detail applies near-limit opposed repair over its complete directional halo"
+        "high-quality detail drops unreliable directional phase over a near-limit halo"
     );
     expect(
         scaled_cpu_metal_parity(nikon_high_cpu, nikon_high_metal),
-        "Metal matches CPU near-limit opposed repair in high-quality detail/export"
+        "Metal matches CPU near-limit directional fallback in high-quality detail/export"
     );
 
     const auto saturated_red_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -1251,6 +1354,7 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
 } // namespace
 
 int main() {
+    area_highlight_evidence_preserves_mixed_edge_contributions();
     cfa_white_balance_retains_editable_headroom();
     sensor_clipped_highlights_reconstruct_false_chroma();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

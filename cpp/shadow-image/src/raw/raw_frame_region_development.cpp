@@ -362,8 +362,7 @@ void write_raw_frame_transformed_pixel(
         camera.values[1],
         camera.values[2],
     };
-    // The CFA sampler has already applied its one-sided opposed repair. Any remaining shared
-    // physical-white ratio is still unmeasured, so neutralize only that residual camera chroma
+    // A shared physical-white ratio is unmeasured, so neutralize only that residual camera chroma
     // before the camera matrix while preserving Bayer-weighted luminance and spatial structure.
     // Doing this after the matrix creates a display-grey plateau whose luminance does not follow
     // the camera calibration.
@@ -408,8 +407,8 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
     }
 
     // Keep black-subtracted CFA samples through white balance before demosaic. The editable source
-    // retains WB-induced float headroom. The default applies only one-sided colour reconstruction
-    // in the final linear-response shoulder; opt-in aggressive repair also feathers bounded
+    // retains WB-induced float headroom. The default preserves camera-channel luminance and exports
+    // calibrated response-risk evidence; opt-in aggressive repair also feathers bounded
     // physical-white evidence before the camera-domain neutral pull. Neither route invents spatial
     // detail or borrows hue from a neighbouring object.
     const detail::BayerCfaSamplingPolicy cfa_sampling =

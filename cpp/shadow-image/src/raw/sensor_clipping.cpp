@@ -147,6 +147,20 @@ oriented_dimensions(Dimensions dimensions, const std::int32_t orientation) noexc
     return std::clamp((sample - black) / std::max(limit - black, 1.0F), 0.0F, 1.0F);
 }
 
+[[nodiscard]] std::array<float, 4U>
+canonical_as_shot_balance(const RawFrameDescriptor& descriptor) noexcept {
+    const double reference =
+        *std::max_element(descriptor.as_shot_neutral.begin(), descriptor.as_shot_neutral.end());
+    std::array<float, 4U> balance{};
+    for (std::size_t site = 0U; site < balance.size(); ++site) {
+        const double neutral = descriptor.as_shot_neutral[site];
+        balance[site] = neutral > 0.0 && std::isfinite(neutral) && reference > 0.0
+                            ? static_cast<float>(reference / neutral)
+                            : 1.0F;
+    }
+    return balance;
+}
+
 [[nodiscard]] float smoothstep(const float edge0, const float edge1, const float value) noexcept {
     const float t = std::clamp((value - edge0) / (edge1 - edge0), 0.0F, 1.0F);
     return t * t * (3.0F - 2.0F * t);
@@ -361,10 +375,11 @@ project_highlight_chroma_risk_map(const RawFrame& frame, const Dimensions target
     HighlightChromaRiskMap output;
     output.dimensions = target_dimensions;
     output.samples.resize(target_count);
+    const auto as_shot_balance = canonical_as_shot_balance(descriptor);
     detail::parallel_for_rows(
         target_dimensions.height,
         8U,
-        [&frame, &output, &descriptor, target_dimensions, oriented_active](
+        [&frame, &output, &descriptor, target_dimensions, oriented_active, as_shot_balance](
             const std::uint32_t first_target_y,
             const std::uint32_t last_target_y
         ) {
@@ -399,14 +414,30 @@ project_highlight_chroma_risk_map(const RawFrame& frame, const Dimensions target
                             if (channel < 0) {
                                 continue;
                             }
-                            const float sample =
+                            const float response_sample =
                                 normalized_linear_response_sample(frame, raw_x, raw_y);
+                            const float balanced_sample =
+                                normalized_sensor_sample(frame, raw_x, raw_y)
+                                * as_shot_balance[cfa_site(raw_x, raw_y)];
                             // The CFA response starts losing chroma reliability before its
                             // terminal plateau.  Begin this continuous shoulder evidence early
                             // enough to cover the Sony-style halo surrounding a shared clipped
                             // core, while the later multi-channel test keeps ordinary bright
                             // colour and a one-colour emitter out of the risk map.
-                            const float evidence = smoothstep(0.84F, 1.0F, sample);
+                            const float response_evidence =
+                                smoothstep(0.84F, 1.0F, response_sample);
+                            // A neutral lamp can place red/blue well below their raw container
+                            // ceilings while canonical white balance brings all three colours to
+                            // the same bright surface. At a hard edge, independent CFA footprints
+                            // then expose green/red/blue sampling phase as horizontal teeth even
+                            // though only one raw channel is near its terminal response. The
+                            // camera's immutable as-shot balance distinguishes that case from a
+                            // genuinely saturated one-colour emitter without depending on the
+                            // user's later white-balance edit.
+                            const float balanced_surface_evidence =
+                                0.92F * smoothstep(0.78F, 1.02F, balanced_sample);
+                            const float evidence =
+                                std::max(response_evidence, balanced_surface_evidence);
                             sums[static_cast<std::size_t>(channel)] += evidence;
                             weights[static_cast<std::size_t>(channel)] += 1.0;
                         }

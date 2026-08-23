@@ -186,11 +186,13 @@ smootherstep_window(const double value, const double start, const double span) n
     // recovery is different: composing two open-ended hinges leaves only 3.36% of the source
     // slope when both controls are at -100, which darkens ordinary highlights and packs all
     // super-white values into a narrow band. Couple the negative controls into two overlapping
-    // finite shoulders instead. Highlights starts at middle gray and reaches a one-stop budget
-    // over 3.4 EV; Whites starts at +0.3 EV and contributes another 1.4 stops over 5.5 EV. The
-    // quintic windows are C2 at both ends, have exactly zero midtone tail, and their combined
-    // derivative is at most 0.866 at full strength. The mapping therefore remains monotonic
-    // with at least 13.4% local slope before returning to 1:1 in the super-whites.
+    // finite shoulders instead. Highlights starts at middle gray and reaches a 0.75-stop budget
+    // over 3.4 EV; Whites starts at +0.3 EV and contributes another 0.85 stop over 5.5 EV. The
+    // reduced capacities retain a bright highlight core instead of making an extreme recovery
+    // look like global underexposure. The quintic windows are C2 at both ends, have exactly zero
+    // midtone tail, and their combined derivative is at most 0.601 at full strength. The mapping
+    // therefore remains monotonic with at least 39.9% local slope before returning to 1:1 in the
+    // super-whites.
     adjusted_ev = apply_upper(
         adjusted_ev,
         std::max(0.0, prepared.highlights()),
@@ -205,10 +207,10 @@ smootherstep_window(const double value, const double start, const double span) n
         endpoint_softness_ev,
         endpoint_strength
     );
-    constexpr double negative_highlight_capacity_ev = 1.0;
+    constexpr double negative_highlight_capacity_ev = 0.75;
     constexpr double negative_highlight_start_ev = 0.0;
     constexpr double negative_highlight_span_ev = 3.4;
-    constexpr double negative_white_capacity_ev = 1.4;
+    constexpr double negative_white_capacity_ev = 0.85;
     constexpr double negative_white_start_ev = 0.3;
     constexpr double negative_white_span_ev = 5.5;
     const double negative_highlights = std::max(0.0, -prepared.highlights());

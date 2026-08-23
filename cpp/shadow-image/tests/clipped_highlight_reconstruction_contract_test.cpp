@@ -272,8 +272,8 @@ void reconstruction_preserves_bright_warm_highlight_character() {
 
     const auto centre_sample = centre_pixel * 3U;
     const float after_luminance = luminance(source, centre_pixel);
-    const float warm_ratio = source.samples[centre_sample]
-                           / std::max(source.samples[centre_sample + 2U], 1.0e-6F);
+    const float warm_ratio =
+        source.samples[centre_sample] / std::max(source.samples[centre_sample + 2U], 1.0e-6F);
     expect(
         after_luminance >= before_luminance * 0.835F,
         "source reconstruction cannot turn a clipped bright core into a low-frequency grey island"
@@ -281,6 +281,118 @@ void reconstruction_preserves_bright_warm_highlight_character() {
     expect(
         warm_ratio > 1.60F,
         "reconstructed highlight colour follows the measured warm boundary instead of neutral grey"
+    );
+}
+
+void sparse_projected_cfa_clip_does_not_invent_an_rgb_surface() {
+    constexpr image::Dimensions dimensions{96U, 64U};
+    constexpr std::uint32_t edge_x = 47U;
+    constexpr std::uint32_t edge_y = 32U;
+    auto source = smooth_surface(dimensions);
+    // Model a dark fixture directly beside a bright lamp. A single projected output pixel can be
+    // factually clipped because one contributing CFA sample reached white even though its
+    // projected RGB value remains a plausible dark edge sample.
+    for (std::uint32_t y = 0U; y < dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x <= edge_x; ++x) {
+            const auto sample = (static_cast<std::size_t>(y) * dimensions.width + x) * 3U;
+            source.samples[sample] = 0.34F;
+            source.samples[sample + 1U] = 0.28F;
+            source.samples[sample + 2U] = 0.22F;
+        }
+    }
+    // Put a coherent clipped surface two pixels beyond the fixture edge. Its blurred support
+    // deliberately reaches the edge sample, reproducing a target bin whose CFA footprint straddles
+    // the lamp and fixture.
+    auto clipping = circular_clipping_mask(dimensions, 64U, edge_y, 15U);
+    const auto edge_pixel = static_cast<std::size_t>(edge_y) * dimensions.width + edge_x;
+    clipping.samples[edge_pixel] = image::sensor_highlight_clipped;
+    ++clipping.highlight_pixel_count;
+    const auto before = source;
+    auto highlight_risk = highlight_risk_from_mask(clipping);
+
+    const auto stats = image::raw_pipeline_detail::reconstruct_clipped_highlight_surface(
+        source,
+        clipping,
+        highlight_risk
+    );
+
+    const auto edge_sample = edge_pixel * 3U;
+    expect(
+        stats.clipped_pixel_count == clipping.highlight_pixel_count,
+        "the source receipt remains factual about a projected dark-edge physical clip"
+    );
+    expect(
+        std::abs(source.samples[edge_sample] - before.samples[edge_sample]) < 1.0e-6F
+            && std::abs(source.samples[edge_sample + 1U] - before.samples[edge_sample + 1U])
+                   < 1.0e-6F
+            && std::abs(source.samples[edge_sample + 2U] - before.samples[edge_sample + 2U])
+                   < 1.0e-6F,
+        "an isolated projected CFA clip cannot grow a bright RGB hair across a mid-dark edge"
+    );
+    expect(
+        highlight_risk.samples[edge_pixel] == 255U,
+        "an unreplaced sparse clip retains its downstream chroma-risk evidence"
+    );
+}
+
+void reconstruction_excludes_unreliable_cfa_chroma_from_its_guide() {
+    constexpr image::Dimensions dimensions{128U, 80U};
+    constexpr std::uint32_t centre_x = 66U;
+    constexpr std::uint32_t centre_y = 40U;
+    auto source = image::SceneLinearRgbFrame{
+        .dimensions = dimensions,
+        .row_stride_bytes = static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float),
+        .samples = std::vector<float>(static_cast<std::size_t>(dimensions.pixel_count()) * 3U),
+    };
+    for (std::size_t pixel = 0U; pixel < dimensions.pixel_count(); ++pixel) {
+        const auto sample = pixel * 3U;
+        source.samples[sample] = 0.92F;
+        source.samples[sample + 1U] = 0.70F;
+        source.samples[sample + 2U] = 0.42F;
+    }
+    auto clipping = circular_clipping_mask(dimensions, centre_x, centre_y, 16U);
+    auto risk = highlight_risk_from_mask(clipping);
+    for (std::uint32_t y = 19U; y <= 61U; ++y) {
+        for (std::uint32_t x = 43U; x <= 89U; ++x) {
+            const auto pixel = static_cast<std::size_t>(y) * dimensions.width + x;
+            const auto sample = pixel * 3U;
+            const auto dx = static_cast<std::int64_t>(x) - centre_x;
+            const auto dy = static_cast<std::int64_t>(y) - centre_y;
+            const auto distance_squared = dx * dx + dy * dy;
+            if ((clipping.samples[pixel] & image::sensor_highlight_clipped) != 0U) {
+                source.samples[sample] = 3.4F;
+                source.samples[sample + 1U] = 0.35F;
+                source.samples[sample + 2U] = 2.8F;
+            } else if (distance_squared <= 21 * 21) {
+                // Model an unclipped but CFA-risked colour fringe surrounding the core. It is
+                // bright enough to dominate a naïve guide, yet is explicitly not reliable
+                // evidence for the missing surface.
+                source.samples[sample] = 2.8F;
+                source.samples[sample + 1U] = 0.40F;
+                source.samples[sample + 2U] = 2.4F;
+                risk.samples[pixel] = 255U;
+            }
+        }
+    }
+
+    static_cast<void>(
+        image::raw_pipeline_detail::reconstruct_clipped_highlight_surface(source, clipping, risk)
+    );
+
+    const auto centre_pixel = static_cast<std::size_t>(centre_y) * dimensions.width + centre_x;
+    const auto centre_sample = centre_pixel * 3U;
+    const float red_blue_ratio =
+        source.samples[centre_sample] / std::max(source.samples[centre_sample + 2U], 1.0e-6F);
+    const float green_blue_ratio =
+        source.samples[centre_sample + 1U] / std::max(source.samples[centre_sample + 2U], 1.0e-6F);
+    expect(
+        red_blue_ratio > 1.75F && green_blue_ratio > 1.25F,
+        "the reconstructed core follows reliable warm neighbours instead of a CFA-risked magenta "
+        "fringe"
+    );
+    expect(
+        risk.samples[centre_pixel] == 0U,
+        "a fully reconstructed core consumes the obsolete CFA chroma warning"
     );
 }
 
@@ -325,6 +437,8 @@ void empty_or_unrecoverable_masks_are_no_ops() {
 int main() {
     reconstruction_hides_clip_topology_without_crossing_dark_edges();
     reconstruction_preserves_bright_warm_highlight_character();
+    sparse_projected_cfa_clip_does_not_invent_an_rgb_surface();
+    reconstruction_excludes_unreliable_cfa_chroma_from_its_guide();
     empty_or_unrecoverable_masks_are_no_ops();
     if (failures != 0) {
         std::cerr << failures << " clipped-highlight reconstruction contract test(s) failed\n";

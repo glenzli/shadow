@@ -177,6 +177,7 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     const uint raw_y
 ) {
     CameraRgbSample result = camera_rgb_at(samples, parameters, raw_x, raw_y);
+    const CameraRgbSample bilinear = result;
     const DirectionalGreenEstimate green =
         directional_green_estimate(samples, parameters, raw_x, raw_y);
     if (!green.valid) {
@@ -223,7 +224,6 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     uint channel_observed[3] = {0u, 0u, 0u};
     uint channel_at_white[3] = {0u, 0u, 0u};
     float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
-    float channel_opposed_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
     uint observed = 0u;
     uint at_white = 0u;
     for (int dy = -3; dy <= 3; ++dy) {
@@ -246,8 +246,6 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
             const float channel_evidence =
                 highlight_sensor_evidence(samples, parameters, x, y);
             channel_evidence_totals[channel] += channel_evidence;
-            channel_opposed_evidence_totals[channel] +=
-                opposed_highlight_sensor_evidence(channel_evidence);
             const bool is_at_white = physical_sensor_white(samples, parameters, x, y);
             at_white += is_at_white ? 1u : 0u;
             channel_at_white[channel] += is_at_white ? 1u : 0u;
@@ -263,21 +261,17 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
         channel_observed[1] == 0u ? 0.0f : channel_evidence_totals[1] / float(channel_observed[1]),
         channel_observed[2] == 0u ? 0.0f : channel_evidence_totals[2] / float(channel_observed[2])
     );
-    const float3 opposed_channel_evidence = float3(
-        channel_observed[0] == 0u
-            ? 0.0f : channel_opposed_evidence_totals[0] / float(channel_observed[0]),
-        channel_observed[1] == 0u
-            ? 0.0f : channel_opposed_evidence_totals[1] / float(channel_observed[1]),
-        channel_observed[2] == 0u
-            ? 0.0f : channel_opposed_evidence_totals[2] / float(channel_observed[2])
+    // A physically clipped sample invalidates the directional colour-difference gradient around
+    // it. Reuse the already-computed bilinear estimate on only the bright side of that frontier;
+    // this prevents Bayer phase from becoming horizontal teeth without another read or pass.
+    const float clipped_channel_support = max(
+        result.physical_white_coverage.x,
+        max(result.physical_white_coverage.y, result.physical_white_coverage.z)
     );
-    result.values = opposed_highlight_reconstruction(
-        result.values,
-        opposed_highlight_reconstruction_coverage(
-            result.physical_white_coverage,
-            opposed_channel_evidence
-        )
-    );
+    const float topology_support = smoothstep(0.0f, 0.08f, clipped_channel_support);
+    const float bilinear_peak = max(bilinear.values.x, max(bilinear.values.y, bilinear.values.z));
+    const float bright_support = smoothstep(0.35f, 0.75f, bilinear_peak);
+    result.values = mix(result.values, bilinear.values, topology_support * bright_support);
     const float exact_physical_white_coverage = observed == 0u
         ? 0.0f : float(at_white) / float(observed);
     const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
@@ -471,7 +465,6 @@ kernel void develop_bayer_area_preview(
     float totals[3] = {0.0f, 0.0f, 0.0f};
     float weights[3] = {0.0f, 0.0f, 0.0f};
     float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
-    float channel_opposed_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
     float channel_physical_white_weights[3] = {0.0f, 0.0f, 0.0f};
     float observed_weight = 0.0f;
     float physical_white_weight = 0.0f;
@@ -493,10 +486,9 @@ kernel void develop_bayer_area_preview(
             const float channel_evidence =
                 highlight_sensor_evidence(samples, parameters, raw_x, raw_y);
             channel_evidence_totals[channel] += channel_evidence * weight;
-            channel_opposed_evidence_totals[channel] +=
-                opposed_highlight_sensor_evidence(channel_evidence) * weight;
             observed_weight += weight;
-            if (physical_sensor_white(samples, parameters, raw_x, raw_y)) {
+            const bool is_at_white = physical_sensor_white(samples, parameters, raw_x, raw_y);
+            if (is_at_white) {
                 channel_physical_white_weights[channel] += weight;
                 physical_white_weight += weight;
             }
@@ -534,11 +526,6 @@ kernel void develop_bayer_area_preview(
         observed_weight <= 0.0f ? 0.0f : physical_white_weight / observed_weight
     };
     if (complete_area_footprint) {
-        const float3 opposed_channel_evidence = float3(
-            channel_opposed_evidence_totals[0] / weights[0],
-            channel_opposed_evidence_totals[1] / weights[1],
-            channel_opposed_evidence_totals[2] / weights[2]
-        );
         const float exact_physical_white_coverage = camera.highlight_chroma_neutralization;
         const float physical_white_coverage =
             parameters.feather_highlight_chroma_neutralization != 0u
@@ -557,13 +544,6 @@ kernel void develop_bayer_area_preview(
                   )
               )
             : camera.highlight_chroma_neutralization;
-        camera.values = opposed_highlight_reconstruction(
-            camera.values,
-            opposed_highlight_reconstruction_coverage(
-                camera.physical_white_coverage,
-                opposed_channel_evidence
-            )
-        );
         camera.highlight_chroma_neutralization = max(
             highlight_chroma_neutralization(
                 camera.values,

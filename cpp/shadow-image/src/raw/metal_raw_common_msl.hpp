@@ -227,11 +227,6 @@ inline float highlight_sensor_evidence(
     return t * t * (3.0f - 2.0f * t);
 }
 
-inline float opposed_highlight_sensor_evidence(const float channel_evidence) {
-    const float t = clamp((channel_evidence - 0.90f) / 0.10f, 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
 inline float feathered_highlight_sensor_evidence(
     device const ushort* samples,
     constant RawDevelopmentParameters& parameters,
@@ -275,24 +270,6 @@ inline float3 neutralize_untrusted_camera_highlight_chroma(
     }
     const float luminance = dot(camera_rgb, float3(0.25f, 0.5f, 0.25f));
     return mix(camera_rgb, float3(luminance), weight);
-}
-
-inline float3 opposed_highlight_reconstruction(
-    const float3 values,
-    const float3 physical_white_coverage
-) {
-    const float3 opposing_reference = 0.5f * (
-        max(float3(0.0f), values.yzx) + max(float3(0.0f), values.zxy)
-    );
-    const float3 candidate = max(values, opposing_reference);
-    return values + clamp(physical_white_coverage, 0.0f, 1.0f) * (candidate - values);
-}
-
-inline float3 opposed_highlight_reconstruction_coverage(
-    const float3 physical_white_coverage,
-    const float3 opposed_channel_evidence
-) {
-    return max(physical_white_coverage, opposed_channel_evidence);
 }
 
 inline float shared_physical_white_neutralization(const float3 physical_white_coverage) {
@@ -350,7 +327,6 @@ inline CameraRgbSample camera_rgb_at(
     float totals[3] = {0.0f, 0.0f, 0.0f};
     uint counts[3] = {0u, 0u, 0u};
     float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
-    float channel_opposed_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
     uint channel_at_white[3] = {0u, 0u, 0u};
     uint observed = 0u;
     uint at_white = 0u;
@@ -372,8 +348,6 @@ inline CameraRgbSample camera_rgb_at(
             const float channel_evidence =
                 highlight_sensor_evidence(samples, parameters, x, y);
             channel_evidence_totals[channel] += channel_evidence;
-            channel_opposed_evidence_totals[channel] +=
-                opposed_highlight_sensor_evidence(channel_evidence);
             counts[channel] += 1u;
             observed += 1u;
             const bool is_at_white = physical_sensor_white(samples, parameters, x, y);
@@ -396,40 +370,28 @@ inline CameraRgbSample camera_rgb_at(
         float(channel_at_white[1]) / float(counts[1]),
         float(channel_at_white[2]) / float(counts[2])
     );
-    const float3 channel_opposed_evidence = float3(
-        channel_opposed_evidence_totals[0] / float(counts[0]),
-        channel_opposed_evidence_totals[1] / float(counts[1]),
-        channel_opposed_evidence_totals[2] / float(counts[2])
-    );
-    const float3 reconstructed = opposed_highlight_reconstruction(
-        values,
-        opposed_highlight_reconstruction_coverage(
-            channel_physical_white_coverage,
-            channel_opposed_evidence
-        )
-    );
     const float exact_physical_white_coverage = observed == 0u
         ? 0.0f : float(at_white) / float(observed);
     const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
         ? feathered_highlight_sensor_evidence(samples, parameters, raw_x, raw_y, 3u)
         : exact_physical_white_coverage;
     return CameraRgbSample{
-        reconstructed,
+        values,
         channel_evidence,
         channel_physical_white_coverage,
         parameters.feather_highlight_chroma_neutralization != 0u
             ? max(
                   max(
-                      highlight_chroma_neutralization(reconstructed, channel_evidence),
+                      highlight_chroma_neutralization(values, channel_evidence),
                       shared_physical_white_neutralization(channel_physical_white_coverage)
                   ),
                   aggressive_highlight_chroma_risk(
                       physical_white_coverage,
                       exact_physical_white_coverage
-                  ) * aggressive_highlight_edge_support(reconstructed)
+                  ) * aggressive_highlight_edge_support(values)
               )
             : max(
-                  highlight_chroma_neutralization(reconstructed, channel_evidence),
+                  highlight_chroma_neutralization(values, channel_evidence),
                   shared_physical_white_neutralization(channel_physical_white_coverage)
               )
     };

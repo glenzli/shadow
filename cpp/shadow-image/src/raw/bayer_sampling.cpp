@@ -123,7 +123,6 @@ namespace {
 struct PhysicalWhiteWindowCoverage final {
     CameraRgb channels{};
     CameraRgb highlight_channel_evidence{};
-    CameraRgb opposed_channel_evidence{};
     float total = 0.0F;
 };
 
@@ -133,8 +132,6 @@ struct PhysicalWhiteWindowCoverage final {
     std::uint32_t raw_y,
     BayerCfaSamplingPolicy sampling_policy
 ) noexcept;
-
-[[nodiscard]] float opposed_highlight_sensor_evidence(float channel_evidence) noexcept;
 
 [[nodiscard]] PhysicalWhiteWindowCoverage physical_sensor_white_coverage_in_window(
     const RawFrame& frame,
@@ -147,7 +144,6 @@ struct PhysicalWhiteWindowCoverage final {
     std::array<std::uint32_t, 3U> channel_observed{};
     std::array<std::uint32_t, 3U> channel_at_white{};
     std::array<double, 3U> channel_evidence_totals{};
-    std::array<double, 3U> channel_opposed_evidence_totals{};
     std::uint32_t observed = 0U;
     std::uint32_t at_white = 0U;
     for (std::int32_t dy = -radius; dy <= radius; ++dy) {
@@ -168,8 +164,6 @@ struct PhysicalWhiteWindowCoverage final {
             ++channel_observed[index];
             const float channel_evidence = highlight_sensor_evidence(frame, x, y, sampling_policy);
             channel_evidence_totals[index] += channel_evidence;
-            channel_opposed_evidence_totals[index] +=
-                opposed_highlight_sensor_evidence(channel_evidence);
             const bool is_at_white = physical_sensor_white(frame, x, y, sampling_policy);
             at_white += is_at_white ? 1U : 0U;
             channel_at_white[index] += is_at_white ? 1U : 0U;
@@ -183,12 +177,6 @@ struct PhysicalWhiteWindowCoverage final {
                                          ? 0.0F
                                          : static_cast<float>(channel_at_white[channel])
                                                / static_cast<float>(channel_observed[channel]);
-        coverage.opposed_channel_evidence[channel] =
-            channel_observed[channel] == 0U ? 0.0F
-                                            : static_cast<float>(
-                                                  channel_opposed_evidence_totals[channel]
-                                                  / static_cast<double>(channel_observed[channel])
-                                              );
         coverage.highlight_channel_evidence[channel] =
             channel_observed[channel] == 0U ? 0.0F
                                             : static_cast<float>(
@@ -221,14 +209,6 @@ struct PhysicalWhiteWindowCoverage final {
     const float shoulder_start =
         sampling_policy.feather_highlight_chroma_neutralization ? 0.88F : 0.92F;
     const float t = std::clamp((normalized - shoulder_start) / (1.0F - shoulder_start), 0.0F, 1.0F);
-    return t * t * (3.0F - 2.0F * t);
-}
-
-[[nodiscard]] float opposed_highlight_sensor_evidence(const float channel_evidence) noexcept {
-    // Remap only the last tenth of the broad response-risk signal. For the default 0.92 sensor
-    // shoulder this starts at roughly 98.7% of measured linear response, matching the useful part
-    // of darktable's opposed threshold without clipping Shadow's retained fp32 headroom.
-    const float t = std::clamp((channel_evidence - 0.90F) / 0.10F, 0.0F, 1.0F);
     return t * t * (3.0F - 2.0F * t);
 }
 
@@ -293,40 +273,6 @@ struct PhysicalWhiteWindowCoverage final {
     return second_channel_evidence * evidence_imbalance * bright_support;
 }
 
-[[nodiscard]] CameraRgb opposed_highlight_reconstruction(
-    const CameraRgb& values,
-    const CameraRgb& physical_white_coverage
-) noexcept {
-    // Reconstruct only in the direction supported by clipped CFA evidence. A channel that has
-    // reached physical white can be the prematurely flattened member of an otherwise neutral
-    // highlight, but lowering it would destroy a real saturated emitter. The opposing mean is
-    // intentionally linear: it keeps this hot path to a few fp32 operations and mirrors exactly
-    // in Metal without a full-frame prepass or host/device transfer.
-    CameraRgb reconstructed = values;
-    for (std::size_t channel = 0U; channel < reconstructed.size(); ++channel) {
-        const auto first_opponent = (channel + 1U) % reconstructed.size();
-        const auto second_opponent = (channel + 2U) % reconstructed.size();
-        const float opposing_reference =
-            0.5F
-            * (std::max(0.0F, values[first_opponent]) + std::max(0.0F, values[second_opponent]));
-        const float candidate = std::max(values[channel], opposing_reference);
-        const float weight = std::clamp(physical_white_coverage[channel], 0.0F, 1.0F);
-        reconstructed[channel] = values[channel] + weight * (candidate - values[channel]);
-    }
-    return reconstructed;
-}
-
-[[nodiscard]] CameraRgb opposed_highlight_reconstruction_coverage(
-    const CameraRgb& physical_white_coverage,
-    const CameraRgb& opposed_channel_evidence
-) noexcept {
-    CameraRgb coverage = physical_white_coverage;
-    for (std::size_t channel = 0U; channel < coverage.size(); ++channel) {
-        coverage[channel] = std::max(coverage[channel], opposed_channel_evidence[channel]);
-    }
-    return coverage;
-}
-
 [[nodiscard]] float
 shared_physical_white_neutralization(const CameraRgb& physical_white_coverage) noexcept {
     // Once every CFA colour contributes physical-white samples, their reconstructed ratio is no
@@ -356,6 +302,26 @@ shared_physical_white_neutralization(const CameraRgb& physical_white_coverage) n
     const float bounded = std::clamp(coverage, 0.0F, 1.0F);
     const float remaining = 1.0F - bounded;
     return 1.0F - remaining * remaining * remaining * remaining;
+}
+
+[[nodiscard]] float saturation_frontier_bilinear_blend(
+    const CameraRgb& values,
+    const CameraRgb& physical_white_coverage
+) noexcept {
+    // Directional colour-difference interpolation assumes that every sample in its stencil is a
+    // measured response. Once even one CFA colour reaches physical white, the gradient comparison
+    // can lock onto Bayer phase instead of the scene edge and emit the horizontal "teeth" that a
+    // deep highlight pull exposes. The bilinear estimate is already available in the edge-aware
+    // path, so fall back to it only on the bright side of that saturated frontier. This adds no
+    // sensor read, pass, buffer, or transfer and leaves measured dark-edge texture untouched.
+    const float clipped_channel_support =
+        *std::max_element(physical_white_coverage.begin(), physical_white_coverage.end());
+    const float topology_t = std::clamp(clipped_channel_support / 0.08F, 0.0F, 1.0F);
+    const float topology_support = topology_t * topology_t * (3.0F - 2.0F * topology_t);
+    const float peak = *std::max_element(values.begin(), values.end());
+    const float bright_t = std::clamp((peak - 0.35F) / 0.40F, 0.0F, 1.0F);
+    const float bright_support = bright_t * bright_t * (3.0F - 2.0F * bright_t);
+    return topology_support * bright_support;
 }
 
 [[nodiscard]] float aggressive_highlight_chroma_risk(
@@ -520,7 +486,6 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
     std::array<double, 3U> totals{};
     std::array<std::uint32_t, 3U> counts{};
     std::array<double, 3U> channel_evidence_totals{};
-    std::array<double, 3U> channel_opposed_evidence_totals{};
     std::array<std::uint32_t, 3U> channel_at_white{};
     CameraRgbSample result;
     std::uint32_t observed = 0U;
@@ -546,8 +511,6 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
             totals[index] += normalized;
             const float channel_evidence = highlight_sensor_evidence(frame, x, y, sampling_policy);
             channel_evidence_totals[index] += channel_evidence;
-            channel_opposed_evidence_totals[index] +=
-                opposed_highlight_sensor_evidence(channel_evidence);
             ++counts[index];
             ++observed;
             const bool is_at_white = physical_sensor_white(frame, x, y, sampling_policy);
@@ -578,19 +541,6 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
         sampling_policy.feather_highlight_chroma_neutralization
             ? feathered_highlight_sensor_evidence(frame, raw_x, raw_y, 3U, sampling_policy)
             : exact_physical_white_coverage;
-    CameraRgb opposed_channel_evidence{};
-    for (std::size_t channel = 0U; channel < opposed_channel_evidence.size(); ++channel) {
-        opposed_channel_evidence[channel] = static_cast<float>(
-            channel_opposed_evidence_totals[channel] / static_cast<double>(counts[channel])
-        );
-    }
-    result.values = opposed_highlight_reconstruction(
-        result.values,
-        opposed_highlight_reconstruction_coverage(
-            result.physical_white_coverage,
-            opposed_channel_evidence
-        )
-    );
     result.highlight_chroma_neutralization = std::max(
         highlight_chroma_neutralization(result.values, result.highlight_channel_evidence),
         shared_physical_white_neutralization(result.physical_white_coverage)
@@ -718,13 +668,13 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
         sampling_policy.feather_highlight_chroma_neutralization
             ? feathered_highlight_sensor_evidence(frame, raw_x, raw_y, 3U, sampling_policy)
             : exact_physical_white_coverage;
-    result.values = opposed_highlight_reconstruction(
-        result.values,
-        opposed_highlight_reconstruction_coverage(
-            result.physical_white_coverage,
-            directional_white.opposed_channel_evidence
-        )
-    );
+    const float bilinear_blend =
+        saturation_frontier_bilinear_blend(bilinear.values, directional_white.channels);
+    for (std::size_t channel = 0U; channel < result.values.size(); ++channel) {
+        result.values[channel] =
+            result.values[channel]
+            + bilinear_blend * (bilinear.values[channel] - result.values[channel]);
+    }
     result.highlight_chroma_neutralization = std::max(
         highlight_chroma_neutralization(result.values, result.highlight_channel_evidence),
         shared_physical_white_neutralization(result.physical_white_coverage)
@@ -826,7 +776,6 @@ CameraRgbSample area_camera_rgb_sample_at(
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
     std::array<double, 3U> channel_evidence_totals{};
-    std::array<double, 3U> channel_opposed_evidence_totals{};
     std::array<double, 3U> channel_physical_white_weights{};
     CameraRgbSample result;
     double observed_weight = 0.0;
@@ -856,10 +805,9 @@ CameraRgbSample area_camera_rgb_sample_at(
             const float channel_evidence =
                 highlight_sensor_evidence(frame, raw_x, raw_y, sampling_policy);
             channel_evidence_totals[index] += static_cast<double>(channel_evidence) * weight;
-            channel_opposed_evidence_totals[index] +=
-                static_cast<double>(opposed_highlight_sensor_evidence(channel_evidence)) * weight;
             observed_weight += weight;
-            if (physical_sensor_white(frame, raw_x, raw_y, sampling_policy)) {
+            const bool is_at_white = physical_sensor_white(frame, raw_x, raw_y, sampling_policy);
+            if (is_at_white) {
                 channel_physical_white_weights[index] += weight;
                 physical_white_weight += weight;
             }
@@ -916,18 +864,6 @@ CameraRgbSample area_camera_rgb_sample_at(
                   sampling_policy
               )
             : exact_physical_white_coverage;
-    CameraRgb opposed_channel_evidence{};
-    for (std::size_t channel = 0U; channel < opposed_channel_evidence.size(); ++channel) {
-        opposed_channel_evidence[channel] =
-            static_cast<float>(channel_opposed_evidence_totals[channel] / weights[channel]);
-    }
-    result.values = opposed_highlight_reconstruction(
-        result.values,
-        opposed_highlight_reconstruction_coverage(
-            result.physical_white_coverage,
-            opposed_channel_evidence
-        )
-    );
     result.highlight_chroma_neutralization = std::max(
         highlight_chroma_neutralization(result.values, result.highlight_channel_evidence),
         shared_physical_white_neutralization(result.physical_white_coverage)

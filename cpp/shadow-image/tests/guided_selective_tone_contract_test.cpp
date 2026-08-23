@@ -100,7 +100,7 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
     );
     expect(
         adjusted.samples[3] >= middle_gray && adjusted.samples[3] < middle_gray * 1.10F,
-        "opposed endpoint controls keep scene-linear middle gray in a narrow range without "
+        "opposing endpoint controls keep scene-linear middle gray in a narrow range without "
         "requiring a negative White tail to cancel the Black control"
     );
     expect(
@@ -240,9 +240,8 @@ void selective_tone_endpoints_reach_ordinary_detail_without_clipping() {
         "only near zero"
     );
     expect(
-        output.samples[3] < input.samples[3] * 0.85F && output.samples[3] > 0.0F,
-        "Whites has a practical shoulder at ordinary +2.2 EV detail without "
-        "clipping"
+        output.samples[3] < input.samples[3] * 0.90F && output.samples[3] > 0.0F,
+        "Whites has a visible but energy-retaining shoulder at ordinary +2.2 EV detail"
     );
 }
 
@@ -270,12 +269,12 @@ void selective_tone_negative_highlights_preserve_midtone_and_superwhite_energy()
         "full negative Highlight and White leave 18% middle gray neutral"
     );
     expect(
-        output_ev(2.0) > 1.05 && output_ev(2.0) < 1.20,
-        "full negative Highlight and White recover ordinary +2 EV detail without crushing it"
+        output_ev(2.0) > 1.30 && output_ev(2.0) < 1.40,
+        "full negative Highlight and White retain a bright ordinary +2 EV endpoint"
     );
     expect(
-        output_ev(4.0) > 1.80 && output_ev(4.0) < 1.95,
-        "the coupled shoulder keeps a bright endpoint after strong recovery"
+        output_ev(4.0) > 2.50 && output_ev(4.0) < 2.65,
+        "the coupled shoulder preserves highlight-core energy after strong recovery"
     );
     expect(
         output_ev(8.0) - output_ev(6.0) > 1.95,

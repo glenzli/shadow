@@ -137,12 +137,11 @@ Current contract rules:
   device upload. The default source treatment applies selected CFA gains (normalized by their
   minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
   carries it above one. Each reconstruction footprint also retains exact per-colour physical-white
-  coverage. Before the camera matrix, a one-sided opposed-channel step may lift only a weak channel
-  supported by exact clipping or the final narrow linear-response shoulder; it never lowers a
-  measured channel. Shared three-colour physical
-  clipping then continuously removes only the unmeasured residual chroma, closing the equal-evidence
-  Bayer-phase hole while leaving a one-colour emitter saturated. This local fp32 work is fused into
-  the existing CPU/Metal sampling pass and creates no full-frame side buffer or device transfer.
+  coverage without changing channel luminance on the discrete Bayer lattice. Shared three-colour
+  physical clipping continuously removes only the unmeasured residual chroma before the camera
+  matrix, closing the equal-evidence Bayer-phase hole while leaving a one-colour emitter saturated.
+  This local fp32 evidence work is fused into the existing CPU/Metal sampling pass and creates no
+  full-frame side buffer or device transfer.
   The source also projects an immutable, display-sized R8 CFA-chroma-risk sidecar from the same
   calibrated linear-response limits. A single near-white channel remains measured colour evidence;
   risk rises when independently sampled channels lose headroom and their evidence diverges. A
@@ -150,12 +149,18 @@ Current contract rules:
   bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this
   sidecar beside its reusable source. The provider-default RAW policy also replaces physically
   clipped topology with a low-frequency scene-linear surface reconstructed from measured
-  neighbours. A push-pull guide is bounded to 384 pixels on its longest edge; the full raster
-  receives one in-place linear pass, and a brightness gate keeps its small exterior chroma shoulder
-  from crossing an adjacent dark subject. Reconstruction retains the clipped core within one
-  quarter stop of its measured luminance and follows the reliable boundary chromaticity with only
-  a small neutral safety pull. It therefore prevents a warm clipped surface from becoming a dark
-  grey island while still synthesizing only luminance and colour trend, never texture.
+  neighbours. A push-pull guide is bounded to 384 pixels on its longest edge and excludes
+  non-clipped samples whose CFA chroma is already marked unreliable; the full raster receives one
+  in-place linear pass. Local clipping density distinguishes a coherent missing RGB surface from
+  an isolated projected CFA hit, leaving sparse hits measured instead of growing Bayer-phase hairs
+  along a high-contrast edge. A luminance gate also applies to clipped projection bins, preventing
+  a bin that straddles a clipped lamp and a dark fixture from being painted as part of the light;
+  the exterior shoulder uses a stricter version of the same gate. Reconstruction retains the dense
+  bright core within one eighth stop of its measured luminance. The first measured bright samples
+  may lift, but never lower, toward the same guide, forming one luminance shoulder across the
+  physical clipping frontier. Boundary colour follows reliable measured chromaticity with only a
+  small neutral safety pull. This prevents a warm clipped surface from becoming a dark grey island
+  while still synthesizing only luminance and colour trend, never texture.
   Detail/export materializes this source once instead of inferring a different surface independently
   in resident tiles. DCP input rendering follows the reconstruction, so the spatial estimate
   remains a RAW source operation. The warm preview then binds the prepared source and one R8
@@ -228,7 +233,7 @@ DNG technology notice: This product includes DNG technology under license by Ado
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
 `metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, source-clipping projection, and
-the same editable CFA scale, per-colour physical-white topology, one-sided opposed repair, and
+the same editable CFA scale, per-colour physical-white topology, evidence-preserving sampling, and
 residual shared-chroma contract mirrored by the CPU region developer; WB-induced fp32 headroom
 reaches the resident GPU edit source without reconstructing missing spatial detail;
 `metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;
