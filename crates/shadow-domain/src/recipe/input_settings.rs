@@ -231,6 +231,10 @@ pub struct RecipeInputSettings {
     optics: RecipeOpticsSettings,
     #[serde(default, skip_serializing_if = "RawWhiteBalance::is_as_shot")]
     raw_white_balance: RawWhiteBalance,
+    // This remains opt-in because it deliberately neutralizes colour where
+    // clipped CFA samples no longer provide trustworthy chroma evidence.
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    raw_highlight_repair_enabled: bool,
     // Recipe v1 keeps this sibling singleton in the historical
     // `input_settings` wire object. Semantic ownership belongs to
     // `RecipeSnapshot::raw_ai_denoise_node`, not the Foundation enable switch.
@@ -247,6 +251,7 @@ impl RecipeInputSettings {
             enabled: true,
             optics,
             raw_white_balance: RawWhiteBalance::AsShot,
+            raw_highlight_repair_enabled: false,
             raw_ai_denoise: RawFoundationDenoise::disabled(),
         }
     }
@@ -260,6 +265,12 @@ impl RecipeInputSettings {
     #[must_use]
     pub const fn with_raw_white_balance(mut self, raw_white_balance: RawWhiteBalance) -> Self {
         self.raw_white_balance = raw_white_balance;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_raw_highlight_repair_enabled(mut self, enabled: bool) -> Self {
+        self.raw_highlight_repair_enabled = enabled;
         self
     }
 
@@ -279,6 +290,10 @@ impl RecipeInputSettings {
 
     pub const fn raw_white_balance(&self) -> RawWhiteBalance {
         self.raw_white_balance
+    }
+
+    pub const fn raw_highlight_repair_enabled(&self) -> bool {
+        self.raw_highlight_repair_enabled
     }
 
     pub const fn raw_ai_denoise(&self) -> RawFoundationDenoise {
@@ -304,6 +319,11 @@ const fn foundation_enabled() -> bool {
 #[allow(clippy::trivially_copy_pass_by_ref)]
 const fn bool_is_true(value: &bool) -> bool {
     *value
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn bool_is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[cfg(test)]

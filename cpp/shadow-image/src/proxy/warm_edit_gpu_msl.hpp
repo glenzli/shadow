@@ -289,7 +289,8 @@ inline float scene_luminance_to_display_luminance(float luminance) {
     if (!(luminance > 0.0f)) {
         return 0.0f;
     }
-    const float scene_white = 1.0f;
+    const float shoulder_start = 0.75f;
+    const float shoulder_headroom = 1.0f - shoulder_start;
     const float rec709_linear_threshold = 0.018f;
     const float rec709_slope = 4.5f;
     const float rec709_power = 0.45f;
@@ -299,7 +300,11 @@ inline float scene_luminance_to_display_luminance(float luminance) {
     const float srgb_linear_slope = 12.92f;
     const float srgb_gain = 1.055f;
     const float srgb_offset = 0.055f;
-    const float scene = clamp(luminance, 0.0f, scene_white);
+    const float scene = luminance <= shoulder_start
+        ? luminance
+        : shoulder_start
+            + (luminance - shoulder_start) * shoulder_headroom
+                / (luminance - shoulder_start + shoulder_headroom);
     const float rec709_encoded = scene < rec709_linear_threshold
         ? rec709_slope * scene
         : rec709_gain * pow(scene, rec709_power) - rec709_offset;

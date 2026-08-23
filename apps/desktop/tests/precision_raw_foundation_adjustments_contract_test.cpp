@@ -19,6 +19,10 @@ class FoundationEditorStub final : public QObject {
     Q_PROPERTY(bool active MEMBER active CONSTANT)
     Q_PROPERTY(bool stateBusy MEMBER state_busy NOTIFY aiChanged)
     Q_PROPERTY(
+        bool foundationHighlightRepairEnabled READ foundationHighlightRepairEnabled WRITE
+            setFoundationHighlightRepairEnabled NOTIFY valuesChanged
+    )
+    Q_PROPERTY(
         bool foundationAiDenoiseEnabled READ foundationAiDenoiseEnabled WRITE
             setFoundationAiDenoiseEnabled NOTIFY aiChanged
     )
@@ -56,6 +60,9 @@ class FoundationEditorStub final : public QObject {
     )
     Q_PROPERTY(bool foundationSelected MEMBER foundation_selected NOTIFY valuesChanged)
     Q_PROPERTY(
+        bool rawWhiteBalancePickerActive MEMBER raw_white_balance_picker_active NOTIFY valuesChanged
+    )
+    Q_PROPERTY(
         bool whiteBalancePickerActive MEMBER white_balance_picker_active NOTIFY valuesChanged
     )
     Q_PROPERTY(double whiteBalanceTemperature MEMBER white_balance_temperature NOTIFY valuesChanged)
@@ -66,6 +73,16 @@ class FoundationEditorStub final : public QObject {
     Q_PROPERTY(quint64 parameterRevision MEMBER parameter_revision NOTIFY valuesChanged)
 
   public:
+    [[nodiscard]] bool foundationHighlightRepairEnabled() const noexcept {
+        return highlight_repair_enabled;
+    }
+
+    void setFoundationHighlightRepairEnabled(const bool enabled) {
+        ++highlight_repair_toggle_count;
+        highlight_repair_enabled = enabled;
+        emit valuesChanged();
+    }
+
     [[nodiscard]] bool foundationAiDenoiseEnabled() const noexcept {
         return ai_enabled;
     }
@@ -105,7 +122,14 @@ class FoundationEditorStub final : public QObject {
     Q_INVOKABLE void beginParameterEdit(const QString&) {}
     Q_INVOKABLE void endParameterEdit(const QString&) {}
     Q_INVOKABLE void setParameterValue(const QString&, double) {}
-    Q_INVOKABLE void setWhiteBalancePickerActive(bool) {}
+    Q_INVOKABLE void setRawWhiteBalancePickerActive(const bool active) {
+        raw_white_balance_picker_active = active;
+        emit valuesChanged();
+    }
+    Q_INVOKABLE void setWhiteBalancePickerActive(const bool active) {
+        white_balance_picker_active = active;
+        emit valuesChanged();
+    }
     Q_INVOKABLE void resetFoundationWhiteBalance() {
         ++white_balance_reset_count;
         foundation_at_camera = true;
@@ -136,6 +160,7 @@ class FoundationEditorStub final : public QObject {
 
     bool active = true;
     bool state_busy = false;
+    bool highlight_repair_enabled = false;
     bool ai_enabled = false;
     bool ai_requested = false;
     bool raw_denoise_node_visible = true;
@@ -158,6 +183,7 @@ class FoundationEditorStub final : public QObject {
     bool foundation_at_camera = true;
     bool foundation_camera_value_available = true;
     bool foundation_selected = false;
+    bool raw_white_balance_picker_active = false;
     bool white_balance_picker_active = false;
     double white_balance_temperature = 0.0;
     double white_balance_tint = 0.0;
@@ -169,6 +195,7 @@ class FoundationEditorStub final : public QObject {
     int start_count = 0;
     int cancel_count = 0;
     int white_balance_reset_count = 0;
+    int highlight_repair_toggle_count = 0;
 
   signals:
     void aiChanged();
@@ -259,6 +286,9 @@ int main(int argc, char* argv[]) {
     auto* const white_balance_reset = foundation_root->findChild<QQuickItem*>(
         QStringLiteral("foundationWhiteBalanceResetButton")
     );
+    auto* const highlight_repair = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("foundationHighlightRepairSwitch")
+    );
     if (!require(amount != nullptr, "cached-result amount control is packaged")
         || !require(progress != nullptr, "progress surface is packaged")
         || !require(enable != nullptr, "explicit enable checkbox is packaged")
@@ -269,6 +299,7 @@ int main(int argc, char* argv[]) {
         || !require(temperature != nullptr, "absolute Kelvin control is packaged")
         || !require(tint != nullptr, "absolute tint control is packaged")
         || !require(white_balance_reset != nullptr, "camera-value reset is packaged")
+        || !require(highlight_repair != nullptr, "opt-in highlight repair is packaged")
         || !require(
             std::abs(temperature->property("value").toDouble() - 6'200.0) < 0.0001,
             "camera white balance is presented as Kelvin"
@@ -280,6 +311,10 @@ int main(int argc, char* argv[]) {
         || !require(
             !white_balance_reset->property("enabled").toBool(),
             "camera-derived value does not expose a redundant mode action"
+        )
+        || !require(
+            !highlight_repair->property("checked").toBool(),
+            "highlight repair stays opt-in for source-faithful RAW development"
         )
         || !require(
             std::abs(amount->property("value").toDouble() - 100.0) < 0.0001,
@@ -309,6 +344,20 @@ int main(int argc, char* argv[]) {
             noise_recommendation->property("text").toString()
                 == QStringLiteral("Low noise · AI denoise likely unnecessary"),
             "panel presents the confidence-aware source recommendation"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    highlight_repair->setProperty("checked", true);
+    const bool highlight_repair_toggled = QMetaObject::invokeMethod(
+        highlight_repair, "toggled", Qt::DirectConnection
+    );
+    drainBindings();
+    if (!require(
+            highlight_repair_toggled && editor.highlight_repair_toggle_count == 1
+                && editor.highlight_repair_enabled
+                && highlight_repair->property("checked").toBool(),
+            "highlight repair delegates one explicit Foundation source-plan transition"
         )) {
         return EXIT_FAILURE;
     }

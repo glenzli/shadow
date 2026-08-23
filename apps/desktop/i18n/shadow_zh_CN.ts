@@ -6078,6 +6078,31 @@ R %2 · G %3 · B %4</translation>
         <translation>在绿色到洋红色轴上移动 RAW 的绝对白点。</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="118"/>
+        <source>RAW HIGHLIGHT REPAIR</source>
+        <translation>RAW 高光修复</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="120"/>
+        <source>Soft transition</source>
+        <translation>柔和过渡</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="121"/>
+        <source>Off</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="122"/>
+        <source>Neutralizes unreliable clipped RAW colour across a soft local transition. It does not reconstruct missing detail or colour.</source>
+        <translation>通过柔和的局部过渡中和不可信的 RAW 裁切色彩；不会重建缺失的细节或颜色。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="133"/>
+        <source>Soft highlight transition</source>
+        <translation>柔和高光过渡</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="251"/>
         <source>Foundational atmosphere and frequency controls evaluated before creative color grading.</source>
         <translation>在创意调色前计算的基础空气感与频率控制。</translation>

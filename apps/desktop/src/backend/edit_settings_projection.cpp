@@ -400,6 +400,8 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
     settings.foundation.raw_ai_denoise_bypassed = source.raw_ai_denoise.bypassed;
     settings.foundation.raw_ai_denoise_model = source.raw_ai_denoise.model;
     settings.foundation.raw_ai_denoise_amount_percent = source.raw_ai_denoise.amount_percent;
+    settings.foundation.raw_highlight_repair_enabled =
+        source.foundation.raw_highlight_repair_enabled;
     settings.foundation.raw_white_balance_mode = source.foundation.raw_white_balance_mode;
     settings.foundation.temperature_kelvin = source.foundation.temperature_kelvin;
     settings.foundation.tint = source.foundation.tint;
@@ -498,6 +500,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
     };
     result.foundation = {
         .enabled = source.foundation.enabled,
+        .raw_highlight_repair_enabled = source.foundation.raw_highlight_repair_enabled,
         .optics =
             {
                 .enabled = source.foundation.optics.enabled,

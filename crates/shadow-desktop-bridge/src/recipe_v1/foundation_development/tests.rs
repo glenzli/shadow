@@ -1,4 +1,4 @@
-use shadow_bridge::{RawPipelinePath, RawPipelineReceipt};
+use shadow_bridge::{RawHighlightRecoveryIntent, RawPipelinePath, RawPipelineReceipt};
 use shadow_domain::{
     PhotoFoundationNode, RawFoundationDenoise, RawFoundationDenoiseModel, RawTemperatureTint,
     RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
@@ -111,4 +111,39 @@ fn manual_white_balance_rejects_rgb_isolation_while_as_shot_allows_it() {
     let manual = preview_foundation_development_plan(manual_white_balance());
     assert!(ensure_foundation_allows_rgb_fallback(manual).is_err());
     assert!(ensure_foundation_allows_rgb_fallback(RawDevelopmentPlan::preview()).is_ok());
+}
+
+#[test]
+fn highlight_repair_requires_and_preserves_the_sensor_domain_rawframe_plan() {
+    let snapshot = RecipeSnapshot::new_with_input_settings(
+        1,
+        RecipeInputSettings::default().with_raw_highlight_repair_enabled(true),
+        Vec::new(),
+    )
+    .expect("build highlight repair Foundation");
+    let resolved = ResolvedFoundationDevelopment::from_snapshot(&snapshot);
+    for plan in [
+        resolved.preview_plan(),
+        resolved.detail_plan(),
+        resolved.export_plan(),
+    ] {
+        assert_eq!(
+            plan.highlight_recovery,
+            RawHighlightRecoveryIntent::Aggressive
+        );
+        assert!(ensure_foundation_allows_rgb_fallback(plan).is_err());
+        ensure_foundation_development_receipt(
+            plan,
+            &receipt(RawPipelinePath::ShadowRawFrame, plan, plan),
+        )
+        .expect("exact RawFrame highlight repair receipt");
+    }
+
+    let requested = resolved.preview_plan();
+    let degraded = receipt(
+        RawPipelinePath::ShadowRawFrame,
+        requested,
+        RawDevelopmentPlan::preview(),
+    );
+    assert!(ensure_foundation_development_receipt(requested, &degraded).is_err());
 }

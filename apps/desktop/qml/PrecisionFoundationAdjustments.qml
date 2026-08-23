@@ -115,6 +115,30 @@ ColumnLayout {
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
+        title: qsTr("RAW HIGHLIGHT REPAIR")
+        summary: foundation.editor.foundationHighlightRepairEnabled
+            ? qsTr("Soft transition")
+            : qsTr("Off")
+        toolTipText: qsTr("Neutralizes unreliable clipped RAW colour across a soft local transition. It does not reconstruct missing detail or colour.")
+        resetAvailable: foundation.editor.foundationHighlightRepairEnabled
+        resetEnabled: foundation.editor.active && !foundation.editor.stateBusy
+        resetObjectName: "foundationHighlightRepairResetButton"
+        onResetRequested: foundation.editor.foundationHighlightRepairEnabled = false
+
+        ShadowSwitch {
+            objectName: "foundationHighlightRepairSwitch"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            text: qsTr("Soft highlight transition")
+            checked: foundation.editor.foundationHighlightRepairEnabled
+            enabled: foundation.editor.active && !foundation.editor.stateBusy
+            onToggled: foundation.editor.foundationHighlightRepairEnabled = checked
+        }
+    }
+
+    ShadowAdjustmentSection {
+        Layout.fillWidth: true
         visible: !foundation.editor.foundationSelected
         enabled: foundation.gradeControlsEnabled
         opacity: enabled ? 1.0 : 0.42

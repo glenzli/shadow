@@ -521,6 +521,7 @@ pub(crate) fn ffi_photo_foundation_settings(
     };
     ffi::FfiPhotoFoundationSettings {
         enabled: foundation.enabled(),
+        raw_highlight_repair_enabled: foundation.input_settings().raw_highlight_repair_enabled(),
         optics: ffi_optics_settings(foundation.optics()),
         raw_ai_denoise_present: raw_ai_denoise.is_present(),
         raw_ai_denoise_enabled: raw_ai_denoise.is_enabled(),
@@ -562,6 +563,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
         foundation: PhotoFoundationNode::new(
             RecipeInputSettings::new(recipe_optics_settings(&settings.foundation.optics))
                 .with_enabled(settings.foundation.enabled)
+                .with_raw_highlight_repair_enabled(settings.foundation.raw_highlight_repair_enabled)
                 .with_raw_white_balance(raw_white_balance_from_ffi(&settings.foundation)?),
         ),
         grade_nodes: settings

@@ -302,6 +302,9 @@ struct BackendGradeStack final {
         // Bypassing preserves every authored Foundation value while required
         // source decoding remains active.
         bool enabled = true;
+        // A source-plan option: enabling it selects camera-domain CFA colour
+        // neutralization once, while ordinary Grade sliders stay warm-GPU.
+        bool raw_highlight_repair_enabled = false;
 
         struct Optics final {
             bool enabled = true;

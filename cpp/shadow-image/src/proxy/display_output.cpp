@@ -167,9 +167,15 @@ void validate_source_and_request(const FloatRgbImage& source, const DisplayOutpu
     // internally. Its resulting BT.709-style encoded value is not sRGB's
     // encoded value, while Shadow's final RGB8 boundary remains sRGB. Convert
     // the LibRaw code value back to linear sRGB here, then let the shared
-    // sRGB OETF below emit the matching display code. H=0 is a standard clip:
-    // once scene white has reached one, no filmic shoulder may turn it gray.
-    constexpr double scene_white = 1.0;
+    // sRGB OETF below emit the matching display code. LibRaw H=0 is the RAW
+    // development policy; it is not a reason to throw away scene-linear
+    // headroom at Shadow's SDR presentation boundary. Keep middle gray and
+    // the normal working range unchanged, then use a C1 neutral shoulder so
+    // highlight detail approaches display white without an abrupt dead-white
+    // plateau. The scalar gain preserves the input's chromaticity; gamut
+    // mapping remains the separate Oklab stage below.
+    constexpr double shoulder_start = 0.75;
+    constexpr double shoulder_headroom = 1.0 - shoulder_start;
     constexpr double rec709_linear_threshold = 0.018;
     constexpr double rec709_slope = 4.5;
     constexpr double rec709_power = 0.45;
@@ -179,7 +185,11 @@ void validate_source_and_request(const FloatRgbImage& source, const DisplayOutpu
     constexpr double srgb_linear_slope = 12.92;
     constexpr double srgb_gain = 1.055;
     constexpr double srgb_offset = 0.055;
-    const double scene = std::clamp(luminance, 0.0, scene_white);
+    const double scene = luminance <= shoulder_start
+        ? luminance
+        : shoulder_start
+            + (luminance - shoulder_start) * shoulder_headroom
+                / (luminance - shoulder_start + shoulder_headroom);
     const double rec709_encoded = scene < rec709_linear_threshold
         ? rec709_slope * scene
         : rec709_gain * std::pow(scene, rec709_power) - rec709_offset;

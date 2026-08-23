@@ -33,6 +33,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi::FfiEditSettings {
         foundation: ffi::FfiPhotoFoundationSettings {
             enabled: true,
+            raw_highlight_repair_enabled: false,
             optics: ffi::FfiOpticsSettings {
                 enabled: true,
                 correct_distortion: true,
@@ -102,6 +103,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     let incoming = ffi::FfiEditSettings {
         foundation: ffi::FfiPhotoFoundationSettings {
             enabled: true,
+            raw_highlight_repair_enabled: true,
             optics: ffi::FfiOpticsSettings {
                 enabled: true,
                 correct_distortion: false,
@@ -153,6 +155,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     let decoded = decode_grade_stack_draft_recipe_v1(&incoming).expect("decode Grade Stack");
     let outgoing = encode_grade_stack_draft_recipe_v1(decoded).expect("encode Grade Stack");
     assert_eq!(outgoing.grade_nodes.len(), 1);
+    assert!(outgoing.foundation.raw_highlight_repair_enabled);
     assert_eq!(
         outgoing.grade_nodes[0].grade_node_id,
         incoming.grade_nodes[0].grade_node_id

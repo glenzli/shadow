@@ -1434,6 +1434,8 @@ mod ffi {
     struct FfiPhotoFoundationSettings {
         /// Bypasses optional Foundation interpretation while preserving it.
         enabled: bool,
+        /// Opt-in camera-domain neutralization for clipped CFA colour.
+        raw_highlight_repair_enabled: bool,
         optics: FfiOpticsSettings,
         /// Whether the user explicitly added the singleton AI RAW denoise node.
         raw_ai_denoise_present: bool,

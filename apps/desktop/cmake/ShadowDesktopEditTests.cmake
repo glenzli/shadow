@@ -1184,6 +1184,7 @@
             qml/ShadowIconButton.qml
             qml/ShadowInlineSlider.qml
             qml/ShadowSlider.qml
+            qml/ShadowSwitch.qml
             qml/Theme.qml
             qml/ToneCurveEditor.qml
     )

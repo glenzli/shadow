@@ -65,7 +65,7 @@ struct DisplayRgb8Image final {
 };
 
 // Exact CPU oracle for the current JPEG proxy display semantics:
-//   scene reference -> LibRaw H=0-compatible BT.709 transfer -> Oklab hue-preserving gamut map
+//   scene reference -> neutral C1 SDR shoulder -> BT.709 transfer -> Oklab hue-preserving gamut map
 //   display reference -> Oklab hue-preserving gamut map
 //   both -> sRGB OETF -> coordinate-deterministic luminance dither -> RGB8
 [[nodiscard]] DisplayRgb8Image render_linear_srgb_to_display_srgb8_cpu_reference(

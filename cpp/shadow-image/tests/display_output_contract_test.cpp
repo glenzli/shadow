@@ -171,8 +171,13 @@ void cpu_oracle_preserves_the_scene_and_display_contracts() {
         "display-referred super-white maps to display white"
     );
     expect(
-        scene_output.bytes[4U * 3U] == 255U && scene_output.bytes[5U * 3U] == 255U,
-        "scene-referred unit white and super-white follow LibRaw H=0's hard display clip"
+        scene_output.bytes[4U * 3U] >= 235U && scene_output.bytes[4U * 3U] < 255U,
+        "scene-referred unit white enters the SDR shoulder instead of a hard display clip"
+    );
+    expect(
+        scene_output.bytes[5U * 3U] > scene_output.bytes[4U * 3U]
+            && scene_output.bytes[5U * 3U] <= 255U,
+        "scene-referred super-white remains ordered above unit white through the SDR shoulder"
     );
 }
 
