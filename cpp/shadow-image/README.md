@@ -137,11 +137,13 @@ Current contract rules:
   device upload. The default source treatment applies selected CFA gains (normalized by their
   minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
   carries it above one. Each reconstruction footprint also retains exact per-colour physical-white
-  coverage without changing channel luminance on the discrete Bayer lattice. Shared three-colour
-  physical clipping continuously removes only the unmeasured residual chroma before the camera
-  matrix, closing the equal-evidence Bayer-phase hole while leaving a one-colour emitter saturated.
-  This local fp32 evidence work is fused into the existing CPU/Metal sampling pass and creates no
-  full-frame side buffer or device transfer.
+  coverage. Before the camera matrix, a near-terminal channel may move only upward toward the
+  cube-root mean of its two locally reconstructed opposing colours; this recovers a plausible
+  neutral highlight shoulder without spreading a neighbouring object's hue, and leaves a
+  one-colour emitter unchanged when its opposing reference is lower. Shared three-colour physical
+  clipping then continuously removes only the remaining unmeasured residual chroma. This local fp32
+  evidence work is fused into the existing CPU/Metal sampling pass and creates no full-frame side
+  buffer, extra pass, or device transfer.
   The source also projects an immutable, display-sized R8 CFA-chroma-risk sidecar from the same
   calibrated linear-response limits. A single near-white channel remains measured colour evidence;
   risk rises when independently sampled channels lose headroom and their evidence diverges. A
@@ -233,7 +235,7 @@ DNG technology notice: This product includes DNG technology under license by Ado
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
 `metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, source-clipping projection, and
-the same editable CFA scale, per-colour physical-white topology, evidence-preserving sampling, and
+the same editable CFA scale, per-colour physical-white topology, one-sided local opposed repair, and
 residual shared-chroma contract mirrored by the CPU region developer; WB-induced fp32 headroom
 reaches the resident GPU edit source without reconstructing missing spatial detail;
 `metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;

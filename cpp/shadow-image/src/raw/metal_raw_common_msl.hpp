@@ -272,6 +272,34 @@ inline float3 neutralize_untrusted_camera_highlight_chroma(
     return mix(camera_rgb, float3(luminance), weight);
 }
 
+inline float3 reconstruct_opposed_camera_highlight(const CameraRgbSample camera) {
+    float3 reconstructed = camera.values;
+    for (uint channel = 0u; channel < 3u; ++channel) {
+        const uint first_opposing = (channel + 1u) % 3u;
+        const uint second_opposing = (channel + 2u) % 3u;
+        const float response_evidence = clamp(camera.highlight_channel_evidence[channel], 0.0f, 1.0f);
+        const float near_terminal_support = smoothstep(0.90f, 0.99f, response_evidence);
+        const float support = max(
+            clamp(camera.physical_white_coverage[channel], 0.0f, 1.0f),
+            near_terminal_support
+        );
+        if (support <= 0.0f) {
+            continue;
+        }
+        const float opposing_root_mean = 0.5f * (
+            pow(max(0.0f, camera.values[first_opposing]), 1.0f / 3.0f)
+            + pow(max(0.0f, camera.values[second_opposing]), 1.0f / 3.0f)
+        );
+        const float opposed_reference = opposing_root_mean * opposing_root_mean * opposing_root_mean;
+        reconstructed[channel] = mix(
+            reconstructed[channel],
+            max(camera.values[channel], opposed_reference),
+            support
+        );
+    }
+    return reconstructed;
+}
+
 inline float shared_physical_white_neutralization(const float3 physical_white_coverage) {
     return clamp(
         min(physical_white_coverage.x, min(

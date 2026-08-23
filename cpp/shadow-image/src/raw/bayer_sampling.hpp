@@ -34,9 +34,9 @@ aggressive_highlight_repair_cfa_sampling_policy(const RawFrameLinearTransform& t
 
 // Camera-linear reconstruction carries CFA-white-balanced samples after the selected source
 // policy. Each RGB entry retains both continuous headroom evidence and the exact fraction of its
-// contributing CFA sites that reached physical sensor white. The sampler preserves the measured
-// channel luminance instead of repairing it on the discrete Bayer lattice; the evidence sidecar
-// lets the later continuous scene-linear surface own missing highlight colour.
+// contributing CFA sites that reached physical sensor white. The sampler preserves those measured
+// values and exports the evidence sidecar used by the local, one-sided opposed-colour repair before
+// the camera matrix and by the later continuous scene-linear highlight surface.
 struct CameraRgbSample final {
     CameraRgb values{};
     CameraRgb highlight_channel_evidence{};

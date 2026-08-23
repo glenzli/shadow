@@ -254,7 +254,7 @@ using shadow::image::test_support::failures;
     return frame;
 }
 
-void area_highlight_evidence_preserves_mixed_edge_contributions() {
+void area_highlight_opposed_repair_is_one_sided() {
     const image::RawFrameLinearTransform transform{
         .camera_to_linear_srgb_d65 =
             {
@@ -298,15 +298,50 @@ void area_highlight_evidence_preserves_mixed_edge_contributions() {
         image::RawHighlightRecoveryIntent::disabled
     );
     float maximum_delta = 0.0F;
+    float enabled_maximum_chroma = 0.0F;
+    float disabled_maximum_chroma = 0.0F;
+    bool enabled_never_lowered = true;
     for (std::size_t index = 0U; index < enabled.scene_linear.samples.size(); ++index) {
         maximum_delta = std::max(
             maximum_delta,
             std::abs(enabled.scene_linear.samples[index] - disabled.scene_linear.samples[index])
         );
+        enabled_never_lowered = enabled_never_lowered
+                                && enabled.scene_linear.samples[index]
+                                       >= disabled.scene_linear.samples[index] - 1.0e-6F;
+    }
+    for (std::size_t index = 0U; index < enabled.scene_linear.samples.size(); index += 3U) {
+        enabled_maximum_chroma = std::max(
+            enabled_maximum_chroma,
+            std::max({
+                enabled.scene_linear.samples[index],
+                enabled.scene_linear.samples[index + 1U],
+                enabled.scene_linear.samples[index + 2U],
+            })
+                - std::min({
+                    enabled.scene_linear.samples[index],
+                    enabled.scene_linear.samples[index + 1U],
+                    enabled.scene_linear.samples[index + 2U],
+                })
+        );
+        disabled_maximum_chroma = std::max(
+            disabled_maximum_chroma,
+            std::max({
+                disabled.scene_linear.samples[index],
+                disabled.scene_linear.samples[index + 1U],
+                disabled.scene_linear.samples[index + 2U],
+            })
+                - std::min({
+                    disabled.scene_linear.samples[index],
+                    disabled.scene_linear.samples[index + 1U],
+                    disabled.scene_linear.samples[index + 2U],
+                })
+        );
     }
     expect(
-        maximum_delta <= 1.0e-6F,
-        "default area sampling preserves every measured contribution in a mixed edge footprint"
+        maximum_delta > 1.0e-3F && enabled_never_lowered
+            && enabled_maximum_chroma + 0.05F < disabled_maximum_chroma,
+        "default area sampling repairs only upward and suppresses false clipped-edge chroma"
     );
 
     if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
@@ -327,7 +362,7 @@ void area_highlight_evidence_preserves_mixed_edge_contributions() {
     }
     expect(
         maximum_metal_delta <= 4.0e-5F,
-        "Metal matches evidence-preserving CPU area sampling on a clipped hard edge"
+        "Metal matches one-sided opposed CPU area sampling on a clipped hard edge"
     );
 }
 
@@ -380,8 +415,8 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-evidence-preserving@20260824.7;"
-               "recovery=shared-chroma+surface-guided;headroom=sub-white-fp32;"
+            == "sensor-highlights=cfa-opposed-evidence-preserving@20260824.9;"
+               "recovery=local-opposed+shared-chroma+surface-guided;headroom=sub-white-fp32;"
                "clipped-highlight-surface="
                "risk-excluded-support-gated-push-pull-luma-shoulder-v4",
         "the default source receipt identifies continuous clipped-highlight reconstruction"
@@ -692,8 +727,9 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-evidence-preserving-feathered@20260824.7;"
-                      "recovery=spatial-chroma+surface-guided;headroom=sub-white-fp32;"
+                   == "sensor-highlights=cfa-opposed-evidence-preserving-feathered@20260824.9;"
+                      "recovery=local-opposed+spatial-chroma+surface-guided;headroom=sub-white-"
+                      "fp32;"
                       "clipped-highlight-surface="
                       "risk-excluded-support-gated-push-pull-luma-shoulder-v4",
         "legacy aggressive source-surface reconstruction remains cache-visible"
@@ -839,8 +875,7 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     }
     const bool nikon_flat_top_repaired =
         nikon_default_never_lowered
-        && std::abs(nikon_default_bright_maximum_chroma - nikon_disabled_bright_maximum_chroma)
-               <= 1.0e-6F
+        && nikon_default_bright_maximum_chroma + 0.05F < nikon_disabled_bright_maximum_chroma
         && nikon_aggressive_maximum_chroma + 0.05F < nikon_default_maximum_chroma;
     if (!nikon_flat_top_repaired) {
         std::cerr << "Nikon near-limit diagnostic: default-max-chroma="
@@ -853,8 +888,8 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     }
     expect(
         nikon_flat_top_repaired,
-        "the default path preserves a Nikon-style near-limit CFA ratio for continuous surface "
-        "reconstruction while aggressive mode remains an explicit chroma pull"
+        "the default path reconstructs a Nikon-style near-limit CFA ratio only upward while "
+        "aggressive mode remains an explicit stronger chroma pull"
     );
 
     const auto one_channel = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -1354,7 +1389,7 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
 } // namespace
 
 int main() {
-    area_highlight_evidence_preserves_mixed_edge_contributions();
+    area_highlight_opposed_repair_is_one_sided();
     cfa_white_balance_retains_editable_headroom();
     sensor_clipped_highlights_reconstruct_false_chroma();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

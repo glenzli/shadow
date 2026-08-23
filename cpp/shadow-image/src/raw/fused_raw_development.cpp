@@ -261,8 +261,8 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-evidence-preserving@20260824.7;"
-               "recovery=shared-chroma+surface-guided;headroom=sub-white-fp32;"
+        return "sensor-highlights=cfa-opposed-evidence-preserving@20260824.9;"
+               "recovery=local-opposed+shared-chroma+surface-guided;headroom=sub-white-fp32;"
                "clipped-highlight-surface="
                "risk-excluded-support-gated-push-pull-luma-shoulder-v4";
     case RawHighlightRecoveryIntent::disabled:
@@ -270,8 +270,8 @@ raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexce
     case RawHighlightRecoveryIntent::conservative:
         return "sensor-highlights=unsupported";
     case RawHighlightRecoveryIntent::aggressive:
-        return "sensor-highlights=cfa-evidence-preserving-feathered@20260824.7;"
-               "recovery=spatial-chroma+surface-guided;headroom=sub-white-fp32;"
+        return "sensor-highlights=cfa-opposed-evidence-preserving-feathered@20260824.9;"
+               "recovery=local-opposed+spatial-chroma+surface-guided;headroom=sub-white-fp32;"
                "clipped-highlight-surface="
                "risk-excluded-support-gated-push-pull-luma-shoulder-v4";
     }
