@@ -150,19 +150,24 @@ Current contract rules:
   terminal shared-clipping component feathers its confidence one display bin into adjacent valid
   bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this
   sidecar beside its reusable source. The provider-default RAW policy also replaces physically
-  clipped topology with a low-frequency scene-linear surface reconstructed from measured
-  neighbours. A push-pull guide is bounded to 384 pixels on its longest edge and excludes
-  non-clipped samples whose CFA chroma is already marked unreliable; the full raster receives one
-  in-place linear pass. Local clipping density distinguishes a coherent missing RGB surface from
+  clipped chromaticity and luminance topology with a low-frequency scene-linear estimate from
+  local evidence. A push-pull guide is bounded to 384 pixels on its longest edge; its reliable
+  colour branch excludes physical clipping and non-clipped samples whose CFA colour is already
+  marked unreliable, while a separately smoothed bright-observation branch retains local light
+  shape. The full raster receives one in-place linear pass. Local clipping density distinguishes a
+  coherent missing RGB surface from
   an isolated projected CFA hit, leaving sparse hits measured instead of growing Bayer-phase hairs
-  along a high-contrast edge. A luminance gate also applies to clipped projection bins, preventing
-  a bin that straddles a clipped lamp and a dark fixture from being painted as part of the light;
-  the exterior shoulder uses a stricter version of the same gate. Reconstruction retains the dense
-  bright core within one eighth stop of its measured luminance. The first measured bright samples
-  may lift, but never lower, toward the same guide, forming one luminance shoulder across the
-  physical clipping frontier. Boundary colour follows reliable measured chromaticity with only a
-  small neutral safety pull. This prevents a warm clipped surface from becoming a dark grey island
-  while still synthesizing only luminance and colour trend, never texture.
+  along a high-contrast edge. A luminance gate applies to clipped projection bins, preventing a bin
+  that straddles a clipped lamp and a dark fixture from being painted as part of the light. The
+  reliable measured guide supplies boundary chromaticity. The deep terminal core keeps locally
+  observed colour when it agrees with that boundary; a contradictory core is continuously
+  desaturated instead of importing a distant hue. A broader highlight-supported luminance blur
+  contributes through a bell at the physical boundary and replaces only the unknowable deep
+  clipped surface, retaining local energy while suppressing quantised plateaus. Adjacent dark
+  subjects have zero support and the far measured exterior remains unchanged. The remaining CFA
+  risk decays by the actual chroma blend instead of being cleared at the first touched pixel. This
+  prevents either reconstruction or later recovery from drawing a dark island, bright dome, or
+  second clipping-mask contour while still correcting false colour without inventing texture.
   Detail/export materializes this source once instead of inferring a different surface independently
   in resident tiles. DCP input rendering follows the reconstruction, so the spatial estimate
   remains a RAW source operation. The warm preview then binds the prepared source and one R8

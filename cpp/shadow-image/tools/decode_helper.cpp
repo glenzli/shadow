@@ -5,8 +5,8 @@
 #include <shadow/image/raw_pipeline.hpp>
 
 #include <array>
-#include <cmath>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -52,8 +52,8 @@ constexpr std::uint32_t max_detail_tile_side = 1024U;
     for (std::size_t index = 0U; index < nonce.size(); ++index) {
         const char character = nonce[index];
         const bool is_hyphen = index == 8U || index == 13U || index == 18U || index == 23U;
-        const bool is_lower_hex = (character >= '0' && character <= '9')
-            || (character >= 'a' && character <= 'f');
+        const bool is_lower_hex =
+            (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f');
         if (is_hyphen ? character != '-' : !is_lower_hex) {
             return false;
         }
@@ -63,9 +63,7 @@ constexpr std::uint32_t max_detail_tile_side = 1024U;
 
 [[nodiscard]] std::uint32_t parse_edge(const std::string_view value) {
     std::uint32_t parsed = 0U;
-    const auto [cursor, error] = std::from_chars(
-        value.data(), value.data() + value.size(), parsed
-    );
+    const auto [cursor, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
     if (error != std::errc{} || cursor != value.data() + value.size() || parsed == 0U) {
         throw std::runtime_error("max edge must be a non-zero unsigned integer");
     }
@@ -78,13 +76,9 @@ constexpr std::uint32_t max_detail_tile_side = 1024U;
     const bool require_non_zero
 ) {
     std::uint32_t parsed = 0U;
-    const auto [cursor, error] = std::from_chars(
-        value.data(), value.data() + value.size(), parsed
-    );
-    if (
-        error != std::errc{} || cursor != value.data() + value.size()
-        || (require_non_zero && parsed == 0U)
-    ) {
+    const auto [cursor, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (error != std::errc{} || cursor != value.data() + value.size()
+        || (require_non_zero && parsed == 0U)) {
         throw std::runtime_error(std::string(label) + " must be a valid unsigned integer");
     }
     return parsed;
@@ -92,13 +86,9 @@ constexpr std::uint32_t max_detail_tile_side = 1024U;
 
 [[nodiscard]] std::uint8_t parse_quality(const std::string_view value) {
     std::uint32_t parsed = 0U;
-    const auto [cursor, error] = std::from_chars(
-        value.data(), value.data() + value.size(), parsed
-    );
-    if (
-        error != std::errc{} || cursor != value.data() + value.size()
-        || parsed == 0U || parsed > 100U
-    ) {
+    const auto [cursor, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (error != std::errc{} || cursor != value.data() + value.size() || parsed == 0U
+        || parsed > 100U) {
         throw std::runtime_error("JPEG quality must be in 1..=100");
     }
     return static_cast<std::uint8_t>(parsed);
@@ -134,10 +124,8 @@ int render_proxy(
 ) {
     const auto provider = image::make_photo_decoder_provider();
     const auto session = provider->open(input);
-    const auto proxy = image::render_reference_proxy_jpeg(
-        *session,
-        image::ProxyRequest{max_edge, jpeg_quality}
-    );
+    const auto proxy =
+        image::render_reference_proxy_jpeg(*session, image::ProxyRequest{max_edge, jpeg_quality});
     write_proxy(output, proxy);
     // Stable, deliberately tiny stdout protocol consumed by the desktop
     // process.  The JPEG itself travels through a private cache-root file, so
@@ -209,11 +197,8 @@ int probe_open_metadata(const fs::path& input) {
     return 0;
 }
 
-[[nodiscard]] std::string hex_encode_bounded(
-    std::string_view value,
-    std::size_t maximum_bytes,
-    std::string_view label
-);
+[[nodiscard]] std::string
+hex_encode_bounded(std::string_view value, std::size_t maximum_bytes, std::string_view label);
 
 // Startup capability negotiation for long-lived clients such as the remote Library server. The
 // inventory runs inside this helper so loading a stale or malformed private module cannot crash
@@ -221,15 +206,14 @@ int probe_open_metadata(const fs::path& input) {
 // construction; it does not claim that any particular source is supported.
 int print_provider_inventory() {
     const auto inventory = image::photo_decoder_provider_inventory();
-    std::cout
-        << "shadow-provider-host-v1 provider-inventory "
-        << (inventory.private_provider_available ? '1' : '0') << ' '
-        << hex_encode_bounded(
-               inventory.router_version,
-               max_identity_text_bytes,
-               "provider inventory router version"
-           )
-        << '\n';
+    std::cout << "shadow-provider-host-v1 provider-inventory "
+              << (inventory.private_provider_available ? '1' : '0') << ' '
+              << hex_encode_bounded(
+                     inventory.router_version,
+                     max_identity_text_bytes,
+                     "provider inventory router version"
+                 )
+              << '\n';
     return 0;
 }
 
@@ -253,8 +237,22 @@ int print_provider_inventory() {
         return "-";
     }
     constexpr std::array<char, 16> digits{
-        '0', '1', '2', '3', '4', '5', '6', '7',
-        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+        '0',
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+        '6',
+        '7',
+        '8',
+        '9',
+        'a',
+        'b',
+        'c',
+        'd',
+        'e',
+        'f',
     };
     std::string encoded;
     encoded.reserve(value.size() * 2U);
@@ -268,8 +266,22 @@ int print_provider_inventory() {
 
 [[nodiscard]] std::string fixed_hex_u64(const std::uint64_t value) {
     constexpr std::array<char, 16> digits{
-        '0', '1', '2', '3', '4', '5', '6', '7',
-        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+        '0',
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+        '6',
+        '7',
+        '8',
+        '9',
+        'a',
+        'b',
+        'c',
+        'd',
+        'e',
+        'f',
     };
     std::array<char, 16> encoded{};
     for (std::size_t index = 0; index < encoded.size(); ++index) {
@@ -300,7 +312,8 @@ void append_metadata_snapshot_fields(
     const image::AssetMetadata& metadata,
     const std::size_t maximum_text_bytes
 ) {
-    const auto has_valid_focus = metadata.focus_observation.has_value()
+    const auto has_valid_focus =
+        metadata.focus_observation.has_value()
         && metadata.focus_observation->schema_version == image::focus_observation_schema_version
         && metadata.focus_observation->source != image::FocusObservationSource::unknown
         && std::isfinite(metadata.focus_observation->center_x)
@@ -311,68 +324,57 @@ void append_metadata_snapshot_fields(
         && metadata.focus_observation->center_x >= 0.0
         && metadata.focus_observation->center_x <= 1.0
         && metadata.focus_observation->center_y >= 0.0
-        && metadata.focus_observation->center_y <= 1.0
-        && metadata.focus_observation->width >= 0.0
-        && metadata.focus_observation->width <= 1.0
-        && metadata.focus_observation->height >= 0.0
+        && metadata.focus_observation->center_y <= 1.0 && metadata.focus_observation->width >= 0.0
+        && metadata.focus_observation->width <= 1.0 && metadata.focus_observation->height >= 0.0
         && metadata.focus_observation->height <= 1.0
         && metadata.focus_observation->confidence >= 0.0
         && metadata.focus_observation->confidence <= 1.0;
-    const auto focus = has_valid_focus
-        ? *metadata.focus_observation
-        : image::FocusObservation{};
-    output
-        << ' ' << hex_encode_bounded(metadata.make, maximum_text_bytes, "make")
-        << ' ' << hex_encode_bounded(metadata.model, maximum_text_bytes, "model")
-        << ' ' << hex_encode_bounded(
-               metadata.normalized_make, maximum_text_bytes, "normalized make"
-           )
-        << ' ' << hex_encode_bounded(
-               metadata.normalized_model, maximum_text_bytes, "normalized model"
-           )
-        << ' ' << hex_encode_bounded(metadata.dng_version, maximum_text_bytes, "DNG version")
-        << ' ' << fixed_hex_u64(metadata.raw_count)
-        << ' ' << fixed_hex_u64(metadata.raw_dimensions.width)
-        << ' ' << fixed_hex_u64(metadata.raw_dimensions.height)
-        << ' ' << fixed_hex_u64(metadata.image_dimensions.width)
-        << ' ' << fixed_hex_u64(metadata.image_dimensions.height)
-        << ' ' << fixed_hex_u64(metadata.margins.left)
-        << ' ' << fixed_hex_u64(metadata.margins.top)
-        << ' ' << fixed_hex_u64(metadata.margins.right)
-        << ' ' << fixed_hex_u64(metadata.margins.bottom)
-        << ' ' << fixed_hex_u64(static_cast<std::uint32_t>(metadata.orientation))
-        << ' ' << hex_encode_bounded(metadata.cfa_pattern, maximum_text_bytes, "CFA pattern")
-        << ' ' << fixed_hex_u64(metadata.sensor_colors)
-        << ' ' << fixed_hex_u64(metadata.sensor_bits)
-        << ' ' << fixed_hex_u64(metadata.black_level)
-        << ' ' << fixed_hex_u64(metadata.white_level)
-        << ' ' << fixed_hex_f64(metadata.as_shot_neutral[0], "as-shot neutral red")
-        << ' ' << fixed_hex_f64(metadata.as_shot_neutral[1], "as-shot neutral green 1")
-        << ' ' << fixed_hex_f64(metadata.as_shot_neutral[2], "as-shot neutral blue")
-        << ' ' << fixed_hex_f64(metadata.as_shot_neutral[3], "as-shot neutral green 2")
-        << ' ' << fixed_hex_f64(metadata.baseline_exposure, "baseline exposure")
-        << ' ' << fixed_hex_f64(metadata.iso_speed, "ISO speed")
-        << ' ' << fixed_hex_f64(metadata.exposure_time_seconds, "exposure time")
-        << ' ' << fixed_hex_f64(metadata.aperture_f_number, "aperture")
-        << ' ' << fixed_hex_f64(metadata.focal_length_mm, "focal length")
-        << ' ' << fixed_hex_u64(static_cast<std::uint64_t>(metadata.captured_at_unix_seconds))
-        << ' ' << fixed_hex_u64(metadata.has_gps_coordinates ? 1U : 0U)
-        << ' ' << fixed_hex_f64(metadata.gps_latitude_degrees, "GPS latitude")
-        << ' ' << fixed_hex_f64(metadata.gps_longitude_degrees, "GPS longitude")
-        << ' ' << fixed_hex_u64(metadata.has_gps_altitude ? 1U : 0U)
-        << ' ' << fixed_hex_f64(metadata.gps_altitude_meters, "GPS altitude")
-        << ' ' << hex_encode_bounded(metadata.lens_make, maximum_text_bytes, "lens make")
-        << ' ' << hex_encode_bounded(metadata.lens_model, maximum_text_bytes, "lens model")
-        << ' ' << fixed_hex_f64(metadata.focal_length_35mm, "35 mm focal length")
-        << ' ' << fixed_hex_u64(has_valid_focus ? 1U : 0U)
-        << ' ' << fixed_hex_u64(focus.schema_version)
-        << ' ' << fixed_hex_u64(static_cast<std::uint8_t>(focus.source))
-        << ' ' << fixed_hex_f64(focus.center_x, "focus center x")
-        << ' ' << fixed_hex_f64(focus.center_y, "focus center y")
-        << ' ' << fixed_hex_f64(focus.width, "focus width")
-        << ' ' << fixed_hex_f64(focus.height, "focus height")
-        << ' ' << fixed_hex_u64(focus.focus_confirmed ? 1U : 0U)
-        << ' ' << fixed_hex_f64(focus.confidence, "focus confidence");
+    const auto focus = has_valid_focus ? *metadata.focus_observation : image::FocusObservation{};
+    output << ' ' << hex_encode_bounded(metadata.make, maximum_text_bytes, "make") << ' '
+           << hex_encode_bounded(metadata.model, maximum_text_bytes, "model") << ' '
+           << hex_encode_bounded(metadata.normalized_make, maximum_text_bytes, "normalized make")
+           << ' '
+           << hex_encode_bounded(metadata.normalized_model, maximum_text_bytes, "normalized model")
+           << ' ' << hex_encode_bounded(metadata.dng_version, maximum_text_bytes, "DNG version")
+           << ' ' << fixed_hex_u64(metadata.raw_count) << ' '
+           << fixed_hex_u64(metadata.raw_dimensions.width) << ' '
+           << fixed_hex_u64(metadata.raw_dimensions.height) << ' '
+           << fixed_hex_u64(metadata.image_dimensions.width) << ' '
+           << fixed_hex_u64(metadata.image_dimensions.height) << ' '
+           << fixed_hex_u64(metadata.margins.left) << ' ' << fixed_hex_u64(metadata.margins.top)
+           << ' ' << fixed_hex_u64(metadata.margins.right) << ' '
+           << fixed_hex_u64(metadata.margins.bottom) << ' '
+           << fixed_hex_u64(static_cast<std::uint32_t>(metadata.orientation)) << ' '
+           << hex_encode_bounded(metadata.cfa_pattern, maximum_text_bytes, "CFA pattern") << ' '
+           << fixed_hex_u64(metadata.sensor_colors) << ' ' << fixed_hex_u64(metadata.sensor_bits)
+           << ' ' << fixed_hex_u64(metadata.black_level) << ' '
+           << fixed_hex_u64(metadata.white_level) << ' '
+           << fixed_hex_f64(metadata.as_shot_neutral[0], "as-shot neutral red") << ' '
+           << fixed_hex_f64(metadata.as_shot_neutral[1], "as-shot neutral green 1") << ' '
+           << fixed_hex_f64(metadata.as_shot_neutral[2], "as-shot neutral blue") << ' '
+           << fixed_hex_f64(metadata.as_shot_neutral[3], "as-shot neutral green 2") << ' '
+           << fixed_hex_f64(metadata.baseline_exposure, "baseline exposure") << ' '
+           << fixed_hex_f64(metadata.iso_speed, "ISO speed") << ' '
+           << fixed_hex_f64(metadata.exposure_time_seconds, "exposure time") << ' '
+           << fixed_hex_f64(metadata.aperture_f_number, "aperture") << ' '
+           << fixed_hex_f64(metadata.focal_length_mm, "focal length") << ' '
+           << fixed_hex_u64(static_cast<std::uint64_t>(metadata.captured_at_unix_seconds)) << ' '
+           << fixed_hex_u64(metadata.has_gps_coordinates ? 1U : 0U) << ' '
+           << fixed_hex_f64(metadata.gps_latitude_degrees, "GPS latitude") << ' '
+           << fixed_hex_f64(metadata.gps_longitude_degrees, "GPS longitude") << ' '
+           << fixed_hex_u64(metadata.has_gps_altitude ? 1U : 0U) << ' '
+           << fixed_hex_f64(metadata.gps_altitude_meters, "GPS altitude") << ' '
+           << hex_encode_bounded(metadata.lens_make, maximum_text_bytes, "lens make") << ' '
+           << hex_encode_bounded(metadata.lens_model, maximum_text_bytes, "lens model") << ' '
+           << fixed_hex_f64(metadata.focal_length_35mm, "35 mm focal length") << ' '
+           << fixed_hex_u64(has_valid_focus ? 1U : 0U) << ' ' << fixed_hex_u64(focus.schema_version)
+           << ' ' << fixed_hex_u64(static_cast<std::uint8_t>(focus.source)) << ' '
+           << fixed_hex_f64(focus.center_x, "focus center x") << ' '
+           << fixed_hex_f64(focus.center_y, "focus center y") << ' '
+           << fixed_hex_f64(focus.width, "focus width") << ' '
+           << fixed_hex_f64(focus.height, "focus height") << ' '
+           << fixed_hex_u64(focus.focus_confirmed ? 1U : 0U) << ' '
+           << fixed_hex_f64(focus.confidence, "focus confidence");
 }
 
 void append_decoder_snapshot_capability_fields(
@@ -383,23 +385,22 @@ void append_decoder_snapshot_capability_fields(
     const auto as_u64 = [](const bool value) {
         return value ? std::uint64_t{1U} : std::uint64_t{0U};
     };
-    output
-        << ' ' << fixed_hex_u64(as_u64(capabilities.metadata))
-        << ' ' << fixed_hex_u64(as_u64(capabilities.embedded_previews))
-        << ' ' << fixed_hex_u64(as_u64(capabilities.raw_frame))
-        << ' ' << fixed_hex_u64(as_u64(capabilities.reference_rgb))
-        << ' ' << fixed_hex_u64(capabilities.pending_corrections.dng_opcode_list_bytes[0])
-        << ' ' << fixed_hex_u64(capabilities.pending_corrections.dng_opcode_list_bytes[1])
-        << ' ' << fixed_hex_u64(capabilities.pending_corrections.dng_opcode_list_bytes[2])
-        << ' ' << fixed_hex_u64(raw_development.schema_version)
-        << ' ' << fixed_hex_u64(as_u64(raw_development.available))
-        << ' ' << fixed_hex_u64(as_u64(raw_development.raw_frame))
-        << ' ' << fixed_hex_u64(as_u64(raw_development.dng_opcode_execution_receipt))
-        << ' ' << fixed_hex_u64(raw_development.supported_intents)
-        << ' ' << fixed_hex_u64(raw_development.supported_qualities)
-        << ' ' << fixed_hex_u64(raw_development.supported_dng_opcode_policies)
-        << ' ' << fixed_hex_u64(raw_development.supported_noise_reduction_intents)
-        << ' ' << fixed_hex_u64(raw_development.supported_highlight_recovery_intents);
+    output << ' ' << fixed_hex_u64(as_u64(capabilities.metadata)) << ' '
+           << fixed_hex_u64(as_u64(capabilities.embedded_previews)) << ' '
+           << fixed_hex_u64(as_u64(capabilities.raw_frame)) << ' '
+           << fixed_hex_u64(as_u64(capabilities.reference_rgb)) << ' '
+           << fixed_hex_u64(capabilities.pending_corrections.dng_opcode_list_bytes[0]) << ' '
+           << fixed_hex_u64(capabilities.pending_corrections.dng_opcode_list_bytes[1]) << ' '
+           << fixed_hex_u64(capabilities.pending_corrections.dng_opcode_list_bytes[2]) << ' '
+           << fixed_hex_u64(raw_development.schema_version) << ' '
+           << fixed_hex_u64(as_u64(raw_development.available)) << ' '
+           << fixed_hex_u64(as_u64(raw_development.raw_frame)) << ' '
+           << fixed_hex_u64(as_u64(raw_development.dng_opcode_execution_receipt)) << ' '
+           << fixed_hex_u64(raw_development.supported_intents) << ' '
+           << fixed_hex_u64(raw_development.supported_qualities) << ' '
+           << fixed_hex_u64(raw_development.supported_dng_opcode_policies) << ' '
+           << fixed_hex_u64(raw_development.supported_noise_reduction_intents) << ' '
+           << fixed_hex_u64(raw_development.supported_highlight_recovery_intents);
 }
 
 // This is a real bounded preview-development probe, not a metadata probe. It
@@ -425,32 +426,42 @@ int probe_preview_development(
     );
     const auto& receipt = developed.pipeline_receipt;
     if (!receipt.valid()) {
-        throw std::runtime_error("preview-development probe received an invalid RAW pipeline receipt");
+        throw std::runtime_error(
+            "preview-development probe received an invalid RAW pipeline receipt"
+        );
     }
-    std::cout
-        << "shadow-probe-v2 preview-development " << nonce << ' '
-        << static_cast<unsigned int>(receipt.path) << ' '
-        << hex_encode_bounded(
-               receipt.source_provider_id, max_identity_text_bytes, "source provider id"
-           ) << ' '
-        << hex_encode_bounded(
-               receipt.source_provider_version, max_identity_text_bytes, "source provider version"
-           ) << ' '
-        << hex_encode_bounded(
-               image::raw_pipeline_receipt_identity(receipt),
-               max_identity_text_bytes,
-               "pipeline receipt identity"
-           ) << ' '
-        << hex_encode_bounded(
-               image::raw_development_plan_identity(receipt.requested_plan),
-               max_identity_text_bytes,
-               "requested plan identity"
-           ) << ' '
-        << hex_encode_bounded(
-               image::raw_development_plan_identity(receipt.effective_plan),
-               max_identity_text_bytes,
-               "effective plan identity"
-           ) << '\n';
+    std::cout << "shadow-probe-v2 preview-development " << nonce << ' '
+              << static_cast<unsigned int>(receipt.path) << ' '
+              << hex_encode_bounded(
+                     receipt.source_provider_id,
+                     max_identity_text_bytes,
+                     "source provider id"
+                 )
+              << ' '
+              << hex_encode_bounded(
+                     receipt.source_provider_version,
+                     max_identity_text_bytes,
+                     "source provider version"
+                 )
+              << ' '
+              << hex_encode_bounded(
+                     image::raw_pipeline_receipt_identity(receipt),
+                     max_identity_text_bytes,
+                     "pipeline receipt identity"
+                 )
+              << ' '
+              << hex_encode_bounded(
+                     image::raw_development_plan_identity(receipt.requested_plan),
+                     max_identity_text_bytes,
+                     "requested plan identity"
+                 )
+              << ' '
+              << hex_encode_bounded(
+                     image::raw_development_plan_identity(receipt.effective_plan),
+                     max_identity_text_bytes,
+                     "effective plan identity"
+                 )
+              << '\n';
     return 0;
 }
 
@@ -467,12 +478,14 @@ int snapshot_metadata(const fs::path& input, const std::string_view nonce) {
     const auto session = provider->open(input);
     const auto& provider_info = provider->info();
     const auto& metadata = session->metadata();
-    std::cout
-        << "shadow-metadata-v4 metadata-snapshot " << nonce << ' '
-        << hex_encode_bounded(provider_info.id, max_identity_text_bytes, "router provider id") << ' '
-        << hex_encode_bounded(
-               provider_info.version, max_identity_text_bytes, "router provider version"
-           );
+    std::cout << "shadow-metadata-v4 metadata-snapshot " << nonce << ' '
+              << hex_encode_bounded(provider_info.id, max_identity_text_bytes, "router provider id")
+              << ' '
+              << hex_encode_bounded(
+                     provider_info.version,
+                     max_identity_text_bytes,
+                     "router provider version"
+                 );
     append_metadata_snapshot_fields(std::cout, metadata, max_metadata_text_bytes);
     std::cout << '\n';
     return 0;
@@ -502,39 +515,35 @@ int snapshot_decoder(const fs::path& input, const std::string_view nonce) {
     // exposes RawFrame, Shadow's host-owned RAW developer—not the provider's
     // processed-RGB compatibility path—owns capability negotiation.
     const auto raw_development = capabilities.raw_frame
-        ? image::shadow_raw_frame_development_capabilities()
-        : session->raw_development_capabilities();
+                                     ? image::shadow_raw_frame_development_capabilities()
+                                     : session->raw_development_capabilities();
 
-    std::cout
-        << "shadow-inspect-v5 decoder-snapshot " << nonce << ' '
-        << hex_encode_bounded(
-               provider_info.id,
-               max_decoder_snapshot_identity_text_bytes,
-               "decoder snapshot router provider id"
-           ) << ' '
-        << hex_encode_bounded(
-               provider_info.version,
-               max_decoder_snapshot_identity_text_bytes,
-               "decoder snapshot router provider version"
-           ) << ' '
-        << fixed_hex_u64(provider_info.dng_sdk ? 1U : 0U) << ' '
-        << fixed_hex_u64(provider_info.rawspeed ? 1U : 0U) << ' '
-        << fixed_hex_u64(provider_info.jpeg ? 1U : 0U);
-    append_metadata_snapshot_fields(
-        std::cout, metadata, max_decoder_snapshot_metadata_text_bytes
-    );
+    std::cout << "shadow-inspect-v5 decoder-snapshot " << nonce << ' '
+              << hex_encode_bounded(
+                     provider_info.id,
+                     max_decoder_snapshot_identity_text_bytes,
+                     "decoder snapshot router provider id"
+                 )
+              << ' '
+              << hex_encode_bounded(
+                     provider_info.version,
+                     max_decoder_snapshot_identity_text_bytes,
+                     "decoder snapshot router provider version"
+                 )
+              << ' ' << fixed_hex_u64(provider_info.dng_sdk ? 1U : 0U) << ' '
+              << fixed_hex_u64(provider_info.rawspeed ? 1U : 0U) << ' '
+              << fixed_hex_u64(provider_info.jpeg ? 1U : 0U);
+    append_metadata_snapshot_fields(std::cout, metadata, max_decoder_snapshot_metadata_text_bytes);
     append_decoder_snapshot_capability_fields(std::cout, capabilities, raw_development);
     std::cout << ' ' << fixed_hex_u64(previews.size());
     for (const auto& preview : previews) {
-        std::cout
-            << ' ' << fixed_hex_u64(preview.id)
-            << ' ' << fixed_hex_u64(static_cast<std::uint8_t>(preview.format))
-            << ' ' << fixed_hex_u64(preview.dimensions.width)
-            << ' ' << fixed_hex_u64(preview.dimensions.height)
-            << ' ' << fixed_hex_u64(preview.bits_per_channel)
-            << ' ' << fixed_hex_u64(preview.channels)
-            << ' ' << fixed_hex_u64(preview.encoded_bytes)
-            << ' ' << fixed_hex_u64(preview.decodable ? 1U : 0U);
+        std::cout << ' ' << fixed_hex_u64(preview.id) << ' '
+                  << fixed_hex_u64(static_cast<std::uint8_t>(preview.format)) << ' '
+                  << fixed_hex_u64(preview.dimensions.width) << ' '
+                  << fixed_hex_u64(preview.dimensions.height) << ' '
+                  << fixed_hex_u64(preview.bits_per_channel) << ' '
+                  << fixed_hex_u64(preview.channels) << ' ' << fixed_hex_u64(preview.encoded_bytes)
+                  << ' ' << fixed_hex_u64(preview.decodable ? 1U : 0U);
     }
     std::cout << '\n';
     return 0;
@@ -569,56 +578,40 @@ int render_neutral_detail_tile(
     }
     const auto detail = image::prepare_full_edit_detail(*session);
     const auto tile = detail.render_rgb8(
-        {}, image::DetailTileRect{.x = x, .y = y, .width = width, .height = height}
+        {},
+        image::DetailTileRect{.x = x, .y = y, .width = width, .height = height}
     );
     const auto expected_stride = static_cast<std::uint64_t>(tile.rect.width) * 3U;
     const auto expected_bytes = expected_stride * tile.rect.height;
-    if (
-        tile.row_stride_bytes != expected_stride || tile.bytes.size() != expected_bytes
-        || tile.full_dimensions.width == 0U || tile.full_dimensions.height == 0U
-    ) {
+    if (tile.row_stride_bytes != expected_stride || tile.bytes.size() != expected_bytes
+        || tile.full_dimensions.width == 0U || tile.full_dimensions.height == 0U) {
         throw std::runtime_error("detail tile renderer returned an invalid RGB8 layout");
     }
     write_detail_tile_atomically(output, tile.bytes, nonce);
     const auto& pipeline_receipt = detail.raw_pipeline_receipt();
-    std::cout
-        << "shadow-detail-tile-v1 neutral-detail-tile " << nonce
-        << ' ' << fixed_hex_u64(tile.rect.x)
-        << ' ' << fixed_hex_u64(tile.rect.y)
-        << ' ' << fixed_hex_u64(tile.rect.width)
-        << ' ' << fixed_hex_u64(tile.rect.height)
-        << ' ' << fixed_hex_u64(tile.full_dimensions.width)
-        << ' ' << fixed_hex_u64(tile.full_dimensions.height)
-        << ' ' << fixed_hex_u64(tile.row_stride_bytes)
-        << ' ' << fixed_hex_u64(tile.bytes.size())
-        << ' ' << fixed_hex_u64(static_cast<std::uint8_t>(pipeline_receipt.path))
-        << ' ' << hex_encode_bounded(
-               image::raw_pipeline_receipt_identity(pipeline_receipt),
-               max_identity_text_bytes,
-               "detail tile pipeline receipt identity"
-           )
-        << '\n';
+    std::cout << "shadow-detail-tile-v1 neutral-detail-tile " << nonce << ' '
+              << fixed_hex_u64(tile.rect.x) << ' ' << fixed_hex_u64(tile.rect.y) << ' '
+              << fixed_hex_u64(tile.rect.width) << ' ' << fixed_hex_u64(tile.rect.height) << ' '
+              << fixed_hex_u64(tile.full_dimensions.width) << ' '
+              << fixed_hex_u64(tile.full_dimensions.height) << ' '
+              << fixed_hex_u64(tile.row_stride_bytes) << ' ' << fixed_hex_u64(tile.bytes.size())
+              << ' ' << fixed_hex_u64(static_cast<std::uint8_t>(pipeline_receipt.path)) << ' '
+              << hex_encode_bounded(
+                     image::raw_pipeline_receipt_identity(pipeline_receipt),
+                     max_identity_text_bytes,
+                     "detail tile pipeline receipt identity"
+                 )
+              << '\n';
     return 0;
 }
 
-int stage_raw_frame(
-    const fs::path& input,
-    const fs::path& manifest,
-    const std::string_view nonce
-) {
+int stage_raw_frame(const fs::path& input, const fs::path& manifest, const std::string_view nonce) {
     const auto provider = image::make_photo_decoder_provider();
     const auto session = provider->open(input);
-    const auto receipt = image::write_raw_frame_staging(
-        session->decode_raw_frame(),
-        manifest,
-        nonce
-    );
-    std::cout
-        << image::raw_frame_staging_schema << " raw-frame-staging " << nonce
-        << ' ' << receipt.width
-        << ' ' << receipt.height
-        << ' ' << receipt.sample_bytes
-        << '\n';
+    const auto receipt =
+        image::write_raw_frame_staging(session->decode_raw_frame(), manifest, nonce);
+    std::cout << image::raw_frame_staging_schema << " raw-frame-staging " << nonce << ' '
+              << receipt.width << ' ' << receipt.height << ' ' << receipt.sample_bytes << '\n';
     return 0;
 }
 
@@ -626,9 +619,8 @@ int stage_raw_frame(
 
 int main(const int argument_count, char** arguments) {
     try {
-        const std::string_view command = argument_count >= 2
-            ? std::string_view(arguments[1])
-            : std::string_view{};
+        const std::string_view command =
+            argument_count >= 2 ? std::string_view(arguments[1]) : std::string_view{};
         if (command == "proxy" && argument_count == 6) {
             return render_proxy(
                 fs::path(arguments[2]),
@@ -651,16 +643,10 @@ int main(const int argument_count, char** arguments) {
             );
         }
         if (command == "metadata-snapshot" && argument_count == 4) {
-            return snapshot_metadata(
-                fs::path(arguments[2]),
-                std::string_view(arguments[3])
-            );
+            return snapshot_metadata(fs::path(arguments[2]), std::string_view(arguments[3]));
         }
         if (command == "decoder-snapshot" && argument_count == 4) {
-            return snapshot_decoder(
-                fs::path(arguments[2]),
-                std::string_view(arguments[3])
-            );
+            return snapshot_decoder(fs::path(arguments[2]), std::string_view(arguments[3]));
         }
         if (command == "neutral-detail-tile" && argument_count == 9) {
             return render_neutral_detail_tile(
@@ -681,14 +667,16 @@ int main(const int argument_count, char** arguments) {
             );
         }
         std::cerr
-            << "usage: shadow-image-decode-helper proxy <input> <output> <max-edge> <jpeg-quality>\n"
+            << "usage: shadow-image-decode-helper proxy <input> <output> <max-edge> "
+               "<jpeg-quality>\n"
             << "       shadow-image-decode-helper probe <input>\n"
             << "       shadow-image-decode-helper provider-inventory\n"
             << "       shadow-image-decode-helper preview-receipt <input> <max-edge> <nonce>\n"
             << "       shadow-image-decode-helper metadata-snapshot <input> <nonce>\n"
             << "       shadow-image-decode-helper decoder-snapshot <input> <nonce>\n"
             << "       shadow-image-decode-helper raw-frame-staging <input> <manifest> <nonce>\n"
-            << "       shadow-image-decode-helper neutral-detail-tile <input> <output> <x> <y> <width> <height> <nonce>\n";
+            << "       shadow-image-decode-helper neutral-detail-tile <input> <output> <x> <y> "
+               "<width> <height> <nonce>\n";
         return 2;
     } catch (const image::DecodeError& error) {
         std::cerr << "shadow-image-decode-helper: " << error.what()

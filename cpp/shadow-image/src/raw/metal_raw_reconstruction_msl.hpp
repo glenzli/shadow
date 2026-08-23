@@ -327,7 +327,7 @@ inline float3 develop_bayer_scene_linear_at(
         ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
         : camera_rgb_at(samples, parameters, raw_x, raw_y);
     const float3 camera_values = neutralize_untrusted_camera_highlight_chroma(
-        reconstruct_opposed_camera_highlight(camera),
+        camera.values,
         camera.highlight_chroma_neutralization
     );
     const float red =
@@ -566,7 +566,7 @@ kernel void develop_bayer_area_preview(
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
     }
     const float3 camera_values = neutralize_untrusted_camera_highlight_chroma(
-        reconstruct_opposed_camera_highlight(camera),
+        camera.values,
         camera.highlight_chroma_neutralization
     );
     const float red =

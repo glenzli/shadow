@@ -269,11 +269,11 @@ void selective_tone_negative_highlights_preserve_midtone_and_superwhite_energy()
         "full negative Highlight and White leave 18% middle gray neutral"
     );
     expect(
-        output_ev(2.0) > 1.30 && output_ev(2.0) < 1.40,
+        output_ev(2.0) > 1.45 && output_ev(2.0) < 1.57,
         "full negative Highlight and White retain a bright ordinary +2 EV endpoint"
     );
     expect(
-        output_ev(4.0) > 2.50 && output_ev(4.0) < 2.65,
+        output_ev(4.0) > 2.82 && output_ev(4.0) < 2.98,
         "the coupled shoulder preserves highlight-core energy after strong recovery"
     );
     expect(

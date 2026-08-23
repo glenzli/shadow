@@ -89,7 +89,7 @@ highlight_risk_from_mask(const image::SensorClippingMask& mask) {
     return risk;
 }
 
-[[nodiscard]] double clipped_rmse(
+[[nodiscard]] double clipped_chroma_rmse(
     const image::SceneLinearRgbFrame& actual,
     const image::SceneLinearRgbFrame& expected,
     const image::SensorClippingMask& clipping
@@ -100,12 +100,40 @@ highlight_risk_from_mask(const image::SensorClippingMask& mask) {
         if ((clipping.samples[pixel] & image::sensor_highlight_clipped) == 0U) {
             continue;
         }
-        const double difference = static_cast<double>(luminance(actual, pixel))
-                                  - static_cast<double>(luminance(expected, pixel));
-        squared_error += difference * difference;
-        ++count;
+        const auto sample = pixel * 3U;
+        const auto chroma = [&](const image::SceneLinearRgbFrame& frame,
+                                const std::size_t channel) {
+            const float sum = std::max(
+                frame.samples[sample] + frame.samples[sample + 1U] + frame.samples[sample + 2U],
+                1.0e-6F
+            );
+            return frame.samples[sample + channel] / sum;
+        };
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+            const double difference = static_cast<double>(chroma(actual, channel))
+                                      - static_cast<double>(chroma(expected, channel));
+            squared_error += difference * difference;
+            ++count;
+        }
     }
     return std::sqrt(squared_error / static_cast<double>(count));
+}
+
+[[nodiscard]] double maximum_luminance_change(
+    const image::SceneLinearRgbFrame& actual,
+    const image::SceneLinearRgbFrame& expected
+) {
+    double maximum = 0.0;
+    for (std::size_t pixel = 0U; pixel < actual.dimensions.pixel_count(); ++pixel) {
+        maximum = std::max(
+            maximum,
+            std::abs(
+                static_cast<double>(luminance(actual, pixel))
+                - static_cast<double>(luminance(expected, pixel))
+            )
+        );
+    }
+    return maximum;
 }
 
 [[nodiscard]] double maximum_clipping_boundary_step(
@@ -164,8 +192,8 @@ void reconstruction_hides_clip_topology_without_crossing_dark_edges() {
     }
 
     // A measured dark subject touches the highlight shoulder but is not itself clipped. The
-    // effect-priority reconstruction may soften bright measured neighbours; it must not paint
-    // the reconstructed highlight across this real edge.
+    // effect-priority reconstruction may lift or recolour bright measured neighbours; it must not
+    // paint the reconstructed highlight across this real edge.
     for (std::uint32_t y = 42U; y <= 78U; ++y) {
         for (std::uint32_t x = 67U; x <= 73U; ++x) {
             const auto pixel = static_cast<std::size_t>(y) * dimensions.width + x;
@@ -177,17 +205,19 @@ void reconstruction_hides_clip_topology_without_crossing_dark_edges() {
     }
     const auto before = damaged;
     auto highlight_risk = highlight_risk_from_mask(clipping);
-    const double before_error = clipped_rmse(before, expected, clipping);
+    const double before_chroma_error = clipped_chroma_rmse(before, expected, clipping);
     const double before_step = maximum_clipping_boundary_step(before, clipping);
     const auto stats = image::raw_pipeline_detail::reconstruct_clipped_highlight_surface(
         damaged,
         clipping,
         highlight_risk
     );
-    const double after_error = clipped_rmse(damaged, expected, clipping);
+    const double after_chroma_error = clipped_chroma_rmse(damaged, expected, clipping);
     const double after_step = maximum_clipping_boundary_step(damaged, clipping);
-    if (!(after_error < before_error * 0.30) || !(after_step < before_step * 0.35)) {
-        std::cerr << "diagnostic: clipped RMSE " << before_error << " -> " << after_error
+    const double luminance_change = maximum_luminance_change(damaged, before);
+    if (!(after_chroma_error < before_chroma_error * 0.30) || !(after_step < before_step * 0.88)) {
+        std::cerr << "diagnostic: clipped chroma RMSE " << before_chroma_error << " -> "
+                  << after_chroma_error << ", luminance change " << luminance_change
                   << ", boundary step " << before_step << " -> " << after_step << '\n';
     }
 
@@ -201,14 +231,18 @@ void reconstruction_hides_clip_topology_without_crossing_dark_edges() {
         "small sources reconstruct directly at their source dimensions"
     );
     expect(
-        after_error < before_error * 0.30,
-        "low-frequency reconstruction replaces a false clipped plateau with the measured trend"
+        after_chroma_error < before_chroma_error * 0.30,
+        "low-frequency reconstruction replaces false clipped colour with the measured trend"
     );
     expect(
-        after_step < before_step * 0.35,
-        "the final luminance surface no longer exposes the binary clipping contour"
+        after_step < before_step * 0.88,
+        "boundary-only luminance smoothing softens rather than redraws the clipping step"
     );
     const auto centre_pixel = static_cast<std::size_t>(centre_y) * dimensions.width + centre_x;
+    expect(
+        luminance(damaged, centre_pixel) > luminance(before, centre_pixel) * 0.82F,
+        "contradictory-core smoothing retains most clipped-source energy instead of flattening it"
+    );
     expect(
         highlight_risk.source_surface_reconstructed && highlight_risk.samples[centre_pixel] == 0U,
         "the grade sidecar trusts reconstructed core colour instead of reapplying physical-white "
@@ -232,6 +266,156 @@ void reconstruction_hides_clip_topology_without_crossing_dark_edges() {
             && damaged.samples[far_sample + 1U] == before.samples[far_sample + 1U]
             && damaged.samples[far_sample + 2U] == before.samples[far_sample + 2U],
         "source-trustworthy pixels outside the bounded shoulder remain byte-identical"
+    );
+}
+
+void measured_highlight_shoulder_never_darkens() {
+    constexpr image::Dimensions dimensions{128U, 96U};
+    constexpr std::uint32_t centre_x = 64U;
+    constexpr std::uint32_t centre_y = 48U;
+    constexpr std::uint32_t clipped_radius = 18U;
+    constexpr std::uint32_t shoulder_radius = 27U;
+    auto source = image::SceneLinearRgbFrame{
+        .dimensions = dimensions,
+        .row_stride_bytes = static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float),
+        .samples = std::vector<float>(static_cast<std::size_t>(dimensions.pixel_count()) * 3U),
+    };
+    auto clipping = circular_clipping_mask(dimensions, centre_x, centre_y, clipped_radius);
+    const auto clipped_radius_squared = static_cast<std::int64_t>(clipped_radius) * clipped_radius;
+    const auto shoulder_radius_squared =
+        static_cast<std::int64_t>(shoulder_radius) * shoulder_radius;
+    for (std::uint32_t y = 0U; y < dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < dimensions.width; ++x) {
+            const auto pixel = static_cast<std::size_t>(y) * dimensions.width + x;
+            const auto sample = pixel * 3U;
+            const auto dx = static_cast<std::int64_t>(x) - centre_x;
+            const auto dy = static_cast<std::int64_t>(y) - centre_y;
+            const auto distance_squared = dx * dx + dy * dy;
+            if (distance_squared <= clipped_radius_squared) {
+                source.samples[sample] = 3.2F;
+                source.samples[sample + 1U] = 0.45F;
+                source.samples[sample + 2U] = 2.6F;
+            } else if (distance_squared <= shoulder_radius_squared) {
+                source.samples[sample] = 1.45F;
+                source.samples[sample + 1U] = 1.18F;
+                source.samples[sample + 2U] = 0.78F;
+            } else {
+                source.samples[sample] = 0.84F;
+                source.samples[sample + 1U] = 0.68F;
+                source.samples[sample + 2U] = 0.44F;
+            }
+        }
+    }
+    const auto before = source;
+    auto risk = highlight_risk_from_mask(clipping);
+    const auto stats =
+        image::raw_pipeline_detail::reconstruct_clipped_highlight_surface(source, clipping, risk);
+
+    bool shoulder_never_darkened = true;
+    bool shoulder_was_blended = false;
+    for (std::uint32_t y = 0U; y < dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < dimensions.width; ++x) {
+            const auto dx = static_cast<std::int64_t>(x) - centre_x;
+            const auto dy = static_cast<std::int64_t>(y) - centre_y;
+            const auto distance_squared = dx * dx + dy * dy;
+            if (distance_squared <= clipped_radius_squared
+                || distance_squared > shoulder_radius_squared) {
+                continue;
+            }
+            const auto pixel = static_cast<std::size_t>(y) * dimensions.width + x;
+            const float before_luminance = luminance(before, pixel);
+            const float after_luminance = luminance(source, pixel);
+            shoulder_never_darkened =
+                shoulder_never_darkened && after_luminance + 1.0e-5F >= before_luminance;
+            const auto sample = pixel * 3U;
+            shoulder_was_blended =
+                shoulder_was_blended
+                || std::abs(source.samples[sample] - before.samples[sample]) > 1.0e-4F
+                || std::abs(source.samples[sample + 1U] - before.samples[sample + 1U]) > 1.0e-4F
+                || std::abs(source.samples[sample + 2U] - before.samples[sample + 2U]) > 1.0e-4F;
+        }
+    }
+    expect(
+        stats.blended_pixel_count > stats.clipped_pixel_count && shoulder_was_blended,
+        "the continuous surface still reaches the first measured highlight shoulder"
+    );
+    expect(
+        shoulder_never_darkened,
+        "surface reconstruction never creates a measured-luminance dip for recovery to reveal"
+    );
+}
+
+void cfa_risk_bands_do_not_modulate_the_luminance_feather() {
+    constexpr image::Dimensions dimensions{128U, 96U};
+    constexpr std::uint32_t centre_x = 64U;
+    constexpr std::uint32_t centre_y = 48U;
+    constexpr std::uint32_t clipped_radius = 16U;
+    auto source = image::SceneLinearRgbFrame{
+        .dimensions = dimensions,
+        .row_stride_bytes = static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float),
+        .samples = std::vector<float>(static_cast<std::size_t>(dimensions.pixel_count()) * 3U),
+    };
+    auto clipping = circular_clipping_mask(dimensions, centre_x, centre_y, clipped_radius);
+    for (std::size_t pixel = 0U; pixel < dimensions.pixel_count(); ++pixel) {
+        const auto sample = pixel * 3U;
+        const bool clipped = (clipping.samples[pixel] & image::sensor_highlight_clipped) != 0U;
+        source.samples[sample] = clipped ? 1.45F : 0.92F;
+        source.samples[sample + 1U] = clipped ? 1.15F : 0.70F;
+        source.samples[sample + 2U] = clipped ? 0.72F : 0.42F;
+    }
+    auto unbanded = source;
+    auto banded = source;
+    auto unbanded_risk = highlight_risk_from_mask(clipping);
+    auto banded_risk = unbanded_risk;
+    for (std::uint32_t y = 0U; y < dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < dimensions.width; ++x) {
+            const auto dx = static_cast<std::int64_t>(x) - centre_x;
+            const auto dy = static_cast<std::int64_t>(y) - centre_y;
+            const auto distance_squared = dx * dx + dy * dy;
+            const auto pixel = static_cast<std::size_t>(y) * dimensions.width + x;
+            if (distance_squared > 17 * 17 && distance_squared <= 23 * 23) {
+                banded_risk.samples[pixel] = 224U;
+            } else if (distance_squared > 23 * 23 && distance_squared <= 30 * 30) {
+                banded_risk.samples[pixel] = 96U;
+            }
+        }
+    }
+    const auto original_banded_risk = banded_risk;
+
+    static_cast<void>(image::raw_pipeline_detail::reconstruct_clipped_highlight_surface(
+        unbanded,
+        clipping,
+        unbanded_risk
+    ));
+    static_cast<void>(image::raw_pipeline_detail::reconstruct_clipped_highlight_surface(
+        banded,
+        clipping,
+        banded_risk
+    ));
+
+    float maximum_luminance_difference = 0.0F;
+    bool risk_was_partially_consumed = false;
+    for (std::size_t pixel = 0U; pixel < dimensions.pixel_count(); ++pixel) {
+        maximum_luminance_difference = std::max(
+            maximum_luminance_difference,
+            std::abs(luminance(unbanded, pixel) - luminance(banded, pixel))
+        );
+        risk_was_partially_consumed =
+            risk_was_partially_consumed
+            || (banded_risk.samples[pixel] > 0U
+                && banded_risk.samples[pixel] < original_banded_risk.samples[pixel]);
+    }
+    if (maximum_luminance_difference >= 2.0e-5F) {
+        std::cerr << "diagnostic: risk-band luminance difference " << maximum_luminance_difference
+                  << '\n';
+    }
+    expect(
+        maximum_luminance_difference < 2.0e-5F,
+        "quantised CFA colour-risk bands cannot become luminance rings around a clipped source"
+    );
+    expect(
+        risk_was_partially_consumed,
+        "the chroma feather consumes source risk continuously instead of clearing a binary edge"
     );
 }
 
@@ -335,7 +519,7 @@ void sparse_projected_cfa_clip_does_not_invent_an_rgb_surface() {
     );
 }
 
-void reconstruction_excludes_unreliable_cfa_chroma_from_its_guide() {
+void contradictory_cfa_core_is_neutralised_without_using_its_fringe_as_a_guide() {
     constexpr image::Dimensions dimensions{128U, 80U};
     constexpr std::uint32_t centre_x = 66U;
     constexpr std::uint32_t centre_y = 40U;
@@ -385,10 +569,16 @@ void reconstruction_excludes_unreliable_cfa_chroma_from_its_guide() {
         source.samples[centre_sample] / std::max(source.samples[centre_sample + 2U], 1.0e-6F);
     const float green_blue_ratio =
         source.samples[centre_sample + 1U] / std::max(source.samples[centre_sample + 2U], 1.0e-6F);
+    if (!(red_blue_ratio > 0.85F && red_blue_ratio < 1.20F && green_blue_ratio > 0.85F
+          && green_blue_ratio < 1.15F)) {
+        std::cerr << "diagnostic: contradictory core ratios red/blue=" << red_blue_ratio
+                  << " green/blue=" << green_blue_ratio << '\n';
+    }
     expect(
-        red_blue_ratio > 1.75F && green_blue_ratio > 1.25F,
-        "the reconstructed core follows reliable warm neighbours instead of a CFA-risked magenta "
-        "fringe"
+        red_blue_ratio > 0.85F && red_blue_ratio < 1.20F && green_blue_ratio > 0.85F
+            && green_blue_ratio < 1.15F,
+        "a core that contradicts its measured boundary becomes low-chroma instead of retaining "
+        "the CFA-risked magenta fringe"
     );
     expect(
         risk.samples[centre_pixel] == 0U,
@@ -436,9 +626,11 @@ void empty_or_unrecoverable_masks_are_no_ops() {
 
 int main() {
     reconstruction_hides_clip_topology_without_crossing_dark_edges();
+    measured_highlight_shoulder_never_darkens();
+    cfa_risk_bands_do_not_modulate_the_luminance_feather();
     reconstruction_preserves_bright_warm_highlight_character();
     sparse_projected_cfa_clip_does_not_invent_an_rgb_surface();
-    reconstruction_excludes_unreliable_cfa_chroma_from_its_guide();
+    contradictory_cfa_core_is_neutralised_without_using_its_fringe_as_a_guide();
     empty_or_unrecoverable_masks_are_no_ops();
     if (failures != 0) {
         std::cerr << failures << " clipped-highlight reconstruction contract test(s) failed\n";

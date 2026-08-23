@@ -263,8 +263,7 @@ raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexce
     case RawHighlightRecoveryIntent::provider_default:
         return "sensor-highlights=cfa-opposed-evidence-preserving@20260824.9;"
                "recovery=local-opposed+shared-chroma+surface-guided;headroom=sub-white-fp32;"
-               "clipped-highlight-surface="
-               "risk-excluded-support-gated-push-pull-luma-shoulder-v4";
+               "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
@@ -272,8 +271,7 @@ raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexce
     case RawHighlightRecoveryIntent::aggressive:
         return "sensor-highlights=cfa-opposed-evidence-preserving-feathered@20260824.9;"
                "recovery=local-opposed+spatial-chroma+surface-guided;headroom=sub-white-fp32;"
-               "clipped-highlight-surface="
-               "risk-excluded-support-gated-push-pull-luma-shoulder-v4";
+               "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13";
     }
     return "sensor-highlights=unknown";
 }

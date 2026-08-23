@@ -5,6 +5,9 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
+#include "../src/raw/bayer_sampling.hpp"
+#include "../src/raw/raw_frame_development_plan.hpp"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -302,6 +305,231 @@ struct RawFrameNormalizationCandidates final {
         return std::nullopt;
     }
     return std::nullopt;
+}
+
+struct HighlightCfaDeltaSite final {
+    std::uint32_t x = 0U;
+    std::uint32_t y = 0U;
+    std::size_t channel = 0U;
+    image::detail::CfaOpposedHighlightSample sample;
+};
+
+void render_highlight_cfa_diagnostic(
+    image::DecodeSession& session,
+    const fs::path& output_directory
+) {
+    const Stopwatch timer;
+    const image::RawFrame frame = session.decode_raw_frame();
+    if (!frame.valid() || !frame.is_bayer_2x2()) {
+        throw std::runtime_error("CFA highlight diagnostic requires a valid Bayer RAW frame");
+    }
+    const auto plan = image::preview_raw_development_plan();
+    const image::RawFrameLinearTransform transform =
+        image::raw_pipeline_detail::prepare_raw_frame_linear_transform(
+            frame.descriptor,
+            plan.white_balance,
+            nullptr
+        );
+    const auto treatment = image::detail::editable_raw_cfa_sampling_policy(transform);
+    const auto chrominance = image::detail::estimate_opposed_highlight_chrominance_correction(
+        frame,
+        &transform,
+        treatment
+    );
+    const auto sampled_chrominance =
+        image::detail::estimate_opposed_highlight_chrominance_correction(
+            frame,
+            &transform,
+            treatment,
+            4U
+        );
+    auto baseline = treatment;
+    baseline.reconstruct_terminal_highlights = false;
+
+    std::array<std::uint64_t, 3U> candidates{};
+    std::array<std::uint64_t, 3U> raised{};
+    std::array<long double, 3U> total_delta{};
+    std::array<float, 3U> maximum_delta{};
+    std::array<std::array<std::uint64_t, 5U>, 3U> delta_histogram{};
+    std::vector<HighlightCfaDeltaSite> largest;
+    largest.reserve(512U);
+    const auto keep_largest = [&] {
+        if (largest.size() <= 256U) {
+            return;
+        }
+        std::nth_element(
+            largest.begin(),
+            largest.begin() + 256,
+            largest.end(),
+            [](const HighlightCfaDeltaSite& left, const HighlightCfaDeltaSite& right) {
+                return left.sample.reconstructed - left.sample.measured
+                       > right.sample.reconstructed - right.sample.measured;
+            }
+        );
+        largest.resize(256U);
+    };
+
+    const auto& descriptor = frame.descriptor;
+    const std::uint32_t first_x = descriptor.active_margins.left;
+    const std::uint32_t first_y = descriptor.active_margins.top;
+    const std::uint32_t last_x = first_x + descriptor.active_dimensions.width;
+    const std::uint32_t last_y = first_y + descriptor.active_dimensions.height;
+    for (std::uint32_t y = first_y; y < last_y; ++y) {
+        for (std::uint32_t x = first_x; x < last_x; ++x) {
+            const auto channel = cfa_rgb_index(descriptor.bayer_2x2[(y & 1U) * 2U + (x & 1U)]);
+            if (!channel.has_value()) {
+                continue;
+            }
+            const auto sample =
+                image::detail::opposed_highlight_cfa_sample_at(frame, x, y, &transform, treatment);
+            if (!sample.terminal_candidate) {
+                continue;
+            }
+            ++candidates[*channel];
+            const float delta = sample.reconstructed - sample.measured;
+            const std::size_t bin = delta <= 1.0e-6F  ? 0U
+                                    : delta < 1.0e-3F ? 1U
+                                    : delta < 1.0e-2F ? 2U
+                                    : delta < 5.0e-2F ? 3U
+                                                      : 4U;
+            ++delta_histogram[*channel][bin];
+            if (delta <= 1.0e-6F) {
+                continue;
+            }
+            ++raised[*channel];
+            total_delta[*channel] += delta;
+            maximum_delta[*channel] = std::max(maximum_delta[*channel], delta);
+            largest.push_back(
+                HighlightCfaDeltaSite{
+                    .x = x,
+                    .y = y,
+                    .channel = *channel,
+                    .sample = sample,
+                }
+            );
+            if (largest.size() >= 512U) {
+                keep_largest();
+            }
+        }
+    }
+    keep_largest();
+    std::sort(
+        largest.begin(),
+        largest.end(),
+        [](const HighlightCfaDeltaSite& left, const HighlightCfaDeltaSite& right) {
+            return left.sample.reconstructed - left.sample.measured
+                   > right.sample.reconstructed - right.sample.measured;
+        }
+    );
+    if (largest.size() > 64U) {
+        largest.resize(64U);
+    }
+
+    const fs::path csv_path = output_directory / "highlight-cfa-largest-deltas.csv";
+    std::ofstream csv(csv_path);
+    if (!csv) {
+        throw std::runtime_error("cannot create " + csv_path.string());
+    }
+    csv << "x,y,cfa,measured,opposed_reference,reconstructed,cfa_delta,"
+           "baseline_r,baseline_g,baseline_b,reconstructed_r,reconstructed_g,reconstructed_b,"
+           "delta_r,delta_g,delta_b\n";
+    std::array<long double, 3U> demosaic_absolute_delta{};
+    std::array<float, 3U> demosaic_maximum_delta{};
+    long double demosaic_luminance_delta = 0.0L;
+    std::uint64_t demosaic_samples = 0U;
+    constexpr std::array<const char*, 3U> channel_names{"R", "G", "B"};
+    for (const auto& site : largest) {
+        const auto before = image::detail::bilinear_camera_rgb_sample_at(
+            frame,
+            site.x,
+            site.y,
+            &transform,
+            baseline
+        );
+        const auto after = image::detail::bilinear_camera_rgb_sample_at(
+            frame,
+            site.x,
+            site.y,
+            &transform,
+            treatment
+        );
+        std::array<float, 3U> delta{};
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+            delta[channel] = after.values[channel] - before.values[channel];
+            demosaic_absolute_delta[channel] += std::abs(delta[channel]);
+            demosaic_maximum_delta[channel] =
+                std::max(demosaic_maximum_delta[channel], std::abs(delta[channel]));
+        }
+        demosaic_luminance_delta += std::abs(0.25L * delta[0] + 0.5L * delta[1] + 0.25L * delta[2]);
+        ++demosaic_samples;
+        csv << site.x << ',' << site.y << ',' << channel_names[site.channel] << ','
+            << site.sample.measured << ',' << site.sample.opposed_reference << ','
+            << site.sample.reconstructed << ',' << site.sample.reconstructed - site.sample.measured
+            << ',' << before.values[0] << ',' << before.values[1] << ',' << before.values[2] << ','
+            << after.values[0] << ',' << after.values[1] << ',' << after.values[2] << ','
+            << delta[0] << ',' << delta[1] << ',' << delta[2] << '\n';
+    }
+    if (!csv) {
+        throw std::runtime_error("cannot write " + csv_path.string());
+    }
+
+    std::cout << "highlight_cfa_diagnostic.status=ok\n"
+              << "highlight_cfa_diagnostic.algorithm=darktable-opposed-photosite-v1\n"
+              << "highlight_cfa_diagnostic.threshold=0.987\n";
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        std::cout << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".chrominance_offset=" << chrominance.offsets[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".chrominance_support=" << chrominance.supporting_samples[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".sampled_chrominance_offset=" << sampled_chrominance.offsets[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".sampled_chrominance_support="
+                  << sampled_chrominance.supporting_samples[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".candidates=" << candidates[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".raised=" << raised[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".mean_positive_delta="
+                  << (raised[channel] == 0U
+                          ? 0.0
+                          : static_cast<double>(
+                                total_delta[channel] / static_cast<long double>(raised[channel])
+                            ))
+                  << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".maximum_delta=" << maximum_delta[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".histogram=zero:" << delta_histogram[channel][0]
+                  << ",lt0.001:" << delta_histogram[channel][1]
+                  << ",lt0.01:" << delta_histogram[channel][2]
+                  << ",lt0.05:" << delta_histogram[channel][3]
+                  << ",ge0.05:" << delta_histogram[channel][4] << '\n';
+    }
+    std::cout << "highlight_cfa_diagnostic.demosaic.representative_sites=" << demosaic_samples
+              << '\n';
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        std::cout << "highlight_cfa_diagnostic.demosaic.channel." << channel_names[channel]
+                  << ".mean_absolute_delta="
+                  << (demosaic_samples == 0U ? 0.0
+                                             : static_cast<double>(
+                                                   demosaic_absolute_delta[channel]
+                                                   / static_cast<long double>(demosaic_samples)
+                                               ))
+                  << '\n'
+                  << "highlight_cfa_diagnostic.demosaic.channel." << channel_names[channel]
+                  << ".maximum_absolute_delta=" << demosaic_maximum_delta[channel] << '\n';
+    }
+    std::cout << "highlight_cfa_diagnostic.demosaic.mean_absolute_camera_luminance_delta="
+              << (demosaic_samples == 0U
+                      ? 0.0
+                      : static_cast<double>(
+                            demosaic_luminance_delta / static_cast<long double>(demosaic_samples)
+                        ))
+              << '\n'
+              << "highlight_cfa_diagnostic.csv=" << csv_path.string() << '\n'
+              << "timing.highlight_cfa_diagnostic_ms=" << timer.elapsed_ms() << '\n';
 }
 
 [[nodiscard]] RawFrameNormalizationCandidates calculate_normalization_candidates(
@@ -855,6 +1083,7 @@ int run(
     const bool preview_only,
     const bool denoise_diagnostic,
     const bool highlight_diagnostic,
+    const bool highlight_cfa_diagnostic,
     const bool raw_frame_only,
     const bool raw_frame_statistics_only,
     const std::optional<RawFrameInspectionRegion> raw_frame_inspection_region,
@@ -873,6 +1102,10 @@ int run(
               << "output_directory=" << output_directory.string() << '\n'
               << "timing.open_ms=" << open_timer.elapsed_ms() << '\n';
     print_session(provider->info(), *session);
+    if (highlight_cfa_diagnostic) {
+        render_highlight_cfa_diagnostic(*session, output_directory);
+        return 0;
+    }
     if (raw_frame_only || raw_frame_statistics_only) {
         if (!session->capabilities().raw_frame) {
             std::cout << "raw_frame.status=unavailable\n"
@@ -935,6 +1168,8 @@ int main(const int argument_count, char** arguments) {
         argument_count == 4 && std::string_view(arguments[3]) == "--denoise-diagnostic";
     const bool highlight_diagnostic =
         argument_count == 4 && std::string_view(arguments[3]) == "--highlight-diagnostic";
+    const bool highlight_cfa_diagnostic =
+        argument_count == 4 && std::string_view(arguments[3]) == "--highlight-cfa-diagnostic";
     const bool raw_frame_only =
         argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-only";
     const bool raw_frame_statistics_only =
@@ -944,10 +1179,11 @@ int main(const int argument_count, char** arguments) {
     const bool manual_white_balance =
         argument_count == 6 && std::string_view(arguments[3]) == "--manual-white-balance";
     if (argument_count != 3 && !preview_only && !denoise_diagnostic && !highlight_diagnostic
-        && !raw_frame_only && !raw_frame_statistics_only && !raw_frame_statistics_region
-        && !manual_white_balance) {
+        && !highlight_cfa_diagnostic && !raw_frame_only && !raw_frame_statistics_only
+        && !raw_frame_statistics_region && !manual_white_balance) {
         std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> "
                      "[--preview-only|--denoise-diagnostic|--highlight-diagnostic|"
+                     "--highlight-cfa-diagnostic|"
                      "--raw-frame-only|--raw-frame-stats|"
                      "--raw-frame-stats-region <x> <y> <width> <height>|"
                      "--manual-white-balance <kelvin> <tint>]\n";
@@ -988,6 +1224,7 @@ int main(const int argument_count, char** arguments) {
             preview_only,
             denoise_diagnostic,
             highlight_diagnostic,
+            highlight_cfa_diagnostic,
             raw_frame_only,
             raw_frame_statistics_only || raw_frame_statistics_region,
             raw_frame_inspection_region,

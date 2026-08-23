@@ -417,8 +417,7 @@ void cfa_white_balance_retains_editable_headroom() {
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
             == "sensor-highlights=cfa-opposed-evidence-preserving@20260824.9;"
                "recovery=local-opposed+shared-chroma+surface-guided;headroom=sub-white-fp32;"
-               "clipped-highlight-surface="
-               "risk-excluded-support-gated-push-pull-luma-shoulder-v4",
+               "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13",
         "the default source receipt identifies continuous clipped-highlight reconstruction"
     );
 
@@ -730,8 +729,7 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
                    == "sensor-highlights=cfa-opposed-evidence-preserving-feathered@20260824.9;"
                       "recovery=local-opposed+spatial-chroma+surface-guided;headroom=sub-white-"
                       "fp32;"
-                      "clipped-highlight-surface="
-                      "risk-excluded-support-gated-push-pull-luma-shoulder-v4",
+                      "clipped-highlight=local-risk-guided-edge-aware-shoulder-v13",
         "legacy aggressive source-surface reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;

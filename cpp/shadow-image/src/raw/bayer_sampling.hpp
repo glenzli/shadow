@@ -20,10 +20,30 @@ using CameraRgb = std::array<float, 3U>;
 struct BayerCfaSamplingPolicy final {
     float white_balance_scale = 1.0F;
     bool cap_physical_sensor_white = false;
+    // Production editable policies enable the source-local opposed reconstruction. Diagnostics may
+    // disable it while retaining identical white-balance and physical-white normalization so the
+    // post-demosaic delta has a controlled baseline.
+    bool reconstruct_terminal_highlights = false;
     // Opt-in repair mode only. It spatially feathers the physical-white evidence before
     // neutralization, deliberately sacrificing uncertain highlight chroma to avoid a hard
     // false-colour boundary. It never invents a colour or a luminance value.
     bool feather_highlight_chroma_neutralization = false;
+};
+
+// Source-local opposed reconstruction for one CFA photosite. Keeping the measured value,
+// darktable-style opposed reference, and final one-sided result together lets diagnostics measure
+// the exact pre-demosaic delta without copying or reimplementing the production algorithm.
+struct CfaOpposedHighlightSample final {
+    float measured = 0.0F;
+    float opposed_reference = 0.0F;
+    float reconstructed = 0.0F;
+    bool terminal_candidate = false;
+};
+
+struct CfaOpposedChrominanceCorrection final {
+    CameraRgb offsets{};
+    std::array<std::uint64_t, 3U> supporting_samples{};
+    bool any_terminal_photosite = false;
 };
 
 [[nodiscard]] BayerCfaSamplingPolicy
@@ -31,6 +51,24 @@ editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexc
 
 [[nodiscard]] BayerCfaSamplingPolicy
 aggressive_highlight_repair_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept;
+
+[[nodiscard]] CfaOpposedHighlightSample opposed_highlight_cfa_sample_at(
+    const RawFrame& frame,
+    std::uint32_t raw_x,
+    std::uint32_t raw_y,
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {}
+) noexcept;
+
+// Estimates darktable's second opposed term from measured photosites surrounding factual terminal
+// regions. This source-level diagnostic is deliberately separate from the point sampler so callers
+// can cache the O(sensor-pixels) result instead of repeating it during demosaic or slider edits.
+[[nodiscard]] CfaOpposedChrominanceCorrection estimate_opposed_highlight_chrominance_correction(
+    const RawFrame& frame,
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {},
+    std::uint32_t support_cell_stride = 1U
+);
 
 // Camera-linear reconstruction carries CFA-white-balanced samples after the selected source
 // policy. Each RGB entry retains both continuous headroom evidence and the exact fraction of its

@@ -69,7 +69,7 @@ inline float normalized_linear_response_sample(
         / parameters.linear_response_minus_black[site];
 }
 
-inline float normalized_sample(
+inline float unreconstructed_normalized_sample(
     device const ushort* samples,
     constant RawDevelopmentParameters& parameters,
     uint x,
@@ -85,6 +85,55 @@ inline float normalized_sample(
         normalized = min(normalized, 1.0f);
     }
     return normalized;
+}
+
+inline float normalized_sample(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    uint x,
+    uint y
+) {
+    const float measured = unreconstructed_normalized_sample(samples, parameters, x, y);
+    if (parameters.cap_physical_sensor_white == 0u
+        || normalized_sensor_sample(samples, parameters, x, y) < 0.987f) {
+        return measured;
+    }
+
+    float totals[3] = {0.0f, 0.0f, 0.0f};
+    uint counts[3] = {0u, 0u, 0u};
+    for (int dy = -1; dy <= 1; ++dy) {
+        const int candidate_y = int(y) + dy;
+        if (candidate_y < 0 || candidate_y >= int(parameters.storage_height)) {
+            continue;
+        }
+        for (int dx = -1; dx <= 1; ++dx) {
+            const int candidate_x = int(x) + dx;
+            if (candidate_x < 0 || candidate_x >= int(parameters.storage_width)) {
+                continue;
+            }
+            const uint raw_x = uint(candidate_x);
+            const uint raw_y = uint(candidate_y);
+            const uint channel = parameters.cfa_channels[cfa_site(raw_x, raw_y)];
+            totals[channel] += max(
+                0.0f,
+                unreconstructed_normalized_sample(samples, parameters, raw_x, raw_y)
+            );
+            counts[channel] += 1u;
+        }
+    }
+    const uint channel = parameters.cfa_channels[cfa_site(x, y)];
+    const uint first_opposing = (channel + 1u) % 3u;
+    const uint second_opposing = (channel + 2u) % 3u;
+    if (counts[first_opposing] == 0u || counts[second_opposing] == 0u) {
+        return measured;
+    }
+    const float opposing_root_mean = 0.5f * (
+        pow(totals[first_opposing] / float(counts[first_opposing]), 1.0f / 3.0f)
+        + pow(totals[second_opposing] / float(counts[second_opposing]), 1.0f / 3.0f)
+    );
+    const float opposed_reference =
+        opposing_root_mean * opposing_root_mean * opposing_root_mean;
+    return max(measured, opposed_reference);
 }
 
 inline uint clipping_target_bin_begin(
@@ -270,34 +319,6 @@ inline float3 neutralize_untrusted_camera_highlight_chroma(
     }
     const float luminance = dot(camera_rgb, float3(0.25f, 0.5f, 0.25f));
     return mix(camera_rgb, float3(luminance), weight);
-}
-
-inline float3 reconstruct_opposed_camera_highlight(const CameraRgbSample camera) {
-    float3 reconstructed = camera.values;
-    for (uint channel = 0u; channel < 3u; ++channel) {
-        const uint first_opposing = (channel + 1u) % 3u;
-        const uint second_opposing = (channel + 2u) % 3u;
-        const float response_evidence = clamp(camera.highlight_channel_evidence[channel], 0.0f, 1.0f);
-        const float near_terminal_support = smoothstep(0.90f, 0.99f, response_evidence);
-        const float support = max(
-            clamp(camera.physical_white_coverage[channel], 0.0f, 1.0f),
-            near_terminal_support
-        );
-        if (support <= 0.0f) {
-            continue;
-        }
-        const float opposing_root_mean = 0.5f * (
-            pow(max(0.0f, camera.values[first_opposing]), 1.0f / 3.0f)
-            + pow(max(0.0f, camera.values[second_opposing]), 1.0f / 3.0f)
-        );
-        const float opposed_reference = opposing_root_mean * opposing_root_mean * opposing_root_mean;
-        reconstructed[channel] = mix(
-            reconstructed[channel],
-            max(camera.values[channel], opposed_reference),
-            support
-        );
-    }
-    return reconstructed;
 }
 
 inline float shared_physical_white_neutralization(const float3 physical_white_coverage) {

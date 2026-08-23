@@ -362,51 +362,16 @@ void write_raw_frame_transformed_pixel(
         camera.values[1],
         camera.values[2],
     };
-    // A clipped CFA colour is no longer a measured upper bound, while the two opposing colours
-    // still describe the local highlight surface. Reconstruct only upward, in cube-root space,
-    // before the camera matrix. This is the local, pass-free part of opposed inpainting: it uses
-    // the existing 3x3/area footprint and its calibrated response evidence, so warm-source
-    // preparation gains no extra raster, transfer, or slider-time work. A saturated one-colour
-    // emitter is unchanged because its opposing reference remains below the measured channel.
-    std::array<double, 3U> opposed_camera = camera_values;
-    for (std::size_t channel = 0U; channel < opposed_camera.size(); ++channel) {
-        const std::size_t first_opposing = (channel + 1U) % 3U;
-        const std::size_t second_opposing = (channel + 2U) % 3U;
-        const double response_evidence =
-            std::clamp(static_cast<double>(camera.highlight_channel_evidence[channel]), 0.0, 1.0);
-        // Darktable's opposed reconstruction opens at roughly 98.7% of the calibrated sensor
-        // response. Shadow keeps a narrow continuous shoulder around that frontier rather than a
-        // hard branch, avoiding a second visible contour without pulling ordinary highlight
-        // rolloff.
-        const double near_terminal = std::clamp((response_evidence - 0.90) / 0.09, 0.0, 1.0);
-        const double near_terminal_support =
-            near_terminal * near_terminal * (3.0 - 2.0 * near_terminal);
-        const double support = std::max(
-            std::clamp(static_cast<double>(camera.physical_white_coverage[channel]), 0.0, 1.0),
-            near_terminal_support
-        );
-        if (support <= 0.0) {
-            continue;
-        }
-        const double opposing_root_mean =
-            0.5
-            * (std::cbrt(std::max(0.0, camera_values[first_opposing]))
-               + std::cbrt(std::max(0.0, camera_values[second_opposing])));
-        const double opposed_reference =
-            opposing_root_mean * opposing_root_mean * opposing_root_mean;
-        const double reconstructed = std::max(camera_values[channel], opposed_reference);
-        opposed_camera[channel] += support * (reconstructed - opposed_camera[channel]);
-    }
     // A shared physical-white ratio is unmeasured, so neutralize only that residual camera chroma
     // before the camera matrix while preserving Bayer-weighted luminance and spatial structure.
     // Doing this after the matrix creates a display-grey plateau whose luminance does not follow
     // the camera calibration.
     const double chroma_neutralization =
         std::clamp(static_cast<double>(camera.highlight_chroma_neutralization), 0.0, 1.0);
-    std::array<double, 3U> adjusted_camera = opposed_camera;
+    std::array<double, 3U> adjusted_camera = camera_values;
     if (chroma_neutralization > 0.0) {
         const double camera_luminance =
-            0.25 * opposed_camera[0] + 0.5 * opposed_camera[1] + 0.25 * opposed_camera[2];
+            0.25 * camera_values[0] + 0.5 * camera_values[1] + 0.25 * camera_values[2];
         for (auto& component : adjusted_camera) {
             component += chroma_neutralization * (camera_luminance - component);
         }
