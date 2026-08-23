@@ -71,7 +71,9 @@ namespace {
     const auto index = static_cast<std::size_t>(raw_y) * width + raw_x;
     const double black = descriptor.black_levels[site];
     const double limit = descriptor.linear_response_limits[site];
-    return static_cast<float>((static_cast<double>(frame.samples[index]) - black) / (limit - black));
+    return static_cast<float>(
+        (static_cast<double>(frame.samples[index]) - black) / (limit - black)
+    );
 }
 
 [[nodiscard]] bool physical_sensor_white(
@@ -99,8 +101,9 @@ namespace {
     }
     // Do not turn a white-balance gain into an early source clip. A sample below physical sensor
     // white may legitimately become greater than one and must reach the scene-linear edit graph.
-    // Sensor-white samples have no further measured headroom, so retain the H=0 ceiling only for
-    // that physical saturation evidence; no colour or detail is reconstructed here.
+    // Sensor-white samples have no further measured headroom, so retain a common source ceiling
+    // only for that physical saturation evidence. Opposed reconstruction is applied later to the
+    // complete per-colour footprint, where its exact clipping topology is available.
     if (sampling_policy.cap_physical_sensor_white && sensor_normalized >= 1.0F) {
         normalized = std::min(normalized, 1.0);
     }
@@ -117,7 +120,23 @@ namespace {
            && raw_y < static_cast<std::int64_t>(descriptor.storage_dimensions.height);
 }
 
-[[nodiscard]] float physical_sensor_white_coverage_in_window(
+struct PhysicalWhiteWindowCoverage final {
+    CameraRgb channels{};
+    CameraRgb highlight_channel_evidence{};
+    CameraRgb opposed_channel_evidence{};
+    float total = 0.0F;
+};
+
+[[nodiscard]] float highlight_sensor_evidence(
+    const RawFrame& frame,
+    std::uint32_t raw_x,
+    std::uint32_t raw_y,
+    BayerCfaSamplingPolicy sampling_policy
+) noexcept;
+
+[[nodiscard]] float opposed_highlight_sensor_evidence(float channel_evidence) noexcept;
+
+[[nodiscard]] PhysicalWhiteWindowCoverage physical_sensor_white_coverage_in_window(
     const RawFrame& frame,
     const std::uint32_t center_x,
     const std::uint32_t center_y,
@@ -125,6 +144,10 @@ namespace {
     const BayerCfaSamplingPolicy sampling_policy
 ) noexcept {
     const auto& descriptor = frame.descriptor;
+    std::array<std::uint32_t, 3U> channel_observed{};
+    std::array<std::uint32_t, 3U> channel_at_white{};
+    std::array<double, 3U> channel_evidence_totals{};
+    std::array<double, 3U> channel_opposed_evidence_totals{};
     std::uint32_t observed = 0U;
     std::uint32_t at_white = 0U;
     for (std::int32_t dy = -radius; dy <= radius; ++dy) {
@@ -134,19 +157,46 @@ namespace {
             if (!in_sensor_bounds(descriptor, candidate_x, candidate_y)) {
                 continue;
             }
+            const auto x = static_cast<std::uint32_t>(candidate_x);
+            const auto y = static_cast<std::uint32_t>(candidate_y);
+            const int channel = rgb_channel(cfa_color_at(descriptor, x, y));
+            if (channel < 0) {
+                continue;
+            }
+            const auto index = static_cast<std::size_t>(channel);
             ++observed;
-            at_white += physical_sensor_white(
-                            frame,
-                            static_cast<std::uint32_t>(candidate_x),
-                            static_cast<std::uint32_t>(candidate_y),
-                            sampling_policy
-                        )
-                            ? 1U
-                            : 0U;
+            ++channel_observed[index];
+            const float channel_evidence = highlight_sensor_evidence(frame, x, y, sampling_policy);
+            channel_evidence_totals[index] += channel_evidence;
+            channel_opposed_evidence_totals[index] +=
+                opposed_highlight_sensor_evidence(channel_evidence);
+            const bool is_at_white = physical_sensor_white(frame, x, y, sampling_policy);
+            at_white += is_at_white ? 1U : 0U;
+            channel_at_white[index] += is_at_white ? 1U : 0U;
         }
     }
-    return observed == 0U ? 0.0F
-                          : static_cast<float>(at_white) / static_cast<float>(observed);
+    PhysicalWhiteWindowCoverage coverage;
+    coverage.total =
+        observed == 0U ? 0.0F : static_cast<float>(at_white) / static_cast<float>(observed);
+    for (std::size_t channel = 0U; channel < coverage.channels.size(); ++channel) {
+        coverage.channels[channel] = channel_observed[channel] == 0U
+                                         ? 0.0F
+                                         : static_cast<float>(channel_at_white[channel])
+                                               / static_cast<float>(channel_observed[channel]);
+        coverage.opposed_channel_evidence[channel] =
+            channel_observed[channel] == 0U ? 0.0F
+                                            : static_cast<float>(
+                                                  channel_opposed_evidence_totals[channel]
+                                                  / static_cast<double>(channel_observed[channel])
+                                              );
+        coverage.highlight_channel_evidence[channel] =
+            channel_observed[channel] == 0U ? 0.0F
+                                            : static_cast<float>(
+                                                  channel_evidence_totals[channel]
+                                                  / static_cast<double>(channel_observed[channel])
+                                              );
+    }
+    return coverage;
 }
 
 // The default path deliberately keeps the exact contributing CFA footprint. The opt-in repair
@@ -168,13 +218,17 @@ namespace {
     // calibrated white.  A strict physical-white gate left a red/blue pair completely intact
     // until the final code value, which is exactly the magenta contour a deep highlight pull can
     // reveal.  The optional destructive repair broadens only this evidence shoulder.
-    const float shoulder_start = sampling_policy.feather_highlight_chroma_neutralization ? 0.88F
-                                                                                          : 0.92F;
-    const float t = std::clamp(
-        (normalized - shoulder_start) / (1.0F - shoulder_start),
-        0.0F,
-        1.0F
-    );
+    const float shoulder_start =
+        sampling_policy.feather_highlight_chroma_neutralization ? 0.88F : 0.92F;
+    const float t = std::clamp((normalized - shoulder_start) / (1.0F - shoulder_start), 0.0F, 1.0F);
+    return t * t * (3.0F - 2.0F * t);
+}
+
+[[nodiscard]] float opposed_highlight_sensor_evidence(const float channel_evidence) noexcept {
+    // Remap only the last tenth of the broad response-risk signal. For the default 0.92 sensor
+    // shoulder this starts at roughly 98.7% of measured linear response, matching the useful part
+    // of darktable's opposed threshold without clipping Shadow's retained fp32 headroom.
+    const float t = std::clamp((channel_evidence - 0.90F) / 0.10F, 0.0F, 1.0F);
     return t * t * (3.0F - 2.0F * t);
 }
 
@@ -199,12 +253,10 @@ namespace {
             if (!in_sensor_bounds(descriptor, candidate_x, candidate_y)) {
                 continue;
             }
-            const auto x_weight = static_cast<double>(
-                static_cast<std::int32_t>(radius) + 1 - std::abs(dx)
-            );
-            const auto y_weight = static_cast<double>(
-                static_cast<std::int32_t>(radius) + 1 - std::abs(dy)
-            );
+            const auto x_weight =
+                static_cast<double>(static_cast<std::int32_t>(radius) + 1 - std::abs(dx));
+            const auto y_weight =
+                static_cast<double>(static_cast<std::int32_t>(radius) + 1 - std::abs(dy));
             const double weight = x_weight * y_weight;
             total_weight += weight;
             evidence_weight += weight
@@ -216,8 +268,7 @@ namespace {
                                ));
         }
     }
-    return total_weight <= 0.0 ? 0.0F
-                               : static_cast<float>(evidence_weight / total_weight);
+    return total_weight <= 0.0 ? 0.0F : static_cast<float>(evidence_weight / total_weight);
 }
 
 [[nodiscard]] float highlight_chroma_neutralization(
@@ -242,9 +293,58 @@ namespace {
     return second_channel_evidence * evidence_imbalance * bright_support;
 }
 
-[[nodiscard]] float aggressive_bright_highlight_support(const CameraRgb& values) noexcept {
-    const float luminance = 0.25F * values[0] + 0.5F * values[1] + 0.25F * values[2];
-    const float t = std::clamp((luminance - 0.60F) / 0.30F, 0.0F, 1.0F);
+[[nodiscard]] CameraRgb opposed_highlight_reconstruction(
+    const CameraRgb& values,
+    const CameraRgb& physical_white_coverage
+) noexcept {
+    // Reconstruct only in the direction supported by clipped CFA evidence. A channel that has
+    // reached physical white can be the prematurely flattened member of an otherwise neutral
+    // highlight, but lowering it would destroy a real saturated emitter. The opposing mean is
+    // intentionally linear: it keeps this hot path to a few fp32 operations and mirrors exactly
+    // in Metal without a full-frame prepass or host/device transfer.
+    CameraRgb reconstructed = values;
+    for (std::size_t channel = 0U; channel < reconstructed.size(); ++channel) {
+        const auto first_opponent = (channel + 1U) % reconstructed.size();
+        const auto second_opponent = (channel + 2U) % reconstructed.size();
+        const float opposing_reference =
+            0.5F
+            * (std::max(0.0F, values[first_opponent]) + std::max(0.0F, values[second_opponent]));
+        const float candidate = std::max(values[channel], opposing_reference);
+        const float weight = std::clamp(physical_white_coverage[channel], 0.0F, 1.0F);
+        reconstructed[channel] = values[channel] + weight * (candidate - values[channel]);
+    }
+    return reconstructed;
+}
+
+[[nodiscard]] CameraRgb opposed_highlight_reconstruction_coverage(
+    const CameraRgb& physical_white_coverage,
+    const CameraRgb& opposed_channel_evidence
+) noexcept {
+    CameraRgb coverage = physical_white_coverage;
+    for (std::size_t channel = 0U; channel < coverage.size(); ++channel) {
+        coverage[channel] = std::max(coverage[channel], opposed_channel_evidence[channel]);
+    }
+    return coverage;
+}
+
+[[nodiscard]] float
+shared_physical_white_neutralization(const CameraRgb& physical_white_coverage) noexcept {
+    // Once every CFA colour contributes physical-white samples, their reconstructed ratio is no
+    // longer measured. This shared term closes the equal-evidence hole left by the older
+    // disagreement-only gate, while remaining exactly zero for one- and two-colour emitters.
+    return std::clamp(
+        *std::min_element(physical_white_coverage.begin(), physical_white_coverage.end()),
+        0.0F,
+        1.0F
+    );
+}
+
+[[nodiscard]] float aggressive_highlight_edge_support(const CameraRgb& values) noexcept {
+    // A clipped highlight beside a dark edge can have modest average luminance even while one
+    // reconstructed channel is at the sensor ceiling. Peak support keeps the opt-in feather
+    // active on that boundary without spreading it into genuinely dark neighbouring pixels.
+    const float peak_signal = *std::max_element(values.begin(), values.end());
+    const float t = std::clamp((peak_signal - 0.45F) / 0.35F, 0.0F, 1.0F);
     return t * t * (3.0F - 2.0F * t);
 }
 
@@ -262,11 +362,11 @@ namespace {
     const float near_white_evidence,
     const float exact_physical_white_coverage
 ) noexcept {
-    // Never undo the default's H=0 containment where a physical-white CFA site contributed.
+    // Never undo the default's physical-white containment where a clipped CFA site contributed.
     // The optional extension only adds a capped, continuous near-white rim around that baseline.
     return std::max(
         highlight_chroma_risk(exact_physical_white_coverage),
-        0.65F * std::clamp(near_white_evidence, 0.0F, 1.0F)
+        0.85F * std::clamp(near_white_evidence, 0.0F, 1.0F)
     );
 }
 
@@ -420,6 +520,8 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
     std::array<double, 3U> totals{};
     std::array<std::uint32_t, 3U> counts{};
     std::array<double, 3U> channel_evidence_totals{};
+    std::array<double, 3U> channel_opposed_evidence_totals{};
+    std::array<std::uint32_t, 3U> channel_at_white{};
     CameraRgbSample result;
     std::uint32_t observed = 0U;
     std::uint32_t at_white = 0U;
@@ -442,11 +544,15 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
             const auto index = static_cast<std::size_t>(channel);
             const auto normalized = normalized_sample(frame, x, y, transform, sampling_policy);
             totals[index] += normalized;
-            channel_evidence_totals[index] +=
-                highlight_sensor_evidence(frame, x, y, sampling_policy);
+            const float channel_evidence = highlight_sensor_evidence(frame, x, y, sampling_policy);
+            channel_evidence_totals[index] += channel_evidence;
+            channel_opposed_evidence_totals[index] +=
+                opposed_highlight_sensor_evidence(channel_evidence);
             ++counts[index];
             ++observed;
-            at_white += physical_sensor_white(frame, x, y, sampling_policy) ? 1U : 0U;
+            const bool is_at_white = physical_sensor_white(frame, x, y, sampling_policy);
+            channel_at_white[index] += is_at_white ? 1U : 0U;
+            at_white += is_at_white ? 1U : 0U;
         }
     }
 
@@ -463,31 +569,37 @@ CameraRgbSample bilinear_camera_rgb_sample_at(
         result.highlight_channel_evidence[channel] = static_cast<float>(
             channel_evidence_totals[channel] / static_cast<double>(counts[channel])
         );
+        result.physical_white_coverage[channel] =
+            static_cast<float>(channel_at_white[channel]) / static_cast<float>(counts[channel]);
     }
-    const float exact_physical_white_coverage = observed == 0U
-                                                    ? 0.0F
-                                                    : static_cast<float>(at_white)
-                                                          / static_cast<float>(observed);
-    const float physical_white_coverage = sampling_policy.feather_highlight_chroma_neutralization
-                                              ? feathered_highlight_sensor_evidence(
-                                                    frame,
-                                                    raw_x,
-                                                    raw_y,
-                                                    3U,
-                                                    sampling_policy
-                                                )
-                                              : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
+    const float exact_physical_white_coverage =
+        observed == 0U ? 0.0F : static_cast<float>(at_white) / static_cast<float>(observed);
+    const float physical_white_coverage =
+        sampling_policy.feather_highlight_chroma_neutralization
+            ? feathered_highlight_sensor_evidence(frame, raw_x, raw_y, 3U, sampling_policy)
+            : exact_physical_white_coverage;
+    CameraRgb opposed_channel_evidence{};
+    for (std::size_t channel = 0U; channel < opposed_channel_evidence.size(); ++channel) {
+        opposed_channel_evidence[channel] = static_cast<float>(
+            channel_opposed_evidence_totals[channel] / static_cast<double>(counts[channel])
+        );
+    }
+    result.values = opposed_highlight_reconstruction(
         result.values,
-        result.highlight_channel_evidence
+        opposed_highlight_reconstruction_coverage(
+            result.physical_white_coverage,
+            opposed_channel_evidence
+        )
+    );
+    result.highlight_chroma_neutralization = std::max(
+        highlight_chroma_neutralization(result.values, result.highlight_channel_evidence),
+        shared_physical_white_neutralization(result.physical_white_coverage)
     );
     if (sampling_policy.feather_highlight_chroma_neutralization) {
         result.highlight_chroma_neutralization = std::max(
             result.highlight_chroma_neutralization,
-            aggressive_highlight_chroma_risk(
-                physical_white_coverage,
-                exact_physical_white_coverage
-            ) * aggressive_bright_highlight_support(result.values)
+            aggressive_highlight_chroma_risk(physical_white_coverage, exact_physical_white_coverage)
+                * aggressive_highlight_edge_support(result.values)
         );
     }
     return result;
@@ -521,16 +633,6 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     }
 
     CameraRgbSample result = bilinear;
-    // Directional reconstruction reads as far as two sensor sites away.  Its physical-white
-    // coverage becomes a continuous source-local blend, so a footprint edge cannot turn into a
-    // display-sized neutral patch.
-    result.highlight_chroma_neutralization = physical_sensor_white_coverage_in_window(
-        frame,
-        raw_x,
-        raw_y,
-        2,
-        sampling_policy
-    );
     result.values[1U] = *green;
     const auto reconstruct_colour_difference = [&](const RawCfaColor target_colour,
                                                    const std::size_t target_channel) {
@@ -583,33 +685,55 @@ CameraRgbSample edge_aware_camera_rgb_sample_at(
     };
     reconstruct_colour_difference(RawCfaColor::red, 0U);
     reconstruct_colour_difference(RawCfaColor::blue, 2U);
-    const float exact_physical_white_coverage = physical_sensor_white_coverage_in_window(
-        frame,
-        raw_x,
-        raw_y,
-        2,
-        sampling_policy
+
+    // The extended topology scan belongs only to the highlight frontier. Ordinary pixels retain
+    // the already-computed bilinear evidence, avoiding another 7x7 sensor walk in the hottest
+    // reconstruction path. The aggressive threshold matches its zero-support boundary; the
+    // default opens only for a plausible final-response-shoulder candidate.
+    const float reconstructed_peak = *std::max_element(result.values.begin(), result.values.end());
+    const float bilinear_evidence_peak = *std::max_element(
+        result.highlight_channel_evidence.begin(),
+        result.highlight_channel_evidence.end()
     );
-    const float physical_white_coverage = sampling_policy.feather_highlight_chroma_neutralization
-                                              ? feathered_highlight_sensor_evidence(
-                                                    frame,
-                                                    raw_x,
-                                                    raw_y,
-                                                    3U,
-                                                    sampling_policy
-                                                )
-                                              : result.highlight_chroma_neutralization;
-    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
+    const float bilinear_white_peak = *std::max_element(
+        result.physical_white_coverage.begin(),
+        result.physical_white_coverage.end()
+    );
+    const float extended_scan_threshold =
+        sampling_policy.feather_highlight_chroma_neutralization ? 0.45F : 0.90F;
+    if (bilinear_evidence_peak <= 0.0F && bilinear_white_peak <= 0.0F
+        && reconstructed_peak < extended_scan_threshold) {
+        return result;
+    }
+
+    // Directional reconstruction reads as far as three sensor sites away. Carry that actual
+    // window's per-colour clipping topology instead of inheriting only the initial bilinear 3x3
+    // footprint when this pixel can visibly participate in a highlight repair.
+    const auto directional_white =
+        physical_sensor_white_coverage_in_window(frame, raw_x, raw_y, 3, sampling_policy);
+    result.physical_white_coverage = directional_white.channels;
+    result.highlight_channel_evidence = directional_white.highlight_channel_evidence;
+    const float exact_physical_white_coverage = directional_white.total;
+    const float physical_white_coverage =
+        sampling_policy.feather_highlight_chroma_neutralization
+            ? feathered_highlight_sensor_evidence(frame, raw_x, raw_y, 3U, sampling_policy)
+            : exact_physical_white_coverage;
+    result.values = opposed_highlight_reconstruction(
         result.values,
-        result.highlight_channel_evidence
+        opposed_highlight_reconstruction_coverage(
+            result.physical_white_coverage,
+            directional_white.opposed_channel_evidence
+        )
+    );
+    result.highlight_chroma_neutralization = std::max(
+        highlight_chroma_neutralization(result.values, result.highlight_channel_evidence),
+        shared_physical_white_neutralization(result.physical_white_coverage)
     );
     if (sampling_policy.feather_highlight_chroma_neutralization) {
         result.highlight_chroma_neutralization = std::max(
             result.highlight_chroma_neutralization,
-            aggressive_highlight_chroma_risk(
-                physical_white_coverage,
-                exact_physical_white_coverage
-            ) * aggressive_bright_highlight_support(result.values)
+            aggressive_highlight_chroma_risk(physical_white_coverage, exact_physical_white_coverage)
+                * aggressive_highlight_edge_support(result.values)
         );
     }
     return result;
@@ -702,6 +826,8 @@ CameraRgbSample area_camera_rgb_sample_at(
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
     std::array<double, 3U> channel_evidence_totals{};
+    std::array<double, 3U> channel_opposed_evidence_totals{};
+    std::array<double, 3U> channel_physical_white_weights{};
     CameraRgbSample result;
     double observed_weight = 0.0;
     double physical_white_weight = 0.0;
@@ -727,11 +853,14 @@ CameraRgbSample area_camera_rgb_sample_at(
                 normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
             totals[index] += normalized * weight;
             weights[index] += weight;
-            channel_evidence_totals[index] += static_cast<double>(
-                highlight_sensor_evidence(frame, raw_x, raw_y, sampling_policy)
-            ) * weight;
+            const float channel_evidence =
+                highlight_sensor_evidence(frame, raw_x, raw_y, sampling_policy);
+            channel_evidence_totals[index] += static_cast<double>(channel_evidence) * weight;
+            channel_opposed_evidence_totals[index] +=
+                static_cast<double>(opposed_highlight_sensor_evidence(channel_evidence)) * weight;
             observed_weight += weight;
             if (physical_sensor_white(frame, raw_x, raw_y, sampling_policy)) {
+                channel_physical_white_weights[index] += weight;
                 physical_white_weight += weight;
             }
         }
@@ -756,9 +885,10 @@ CameraRgbSample area_camera_rgb_sample_at(
             );
         }
         result.values[channel] = static_cast<float>(totals[channel] / weights[channel]);
-        result.highlight_channel_evidence[channel] = static_cast<float>(
-            channel_evidence_totals[channel] / weights[channel]
-        );
+        result.highlight_channel_evidence[channel] =
+            static_cast<float>(channel_evidence_totals[channel] / weights[channel]);
+        result.physical_white_coverage[channel] =
+            static_cast<float>(channel_physical_white_weights[channel] / weights[channel]);
     }
     const auto center_x = std::min(
         descriptor.storage_dimensions.width - 1U,
@@ -768,36 +898,45 @@ CameraRgbSample area_camera_rgb_sample_at(
         descriptor.storage_dimensions.height - 1U,
         static_cast<std::uint32_t>((source_top + source_bottom) * 0.5)
     );
-    const float exact_physical_white_coverage = observed_weight <= 0.0
-                                                    ? 0.0F
-                                                    : static_cast<float>(physical_white_weight
-                                                                         / observed_weight);
-    const float physical_white_coverage = sampling_policy.feather_highlight_chroma_neutralization
-                                              ? feathered_highlight_sensor_evidence(
-                                                    frame,
-                                                    center_x,
-                                                    center_y,
-                                                    std::clamp(
-                                                        static_cast<std::uint32_t>(std::ceil(
-                                                            1.5 * std::max(grid.scale_x, grid.scale_y)
-                                                        )),
-                                                        2U,
-                                                        16U
-                                                    ),
-                                                    sampling_policy
-                                                )
-                                              : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
+    const float exact_physical_white_coverage =
+        observed_weight <= 0.0 ? 0.0F : static_cast<float>(physical_white_weight / observed_weight);
+    const float physical_white_coverage =
+        sampling_policy.feather_highlight_chroma_neutralization
+            ? feathered_highlight_sensor_evidence(
+                  frame,
+                  center_x,
+                  center_y,
+                  std::clamp(
+                      static_cast<std::uint32_t>(
+                          std::ceil(1.5 * std::max(grid.scale_x, grid.scale_y))
+                      ),
+                      2U,
+                      16U
+                  ),
+                  sampling_policy
+              )
+            : exact_physical_white_coverage;
+    CameraRgb opposed_channel_evidence{};
+    for (std::size_t channel = 0U; channel < opposed_channel_evidence.size(); ++channel) {
+        opposed_channel_evidence[channel] =
+            static_cast<float>(channel_opposed_evidence_totals[channel] / weights[channel]);
+    }
+    result.values = opposed_highlight_reconstruction(
         result.values,
-        result.highlight_channel_evidence
+        opposed_highlight_reconstruction_coverage(
+            result.physical_white_coverage,
+            opposed_channel_evidence
+        )
+    );
+    result.highlight_chroma_neutralization = std::max(
+        highlight_chroma_neutralization(result.values, result.highlight_channel_evidence),
+        shared_physical_white_neutralization(result.physical_white_coverage)
     );
     if (sampling_policy.feather_highlight_chroma_neutralization) {
         result.highlight_chroma_neutralization = std::max(
             result.highlight_chroma_neutralization,
-            aggressive_highlight_chroma_risk(
-                physical_white_coverage,
-                exact_physical_white_coverage
-            ) * aggressive_bright_highlight_support(result.values)
+            aggressive_highlight_chroma_risk(physical_white_coverage, exact_physical_white_coverage)
+                * aggressive_highlight_edge_support(result.values)
         );
     }
     return result;

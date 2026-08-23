@@ -150,9 +150,9 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     const detail::BayerCfaSamplingPolicy cfa_sampling =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
             ? detail::editable_raw_cfa_sampling_policy(transform)
-            : highlight_recovery == RawHighlightRecoveryIntent::aggressive
-                ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
-                : detail::BayerCfaSamplingPolicy{};
+        : highlight_recovery == RawHighlightRecoveryIntent::aggressive
+            ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
+            : detail::BayerCfaSamplingPolicy{};
     const auto area_sampling =
         area_preview ? std::optional<detail::BayerAreaSamplingGrid>(
                            detail::make_bayer_area_sampling_grid(frame, reconstruction_dimensions)
@@ -261,15 +261,15 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-linear-response-continuous-risk@20260822.7;recovery=none;"
-               "source=two-channel-evidence-neutral-chroma;display=libraw-h0";
+        return "sensor-highlights=cfa-opposed-linear-limit@20260823.2;"
+               "recovery=one-sided+shared-chroma;headroom=sub-white-fp32";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
         return "sensor-highlights=unsupported";
     case RawHighlightRecoveryIntent::aggressive:
-        return "sensor-highlights=cfa-linear-response-near-limit-feathered-risk@20260822.7;"
-               "recovery=none;source=two-channel-evidence-spatial-neutral-chroma;display=libraw-h0";
+        return "sensor-highlights=cfa-opposed-linear-limit-feathered@20260823.2;"
+               "recovery=one-sided+spatial-chroma;headroom=sub-white-fp32";
     }
     return "sensor-highlights=unknown";
 }

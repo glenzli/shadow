@@ -33,13 +33,15 @@ editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexc
 aggressive_highlight_repair_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept;
 
 // Camera-linear reconstruction carries CFA-white-balanced samples after the selected source
-// policy.  Each RGB entry retains the continuous loss of sensor headroom contributed by that
-// channel's CFA samples.  This lets the common scene-linear writer distinguish a two-channel
-// false-colour highlight from a legitimately saturated single-colour emitter without rebuilding
-// either detail or hue from neighbouring pixels.
+// policy. Each RGB entry retains both continuous headroom evidence and the exact fraction of its
+// contributing CFA sites that reached physical sensor white. Exact clipping plus a narrow final
+// linear-response shoulder drive one-sided opposed-channel repair before the camera matrix: a weak
+// near-limit channel may be lifted, while a legitimately saturated single-colour emitter is never
+// pulled down or forced neutral.
 struct CameraRgbSample final {
     CameraRgb values{};
     CameraRgb highlight_channel_evidence{};
+    CameraRgb physical_white_coverage{};
     // Source-local blend weight for discarding an unmeasured neutral-highlight chroma ratio. It
     // is derived from the continuous per-channel CFA evidence and never survives as a preview map.
     float highlight_chroma_neutralization = 0.0F;

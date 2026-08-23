@@ -362,20 +362,17 @@ void write_raw_frame_transformed_pixel(
         camera.values[1],
         camera.values[2],
     };
-    // Once a physical white sits in a bright CFA footprint, that neutral-highlight RGB ratio is
-    // no longer measured data. Neutralize that camera-RGB ratio before the camera matrix, where
-    // LibRaw H=0 likewise establishes highlight colour; preserve the Bayer-weighted camera signal
-    // and spatial structure. Doing this after the matrix creates a display-grey plateau whose
-    // luminance does not follow the camera calibration.
-    const double chroma_neutralization = std::clamp(
-        static_cast<double>(camera.highlight_chroma_neutralization),
-        0.0,
-        1.0
-    );
+    // The CFA sampler has already applied its one-sided opposed repair. Any remaining shared
+    // physical-white ratio is still unmeasured, so neutralize only that residual camera chroma
+    // before the camera matrix while preserving Bayer-weighted luminance and spatial structure.
+    // Doing this after the matrix creates a display-grey plateau whose luminance does not follow
+    // the camera calibration.
+    const double chroma_neutralization =
+        std::clamp(static_cast<double>(camera.highlight_chroma_neutralization), 0.0, 1.0);
     std::array<double, 3U> adjusted_camera = camera_values;
     if (chroma_neutralization > 0.0) {
-        const double camera_luminance = 0.25 * camera_values[0] + 0.5 * camera_values[1]
-            + 0.25 * camera_values[2];
+        const double camera_luminance =
+            0.25 * camera_values[0] + 0.5 * camera_values[1] + 0.25 * camera_values[2];
         for (auto& component : adjusted_camera) {
             component += chroma_neutralization * (camera_luminance - component);
         }
@@ -383,8 +380,8 @@ void write_raw_frame_transformed_pixel(
     std::array<double, 3U> scene_linear{};
     for (std::size_t output = 0U; output < 3U; ++output) {
         for (std::size_t input = 0U; input < 3U; ++input) {
-            scene_linear[output] += transform.camera_to_linear_srgb_d65[output * 3U + input]
-                                    * adjusted_camera[input];
+            scene_linear[output] +=
+                transform.camera_to_linear_srgb_d65[output * 3U + input] * adjusted_camera[input];
         }
     }
     for (std::size_t output = 0U; output < 3U; ++output) {
@@ -411,15 +408,16 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
     }
 
     // Keep black-subtracted CFA samples through white balance before demosaic. The editable source
-    // retains WB-induced float headroom. The default uses the exact CFA footprint; opt-in
-    // aggressive repair feathers only physical-white evidence before the same camera-domain
-    // neutral pull. Neither route reconstructs colour or detail.
+    // retains WB-induced float headroom. The default applies only one-sided colour reconstruction
+    // in the final linear-response shoulder; opt-in aggressive repair also feathers bounded
+    // physical-white evidence before the camera-domain neutral pull. Neither route invents spatial
+    // detail or borrows hue from a neighbouring object.
     const detail::BayerCfaSamplingPolicy cfa_sampling =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
             ? detail::editable_raw_cfa_sampling_policy(transform)
-            : highlight_recovery == RawHighlightRecoveryIntent::aggressive
-                ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
-                : detail::BayerCfaSamplingPolicy{};
+        : highlight_recovery == RawHighlightRecoveryIntent::aggressive
+            ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
+            : detail::BayerCfaSamplingPolicy{};
     const Dimensions reconstruction = frame.descriptor.active_dimensions;
     const Dimensions output_dimensions =
         oriented_raw_dimensions(reconstruction, frame.descriptor.orientation);

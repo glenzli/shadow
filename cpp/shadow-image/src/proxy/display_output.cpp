@@ -167,10 +167,10 @@ void validate_source_and_request(const FloatRgbImage& source, const DisplayOutpu
     // internally. Its resulting BT.709-style encoded value is not sRGB's
     // encoded value, while Shadow's final RGB8 boundary remains sRGB. Convert
     // the LibRaw code value back to linear sRGB here, then let the shared
-    // sRGB OETF below emit the matching display code. LibRaw H=0 is the RAW
-    // development policy; it is not a reason to throw away scene-linear
-    // headroom at Shadow's SDR presentation boundary. Keep middle gray and
-    // the normal working range unchanged, then use a C1 neutral shoulder so
+    // sRGB OETF below emit the matching display code. This LibRaw-compatible
+    // transfer reference is independent of Shadow's CFA highlight policy and
+    // is not a reason to throw away scene-linear headroom at the SDR presentation boundary. Keep
+    // middle gray and the normal working range unchanged, then use a C1 neutral shoulder so
     // highlight detail approaches display white without an abrupt dead-white
     // plateau. The scalar gain preserves the input's chromaticity; gamut
     // mapping remains the separate Oklab stage below.
@@ -186,16 +186,16 @@ void validate_source_and_request(const FloatRgbImage& source, const DisplayOutpu
     constexpr double srgb_gain = 1.055;
     constexpr double srgb_offset = 0.055;
     const double scene = luminance <= shoulder_start
-        ? luminance
-        : shoulder_start
-            + (luminance - shoulder_start) * shoulder_headroom
-                / (luminance - shoulder_start + shoulder_headroom);
+                             ? luminance
+                             : shoulder_start
+                                   + (luminance - shoulder_start) * shoulder_headroom
+                                         / (luminance - shoulder_start + shoulder_headroom);
     const double rec709_encoded = scene < rec709_linear_threshold
-        ? rec709_slope * scene
-        : rec709_gain * std::pow(scene, rec709_power) - rec709_offset;
+                                      ? rec709_slope * scene
+                                      : rec709_gain * std::pow(scene, rec709_power) - rec709_offset;
     return rec709_encoded <= srgb_encoded_threshold
-        ? rec709_encoded / srgb_linear_slope
-        : std::pow((rec709_encoded + srgb_offset) / srgb_gain, 2.4);
+               ? rec709_encoded / srgb_linear_slope
+               : std::pow((rec709_encoded + srgb_offset) / srgb_gain, 2.4);
 }
 
 [[nodiscard]] LinearRgb apply_neutral_scene_display_curve(const LinearRgb& input) noexcept {

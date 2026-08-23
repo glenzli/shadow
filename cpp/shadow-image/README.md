@@ -136,23 +136,30 @@ Current contract rules:
   so independently prepared or cross-source camera/optics state is rejected before CFA work or
   device upload. The default source treatment applies selected CFA gains (normalized by their
   minimum) before demosaic, but retains every sub-white sensor sample as fp32 even if white balance
-  carries it above one. It also projects an immutable, display-sized R8 CFA-chroma-risk sidecar
-  from the same calibrated linear-response limits used by source development, rather than treating
-physical sensor white as the only reliability boundary. A single near-white channel remains
-measured colour evidence; risk rises only when independently sampled channels lose headroom and
-their evidence diverges. A terminal shared-clipping component also feathers its confidence one
-display bin into adjacent valid bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this sidecar beside its reusable source and
+  carries it above one. Each reconstruction footprint also retains exact per-colour physical-white
+  coverage. Before the camera matrix, a one-sided opposed-channel step may lift only a weak channel
+  supported by exact clipping or the final narrow linear-response shoulder; it never lowers a
+  measured channel. Shared three-colour physical
+  clipping then continuously removes only the unmeasured residual chroma, closing the equal-evidence
+  Bayer-phase hole while leaving a one-colour emitter saturated. This local fp32 work is fused into
+  the existing CPU/Metal sampling pass and creates no full-frame side buffer or device transfer.
+  The source also projects an immutable, display-sized R8 CFA-chroma-risk sidecar from the same
+  calibrated linear-response limits. A single near-white channel remains measured colour evidence;
+  risk rises when independently sampled channels lose headroom and their evidence diverges. A
+  terminal shared-clipping component feathers its confidence one display bin into adjacent valid
+  bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this
+  sidecar beside its reusable source and
   binds it once to the resident GPU edit session (or the matching CPU fallback). During actual
   negative highlight/white recovery, Selective Tone progressively pulls chroma toward neutral in
   proportion to that source risk while preserving its ordinary Oklab-lightness behavior elsewhere.
-  It never reconstructs spatial detail or invents a neighbouring hue. The final display path,
-  after editable nodes, is the LibRaw H=0 reference mapping. `disabled` stays an explicit unbounded diagnostic
-  plan for compatibility. The opt-in `aggressive` policy is a separate repair route: it spatially
-  feathers the physical-white and near-white CFA confidence before the same camera-domain neutral
-  pull. It intentionally sacrifices more uncertain highlight chroma to hide a false-colour contour, but never
-  copies neighbouring hue, fabricates luminance/detail, or changes the default path. The selected
-  policy remains part of the developed cache identity. CPU and Metal apply the same CFA-scale route
-  before their camera transforms.
+  It never reconstructs spatial detail or invents a neighbouring hue. `disabled` stays an explicit
+  unbounded diagnostic plan for compatibility. The opt-in `aggressive` policy is a separate repair
+  route: it spatially feathers the physical-white and near-white CFA confidence before the same
+  camera-domain neutral pull. Peak-channel support keeps that feather active beside a dark edge
+  without making average footprint luminance a gate. It intentionally sacrifices more uncertain
+  highlight chroma to hide a false-colour contour, but never copies neighbouring hue, fabricates
+  luminance/detail, or changes the default path. The selected policy remains part of the developed
+  cache identity. CPU and Metal apply the same CFA-scale route before their camera transforms.
   `src/raw/raw_frame_source_development.*` consumes that preparation for the complete
   CPU/Metal materialization transaction. `src/raw/raw_frame_region_development.*` owns the exact
   CPU region contract: oriented output cores, active-sensor reconstruction coordinates,
@@ -212,9 +219,9 @@ DNG technology notice: This product includes DNG technology under license by Ado
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
 `metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, source-clipping projection, and
-the same editable CFA-scale-and-physical-white-ceiling contract mirrored by the CPU region
-developer; WB-induced fp32 headroom reaches the resident GPU edit source and no missing detail or
-post-demosaic colour is rebuilt before the camera matrix;
+the same editable CFA scale, per-colour physical-white topology, one-sided opposed repair, and
+residual shared-chroma contract mirrored by the CPU region developer; WB-induced fp32 headroom
+reaches the resident GPU edit source without reconstructing missing spatial detail;
 `metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;
 `metal_raw_reconstruction_msl.hpp` owns balanced/high-quality detail and CFA-area previews; and
 `metal_dcp_color_msl.hpp` owns DCP post-processing. Host execution is split by transaction:

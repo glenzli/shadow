@@ -177,26 +177,6 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     const uint raw_y
 ) {
     CameraRgbSample result = camera_rgb_at(samples, parameters, raw_x, raw_y);
-    uint observed = 0u;
-    uint at_white = 0u;
-    for (int dy = -2; dy <= 2; ++dy) {
-        for (int dx = -2; dx <= 2; ++dx) {
-            const int candidate_x = int(raw_x) + dx;
-            const int candidate_y = int(raw_y) + dy;
-            if (candidate_x < 0 || candidate_y < 0
-                || candidate_x >= int(parameters.storage_width)
-                || candidate_y >= int(parameters.storage_height)) {
-                continue;
-            }
-            observed += 1u;
-            at_white += physical_sensor_white(
-                samples,
-                parameters,
-                uint(candidate_x),
-                uint(candidate_y)
-            ) ? 1u : 0u;
-        }
-    }
     const DirectionalGreenEstimate green =
         directional_green_estimate(samples, parameters, raw_x, raw_y);
     if (!green.valid) {
@@ -221,14 +201,94 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
         green.value,
         result.values.z
     );
+
+    // Keep the 7x7 evidence walk off ordinary pixels in the hot edge-aware path. Aggressive mode
+    // opens at its zero-support boundary; the default opens only for the final response shoulder.
+    const float reconstructed_peak = max(result.values.x, max(result.values.y, result.values.z));
+    const float bilinear_evidence_peak = max(
+        result.highlight_channel_evidence.x,
+        max(result.highlight_channel_evidence.y, result.highlight_channel_evidence.z)
+    );
+    const float bilinear_white_peak = max(
+        result.physical_white_coverage.x,
+        max(result.physical_white_coverage.y, result.physical_white_coverage.z)
+    );
+    const float extended_scan_threshold =
+        parameters.feather_highlight_chroma_neutralization != 0u ? 0.45f : 0.90f;
+    if (bilinear_evidence_peak <= 0.0f && bilinear_white_peak <= 0.0f
+        && reconstructed_peak < extended_scan_threshold) {
+        return result;
+    }
+
+    uint channel_observed[3] = {0u, 0u, 0u};
+    uint channel_at_white[3] = {0u, 0u, 0u};
+    float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
+    float channel_opposed_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
+    uint observed = 0u;
+    uint at_white = 0u;
+    for (int dy = -3; dy <= 3; ++dy) {
+        for (int dx = -3; dx <= 3; ++dx) {
+            const int candidate_x = int(raw_x) + dx;
+            const int candidate_y = int(raw_y) + dy;
+            if (candidate_x < 0 || candidate_y < 0
+                || candidate_x >= int(parameters.storage_width)
+                || candidate_y >= int(parameters.storage_height)) {
+                continue;
+            }
+            const uint x = uint(candidate_x);
+            const uint y = uint(candidate_y);
+            const uint channel = parameters.cfa_channels[cfa_site(x, y)];
+            if (channel > 2u) {
+                continue;
+            }
+            observed += 1u;
+            channel_observed[channel] += 1u;
+            const float channel_evidence =
+                highlight_sensor_evidence(samples, parameters, x, y);
+            channel_evidence_totals[channel] += channel_evidence;
+            channel_opposed_evidence_totals[channel] +=
+                opposed_highlight_sensor_evidence(channel_evidence);
+            const bool is_at_white = physical_sensor_white(samples, parameters, x, y);
+            at_white += is_at_white ? 1u : 0u;
+            channel_at_white[channel] += is_at_white ? 1u : 0u;
+        }
+    }
+    result.physical_white_coverage = float3(
+        channel_observed[0] == 0u ? 0.0f : float(channel_at_white[0]) / float(channel_observed[0]),
+        channel_observed[1] == 0u ? 0.0f : float(channel_at_white[1]) / float(channel_observed[1]),
+        channel_observed[2] == 0u ? 0.0f : float(channel_at_white[2]) / float(channel_observed[2])
+    );
+    result.highlight_channel_evidence = float3(
+        channel_observed[0] == 0u ? 0.0f : channel_evidence_totals[0] / float(channel_observed[0]),
+        channel_observed[1] == 0u ? 0.0f : channel_evidence_totals[1] / float(channel_observed[1]),
+        channel_observed[2] == 0u ? 0.0f : channel_evidence_totals[2] / float(channel_observed[2])
+    );
+    const float3 opposed_channel_evidence = float3(
+        channel_observed[0] == 0u
+            ? 0.0f : channel_opposed_evidence_totals[0] / float(channel_observed[0]),
+        channel_observed[1] == 0u
+            ? 0.0f : channel_opposed_evidence_totals[1] / float(channel_observed[1]),
+        channel_observed[2] == 0u
+            ? 0.0f : channel_opposed_evidence_totals[2] / float(channel_observed[2])
+    );
+    result.values = opposed_highlight_reconstruction(
+        result.values,
+        opposed_highlight_reconstruction_coverage(
+            result.physical_white_coverage,
+            opposed_channel_evidence
+        )
+    );
     const float exact_physical_white_coverage = observed == 0u
         ? 0.0f : float(at_white) / float(observed);
     const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
         ? feathered_highlight_sensor_evidence(samples, parameters, raw_x, raw_y, 3u)
         : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = highlight_chroma_neutralization(
-        result.values,
-        result.highlight_channel_evidence
+    result.highlight_chroma_neutralization = max(
+        highlight_chroma_neutralization(
+            result.values,
+            result.highlight_channel_evidence
+        ),
+        shared_physical_white_neutralization(result.physical_white_coverage)
     );
     if (parameters.feather_highlight_chroma_neutralization != 0u) {
         result.highlight_chroma_neutralization = max(
@@ -236,7 +296,7 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
             aggressive_highlight_chroma_risk(
                 physical_white_coverage,
                 exact_physical_white_coverage
-            ) * aggressive_bright_highlight_support(result.values)
+            ) * aggressive_highlight_edge_support(result.values)
         );
     }
     return result;
@@ -411,6 +471,8 @@ kernel void develop_bayer_area_preview(
     float totals[3] = {0.0f, 0.0f, 0.0f};
     float weights[3] = {0.0f, 0.0f, 0.0f};
     float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
+    float channel_opposed_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
+    float channel_physical_white_weights[3] = {0.0f, 0.0f, 0.0f};
     float observed_weight = 0.0f;
     float physical_white_weight = 0.0f;
     for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
@@ -428,10 +490,14 @@ kernel void develop_bayer_area_preview(
             const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
             totals[channel] += normalized * weight;
             weights[channel] += weight;
-            channel_evidence_totals[channel] +=
-                highlight_sensor_evidence(samples, parameters, raw_x, raw_y) * weight;
+            const float channel_evidence =
+                highlight_sensor_evidence(samples, parameters, raw_x, raw_y);
+            channel_evidence_totals[channel] += channel_evidence * weight;
+            channel_opposed_evidence_totals[channel] +=
+                opposed_highlight_sensor_evidence(channel_evidence) * weight;
             observed_weight += weight;
             if (physical_sensor_white(samples, parameters, raw_x, raw_y)) {
+                channel_physical_white_weights[channel] += weight;
                 physical_white_weight += weight;
             }
         }
@@ -446,9 +512,10 @@ kernel void develop_bayer_area_preview(
         parameters.storage_height - 1u,
         uint((source_top + source_bottom) * 0.5f)
     );
-    CameraRgbSample camera = (
-        weights[0] <= 0.0f || weights[1] <= 0.0f || weights[2] <= 0.0f
-    ) ? camera_rgb_at(samples, parameters, center_x, center_y) : CameraRgbSample{
+    const bool complete_area_footprint =
+        weights[0] > 0.0f && weights[1] > 0.0f && weights[2] > 0.0f;
+    CameraRgbSample camera = !complete_area_footprint
+        ? camera_rgb_at(samples, parameters, center_x, center_y) : CameraRgbSample{
         float3(
             totals[0] / weights[0],
             totals[1] / weights[1],
@@ -459,37 +526,60 @@ kernel void develop_bayer_area_preview(
             channel_evidence_totals[1] / weights[1],
             channel_evidence_totals[2] / weights[2]
         ),
+        float3(
+            channel_physical_white_weights[0] / weights[0],
+            channel_physical_white_weights[1] / weights[1],
+            channel_physical_white_weights[2] / weights[2]
+        ),
         observed_weight <= 0.0f ? 0.0f : physical_white_weight / observed_weight
     };
-    const float exact_physical_white_coverage = camera.highlight_chroma_neutralization;
-    const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
-        ? feathered_highlight_sensor_evidence(
-              samples,
-              parameters,
-              center_x,
-              center_y,
-              clamp(
-                  uint(ceil(1.5f * max(
-                      float(parameters.active_width) / float(parameters.reconstruction_width),
-                      float(parameters.active_height) / float(parameters.reconstruction_height)
-                  ))),
-                  2u,
-                  16u
-              )
-          )
-        : camera.highlight_chroma_neutralization;
-    camera.highlight_chroma_neutralization = highlight_chroma_neutralization(
-        camera.values,
-        camera.highlight_channel_evidence
-    );
-    if (parameters.feather_highlight_chroma_neutralization != 0u) {
-        camera.highlight_chroma_neutralization = max(
-            camera.highlight_chroma_neutralization,
-            aggressive_highlight_chroma_risk(
-                physical_white_coverage,
-                exact_physical_white_coverage
-            ) * aggressive_bright_highlight_support(camera.values)
+    if (complete_area_footprint) {
+        const float3 opposed_channel_evidence = float3(
+            channel_opposed_evidence_totals[0] / weights[0],
+            channel_opposed_evidence_totals[1] / weights[1],
+            channel_opposed_evidence_totals[2] / weights[2]
         );
+        const float exact_physical_white_coverage = camera.highlight_chroma_neutralization;
+        const float physical_white_coverage =
+            parameters.feather_highlight_chroma_neutralization != 0u
+            ? feathered_highlight_sensor_evidence(
+                  samples,
+                  parameters,
+                  center_x,
+                  center_y,
+                  clamp(
+                      uint(ceil(1.5f * max(
+                          float(parameters.active_width) / float(parameters.reconstruction_width),
+                          float(parameters.active_height) / float(parameters.reconstruction_height)
+                      ))),
+                      2u,
+                      16u
+                  )
+              )
+            : camera.highlight_chroma_neutralization;
+        camera.values = opposed_highlight_reconstruction(
+            camera.values,
+            opposed_highlight_reconstruction_coverage(
+                camera.physical_white_coverage,
+                opposed_channel_evidence
+            )
+        );
+        camera.highlight_chroma_neutralization = max(
+            highlight_chroma_neutralization(
+                camera.values,
+                camera.highlight_channel_evidence
+            ),
+            shared_physical_white_neutralization(camera.physical_white_coverage)
+        );
+        if (parameters.feather_highlight_chroma_neutralization != 0u) {
+            camera.highlight_chroma_neutralization = max(
+                camera.highlight_chroma_neutralization,
+                aggressive_highlight_chroma_risk(
+                    physical_white_coverage,
+                    exact_physical_white_coverage
+                ) * aggressive_highlight_edge_support(camera.values)
+            );
+        }
     }
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
