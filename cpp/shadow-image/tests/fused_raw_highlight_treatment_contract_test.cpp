@@ -427,11 +427,11 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-opposed-photosite-owned@20260824.13;"
-               "recovery=local-opposed+photosite-evidence-shoulder;"
+            == "sensor-highlights=cfa-opposed-photosite-layer-owned@20260824.14;"
+               "recovery=local-opposed+damaged-layer-chroma-shoulder;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-photosite-owned-v18",
-        "the default source receipt identifies photosite-owned clipped-highlight reconstruction"
+               "clipped-highlight=cfa-photosite-layer-owned-v19",
+        "the default source receipt identifies photosite-layer-owned clipped-highlight reconstruction"
     );
 
     float maximum_default_delta = 0.0F;
@@ -756,10 +756,10 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-opposed-photosite-owned-feathered@20260824.13;"
-                      "recovery=local-opposed+photosite-evidence-spatial-chroma;"
+                   == "sensor-highlights=cfa-opposed-photosite-layer-owned-feathered@20260824.14;"
+                      "recovery=local-opposed+damaged-layer-spatial-chroma;"
                       "headroom=physical-white-wb-fp32;"
-                      "clipped-highlight=cfa-photosite-owned-v18",
+                      "clipped-highlight=cfa-photosite-layer-owned-v19",
         "legacy aggressive CFA reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;

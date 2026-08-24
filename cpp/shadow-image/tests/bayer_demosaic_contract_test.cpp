@@ -332,13 +332,43 @@ void area_opposed_reconstruction_preserves_reliable_mixed_pixel_contributions() 
     transform.apply_cfa_white_balance = true;
     transform.cfa_white_balance = {1.0, 2.0, 2.0, 2.0};
     const auto treatment = image::detail::editable_raw_cfa_sampling_policy(transform);
-    const auto grid = image::detail::make_bayer_area_sampling_grid(frame, {1U, 1U});
-    const auto sample =
-        image::detail::area_camera_rgb_sample_at(frame, grid, 0U, 0U, &transform, treatment);
+    const auto mixed_grid = image::detail::make_bayer_area_sampling_grid(frame, {1U, 1U});
+    const auto split_grid = image::detail::make_bayer_area_sampling_grid(frame, {2U, 1U});
+    const auto sample = image::detail::area_camera_rgb_sample_at(
+        frame,
+        mixed_grid,
+        0U,
+        0U,
+        &transform,
+        treatment
+    );
+    const auto dark = image::detail::area_camera_rgb_sample_at(
+        frame,
+        split_grid,
+        0U,
+        0U,
+        &transform,
+        treatment
+    );
+    const auto light = image::detail::area_camera_rgb_sample_at(
+        frame,
+        split_grid,
+        1U,
+        0U,
+        &transform,
+        treatment
+    );
     auto untreated = treatment;
+    untreated.cap_physical_sensor_white = false;
     untreated.reconstruct_terminal_highlights = false;
-    const auto measured =
-        image::detail::area_camera_rgb_sample_at(frame, grid, 0U, 0U, &transform, untreated);
+    const auto measured_light = image::detail::area_camera_rgb_sample_at(
+        frame,
+        split_grid,
+        1U,
+        0U,
+        &transform,
+        untreated
+    );
 
     expect(
         std::abs(sample.highlight_channel_evidence[0U] - 0.5F) < 1.0e-6F
@@ -346,19 +376,36 @@ void area_opposed_reconstruction_preserves_reliable_mixed_pixel_contributions() 
             && std::abs(sample.highlight_channel_evidence[2U] - 0.5F) < 1.0e-6F,
         "area highlight evidence owns exactly the terminal half of every CFA channel"
     );
-    const bool owned_repair_matches =
-        std::abs(measured.values[0U] - 0.55F) < 1.0e-5F && sample.values[0U] > 0.65F
-        && sample.values[0U] < 0.75F && std::abs(sample.values[1U] - measured.values[1U]) < 1.0e-5F
-        && std::abs(sample.values[2U] - measured.values[2U]) < 1.0e-5F;
+    bool owned_repair_matches =
+        std::abs(dark.values[0U] - 0.1F) < 1.0e-6F
+        && std::abs(dark.values[1U] - 0.2F) < 1.0e-6F
+        && std::abs(dark.values[2U] - 0.2F) < 1.0e-6F;
+    for (std::size_t channel = 0U; channel < sample.values.size(); ++channel) {
+        owned_repair_matches =
+            owned_repair_matches
+            && std::abs(sample.values[channel] - 0.5F * (dark.values[channel] + light.values[channel]))
+                   < 1.0e-5F;
+    }
+    const float light_chroma =
+        *std::max_element(light.values.begin(), light.values.end())
+        - *std::min_element(light.values.begin(), light.values.end());
+    const float measured_light_chroma =
+        *std::max_element(measured_light.values.begin(), measured_light.values.end())
+        - *std::min_element(measured_light.values.begin(), measured_light.values.end());
+    owned_repair_matches =
+        owned_repair_matches && light_chroma + 0.5F < measured_light_chroma;
     if (!owned_repair_matches) {
-        std::cerr << "area owned repair measured/repaired=" << measured.values[0U] << '/'
-                  << sample.values[0U] << ',' << measured.values[1U] << '/' << sample.values[1U]
-                  << ',' << measured.values[2U] << '/' << sample.values[2U] << '\n';
+        std::cerr << "area owned repair mixed/dark/light/measured-light="
+                  << sample.values[0U] << ',' << sample.values[1U] << ',' << sample.values[2U]
+                  << '/' << dark.values[0U] << ',' << dark.values[1U] << ',' << dark.values[2U]
+                  << '/' << light.values[0U] << ',' << light.values[1U] << ',' << light.values[2U]
+                  << '/' << measured_light.values[0U] << ',' << measured_light.values[1U] << ','
+                  << measured_light.values[2U] << '\n';
     }
     expect(
         owned_repair_matches,
-        "area opposed repair reconstructs only the terminal red photosites from their local "
-        "bright-side neighbours while preserving the dark half's measured contribution"
+        "area highlight repair resolves only the damaged contribution layer, preserves the "
+        "measured dark contribution, and leaves the mixed output as their exact area integral"
     );
 }
 

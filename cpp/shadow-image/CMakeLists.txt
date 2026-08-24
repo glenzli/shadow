@@ -155,6 +155,7 @@ if(SHADOW_BUILD_RAW_PROBE)
         shadow-raw-probe
         tools/raw_probe.cpp
         tools/raw_highlight_cfa_diagnostic.cpp
+        tools/raw_highlight_reference_pipeline.cpp
     )
     target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-raw-probe)
@@ -243,6 +244,18 @@ if(BUILD_TESTING)
         shadow_image_enable_warnings(${target_name})
         add_test(NAME ${test_name} COMMAND ${target_name})
     endfunction()
+
+    add_executable(
+        shadow-image-raw-highlight-reference-tests
+        tests/raw_highlight_reference_pipeline_contract_test.cpp
+        tools/raw_highlight_reference_pipeline.cpp
+    )
+    target_link_libraries(shadow-image-raw-highlight-reference-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-raw-highlight-reference-tests)
+    add_test(
+        NAME shadow-image-raw-highlight-reference-contract
+        COMMAND shadow-image-raw-highlight-reference-tests
+    )
 
     shadow_image_add_contract(
         shadow-image-raw-frame-tests

@@ -8,6 +8,11 @@ Changes to an interactive render path must also follow the repository-wide
 it defines minimal invalidation, GPU continuity, cancellation, and preview/detail/export
 equivalence requirements without duplicating this source-owned implementation map.
 
+The detailed maintainer contract for provider routing, `RawFrame` parsing, CFA-owned clipped
+highlight reconstruction, CPU/Metal parity, downstream Highlights/Whites behavior, cache
+identities, and regression diagnostics is
+[`docs/raw-highlight-reconstruction.md`](docs/raw-highlight-reconstruction.md).
+
 The line-based manifests under
 [`cmake/source-manifests/`](cmake/source-manifests/) are the single compiled-source index shared
 by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback

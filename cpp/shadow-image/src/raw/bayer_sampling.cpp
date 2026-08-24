@@ -44,11 +44,6 @@ namespace {
     return descriptor.bayer_2x2[cfa_site(raw_x, raw_y)];
 }
 
-[[nodiscard]] float smoothstep(const float low, const float high, const float value) noexcept {
-    const float unit = std::clamp((value - low) / (high - low), 0.0F, 1.0F);
-    return unit * unit * (3.0F - 2.0F * unit);
-}
-
 [[nodiscard]] float normalized_sensor_sample(
     const RawFrame& frame,
     const std::uint32_t raw_x,
@@ -1082,9 +1077,18 @@ CameraRgbSample area_camera_rgb_sample_at(
     std::array<double, 3U> weights{};
     std::array<double, 3U> channel_evidence_totals{};
     std::array<double, 3U> channel_physical_white_weights{};
+    std::array<double, 3U> damaged_totals{};
+    std::array<double, 3U> damaged_weights{};
+    std::array<double, 3U> damaged_evidence_totals{};
+    std::array<double, 3U> damaged_physical_white_weights{};
     CameraRgbSample result;
     double observed_weight = 0.0;
     double physical_white_weight = 0.0;
+    // Treat the response shoulder as a separate, one-sided contribution layer. Neutralizing the
+    // already mixed output RGB rewrites reliable dark content in a bin that straddles a lamp;
+    // thresholding that mixed tuple also creates a hard band across a broad clipped sky. Keeping
+    // trusted and damaged mass separate lets the ordinary area integral anti-alias the boundary,
+    // while only photosites that actually lost headroom receive any chroma correction.
     for (std::uint32_t raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const double overlap_y = std::max(
             0.0,
@@ -1101,34 +1105,37 @@ CameraRgbSample area_camera_rgb_sample_at(
             if (channel < 0) {
                 continue;
             }
-            const double weight = overlap_x * overlap_y;
             const auto index = static_cast<std::size_t>(channel);
-            const float channel_evidence =
+            const double weight = overlap_x * overlap_y;
+            const float evidence =
                 highlight_sensor_evidence(frame, raw_x, raw_y, sampling_policy);
             const float measured =
                 unreconstructed_normalized_sample(frame, raw_x, raw_y, transform, sampling_policy);
             float reconstructed = measured;
-            if (sampling_policy.reconstruct_terminal_highlights && channel_evidence > 0.0F) {
+            if (sampling_policy.reconstruct_terminal_highlights && evidence > 0.0F) {
                 const auto reference =
                     opposed_reference_at(frame, raw_x, raw_y, transform, sampling_policy);
                 if (reference.has_value()) {
                     reconstructed =
-                        std::max(measured, std::lerp(measured, *reference, channel_evidence));
+                        std::max(measured, std::lerp(measured, *reference, evidence));
                 }
             }
-            // Estimate and write at the damaged photosite before its contribution enters the area
-            // average. A preview bin may straddle a clipped lamp and a measured dark fixture;
-            // reliable samples in that bin remain exact, while only the response-shoulder sample
-            // borrows the two locally opposed colours. This is the darktable ownership boundary
-            // and cannot paint a preview-width contour outside the damaged CFA support.
             totals[index] += reconstructed * weight;
             weights[index] += weight;
-            channel_evidence_totals[index] += static_cast<double>(channel_evidence) * weight;
+            channel_evidence_totals[index] += static_cast<double>(evidence) * weight;
             observed_weight += weight;
-            const bool is_at_white = physical_sensor_white(frame, raw_x, raw_y, sampling_policy);
-            if (is_at_white) {
+            const bool at_white = physical_sensor_white(frame, raw_x, raw_y, sampling_policy);
+            if (at_white) {
                 channel_physical_white_weights[index] += weight;
                 physical_white_weight += weight;
+            }
+            if (evidence > 0.0F) {
+                const double damaged_weight = static_cast<double>(evidence) * weight;
+                damaged_totals[index] += reconstructed * damaged_weight;
+                damaged_weights[index] += damaged_weight;
+                damaged_evidence_totals[index] +=
+                    static_cast<double>(evidence) * damaged_weight;
+                damaged_physical_white_weights[index] += at_white ? damaged_weight : 0.0;
             }
         }
     }
@@ -1157,6 +1164,38 @@ CameraRgbSample area_camera_rgb_sample_at(
         result.physical_white_coverage[channel] =
             static_cast<float>(channel_physical_white_weights[channel] / weights[channel]);
     }
+    CameraRgb damaged_values = result.values;
+    CameraRgb damaged_channel_evidence{};
+    CameraRgb damaged_physical_white_coverage{};
+    for (std::size_t channel = 0U; channel < result.values.size(); ++channel) {
+        if (damaged_weights[channel] <= 0.0) {
+            continue;
+        }
+        damaged_values[channel] =
+            static_cast<float>(damaged_totals[channel] / damaged_weights[channel]);
+        damaged_channel_evidence[channel] =
+            static_cast<float>(damaged_evidence_totals[channel] / damaged_weights[channel]);
+        damaged_physical_white_coverage[channel] = static_cast<float>(
+            damaged_physical_white_weights[channel] / damaged_weights[channel]
+        );
+    }
+    const float damaged_neutralization = std::max(
+        highlight_chroma_neutralization(damaged_values, damaged_channel_evidence),
+        shared_physical_white_neutralization(damaged_physical_white_coverage)
+    );
+    const float damaged_luminance = 0.25F * damaged_values[0U] + 0.5F * damaged_values[1U]
+                                     + 0.25F * damaged_values[2U];
+    for (std::size_t channel = 0U; channel < result.values.size(); ++channel) {
+        if (damaged_weights[channel] <= 0.0) {
+            continue;
+        }
+        const double corrected_total = totals[channel]
+                                       + static_cast<double>(damaged_neutralization)
+                                             * (damaged_luminance - damaged_values[channel])
+                                             * damaged_weights[channel];
+        result.values[channel] =
+            static_cast<float>(std::max(0.0, corrected_total) / weights[channel]);
+    }
     const auto center_x = std::min(
         descriptor.storage_dimensions.width - 1U,
         static_cast<std::uint32_t>((source_left + source_right) * 0.5)
@@ -1183,15 +1222,11 @@ CameraRgbSample area_camera_rgb_sample_at(
                   sampling_policy
               )
             : exact_physical_white_coverage;
-    // Area-opposed repair owns the anti-aliased terminal boundary. Only an essentially complete
-    // three-colour plateau has lost every ratio and may be pulled to camera-neutral here. A
-    // partially covered output pixel remains the correctly integrated mixture of repaired light
-    // and its measured neighbour instead of becoming an extra neutral/yellow contour.
-    result.highlight_chroma_neutralization = smoothstep(
-        0.88F,
-        0.995F,
-        shared_physical_white_neutralization(result.physical_white_coverage)
-    );
+    // Default area development already resolved chroma inside the damaged contribution layer.
+    // Keep the post-integral blend disabled: reclassifying the mixed output tuple would recreate
+    // the broad colour band this path exists to avoid. Aggressive mode may still add its explicitly
+    // wider spatial confidence term below.
+    result.highlight_chroma_neutralization = 0.0F;
     if (sampling_policy.feather_highlight_chroma_neutralization) {
         result.highlight_chroma_neutralization = std::max(
             result.highlight_chroma_neutralization,
