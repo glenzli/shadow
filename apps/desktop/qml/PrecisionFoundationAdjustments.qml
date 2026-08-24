@@ -264,6 +264,94 @@ ColumnLayout {
         visible: !foundation.editor.foundationSelected
         enabled: foundation.gradeControlsEnabled
         opacity: enabled ? 1.0 : 0.42
+        title: qsTr("RAW HIGHLIGHT CHANNEL CORRECTION")
+        toolTipText: qsTr("Suppress relative red, green, or blue excess only where RAW development reports unreliable highlight chroma. Perceived lightness and the exact source-risk boundary are preserved.")
+        resetAvailable: true
+        onResetRequested:
+            foundation.editor.resetSelectedAdjustmentSection(
+                "highlight_channel_correction")
+
+        ShadowSlider {
+            objectName: "highlightChannelCorrectionSlider_highlight_red_suppression"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Red suppression")
+            toolTipText: qsTr("Reduce this channel only inside source-evidenced RAW highlight risk. Equal R/G/B values are neutral.")
+            from: 0.0
+            to: 1.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: foundation.fineValue("highlight_red_suppression")
+            semanticTrack: true
+            trackStartColor: Theme.track
+            trackMiddleColor: Theme.track
+            trackEndColor: "#d95b5b"
+            onGestureStarted: foundation.editor.beginParameterEdit("highlight_red_suppression")
+            onEdited: value => foundation.editor.setParameterValue(
+                "highlight_red_suppression", value)
+            onGestureFinished: foundation.editor.endParameterEdit("highlight_red_suppression")
+        }
+
+        ShadowSlider {
+            objectName: "highlightChannelCorrectionSlider_highlight_green_suppression"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Green suppression")
+            toolTipText: qsTr("Reduce this channel only inside source-evidenced RAW highlight risk. Equal R/G/B values are neutral.")
+            from: 0.0
+            to: 1.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: foundation.fineValue("highlight_green_suppression")
+            semanticTrack: true
+            trackStartColor: Theme.track
+            trackMiddleColor: Theme.track
+            trackEndColor: "#55a66d"
+            onGestureStarted: foundation.editor.beginParameterEdit("highlight_green_suppression")
+            onEdited: value => foundation.editor.setParameterValue(
+                "highlight_green_suppression", value)
+            onGestureFinished: foundation.editor.endParameterEdit("highlight_green_suppression")
+        }
+
+        ShadowSlider {
+            objectName: "highlightChannelCorrectionSlider_highlight_blue_suppression"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Blue suppression")
+            toolTipText: qsTr("Reduce this channel only inside source-evidenced RAW highlight risk. Equal R/G/B values are neutral.")
+            from: 0.0
+            to: 1.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: foundation.fineValue("highlight_blue_suppression")
+            semanticTrack: true
+            trackStartColor: Theme.track
+            trackMiddleColor: Theme.track
+            trackEndColor: "#5b82d9"
+            onGestureStarted: foundation.editor.beginParameterEdit("highlight_blue_suppression")
+            onEdited: value => foundation.editor.setParameterValue(
+                "highlight_blue_suppression", value)
+            onGestureFinished: foundation.editor.endParameterEdit("highlight_blue_suppression")
+        }
+    }
+
+    ShadowAdjustmentSection {
+        Layout.fillWidth: true
+        visible: !foundation.editor.foundationSelected
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
         title: qsTr("PRESENCE")
         toolTipText: qsTr("Foundational atmosphere and frequency controls evaluated before creative color grading.")
         resetAvailable: true

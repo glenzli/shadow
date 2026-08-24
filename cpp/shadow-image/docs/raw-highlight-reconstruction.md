@@ -380,6 +380,27 @@ chroma_pull = recovery_smoothstep * sqrt(source_risk)
 普通 CFA 默认路径已经在 source stage 消费 broad risk，只保留 exact shared-terminal 的弱
 残余置信度，因此不会再被二次描边。CPU 与 resident Metal 使用相同常数和公式。
 
+可选的 R/G/B 高光通道修复仍是同一 Selective Tone pass 内的逐像素操作，但它不能只看
+非零残余 risk：某些经过 source repair 的大面积亮云或灯面已经把 risk 消费为零，显示颜色
+仍可能需要人工收尾。因此它先确认会话确实带有 RAW 高光 evidence，再取下列支持度的较大值：
+
+```text
+support = max(sqrt(source_risk), smootherstep(source_EV, 1.25 EV, 3.00 EV))
+```
+
+亮度门取 tone 之前的不可变 scene-linear source，因此 Highlights/Whites 压暗后不会让选区
+突然消失；它不做 blur、dilation 或邻域读取。每个被选通道也不再整体乘 gain，而只削减高于
+另外两通道 cube-root mean 的正向 excess：
+
+```text
+opposed_c = ((cbrt(other_0) + cbrt(other_1)) / 2)^3
+out_c = in_c - max(0, in_c - opposed_c) * authored_relative_c * support
+```
+
+三条滑块的共同分量先被减掉，所以相等的 R/G/B 值仍是精确 no-op；削减后恢复原 Oklab L，
+亮度仍归 Highlights/Whites 所有。由于写值不会跨过 opposed reference，红色抑制不会把亮面
+翻成青色。普通非 RAW 图像没有 evidence surface，即使像素很亮也不会进入这条路径。
+
 ## 7. CPU、Metal 与交互性能合同
 
 CPU 是可读参考，Metal 必须数学对等：

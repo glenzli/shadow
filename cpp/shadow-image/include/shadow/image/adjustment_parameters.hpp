@@ -51,13 +51,19 @@ struct SaturationAdjustment final {
 // luminance, then applies the resulting EV gain to Oklab lightness while preserving a/b. The
 // filter averages its local linear coefficients in a second box pass, so neighbouring pixels in
 // the same tonal region share a gain (preserving local contrast) while high-contrast edges remain
-// boundaries for the mask. Zeroes are exactly neutral and do not allocate any spatial working
-// state.
+// boundaries for the mask. The three optional channel-suppression values are a separate
+// pixel-local repair in source-evidenced RAW highlights: they reduce only positive channel excess
+// above the opposed-channel reference while restoring the original Oklab lightness. A smooth
+// source-luminance gate covers broad highlights without expanding either evidence plane and, when
+// used without the four tonal controls, does not allocate any spatial working state.
 struct SelectiveToneAdjustment final {
     double highlights = 0.0;
     double shadows = 0.0;
     double whites = 0.0;
     double blacks = 0.0;
+    double highlight_red_suppression = 0.0;
+    double highlight_green_suppression = 0.0;
+    double highlight_blue_suppression = 0.0;
 };
 
 inline constexpr std::uint32_t selective_tone_parameter_schema_version = 1;

@@ -156,6 +156,7 @@ class WarmGpuResidentResources final {
     [[nodiscard]] const WarmGpuResidentLayout& layout() const noexcept;
     [[nodiscard]] id<MTLBuffer> source_buffer() const noexcept;
     [[nodiscard]] id<MTLBuffer> highlight_clipping_buffer() const noexcept;
+    [[nodiscard]] bool highlight_evidence_available() const noexcept;
     [[nodiscard]] std::size_t operation_capacity() const noexcept;
 
     [[nodiscard]] WarmProgramBufferAttempt

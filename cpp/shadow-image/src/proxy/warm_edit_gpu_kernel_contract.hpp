@@ -354,16 +354,20 @@ struct WarmGuidedCoefficientsParameters final {
 struct WarmSelectiveToneParameters final {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
-    std::uint32_t reserved_0 = 0U;
-    std::uint32_t reserved_1 = 0U;
+    std::uint32_t guided_tone_active = 0U;
+    std::uint32_t highlight_evidence_available = 0U;
     float highlights = 0.0F;
     float shadows = 0.0F;
     float whites = 0.0F;
     float blacks = 0.0F;
+    float highlight_red_suppression = 0.0F;
+    float highlight_green_suppression = 0.0F;
+    float highlight_blue_suppression = 0.0F;
+    float reserved_2 = 0.0F;
     float red_luminance = 0.2126F;
     float green_luminance = 0.7152F;
     float blue_luminance = 0.0722F;
-    float reserved_2 = 0.0F;
+    float reserved_3 = 0.0F;
     std::array<float, 4U> rgb_to_xyz_row_0{};
     std::array<float, 4U> rgb_to_xyz_row_1{};
     std::array<float, 4U> rgb_to_xyz_row_2{};
@@ -374,7 +378,7 @@ struct WarmSelectiveToneParameters final {
 
 static_assert(sizeof(WarmBoxParameters) == 16U);
 static_assert(sizeof(WarmGuidedCoefficientsParameters) == 16U);
-static_assert(sizeof(WarmSelectiveToneParameters) == 144U);
+static_assert(sizeof(WarmSelectiveToneParameters) == 160U);
 
 template <typename Record>
 inline constexpr bool warm_kernel_record =
@@ -463,9 +467,10 @@ static_assert(offsetof(WarmDehazeDefringeParameters, red_luminance) == 28U);
 static_assert(offsetof(WarmCreativeDetailParameters, sigma_y) == 16U);
 static_assert(offsetof(WarmBoxParameters, radius) == 8U);
 static_assert(offsetof(WarmSelectiveToneParameters, highlights) == 16U);
-static_assert(offsetof(WarmSelectiveToneParameters, red_luminance) == 32U);
-static_assert(offsetof(WarmSelectiveToneParameters, rgb_to_xyz_row_0) == 48U);
-static_assert(offsetof(WarmSelectiveToneParameters, xyz_to_rgb_row_2) == 128U);
+static_assert(offsetof(WarmSelectiveToneParameters, highlight_red_suppression) == 32U);
+static_assert(offsetof(WarmSelectiveToneParameters, red_luminance) == 48U);
+static_assert(offsetof(WarmSelectiveToneParameters, rgb_to_xyz_row_0) == 64U);
+static_assert(offsetof(WarmSelectiveToneParameters, xyz_to_rgb_row_2) == 144U);
 static_assert(offsetof(WarmGuidedCoefficientsParameters, epsilon) == 8U);
 
 } // namespace shadow::image::detail

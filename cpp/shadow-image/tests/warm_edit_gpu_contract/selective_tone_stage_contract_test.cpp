@@ -253,6 +253,66 @@ void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
     );
 }
 
+void resident_gpu_channel_only_highlight_repair_matches_cpu_without_guided_support() {
+    constexpr image::Dimensions dimensions{193U, 113U};
+    auto source = make_random_image(dimensions.width, dimensions.height, false);
+    for (std::size_t sample = 0U; sample < source.samples.size(); sample += 3U) {
+        source.samples[sample] = 2.8F;
+        source.samples[sample + 1U] = 0.45F;
+        source.samples[sample + 2U] = 2.1F;
+    }
+    image::HighlightChromaRiskMap risk{
+        .dimensions = dimensions,
+        .samples =
+            std::vector<std::uint8_t>(static_cast<std::size_t>(dimensions.pixel_count()), 0U),
+        .source_surface_reconstructed = true,
+    };
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source, nullptr, &risk);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU channel-only highlight repair was required but no resident Metal session could "
+            "be prepared"
+        );
+        return;
+    }
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "channel-only-highlight-repair",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlight_red_suppression = 0.73,
+                .highlight_green_suppression = 0.08,
+                .highlight_blue_suppression = 0.31,
+            },
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    expect(
+        plan.cumulative_footprint.horizontal_radius == 0U
+            && plan.cumulative_footprint.vertical_radius == 0U,
+        "channel-only highlight repair advertises zero neighbourhood support"
+    );
+    const auto gpu = preparation.session->render(nodes, plan, true);
+    const auto cpu = image::execute_adjustment_nodes_with_backend(
+        source,
+        nodes,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = dimensions,
+            .highlight_chroma_risk_map = &risk,
+        },
+        image::AdjustmentBackendMode::cpu
+    );
+    double maximum_error = 0.0;
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value()
+            && linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 1.5e-3),
+        "resident Metal broad-highlight channel repair matches the CPU pixel-local reference"
+    );
+}
+
 template <typename Callable>
 [[nodiscard]] double median_milliseconds(const std::size_t iterations, Callable&& callable) {
     std::vector<double> samples;
@@ -331,6 +391,7 @@ int run_resident_gpu_selective_tone_contract() {
     failures = 0;
     resident_gpu_selective_tone_is_complete_or_declines();
     resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy();
+    resident_gpu_channel_only_highlight_repair_matches_cpu_without_guided_support();
     benchmark_selective_tone_when_requested();
     return failures;
 }

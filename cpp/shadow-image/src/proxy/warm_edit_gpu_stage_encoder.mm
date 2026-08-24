@@ -29,11 +29,12 @@ ensure_warm_gpu_stage_resources(WarmGpuSlotLease& slot, const WarmGpuNeighbourho
                                                  : slot.ensure_denoise_resources();
             } else if constexpr (std::is_same_v<Stage, WarmTextureClarityStage>) {
                 return slot.ensure_texture_clarity_resources();
-            } else if constexpr (
-                std::is_same_v<Stage, WarmLocalContrastStage>
-                || std::is_same_v<Stage, WarmSelectiveToneStage>
-            ) {
+            } else if constexpr (std::is_same_v<Stage, WarmLocalContrastStage>) {
                 return slot.ensure_local_contrast_resources();
+            } else if constexpr (std::is_same_v<Stage, WarmSelectiveToneStage>) {
+                return value.parameters.guided_tone_active != 0U
+                           ? slot.ensure_local_contrast_resources()
+                           : std::string{};
             } else if constexpr (std::is_same_v<Stage, WarmTextureStage>) {
                 return slot.ensure_sharpen_resources();
             } else if constexpr (std::is_same_v<Stage, WarmClarityStage>) {
@@ -350,6 +351,19 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
                 const auto& vertical_box = value.vertical_box;
                 const auto& coefficients_parameters = value.coefficients;
                 const auto& selective_tone = value.parameters;
+                id<MTLBuffer> output = alternate_rgb_buffer(slot, input);
+                if (selective_tone.guided_tone_active == 0U) {
+                    [encoder setComputePipelineState:context.selective_tone_apply_pipeline()];
+                    [encoder setBuffer:input offset:0U atIndex:0U];
+                    // The kernel does not read its guided mask in channel-only mode, but Metal
+                    // still requires a valid binding for the declared argument.
+                    [encoder setBuffer:input offset:0U atIndex:1U];
+                    [encoder setBuffer:output offset:0U atIndex:2U];
+                    [encoder setBytes:&selective_tone length:sizeof(selective_tone) atIndex:3U];
+                    [encoder setBuffer:highlight_clipping offset:0U atIndex:4U];
+                    dispatch(context.selective_tone_apply_pipeline());
+                    return output;
+                }
                 const auto box_mean =
                     [&](id<MTLBuffer> source, id<MTLBuffer> horizontal, id<MTLBuffer> output) {
                         [encoder setComputePipelineState:context.reflect_box_horizontal_pipeline()];
@@ -405,7 +419,6 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
                 [encoder setBytes:&horizontal_box length:sizeof(horizontal_box) atIndex:4U];
                 dispatch(context.guided_combine_pipeline());
 
-                id<MTLBuffer> output = alternate_rgb_buffer(slot, input);
                 [encoder setComputePipelineState:context.selective_tone_apply_pipeline()];
                 [encoder setBuffer:input offset:0U atIndex:0U];
                 [encoder setBuffer:coefficient_a offset:0U atIndex:1U];

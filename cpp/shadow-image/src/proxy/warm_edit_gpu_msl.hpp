@@ -229,16 +229,20 @@ struct WarmGuidedCoefficientsParameters {
 struct WarmSelectiveToneParameters {
     uint width;
     uint height;
-    uint reserved_0;
-    uint reserved_1;
+    uint guided_tone_active;
+    uint highlight_evidence_available;
     float highlights;
     float shadows;
     float whites;
     float blacks;
+    float highlight_red_suppression;
+    float highlight_green_suppression;
+    float highlight_blue_suppression;
+    float reserved_2;
     float red_luminance;
     float green_luminance;
     float blue_luminance;
-    float reserved_2;
+    float reserved_3;
     float4 rgb_to_xyz_row_0;
     float4 rgb_to_xyz_row_1;
     float4 rgb_to_xyz_row_2;
@@ -1992,6 +1996,83 @@ inline float warm_smootherstep_window(float value, float start, float span) {
            * (normalized * (normalized * 6.0f - 15.0f) + 10.0f);
 }
 
+inline float3 warm_highlight_channel_suppression(
+    float3 rgb_to_adjust,
+    float3 source_rgb,
+    constant WarmSelectiveToneParameters& parameters,
+    float highlight_chroma_risk
+) {
+    if (parameters.highlight_evidence_available == 0u) {
+        return rgb_to_adjust;
+    }
+    const float3 authored = float3(
+        parameters.highlight_red_suppression,
+        parameters.highlight_green_suppression,
+        parameters.highlight_blue_suppression
+    );
+    const float common = min(authored.x, min(authored.y, authored.z));
+    const float3 relative = authored - common;
+    if (max(relative.x, max(relative.y, relative.z)) == 0.0f) {
+        return rgb_to_adjust;
+    }
+    const float source_luminance = dot(
+        source_rgb,
+        float3(parameters.red_luminance, parameters.green_luminance, parameters.blue_luminance)
+    );
+    float luminance_support = 0.0f;
+    if (source_luminance > 0.0f && isfinite(source_luminance)) {
+        constexpr float broad_highlight_start_ev = 1.25f;
+        constexpr float broad_highlight_span_ev = 1.75f;
+        luminance_support = warm_smootherstep_window(
+            log2(source_luminance / 0.18f),
+            broad_highlight_start_ev,
+            broad_highlight_span_ev
+        );
+    }
+    const float support = max(
+        sqrt(clamp(highlight_chroma_risk, 0.0f, 1.0f)),
+        luminance_support
+    );
+    if (!(support > 0.0f)) {
+        return rgb_to_adjust;
+    }
+    const float3 source_lab = xyz_to_oklab(multiply_rows(
+        parameters.rgb_to_xyz_row_0,
+        parameters.rgb_to_xyz_row_1,
+        parameters.rgb_to_xyz_row_2,
+        rgb_to_adjust
+    ));
+    if (!(source_lab.x > 0.0f) || !isfinite(source_lab.x)) {
+        return rgb_to_adjust;
+    }
+
+    const float3 roots = pow(max(rgb_to_adjust, 0.0f), float3(1.0f / 3.0f));
+    const float3 opposed_roots = 0.5f * float3(
+        roots.y + roots.z,
+        roots.x + roots.z,
+        roots.x + roots.y
+    );
+    const float3 opposed = opposed_roots * opposed_roots * opposed_roots;
+    const float3 excess = max(rgb_to_adjust - opposed, 0.0f);
+    const float3 candidate = rgb_to_adjust - excess * relative * support;
+    float3 candidate_lab = xyz_to_oklab(multiply_rows(
+        parameters.rgb_to_xyz_row_0,
+        parameters.rgb_to_xyz_row_1,
+        parameters.rgb_to_xyz_row_2,
+        candidate
+    ));
+    if (!(candidate_lab.x > 0.0f) || !isfinite(candidate_lab.x)) {
+        return rgb_to_adjust;
+    }
+    candidate_lab.x = source_lab.x;
+    return multiply_rows(
+        parameters.xyz_to_rgb_row_0,
+        parameters.xyz_to_rgb_row_1,
+        parameters.xyz_to_rgb_row_2,
+        oklab_to_xyz(candidate_lab)
+    );
+}
+
 kernel void warm_selective_tone_apply_v1(
     device const float* input [[buffer(0)]],
     device const float* mask [[buffer(1)]],
@@ -2015,7 +2096,8 @@ kernel void warm_selective_tone_apply_v1(
         rgb
     ));
     float3 adjusted = rgb;
-    if (lab.x > 0.0f && isfinite(lab.x)) {
+    const float highlight_chroma_risk = float(highlight_clipping[pixel]) / 255.0f;
+    if (parameters.guided_tone_active != 0u && lab.x > 0.0f && isfinite(lab.x)) {
         constexpr float endpoint_strength = 0.86f;
         constexpr float endpoint_boundary_ev = 1.45f;
         constexpr float endpoint_softness_ev = 0.55f;
@@ -2089,8 +2171,6 @@ kernel void warm_selective_tone_apply_v1(
             // The resident R8 plane is continuous CFA headroom disagreement; physical sensor
             // white is encoded as 255. Preserve Oklab opponent channels for
             // ordinary pixels, then smooth only source-unreliable chroma during negative recovery.
-            const float highlight_chroma_risk =
-                float(highlight_clipping[pixel]) / 255.0f;
             if (highlight_chroma_risk > 0.0f) {
                 // Keep this in lockstep with the CPU reference: source-evidenced chroma must
                 // begin fading at the first meaningful recovered stop, so intermediate slider
@@ -2106,6 +2186,12 @@ kernel void warm_selective_tone_apply_v1(
             );
         }
     }
+    adjusted = warm_highlight_channel_suppression(
+        adjusted,
+        rgb,
+        parameters,
+        highlight_chroma_risk
+    );
     output[rgb_index] = adjusted.x;
     output[rgb_index + 1u] = adjusted.y;
     output[rgb_index + 2u] = adjusted.z;

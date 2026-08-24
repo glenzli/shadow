@@ -51,8 +51,9 @@ pub const SATURATION_OPERATION_ID: &str = "shadow.saturation";
 pub const SATURATION_FACTOR_PARAMETER_KEY: &str = "factor";
 
 pub const SELECTIVE_TONE_OPERATION_ID: &str = "shadow.selective_tone";
-/// The current Selective Tone evaluator uses a complete self-guided log-luminance filter. It
-/// keeps the four slider values and averages the local a/b coefficients in a second box pass.
+/// The current Selective Tone evaluator uses a complete self-guided log-luminance filter and a
+/// source-risk-gated, lightness-preserving per-channel highlight correction subpath. It keeps the
+/// four tonal values spatially guided while channel-only correction remains pixel-local.
 /// Until Shadow makes its first compatibility promise this implementation replaces earlier
 /// development experiments in the sole v1 contract.
 pub const SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION: u32 = 1;
@@ -61,6 +62,9 @@ pub const HIGHLIGHTS_PARAMETER_KEY: &str = "highlights";
 pub const SHADOWS_PARAMETER_KEY: &str = "shadows";
 pub const WHITES_PARAMETER_KEY: &str = "whites";
 pub const BLACKS_PARAMETER_KEY: &str = "blacks";
+pub const HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY: &str = "highlight_red_suppression";
+pub const HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY: &str = "highlight_green_suppression";
+pub const HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY: &str = "highlight_blue_suppression";
 
 pub const PERCEPTUAL_COLOR_OPERATION_ID: &str = "shadow.perceptual_color";
 /// Broad Oklab opponent-axis balance. Positive `a` moves toward red and

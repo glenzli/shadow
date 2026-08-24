@@ -30,7 +30,8 @@ struct WarmGpuRenderPlan final {
     const WorkingRgbSpace& working_space,
     double level_zero_to_raster_scale_x,
     double level_zero_to_raster_scale_y,
-    AdjustmentExecutionContext context
+    AdjustmentExecutionContext context,
+    bool resident_highlight_evidence_available
 );
 
 } // namespace shadow::image::detail

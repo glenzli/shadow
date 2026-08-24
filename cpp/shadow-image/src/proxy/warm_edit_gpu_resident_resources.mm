@@ -151,6 +151,10 @@ struct WarmGpuResidentResources::Impl final {
     // One byte per output pixel, copied once from source-domain physical-white evidence. This
     // stays immutable beside the scene-linear source and is consumed only by selective tone.
     id<MTLBuffer> highlight_clipping = nil;
+    // The buffer is always valid because Metal requires a binding even for non-RAW sources.
+    // Preserve whether it came from a real source evidence plane separately from its bytes: an
+    // all-zero RAW plane still authorizes the pixel-local broad-highlight luminance gate.
+    bool highlight_evidence_available = false;
     // A valid non-null binding is required even when one side table is empty. One immutable
     // zero buffer safely serves every empty table without treating emptiness as a cache upload.
     id<MTLBuffer> empty_side_table = nil;
@@ -867,6 +871,10 @@ id<MTLBuffer> WarmGpuResidentResources::highlight_clipping_buffer() const noexce
     return impl_->highlight_clipping;
 }
 
+bool WarmGpuResidentResources::highlight_evidence_available() const noexcept {
+    return impl_->highlight_evidence_available;
+}
+
 std::size_t WarmGpuResidentResources::operation_capacity() const noexcept {
     return maximum_warm_adjustment_operations;
 }
@@ -1256,6 +1264,8 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     auto impl = std::make_unique<WarmGpuResidentResources::Impl>();
     impl->device = device;
     [impl->device retain];
+    impl->highlight_evidence_available =
+        sensor_clipping_mask != nullptr || highlight_chroma_risk_map != nullptr;
     impl->layout = WarmGpuResidentLayout{
         .dimensions = source.dimensions,
         .source_row_stride_bytes = source.row_stride_bytes,

@@ -153,6 +153,9 @@ fn selective_tone_and_detail_flatten_the_stable_ffi_contract() {
                         shadows: -0.25,
                         whites: 0.5,
                         blacks: 1.0,
+                        highlight_red_suppression: 0.2,
+                        highlight_green_suppression: 0.4,
+                        highlight_blue_suppression: 0.6,
                     },
                 },
             },
@@ -185,7 +188,10 @@ fn selective_tone_and_detail_flatten_the_stable_ffi_contract() {
         selective_ffi.operation,
         ffi::FfiAdjustmentOperation::SelectiveTone
     ));
-    assert_eq!(selective_ffi.parameters, [-1.0, -0.25, 0.5, 1.0]);
+    assert_eq!(
+        selective_ffi.parameters,
+        [-1.0, -0.25, 0.5, 1.0, 0.2, 0.4, 0.6]
+    );
 
     let sharpen_ffi = ffi_render_node(&plan.nodes[1]);
     assert!(matches!(
@@ -303,9 +309,9 @@ fn typed_plan_rejects_unsupported_contract_versions() {
         ));
     }
 
-    let one_pass_v2 = AdjustmentRenderPlan {
+    let future_selective_tone_v2 = AdjustmentRenderPlan {
         nodes: vec![AdjustmentRenderNode {
-            node_id: "discarded-selective-tone-v2".to_owned(),
+            node_id: "future-selective-tone-v2".to_owned(),
             parameter_schema_version: 2,
             implementation_version: 2,
             enabled: true,
@@ -320,7 +326,7 @@ fn typed_plan_rejects_unsupported_contract_versions() {
         geometry: AdjustmentGeometry::identity(),
     };
     assert!(matches!(
-        one_pass_v2.validate(),
+        future_selective_tone_v2.validate(),
         Err(BridgeError::InvalidEditRequest(
             "adjustment node uses an unsupported schema or implementation version"
         ))

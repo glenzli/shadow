@@ -270,8 +270,16 @@ int main(int argc, char* argv[]) {
     auto* const white_balance_reset = foundation_root->findChild<QQuickItem*>(
         QStringLiteral("foundationWhiteBalanceResetButton")
     );
-    auto* const highlight_repair = foundation_root->findChild<QQuickItem*>(
-        QStringLiteral("foundationHighlightRepairSwitch")
+    auto* const highlight_repair =
+        foundation_root->findChild<QQuickItem*>(QStringLiteral("foundationHighlightRepairSwitch"));
+    auto* const highlight_red_suppression = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("highlightChannelCorrectionSlider_highlight_red_suppression")
+    );
+    auto* const highlight_green_suppression = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("highlightChannelCorrectionSlider_highlight_green_suppression")
+    );
+    auto* const highlight_blue_suppression = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("highlightChannelCorrectionSlider_highlight_blue_suppression")
     );
     if (!require(amount != nullptr, "cached-result amount control is packaged")
         || !require(progress != nullptr, "progress surface is packaged")
@@ -286,6 +294,17 @@ int main(int argc, char* argv[]) {
         || !require(
             highlight_repair == nullptr,
             "default clipped-highlight continuity exposes no implementation switch"
+        )
+        || !require(
+            highlight_red_suppression != nullptr && highlight_green_suppression != nullptr
+                && highlight_blue_suppression != nullptr,
+            "advanced RAW highlight channel correction exposes all three source-gated controls"
+        )
+        || !require(
+            highlight_red_suppression->property("from").toDouble() == 0.0
+                && highlight_red_suppression->property("to").toDouble() == 1.0
+                && highlight_red_suppression->property("value").toDouble() == 0.0,
+            "highlight channel correction is neutral by default and remains bounded"
         )
         || !require(
             std::abs(temperature->property("value").toDouble() - 6'200.0) < 0.0001,

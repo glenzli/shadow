@@ -277,6 +277,21 @@ fn changed_fine_parameters(before: &FineEditParameters, after: &FineEditParamete
             after.selective_tone.blacks,
         ),
         (
+            "highlight_red_suppression",
+            before.selective_tone.highlight_red_suppression,
+            after.selective_tone.highlight_red_suppression,
+        ),
+        (
+            "highlight_green_suppression",
+            before.selective_tone.highlight_green_suppression,
+            after.selective_tone.highlight_green_suppression,
+        ),
+        (
+            "highlight_blue_suppression",
+            before.selective_tone.highlight_blue_suppression,
+            after.selective_tone.highlight_blue_suppression,
+        ),
+        (
             "vibrance",
             before.perceptual_color.vibrance,
             after.perceptual_color.vibrance,
@@ -386,6 +401,9 @@ pub(super) fn changed_grade_parameters_recipe_v1(
         "shadows",
         "whites",
         "blacks",
+        "highlight_red_suppression",
+        "highlight_green_suppression",
+        "highlight_blue_suppression",
         "vibrance",
         "color_mixer_hue",
         "color_mixer_saturation",

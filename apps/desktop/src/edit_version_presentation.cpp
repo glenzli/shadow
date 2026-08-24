@@ -20,9 +20,7 @@ namespace {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Contrast"));
     }
     if (key == QStringLiteral("oklab_lightness_curve")) {
-        return translated(
-            QT_TRANSLATE_NOOP("EditVersionModel", "Perceptual Lightness Curve")
-        );
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Perceptual Lightness Curve"));
     }
     if (key == QStringLiteral("color_warper")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Color Map"));
@@ -51,11 +49,19 @@ namespace {
     if (key == QStringLiteral("blacks")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Blacks"));
     }
+    if (key == QStringLiteral("highlight_red_suppression")) {
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Highlight red suppression"));
+    }
+    if (key == QStringLiteral("highlight_green_suppression")) {
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Highlight green suppression"));
+    }
+    if (key == QStringLiteral("highlight_blue_suppression")) {
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Highlight blue suppression"));
+    }
     if (key == QStringLiteral("vibrance")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Vibrance"));
     }
-    if (key == QStringLiteral("color_mixer_hue")
-        || key == QStringLiteral("color_mixer_saturation")
+    if (key == QStringLiteral("color_mixer_hue") || key == QStringLiteral("color_mixer_saturation")
         || key == QStringLiteral("color_mixer_lightness")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Color Mixer"));
     }
@@ -71,10 +77,8 @@ namespace {
     if (key == QStringLiteral("optics")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Optics"));
     }
-    if (key == QStringLiteral("sharpening")
-        || key == QStringLiteral("sharpen_amount")
-        || key == QStringLiteral("sharpen_radius")
-        || key == QStringLiteral("sharpen_threshold")
+    if (key == QStringLiteral("sharpening") || key == QStringLiteral("sharpen_amount")
+        || key == QStringLiteral("sharpen_radius") || key == QStringLiteral("sharpen_threshold")
         || key == QStringLiteral("sharpen_masking")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Sharpening"));
     }
@@ -93,7 +97,7 @@ void append_unique(QStringList& labels, QSet<QString>& seen, QString label) {
 
 [[nodiscard]] bool has_topology_change(const BackendEditVersion& version) {
     return version.recipe_schema_changed || version.grade_nodes_added > 0
-        || version.grade_nodes_removed > 0 || version.grade_nodes_moved > 0;
+           || version.grade_nodes_removed > 0 || version.grade_nodes_moved > 0;
 }
 
 } // namespace
@@ -124,12 +128,8 @@ QString changeSummary(const BackendEditVersion& version) {
         }
     }
 
-    const auto observed_count = static_cast<std::uint64_t>(
-        version.changed_basic_parameters.size()
-    );
-    const auto reported_count = static_cast<std::uint64_t>(
-        version.changed_basic_parameter_count
-    );
+    const auto observed_count = static_cast<std::uint64_t>(version.changed_basic_parameters.size());
+    const auto reported_count = static_cast<std::uint64_t>(version.changed_basic_parameter_count);
     if (reported_count > observed_count) {
         unknown_count += reported_count - observed_count;
     }
@@ -144,16 +144,13 @@ QString changeSummary(const BackendEditVersion& version) {
             labels,
             seen,
             unknown_count > 1
-                ? translated(QT_TRANSLATE_NOOP("EditVersionModel",
-                                                     "Other adjustments"))
-                : translated(QT_TRANSLATE_NOOP("EditVersionModel",
-                                                     "Other adjustment"))
+                ? translated(QT_TRANSLATE_NOOP("EditVersionModel", "Other adjustments"))
+                : translated(QT_TRANSLATE_NOOP("EditVersionModel", "Other adjustment"))
         );
     }
 
     if (labels.isEmpty()) {
-        return translated(
-        QT_TRANSLATE_NOOP("EditVersionModel", "Version checkpoint"));
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Version checkpoint"));
     }
     return labels.join(QStringLiteral(" · "));
 }

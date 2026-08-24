@@ -55,6 +55,9 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
             shadows: 0.4,
             whites: 0.15,
             blacks: -0.2,
+            highlight_red_suppression: 0.21,
+            highlight_green_suppression: 0.13,
+            highlight_blue_suppression: 0.34,
         },
         perceptual_color: PerceptualColorParameters {
             global_a_balance: -0.28,

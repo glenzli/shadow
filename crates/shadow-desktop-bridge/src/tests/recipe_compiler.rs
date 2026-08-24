@@ -2,9 +2,10 @@
 
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, CPU_REFERENCE_IMPLEMENTATION_VERSION,
-    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
-    OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-    SELECTIVE_TONE_OPERATION_ID,
+    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY,
+    HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY, HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY,
+    OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION, OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID,
+    OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION, SELECTIVE_TONE_OPERATION_ID,
 };
 
 use shadow_bridge::{
@@ -385,6 +386,93 @@ fn persisted_selective_tone_v2_is_rejected_instead_of_reinterpreted() {
 }
 
 #[test]
+fn legacy_four_parameter_selective_tone_defaults_channel_correction_to_neutral() {
+    let mut draft = GradeStackDraft::default();
+    draft.fine.selective_tone.highlights = -0.4;
+    draft.fine.selective_tone.whites = -0.2;
+    let valid = grade_stack_recipe_v1_snapshot(&draft, None).expect("valid current Recipe");
+    let [valid_layer] = valid.layers() else {
+        panic!("fixture contains one Grade Node")
+    };
+    let LayerContent::Inline { graph: valid_graph } = valid_layer.content() else {
+        panic!("fixture contains an inline graph")
+    };
+    let nodes = valid_graph
+        .nodes()
+        .iter()
+        .map(|node| {
+            if node.operation().operation_id().as_str() != SELECTIVE_TONE_OPERATION_ID {
+                return node.clone();
+            }
+            let legacy_parameters = node
+                .parameters()
+                .iter()
+                .filter(|(key, _)| {
+                    !matches!(
+                        key.as_str(),
+                        HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY
+                            | HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY
+                            | HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY
+                    )
+                })
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<ParameterBlock>();
+            AdjustmentNode::new(
+                node.id(),
+                node.operation().clone(),
+                node.inputs().to_vec(),
+                legacy_parameters,
+                None,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let graph = EditGraph::new(
+        valid_graph.schema_version(),
+        valid_graph.input_types().to_vec(),
+        nodes,
+        valid_graph.output_node(),
+    )
+    .unwrap();
+    let legacy = RecipeSnapshot::new(
+        CURRENT_RECIPE_SCHEMA_VERSION,
+        vec![
+            LayerInstance::new(
+                valid_layer.id(),
+                valid_layer.label(),
+                AdjustmentScope::Photo,
+                LayerContent::Inline { graph },
+                valid_layer.enabled(),
+                UnitInterval::ONE,
+                BlendMode::Normal,
+                None,
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+
+    let decoded = decode_grade_stack_draft_from_recipe_v1_snapshot(&legacy)
+        .expect("legacy Selective Tone remains editable");
+    assert_eq!(decoded.fine.selective_tone.highlights, -0.4);
+    assert_eq!(decoded.fine.selective_tone.whites, -0.2);
+    assert_eq!(decoded.fine.selective_tone.highlight_red_suppression, 0.0);
+    assert_eq!(decoded.fine.selective_tone.highlight_green_suppression, 0.0);
+    assert_eq!(decoded.fine.selective_tone.highlight_blue_suppression, 0.0);
+
+    let plan = compile_recipe_render_plan(&legacy).expect("legacy Selective Tone still renders");
+    let rendered = plan
+        .nodes
+        .iter()
+        .find_map(|node| match &node.operation {
+            AdjustmentRenderOperation::SelectiveTone { parameters } => Some(*parameters),
+            _ => None,
+        })
+        .expect("compiled plan contains Selective Tone");
+    assert_eq!(rendered, decoded.fine.selective_tone);
+}
+
+#[test]
 fn recipe_compiler_rejects_a_valid_branching_graph() {
     let snapshot = branching_merge_recipe();
     snapshot
@@ -403,6 +491,8 @@ fn fine_controls_report_stable_version_change_keys() {
     let mut after = before.clone();
     after.fine.selective_tone.highlights = -0.2;
     after.fine.selective_tone.blacks = 0.3;
+    after.fine.selective_tone.highlight_red_suppression = 0.25;
+    after.fine.selective_tone.highlight_blue_suppression = 0.5;
     after.fine.perceptual_color.vibrance = 0.4;
     after.fine.perceptual_color.hue_shifts[2] = 0.25;
     after.fine.perceptual_color.saturation[5] = -0.15;
@@ -425,6 +515,8 @@ fn fine_controls_report_stable_version_change_keys() {
             "color_warper",
             "highlights",
             "blacks",
+            "highlight_red_suppression",
+            "highlight_blue_suppression",
             "vibrance",
             "color_mixer_hue",
             "color_mixer_saturation",

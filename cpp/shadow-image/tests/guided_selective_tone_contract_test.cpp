@@ -43,6 +43,21 @@ void prepared_plan_binds_anisotropic_radii_and_complete_support() {
             && neutral_footprint.horizontal_radius == 0U && neutral_footprint.vertical_radius == 0U,
         "neutral selective tone reserves no filter or scheduler support"
     );
+
+    const auto channel_only = image::detail::prepare_guided_selective_tone(
+        image::SelectiveToneAdjustment{.highlight_red_suppression = 0.5},
+        0.25,
+        0.5
+    );
+    const auto channel_only_footprint = channel_only.footprint();
+    expect(
+        !channel_only.neutral() && !channel_only.guided_tone_active()
+            && channel_only.mask_radius_x() == 0U && channel_only.mask_radius_y() == 0U
+            && channel_only_footprint.horizontal_radius == 0U
+            && channel_only_footprint.vertical_radius == 0U,
+        "channel-only highlight repair is active without reserving guided-filter or scheduler "
+        "support"
+    );
 }
 
 void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
@@ -592,6 +607,147 @@ void selective_tone_neutralizes_continuous_cfa_chroma_risk_only_during_recovery(
     );
 }
 
+void selective_tone_channel_repair_is_source_gated_and_lightness_preserving() {
+    auto input = rgb_image(
+        4,
+        {
+            2.8F,
+            0.45F,
+            2.1F,
+            2.8F,
+            0.45F,
+            2.1F,
+            0.30F,
+            0.06F,
+            0.22F,
+            0.50F,
+            0.70F,
+            2.80F,
+        }
+    );
+    input.working_space = linear_srgb();
+    image::HighlightChromaRiskMap risk{
+        .dimensions = input.dimensions,
+        .samples = {255U, 0U, 0U, 0U},
+        .source_surface_reconstructed = true,
+    };
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "manual-red-highlight-correction",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlight_red_suppression = 1.0,
+            },
+        },
+    };
+    const auto adjusted = image::execute_adjustment_nodes(
+        input,
+        node,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = input.dimensions,
+            .highlight_chroma_risk_map = &risk,
+        }
+    );
+    const auto source_lab =
+        oklab_from_linear_srgb({input.samples[0], input.samples[1], input.samples[2]});
+    const auto adjusted_lab =
+        oklab_from_linear_srgb({adjusted.samples[0], adjusted.samples[1], adjusted.samples[2]});
+    expect_close_double(
+        adjusted_lab[0],
+        source_lab[0],
+        2.0e-5,
+        "manual channel repair preserves Oklab lightness"
+    );
+    expect(
+        adjusted.samples[0] / adjusted.samples[1] < input.samples[0] / input.samples[1] * 0.80F,
+        "manual red repair reduces relative red excess in a source-risk highlight"
+    );
+    expect(
+        adjusted.samples[0] >= std::min(adjusted.samples[1], adjusted.samples[2]) - 1.0e-5F,
+        "manual red repair cannot cross the opposed boundary and create cyan inversion"
+    );
+    expect(
+        adjusted.samples[3] / adjusted.samples[4] < input.samples[3] / input.samples[4] * 0.85F,
+        "the smooth source-luminance gate covers a broad bright cast with zero residual RAW risk"
+    );
+    expect(
+        adjusted.samples[6] == input.samples[6] && adjusted.samples[7] == input.samples[7]
+            && adjusted.samples[8] == input.samples[8],
+        "the source-luminance gate remains an exact no-op below its highlight window"
+    );
+    expect(
+        adjusted.samples[9] == input.samples[9] && adjusted.samples[10] == input.samples[10]
+            && adjusted.samples[11] == input.samples[11],
+        "red repair leaves a bright pixel unchanged when red has no positive opposed excess"
+    );
+
+    const std::array equal_node{
+        image::AdjustmentNode{
+            .node_id = "equal-channel-highlight-correction",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlight_red_suppression = 0.7,
+                .highlight_green_suppression = 0.7,
+                .highlight_blue_suppression = 0.7,
+            },
+        },
+    };
+    const auto equal = image::execute_adjustment_nodes(
+        input,
+        equal_node,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = input.dimensions,
+            .highlight_chroma_risk_map = &risk,
+        }
+    );
+    expect(
+        equal.samples == input.samples,
+        "equal R/G/B suppression is an exact no-op rather than a hidden exposure control"
+    );
+    const auto without_source_risk = image::execute_adjustment_nodes(input, node);
+    expect(
+        without_source_risk.samples == input.samples,
+        "manual channel repair is an exact no-op when no RAW highlight evidence surface exists"
+    );
+
+    const std::array tone_only_node{
+        image::AdjustmentNode{
+            .node_id = "tone-only-highlight-recovery",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -1.0,
+                .whites = -1.0,
+            },
+        },
+    };
+    const std::array combined_node{
+        image::AdjustmentNode{
+            .node_id = "tone-and-red-highlight-recovery",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -1.0,
+                .whites = -1.0,
+                .highlight_red_suppression = 1.0,
+            },
+        },
+    };
+    const image::AdjustmentExecutionContext context{
+        .full_dimensions = input.dimensions,
+        .highlight_chroma_risk_map = &risk,
+    };
+    const auto tone_only = image::execute_adjustment_nodes(input, tone_only_node, context);
+    const auto combined = image::execute_adjustment_nodes(input, combined_node, context);
+    expect(
+        combined.samples[3] / combined.samples[4]
+            < tone_only.samples[3] / tone_only.samples[4] * 0.90F,
+        "combined tone recovery selects broad highlights from pre-tone source luminance"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -606,5 +762,6 @@ int main() {
     selective_tone_preserves_highlight_chroma_after_source_treatment();
     selective_tone_neutralizes_only_physically_clipped_recovered_highlights();
     selective_tone_neutralizes_continuous_cfa_chroma_risk_only_during_recovery();
+    selective_tone_channel_repair_is_source_gated_and_lightness_preserving();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

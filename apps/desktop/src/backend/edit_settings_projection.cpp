@@ -64,6 +64,9 @@ ffi_fine_parameters(const BackendFineEditParameters& source) {
     result.shadows = source.shadows;
     result.whites = source.whites;
     result.blacks = source.blacks;
+    result.highlight_red_suppression = source.highlight_red_suppression;
+    result.highlight_green_suppression = source.highlight_green_suppression;
+    result.highlight_blue_suppression = source.highlight_blue_suppression;
     result.global_a_balance = source.global_a_balance;
     result.global_b_balance = source.global_b_balance;
     result.vibrance = source.vibrance;
@@ -202,6 +205,9 @@ edit_fine_parameters(const shadow::desktop::FfiFineEditParameters& source) {
         .shadows = source.shadows,
         .whites = source.whites,
         .blacks = source.blacks,
+        .highlight_red_suppression = source.highlight_red_suppression,
+        .highlight_green_suppression = source.highlight_green_suppression,
+        .highlight_blue_suppression = source.highlight_blue_suppression,
         .global_a_balance = source.global_a_balance,
         .global_b_balance = source.global_b_balance,
         .vibrance = source.vibrance,

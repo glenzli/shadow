@@ -704,7 +704,8 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const Dimensions dimensions,
     const WorkingRgbSpace& working_space,
     const double scale_x,
-    const double scale_y
+    const double scale_y,
+    const bool resident_highlight_evidence_available
 ) {
     std::optional<std::size_t> neighbourhood_segment;
     for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
@@ -737,9 +738,11 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const PreparedGuidedSelectiveTone prepared =
         prepare_guided_selective_tone(parameters, scale_x, scale_y);
     constexpr std::uint32_t maximum_selective_tone_box_radius = 64U;
-    if (prepared.neutral() || prepared.mask_radius_x() == 0U || prepared.mask_radius_y() == 0U
-        || prepared.mask_radius_x() > maximum_selective_tone_box_radius
-        || prepared.mask_radius_y() > maximum_selective_tone_box_radius) {
+    if (prepared.neutral()
+        || (prepared.guided_tone_active()
+            && (prepared.mask_radius_x() == 0U || prepared.mask_radius_y() == 0U
+                || prepared.mask_radius_x() > maximum_selective_tone_box_radius
+                || prepared.mask_radius_y() > maximum_selective_tone_box_radius))) {
         return std::nullopt;
     }
     const AdjustmentNode& node = nodes[step.node_index];
@@ -769,10 +772,16 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
         .parameters = WarmSelectiveToneParameters{
             .width = dimensions.width,
             .height = dimensions.height,
+            .guided_tone_active = prepared.guided_tone_active() ? 1U : 0U,
+            .highlight_evidence_available = resident_highlight_evidence_available ? 1U : 0U,
             .highlights = static_cast<float>(prepared.highlights()),
             .shadows = static_cast<float>(prepared.shadows()),
             .whites = static_cast<float>(prepared.whites()),
             .blacks = static_cast<float>(prepared.blacks()),
+            .highlight_red_suppression = static_cast<float>(prepared.highlight_red_suppression()),
+            .highlight_green_suppression =
+                static_cast<float>(prepared.highlight_green_suppression()),
+            .highlight_blue_suppression = static_cast<float>(prepared.highlight_blue_suppression()),
             .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
             .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
             .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
@@ -839,7 +848,8 @@ std::optional<WarmGpuNeighbourhoodStage> prepare_warm_gpu_neighbourhood_stage(
     const WorkingRgbSpace& working_space,
     const double level_zero_to_raster_scale_x,
     const double level_zero_to_raster_scale_y,
-    const AdjustmentExecutionContext context
+    const AdjustmentExecutionContext context,
+    const bool resident_highlight_evidence_available
 ) {
     if (step.node_index >= nodes.size()
         || operation(nodes[step.node_index].parameters) != step.operation) {
@@ -908,7 +918,8 @@ std::optional<WarmGpuNeighbourhoodStage> prepare_warm_gpu_neighbourhood_stage(
             dimensions,
             working_space,
             level_zero_to_raster_scale_x,
-            level_zero_to_raster_scale_y
+            level_zero_to_raster_scale_y,
+            resident_highlight_evidence_available
         );
         stage.has_value()) {
         return isolate_stage_post_program(std::move(stage));

@@ -32,6 +32,18 @@ class PreparedGuidedSelectiveTone final {
     [[nodiscard]] double blacks() const noexcept {
         return blacks_;
     }
+    [[nodiscard]] double highlight_red_suppression() const noexcept {
+        return highlight_red_suppression_;
+    }
+    [[nodiscard]] double highlight_green_suppression() const noexcept {
+        return highlight_green_suppression_;
+    }
+    [[nodiscard]] double highlight_blue_suppression() const noexcept {
+        return highlight_blue_suppression_;
+    }
+    [[nodiscard]] bool guided_tone_active() const noexcept {
+        return guided_tone_active_;
+    }
     [[nodiscard]] std::uint32_t mask_radius_x() const noexcept {
         return mask_radius_x_;
     }
@@ -47,6 +59,10 @@ class PreparedGuidedSelectiveTone final {
         double shadows,
         double whites,
         double blacks,
+        double highlight_red_suppression,
+        double highlight_green_suppression,
+        double highlight_blue_suppression,
+        bool guided_tone_active,
         std::uint32_t mask_radius_x,
         std::uint32_t mask_radius_y,
         std::uint32_t support_radius_x,
@@ -64,6 +80,10 @@ class PreparedGuidedSelectiveTone final {
     double shadows_ = 0.0;
     double whites_ = 0.0;
     double blacks_ = 0.0;
+    double highlight_red_suppression_ = 0.0;
+    double highlight_green_suppression_ = 0.0;
+    double highlight_blue_suppression_ = 0.0;
+    bool guided_tone_active_ = false;
     std::uint32_t mask_radius_x_ = 0U;
     std::uint32_t mask_radius_y_ = 0U;
     std::uint32_t support_radius_x_ = 0U;

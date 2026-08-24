@@ -239,6 +239,19 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
     ] {
         validate_range(value, -1.0, 1.0, name)?;
     }
+    for (name, value) in [
+        ("highlight red suppression", tone.highlight_red_suppression),
+        (
+            "highlight green suppression",
+            tone.highlight_green_suppression,
+        ),
+        (
+            "highlight blue suppression",
+            tone.highlight_blue_suppression,
+        ),
+    ] {
+        validate_range(value, 0.0, 1.0, name)?;
+    }
     validate_perceptual_color_parameters(parameters)?;
     if let Some(curve) = &parameters.oklab_lightness_curve {
         validate_tone_curve(&curve.lightness).context("validate Oklab lightness curve")?;

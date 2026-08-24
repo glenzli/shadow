@@ -34,6 +34,15 @@ constexpr std::size_t rgb_channels = 3U;
     return std::isfinite(value) && value >= -1.0 && value <= 1.0;
 }
 
+[[nodiscard]] bool normalized_suppression(const double value) noexcept {
+    return std::isfinite(value) && value >= 0.0 && value <= 1.0;
+}
+
+[[nodiscard]] bool guided_tone_is_neutral(const SelectiveToneAdjustment& parameters) noexcept {
+    return parameters.highlights == 0.0 && parameters.shadows == 0.0 && parameters.whites == 0.0
+           && parameters.blacks == 0.0;
+}
+
 } // namespace
 
 PreparedGuidedSelectiveTone::PreparedGuidedSelectiveTone(
@@ -42,14 +51,22 @@ PreparedGuidedSelectiveTone::PreparedGuidedSelectiveTone(
     const double shadows,
     const double whites,
     const double blacks,
+    const double highlight_red_suppression,
+    const double highlight_green_suppression,
+    const double highlight_blue_suppression,
+    const bool guided_tone_active,
     const std::uint32_t mask_radius_x,
     const std::uint32_t mask_radius_y,
     const std::uint32_t support_radius_x,
     const std::uint32_t support_radius_y
 ) noexcept :
     neutral_(neutral), highlights_(highlights), shadows_(shadows), whites_(whites), blacks_(blacks),
-    mask_radius_x_(mask_radius_x), mask_radius_y_(mask_radius_y),
-    support_radius_x_(support_radius_x), support_radius_y_(support_radius_y) {}
+    highlight_red_suppression_(highlight_red_suppression),
+    highlight_green_suppression_(highlight_green_suppression),
+    highlight_blue_suppression_(highlight_blue_suppression),
+    guided_tone_active_(guided_tone_active), mask_radius_x_(mask_radius_x),
+    mask_radius_y_(mask_radius_y), support_radius_x_(support_radius_x),
+    support_radius_y_(support_radius_y) {}
 
 AdjustmentFootprint PreparedGuidedSelectiveTone::footprint() const noexcept {
     return AdjustmentFootprint{
@@ -59,8 +76,9 @@ AdjustmentFootprint PreparedGuidedSelectiveTone::footprint() const noexcept {
 }
 
 bool guided_selective_tone_is_neutral(const SelectiveToneAdjustment& parameters) noexcept {
-    return parameters.highlights == 0.0 && parameters.shadows == 0.0 && parameters.whites == 0.0
-           && parameters.blacks == 0.0;
+    return guided_tone_is_neutral(parameters) && parameters.highlight_red_suppression == 0.0
+           && parameters.highlight_green_suppression == 0.0
+           && parameters.highlight_blue_suppression == 0.0;
 }
 
 void validate_guided_selective_tone(
@@ -75,6 +93,16 @@ void validate_guided_selective_tone(
             node_index,
             node,
             "selective tone amounts must be finite and within [-1, 1]"
+        );
+    }
+    if (!normalized_suppression(parameters.highlight_red_suppression)
+        || !normalized_suppression(parameters.highlight_green_suppression)
+        || !normalized_suppression(parameters.highlight_blue_suppression)) {
+        throw_node_error(
+            EditErrorCode::invalid_parameter,
+            node_index,
+            node,
+            "highlight channel suppression values must be finite and within [0, 1]"
         );
     }
 }
@@ -278,6 +306,99 @@ smootherstep_window(const double value, const double start, const double span) n
     return oklab_to_working_rgb(color_transform, lab);
 }
 
+// Manual channel repair is deliberately relative, not a hidden exposure control. Removing the
+// common component makes equal R/G/B values an exact no-op. The exact RAW risk plane remains
+// authoritative where it is non-zero, while a pixel-local source-luminance gate covers broad
+// highlight casts whose demosaiced pixels carry zero residual risk. Neither source is spatially
+// expanded: blur, dilation, and neighbourhood lookup caused the coloured outlines this control is
+// intended to avoid. Only positive excess above the cube-root mean of the opposed channels is
+// removed, so a correction cannot cross the local neutral/opposed boundary and turn cyan.
+[[nodiscard]] Vector3 apply_highlight_channel_suppression(
+    const Vector3& input_to_adjust,
+    const Vector3& source_for_gate,
+    const std::array<double, 3>& luminance_weights,
+    const WorkingSpaceTransform& color_transform,
+    const PreparedGuidedSelectiveTone& prepared,
+    const double highlight_chroma_risk,
+    const bool highlight_evidence_available
+) noexcept {
+    if (!highlight_evidence_available) {
+        return input_to_adjust;
+    }
+    const std::array<double, 3> authored{
+        prepared.highlight_red_suppression(),
+        prepared.highlight_green_suppression(),
+        prepared.highlight_blue_suppression(),
+    };
+    const double common = std::min({authored[0], authored[1], authored[2]});
+    const std::array<double, 3> relative{
+        authored[0] - common,
+        authored[1] - common,
+        authored[2] - common,
+    };
+    if (relative[0] == 0.0 && relative[1] == 0.0 && relative[2] == 0.0) {
+        return input_to_adjust;
+    }
+
+    const double source_luminance =
+        source_for_gate[0] * luminance_weights[0]
+        + source_for_gate[1] * luminance_weights[1]
+        + source_for_gate[2] * luminance_weights[2];
+    double luminance_support = 0.0;
+    if (source_luminance > 0.0 && std::isfinite(source_luminance)) {
+        const double source_ev = std::log2(source_luminance / 0.18);
+        constexpr double broad_highlight_start_ev = 1.25;
+        constexpr double broad_highlight_span_ev = 1.75;
+        luminance_support = smootherstep_window(
+            source_ev,
+            broad_highlight_start_ev,
+            broad_highlight_span_ev
+        );
+    }
+    const double support = std::max(
+        std::sqrt(std::clamp(highlight_chroma_risk, 0.0, 1.0)),
+        luminance_support
+    );
+    if (!(support > 0.0)) {
+        return input_to_adjust;
+    }
+
+    Vector3 source_lab = working_rgb_to_oklab(color_transform, input_to_adjust);
+    if (!(source_lab[0] > 0.0) || !std::isfinite(source_lab[0])) {
+        return input_to_adjust;
+    }
+
+    const std::array<double, 3> roots{
+        std::cbrt(std::max(0.0, input_to_adjust[0])),
+        std::cbrt(std::max(0.0, input_to_adjust[1])),
+        std::cbrt(std::max(0.0, input_to_adjust[2])),
+    };
+    const std::array<double, 3> opposed_roots{
+        0.5 * (roots[1] + roots[2]),
+        0.5 * (roots[0] + roots[2]),
+        0.5 * (roots[0] + roots[1]),
+    };
+    Vector3 candidate = input_to_adjust;
+    bool changed = false;
+    for (std::size_t channel = 0U; channel < relative.size(); ++channel) {
+        const double opposed = opposed_roots[channel] * opposed_roots[channel]
+                               * opposed_roots[channel];
+        const double excess = std::max(0.0, input_to_adjust[channel] - opposed);
+        const double reduction = excess * relative[channel] * support;
+        candidate[channel] -= reduction;
+        changed = changed || reduction > 0.0;
+    }
+    if (!changed) {
+        return input_to_adjust;
+    }
+    Vector3 candidate_lab = working_rgb_to_oklab(color_transform, candidate);
+    if (!(candidate_lab[0] > 0.0) || !std::isfinite(candidate_lab[0])) {
+        return input_to_adjust;
+    }
+    candidate_lab[0] = source_lab[0];
+    return oklab_to_working_rgb(color_transform, candidate_lab);
+}
+
 [[nodiscard]] std::uint32_t selective_tone_mask_radius(const double level_zero_to_raster_scale) {
     const double scaled = selective_tone_guided_mask_radius_level_zero * level_zero_to_raster_scale;
     if (!std::isfinite(scaled) || scaled <= 0.0
@@ -338,8 +459,18 @@ PreparedGuidedSelectiveTone prepare_guided_selective_tone(
             "cannot calculate a footprint for malformed selective tone parameters"
         );
     }
+    if (!normalized_suppression(parameters.highlight_red_suppression)
+        || !normalized_suppression(parameters.highlight_green_suppression)
+        || !normalized_suppression(parameters.highlight_blue_suppression)) {
+        throw EditError(
+            EditErrorCode::invalid_parameter,
+            std::nullopt,
+            "cannot calculate a footprint for malformed highlight channel suppression parameters"
+        );
+    }
 
     const bool neutral = guided_selective_tone_is_neutral(parameters);
+    const bool guided_tone_active = !guided_tone_is_neutral(parameters);
     if (neutral) {
         return PreparedGuidedSelectiveTone{
             true,
@@ -347,6 +478,28 @@ PreparedGuidedSelectiveTone prepare_guided_selective_tone(
             parameters.shadows,
             parameters.whites,
             parameters.blacks,
+            parameters.highlight_red_suppression,
+            parameters.highlight_green_suppression,
+            parameters.highlight_blue_suppression,
+            false,
+            0U,
+            0U,
+            0U,
+            0U,
+        };
+    }
+
+    if (!guided_tone_active) {
+        return PreparedGuidedSelectiveTone{
+            false,
+            parameters.highlights,
+            parameters.shadows,
+            parameters.whites,
+            parameters.blacks,
+            parameters.highlight_red_suppression,
+            parameters.highlight_green_suppression,
+            parameters.highlight_blue_suppression,
+            false,
             0U,
             0U,
             0U,
@@ -362,6 +515,10 @@ PreparedGuidedSelectiveTone prepare_guided_selective_tone(
         parameters.shadows,
         parameters.whites,
         parameters.blacks,
+        parameters.highlight_red_suppression,
+        parameters.highlight_green_suppression,
+        parameters.highlight_blue_suppression,
+        true,
         mask_radius_x,
         mask_radius_y,
         selective_tone_guided_filter_support_radius(mask_radius_x),
@@ -600,11 +757,63 @@ void apply_prepared_guided_selective_tone_cpu(
     const auto luminance_weights = image.working_space.luminance_coefficients;
     const WorkingSpaceTransform color_transform =
         prepare_working_space_transform(image.working_space, node, node_index);
-    const auto coefficients =
-        selective_tone_guided_coefficients(image, luminance_weights, prepared);
     const std::size_t width = image.dimensions.width;
     const std::size_t height = image.dimensions.height;
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    const bool highlight_evidence_available = context.highlight_chroma_risk_map != nullptr
+                                              || context.sensor_clipping_mask != nullptr;
+    const auto highlight_risk_at = [&context](const std::uint32_t x, const std::uint32_t y) {
+        const std::uint64_t full_x = static_cast<std::uint64_t>(context.origin_x) + x;
+        const std::uint64_t full_y = static_cast<std::uint64_t>(context.origin_y) + y;
+        const auto full_index =
+            static_cast<std::size_t>(full_y * context.full_dimensions.width + full_x);
+        const bool source_surface_reconstructed =
+            context.highlight_chroma_risk_map != nullptr
+            && context.highlight_chroma_risk_map->source_surface_reconstructed;
+        const bool physically_highlight_clipped =
+            !source_surface_reconstructed && context.sensor_clipping_mask != nullptr
+            && (context.sensor_clipping_mask->samples[full_index] & sensor_highlight_clipped) != 0U;
+        if (physically_highlight_clipped) {
+            return 1.0;
+        }
+        return context.highlight_chroma_risk_map != nullptr
+                   ? static_cast<double>(context.highlight_chroma_risk_map->samples[full_index])
+                         / 255.0
+                   : 0.0;
+    };
+
+    // Channel-only repair is a strict one-pass operation over the already-resident working RGB
+    // and R8 risk plane. In particular, it never constructs the two guided-filter coefficient
+    // rasters used by the four photographer-facing tone controls.
+    if (!prepared.guided_tone_active()) {
+        for (std::uint32_t y = 0U; y < image.dimensions.height; ++y) {
+            const std::size_t row = static_cast<std::size_t>(y) * stride;
+            for (std::uint32_t x = 0U; x < image.dimensions.width; ++x) {
+                const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+                const Vector3 input{
+                    image.samples[sample],
+                    image.samples[sample + 1U],
+                    image.samples[sample + 2U],
+                };
+                const Vector3 output = apply_highlight_channel_suppression(
+                    input,
+                    input,
+                    luminance_weights,
+                    color_transform,
+                    prepared,
+                    highlight_risk_at(x, y),
+                    highlight_evidence_available
+                );
+                image.samples[sample] = checked_edit_pixel_float(output[0], node_index, node);
+                image.samples[sample + 1U] = checked_edit_pixel_float(output[1], node_index, node);
+                image.samples[sample + 2U] = checked_edit_pixel_float(output[2], node_index, node);
+            }
+        }
+        return;
+    }
+
+    const auto coefficients =
+        selective_tone_guided_coefficients(image, luminance_weights, prepared);
     const std::uint32_t radius_x = prepared.mask_radius_x();
     const std::uint32_t radius_y = prepared.mask_radius_y();
     const std::size_t window_width = selective_tone_box_window_length(radius_x);
@@ -712,28 +921,22 @@ void apply_prepared_guided_selective_tone_cpu(
                     "selective tone guided-filter output is non-finite"
                 );
             }
-            const std::uint64_t full_x = static_cast<std::uint64_t>(context.origin_x) + x;
-            const std::uint64_t full_y = static_cast<std::uint64_t>(context.origin_y) + y;
-            const auto full_index =
-                static_cast<std::size_t>(full_y * context.full_dimensions.width + full_x);
-            const bool source_surface_reconstructed =
-                context.highlight_chroma_risk_map != nullptr
-                && context.highlight_chroma_risk_map->source_surface_reconstructed;
-            const bool physically_highlight_clipped =
-                !source_surface_reconstructed && context.sensor_clipping_mask != nullptr
-                && (context.sensor_clipping_mask->samples[full_index] & sensor_highlight_clipped)
-                       != 0U;
-            const double continuous_highlight_risk =
-                context.highlight_chroma_risk_map != nullptr
-                    ? static_cast<double>(context.highlight_chroma_risk_map->samples[full_index])
-                          / 255.0
-                    : 0.0;
-            const Vector3 output = apply_selective_tone_at_mask(
+            const double highlight_risk = highlight_risk_at(x, y);
+            const Vector3 tone_output = apply_selective_tone_at_mask(
                 input,
                 color_transform,
                 prepared,
                 mask_ev,
-                physically_highlight_clipped ? 1.0 : continuous_highlight_risk
+                highlight_risk
+            );
+            const Vector3 output = apply_highlight_channel_suppression(
+                tone_output,
+                input,
+                luminance_weights,
+                color_transform,
+                prepared,
+                highlight_risk,
+                highlight_evidence_available
             );
             image.samples[sample] = checked_edit_pixel_float(output[0], node_index, node);
             image.samples[sample + 1U] = checked_edit_pixel_float(output[1], node_index, node);

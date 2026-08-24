@@ -40,8 +40,7 @@ void basic_keys_are_localizable_labels() {
     };
     version.changed_basic_parameter_count = 2;
     require(
-        EditVersionPresentation::changeSummary(version)
-            == QStringLiteral("Exposure · Chroma"),
+        EditVersionPresentation::changeSummary(version) == QStringLiteral("Exposure · Chroma"),
         "known parameter keys must become readable labels"
     );
 }
@@ -79,13 +78,30 @@ void perceptual_lightness_curve_has_a_stable_version_label() {
     );
 }
 
+void highlight_channel_correction_has_stable_version_labels() {
+    BackendEditVersion version;
+    version.changed_basic_parameters = {
+        QStringLiteral("highlight_red_suppression"),
+        QStringLiteral("highlight_green_suppression"),
+        QStringLiteral("highlight_blue_suppression"),
+    };
+    version.changed_basic_parameter_count = 3;
+    require(
+        EditVersionPresentation::changeSummary(version)
+            == QStringLiteral(
+                "Highlight red suppression · Highlight green suppression · "
+                "Highlight blue suppression"
+            ),
+        "RAW highlight channel controls need stable semantic version labels"
+    );
+}
+
 void sharpening_changes_share_one_stable_version_label() {
     BackendEditVersion grouped;
     grouped.changed_basic_parameters = {QStringLiteral("sharpening")};
     grouped.changed_basic_parameter_count = 1;
     require(
-        EditVersionPresentation::changeSummary(grouped)
-            == QStringLiteral("Sharpening"),
+        EditVersionPresentation::changeSummary(grouped) == QStringLiteral("Sharpening"),
         "the grouped sharpening diff key needs a stable semantic label"
     );
 
@@ -109,8 +125,7 @@ void grade_node_bypass_has_a_stable_version_label() {
     version.changed_basic_parameters = {QStringLiteral("grade_node_enabled")};
     version.changed_basic_parameter_count = 1;
     require(
-        EditVersionPresentation::changeSummary(version)
-            == QStringLiteral("Grade Node bypass"),
+        EditVersionPresentation::changeSummary(version) == QStringLiteral("Grade Node bypass"),
         "Grade Node state changes need a stable semantic label"
     );
 }
@@ -150,8 +165,7 @@ void structural_and_basic_changes_compose() {
     version.grade_nodes_added = 1;
     version.has_other_changes = true;
     require(
-        EditVersionPresentation::changeSummary(version)
-            == QStringLiteral("Contrast · Structure"),
+        EditVersionPresentation::changeSummary(version) == QStringLiteral("Contrast · Structure"),
         "topology changes need a concise fallback alongside exact controls"
     );
 }
@@ -179,8 +193,7 @@ void grade_node_payload_changes_are_not_topology_changes() {
     version.grade_nodes_modified = 1;
     version.has_other_changes = true;
     require(
-        EditVersionPresentation::changeSummary(version)
-            == QStringLiteral("Other adjustment"),
+        EditVersionPresentation::changeSummary(version) == QStringLiteral("Other adjustment"),
         "modifying a Grade Node payload must not masquerade as topology"
     );
 }
@@ -189,8 +202,7 @@ void an_unrepresented_reported_change_is_not_lost() {
     BackendEditVersion version;
     version.changed_basic_parameter_count = 1;
     require(
-        EditVersionPresentation::changeSummary(version)
-            == QStringLiteral("Other adjustment"),
+        EditVersionPresentation::changeSummary(version) == QStringLiteral("Other adjustment"),
         "a reported change missing from the key list must remain visible"
     );
 }
@@ -300,164 +312,197 @@ void selected_version_marker_moves_between_loaded_draft_and_durable_head() {
 }
 
 class TestTranslator final : public QTranslator {
-public:
-  [[nodiscard]] bool isEmpty() const override { return false; }
+  public:
+    [[nodiscard]] bool isEmpty() const override {
+        return false;
+    }
 
-  [[nodiscard]] QString translate(const char *const context,
-                                  const char *const source_text,
-                                  const char *const, const int) const override {
-    if (std::strcmp(context, "EditVersionModel") == 0) {
-      if (std::strcmp(source_text, "Exposure") == 0) {
-        return QStringLiteral("曝光");
-      }
-      if (std::strcmp(source_text, "Other adjustment") == 0) {
-        return QStringLiteral("其他调整");
-      }
-      if (std::strcmp(source_text, "Untitled version") == 0) {
-        return QStringLiteral("未命名版本");
-      }
-      if (std::strcmp(source_text, "1 parent") == 0) {
-        return QStringLiteral("1 个父版本");
-      }
+    [[nodiscard]] QString translate(
+        const char* const context,
+        const char* const source_text,
+        const char* const,
+        const int
+    ) const override {
+        if (std::strcmp(context, "EditVersionModel") == 0) {
+            if (std::strcmp(source_text, "Exposure") == 0) {
+                return QStringLiteral("曝光");
+            }
+            if (std::strcmp(source_text, "Other adjustment") == 0) {
+                return QStringLiteral("其他调整");
+            }
+            if (std::strcmp(source_text, "Untitled version") == 0) {
+                return QStringLiteral("未命名版本");
+            }
+            if (std::strcmp(source_text, "1 parent") == 0) {
+                return QStringLiteral("1 个父版本");
+            }
+        }
+        if (std::strcmp(context, "MessageTest") == 0
+            && std::strcmp(source_text, "Operation failed · %1 · %2") == 0) {
+            return QStringLiteral("操作失败 · %1 · %2");
+        }
+        if (std::strcmp(context, "MessageTest") == 0
+            && std::strcmp(source_text, "Reordered · %1 · %2") == 0) {
+            return QStringLiteral("重排 · %2 · %1 · %2");
+        }
+        return {};
     }
-    if (std::strcmp(context, "MessageTest") == 0 &&
-        std::strcmp(source_text, "Operation failed · %1 · %2") == 0) {
-      return QStringLiteral("操作失败 · %1 · %2");
-    }
-    if (std::strcmp(context, "MessageTest") == 0 &&
-        std::strcmp(source_text, "Reordered · %1 · %2") == 0) {
-      return QStringLiteral("重排 · %2 · %1 · %2");
-    }
-    return {};
-  }
 };
 
 void semantic_messages_retranslate_without_touching_raw_arguments() {
-  const QString raw_detail =
-      QStringLiteral("decoder failed at /photos/%2/DSC_%1.NEF");
-  const LocalizedUiMessage message{
-      "MessageTest",
-      QT_TRANSLATE_NOOP("MessageTest", "Operation failed · %1 · %2"),
-      {raw_detail, 17},
-  };
-  require(
-      message.translated() ==
-          QStringLiteral(
-              "Operation failed · decoder failed at /photos/%2/DSC_%1.NEF · 17"),
-      "the source-language message must retain typed raw arguments without "
-      "rescanning placeholder-shaped diagnostics");
+    const QString raw_detail = QStringLiteral("decoder failed at /photos/%2/DSC_%1.NEF");
+    const LocalizedUiMessage message{
+        "MessageTest",
+        QT_TRANSLATE_NOOP("MessageTest", "Operation failed · %1 · %2"),
+        {raw_detail, 17},
+    };
+    require(
+        message.translated()
+            == QStringLiteral("Operation failed · decoder failed at /photos/%2/DSC_%1.NEF · 17"),
+        "the source-language message must retain typed raw arguments without "
+        "rescanning placeholder-shaped diagnostics"
+    );
 
-  TestTranslator translator;
-  require(QCoreApplication::installTranslator(&translator),
-          "the test translator must install");
-  require(message.translated() ==
-              QStringLiteral(
-                  "操作失败 · decoder failed at /photos/%2/DSC_%1.NEF · 17"),
-          "only the stable wrapper may translate; raw diagnostics must remain "
-          "verbatim");
-  require(QCoreApplication::removeTranslator(&translator),
-          "the test translator must uninstall");
+    TestTranslator translator;
+    require(QCoreApplication::installTranslator(&translator), "the test translator must install");
+    require(
+        message.translated()
+            == QStringLiteral("操作失败 · decoder failed at /photos/%2/DSC_%1.NEF · 17"),
+        "only the stable wrapper may translate; raw diagnostics must remain "
+        "verbatim"
+    );
+    require(QCoreApplication::removeTranslator(&translator), "the test translator must uninstall");
 }
 
 void semantic_message_placeholders_follow_only_the_template() {
-  const LocalizedUiMessage reordered{
-      "MessageTest",
-      QT_TRANSLATE_NOOP("MessageTest", "Reordered · %1 · %2"),
-      {QStringLiteral("raw %1 %2"), QStringLiteral("second")},
-  };
-  TestTranslator translator;
-  require(QCoreApplication::installTranslator(&translator),
-          "the reordered-message translator must install");
-  require(reordered.translated() ==
-              QStringLiteral("重排 · second · raw %1 %2 · second"),
-          "translated templates may reorder and repeat placeholders without "
-          "rescanning inserted arguments");
-  require(QCoreApplication::removeTranslator(&translator),
-          "the reordered-message translator must uninstall");
+    const LocalizedUiMessage reordered{
+        "MessageTest",
+        QT_TRANSLATE_NOOP("MessageTest", "Reordered · %1 · %2"),
+        {QStringLiteral("raw %1 %2"), QStringLiteral("second")},
+    };
+    TestTranslator translator;
+    require(
+        QCoreApplication::installTranslator(&translator),
+        "the reordered-message translator must install"
+    );
+    require(
+        reordered.translated() == QStringLiteral("重排 · second · raw %1 %2 · second"),
+        "translated templates may reorder and repeat placeholders without "
+        "rescanning inserted arguments"
+    );
+    require(
+        QCoreApplication::removeTranslator(&translator),
+        "the reordered-message translator must uninstall"
+    );
 
-  const LocalizedUiMessage missing{
-      "MessageTest",
-      QT_TRANSLATE_NOOP("MessageTest", "Present %1 · missing %3"),
-      {QStringLiteral("value"), QStringLiteral("unused")},
-  };
-  require(missing.translated() == QStringLiteral("Present value · missing %3"),
-          "a placeholder without an argument must remain visible");
+    const LocalizedUiMessage missing{
+        "MessageTest",
+        QT_TRANSLATE_NOOP("MessageTest", "Present %1 · missing %3"),
+        {QStringLiteral("value"), QStringLiteral("unused")},
+    };
+    require(
+        missing.translated() == QStringLiteral("Present value · missing %3"),
+        "a placeholder without an argument must remain visible"
+    );
 
-  const LocalizedUiMessage extra{
-      "MessageTest",
-      QT_TRANSLATE_NOOP("MessageTest", "Only %1"),
-      {QStringLiteral("value"), QStringLiteral("unused")},
-  };
-  require(extra.translated() == QStringLiteral("Only value"),
-          "extra typed arguments must not alter the template");
+    const LocalizedUiMessage extra{
+        "MessageTest",
+        QT_TRANSLATE_NOOP("MessageTest", "Only %1"),
+        {QStringLiteral("value"), QStringLiteral("unused")},
+    };
+    require(
+        extra.translated() == QStringLiteral("Only value"),
+        "extra typed arguments must not alter the template"
+    );
 }
 
 void version_model_retranslates_presentation_roles_only() {
-  BackendEditVersion version;
-  version.commit_id = QStringLiteral("opaque-commit-id");
-  version.name = QStringLiteral("Warm evening");
-  version.parent_commit_ids = {QStringLiteral("opaque-parent-id")};
-  version.changed_basic_parameters = {
-      QStringLiteral("exposure_stops"),
-      QStringLiteral("future_selective_color"),
-  };
-  version.changed_basic_parameter_count = 2;
+    BackendEditVersion version;
+    version.commit_id = QStringLiteral("opaque-commit-id");
+    version.name = QStringLiteral("Warm evening");
+    version.parent_commit_ids = {QStringLiteral("opaque-parent-id")};
+    version.changed_basic_parameters = {
+        QStringLiteral("exposure_stops"),
+        QStringLiteral("future_selective_color"),
+    };
+    version.changed_basic_parameter_count = 2;
 
-  EditVersionModel model;
-  model.replace({version});
-  bool changed = false;
-  QList<int> changed_roles;
-  QObject::connect(&model, &QAbstractItemModel::dataChanged,
-                   [&changed, &changed_roles](const QModelIndex &first,
-                                              const QModelIndex &last,
-                                              const QList<int> &roles) {
-                     changed = first.row() == 0 && last.row() == 0;
-                     changed_roles = roles;
-                   });
+    EditVersionModel model;
+    model.replace({version});
+    bool changed = false;
+    QList<int> changed_roles;
+    QObject::connect(
+        &model,
+        &QAbstractItemModel::dataChanged,
+        [&changed, &changed_roles](
+            const QModelIndex& first,
+            const QModelIndex& last,
+            const QList<int>& roles
+        ) {
+            changed = first.row() == 0 && last.row() == 0;
+            changed_roles = roles;
+        }
+    );
 
-  TestTranslator translator;
-  require(QCoreApplication::installTranslator(&translator),
-          "the version translator must install");
-  const auto index = model.index(0, 0);
-  require(changed,
-          "LanguageChange must automatically invalidate visible version rows");
-  require(changed_roles.contains(EditVersionModel::LabelRole) &&
-              changed_roles.contains(EditVersionModel::ChangeSummaryRole) &&
-              changed_roles.contains(EditVersionModel::ParentSummaryRole),
-          "language refresh must identify every translated presentation role");
-  require(model.data(index, EditVersionModel::LabelRole).toString() ==
-              QStringLiteral("Warm evening"),
-          "user-supplied version names must never be translated");
-  require(model.data(index, EditVersionModel::ChangeSummaryRole).toString() ==
-              QStringLiteral("曝光 · 其他调整"),
-          "semantic change labels must be recomputed in the active language");
-  require(model.data(index, EditVersionModel::ParentSummaryRole).toString() ==
-              QStringLiteral("1 个父版本"),
-          "lineage presentation must be recomputed in the active language");
-  require(model.data(index, EditVersionModel::CommitIdRole).toString() ==
-              QStringLiteral("opaque-commit-id"),
-          "opaque identifiers must remain untouched");
-  changed = false;
-  changed_roles.clear();
-  require(QCoreApplication::removeTranslator(&translator),
-          "the version translator must uninstall");
-  require(changed &&
-              changed_roles.contains(EditVersionModel::ChangeSummaryRole),
-          "removing a translator must automatically restore source-language "
-          "version roles");
-  require(model.data(index, EditVersionModel::ChangeSummaryRole).toString() ==
-              QStringLiteral("Exposure · Other adjustment"),
-          "source-language version presentation must return after removal");
+    TestTranslator translator;
+    require(
+        QCoreApplication::installTranslator(&translator),
+        "the version translator must install"
+    );
+    const auto index = model.index(0, 0);
+    require(changed, "LanguageChange must automatically invalidate visible version rows");
+    require(
+        changed_roles.contains(EditVersionModel::LabelRole)
+            && changed_roles.contains(EditVersionModel::ChangeSummaryRole)
+            && changed_roles.contains(EditVersionModel::ParentSummaryRole),
+        "language refresh must identify every translated presentation role"
+    );
+    require(
+        model.data(index, EditVersionModel::LabelRole).toString() == QStringLiteral("Warm evening"),
+        "user-supplied version names must never be translated"
+    );
+    require(
+        model.data(index, EditVersionModel::ChangeSummaryRole).toString()
+            == QStringLiteral("曝光 · 其他调整"),
+        "semantic change labels must be recomputed in the active language"
+    );
+    require(
+        model.data(index, EditVersionModel::ParentSummaryRole).toString()
+            == QStringLiteral("1 个父版本"),
+        "lineage presentation must be recomputed in the active language"
+    );
+    require(
+        model.data(index, EditVersionModel::CommitIdRole).toString()
+            == QStringLiteral("opaque-commit-id"),
+        "opaque identifiers must remain untouched"
+    );
+    changed = false;
+    changed_roles.clear();
+    require(
+        QCoreApplication::removeTranslator(&translator),
+        "the version translator must uninstall"
+    );
+    require(
+        changed && changed_roles.contains(EditVersionModel::ChangeSummaryRole),
+        "removing a translator must automatically restore source-language "
+        "version roles"
+    );
+    require(
+        model.data(index, EditVersionModel::ChangeSummaryRole).toString()
+            == QStringLiteral("Exposure · Other adjustment"),
+        "source-language version presentation must return after removal"
+    );
 }
 
 } // namespace
 
-int main(int argc, char *argv[]) {
-  QCoreApplication application(argc, argv);
-  root_has_a_semantic_summary();
+int main(int argc, char* argv[]) {
+    QCoreApplication application(argc, argv);
+    root_has_a_semantic_summary();
     basic_keys_are_localizable_labels();
     every_basic_key_has_a_stable_label();
     perceptual_lightness_curve_has_a_stable_version_label();
+    highlight_channel_correction_has_stable_version_labels();
     sharpening_changes_share_one_stable_version_label();
     grade_node_bypass_has_a_stable_version_label();
     optics_has_a_stable_version_label();
@@ -467,10 +512,10 @@ int main(int argc, char *argv[]) {
     grade_node_payload_changes_are_not_topology_changes();
     an_unrepresented_reported_change_is_not_lost();
     names_and_parent_counts_do_not_reveal_ids();
-  the_model_exposes_presentation_without_raw_keys();
-  selected_version_marker_moves_between_loaded_draft_and_durable_head();
-  semantic_messages_retranslate_without_touching_raw_arguments();
-  semantic_message_placeholders_follow_only_the_template();
-  version_model_retranslates_presentation_roles_only();
-  return EXIT_SUCCESS;
+    the_model_exposes_presentation_without_raw_keys();
+    selected_version_marker_moves_between_loaded_draft_and_durable_head();
+    semantic_messages_retranslate_without_touching_raw_arguments();
+    semantic_message_placeholders_follow_only_the_template();
+    version_model_retranslates_presentation_roles_only();
+    return EXIT_SUCCESS;
 }

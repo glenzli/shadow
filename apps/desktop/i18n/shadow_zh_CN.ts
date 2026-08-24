@@ -614,6 +614,21 @@
         <translation>黑色色阶</translation>
     </message>
     <message>
+        <location filename="../src/edit_fine_parameter_registry.cpp" line="23"/>
+        <source>Highlight red suppression</source>
+        <translation>高光红色抑制</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_fine_parameter_registry.cpp" line="26"/>
+        <source>Highlight green suppression</source>
+        <translation>高光绿色抑制</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_fine_parameter_registry.cpp" line="29"/>
+        <source>Highlight blue suppression</source>
+        <translation>高光蓝色抑制</translation>
+    </message>
+    <message>
         <location filename="../src/edit_fine_parameter_registry.cpp" line="22"/>
         <source>Green to red balance</source>
         <translation>绿至红平衡</translation>
@@ -1810,6 +1825,21 @@ R %2 · G %3 · B %4</translation>
         <location filename="../src/edit_version_presentation.cpp" line="52"/>
         <source>Blacks</source>
         <translation>黑色色阶</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_version_presentation.cpp" line="56"/>
+        <source>Highlight red suppression</source>
+        <translation>高光红色抑制</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_version_presentation.cpp" line="61"/>
+        <source>Highlight green suppression</source>
+        <translation>高光绿色抑制</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_version_presentation.cpp" line="66"/>
+        <source>Highlight blue suppression</source>
+        <translation>高光蓝色抑制</translation>
     </message>
     <message>
         <location filename="../src/edit_version_presentation.cpp" line="55"/>
@@ -5933,6 +5963,36 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="178"/>
         <source>LIGHT</source>
         <translation>明暗</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="267"/>
+        <source>RAW HIGHLIGHT CHANNEL CORRECTION</source>
+        <translation>RAW 高光通道修复</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="268"/>
+        <source>Suppress relative red, green, or blue excess only where RAW development reports unreliable highlight chroma. Perceived lightness and the exact source-risk boundary are preserved.</source>
+        <translation>仅在 RAW 开发标记为高光色彩不可靠的区域抑制相对红、绿或蓝色溢出；保持感知亮度和精确的源风险边界。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="278"/>
+        <source>Red suppression</source>
+        <translation>红色抑制</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="283"/>
+        <source>Green suppression</source>
+        <translation>绿色抑制</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="288"/>
+        <source>Blue suppression</source>
+        <translation>蓝色抑制</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="299"/>
+        <source>Reduce this channel only inside source-evidenced RAW highlight risk. Equal R/G/B values are neutral.</source>
+        <translation>仅在有源证据的 RAW 高光风险区域降低此通道。R/G/B 数值相同时不产生效果。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionColorMixer.qml" line="86"/>

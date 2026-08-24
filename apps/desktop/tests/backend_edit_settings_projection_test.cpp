@@ -50,6 +50,9 @@ void require(const bool condition, const std::string& message) {
     fine.shadows = 2.02;
     fine.whites = 2.03;
     fine.blacks = 2.04;
+    fine.highlight_red_suppression = 0.21;
+    fine.highlight_green_suppression = 0.32;
+    fine.highlight_blue_suppression = 0.43;
     fine.global_a_balance = 2.05;
     fine.global_b_balance = 2.06;
     fine.vibrance = 2.07;

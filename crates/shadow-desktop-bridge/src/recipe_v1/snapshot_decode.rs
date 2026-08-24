@@ -15,8 +15,10 @@ use shadow_domain::operation::{
     CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_PIVOT_PARAMETER_KEY,
     CPU_REFERENCE_IMPLEMENTATION_VERSION, CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
     DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_STOPS_PARAMETER_KEY, GLOBAL_A_BALANCE_PARAMETER_KEY,
-    GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHTS_PARAMETER_KEY, LUT_INTENSITY_PARAMETER_KEY,
-    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
+    GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY,
+    HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY, HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY,
+    HIGHLIGHTS_PARAMETER_KEY, LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY,
+    LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
     OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY, OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
     OKLAB_COLOR_WARPER_OPERATION_ID, OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
     OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
@@ -109,13 +111,7 @@ pub(crate) fn basic_parameters_from_nodes(
 pub(crate) fn fine_parameters_from_nodes(
     nodes: &GradeNodeRecipeV1RenderOps<'_>,
 ) -> AnyResult<FineEditParameters> {
-    let node = nodes.selective_tone;
-    let selective_tone = SelectiveToneParameters {
-        highlights: required_float(node.parameters(), HIGHLIGHTS_PARAMETER_KEY, 4)?,
-        shadows: required_float(node.parameters(), SHADOWS_PARAMETER_KEY, 4)?,
-        whites: required_float(node.parameters(), WHITES_PARAMETER_KEY, 4)?,
-        blacks: required_float(node.parameters(), BLACKS_PARAMETER_KEY, 4)?,
-    };
+    let selective_tone = selective_tone_parameters(nodes.selective_tone.parameters())?;
     let perceptual_color = {
         let node = nodes.perceptual_color;
         let expected_len = 17;
@@ -713,6 +709,52 @@ pub(crate) fn required_float(
             key.as_str()
         ),
     }
+}
+
+pub(crate) fn selective_tone_parameters(
+    parameters: &ParameterBlock,
+) -> AnyResult<SelectiveToneParameters> {
+    const LEGACY_PARAMETER_COUNT: usize = 4;
+    const CURRENT_PARAMETER_COUNT: usize = 7;
+    let parameter_count = parameters.len();
+    if parameter_count != LEGACY_PARAMETER_COUNT && parameter_count != CURRENT_PARAMETER_COUNT {
+        bail!("Selective Tone node has unexpected parameter count");
+    }
+
+    let legacy = parameter_count == LEGACY_PARAMETER_COUNT;
+    Ok(SelectiveToneParameters {
+        highlights: required_float(parameters, HIGHLIGHTS_PARAMETER_KEY, parameter_count)?,
+        shadows: required_float(parameters, SHADOWS_PARAMETER_KEY, parameter_count)?,
+        whites: required_float(parameters, WHITES_PARAMETER_KEY, parameter_count)?,
+        blacks: required_float(parameters, BLACKS_PARAMETER_KEY, parameter_count)?,
+        highlight_red_suppression: if legacy {
+            0.0
+        } else {
+            required_float(
+                parameters,
+                HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY,
+                parameter_count,
+            )?
+        },
+        highlight_green_suppression: if legacy {
+            0.0
+        } else {
+            required_float(
+                parameters,
+                HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY,
+                parameter_count,
+            )?
+        },
+        highlight_blue_suppression: if legacy {
+            0.0
+        } else {
+            required_float(
+                parameters,
+                HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY,
+                parameter_count,
+            )?
+        },
+    })
 }
 
 pub(crate) fn required_float_vector(

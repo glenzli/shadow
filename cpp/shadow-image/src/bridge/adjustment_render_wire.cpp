@@ -147,12 +147,15 @@ void require_parameter_count(
                 "selective tone requires the complete self-guided filter contract"
             );
         }
-        require_parameter_count(source, 4U, "selective tone");
+        require_parameter_count(source, 7U, "selective tone");
         result.parameters = image::SelectiveToneAdjustment{
             .highlights = source.parameters[0],
             .shadows = source.parameters[1],
             .whites = source.parameters[2],
             .blacks = source.parameters[3],
+            .highlight_red_suppression = source.parameters[4],
+            .highlight_green_suppression = source.parameters[5],
+            .highlight_blue_suppression = source.parameters[6],
         };
         break;
     case FfiAdjustmentOperation::PerceptualColor: {

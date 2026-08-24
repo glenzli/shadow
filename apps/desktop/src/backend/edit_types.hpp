@@ -59,6 +59,9 @@ struct BackendFineEditParameters final {
     double shadows = 0.0;
     double whites = 0.0;
     double blacks = 0.0;
+    double highlight_red_suppression = 0.0;
+    double highlight_green_suppression = 0.0;
+    double highlight_blue_suppression = 0.0;
     double global_a_balance = 0.0;
     double global_b_balance = 0.0;
     double vibrance = 0.0;
