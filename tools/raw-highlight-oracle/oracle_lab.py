@@ -27,11 +27,12 @@ TOOL_ROOT = pathlib.Path(__file__).resolve().parent
 REPOSITORY_ROOT = TOOL_ROOT.parents[1]
 UPSTREAM_LOCK = TOOL_ROOT / "upstreams.lock.json"
 MANIFEST_SCHEMA = "shadow.raw-highlight-oracle-run.v1"
-ORCHESTRATOR_VERSION = "20260825.1"
+ORCHESTRATOR_VERSION = "20260825.3"
 SAFE_RUN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 DEFAULT_ADAPTERS = (
     "shadow-rawframe",
+    "shadow-normalized-dng",
     "shadow-cfa-opposed",
     "libraw-identify",
     "libraw-h0-clip",
@@ -40,6 +41,7 @@ DEFAULT_ADAPTERS = (
     "rawtherapee-disabled",
     "rawtherapee-coloropp",
     "rawtherapee-color-propagation",
+    "darktable-default",
     "darktable-xmp",
     "vkdt-hilite",
 )
@@ -61,8 +63,10 @@ class AdapterPlan:
 @dataclasses.dataclass(frozen=True)
 class ToolSelection:
     shadow_probe: pathlib.Path | None
+    shadow_decode_helper: pathlib.Path | None
     raw_identify: pathlib.Path | None
     dcraw_emu: pathlib.Path | None
+    unprocessed_raw: pathlib.Path | None
     darktable_cli: pathlib.Path | None
     darktable_xmp: pathlib.Path | None
     rawtherapee_cli: pathlib.Path | None
@@ -103,6 +107,24 @@ def resolve_optional_file(value: str | None) -> pathlib.Path | None:
     return resolved if resolved.is_file() else None
 
 
+def resolve_rawtherapee_executable(explicit: str | None) -> pathlib.Path | None:
+    """Resolve the real macOS CLI, bypassing RawTherapee's app launcher.
+
+    The cask exposes ``rawtherapee-cli`` from the application bundle.  In some
+    macOS builds that file is a small launcher which can abort before the CLI
+    starts, while its sibling ``rawtherapee-cli-bin`` is the actual executable.
+    Other platforms and caller-supplied test tools remain unchanged.
+    """
+
+    resolved = resolve_executable(explicit, ("rawtherapee-cli",))
+    if resolved is None or resolved.name != "rawtherapee-cli":
+        return resolved
+    direct = resolved.with_name("rawtherapee-cli-bin")
+    if direct.is_file() and os.access(direct, os.X_OK):
+        return direct.resolve()
+    return resolved
+
+
 def output_root_is_external(output_root: pathlib.Path) -> bool:
     resolved = output_root.expanduser().resolve(strict=False)
     repository = REPOSITORY_ROOT.resolve()
@@ -122,6 +144,57 @@ def executable_identity(path: pathlib.Path) -> dict[str, object]:
 def load_upstream_lock() -> dict[str, object]:
     with UPSTREAM_LOCK.open("r", encoding="utf-8") as stream:
         return json.load(stream)
+
+
+def normalized_parent_receipt(
+    source: pathlib.Path, manifest_value: str | None
+) -> dict[str, object] | None:
+    if manifest_value is None:
+        return None
+    manifest_path = pathlib.Path(manifest_value).expanduser().resolve(strict=False)
+    if not manifest_path.is_file():
+        raise ValueError("normalized parent manifest does not exist")
+    try:
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("normalized parent manifest is unreadable") from exc
+    if document.get("schema") != MANIFEST_SCHEMA:
+        raise ValueError("normalized parent manifest schema is unsupported")
+    parent_run_name = document.get("run_name")
+    if not isinstance(parent_run_name, str) or not SAFE_RUN_NAME.fullmatch(parent_run_name):
+        raise ValueError("normalized parent manifest run name is invalid")
+    matches: list[dict[str, object]] = []
+    for adapter in document.get("adapters", []):
+        if not isinstance(adapter, dict):
+            continue
+        if adapter.get("id") != "shadow-normalized-dng" or adapter.get("status") != "succeeded":
+            continue
+        for artifact in adapter.get("artifacts", []):
+            if isinstance(artifact, dict) and artifact.get("path") == "normalized.dng":
+                matches.append(artifact)
+    source_sha = sha256_file(source)
+    exact = [
+        artifact
+        for artifact in matches
+        if artifact.get("sha256") == source_sha
+        and artifact.get("size_bytes") == source.stat().st_size
+    ]
+    if len(exact) != 1:
+        raise ValueError("input does not match exactly one normalized DNG parent artifact")
+    parent_source = document.get("source")
+    parent_source_sha = parent_source.get("sha256") if isinstance(parent_source, dict) else None
+    if not isinstance(parent_source_sha, str) or re.fullmatch(r"[0-9a-f]{64}", parent_source_sha) is None:
+        raise ValueError("normalized parent manifest source identity is invalid")
+    return {
+        "manifest_schema": MANIFEST_SCHEMA,
+        "manifest_sha256": sha256_file(manifest_path),
+        "run_name": parent_run_name,
+        "adapter_id": "shadow-normalized-dng",
+        "artifact_path": "normalized.dng",
+        "artifact_sha256": source_sha,
+        "artifact_size_bytes": source.stat().st_size,
+        "source_raw_sha256": parent_source_sha,
+    }
 
 
 def redaction_pairs(source: pathlib.Path, run_directory: pathlib.Path) -> tuple[tuple[str, str], ...]:
@@ -187,7 +260,7 @@ def rawtherapee_plan(
     output = directory / "result.tif"
     environment = {
         "RT_SETTINGS": str(directory / "settings"),
-        "XDG_CACHE_HOME": str(directory / "cache"),
+        "RT_CACHE": str(directory / "cache"),
     }
     return AdapterPlan(
         adapter_id=adapter_id,
@@ -241,6 +314,49 @@ def build_plan(
             working_directory=directory,
             environment={},
             notes=("Writes the untouched provider-neutral uint16 sensor plane and descriptor log.",),
+        )
+    if adapter_id == "shadow-normalized-dng":
+        if tools.shadow_decode_helper is None:
+            return "shadow-image-decode-helper was not found; pass --shadow-decode-helper"
+        if tools.raw_identify is None:
+            return "raw-identify is required for independent DNG recognition"
+        if tools.unprocessed_raw is None:
+            return "LibRaw unprocessed_raw is required for independent CFA verification"
+        script = TOOL_ROOT / "research_dng.py"
+        normalized_owner = TOOL_ROOT / "normalized_mosaic.py"
+        return AdapterPlan(
+            adapter_id=adapter_id,
+            stages=(
+                "shadow-provider-route",
+                "provider-neutral-active-rawframe",
+                "lossless-research-dng",
+                "libraw-unprocessed-reimport",
+            ),
+            comparison_class="same-decoded-cfa-interchange",
+            executable=pathlib.Path(sys.executable).resolve(),
+            argv=(
+                sys.executable,
+                str(script),
+                "from-raw",
+                "--decode-helper",
+                str(tools.shadow_decode_helper),
+                "--input",
+                str(source),
+                "--output-directory",
+                str(directory),
+                "--raw-identify",
+                str(tools.raw_identify),
+                "--unprocessed-raw",
+                str(tools.unprocessed_raw),
+            ),
+            working_directory=TOOL_ROOT,
+            environment={},
+            supporting_files=(script, normalized_owner),
+            notes=(
+                "The active CFA strip is copied byte-for-byte from Shadow RawFrame staging.",
+                "LibRaw unprocessed_raw must independently re-export identical uint16 samples.",
+                "DNGPrivateData preserves exact four-site metadata that standard DNG cannot express.",
+            ),
         )
     if adapter_id == "shadow-cfa-opposed":
         if tools.shadow_probe is None:
@@ -320,12 +436,19 @@ def build_plan(
         return rawtherapee_plan(
             adapter_id, "rawtherapee-color-propagation.pp3", tools, source, run_directory
         )
-    if adapter_id == "darktable-xmp":
+    if adapter_id in {"darktable-default", "darktable-xmp"}:
         if tools.darktable_cli is None:
             return "darktable-cli was not found; pass --darktable-cli"
-        if tools.darktable_xmp is None:
+        if adapter_id == "darktable-xmp" and tools.darktable_xmp is None:
             return "a controlled XMP is required; pass --darktable-xmp"
         output = directory / "result.tif"
+        input_arguments = [str(source)]
+        supporting_files: tuple[pathlib.Path, ...] = ()
+        if adapter_id == "darktable-xmp":
+            assert tools.darktable_xmp is not None
+            input_arguments.append(str(tools.darktable_xmp))
+            supporting_files = (tools.darktable_xmp,)
+        input_arguments.append(str(output))
         return AdapterPlan(
             adapter_id=adapter_id,
             stages=("container-decode", "raw-reconstruction", "demosaic", "colour"),
@@ -333,9 +456,7 @@ def build_plan(
             executable=tools.darktable_cli,
             argv=(
                 str(tools.darktable_cli),
-                str(source),
-                str(tools.darktable_xmp),
-                str(output),
+                *input_arguments,
                 "--apply-custom-presets",
                 "false",
                 "--hq",
@@ -348,15 +469,27 @@ def build_plan(
                 "--tmpdir",
                 str(directory / "tmp"),
                 "--library",
-                str(directory / "library.db"),
+                (
+                    ":memory:"
+                    if adapter_id == "darktable-default"
+                    else str(directory / "library.db")
+                ),
                 "--conf",
                 "plugins/imageio/format/tiff/bpp=16",
             ),
             working_directory=directory,
             environment={},
-            supporting_files=(tools.darktable_xmp,),
+            supporting_files=supporting_files,
             notes=(
-                "A caller-supplied XMP is mandatory so adjacent user sidecars cannot affect the run.",
+                (
+                    "The in-memory empty library selects Darktable's executable-defined default "
+                    "history without reading an adjacent sidecar."
+                    if adapter_id == "darktable-default"
+                    else (
+                        "A caller-supplied XMP is mandatory so adjacent user sidecars "
+                        "cannot affect the run."
+                    )
+                ),
             ),
         )
     if adapter_id == "vkdt-hilite":
@@ -445,7 +578,7 @@ def run_adapter(
     directory.mkdir(parents=True, exist_ok=False)
     for value in plan.environment.values():
         pathlib.Path(value).mkdir(parents=True, exist_ok=True)
-    if plan.adapter_id == "darktable-xmp":
+    if plan.adapter_id.startswith("darktable-"):
         for name in ("config", "cache", "tmp"):
             (directory / name).mkdir(parents=True, exist_ok=True)
 
@@ -512,11 +645,18 @@ def write_manifest(path: pathlib.Path, manifest: dict[str, object]) -> None:
 def selected_tools(args: argparse.Namespace) -> ToolSelection:
     return ToolSelection(
         shadow_probe=resolve_executable(args.shadow_probe, ("shadow-raw-probe",)),
+        shadow_decode_helper=resolve_executable(
+            args.shadow_decode_helper, ("shadow-image-decode-helper",)
+        ),
         raw_identify=resolve_executable(args.raw_identify, ("raw-identify",)),
         dcraw_emu=resolve_executable(args.dcraw_emu, ("dcraw_emu",)),
-        darktable_cli=resolve_executable(args.darktable_cli, ("darktable-cli",)),
+        unprocessed_raw=resolve_executable(args.unprocessed_raw, ("unprocessed_raw",)),
+        darktable_cli=resolve_executable(
+            args.darktable_cli,
+            ("darktable-cli", "/Applications/darktable.app/Contents/MacOS/darktable-cli"),
+        ),
         darktable_xmp=resolve_optional_file(args.darktable_xmp),
-        rawtherapee_cli=resolve_executable(args.rawtherapee_cli, ("rawtherapee-cli",)),
+        rawtherapee_cli=resolve_rawtherapee_executable(args.rawtherapee_cli),
         vkdt_cli=resolve_executable(args.vkdt_cli, ("vkdt-cli",)),
     )
 
@@ -555,6 +695,7 @@ def run(args: argparse.Namespace) -> int:
     source = pathlib.Path(args.input).expanduser().resolve(strict=False)
     if not source.is_file():
         raise ValueError(f"input RAW does not exist or is not a regular file: {source}")
+    parent_receipt = normalized_parent_receipt(source, args.normalized_parent_manifest)
     output_root = pathlib.Path(args.output_root).expanduser().resolve(strict=False)
     if not output_root_is_external(output_root):
         raise ValueError("oracle output must be outside the Shadow source worktree")
@@ -586,6 +727,7 @@ def run(args: argparse.Namespace) -> int:
             "sha256": sha256_file(source),
             "copied_into_run": False,
         },
+        "normalized_parent": parent_receipt,
         "comparison_boundary": {
             "strict_same_decode": [
                 adapter_id for adapter_id in selected if adapter_id == "shadow-cfa-opposed"
@@ -599,9 +741,24 @@ def run(args: argparse.Namespace) -> int:
                 adapter_id
                 for adapter_id in selected
                 if adapter_id
-                not in {"shadow-rawframe", "shadow-cfa-opposed", "libraw-identify"}
+                not in {
+                    "shadow-rawframe",
+                    "shadow-normalized-dng",
+                    "shadow-cfa-opposed",
+                    "libraw-identify",
+                }
             ],
-            "normalized_interchange_status": "not-implemented",
+            "normalized_interchange": [
+                adapter_id for adapter_id in selected if adapter_id == "shadow-normalized-dng"
+            ],
+            "normalized_children": list(selected) if parent_receipt is not None else [],
+            "normalized_interchange_status": (
+                "verified-parent"
+                if parent_receipt is not None
+                else "implemented"
+                if "shadow-normalized-dng" in selected
+                else "not-selected"
+            ),
         },
         "upstream_lock": load_upstream_lock(),
         "adapters": [],
@@ -644,8 +801,10 @@ def run(args: argparse.Namespace) -> int:
 
 def add_tool_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--shadow-probe")
+    parser.add_argument("--shadow-decode-helper")
     parser.add_argument("--raw-identify")
     parser.add_argument("--dcraw-emu")
+    parser.add_argument("--unprocessed-raw")
     parser.add_argument("--darktable-cli")
     parser.add_argument("--darktable-xmp")
     parser.add_argument("--rawtherapee-cli")
@@ -672,6 +831,10 @@ def parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--input", required=True)
     run_parser.add_argument("--output-root", required=True)
     run_parser.add_argument("--run-name")
+    run_parser.add_argument(
+        "--normalized-parent-manifest",
+        help="verify and record the parent shadow-normalized-dng run manifest",
+    )
     run_parser.add_argument("--require", action="append", choices=DEFAULT_ADAPTERS)
     run_parser.add_argument("--strict", action="store_true")
     run_parser.add_argument("--dry-run", action="store_true")

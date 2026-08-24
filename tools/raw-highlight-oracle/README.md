@@ -23,11 +23,12 @@ named source RAW (read-only; never copied)
         |
         +-- Shadow provider route -> RawFrame
         |       +-- untouched CFA evidence
+        |       +-- active uint16 CFA -> research DNG -> LibRaw byte-exact re-import
         |       `-- Shadow current vs pinned Darktable-opposed CFA reference
         |
         +-- LibRaw/dcraw_emu  H0 clip / H2 blend / H3 rebuild
         +-- RawTherapee       disabled / Coloropp / Color propagation
-        +-- Darktable         caller-controlled XMP only
+        +-- Darktable         isolated default history / caller-controlled XMP
         `-- vkdt              raw denoise -> CFA hilite -> demosaic -> linear PFM
                                 |
                                 `-- immutable run manifest + hashed artifacts + logs
@@ -65,6 +66,33 @@ mandatory.
 
 The orchestrator uses only the Python standard library. External tools are never built, installed,
 downloaded, or updated automatically.
+
+## Local CLI setup
+
+The normalized bridge and LibRaw ablations use Homebrew's `libraw` tools. RawTherapee's macOS cask
+exposes a CLI launcher, while the oracle resolves its sibling `rawtherapee-cli-bin` so a launcher
+signature failure cannot be mistaken for an algorithm failure. Each run redirects RawTherapee's
+settings and cache through `RT_SETTINGS` and `RT_CACHE`. Darktable ships its CLI inside the
+application bundle, so it can be passed by absolute path without adding a global symlink:
+
+```sh
+brew install libraw
+brew install --cask rawtherapee
+
+raw-identify -v -w /absolute/path/to/input.raw
+unprocessed_raw -q -T /absolute/path/to/input.dng
+RT_SETTINGS=/private/tmp/rt-settings RT_CACHE=/private/tmp/rt-cache \
+  /Applications/RawTherapee.app/Contents/MacOS/rawtherapee-cli-bin \
+  -q -o /private/tmp/result.tif -p /absolute/profile.pp3 -t -b16 -Y -c input.raw
+
+python3 tools/raw-highlight-oracle/oracle_lab.py inventory \
+  --darktable-cli /Applications/darktable.app/Contents/MacOS/darktable-cli
+```
+
+`unprocessed_raw`, rather than `dcraw_emu`, owns the independent pre-demosaic round-trip. The
+Homebrew LibRaw `dcraw_emu` does not expose classic dcraw's `-D` document option. `vkdt` has no
+locally discovered Homebrew formula; build the pinned source under `~/probe/vkdt` and pass its
+absolute `vkdt-cli` path when that oracle is selected.
 
 ## Inventory and execution
 
@@ -110,8 +138,43 @@ python3 tools/raw-highlight-oracle/oracle_lab.py run \
   --oracle libraw-h3-rebuild
 ```
 
-Darktable deliberately has no implicit default profile. Select `darktable-xmp` only with an XMP
-that was created and reviewed for the experiment:
+Create and independently verify the normalized research DNG:
+
+```sh
+python3 tools/raw-highlight-oracle/oracle_lab.py run \
+  --input /absolute/path/to/photo.raw \
+  --output-root /private/tmp/shadow-raw-oracles \
+  --run-name normalized-dng-example \
+  --oracle shadow-normalized-dng \
+  --require shadow-normalized-dng \
+  --shadow-decode-helper \
+    /absolute/task-build/cpp/shadow-image/shadow-image-decode-helper
+```
+
+The adapter calls Shadow's existing `raw-frame-staging` boundary, writes an uncompressed active-
+area DNG, checks its own strip and private descriptor, asks `raw-identify` to import it, and asks
+LibRaw `unprocessed_raw` to export the CFA again. Success requires the final uint16 sample SHA-256
+to equal the original staging SHA-256.
+
+Run child reconstruction oracles from a verified normalized-DNG parent. The parent manifest is
+hashed and its exact `normalized.dng` artifact identity must match the input before the child run is
+created:
+
+```sh
+python3 tools/raw-highlight-oracle/oracle_lab.py run \
+  --input /private/tmp/parent/adapters/shadow-normalized-dng/normalized.dng \
+  --normalized-parent-manifest /private/tmp/parent/manifest.json \
+  --output-root /private/tmp/shadow-raw-oracles \
+  --run-name normalized-children \
+  --oracle rawtherapee-coloropp \
+  --oracle rawtherapee-color-propagation \
+  --oracle darktable-default \
+  --strict
+```
+
+`darktable-default` uses an empty in-memory library, disables custom presets, and therefore records
+the executable-defined default history without reading an adjacent sidecar. For a named experiment,
+select `darktable-xmp` only with an XMP that was created and reviewed for the experiment:
 
 ```sh
 python3 tools/raw-highlight-oracle/oracle_lab.py run \
@@ -133,6 +196,7 @@ application defaults are therefore not silently admitted as oracle inputs.
 | Adapter | Boundary | Intended evidence |
 | --- | --- | --- |
 | `shadow-rawframe` | Shadow decode to provider-neutral CFA | Decoder descriptor and untouched sensor plane |
+| `shadow-normalized-dng` | Same Shadow active CFA through research DNG and LibRaw | Byte-exact independent sample re-import plus exact private metadata receipt |
 | `shadow-cfa-opposed` | Same Shadow `RawFrame` | Strict Shadow-current versus pinned Darktable-opposed reconstruction |
 | `libraw-identify` | Independent container metadata | LibRaw interpretation and camera capability evidence |
 | `libraw-h0-clip` | Independent complete pipeline | Clipped baseline |
@@ -141,6 +205,7 @@ application defaults are therefore not silently admitted as oracle inputs.
 | `rawtherapee-disabled` | Independent complete pipeline | RawTherapee no-recovery baseline |
 | `rawtherapee-coloropp` | Independent complete pipeline | RawTherapee opposed-colour reconstruction |
 | `rawtherapee-color-propagation` | Independent complete pipeline | RawTherapee colour-propagation reconstruction |
+| `darktable-default` | Independent isolated default pipeline | Executable-defined history with no sidecar or custom presets |
 | `darktable-xmp` | Independent controlled-XMP pipeline | Darktable result under an explicit experiment profile |
 | `vkdt-hilite` | Independent GPU pipeline | Raw-mosaic multiscale inpainting before demosaic |
 
@@ -164,14 +229,21 @@ reinspect the relevant files and their per-file license, update the lock, and re
 Shadow is GPL-3.0, but compatible project-level licensing does not remove attribution, per-file
 exception, or source-provenance obligations.
 
-## What is deliberately not implemented yet
+## Exactness boundary and remaining work
 
-There is not yet a common normalized mosaic interchange that feeds every reconstruction engine the
-same black-subtracted CFA and metadata. Proprietary-container runs therefore remain whole-pipeline
-oracles. The next isolating step is a documented normalized-mosaic-to-DNG bridge with exact active
-area, CFA phase, per-colour black/white levels, as-shot neutral, camera matrix, orientation, and
-lossless sample storage. It must be verified against round-trip sample equality before any result
-is called a same-decode comparison.
+The normalized-mosaic-to-DNG bridge is implemented. It preserves the active samples byte-for-byte,
+rephased CFA, four-site black/white/linear-response values, as-shot neutral, orientation, provider
+identity, matrices, and unapplied-opcode declarations in `DNGPrivateData`. Standard DNG tags carry
+the interoperable projection. In particular, standard DNG `WhiteLevel` has one value for a one-
+sample CFA IFD; when Shadow has unequal physical whites across CFA sites, the bridge uses the
+conservative minimum and records `standard_white_projection=conservative-minimum`. Such a file is
+transport evidence, not a claim that every external decoder received four independent white
+levels.
+
+RawTherapee and Darktable can now consume a generated DNG in a child run whose parent artifact is
+verified and recorded. The remaining normalized child is vkdt; it stays unavailable until the
+pinned CLI is built. Each reconstruction output is still classified as a complete pipeline rather
+than byte-preserving transport evidence.
 
 Likewise, the harness currently records artifact hashes and pipeline evidence rather than imposing
 one image-quality score. Objective comparisons should be added as separate, versioned analysis

@@ -43,6 +43,33 @@
       },
       "additionalProperties": false
     },
+    "normalized_parent": {
+      "type": ["object", "null"],
+      "required": [
+        "manifest_schema",
+        "manifest_sha256",
+        "run_name",
+        "adapter_id",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_size_bytes",
+        "source_raw_sha256"
+      ],
+      "properties": {
+        "manifest_schema": { "const": "shadow.raw-highlight-oracle-run.v1" },
+        "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "run_name": { "type": "string" },
+        "adapter_id": { "const": "shadow-normalized-dng" },
+        "artifact_path": { "const": "normalized.dng" },
+        "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "artifact_size_bytes": { "type": "integer", "minimum": 0 },
+        "source_raw_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
     "comparison_boundary": {
       "type": "object"
     },

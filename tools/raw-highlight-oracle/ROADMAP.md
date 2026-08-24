@@ -22,6 +22,10 @@ they remain explicit `unavailable` adapter results until separately built or ins
 
 ## Phase 2 — normalized mosaic interchange
 
+Status: transport and independent LibRaw sample round-trip implemented; RawTherapee and isolated
+Darktable normalized-DNG child execution is available, while the vkdt child matrix remains in
+progress.
+
 Goal: make more reconstruction engines consume equivalent decoded sensor evidence.
 
 Proposed boundary:
@@ -44,9 +48,23 @@ Required metadata:
 - as-shot neutral and camera-to-XYZ calibration;
 - source/provider identity and pending opcode declarations.
 
-The bridge is not accepted merely because a DNG opens. It must prove byte-identical active samples,
-identical CFA positions, and numerically equivalent calibration after re-import. Engines that alter
-samples or auto-apply a profile stay classified as independent pipelines.
+The bridge is not accepted merely because a DNG opens. The current adapter proves byte-identical
+active samples through LibRaw `unprocessed_raw`, identical CFA positions, exact Shadow metadata in
+`DNGPrivateData`, and records the standard-tag calibration projection. Nikon HE* and Sony real-RAW
+smokes both passed the byte-exact sample proof. Engines that alter samples or auto-apply a profile
+stay classified as independent pipelines.
+
+Standard DNG cannot express four separate physical white levels for a one-sample CFA IFD. The
+interoperable `WhiteLevel` is therefore the exact common value when all sites agree, otherwise the
+conservative minimum. The exact four-site values remain in the private descriptor and the run must
+not call the standard projection calibration-equivalent in the unequal case.
+
+Remaining acceptance:
+
+- run RawTherapee, Darktable, and vkdt from the generated DNG under pinned profiles/graphs;
+- keep the implemented fail-closed parent manifest and normalized-DNG artifact identity receipt;
+- distinguish byte-preserving import, metadata projection, and complete reconstruction output;
+- add the remaining vkdt normalized child once its pinned CLI build is available.
 
 ## Phase 3 — versioned objective comparison
 
