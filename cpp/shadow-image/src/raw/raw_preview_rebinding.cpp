@@ -320,15 +320,19 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
         impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
     }
     log_interactive_rebind_timing(timing_enabled, timing_sequence, "receipt-ready", timing_started);
+    const auto& sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis);
     auto highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis);
     if (uses_cfa_owned_highlight_reconstruction(effective_plan.highlight_recovery)) {
-        complete_cfa_owned_highlight_reconstruction(highlight_chroma_risk_map);
+        complete_cfa_owned_highlight_reconstruction(
+            sensor_clipping_mask,
+            highlight_chroma_risk_map
+        );
     }
     return ResidentRawPreviewRebinding{
         .output = std::move(*development.output),
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
-        .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
+        .sensor_clipping_mask = sensor_clipping_mask,
         .highlight_chroma_risk_map = std::move(highlight_chroma_risk_map),
     };
 #endif
@@ -592,7 +596,10 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         }
         HighlightChromaRiskMap highlight_chroma_risk = ordinary->highlight_chroma_risk;
         if (reconstruct_cfa_highlights) {
-            complete_cfa_owned_highlight_reconstruction(highlight_chroma_risk);
+            complete_cfa_owned_highlight_reconstruction(
+                ordinary->sensor_clipping,
+                highlight_chroma_risk
+            );
         }
         DcpColorExecutionBackend dcp_backend =
             fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;

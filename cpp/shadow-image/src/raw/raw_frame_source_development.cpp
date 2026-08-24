@@ -84,7 +84,10 @@ DevelopedRawFrame develop_raw_frame(PreparedRawFrameSource& prepared_source) {
         // reliable neighbour inside the same reconstructed footprint and would redraw that mixed
         // pixel as a colour contour. Publish that the source evidence was consumed without
         // touching RGB; the same ownership holds for area preview and native detail/export.
-        complete_cfa_owned_highlight_reconstruction(highlight_chroma_risk_map);
+        complete_cfa_owned_highlight_reconstruction(
+            *sensor_clipping_mask,
+            highlight_chroma_risk_map
+        );
     }
     DcpColorExecutionBackend dcp_execution_backend =
         fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;

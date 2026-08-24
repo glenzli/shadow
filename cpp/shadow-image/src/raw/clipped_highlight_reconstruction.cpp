@@ -600,16 +600,37 @@ void propagate_boundary_chroma_inside_clipping(
 
 } // namespace
 
-void complete_cfa_owned_highlight_reconstruction(HighlightChromaRiskMap& highlight_chroma_risk) {
-    if (!highlight_chroma_risk.valid()) {
+void complete_cfa_owned_highlight_reconstruction(
+    const SensorClippingMask& sensor_clipping,
+    HighlightChromaRiskMap& highlight_chroma_risk
+) {
+    if (!sensor_clipping.valid() || !highlight_chroma_risk.valid()
+        || sensor_clipping.dimensions != highlight_chroma_risk.dimensions) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
-            "completed CFA-owned highlight reconstruction requires a valid risk map"
+            "completed CFA-owned highlight reconstruction requires aligned valid source evidence"
         );
     }
     highlight_chroma_risk.source_surface_reconstructed = true;
-    std::fill(highlight_chroma_risk.samples.begin(), highlight_chroma_risk.samples.end(), 0U);
+    // The source pass has already consumed shoulder disagreement and inferred the missing camera
+    // colour. Preserve only a deliberately weak confidence that the fully terminal core may still
+    // carry a small residual tint. Shared coverage is exact source-bin ownership, not a dilated
+    // neighbourhood: squaring it suppresses boundary bins while remaining continuous at preview
+    // resolution. A quarter-scale risk ceiling becomes at most a one-half Oklab-chroma pull at the
+    // strongest later Highlights/Whites recovery, retaining the reconstructed illuminant.
+    constexpr float residual_terminal_risk_ceiling = 0.25F;
+    constexpr float u8_scale = 255.0F;
+    for (std::size_t pixel = 0U; pixel < highlight_chroma_risk.samples.size(); ++pixel) {
+        const float source_risk =
+            static_cast<float>(highlight_chroma_risk.samples[pixel]) / u8_scale;
+        const float shared_coverage = sensor_clipping.shared_highlight_coverage_at(pixel);
+        const float residual_risk = source_risk * shared_coverage * shared_coverage
+                                    * residual_terminal_risk_ceiling;
+        highlight_chroma_risk.samples[pixel] = static_cast<std::uint8_t>(std::lround(
+            std::clamp(residual_risk, 0.0F, residual_terminal_risk_ceiling) * u8_scale
+        ));
+    }
 }
 
 ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
@@ -882,13 +903,12 @@ ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
             "clipped-highlight reconstruction produced a non-finite scene-linear surface"
         );
     }
-    // RAW source preparation has now consumed this sidecar's unmeasured-CFA-colour evidence:
+    // RAW source preparation has now consumed this sidecar's broad unmeasured-CFA-colour evidence:
     // the demosaic path performs the continuous camera-space repair and this surface pass repairs
-    // its remaining low-frequency topology. Leaving the original map behind would make a strong
-    // later highlight pull desaturate the same footprint a second time, revealing the sensor-risk
-    // boundary as a grey ring. Keep the factual clipping mask for diagnostics, but publish zero
-    // residual chroma risk to the grade path.
-    complete_cfa_owned_highlight_reconstruction(highlight_chroma_risk);
+    // its remaining low-frequency topology. Keeping that broad map would make a strong later
+    // highlight pull reveal it as a grey ring. Retain only a weak, exact shared-terminal residual
+    // so extreme recovery can suppress a remaining core tint without redrawing the boundary.
+    complete_cfa_owned_highlight_reconstruction(sensor_clipping, highlight_chroma_risk);
     return stats;
 }
 

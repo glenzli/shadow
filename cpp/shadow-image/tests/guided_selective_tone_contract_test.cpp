@@ -488,6 +488,23 @@ void selective_tone_neutralizes_only_physically_clipped_recovered_highlights() {
         "binary physical-white decision"
     );
 
+    reconstructed_risk.samples[0U] = 64U;
+    const auto reconstructed_terminal = image::execute_adjustment_nodes(
+        input,
+        node,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = input.dimensions,
+            .sensor_clipping_mask = &clipping,
+            .highlight_chroma_risk_map = &reconstructed_risk,
+        }
+    );
+    expect(
+        chroma(reconstructed_terminal) < chroma(ordinary) * 0.62
+            && chroma(reconstructed_terminal) > chroma(recovered) * 3.0,
+        "bounded reconstructed terminal risk suppresses a residual tint without flattening the "
+        "source-repaired illuminant"
+    );
+
     const std::array moderate_node{
         image::AdjustmentNode{
             .node_id = "sensor-clipped-midpoint-highlight-recovery",

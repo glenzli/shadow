@@ -261,19 +261,19 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.17;"
+        return "sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.18;"
                "recovery=local-opposed+cached-global-chrominance;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-opposed-response-limit-chrominance-v22";
+               "clipped-highlight=cfa-opposed-response-limit-chrominance-v23";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
         return "sensor-highlights=unsupported";
     case RawHighlightRecoveryIntent::aggressive:
-        return "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260824.17;"
+        return "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260824.18;"
                "recovery=local-opposed+cached-global-chrominance+explicit-spatial-chroma;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-opposed-response-limit-chrominance-v22";
+               "clipped-highlight=cfa-opposed-response-limit-chrominance-v23";
     }
     return "sensor-highlights=unknown";
 }

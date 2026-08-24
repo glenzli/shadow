@@ -427,10 +427,10 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.17;"
+            == "sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.18;"
                "recovery=local-opposed+cached-global-chrominance;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-opposed-response-limit-chrominance-v22",
+               "clipped-highlight=cfa-opposed-response-limit-chrominance-v23",
         "the default source receipt identifies cached-chrominance terminal highlight reconstruction"
     );
 
@@ -732,10 +732,10 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260824.17;"
+                   == "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260824.18;"
                       "recovery=local-opposed+cached-global-chrominance+explicit-spatial-chroma;"
                       "headroom=physical-white-wb-fp32;"
-                      "clipped-highlight=cfa-opposed-response-limit-chrominance-v22",
+                      "clipped-highlight=cfa-opposed-response-limit-chrominance-v23",
         "aggressive cached-chrominance CFA reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;

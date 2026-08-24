@@ -47,7 +47,7 @@ struct SensorClippingMask final {
 // multi-channel headroom has diverged or every channel shares the terminal response shoulder.
 // Spatial luminance reconstruction belongs to RAW source preparation; keeping this sidecar to one
 // R8 plane preserves the smallest CPU/Metal Selective Tone hot path.
-inline constexpr std::uint32_t highlight_chroma_risk_map_schema_version = 4U;
+inline constexpr std::uint32_t highlight_chroma_risk_map_schema_version = 5U;
 
 struct HighlightChromaRiskMap final {
     std::uint32_t schema_version = highlight_chroma_risk_map_schema_version;
@@ -55,9 +55,11 @@ struct HighlightChromaRiskMap final {
     std::vector<std::uint8_t> samples;
     // True when RAW source preparation has consumed the lost-CFA-colour evidence, either inside
     // evidence-owned area integration or through a full-resolution low-frequency colour surface.
-    // The physical mask remains factual for diagnostics, while Selective Tone consumes these
-    // reconstructed continuous risk samples without overriding them back to a binary
-    // physical-white decision. The field name is retained for schema compatibility.
+    // The physical mask remains factual for diagnostics. Once reconstruction completes, the R8
+    // plane retains only bounded residual uncertainty inside the exact shared-terminal coverage;
+    // Selective Tone consumes that continuous core signal without restoring a binary
+    // physical-white decision or expanding the repaired footprint. The field name is retained for
+    // schema compatibility.
     bool source_surface_reconstructed = false;
 
     [[nodiscard]] bool valid() const noexcept;

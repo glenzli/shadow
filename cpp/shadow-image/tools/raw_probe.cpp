@@ -1123,6 +1123,17 @@ void render_warm_highlight_diagnostic(
         shared_coverage_path = output_directory / "warm-highlight-shared-coverage.pgm";
         write_u8_pgm(shared_coverage_path, clipping->dimensions, coverage);
     }
+    fs::path grade_risk_path;
+    std::uint64_t grade_risk_nonzero_pixels = 0U;
+    std::uint8_t grade_risk_maximum = 0U;
+    if (const auto& risk = enabled.highlight_chroma_risk_map(); risk.has_value()) {
+        grade_risk_path = output_directory / "warm-highlight-grade-risk.pgm";
+        write_u8_pgm(grade_risk_path, risk->dimensions, risk->samples);
+        for (const auto sample : risk->samples) {
+            grade_risk_nonzero_pixels += sample != 0U ? 1U : 0U;
+            grade_risk_maximum = std::max(grade_risk_maximum, sample);
+        }
+    }
     std::cout << "highlight_diagnostic.status=ok\n"
               << "highlight_diagnostic.default_output="
               << (output_directory / "warm-highlight-default.jpg").string() << '\n'
@@ -1135,6 +1146,12 @@ void render_warm_highlight_diagnostic(
               << "highlight_diagnostic.aggressive_recovered_output="
               << (output_directory / "warm-highlight-aggressive-recovered.jpg").string() << '\n'
               << "highlight_diagnostic.shared_coverage_output=" << shared_coverage_path.string()
+              << '\n'
+              << "highlight_diagnostic.grade_risk_output=" << grade_risk_path.string() << '\n'
+              << "highlight_diagnostic.grade_risk_nonzero_pixels="
+              << grade_risk_nonzero_pixels << '\n'
+              << "highlight_diagnostic.grade_risk_maximum="
+              << static_cast<unsigned int>(grade_risk_maximum)
               << '\n';
 }
 

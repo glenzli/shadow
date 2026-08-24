@@ -217,7 +217,7 @@ void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
     }
     expect(linear_parity, "the resident Metal source-clipping recovery matches the CPU reference");
 
-    highlight_evidence.samples.assign(highlight_evidence.samples.size(), 0U);
+    highlight_evidence.samples.assign(highlight_evidence.samples.size(), 64U);
     highlight_evidence.source_surface_reconstructed = true;
     auto reconstructed_preparation =
         image::detail::prepare_warm_edit_gpu_session(source, &clipping, &highlight_evidence);
@@ -249,7 +249,7 @@ void resident_gpu_selective_tone_matches_clipped_highlight_chroma_policy() {
                 reconstructed_maximum_error,
                 1.5e-3
             ),
-        "resident Metal preserves reconstructed highlight colour with CPU parity"
+        "resident Metal applies bounded reconstructed terminal uncertainty with CPU parity"
     );
 }
 

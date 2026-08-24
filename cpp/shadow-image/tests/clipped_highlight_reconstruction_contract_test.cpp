@@ -91,6 +91,42 @@ highlight_risk_from_mask(const image::SensorClippingMask& mask) {
     return risk;
 }
 
+void cfa_completion_retains_only_bounded_terminal_uncertainty() {
+    image::SensorClippingMask clipping{
+        .dimensions = {3U, 1U},
+        .samples = {
+            static_cast<std::uint8_t>(
+                image::sensor_highlight_clipped | image::sensor_shared_highlight_clipped
+            ),
+            static_cast<std::uint8_t>(
+                image::sensor_highlight_clipped
+                | (16U << image::sensor_shared_highlight_coverage_shift)
+            ),
+            image::sensor_highlight_clipped,
+        },
+        .highlight_pixel_count = 3U,
+    };
+    image::HighlightChromaRiskMap risk{
+        .dimensions = clipping.dimensions,
+        .samples = {255U, 255U, 255U},
+    };
+
+    image::raw_pipeline_detail::complete_cfa_owned_highlight_reconstruction(clipping, risk);
+
+    expect(
+        risk.source_surface_reconstructed && risk.samples[0U] == 64U,
+        "a fully terminal reconstructed core retains only bounded residual colour uncertainty"
+    );
+    expect(
+        risk.samples[1U] > 0U && risk.samples[1U] < risk.samples[0U],
+        "fractional shared-terminal ownership fades residual uncertainty continuously"
+    );
+    expect(
+        risk.samples[2U] == 0U,
+        "an any-channel clipping boundary cannot inherit reconstructed terminal uncertainty"
+    );
+}
+
 [[nodiscard]] double clipped_chroma_rmse(
     const image::SceneLinearRgbFrame& actual,
     const image::SceneLinearRgbFrame& expected,
@@ -274,9 +310,8 @@ void reconstruction_hides_clip_topology_without_crossing_dark_edges() {
         "contradictory-core smoothing retains most clipped-source energy instead of flattening it"
     );
     expect(
-        highlight_risk.source_surface_reconstructed && highlight_risk.samples[centre_pixel] == 0U,
-        "the grade sidecar trusts reconstructed core colour instead of reapplying physical-white "
-        "neutralisation"
+        highlight_risk.source_surface_reconstructed && highlight_risk.samples[centre_pixel] == 64U,
+        "the grade sidecar keeps only bounded terminal uncertainty after source reconstruction"
     );
 
     const auto dark_pixel = static_cast<std::size_t>(60U) * dimensions.width + 70U;
@@ -422,13 +457,18 @@ void cfa_risk_bands_do_not_modulate_the_luminance_feather() {
     ));
 
     float maximum_luminance_difference = 0.0F;
-    bool residual_risk_remains = false;
+    bool residual_risk_outside_shared_terminal = false;
+    std::uint8_t maximum_residual_risk = 0U;
     for (std::size_t pixel = 0U; pixel < dimensions.pixel_count(); ++pixel) {
         maximum_luminance_difference = std::max(
             maximum_luminance_difference,
             std::abs(luminance(unbanded, pixel) - luminance(banded, pixel))
         );
-        residual_risk_remains = residual_risk_remains || banded_risk.samples[pixel] != 0U;
+        maximum_residual_risk = std::max(maximum_residual_risk, banded_risk.samples[pixel]);
+        residual_risk_outside_shared_terminal =
+            residual_risk_outside_shared_terminal
+            || (banded_risk.samples[pixel] != 0U
+                && clipping.shared_highlight_coverage_at(pixel) <= 0.0F);
     }
     if (maximum_luminance_difference >= 2.0e-5F) {
         std::cerr << "diagnostic: risk-band luminance difference " << maximum_luminance_difference
@@ -439,8 +479,9 @@ void cfa_risk_bands_do_not_modulate_the_luminance_feather() {
         "quantised CFA colour-risk bands cannot become luminance rings around a clipped source"
     );
     expect(
-        banded_risk.source_surface_reconstructed && !residual_risk_remains,
-        "source preparation consumes the obsolete CFA-risk topology exactly once"
+        banded_risk.source_surface_reconstructed && maximum_residual_risk == 64U
+            && !residual_risk_outside_shared_terminal,
+        "source preparation removes risk bands while retaining only bounded terminal uncertainty"
     );
 }
 
@@ -640,8 +681,8 @@ void contradictory_cfa_core_follows_the_measured_boundary_without_a_magenta_core
         "CFA-risked magenta ratio or inventing display grey"
     );
     expect(
-        risk.samples[centre_pixel] == 0U,
-        "a fully reconstructed core consumes the obsolete CFA chroma warning"
+        risk.samples[centre_pixel] == 64U,
+        "a fully reconstructed core retains only bounded terminal chroma uncertainty"
     );
 }
 
@@ -684,6 +725,7 @@ void empty_or_unrecoverable_masks_are_no_ops() {
 } // namespace
 
 int main() {
+    cfa_completion_retains_only_bounded_terminal_uncertainty();
     reconstruction_hides_clip_topology_without_crossing_dark_edges();
     measured_highlight_shoulder_remains_exact();
     cfa_risk_bands_do_not_modulate_the_luminance_feather();

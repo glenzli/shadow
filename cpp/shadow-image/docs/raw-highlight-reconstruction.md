@@ -210,9 +210,16 @@ risk = max(disagreement, shared_terminal)
 `disagreement` 要求至少两个独立颜色失去余量，并保护一色发光体；`shared_terminal` 处理
 三个颜色一起压平、但没有通道不一致可供前项发现的太阳核心。结果编码为 R8 `0...255`。
 
-普通 CFA 主路径在完成 source-owned 修复后会把 risk sidecar 标记为 consumed 并清零，避免
-后续 Selective Tone 再画一次相同边界。未保留 CFA photosite 的兼容源或显式 `disabled`
-诊断路径，才可能把未消费风险交给后续阶段。
+普通 CFA 主路径在完成 source-owned 修复后会把 risk sidecar 标记为 consumed，并把原始
+shoulder topology 压缩为仅存在于 exact shared-terminal coverage 的弱残余置信度：
+
+```text
+residual = source_risk * shared_coverage^2 * 0.25
+```
+
+它不做膨胀；coverage 为零的 any-channel 边界必为零。后续 Selective Tone 只会在用户真的
+负向恢复高光时，用这条至多约二分之一 Oklab 色度拉回的核心信号抑制残留色染，不能重画
+原来的风险边界。显式 `disabled` 诊断路径仍可能把未消费风险交给后续阶段。
 
 ## 4. 默认 CFA 高光算法
 
@@ -322,10 +329,11 @@ feather。桌面没有单独开关，也不应把它重新做成默认；它曾�
 `complete_cfa_owned_highlight_reconstruction()` 只做两件事：
 
 1. 把 `source_surface_reconstructed` 标为 true；
-2. 清空 R8 risk samples。
+2. 用对齐的 `SensorClippingMask` 把 R8 risk samples 收缩为
+   `source_risk * shared_coverage^2 * 0.25`。
 
-它不能再次写 scene RGB。这个看似“什么也没做”的步骤是防止后续恢复逻辑重新解释物理
-剪切 mask 的关键协议。
+它不能再次写 scene RGB，也不能从 neighbourhood 推导所有权。这个步骤既防止后续恢复逻辑
+重新解释物理剪切 mask，也为强力压暗时仍显露的一点 terminal 色染留下有界处理余量。
 
 ## 5. Camera RGB / AI foundation 的独立 fallback
 
@@ -362,15 +370,15 @@ quintic shoulder，而不是叠加两个无界 hinge：
 quintic window 在两端导数回到零，超高光最终恢复 1:1 局部斜率，所以不同的 scene-linear
 头部能量仍可区分。
 
-只有 source risk 尚未消费时，负向恢复才在 Oklab 中降低 `a/b`：恢复量超过 `0.05 EV`
+只有 source risk 非零时，负向恢复才在 Oklab 中降低 `a/b`：恢复量超过 `0.05 EV`
 后，在 `0.50 EV` 内平滑达到强度，色度拉回系数为：
 
 ```text
 chroma_pull = recovery_smoothstep * sqrt(source_risk)
 ```
 
-普通 CFA 默认路径已经在 source stage 消费 risk，因此不会再被二次去色。CPU 与 resident
-Metal 使用相同常数和公式。
+普通 CFA 默认路径已经在 source stage 消费 broad risk，只保留 exact shared-terminal 的弱
+残余置信度，因此不会再被二次描边。CPU 与 resident Metal 使用相同常数和公式。
 
 ## 7. CPU、Metal 与交互性能合同
 
@@ -409,12 +417,12 @@ scene-RGB pass 或禁止 resident detail，都应先被视为性能回归，而�
 | `RawFrame` schema | `2026082201` |
 | Shadow RawFrame developer | `2026082202` |
 | sensor clipping mask schema | `3` |
-| highlight chroma risk schema | `4` |
-| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.17` |
+| highlight chroma risk schema | `5` |
+| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.18` |
 | 默认 recovery | `local-opposed+cached-global-chrominance` |
 | 头部余量 | `physical-white-wb-fp32` |
-| ordinary clipped highlight | `clipped-highlight=cfa-opposed-response-limit-chrominance-v22` |
-| aggressive 诊断 | `cfa-opposed-cached-chrominance-feathered@20260824.17` |
+| ordinary clipped highlight | `clipped-highlight=cfa-opposed-response-limit-chrominance-v23` |
+| aggressive 诊断 | `cfa-opposed-cached-chrominance-feathered@20260824.18` |
 | Camera RGB fallback | `clipped-highlight=boundary-propagated-scene-shoulder-v17` |
 
 完整 `pipeline_identity` 还包含 provider/version、requested/effective plan、backend、denoise、

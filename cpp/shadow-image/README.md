@@ -190,7 +190,9 @@ Current contract rules:
   symmetric boundary bell, whose dip could become a second arc after an extreme highlight pull,
   while retaining light energy and suppressing quantised core plateaus. Adjacent dark
   subjects have zero support and the measured exterior remains unchanged. Once the source pass has
-  consumed the sidecar's colour-loss evidence, it clears that evidence before the grade path. This
+  consumed the sidecar's broad colour-loss topology, it keeps only weak residual uncertainty inside
+  exact shared-terminal coverage before the grade path. That continuous core signal lets extreme
+  recovery suppress a remaining terminal tint without expanding onto measured neighbours. This
   prevents either reconstruction or later recovery from drawing a dark island, bright dome, or
   second clipping-mask contour while still correcting false colour without inventing texture.
   Camera-RGB fallback detail/export materializes this source once instead of inferring a different
@@ -355,6 +357,13 @@ sensor extraction and reports the exact resolved noise model. `--neural-raw-only
 executes the configured RAW-to-RAW neural node and reports its model/runtime identity plus numeric
 sample deltas, but deliberately does not claim that later declared DNG opcodes or final rendering
 have executed.
+
+`shadow-raw-probe --highlight-diagnostic` also writes `warm-highlight-shared-coverage.pgm` and
+`warm-highlight-grade-risk.pgm`. The former is the factual source-bin terminal coverage; the latter
+is the exact R8 sidecar delivered to Selective Tone after source-owned CFA reconstruction. Keeping
+both artifacts separate makes ownership expansion, missing warm-session evidence, and an
+over-conservative residual strength directly distinguishable without treating a rendered JPEG as
+RAW truth.
 
 `shadow-image-decode-helper neutral-detail-tile` is a development isolation proof, not the current
 Recipe-aware edit or export route. It proves that a child process can open a source through the

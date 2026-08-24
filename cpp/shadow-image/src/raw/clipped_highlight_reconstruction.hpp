@@ -40,12 +40,16 @@ struct ClippedHighlightReconstructionStats final {
     Dimensions guide_dimensions;
 };
 
-// Marks CFA-stage highlight reconstruction as the owner of the source repair and consumes the
-// obsolete risk sidecar without performing a second scene-RGB write. Ordinary Bayer preview,
-// detail, and export paths use this after their evidence-owned CFA reconstruction; later tone
-// operations must not reinterpret the factual sensor-clipping mask as unrepaired chroma and draw
-// the boundary again.
-void complete_cfa_owned_highlight_reconstruction(HighlightChromaRiskMap& highlight_chroma_risk);
+// Marks CFA-stage highlight reconstruction as the owner of the source repair and converts the
+// broad pre-reconstruction risk topology into a small residual confidence inside exact shared
+// terminal coverage. Ordinary Bayer preview, detail, and export paths use this after their
+// evidence-owned CFA reconstruction. The grade path may then suppress a remaining terminal tint
+// during negative highlight recovery without reinterpreting the binary clipping boundary or
+// expanding colour onto measured neighbours.
+void complete_cfa_owned_highlight_reconstruction(
+    const SensorClippingMask& sensor_clipping,
+    HighlightChromaRiskMap& highlight_chroma_risk
+);
 
 // Softens source-unreliable highlight topology with bounded low-frequency local evidence at
 // native/detail geometry. CFA-area previews instead complete their repair inside evidence-owned
@@ -57,9 +61,10 @@ void complete_cfa_owned_highlight_reconstruction(HighlightChromaRiskMap& highlig
 // three-colour physical-clipping core. Single/two-channel clipping may repair unreliable chroma but
 // cannot become a low-frequency luminance surface. Edge gates and the native-resolution risk map
 // keep either repair from crossing onto an adjacent dark subject; measured pixels outside that
-// explicit footprint remain unchanged. Source preparation then consumes the obsolete CFA-risk
-// sidecar so later recovery cannot redraw its topology. The full-resolution frame is changed in
-// place and the extra propagation storage is bounded to the small guide.
+// explicit footprint remain unchanged. Source preparation then reduces the obsolete broad CFA-risk
+// topology to bounded residual uncertainty inside the factual terminal core, so later recovery can
+// remove a remaining tint without redrawing the source boundary. The full-resolution frame is
+// changed in place and the extra propagation storage is bounded to the small guide.
 [[nodiscard]] ClippedHighlightReconstructionStats reconstruct_clipped_highlight_surface(
     SceneLinearRgbFrame& scene_linear,
     const SensorClippingMask& sensor_clipping,
