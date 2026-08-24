@@ -347,12 +347,23 @@ void render_highlight_cfa_diagnostic(
         throw std::runtime_error("CFA highlight diagnostic requires a valid Bayer RAW frame");
     }
     const auto plan = image::preview_raw_development_plan();
-    const image::RawFrameLinearTransform transform =
+    image::RawFrameLinearTransform transform =
         image::raw_pipeline_detail::prepare_raw_frame_linear_transform(
             frame.descriptor,
             plan.white_balance,
             nullptr
         );
+    const Stopwatch compiled_chrominance_timer;
+    const auto compiled_chrominance_model =
+        image::detail::build_opposed_highlight_chrominance_model(frame);
+    const auto initial_treatment = image::detail::editable_raw_cfa_sampling_policy(transform);
+    const auto compiled_chrominance = image::detail::evaluate_opposed_highlight_chrominance_model(
+        compiled_chrominance_model,
+        &transform,
+        initial_treatment
+    );
+    transform.opposed_highlight_chrominance_offsets = compiled_chrominance.offsets;
+    const double compiled_chrominance_ms = compiled_chrominance_timer.elapsed_ms();
     const auto treatment = image::detail::editable_raw_cfa_sampling_policy(transform);
     const auto chrominance = image::detail::estimate_opposed_highlight_chrominance_correction(
         frame,
@@ -497,7 +508,8 @@ void render_highlight_cfa_diagnostic(
 
     std::cout << "highlight_cfa_diagnostic.status=ok\n"
               << "highlight_cfa_diagnostic.algorithm=darktable-opposed-photosite-v1\n"
-              << "highlight_cfa_diagnostic.threshold=0.987\n";
+              << "highlight_cfa_diagnostic.threshold=0.987\n"
+              << "timing.highlight_cfa_compiled_chrominance_ms=" << compiled_chrominance_ms << '\n';
     for (std::size_t channel = 0U; channel < 3U; ++channel) {
         std::cout << "highlight_cfa_diagnostic.channel." << channel_names[channel]
                   << ".chrominance_offset=" << chrominance.offsets[channel] << '\n'
@@ -508,6 +520,12 @@ void render_highlight_cfa_diagnostic(
                   << "highlight_cfa_diagnostic.channel." << channel_names[channel]
                   << ".sampled_chrominance_support="
                   << sampled_chrominance.supporting_samples[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".compiled_chrominance_offset=" << compiled_chrominance.offsets[channel]
+                  << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".compiled_chrominance_records="
+                  << compiled_chrominance_model.support_records[channel].size() << '\n'
                   << "highlight_cfa_diagnostic.channel." << channel_names[channel]
                   << ".candidates=" << candidates[channel] << '\n'
                   << "highlight_cfa_diagnostic.channel." << channel_names[channel]
