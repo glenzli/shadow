@@ -31,6 +31,7 @@ struct RawDevelopmentParameters {
     float linear_response_minus_black[4];
     float camera_to_linear_srgb[9];
     float cfa_white_balance[4];
+    float opposed_highlight_chrominance_offsets[4];
     uint apply_cfa_white_balance;
     float cfa_white_balance_scale;
     uint cap_physical_sensor_white;
@@ -165,7 +166,8 @@ inline float opposed_highlight_reconstructed_sample(
         + pow(totals[second_opposing] / float(counts[second_opposing]), 1.0f / 3.0f)
     );
     const float opposed_reference =
-        opposing_root_mean * opposing_root_mean * opposing_root_mean;
+        opposing_root_mean * opposing_root_mean * opposing_root_mean
+        + parameters.opposed_highlight_chrominance_offsets[channel];
     return max(measured, mix(measured, opposed_reference, clamp(evidence, 0.0f, 1.0f)));
 }
 
@@ -565,10 +567,7 @@ inline CameraRgbSample camera_rgb_at(
                       exact_physical_white_coverage
                   ) * aggressive_highlight_edge_support(values)
               )
-            : max(
-                  highlight_chroma_neutralization(values, channel_evidence),
-                  shared_physical_white_neutralization(channel_physical_white_coverage)
-              )
+            : 0.0f
     };
 }
 

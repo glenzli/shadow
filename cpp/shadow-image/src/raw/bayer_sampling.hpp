@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace shadow::image {
 
@@ -55,6 +56,24 @@ struct CfaOpposedChrominanceCorrection final {
     bool any_terminal_photosite = false;
 };
 
+// Bounded, source-bound support for darktable's second opposed term. Each record retains only a
+// measured sensor value and the phase-resolved 3x3 neighbourhood needed to re-evaluate the
+// chrominance residual under a different white balance. Building the model is O(sensor pixels)
+// once; evaluating it is bounded independently of image dimensions and performs no image copy.
+struct CfaOpposedChrominanceSupportRecord final {
+    std::array<float, 4U> phase_totals{};
+    std::array<std::uint8_t, 4U> phase_counts{};
+    float measured_sensor = 0.0F;
+    std::uint8_t measured_phase = 0U;
+};
+
+struct CfaOpposedChrominanceModel final {
+    std::array<RawCfaColor, 4U> phase_colors{};
+    std::array<std::vector<CfaOpposedChrominanceSupportRecord>, 3U> support_records;
+    std::array<std::uint64_t, 3U> total_supporting_samples{};
+    bool any_terminal_photosite = false;
+};
+
 [[nodiscard]] BayerCfaSamplingPolicy
 editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexcept;
 
@@ -79,17 +98,29 @@ aggressive_highlight_repair_cfa_sampling_policy(const RawFrameLinearTransform& t
     std::uint32_t support_cell_stride = 1U
 );
 
+[[nodiscard]] CfaOpposedChrominanceModel build_opposed_highlight_chrominance_model(
+    const RawFrame& frame,
+    std::uint32_t support_cell_stride = 4U,
+    std::size_t maximum_records_per_channel = 16'384U
+);
+
+[[nodiscard]] CfaOpposedChrominanceCorrection evaluate_opposed_highlight_chrominance_model(
+    const CfaOpposedChrominanceModel& model,
+    const RawFrameLinearTransform* transform = nullptr,
+    BayerCfaSamplingPolicy sampling_policy = {}
+) noexcept;
+
 // Camera-linear reconstruction carries CFA-white-balanced samples after the selected source
 // policy. Each RGB entry retains both continuous headroom evidence and the exact fraction of its
-// contributing CFA sites that reached physical sensor white. The sampler preserves those measured
-// values and exports the evidence sidecar used by the local, one-sided opposed-colour repair before
-// the camera matrix and by the later continuous scene-linear highlight surface.
+// contributing CFA sites that reached physical sensor white. The default sampler preserves those
+// measured values and keeps the evidence diagnostic-only after the local, one-sided CFA repair;
+// only the explicit aggressive policy may turn it into a later camera-RGB blend.
 struct CameraRgbSample final {
     CameraRgb values{};
     CameraRgb highlight_channel_evidence{};
     CameraRgb physical_white_coverage{};
-    // Source-local blend weight for discarding an unmeasured neutral-highlight chroma ratio. It
-    // is derived from the continuous per-channel CFA evidence and never survives as a preview map.
+    // Explicit aggressive-mode blend weight for discarding an unmeasured neutral-highlight chroma
+    // ratio. The default point-owned path leaves this at zero.
     float highlight_chroma_neutralization = 0.0F;
 };
 

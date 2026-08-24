@@ -1,7 +1,9 @@
+#include "../src/raw/bayer_sampling.hpp"
 #include "../src/raw/raw_frame_development_plan.hpp"
 #include "../src/raw/raw_frame_source_development.hpp"
 #include "raw_pipeline_routing_test_support.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <string_view>
@@ -20,6 +22,27 @@ static_assert(
 static_assert(!std::is_move_assignable_v<image::raw_pipeline_detail::PreparedRawFrameDevelopment>);
 
 namespace {
+
+[[nodiscard]] image::RawFrame highlight_model_frame() {
+    auto frame = synthetic_bayer_frame();
+    constexpr std::uint32_t extent = 384U;
+    frame.descriptor.storage_dimensions = {extent, extent};
+    frame.descriptor.active_dimensions = frame.descriptor.storage_dimensions;
+    frame.samples.resize(static_cast<std::size_t>(extent) * extent);
+    for (std::uint32_t y = 0U; y < extent; ++y) {
+        for (std::uint32_t x = 0U; x < extent; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const auto color = frame.descriptor.bayer_2x2[site];
+            std::uint16_t value = color == image::RawCfaColor::red ? 500U : 800U;
+            if (color == image::RawCfaColor::red && x >= 96U && x <= 288U && y >= 96U
+                && y <= 288U) {
+                value = 1'000U;
+            }
+            frame.samples[static_cast<std::size_t>(y) * extent + x] = value;
+        }
+    }
+    return frame;
+}
 
 void prepared_plan_binds_source_policy_and_calibration_once() {
     const auto frame = synthetic_bayer_frame();
@@ -100,6 +123,61 @@ void prepared_plan_applies_absolute_temperature_tint_before_every_downstream_gra
         manual.development_plan().white_balance == manual_plan.white_balance,
         "prepared RAW development retains the exact authored temperature/tint identity"
     );
+}
+
+void prepared_plan_reuses_bounded_highlight_support_during_white_balance_rebind() {
+    const auto frame = highlight_model_frame();
+    auto initial_plan = image::default_raw_development_plan();
+    const auto prepared = image::raw_pipeline_detail::prepare_raw_frame_development(
+        frame,
+        initial_plan,
+        128U,
+        std::nullopt,
+        0.0
+    );
+    const auto& initial_transform = prepared.linear_transform();
+    expect(
+        std::any_of(
+            initial_transform.opposed_highlight_chrominance_offsets.begin(),
+            initial_transform.opposed_highlight_chrominance_offsets.end(),
+            [](const float offset) { return std::abs(offset) > 1.0e-4F; }
+        ),
+        "source preparation must compile a useful opposed chrominance residual when support exists"
+    );
+
+    auto manual_plan = initial_plan;
+    manual_plan.white_balance = image::RawWhiteBalance{
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 4'200U,
+        .tint = 18,
+    };
+    auto manual_transform = image::raw_pipeline_detail::prepare_raw_frame_linear_transform(
+        frame.descriptor,
+        manual_plan.white_balance,
+        nullptr
+    );
+    const auto direct_policy = image::detail::editable_raw_cfa_sampling_policy(manual_transform);
+    const auto direct = image::detail::estimate_opposed_highlight_chrominance_correction(
+        frame,
+        &manual_transform,
+        direct_policy,
+        4U
+    );
+    const auto rebound = prepared.rebind_color(
+        manual_plan,
+        manual_transform,
+        std::nullopt,
+        prepared.source_scene_luminance_percentile()
+    );
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        expect(
+            std::abs(
+                rebound.linear_transform().opposed_highlight_chrominance_offsets[channel]
+                - direct.offsets[channel]
+            ) < 1.0e-6F,
+            "white-balance rebind must evaluate cached support without changing oracle maths"
+        );
+    }
 }
 
 void prepared_plan_owns_the_compiled_camera_profile() {
@@ -348,6 +426,7 @@ void preparation_preserves_validation_order() {
 int main() {
     prepared_plan_binds_source_policy_and_calibration_once();
     prepared_plan_applies_absolute_temperature_tint_before_every_downstream_grade();
+    prepared_plan_reuses_bounded_highlight_support_during_white_balance_rebind();
     prepared_plan_owns_the_compiled_camera_profile();
     decoder_matrix_keeps_dcp_output_stages_out_of_another_colour_basis();
     full_materializer_consumes_the_prepared_contract();

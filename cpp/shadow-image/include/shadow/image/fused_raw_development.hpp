@@ -60,6 +60,10 @@ struct RawFrameLinearTransform final {
     // Selected CFA-site gains, applied to normalized sensor samples before interpolation. This
     // remains independent from the later camera/DCP matrix decision.
     std::array<double, 4U> cfa_white_balance{1.0, 1.0, 1.0, 1.0};
+    // Darktable-style scene-global opposed chrominance residual, compiled from a bounded
+    // source-side support model when the RAW is prepared. It is applied only while reconstructing
+    // a factual terminal CFA photosite; it never expands the spatial repair mask.
+    std::array<float, 3U> opposed_highlight_chrominance_offsets{};
     bool apply_cfa_white_balance = false;
 
     [[nodiscard]] bool valid() const noexcept;

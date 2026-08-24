@@ -386,14 +386,13 @@ void area_opposed_reconstruction_preserves_reliable_mixed_pixel_contributions() 
             && std::abs(sample.values[channel] - 0.5F * (dark.values[channel] + light.values[channel]))
                    < 1.0e-5F;
     }
-    const float light_chroma =
-        *std::max_element(light.values.begin(), light.values.end())
-        - *std::min_element(light.values.begin(), light.values.end());
-    const float measured_light_chroma =
-        *std::max_element(measured_light.values.begin(), measured_light.values.end())
-        - *std::min_element(measured_light.values.begin(), measured_light.values.end());
-    owned_repair_matches =
-        owned_repair_matches && light_chroma + 0.5F < measured_light_chroma;
+    bool light_was_only_raised = light.values[0U] > measured_light.values[0U] + 1.0e-3F;
+    for (std::size_t channel = 0U; channel < light.values.size(); ++channel) {
+        light_was_only_raised =
+            light_was_only_raised
+            && light.values[channel] >= measured_light.values[channel] - 1.0e-6F;
+    }
+    owned_repair_matches = owned_repair_matches && light_was_only_raised;
     if (!owned_repair_matches) {
         std::cerr << "area owned repair mixed/dark/light/measured-light="
                   << sample.values[0U] << ',' << sample.values[1U] << ',' << sample.values[2U]
@@ -404,8 +403,9 @@ void area_opposed_reconstruction_preserves_reliable_mixed_pixel_contributions() 
     }
     expect(
         owned_repair_matches,
-        "area highlight repair resolves only the damaged contribution layer, preserves the "
-        "measured dark contribution, and leaves the mixed output as their exact area integral"
+        "area highlight repair applies the point-owned terminal reconstruction before reduction, "
+        "preserves the measured dark contribution, and leaves the mixed output as their exact "
+        "area integral"
     );
 }
 

@@ -234,44 +234,44 @@ risk = max(disagreement, shared_terminal)
 reference = ((cbrt(a) + cbrt(b)) / 2)^3
 ```
 
-这沿用了 darktable 一类 opposed-colour 重建的正确所有权边界：在去马赛克之前估计当前
-损坏的 photosite。Shadow 没有把 darktable 的 scene-global chrominance offset 放入生产
-采样器，因为实图验证表明它会把末端 CFA 不连续放大成额外色环；相关全局估计只保留为
-诊断能力。
+这沿用了 darktable opposed-colour 重建的正确所有权边界：在去马赛克之前估计当前损坏的
+photosite。Darktable 的第二项不是空间模糊，而是 factual clipping 邻域中“实测当前颜色减去
+局部 opposed reference”的低频均值。Shadow 在 source preparation 时以 stride 4 建立一个
+每色最多 16384 条记录的相位分解 sidecar；每条只保存当前 sensor 值与 3×3 四相位总和/计数。
+温度或色调改变时，使用新的四相位 gain 在这个有界 sidecar 上重新求三色 offset，不重新扫描
+RAW，也不复制完整图像。
 
 原生重建中，只有物理归一化值至少 `0.987` 的 photosite 成为 terminal candidate：
 
 ```text
-reconstructed = max(measured, reference)
+reconstructed = max(measured, reference + cached_chrominance[channel])
 ```
 
-因此操作严格单向。若一色发光体的实测通道本来高于 opposing reference，它完全不变。
+offset 只在同一个 terminal gate 内生效，不产生膨胀 mask、RGB 羽化或第二条边。操作仍严格
+单向；若一色发光体的实测通道本来更高，它完全不变。stride 4 的模型可由 probe 同 full
+oracle 统计并排报告，以便继续量化采样误差，而不是靠截图猜参数。
 
 ### 4.3 缩略 area preview 的特殊顺序
 
 缩略预览不能先把一个 area bin 平均成 RGB，再决定是否修复。当前实现对 bin 中每个 CFA
-photosite 先计算 response evidence。默认 evidence 从线性响应归一化 `0.92` 开始连续上升，
-到 `1.0` 达到满值：
+photosite 先走与 point/detail 完全相同的 terminal gate：只有物理归一化值至少 `0.987` 的
+photosite 才能进入 opposed estimate，并且只允许单向抬高：
 
 ```text
-candidate = lerp(measured, reference, evidence)
-reconstructed = max(measured, candidate)
+reconstructed = measured < 0.987 ? measured : max(measured, reference)
 ```
 
-然后用目标像素与各 source photosite 的真实几何 overlap 作为权重，R/G/B 分开累加。每个
-photosite 的贡献同时拆成可靠质量 `weight * (1 - evidence)` 与受损质量
-`weight * evidence`；opposed estimate 仍只写受损 photosite。色度中和只作用于受损质量层，
-再与可靠质量合并成 camera RGB。结果有三个关键性质：
+然后用目标像素与各 source photosite 的真实几何 overlap 作为权重，R/G/B 分开累加。
+`response evidence` 和 physical-white coverage 仍作为诊断 sidecar 计算，但默认路径不再把
+它们变成第二个写入 mask，也不再拆出或中和 RGB damaged layer。结果有三个关键性质：
 
-- 只改 response-shoulder photosite；
-- 同一 preview bin 中可靠的暗灯架仍按原值积分；
+- 只改 terminal-gate photosite；
+- 同一 preview bin 中未进入 terminal gate 的灯架和天空仍按原值积分；
 - 斜边和不足一个源像素的覆盖天然抗锯齿，不需要扩张 mask。
 
-受损层内部的三色 ratio 由 `evidence² / evidence` 置信度与
-`physical-white / damaged-weight` 共享白点比例判断。一个 bin 即使只覆盖半个爆灯，只要其
-受损质量本身已经三色全爆，也可以完整中和该受损质量；同 bin 的暗灯架仍在可靠层，完全
-不参与中和。这样结果等于“分别处理亮面和暗面后再做面积积分”，不需要 `0.88` 一类输出
-覆盖率阈值，也不会在大面积天空中生成灰/暖硬切线。
+这使生产 area 输出可逐点对照 Darktable opposed oracle：oracle 没有写入的 photosite，Shadow
+也不能借由连续 shoulder evidence 或输出 RGB 色度混合间接修改。缩略所需的平滑只来自真实
+几何面积积分，不来自扩大的颜色修复范围。
 
 ### 4.4 bilinear 与 high-quality detail
 
@@ -286,9 +286,11 @@ sites。
 
 ### 4.5 相机域色度置信处理
 
-去马赛克样本同时携带每个颜色的 response evidence 与 physical-white coverage。原生
-bilinear/detail 直接在其局部重建 footprint 上计算；area preview 对同一 evidence 公式先分离
-受损贡献层，避免把一个预览 bin 中的可靠内容一起重写。默认色度 neutralization 包含两项：
+去马赛克样本仍携带每个颜色的 response evidence 与 physical-white coverage，供诊断、风险
+投影和显式 `aggressive` 路径使用。默认 CPU/Metal 输出不再依据这些 sidecar 对 camera RGB
+做第二次 neutralization；默认写入所有权在 CFA terminal photosite reconstruction 结束。
+
+只有显式 `aggressive` 诊断路径才计算下列空间色度项：
 
 ```text
 two_channel = second_sorted_evidence
@@ -300,12 +302,12 @@ shared_neutralization = min(R_white_coverage,
                             G_white_coverage,
                             B_white_coverage)
 
-neutralization = max(disagreement_neutralization, shared_neutralization)
+aggressive_neutralization = max(disagreement_neutralization, shared_neutralization)
 ```
 
-应用发生在 camera matrix 之前。相机域亮度使用 `0.25 R + 0.5 G + 0.25 B`，各分量只按
-neutralization 比例向这个亮度靠拢，再乘 camera→scene-linear matrix。这样丢弃的是没有
-实测依据的色度比例，而不是空间结构或亮度；在 scene RGB 之后直接变灰会违背相机标定。
+若显式启用，应用发生在 camera matrix 之前。相机域亮度使用
+`0.25 R + 0.5 G + 0.25 B`，各分量只按 neutralization 比例向这个亮度靠拢，再乘
+camera→scene-linear matrix。默认路径不会执行该步骤。
 
 `aggressive` 只是历史诊断别名：它把 shoulder 提前到 `0.88`，并加入半径 3 的有界证据
 feather。桌面没有单独开关，也不应把它重新做成默认；它曾经缓解粉色，却更容易扩大黄色
@@ -387,7 +389,7 @@ preimage，并保留同样的 demosaic/denoise halo；不能为了算法方便�
 - 普通 Recipe 滑杆：复用不可变 scene-linear source 和 R8 evidence buffer，只重跑受影响的
   edit stages；
 - 仅温度/色调：复用已经降噪的 CFA frame 和 resident Metal source，只重新编译颜色 binding、
-  CFA 重建及后续必要阶段；
+  在有界 opposed sidecar 上重算三个 offset，再执行 CFA 重建及后续必要阶段；不扫描整张 RAW；
 - 仅 AI strength：复用原始与 full-strength Camera RGB bases；
 - 质量、降噪、高光策略、source/foundation/optics：缓存身份改变，回完整 source preparation；
 - 新请求可以取消旧 preview，但不能覆盖已发布 session 的不可变输入。
@@ -405,11 +407,11 @@ scene-RGB pass 或禁止 resident detail，都应先被视为性能回归，而�
 | Shadow RawFrame developer | `2026082202` |
 | sensor clipping mask schema | `3` |
 | highlight chroma risk schema | `4` |
-| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-photosite-layer-owned@20260824.14` |
-| 默认 recovery | `local-opposed+damaged-layer-chroma-shoulder` |
+| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.16` |
+| 默认 recovery | `local-opposed+cached-global-chrominance` |
 | 头部余量 | `physical-white-wb-fp32` |
-| ordinary clipped highlight | `clipped-highlight=cfa-photosite-layer-owned-v19` |
-| aggressive 诊断 | `cfa-opposed-photosite-layer-owned-feathered@20260824.14` |
+| ordinary clipped highlight | `clipped-highlight=cfa-opposed-cached-chrominance-v21` |
+| aggressive 诊断 | `cfa-opposed-cached-chrominance-feathered@20260824.16` |
 | Camera RGB fallback | `clipped-highlight=boundary-propagated-scene-shoulder-v17` |
 
 完整 `pipeline_identity` 还包含 provider/version、requested/effective plan、backend、denoise、

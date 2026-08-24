@@ -33,8 +33,8 @@ struct DarktableOpposedReferencePlane final {
 );
 
 // Integrates one output footprint directly from the reconstructed reference CFA. This matches
-// Shadow's warm-preview reduction frontier while intentionally omitting Shadow's later damaged
-// contribution mixing, allowing the CFA algorithm to be compared in isolation.
+// Shadow's warm-preview reduction frontier and lets the production area sampler be compared
+// against the source-stage oracle without any later RGB rewrite.
 [[nodiscard]] std::array<float, 3U> darktable_opposed_area_camera_rgb_at(
     const DarktableOpposedReferencePlane& plane,
     Dimensions target_dimensions,

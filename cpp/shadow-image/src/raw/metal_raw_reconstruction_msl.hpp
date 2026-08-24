@@ -277,16 +277,16 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
         ? feathered_highlight_sensor_evidence(samples, parameters, raw_x, raw_y, 3u)
         : exact_physical_white_coverage;
-    result.highlight_chroma_neutralization = max(
-        highlight_chroma_neutralization(
-            result.values,
-            result.highlight_channel_evidence
-        ),
-        shared_physical_white_neutralization(result.physical_white_coverage)
-    );
+    result.highlight_chroma_neutralization = 0.0f;
     if (parameters.feather_highlight_chroma_neutralization != 0u) {
         result.highlight_chroma_neutralization = max(
-            result.highlight_chroma_neutralization,
+            max(
+                highlight_chroma_neutralization(
+                    result.values,
+                    result.highlight_channel_evidence
+                ),
+                shared_physical_white_neutralization(result.physical_white_coverage)
+            ),
             aggressive_highlight_chroma_risk(
                 physical_white_coverage,
                 exact_physical_white_coverage
@@ -466,14 +466,11 @@ kernel void develop_bayer_area_preview(
     float weights[3] = {0.0f, 0.0f, 0.0f};
     float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
     float channel_physical_white_weights[3] = {0.0f, 0.0f, 0.0f};
-    float damaged_totals[3] = {0.0f, 0.0f, 0.0f};
-    float damaged_weights[3] = {0.0f, 0.0f, 0.0f};
-    float damaged_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
-    float damaged_physical_white_weights[3] = {0.0f, 0.0f, 0.0f};
     float observed_weight = 0.0f;
     float physical_white_weight = 0.0f;
-    // Keep the damaged shoulder as a one-sided contribution layer. It can be neutralized without
-    // repainting measured content that happens to share this downsample footprint.
+    // Match the point/detail source-stage owner exactly: reconstruct only terminal candidates,
+    // then integrate each photosite once. No wider shoulder mask or RGB damaged layer belongs to
+    // the default area path.
     for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const float overlap_y = max(
             0.0f,
@@ -488,16 +485,7 @@ kernel void develop_bayer_area_preview(
             const float weight = overlap_x * overlap_y;
             const float evidence =
                 highlight_sensor_evidence(samples, parameters, raw_x, raw_y);
-            const float measured =
-                unreconstructed_normalized_sample(samples, parameters, raw_x, raw_y);
-            const float reconstructed = opposed_highlight_reconstructed_sample(
-                samples,
-                parameters,
-                raw_x,
-                raw_y,
-                measured,
-                evidence
-            );
+            const float reconstructed = normalized_sample(samples, parameters, raw_x, raw_y);
             totals[channel] += reconstructed * weight;
             weights[channel] += weight;
             channel_evidence_totals[channel] += evidence * weight;
@@ -506,13 +494,6 @@ kernel void develop_bayer_area_preview(
             if (at_white) {
                 channel_physical_white_weights[channel] += weight;
                 physical_white_weight += weight;
-            }
-            if (evidence > 0.0f) {
-                const float damaged_weight = evidence * weight;
-                damaged_totals[channel] += reconstructed * damaged_weight;
-                damaged_weights[channel] += damaged_weight;
-                damaged_evidence_totals[channel] += evidence * damaged_weight;
-                damaged_physical_white_weights[channel] += at_white ? damaged_weight : 0.0f;
             }
         }
     }
@@ -528,6 +509,8 @@ kernel void develop_bayer_area_preview(
     );
     const bool complete_area_footprint =
         weights[0] > 0.0f && weights[1] > 0.0f && weights[2] > 0.0f;
+    const float exact_physical_white_coverage = observed_weight <= 0.0f
+        ? 0.0f : physical_white_weight / observed_weight;
     CameraRgbSample camera = !complete_area_footprint
         ? camera_rgb_at(samples, parameters, center_x, center_y) : CameraRgbSample{
         float3(
@@ -545,58 +528,33 @@ kernel void develop_bayer_area_preview(
             channel_physical_white_weights[1] / weights[1],
             channel_physical_white_weights[2] / weights[2]
         ),
-        observed_weight <= 0.0f ? 0.0f : physical_white_weight / observed_weight
+        0.0f
     };
     if (complete_area_footprint) {
-        float3 damaged_values = camera.values;
-        float3 damaged_channel_evidence = float3(0.0f);
-        float3 damaged_physical_white_coverage = float3(0.0f);
-        for (uint channel = 0u; channel < 3u; ++channel) {
-            if (damaged_weights[channel] <= 0.0f) {
-                continue;
-            }
-            damaged_values[channel] = damaged_totals[channel] / damaged_weights[channel];
-            damaged_channel_evidence[channel] =
-                damaged_evidence_totals[channel] / damaged_weights[channel];
-            damaged_physical_white_coverage[channel] =
-                damaged_physical_white_weights[channel] / damaged_weights[channel];
-        }
-        const float damaged_neutralization = max(
-            highlight_chroma_neutralization(damaged_values, damaged_channel_evidence),
-            shared_physical_white_neutralization(damaged_physical_white_coverage)
-        );
-        const float damaged_luminance = dot(damaged_values, float3(0.25f, 0.5f, 0.25f));
-        for (uint channel = 0u; channel < 3u; ++channel) {
-            if (damaged_weights[channel] <= 0.0f) {
-                continue;
-            }
-            const float corrected_total = totals[channel]
-                + damaged_neutralization * (damaged_luminance - damaged_values[channel])
-                    * damaged_weights[channel];
-            camera.values[channel] = max(0.0f, corrected_total) / weights[channel];
-        }
-        const float exact_physical_white_coverage = camera.highlight_chroma_neutralization;
-        const float physical_white_coverage =
-            parameters.feather_highlight_chroma_neutralization != 0u
-            ? feathered_highlight_sensor_evidence(
-                  samples,
-                  parameters,
-                  center_x,
-                  center_y,
-                  clamp(
-                      uint(ceil(1.5f * max(
-                          float(parameters.active_width) / float(parameters.reconstruction_width),
-                          float(parameters.active_height) / float(parameters.reconstruction_height)
-                      ))),
-                      2u,
-                      16u
-                  )
-              )
-            : camera.highlight_chroma_neutralization;
         camera.highlight_chroma_neutralization = 0.0f;
         if (parameters.feather_highlight_chroma_neutralization != 0u) {
+            const float physical_white_coverage = feathered_highlight_sensor_evidence(
+                samples,
+                parameters,
+                center_x,
+                center_y,
+                clamp(
+                    uint(ceil(1.5f * max(
+                        float(parameters.active_width) / float(parameters.reconstruction_width),
+                        float(parameters.active_height) / float(parameters.reconstruction_height)
+                    ))),
+                    2u,
+                    16u
+                )
+            );
             camera.highlight_chroma_neutralization = max(
-                camera.highlight_chroma_neutralization,
+                max(
+                    highlight_chroma_neutralization(
+                        camera.values,
+                        camera.highlight_channel_evidence
+                    ),
+                    shared_physical_white_neutralization(camera.physical_white_coverage)
+                ),
                 aggressive_highlight_chroma_risk(
                     physical_white_coverage,
                     exact_physical_white_coverage

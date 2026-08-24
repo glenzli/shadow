@@ -427,11 +427,11 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-opposed-photosite-layer-owned@20260824.14;"
-               "recovery=local-opposed+damaged-layer-chroma-shoulder;"
+            == "sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.16;"
+               "recovery=local-opposed+cached-global-chrominance;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-photosite-layer-owned-v19",
-        "the default source receipt identifies photosite-layer-owned clipped-highlight reconstruction"
+               "clipped-highlight=cfa-opposed-cached-chrominance-v21",
+        "the default source receipt identifies cached-chrominance terminal highlight reconstruction"
     );
 
     float maximum_default_delta = 0.0F;
@@ -532,43 +532,19 @@ void cfa_white_balance_retains_editable_headroom() {
         image::RawDevelopmentBackendMode::cpu,
         image::RawHighlightRecoveryIntent::disabled
     );
-    float response_default_chroma = 0.0F;
-    float response_disabled_chroma = 0.0F;
-    for (std::size_t index = 0U; index < response_default.scene_linear.samples.size();
-         index += 3U) {
+    float response_maximum_delta = 0.0F;
+    for (std::size_t index = 0U; index < response_default.scene_linear.samples.size(); ++index) {
         const auto& default_samples = response_default.scene_linear.samples;
         const auto& disabled_samples = response_disabled.scene_linear.samples;
-        response_default_chroma = std::max(
-            response_default_chroma,
-            std::max({
-                default_samples[index],
-                default_samples[index + 1U],
-                default_samples[index + 2U],
-            })
-                - std::min({
-                    default_samples[index],
-                    default_samples[index + 1U],
-                    default_samples[index + 2U],
-                })
-        );
-        response_disabled_chroma = std::max(
-            response_disabled_chroma,
-            std::max({
-                disabled_samples[index],
-                disabled_samples[index + 1U],
-                disabled_samples[index + 2U],
-            })
-                - std::min({
-                    disabled_samples[index],
-                    disabled_samples[index + 1U],
-                    disabled_samples[index + 2U],
-                })
+        response_maximum_delta = std::max(
+            response_maximum_delta,
+            std::abs(default_samples[index] - disabled_samples[index])
         );
     }
     expect(
-        response_default_chroma + 1.0e-4F < response_disabled_chroma,
-        "a calibrated response boundary continuously lowers only untrustworthy two-channel "
-        "highlight chroma"
+        response_maximum_delta <= 1.0e-6F,
+        "a calibrated response shoulder below the terminal gate remains measured and cannot "
+        "become an expanded RGB write mask"
     );
 
     if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
@@ -756,11 +732,11 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-opposed-photosite-layer-owned-feathered@20260824.14;"
-                      "recovery=local-opposed+damaged-layer-spatial-chroma;"
+                   == "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260824.16;"
+                      "recovery=local-opposed+cached-global-chrominance+explicit-spatial-chroma;"
                       "headroom=physical-white-wb-fp32;"
-                      "clipped-highlight=cfa-photosite-layer-owned-v19",
-        "legacy aggressive CFA reconstruction remains cache-visible"
+                      "clipped-highlight=cfa-opposed-cached-chrominance-v21",
+        "aggressive cached-chrominance CFA reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;
     float aggressive_boundary_chroma = 0.0F;
@@ -807,35 +783,27 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
         image::RawDevelopmentBackendMode::cpu,
         image::RawHighlightRecoveryIntent::disabled
     );
-    float slanted_default_chroma = 0.0F;
-    float slanted_disabled_chroma = 0.0F;
+    float slanted_maximum_delta = 0.0F;
+    bool slanted_output_is_finite = true;
     for (std::size_t index = 0U; index < slanted_default.scene_linear.samples.size(); index += 3U) {
         const auto& repaired = slanted_default.scene_linear.samples;
         const auto& measured = slanted_disabled.scene_linear.samples;
-        slanted_default_chroma += std::max({
-                                      repaired[index],
-                                      repaired[index + 1U],
-                                      repaired[index + 2U],
-                                  })
-                                  - std::min({
-                                      repaired[index],
-                                      repaired[index + 1U],
-                                      repaired[index + 2U],
-                                  });
-        slanted_disabled_chroma += std::max({
-                                       measured[index],
-                                       measured[index + 1U],
-                                       measured[index + 2U],
-                                   })
-                                   - std::min({
-                                       measured[index],
-                                       measured[index + 1U],
-                                       measured[index + 2U],
-                                   });
+        slanted_maximum_delta = std::max(
+            slanted_maximum_delta,
+            std::max({
+                std::abs(repaired[index] - measured[index]),
+                std::abs(repaired[index + 1U] - measured[index + 1U]),
+                std::abs(repaired[index + 2U] - measured[index + 2U]),
+            })
+        );
+        slanted_output_is_finite = slanted_output_is_finite && std::isfinite(repaired[index])
+                                   && std::isfinite(repaired[index + 1U])
+                                   && std::isfinite(repaired[index + 2U]);
     }
     expect(
-        slanted_default_chroma + 0.05F < slanted_disabled_chroma,
-        "shared physical-white topology suppresses Bayer-phase false chroma on a slanted edge"
+        slanted_output_is_finite && slanted_maximum_delta <= 1.0e-6F,
+        "a neutral slanted terminal plateau remains measured when opposed reconstruction has no "
+        "one-sided lift, without a post-demosaic RGB pull"
     );
 
     const auto nikon_flat_top = nikon_near_limit_green_boundary_frame();
@@ -1045,8 +1013,7 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
         image::RawDevelopmentBackendMode::cpu,
         image::RawHighlightRecoveryIntent::disabled
     );
-    float maximum_multi_site_chroma = 0.0F;
-    float maximum_multi_site_disabled_chroma = 0.0F;
+    float maximum_multi_site_delta = 0.0F;
     for (std::size_t index = 0U; index < multi_site.scene_linear.samples.size(); index += 3U) {
         const auto default_red = multi_site.scene_linear.samples[index];
         const auto default_green = multi_site.scene_linear.samples[index + 1U];
@@ -1054,21 +1021,19 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
         const auto disabled_red = multi_site_disabled.scene_linear.samples[index];
         const auto disabled_green = multi_site_disabled.scene_linear.samples[index + 1U];
         const auto disabled_blue = multi_site_disabled.scene_linear.samples[index + 2U];
-        maximum_multi_site_chroma = std::max(
-            maximum_multi_site_chroma,
-            std::max({default_red, default_green, default_blue})
-                - std::min({default_red, default_green, default_blue})
-        );
-        maximum_multi_site_disabled_chroma = std::max(
-            maximum_multi_site_disabled_chroma,
-            std::max({disabled_red, disabled_green, disabled_blue})
-                - std::min({disabled_red, disabled_green, disabled_blue})
+        maximum_multi_site_delta = std::max(
+            maximum_multi_site_delta,
+            std::max({
+                std::abs(default_red - disabled_red),
+                std::abs(default_green - disabled_green),
+                std::abs(default_blue - disabled_blue),
+            })
         );
     }
     expect(
-        maximum_multi_site_chroma + 0.25F < maximum_multi_site_disabled_chroma,
-        "two independently saturated CFA colours lose their untrustworthy shared chroma before a "
-        "grade can amplify it"
+        maximum_multi_site_delta <= 1.0e-6F,
+        "two terminal CFA colours remain measured when the opposed estimate is not brighter; the "
+        "default path does not neutralize their RGB ratio"
     );
 
     const auto shoulder = image::develop_bayer_linear_srgb_f32_fused_with_backend(
@@ -1085,8 +1050,6 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
         image::RawHighlightRecoveryIntent::disabled
     );
     float maximum_shoulder_delta = 0.0F;
-    float maximum_shoulder_chroma = 0.0F;
-    float maximum_shoulder_disabled_chroma = 0.0F;
     for (std::size_t index = 0U; index < shoulder.scene_linear.samples.size(); index += 3U) {
         const auto& developed = shoulder.scene_linear.samples;
         const auto& measured = shoulder_disabled.scene_linear.samples;
@@ -1098,22 +1061,11 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
                 std::abs(developed[index + 2U] - measured[index + 2U]),
             })
         );
-        maximum_shoulder_chroma = std::max(
-            maximum_shoulder_chroma,
-            std::max({developed[index], developed[index + 1U], developed[index + 2U]})
-                - std::min({developed[index], developed[index + 1U], developed[index + 2U]})
-        );
-        maximum_shoulder_disabled_chroma = std::max(
-            maximum_shoulder_disabled_chroma,
-            std::max({measured[index], measured[index + 1U], measured[index + 2U]})
-                - std::min({measured[index], measured[index + 1U], measured[index + 2U]})
-        );
     }
     expect(
-        maximum_shoulder_delta > 1.0e-3F
-            && maximum_shoulder_chroma + 1.0e-3F < maximum_shoulder_disabled_chroma,
-        "a near-white two-channel CFA shoulder begins a continuous neutral pull before a hard clip "
-        "contour forms"
+        maximum_shoulder_delta <= 1.0e-6F,
+        "a terminal two-channel shoulder remains measured when its local opposed estimate is not "
+        "brighter; no continuous neutral pull expands beyond the point owner"
     );
 
     const auto saturated_red = image::develop_bayer_linear_srgb_f32_fused_with_backend(

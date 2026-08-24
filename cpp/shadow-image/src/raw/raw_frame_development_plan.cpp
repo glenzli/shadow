@@ -313,6 +313,7 @@ PreparedRawFrameDevelopment::PreparedRawFrameDevelopment(
     RawFrameLinearTransform linear_transform,
     std::optional<DcpColorTransform> camera_profile,
     detail::PreparedRawBayerDenoise raw_denoise,
+    std::shared_ptr<const detail::CfaOpposedChrominanceModel> highlight_chrominance_model,
     const RawDevelopmentBackendMode requested_backend,
     const Dimensions reconstruction_dimensions,
     const Dimensions diagnostic_dimensions,
@@ -321,8 +322,8 @@ PreparedRawFrameDevelopment::PreparedRawFrameDevelopment(
     descriptor_(std::move(descriptor)), development_plan_(development_plan),
     preview_max_edge_(preview_max_edge), linear_transform_(linear_transform),
     camera_profile_(std::move(camera_profile)), raw_denoise_(std::move(raw_denoise)),
-    requested_backend_(requested_backend),
-    reconstruction_dimensions_(reconstruction_dimensions),
+    highlight_chrominance_model_(std::move(highlight_chrominance_model)),
+    requested_backend_(requested_backend), reconstruction_dimensions_(reconstruction_dimensions),
     diagnostic_dimensions_(diagnostic_dimensions),
     source_scene_luminance_percentile_(source_scene_luminance_percentile) {}
 
@@ -383,6 +384,16 @@ PreparedRawFrameDevelopment PreparedRawFrameDevelopment::rebind_color(
             "RAW preview colour rebinding may change only a canonical white balance"
         );
     }
+    if (highlight_chrominance_model_ != nullptr) {
+        const auto policy = detail::editable_raw_cfa_sampling_policy(linear_transform);
+        linear_transform.opposed_highlight_chrominance_offsets =
+            detail::evaluate_opposed_highlight_chrominance_model(
+                *highlight_chrominance_model_,
+                &linear_transform,
+                policy
+            )
+                .offsets;
+    }
     return PreparedRawFrameDevelopment(
         descriptor_,
         development_plan,
@@ -390,6 +401,7 @@ PreparedRawFrameDevelopment PreparedRawFrameDevelopment::rebind_color(
         std::move(linear_transform),
         std::move(camera_profile),
         raw_denoise_,
+        highlight_chrominance_model_,
         requested_backend_,
         reconstruction_dimensions_,
         diagnostic_dimensions_,
@@ -507,7 +519,7 @@ PreparedRawFrameDevelopment prepare_raw_frame_development(
         );
     }
 
-    const RawFrameLinearTransform transform = prepare_raw_frame_linear_transform(
+    RawFrameLinearTransform transform = prepare_raw_frame_linear_transform(
         frame.descriptor,
         development_plan.white_balance,
         camera_profile.has_value() ? &*camera_profile : nullptr
@@ -543,6 +555,22 @@ PreparedRawFrameDevelopment prepare_raw_frame_development(
             .preview = preview_max_edge.has_value(),
         }
     );
+    std::shared_ptr<const detail::CfaOpposedChrominanceModel> highlight_chrominance_model;
+    if (development_plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default
+        || development_plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive) {
+        auto compiled_model = std::make_shared<detail::CfaOpposedChrominanceModel>(
+            detail::build_opposed_highlight_chrominance_model(frame)
+        );
+        const auto policy = detail::editable_raw_cfa_sampling_policy(transform);
+        transform.opposed_highlight_chrominance_offsets =
+            detail::evaluate_opposed_highlight_chrominance_model(
+                *compiled_model,
+                &transform,
+                policy
+            )
+                .offsets;
+        highlight_chrominance_model = std::move(compiled_model);
+    }
     return PreparedRawFrameDevelopment(
         frame.descriptor,
         development_plan,
@@ -550,6 +578,7 @@ PreparedRawFrameDevelopment prepare_raw_frame_development(
         transform,
         std::move(camera_profile),
         raw_denoise,
+        std::move(highlight_chrominance_model),
         raw_development_backend_mode_from_environment(),
         reconstruction_dimensions,
         diagnostic_dimensions,

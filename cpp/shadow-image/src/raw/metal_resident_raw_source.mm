@@ -50,6 +50,7 @@ struct ResidentRawDevelopmentParameters final {
     float linear_response_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
+    float opposed_highlight_chrominance_offsets[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
     float cfa_white_balance_scale = 1.0F;
     std::uint32_t cap_physical_sensor_white = 0U;
@@ -57,7 +58,7 @@ struct ResidentRawDevelopmentParameters final {
     std::uint32_t has_linear_response_limits = 0U;
 };
 
-static_assert(sizeof(ResidentRawDevelopmentParameters) == 196U);
+static_assert(sizeof(ResidentRawDevelopmentParameters) == 212U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, orientation) == 40U);
@@ -67,13 +68,16 @@ static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_channels) == 60U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, linear_response_minus_black) == 108U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 124U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance) == 160U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, apply_cfa_white_balance) == 176U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance_scale) == 180U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, cap_physical_sensor_white) == 184U);
 static_assert(
-    offsetof(ResidentRawDevelopmentParameters, feather_highlight_chroma_neutralization) == 188U
+    offsetof(ResidentRawDevelopmentParameters, opposed_highlight_chrominance_offsets) == 176U
 );
-static_assert(offsetof(ResidentRawDevelopmentParameters, has_linear_response_limits) == 192U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, apply_cfa_white_balance) == 192U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance_scale) == 196U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cap_physical_sensor_white) == 200U);
+static_assert(
+    offsetof(ResidentRawDevelopmentParameters, feather_highlight_chroma_neutralization) == 204U
+);
+static_assert(offsetof(ResidentRawDevelopmentParameters, has_linear_response_limits) == 208U);
 
 [[nodiscard]] bool environment_enabled(const char* name) noexcept {
     const char* value = std::getenv(name);
@@ -196,6 +200,10 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     }
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
+    }
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        parameters.opposed_highlight_chrominance_offsets[channel] =
+            transform.opposed_highlight_chrominance_offsets[channel];
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
     if (plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default

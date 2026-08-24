@@ -8,7 +8,12 @@
 #include <shadow/image/raw_frame.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
+
+namespace shadow::image::detail {
+struct CfaOpposedChrominanceModel;
+}
 
 namespace shadow::image::raw_pipeline_detail {
 
@@ -51,6 +56,7 @@ class PreparedRawFrameDevelopment final {
         RawFrameLinearTransform linear_transform,
         std::optional<DcpColorTransform> camera_profile,
         detail::PreparedRawBayerDenoise raw_denoise,
+        std::shared_ptr<const detail::CfaOpposedChrominanceModel> highlight_chrominance_model,
         RawDevelopmentBackendMode requested_backend,
         Dimensions reconstruction_dimensions,
         Dimensions diagnostic_dimensions,
@@ -71,6 +77,7 @@ class PreparedRawFrameDevelopment final {
     RawFrameLinearTransform linear_transform_;
     std::optional<DcpColorTransform> camera_profile_;
     detail::PreparedRawBayerDenoise raw_denoise_;
+    std::shared_ptr<const detail::CfaOpposedChrominanceModel> highlight_chrominance_model_;
     RawDevelopmentBackendMode requested_backend_ = RawDevelopmentBackendMode::automatic;
     Dimensions reconstruction_dimensions_;
     Dimensions diagnostic_dimensions_;

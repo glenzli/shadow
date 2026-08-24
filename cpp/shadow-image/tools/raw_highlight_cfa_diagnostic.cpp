@@ -560,7 +560,7 @@ void render_highlight_cfa_domain_diagnostic(
     }
 
     std::cout << "highlight_cfa_diagnostic.domain.darktable_headroom=yes\n"
-              << "highlight_cfa_diagnostic.domain.darktable_chrominance_applied=no\n";
+              << "highlight_cfa_diagnostic.domain.darktable_chrominance_applied=yes\n";
     for (std::size_t channel = 0U; channel < 3U; ++channel) {
         std::cout << "highlight_cfa_diagnostic.domain.channel." << channel_names[channel]
                   << ".sampled_chrominance_offset=" << darktable_chrominance.offsets[channel]

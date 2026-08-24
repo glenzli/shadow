@@ -261,19 +261,19 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-opposed-photosite-layer-owned@20260824.14;"
-               "recovery=local-opposed+damaged-layer-chroma-shoulder;"
+        return "sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.16;"
+               "recovery=local-opposed+cached-global-chrominance;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-photosite-layer-owned-v19";
+               "clipped-highlight=cfa-opposed-cached-chrominance-v21";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
         return "sensor-highlights=unsupported";
     case RawHighlightRecoveryIntent::aggressive:
-        return "sensor-highlights=cfa-opposed-photosite-layer-owned-feathered@20260824.14;"
-               "recovery=local-opposed+damaged-layer-spatial-chroma;"
+        return "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260824.16;"
+               "recovery=local-opposed+cached-global-chrominance+explicit-spatial-chroma;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-photosite-layer-owned-v19";
+               "clipped-highlight=cfa-opposed-cached-chrominance-v21";
     }
     return "sensor-highlights=unknown";
 }
@@ -321,6 +321,11 @@ bool RawFrameLinearTransform::valid() const noexcept {
     }
     for (const double multiplier : cfa_white_balance) {
         if (!std::isfinite(multiplier) || multiplier <= 0.0) {
+            return false;
+        }
+    }
+    for (const float offset : opposed_highlight_chrominance_offsets) {
+        if (!std::isfinite(offset)) {
             return false;
         }
     }

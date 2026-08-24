@@ -44,6 +44,7 @@ struct RawDevelopmentParameters final {
     float linear_response_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
+    float opposed_highlight_chrominance_offsets[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
     float cfa_white_balance_scale = 1.0F;
     std::uint32_t cap_physical_sensor_white = 0U;
@@ -51,7 +52,7 @@ struct RawDevelopmentParameters final {
     std::uint32_t has_linear_response_limits = 0U;
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 196U);
+static_assert(sizeof(RawDevelopmentParameters) == 212U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -63,11 +64,12 @@ static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
 static_assert(offsetof(RawDevelopmentParameters, linear_response_minus_black) == 108U);
 static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 124U);
 static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 160U);
-static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 176U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance_scale) == 180U);
-static_assert(offsetof(RawDevelopmentParameters, cap_physical_sensor_white) == 184U);
-static_assert(offsetof(RawDevelopmentParameters, feather_highlight_chroma_neutralization) == 188U);
-static_assert(offsetof(RawDevelopmentParameters, has_linear_response_limits) == 192U);
+static_assert(offsetof(RawDevelopmentParameters, opposed_highlight_chrominance_offsets) == 176U);
+static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 192U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance_scale) == 196U);
+static_assert(offsetof(RawDevelopmentParameters, cap_physical_sensor_white) == 200U);
+static_assert(offsetof(RawDevelopmentParameters, feather_highlight_chroma_neutralization) == 204U);
+static_assert(offsetof(RawDevelopmentParameters, has_linear_response_limits) == 208U);
 
 [[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
@@ -191,6 +193,10 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     }
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
+    }
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        parameters.opposed_highlight_chrominance_offsets[channel] =
+            transform.opposed_highlight_chrominance_offsets[channel];
     }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
     if (highlight_recovery == RawHighlightRecoveryIntent::provider_default
