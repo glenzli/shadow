@@ -262,6 +262,37 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
         "frontier unchanged"
     );
 
+    auto response_limited = frame;
+    response_limited.descriptor.has_linear_response_limits = true;
+    response_limited.descriptor.linear_response_limits = {900U, 900U, 900U, 900U};
+    response_limited.samples[4U * 7U + 4U] = 889U;
+    const auto response_terminal = image::detail::opposed_highlight_cfa_sample_at(
+        response_limited,
+        4U,
+        4U,
+        &transform,
+        treatment
+    );
+    expect(
+        response_terminal.terminal_candidate
+            && response_terminal.reconstructed > response_terminal.measured + 0.1F,
+        "a provider-calibrated response frontier owns terminal chroma before coding white while "
+        "retaining the measured code-domain luminance"
+    );
+    response_limited.samples[4U * 7U + 4U] = 888U;
+    const auto response_measured = image::detail::opposed_highlight_cfa_sample_at(
+        response_limited,
+        4U,
+        4U,
+        &transform,
+        treatment
+    );
+    expect(
+        !response_measured.terminal_candidate
+            && std::abs(response_measured.reconstructed - response_measured.measured) < 1.0e-6F,
+        "the 98.7 percent gate remains strict in the calibrated linear-response domain"
+    );
+
     auto baseline = treatment;
     baseline.reconstruct_terminal_highlights = false;
     const auto before =

@@ -241,7 +241,10 @@ photosite。Darktable 的第二项不是空间模糊，而是 factual clipping �
 温度或色调改变时，使用新的四相位 gain 在这个有界 sidecar 上重新求三色 offset，不重新扫描
 RAW，也不复制完整图像。
 
-原生重建中，只有物理归一化值至少 `0.987` 的 photosite 成为 terminal candidate：
+原生重建中，只有线性响应归一化值至少 `0.987` 的 photosite 成为 terminal candidate；当
+provider 提供逐相位 `linear_response_limits` 时以该边界为 1.0，否则回退到 coding white。
+编码值仍以 coding white 归一化并保留其场景亮度，因此接管失去可靠色比的响应肩部不会把
+15311～16383 一类有效余量压成 1.0：
 
 ```text
 reconstructed = max(measured, reference + cached_chrominance[channel])
@@ -254,8 +257,8 @@ oracle 统计并排报告，以便继续量化采样误差，而不是靠截图�
 ### 4.3 缩略 area preview 的特殊顺序
 
 缩略预览不能先把一个 area bin 平均成 RGB，再决定是否修复。当前实现对 bin 中每个 CFA
-photosite 先走与 point/detail 完全相同的 terminal gate：只有物理归一化值至少 `0.987` 的
-photosite 才能进入 opposed estimate，并且只允许单向抬高：
+photosite 先走与 point/detail 完全相同的 terminal gate：只有线性响应归一化值至少 `0.987`
+的 photosite 才能进入 opposed estimate，并且只允许单向抬高：
 
 ```text
 reconstructed = measured < 0.987 ? measured : max(measured, reference)
@@ -407,11 +410,11 @@ scene-RGB pass 或禁止 resident detail，都应先被视为性能回归，而�
 | Shadow RawFrame developer | `2026082202` |
 | sensor clipping mask schema | `3` |
 | highlight chroma risk schema | `4` |
-| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.16` |
+| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.17` |
 | 默认 recovery | `local-opposed+cached-global-chrominance` |
 | 头部余量 | `physical-white-wb-fp32` |
-| ordinary clipped highlight | `clipped-highlight=cfa-opposed-cached-chrominance-v21` |
-| aggressive 诊断 | `cfa-opposed-cached-chrominance-feathered@20260824.16` |
+| ordinary clipped highlight | `clipped-highlight=cfa-opposed-response-limit-chrominance-v22` |
+| aggressive 诊断 | `cfa-opposed-cached-chrominance-feathered@20260824.17` |
 | Camera RGB fallback | `clipped-highlight=boundary-propagated-scene-shoulder-v17` |
 
 完整 `pipeline_identity` 还包含 provider/version、requested/effective plan、backend、denoise、

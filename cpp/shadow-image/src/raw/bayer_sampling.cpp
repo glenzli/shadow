@@ -47,14 +47,17 @@ namespace {
     return descriptor.bayer_2x2[cfa_site(raw_x, raw_y)];
 }
 
-[[nodiscard]] std::uint32_t first_sensor_code_matching(
+[[nodiscard]] std::uint32_t first_linear_response_code_matching(
     const RawFrameDescriptor& descriptor,
     const std::size_t site,
     const float threshold,
     const bool strict
 ) noexcept {
     const double black = descriptor.black_levels[site];
-    const double span = descriptor.white_levels[site] - descriptor.black_levels[site];
+    const double response_limit = descriptor.has_linear_response_limits
+        ? descriptor.linear_response_limits[site]
+        : descriptor.white_levels[site];
+    const double span = response_limit - black;
     const auto matches = [&](const std::uint32_t code) noexcept {
         const float normalized = static_cast<float>((static_cast<double>(code) - black) / span);
         return strict ? normalized > threshold : normalized >= threshold;
@@ -578,7 +581,7 @@ CfaOpposedHighlightSample opposed_highlight_cfa_sample_at(
     };
     if (!sampling_policy.cap_physical_sensor_white
         || !sampling_policy.reconstruct_terminal_highlights
-        || normalized_sensor_sample(frame, raw_x, raw_y) < 0.987F) {
+        || normalized_linear_response_sample(frame, raw_x, raw_y) < 0.987F) {
         return result;
     }
 
@@ -634,9 +637,9 @@ CfaOpposedChrominanceCorrection estimate_opposed_highlight_chrominance_correctio
     std::array<std::uint32_t, 4U> support_begin_codes{};
     for (std::size_t site = 0U; site < 4U; ++site) {
         terminal_codes[site] =
-            first_sensor_code_matching(descriptor, site, terminal_threshold, false);
+            first_linear_response_code_matching(descriptor, site, terminal_threshold, false);
         support_begin_codes[site] =
-            first_sensor_code_matching(descriptor, site, measured_support_begin, true);
+            first_linear_response_code_matching(descriptor, site, measured_support_begin, true);
     }
     const std::uint32_t block_width = (active_width + block_extent - 1U) / block_extent;
     const std::uint32_t block_height = (active_height + block_extent - 1U) / block_extent;
@@ -810,9 +813,9 @@ CfaOpposedChrominanceModel build_opposed_highlight_chrominance_model(
     std::array<std::uint32_t, 4U> support_begin_codes{};
     for (std::size_t site = 0U; site < 4U; ++site) {
         terminal_codes[site] =
-            first_sensor_code_matching(descriptor, site, terminal_threshold, false);
+            first_linear_response_code_matching(descriptor, site, terminal_threshold, false);
         support_begin_codes[site] =
-            first_sensor_code_matching(descriptor, site, measured_support_begin, true);
+            first_linear_response_code_matching(descriptor, site, measured_support_begin, true);
     }
     const std::uint32_t block_width = (active_width + block_extent - 1U) / block_extent;
     const std::uint32_t block_height = (active_height + block_extent - 1U) / block_extent;

@@ -710,6 +710,13 @@ void inspect_raw_frame(
               << "raw_frame.bits=" << frame.descriptor.bits_per_sample << '\n'
               << "raw_frame.cfa=" << frame.descriptor.cfa_pattern << '\n'
               << "raw_frame.bayer_2x2=" << (frame.is_bayer_2x2() ? "yes" : "no") << '\n'
+              << "raw_frame.has_linear_response_limits="
+              << (frame.descriptor.has_linear_response_limits ? "yes" : "no") << '\n'
+              << "raw_frame.linear_response_limits="
+              << frame.descriptor.linear_response_limits[0] << ','
+              << frame.descriptor.linear_response_limits[1] << ','
+              << frame.descriptor.linear_response_limits[2] << ','
+              << frame.descriptor.linear_response_limits[3] << '\n'
               << "raw_frame.as_shot_neutral=" << frame.descriptor.as_shot_neutral[0] << ','
               << frame.descriptor.as_shot_neutral[1] << ',' << frame.descriptor.as_shot_neutral[2]
               << ',' << frame.descriptor.as_shot_neutral[3] << '\n'
