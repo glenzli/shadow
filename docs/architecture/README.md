@@ -15,6 +15,7 @@ below, then follow its local README, module declarations, native facade, or QML 
 | Rust image boundary | [`shadow-bridge`](../../crates/shadow-bridge/README.md) | Safe Rust API over the C++ decoder and render kernel |
 | Desktop services | [`shadow-desktop-bridge`](../../crates/shadow-desktop-bridge/README.md) | Long-lived Library, Review, Precision, export, and CXX-facing services |
 | Native image kernel | [`shadow-image`](../../cpp/shadow-image/README.md) | Decoder providers, RAW development, adjustment execution, and native image buffers |
+| RAW highlight oracle lab | [`tools/raw-highlight-oracle`](../../tools/raw-highlight-oracle/README.md) | Offline same-`RawFrame` and independent-pipeline decode/reconstruction comparisons with pinned provenance |
 | Qt application | [`apps/desktop`](../../apps/desktop/README.md) | QML presentation, Qt controllers, image providers, and desktop lifecycle |
 | CLI | [`shadow-cli`](../../apps/shadow-cli/README.md) | Focused catalog, decode, backup, AI, and remote-Library operator commands |
 | Repository validation | [`xtask`](../../xtask/src/main.rs) | Repository-wide format, structure, test, localization, and build gates |

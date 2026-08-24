@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import pathlib
+import sys
+import tempfile
+import unittest
+
+
+OWNER_ROOT = pathlib.Path(__file__).resolve().parent
+SPEC = importlib.util.spec_from_file_location(
+    "shadow_raw_highlight_oracle", OWNER_ROOT / "oracle_lab.py"
+)
+assert SPEC is not None and SPEC.loader is not None
+oracle = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = oracle
+SPEC.loader.exec_module(oracle)
+
+
+FAKE_EXECUTABLE = """#!/usr/bin/env python3
+import pathlib
+import sys
+
+args = sys.argv[1:]
+name = pathlib.Path(sys.argv[0]).name
+if "--raw-frame-only" in args:
+    output = pathlib.Path(args[1])
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "raw-frame.bin").write_bytes(b"raw-frame")
+    print("raw.width=4")
+elif "--highlight-cfa-diagnostic" in args:
+    output = pathlib.Path(args[1])
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "difference.ppm").write_bytes(b"P6\\n1 1\\n255\\n\\0\\0\\0")
+    print("highlight.reference=darktable-opposed")
+elif "-Z" in args:
+    output = pathlib.Path(args[args.index("-Z") + 1])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"libraw-tiff")
+elif "-o" in args:
+    output = pathlib.Path(args[args.index("-o") + 1])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"rawtherapee-tiff")
+elif "--apply-custom-presets" in args:
+    output = pathlib.Path(args[2])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"darktable-tiff")
+elif "--filename" in args:
+    output = pathlib.Path(args[args.index("--filename") + 1]).with_suffix(".pfm")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"PF\\n1 1\\n-1.0\\n" + bytes(12))
+else:
+    print(f"identify.executable={name}")
+"""
+
+
+class OracleLabContractTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="shadow-oracle-test-")
+        self.root = pathlib.Path(self.temporary.name)
+        self.source = self.root / "fixture.raw"
+        self.source.write_bytes(b"bounded-raw-fixture")
+        self.executable = self.root / "fake-oracle"
+        self.executable.write_text(FAKE_EXECUTABLE, encoding="utf-8")
+        self.executable.chmod(0o755)
+        self.xmp = self.root / "controlled.xmp"
+        self.xmp.write_text("<x:xmpmeta/>", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def all_tool_arguments(self) -> list[str]:
+        executable = str(self.executable)
+        return [
+            "--shadow-probe",
+            executable,
+            "--raw-identify",
+            executable,
+            "--dcraw-emu",
+            executable,
+            "--darktable-cli",
+            executable,
+            "--darktable-xmp",
+            str(self.xmp),
+            "--rawtherapee-cli",
+            executable,
+            "--vkdt-cli",
+            executable,
+        ]
+
+    def test_output_root_must_be_external_to_repository(self) -> None:
+        self.assertFalse(oracle.output_root_is_external(oracle.REPOSITORY_ROOT / "oracle-output"))
+        self.assertTrue(oracle.output_root_is_external(self.root / "oracle-output"))
+
+    def test_inventory_requires_explicit_darktable_xmp(self) -> None:
+        arguments = oracle.parser().parse_args(
+            [
+                "inventory",
+                "--oracle",
+                "darktable-xmp",
+                "--darktable-cli",
+                str(self.executable),
+            ]
+        )
+        tools = oracle.selected_tools(arguments)
+        plan = oracle.build_plan(
+            "darktable-xmp", tools, pathlib.Path("/INPUT.raw"), pathlib.Path("/RUN")
+        )
+        self.assertEqual(plan, "a controlled XMP is required; pass --darktable-xmp")
+
+    def test_all_adapters_record_reproducible_redacted_run(self) -> None:
+        output_root = self.root / "runs"
+        arguments = [
+            "run",
+            "--input",
+            str(self.source),
+            "--output-root",
+            str(output_root),
+            "--run-name",
+            "all-adapters",
+            "--strict",
+            *self.all_tool_arguments(),
+        ]
+        self.assertEqual(oracle.main(arguments), 0)
+
+        run_directory = output_root / "all-adapters"
+        manifest = json.loads((run_directory / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["schema"], oracle.MANIFEST_SCHEMA)
+        self.assertFalse(manifest["source"]["copied_into_run"])
+        self.assertNotIn(str(self.source), json.dumps(manifest))
+        self.assertNotIn(str(run_directory), json.dumps(manifest))
+        for log in run_directory.rglob("command.*.log"):
+            contents = log.read_text(encoding="utf-8")
+            self.assertNotIn(str(self.source), contents)
+            self.assertNotIn(str(run_directory), contents)
+        self.assertEqual(
+            {record["id"] for record in manifest["adapters"]}, set(oracle.DEFAULT_ADAPTERS)
+        )
+        self.assertTrue(all(record["status"] == "succeeded" for record in manifest["adapters"]))
+        self.assertFalse(any(path.name == self.source.name for path in run_directory.rglob("*")))
+        self.assertTrue(
+            all(record["executable"]["sha256"] for record in manifest["adapters"])
+        )
+        supporting_files = {
+            record["id"]: record["supporting_files"] for record in manifest["adapters"]
+        }
+        self.assertEqual(len(supporting_files["darktable-xmp"]), 1)
+        self.assertEqual(len(supporting_files["rawtherapee-coloropp"]), 1)
+        self.assertEqual(len(supporting_files["vkdt-hilite"]), 1)
+        self.assertTrue(supporting_files["darktable-xmp"][0]["sha256"])
+
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            oracle.run(oracle.parser().parse_args(arguments))
+
+    def test_required_unavailable_adapter_fails_without_substitution(self) -> None:
+        output_root = self.root / "missing-runs"
+        status = oracle.main(
+            [
+                "run",
+                "--input",
+                str(self.source),
+                "--output-root",
+                str(output_root),
+                "--run-name",
+                "missing-darktable",
+                "--oracle",
+                "darktable-xmp",
+                "--require",
+                "darktable-xmp",
+                "--dry-run",
+            ]
+        )
+        self.assertEqual(status, 1)
+        manifest = json.loads(
+            (output_root / "missing-darktable" / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["adapters"][0]["status"], "unavailable")
+
+
+if __name__ == "__main__":
+    unittest.main()

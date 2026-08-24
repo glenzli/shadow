@@ -13,6 +13,13 @@ highlight reconstruction, CPU/Metal parity, downstream Highlights/Whites behavio
 identities, and regression diagnostics is
 [`docs/raw-highlight-reconstruction.md`](docs/raw-highlight-reconstruction.md).
 
+The repository-level [`RAW highlight oracle lab`](../../tools/raw-highlight-oracle/README.md)
+orchestrates offline comparisons against pinned Darktable, RawTherapee, LibRaw, and vkdt routes.
+Its `shadow-cfa-opposed` adapter is the strict reconstruction comparison because both outputs share
+this owner's exact provider-neutral `RawFrame`. External-container adapters are intentionally
+classified as complete independent pipelines: their visual differences also include decoder,
+calibration, demosaic, and colour-transform choices and are not attributed to this owner alone.
+
 The line-based manifests under
 [`cmake/source-manifests/`](cmake/source-manifests/) are the single compiled-source index shared
 by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback

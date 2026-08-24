@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shadow.local/schemas/raw-highlight-oracle-run-v1.json",
+  "title": "Shadow RAW highlight oracle run",
+  "type": "object",
+  "required": [
+    "schema",
+    "orchestrator_version",
+    "created_utc",
+    "run_name",
+    "source",
+    "comparison_boundary",
+    "upstream_lock",
+    "adapters"
+  ],
+  "properties": {
+    "schema": {
+      "const": "shadow.raw-highlight-oracle-run.v1"
+    },
+    "orchestrator_version": {
+      "type": "string"
+    },
+    "created_utc": {
+      "type": "string"
+    },
+    "completed_utc": {
+      "type": "string"
+    },
+    "run_name": {
+      "type": "string"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "source": {
+      "type": "object",
+      "required": ["basename", "size_bytes", "sha256", "copied_into_run"],
+      "properties": {
+        "basename": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "copied_into_run": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "comparison_boundary": {
+      "type": "object"
+    },
+    "upstream_lock": {
+      "type": "object"
+    },
+    "adapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": {
+            "enum": ["planned", "unavailable", "succeeded", "failed"]
+          },
+          "comparison_class": { "type": "string" },
+          "stages": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "argv": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "supporting_files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "path", "size_bytes", "sha256"]
+            }
+          },
+          "artifacts": {
+            "type": "array"
+          }
+        }
+      }
+    }
+  }
+}
