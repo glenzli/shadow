@@ -691,8 +691,11 @@ admission, background execution, preset persistence, and backend publication:
   owns the naming, identity-preserving edit, and removal transactions; built-in presets remain
   immutable.
 - [`qml/ExportSettingsPane.qml`](qml/ExportSettingsPane.qml) owns the editable Output Recipe draft:
-  JPEG/PNG/TIFF format, non-upscaling long edge, quality, tagged sRGB or Display P3 conversion,
-  print-resolution metadata, explicit strip-or-copyright metadata policy, and filename suffix.
+  JPEG/PNG/TIFF raster formats, non-upscaling long edge, quality, tagged sRGB or Display P3
+  conversion, print-resolution metadata, explicit strip-or-copyright metadata policy, and filename
+  suffix. Its RAW DNG mode is a distinct source-stage interchange export: it preserves the original
+  CFA mosaic and source calibration while deliberately ignoring edits, resizing, color-space
+  conversion, raster metadata policy, and watermarks.
   [`qml/ExportWatermarkPane.qml`](qml/ExportWatermarkPane.qml) owns the independent watermark
   management section and current watermark snapshot: reusable named PNG definitions, placement,
   opacity, scale, and inset.
@@ -712,12 +715,17 @@ admission, background execution, preset persistence, and backend publication:
   JSON shared by the controller and executor. It reads legacy numeric schema 1 queue items, rejects
   unknown dated schemas, and never advertises a bit depth that the renderer did not produce.
 - [`src/backend/export_backend.cpp`](src/backend/export_backend.cpp) owns queue recovery and claims,
-  exact Recipe rendering, color conversion, resolution/copyright tagging, watermarking,
-  write-conflict handling, atomic publication, terminal completion, cancellation, and progress on
-  the application's single Rust session. [`src/backend/export_raster_encoder.cpp`](src/backend/export_raster_encoder.cpp)
+  dispatch between source-stage RAW DNG publication and exact Recipe raster rendering, color
+  conversion, resolution/copyright tagging, watermarking, write-conflict handling, atomic
+  publication, terminal completion, cancellation, and progress on the application's single Rust
+  session. The Rust bridge stages the original CFA through the packaged isolated helper, verifies
+  its source identity, encodes an uncompressed calibration-bearing DNG, and publishes it without
+  overwriting an existing destination. [`src/backend/export_raster_encoder.cpp`](src/backend/export_raster_encoder.cpp)
   owns the final JPEG/PNG encoding and a plugin-independent, lossless-Deflate TIFF writer backed by
-  libtiff. The current export raster contract is tagged RGB8; true high-bit-depth output requires a
-  future linear high-bit-depth renderer endpoint rather than expanding this 8-bit result.
+  libtiff. The JPEG/PNG/TIFF raster contract is tagged RGB8; the DNG route instead preserves the
+  original up-to-16-bit CFA samples and is not a rendered RGB image. True high-bit-depth rendered
+  output still requires a future linear high-bit-depth renderer endpoint rather than expanding the
+  current 8-bit raster result.
 
 `DesktopBackend` composes that export component with the shared session but does not forward its
 workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)

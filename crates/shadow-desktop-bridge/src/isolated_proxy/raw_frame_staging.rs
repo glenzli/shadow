@@ -46,13 +46,22 @@ const EXPECTED_FIELDS: [&str; 18] = [
     "xyz_to_camera_d65",
 ];
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct IsolatedRawFrameDescriptor {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) cfa: String,
     pub(crate) black_levels: [u16; 4],
     pub(crate) white_levels: [u16; 4],
+    pub(crate) linear_response_limits: [u16; 4],
+    pub(crate) has_linear_response_limits: bool,
+    pub(crate) orientation: i32,
+    pub(crate) bits_per_sample: u32,
+    pub(crate) as_shot_neutral: [f64; 4],
+    pub(crate) camera_to_xyz_d50: Option<[f64; 9]>,
+    pub(crate) xyz_to_camera_d65: Option<[f64; 9]>,
+    pub(crate) camera_to_linear_srgb_d65: Option<[f64; 9]>,
+    pub(crate) pending_dng_opcode_bytes: [u64; 3],
     pub(crate) sample_bytes: u64,
     pub(crate) decoded_samples_sha256: String,
     pub(crate) decoder_provider_id: String,
@@ -244,7 +253,6 @@ fn open_staged_frame(manifest_path: &Path) -> Result<(PathBuf, File, IsolatedRaw
         .iter()
         .zip(white_levels)
         .any(|(black, white)| *black >= white)
-        || white_levels.iter().any(|white| *white != white_levels[0])
     {
         bail!("isolated RAW frame staging sensor levels are unsupported");
     }
@@ -252,17 +260,53 @@ fn open_staged_frame(manifest_path: &Path) -> Result<(PathBuf, File, IsolatedRaw
         required_field(&fields, "linear_response")?,
         "linear-response",
     )?;
-    if parse_bool01(
+    let has_linear_response_limits = parse_bool01(
         required_field(&fields, "has_linear_response")?,
         "linear-response availability",
-    )? && black_levels
-        .iter()
-        .zip(linear_response)
-        .zip(white_levels)
-        .any(|((black, response), white)| response <= *black || response > white)
+    )?;
+    if has_linear_response_limits
+        && black_levels
+            .iter()
+            .zip(linear_response)
+            .zip(white_levels)
+            .any(|((black, response), white)| response <= *black || response > white)
     {
         bail!("isolated RAW frame staging linear-response limits are unsupported");
     }
+    let orientation = parse_field::<i32>(&fields, "orientation")?;
+    if !matches!(orientation, 0 | 3 | 5 | 6) {
+        bail!("isolated RAW frame staging orientation is unsupported");
+    }
+    let bits_per_sample = parse_field::<u32>(&fields, "bits_per_sample")?;
+    if !(1..=16).contains(&bits_per_sample) {
+        bail!("isolated RAW frame staging sample precision is unsupported");
+    }
+    let as_shot_neutral = parse_float_array::<4>(
+        required_field(&fields, "as_shot_neutral")?,
+        "as-shot neutral",
+    )?;
+    if as_shot_neutral
+        .iter()
+        .any(|value| !value.is_finite() || *value <= 0.0)
+    {
+        bail!("isolated RAW frame staging as-shot neutral is unsupported");
+    }
+    let camera_to_xyz_d50 = parse_optional_matrix(
+        required_field(&fields, "camera_to_xyz_d50")?,
+        "D50 camera matrix",
+    )?;
+    let xyz_to_camera_d65 = parse_optional_matrix(
+        required_field(&fields, "xyz_to_camera_d65")?,
+        "D65 camera matrix",
+    )?;
+    let camera_to_linear_srgb_d65 = parse_optional_matrix(
+        required_field(&fields, "camera_to_linear_srgb_d65")?,
+        "linear sRGB camera matrix",
+    )?;
+    let pending_dng_opcode_bytes = parse_unsigned_array::<u64, 3>(
+        required_field(&fields, "pending_dng_opcode_bytes")?,
+        "pending DNG opcode byte counts",
+    )?;
     let sample_bytes = parse_field::<u64>(&fields, "sample_bytes")?;
     let expected_bytes = u64::from(width)
         .checked_mul(u64::from(height))
@@ -313,6 +357,15 @@ fn open_staged_frame(manifest_path: &Path) -> Result<(PathBuf, File, IsolatedRaw
             cfa,
             black_levels,
             white_levels,
+            linear_response_limits: linear_response,
+            has_linear_response_limits,
+            orientation,
+            bits_per_sample,
+            as_shot_neutral,
+            camera_to_xyz_d50,
+            xyz_to_camera_d65,
+            camera_to_linear_srgb_d65,
+            pending_dng_opcode_bytes,
             sample_bytes,
             decoded_samples_sha256,
             decoder_provider_id,
@@ -363,13 +416,43 @@ fn parse_field<T: std::str::FromStr>(fields: &BTreeMap<&str, &str>, key: &str) -
 }
 
 fn parse_levels(value: &str, label: &str) -> Result<[u16; 4]> {
+    parse_unsigned_array::<u16, 4>(value, &format!("{label} levels"))
+}
+
+fn parse_unsigned_array<T, const COUNT: usize>(value: &str, label: &str) -> Result<[T; COUNT]>
+where
+    T: std::str::FromStr,
+{
     value
         .split(',')
-        .map(str::parse::<u16>)
+        .map(str::parse::<T>)
         .collect::<std::result::Result<Vec<_>, _>>()
         .ok()
         .and_then(|values| values.try_into().ok())
-        .ok_or_else(|| anyhow::anyhow!("isolated RAW frame staging {label} levels are invalid"))
+        .ok_or_else(|| anyhow::anyhow!("isolated RAW frame staging {label} are invalid"))
+}
+
+fn parse_float_array<const COUNT: usize>(value: &str, label: &str) -> Result<[f64; COUNT]> {
+    let values: [f64; COUNT] = value
+        .split(',')
+        .map(str::parse::<f64>)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .ok()
+        .and_then(|values| values.try_into().ok())
+        .ok_or_else(|| anyhow::anyhow!("isolated RAW frame staging {label} is invalid"))?;
+    if values.iter().all(|value| value.is_finite()) {
+        Ok(values)
+    } else {
+        bail!("isolated RAW frame staging {label} contains a non-finite value")
+    }
+}
+
+fn parse_optional_matrix(value: &str, label: &str) -> Result<Option<[f64; 9]>> {
+    if value == "-" {
+        Ok(None)
+    } else {
+        parse_float_array::<9>(value, label).map(Some)
+    }
 }
 
 fn parse_bool01(value: &str, label: &str) -> Result<bool> {

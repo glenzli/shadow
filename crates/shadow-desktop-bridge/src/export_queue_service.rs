@@ -1,10 +1,11 @@
 //! Durable export queue orchestration at the desktop bridge boundary.
 //!
 //! The catalog owns immutable job snapshots and compare-and-swap transitions.
-//! This service resolves those snapshots into the renderer's existing exact
+//! This service resolves raster snapshots into the renderer's existing exact
 //! Recipe path, without letting the Qt shell rediscover mutable photo state.
-//! Encoding and atomic file publication remain in the desktop shell because
-//! Qt already owns the supported JPEG/PNG and watermark implementations.
+//! Product RAW DNG is the deliberate exception: it preserves the original CFA
+//! and source calibration, so Rust stages, encodes, and publishes it without
+//! crossing CXX or entering the Recipe/preview pipeline.
 
 use std::collections::BTreeSet;
 
@@ -15,6 +16,7 @@ use shadow_catalog::{
     ExportItemRecord, ExportItemState, ExportJobId, ExportSettingsSource, NewExportItem,
     NewExportOutputReceipt, RecipeCommitRecord, ReviewItemRecord,
 };
+use shadow_core::fingerprint_source;
 use shadow_core::native_path_from_location;
 use shadow_domain::{AssetLocation, EntityId, RecipeCommitId};
 use uuid::Uuid;
@@ -23,10 +25,14 @@ use crate::{digest_hex::encode_hex, wall_clock::current_time_ms};
 
 use crate::{
     DesktopSession, ffi,
+    isolated_proxy::{configured_helper_path, stage_isolated_raw_frame},
+    raw_dng_export::{RawDngPublishOutcome, encode_to_temporary},
     recipe_v1::{
         decode_grade_stack_draft_from_recipe_v1_snapshot, encode_grade_stack_draft_recipe_v1,
     },
 };
+
+const SOURCE_CHANGED: &str = "export source changed since Catalog registration";
 
 /// Single semantic owner for the durable catalog queue while `DesktopSession`
 /// remains responsible for source validation and rendering.
@@ -262,6 +268,119 @@ impl ExportQueueService {
         )
     }
 
+    /// Executes the source-stage product DNG path as one bounded Rust
+    /// transaction. The isolated decoder stages the original active CFA once;
+    /// no Recipe render, preview cache, GPU transfer, resize, watermark, or
+    /// output colour conversion participates.
+    pub(crate) fn execute_raw_dng(
+        &self,
+        session: &DesktopSession,
+        item: &ffi::FfiDurableExportItem,
+    ) -> AnyResult<ffi::FfiRawDngExportReceipt> {
+        let persisted = self.persisted_item(item)?;
+        if persisted.state != ExportItemState::Preparing {
+            bail!(
+                "durable RAW DNG item {} is {}, not preparing",
+                persisted.id,
+                persisted.state.as_str()
+            );
+        }
+        let mut stage = ExportItemState::Preparing;
+        let result = (|| -> AnyResult<ffi::FfiRawDngExportReceipt> {
+            let job = self
+                .catalog
+                .export_job(persisted.job_id)?
+                .ok_or_else(|| anyhow!("durable RAW DNG job {} is absent", persisted.job_id))?;
+            ensure_raw_dng_settings(&job.settings_json)?;
+            let source = self
+                .catalog
+                .photo_source(persisted.photo_id)?
+                .filter(|source| source.representation_id == persisted.representation_id)
+                .ok_or_else(|| anyhow!("durable RAW DNG source is no longer available"))?;
+            let source_path = native_path_from_location(&source.location)?;
+            if fingerprint_source(&source_path).context("read RAW DNG source metadata")?
+                != source.source
+            {
+                bail!(SOURCE_CHANGED);
+            }
+            let output_path = native_path_from_location(&persisted.output)?;
+            let helper_path = configured_helper_path().ok_or_else(|| {
+                anyhow!("RAW DNG export requires the packaged isolated RAW decoder")
+            })?;
+
+            self.begin_render(&persisted.id.to_string())?;
+            stage = ExportItemState::Rendering;
+            let staging_root = session
+                .cache_root
+                .join("decode-helper")
+                .join("raw-dng-export");
+            let staging = stage_isolated_raw_frame(&helper_path, &staging_root, &source_path)
+                .with_context(|| {
+                    format!(
+                        "stage source CFA for RAW DNG export {}",
+                        source_path.display()
+                    )
+                })?;
+            if fingerprint_source(&source_path).context("re-read RAW DNG source metadata")?
+                != source.source
+            {
+                bail!(SOURCE_CHANGED);
+            }
+
+            self.begin_encoding(&persisted.id.to_string())?;
+            stage = ExportItemState::Encoding;
+            let pending = encode_to_temporary(&staging, &output_path)?;
+            self.begin_writing(&persisted.id.to_string())?;
+            stage = ExportItemState::WritingTemp;
+            match pending.publish()? {
+                RawDngPublishOutcome::OutputConflict => Ok(ffi::FfiRawDngExportReceipt {
+                    status: ffi::FfiRawDngExportStatus::OutputConflict,
+                    width: 0,
+                    height: 0,
+                    byte_length: 0,
+                    receipt_json: String::new(),
+                }),
+                RawDngPublishOutcome::Published(receipt) => {
+                    self.complete_receipt(
+                        persisted.id,
+                        persisted.job_id,
+                        "dng",
+                        receipt.byte_len,
+                        Some(receipt.content_digest),
+                        &receipt.receipt_json,
+                    )?;
+                    Ok(ffi::FfiRawDngExportReceipt {
+                        status: ffi::FfiRawDngExportStatus::Published,
+                        width: receipt.width,
+                        height: receipt.height,
+                        byte_length: receipt.byte_len,
+                        receipt_json: receipt.receipt_json,
+                    })
+                }
+            }
+        })();
+
+        match result {
+            Ok(receipt) => Ok(receipt),
+            Err(error) => {
+                let message = format!("{error:#}");
+                let source_changed = message.contains(SOURCE_CHANGED);
+                let _ = self.fail(
+                    persisted.id,
+                    stage,
+                    if source_changed {
+                        "export_source_changed"
+                    } else {
+                        "raw_dng_export_failed"
+                    },
+                    &message,
+                    !source_changed,
+                );
+                Err(error)
+            }
+        }
+    }
+
     pub(crate) fn complete(
         &self,
         item_id: &str,
@@ -270,8 +389,26 @@ impl ExportQueueService {
         byte_len: u64,
         receipt_json: &str,
     ) -> AnyResult<()> {
-        let item_id = parse_item_id(item_id)?;
-        let item = self.item_by_id_for_job(parse_job_id(job_id)?, item_id)?;
+        self.complete_receipt(
+            parse_item_id(item_id)?,
+            parse_job_id(job_id)?,
+            output_format,
+            byte_len,
+            None,
+            receipt_json,
+        )
+    }
+
+    fn complete_receipt(
+        &self,
+        item_id: ExportItemId,
+        job_id: ExportJobId,
+        output_format: &str,
+        byte_len: u64,
+        content_digest: Option<[u8; 32]>,
+        receipt_json: &str,
+    ) -> AnyResult<()> {
+        let item = self.item_by_id_for_job(job_id, item_id)?;
         self.catalog.advance_export_item(&AdvanceExportItem {
             item_id,
             expected_state: ExportItemState::WritingTemp,
@@ -281,9 +418,7 @@ impl ExportQueueService {
                 output: item.output,
                 output_format: output_format.to_owned(),
                 byte_len,
-                // A future output verifier can enrich this receipt with a
-                // whole-file digest without changing the publication state.
-                content_digest: None,
+                content_digest,
                 receipt_json: receipt_json.to_owned(),
             }),
             now_ms: current_time_ms()?,
@@ -432,6 +567,15 @@ fn normalized_settings_json(settings_json: &str) -> AnyResult<String> {
         bail!("durable export settings must be one JSON object");
     }
     serde_json::to_string(&value).context("serialize durable export settings JSON")
+}
+
+fn ensure_raw_dng_settings(settings_json: &str) -> AnyResult<()> {
+    let value: serde_json::Value =
+        serde_json::from_str(settings_json).context("parse durable RAW DNG settings JSON")?;
+    if value.get("format").and_then(serde_json::Value::as_str) != Some("dng") {
+        bail!("durable RAW DNG execution requires format dng");
+    }
+    Ok(())
 }
 
 fn source_identity_json(source: &ReviewItemRecord) -> AnyResult<String> {

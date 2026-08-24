@@ -65,6 +65,7 @@ mod subject_mask_service;
 mod cache_maintenance_service;
 mod export_queue_service;
 mod export_service;
+mod raw_dng_export;
 mod session_cache_maintenance;
 mod session_export;
 mod session_pipeline;
@@ -1962,6 +1963,23 @@ mod ffi {
         settings_json: String,
     }
 
+    /// Product RAW DNG is encoded and atomically published in Rust so the
+    /// exact staged CFA never crosses the CXX boundary as a giant vector.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiRawDngExportStatus {
+        Published,
+        OutputConflict,
+    }
+
+    #[derive(Debug)]
+    struct FfiRawDngExportReceipt {
+        status: FfiRawDngExportStatus,
+        width: u32,
+        height: u32,
+        byte_length: u64,
+        receipt_json: String,
+    }
+
     /// The only nonterminal item states that the desktop encoder may own.
     /// Terminal and queue states stay catalog-internal so C++ cannot skip the
     /// CAS lifecycle by accident.
@@ -2639,6 +2657,10 @@ mod ffi {
             self: &DesktopSession,
             item: &FfiDurableExportItem,
         ) -> Result<FfiEditedExportRaster>;
+        fn execute_durable_raw_dng_item(
+            self: &DesktopSession,
+            item: &FfiDurableExportItem,
+        ) -> Result<FfiRawDngExportReceipt>;
         fn begin_durable_export_encoding(self: &DesktopSession, item_id: &str) -> Result<()>;
         fn begin_durable_export_write(self: &DesktopSession, item_id: &str) -> Result<()>;
         fn pause_durable_export_conflict(self: &DesktopSession, item_id: &str) -> Result<()>;

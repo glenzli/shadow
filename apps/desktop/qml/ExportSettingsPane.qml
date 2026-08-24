@@ -113,9 +113,34 @@ Item {
                         active: settings.format === "tiff"
                         onClicked: settings.format = "tiff"
                     }
+                    ShadowTabButton {
+                        Layout.fillWidth: true
+                        text: "DNG"
+                        active: settings.format === "dng"
+                        onClicked: settings.format = "dng"
+                    }
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: dngExplanation.implicitHeight + 16
+                    visible: settings.format === "dng"
+                    color: Theme.control
+                    radius: Theme.compactControlRadius
+                    border.width: 1
+                    border.color: Theme.border
+                    Label {
+                        id: dngExplanation
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        text: qsTr("RAW DNG preserves the original sensor mosaic and source calibration. Edits, resizing, color space, metadata, and watermarks are not applied.")
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: settings.format !== "dng"
                     Label {
                         Layout.preferredWidth: 92
                         text: qsTr("Long edge")
@@ -149,6 +174,7 @@ Item {
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: settings.format !== "dng"
                     Label {
                         Layout.preferredWidth: 92
                         text: qsTr("Color space")
@@ -180,6 +206,7 @@ Item {
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: settings.format !== "dng"
                     Label {
                         Layout.preferredWidth: 92
                         text: qsTr("Resolution")
@@ -268,11 +295,13 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
+                visible: settings.format !== "dng"
                 color: Theme.border
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
+                visible: settings.format !== "dng"
                 spacing: 9
                 Label {
                     text: qsTr("METADATA")
@@ -367,12 +396,14 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
+                visible: settings.format !== "dng"
                 color: Theme.border
             }
 
             ExportWatermarkPane {
                 id: watermarkPane
                 Layout.fillWidth: true
+                visible: settings.format !== "dng"
                 exportController: settings.exportController
             }
         }

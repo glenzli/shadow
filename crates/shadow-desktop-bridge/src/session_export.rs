@@ -48,6 +48,13 @@ impl DesktopSession {
         self.export_queue.render(self, item)
     }
 
+    pub(crate) fn execute_durable_raw_dng_item(
+        &self,
+        item: &ffi::FfiDurableExportItem,
+    ) -> AnyResult<ffi::FfiRawDngExportReceipt> {
+        self.export_queue.execute_raw_dng(self, item)
+    }
+
     pub(crate) fn begin_durable_export_encoding(&self, item_id: &str) -> AnyResult<()> {
         self.export_queue.begin_encoding(item_id)
     }

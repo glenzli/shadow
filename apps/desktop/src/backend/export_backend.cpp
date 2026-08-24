@@ -297,8 +297,6 @@ BackendExportReceipt ExportBackend::executeDurableExportItem(
         // repeatedly render an image on every retry.
         const BackendExportOptions options =
             ExportSettingsCodec::fromDurableJson(item.settings_json);
-        session_->begin_durable_export_render(item.item_id.toStdString());
-        stage = 1;
         shadow::desktop::FfiDurableExportItem ffi_item;
         ffi_item.has_item = true;
         ffi_item.item_id = item.item_id.toStdString();
@@ -307,6 +305,25 @@ BackendExportReceipt ExportBackend::executeDurableExportItem(
         ffi_item.source_path = item.source_path.toStdString();
         ffi_item.output_path = native_path_input::path(item.output_path);
         ffi_item.settings_json = item.settings_json.toStdString();
+        if (options.format == QStringLiteral("dng")) {
+            const auto receipt =
+                session_->execute_durable_raw_dng_item(ffi_item);
+            if (receipt.status
+                == shadow::desktop::FfiRawDngExportStatus::OutputConflict) {
+                throw ExportOutputConflict(item.output_path);
+            }
+            return {
+                .destination_path = item.output_path,
+                .width = receipt.width,
+                .height = receipt.height,
+                .byte_length = receipt.byte_length,
+                .output_format = QStringLiteral("dng"),
+                .receipt_json = qstring(receipt.receipt_json),
+            };
+        }
+
+        session_->begin_durable_export_render(item.item_id.toStdString());
+        stage = 1;
         const auto raster = session_->render_durable_export_item(ffi_item);
 
         session_->begin_durable_export_encoding(item.item_id.toStdString());

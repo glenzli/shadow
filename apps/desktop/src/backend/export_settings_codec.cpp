@@ -100,6 +100,24 @@ BackendExportOptions ExportSettingsCodec::fromVariantMap(
         QStringLiteral("watermarkAnchor"),
         options.watermark_anchor
     ).toString();
+    if (options.format == QStringLiteral("dng")) {
+        // Product RAW DNG is source-stage interchange, not a rendered output.
+        // Canonicalize every raster-only option so its durable snapshot cannot
+        // imply that edits, resizing, metadata, or watermarking were applied.
+        const BackendExportOptions defaults;
+        options.max_edge = 0;
+        options.jpeg_quality = defaults.jpeg_quality;
+        options.color_space = defaults.color_space;
+        options.resolution_dpi = defaults.resolution_dpi;
+        options.metadata_policy = QStringLiteral("none");
+        options.creator.clear();
+        options.copyright_notice.clear();
+        options.watermark_path.clear();
+        options.watermark_opacity = defaults.watermark_opacity;
+        options.watermark_scale = defaults.watermark_scale;
+        options.watermark_inset = defaults.watermark_inset;
+        options.watermark_anchor = defaults.watermark_anchor;
+    }
     validate(options);
     return options;
 }
@@ -255,8 +273,11 @@ QVariantMap ExportSettingsCodec::normalizedPreset(
 void ExportSettingsCodec::validate(const BackendExportOptions& options) {
     if (options.format != QStringLiteral("jpeg")
         && options.format != QStringLiteral("png")
-        && options.format != QStringLiteral("tiff")) {
-        throw std::invalid_argument("export format must be jpeg, png, or tiff");
+        && options.format != QStringLiteral("tiff")
+        && options.format != QStringLiteral("dng")) {
+        throw std::invalid_argument(
+            "export format must be jpeg, png, tiff, or dng"
+        );
     }
     if (options.jpeg_quality < 1 || options.jpeg_quality > 100) {
         throw std::invalid_argument("JPEG export quality must be in 1..=100");

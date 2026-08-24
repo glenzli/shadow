@@ -2153,6 +2153,11 @@ R %2 · G %3 · B %4</translation>
         <translation>文件</translation>
     </message>
     <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="135"/>
+        <source>RAW DNG preserves the original sensor mosaic and source calibration. Edits, resizing, color space, metadata, and watermarks are not applied.</source>
+        <translation>RAW DNG 会保留原始传感器马赛克数据与源校准。编辑、缩放、色彩空间、元数据和水印不会应用。</translation>
+    </message>
+    <message>
         <location filename="../qml/ExportSettingsPane.qml" line="121"/>
         <source>Long edge</source>
         <translation>长边</translation>

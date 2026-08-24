@@ -15,6 +15,7 @@ blake3.workspace = true
 cxx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 shadow-bridge.workspace = true
 shadow-cache.workspace = true
 shadow-catalog.workspace = true
@@ -25,6 +26,7 @@ shadow-native-path.workspace = true
 shadow-ai.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tempfile.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

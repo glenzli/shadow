@@ -219,7 +219,7 @@ int main(int argc, char* argv[]) {
                         })
                     );
                 },
-                "export format must be jpeg, png, or tiff"
+                "export format must be jpeg, png, tiff, or dng"
             ),
             "unsupported formats retain the stable validation error"
         )
@@ -228,6 +228,30 @@ int main(int argc, char* argv[]) {
                 {QStringLiteral("format"), QStringLiteral("tiff")},
             }).format == QStringLiteral("tiff"),
             "TIFF is an accepted photographic output format"
+        )
+        || !require(
+            ExportSettingsCodec::fromVariantMap({
+                {QStringLiteral("format"), QStringLiteral("dng")},
+                {QStringLiteral("maxEdge"), 2'048},
+                {QStringLiteral("quality"), 1},
+                {QStringLiteral("colorSpace"), QStringLiteral("display-p3")},
+                {QStringLiteral("resolutionDpi"), 72},
+                {
+                    QStringLiteral("metadataPolicy"),
+                    QStringLiteral("copyright-only")
+                },
+                {QStringLiteral("creator"), QStringLiteral("Photographer")},
+                {
+                    QStringLiteral("copyrightNotice"),
+                    QStringLiteral("Copyright")
+                },
+                {QStringLiteral("filenameSuffix"), QStringLiteral("-raw")},
+                {
+                    QStringLiteral("watermarkPath"),
+                    QStringLiteral("/tmp/watermark.png")
+                },
+            }).format == QStringLiteral("dng"),
+            "DNG is an accepted source-stage output format"
         )
         || !require(
             ExportSettingsCodec::fromDurableJson(QStringLiteral(
@@ -261,6 +285,42 @@ int main(int argc, char* argv[]) {
             ),
             "non-object durable settings fail before render"
         )) {
+        return EXIT_FAILURE;
+    }
+
+    const BackendExportOptions dng = ExportSettingsCodec::fromVariantMap({
+        {QStringLiteral("format"), QStringLiteral("dng")},
+        {QStringLiteral("maxEdge"), 2'048},
+        {QStringLiteral("quality"), 1},
+        {QStringLiteral("colorSpace"), QStringLiteral("display-p3")},
+        {QStringLiteral("resolutionDpi"), 72},
+        {
+            QStringLiteral("metadataPolicy"),
+            QStringLiteral("copyright-only")
+        },
+        {QStringLiteral("creator"), QStringLiteral("Photographer")},
+        {QStringLiteral("copyrightNotice"), QStringLiteral("Copyright")},
+        {QStringLiteral("filenameSuffix"), QStringLiteral("-raw")},
+        {
+            QStringLiteral("watermarkPath"),
+            QStringLiteral("/tmp/watermark.png")
+        },
+    });
+    if (!require(dng.max_edge == 0U, "DNG never resizes the source CFA")
+        || !require(dng.jpeg_quality == defaults.jpeg_quality,
+                    "DNG clears raster quality")
+        || !require(dng.color_space == QStringLiteral("srgb"),
+                    "DNG clears rendered output colour space")
+        || !require(dng.resolution_dpi == defaults.resolution_dpi,
+                    "DNG clears print resolution")
+        || !require(dng.metadata_policy == QStringLiteral("none"),
+                    "DNG clears raster metadata policy")
+        || !require(dng.creator.isEmpty(), "DNG clears creator metadata")
+        || !require(dng.copyright_notice.isEmpty(),
+                    "DNG clears copyright metadata")
+        || !require(dng.watermark_path.isEmpty(), "DNG clears watermark")
+        || !require(dng.filename_suffix == QStringLiteral("-raw"),
+                    "DNG retains destination filename suffix")) {
         return EXIT_FAILURE;
     }
 

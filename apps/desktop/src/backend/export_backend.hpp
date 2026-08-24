@@ -29,8 +29,9 @@ struct BackendDurableExportTarget final {
 };
 
 /// One immutable work item claimed from the catalog-backed export queue. The
-/// desktop shell may encode it, but cannot change its Recipe/source/output
-/// snapshot.
+/// desktop shell may execute it, but cannot change its Recipe/source/output
+/// snapshot. Raster formats use the frozen Recipe; RAW DNG preserves the
+/// source CFA and deliberately ignores that Recipe.
 struct BackendDurableExportItem final {
     QString item_id;
     QString job_id;
@@ -63,8 +64,9 @@ struct BackendDurableExportProgress final {
 
 /// Owns the Qt half of the durable export transaction on the application's
 /// single long-lived Rust desktop session: queue recovery and claims, exact
-/// render execution, watermark/encoding, conflict handling, atomic publication,
-/// terminal completion, cancellation, and progress projection.
+/// render execution, raster watermark/encoding, conflict handling, atomic
+/// publication, terminal completion, cancellation, and progress projection.
+/// Rust owns RAW DNG staging/encoding/publication so CFA bytes never cross CXX.
 class ExportBackend final {
 public:
     explicit ExportBackend(
