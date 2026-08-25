@@ -27,6 +27,20 @@ Shadow's existing `raw_highlight_reference_pipeline` is the strict reference ada
 from Shadow's exact `RawFrame`; no external container decoder is involved. Its display PPM is for
 inspection, while its linear PFM and CFA-domain CSVs are the diagnostic truth.
 
+The external Darktable ablation uses two bundled version-4 highlight XMP records. Their 48-byte
+parameter payloads differ only in the first little-endian integer: `0` for clip and `5` for inpaint
+opposed. Darktable 5.6 completed both profiles on all three verified normalized DNGs without changing
+active-area dimensions. Relative to its clip baseline, opposed stayed below the false-colour
+threshold in the lamp and Nikon regions but changed about 7.66% of the reliable Sony sun-disc
+exterior. That is strong same-engine evidence, but it is still a full Darktable pipeline rather than
+the strict same-`RawFrame` reference above.
+
+Darktable also logs a RawSpeed warning that the research DNG has no standard `Make` entry. Both
+members of the controlled pair share that metadata limitation, so their delta remains usable as a
+highlight-module ablation; the full rendered colour is not yet a camera-profile oracle. A future DNG
+metadata revision must add independently verified standard camera identity without weakening the
+byte-exact CFA interchange contract.
+
 ## RawTherapee
 
 Source entries:
@@ -93,10 +107,16 @@ modes are fast whole-pipeline baselines. `H3` is not Shadow's intended default: 
 plausible colour by spreading context, so apparent smoothness alone is not evidence of correct
 ownership or retained light energy.
 
-LibRaw may identify camera metadata while still failing to unpack the RAW payload. The Nikon Z9
-HE/HE* sample exercises exactly that boundary: `raw-identify` is decoder evidence, while H0/H2/H3
-are unavailable reconstructions. Shadow's private provider can still supply the provider-neutral
-`RawFrame`, allowing the strict same-CFA reference to run.
+LibRaw may identify camera metadata while still failing to unpack the proprietary RAW payload. The
+Nikon Z9 HE/HE* sample exercises exactly that boundary: direct-container `raw-identify` is decoder
+evidence, while direct H0/H2/H3 reconstruction remains unavailable. Shadow's private provider can
+instead supply the provider-neutral `RawFrame`; the verified normalized DNG then makes H0/H2/H3
+runnable without claiming that LibRaw decoded the original HE* container.
+
+The normalized-DNG H2/H3 ablation is deliberately retained as negative evidence. Both modes changed
+about 5.10% of the repaired zero-physical-white control, 32--56% of the lamp reliable exteriors, and
+roughly 96--100% of the Nikon smooth-sky and Sony sun-disc exteriors relative to H0. Their apparent
+smoothness therefore cannot justify adopting either reconstruction boundary in Shadow.
 
 ## What to compare
 

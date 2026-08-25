@@ -218,8 +218,26 @@ only the raw-mosaic `hilite` node, making it a stronger algorithm ablation than 
 unrelated complete pipelines.
 
 `darktable-default` uses an empty in-memory library, disables custom presets, and therefore records
-the executable-defined default history without reading an adjacent sidecar. For a named experiment,
-select `darktable-xmp` only with an XMP that was created and reviewed for the experiment:
+the executable-defined default history without reading an adjacent sidecar. The bundled controlled
+ablation keeps the normalized DNG, isolated configuration, export settings, and version-4 highlight
+parameters fixed; its two XMP files differ only in the first parameter, `mode=clip` versus
+`mode=inpaint opposed`:
+
+```sh
+python3 tools/raw-highlight-oracle/oracle_lab.py run \
+  --input /absolute/path/to/verified-normalized.dng \
+  --normalized-parent-manifest /absolute/path/to/parent/manifest.json \
+  --output-root /private/tmp/shadow-raw-oracles \
+  --run-name darktable-highlight-ablation \
+  --oracle darktable-highlights-clip \
+  --oracle darktable-highlights-opposed \
+  --darktable-cli /absolute/path/to/darktable-cli \
+  --require darktable-highlights-clip \
+  --require darktable-highlights-opposed
+```
+
+For a different named experiment, select `darktable-xmp` only with an XMP that was created and
+reviewed for that experiment:
 
 ```sh
 python3 tools/raw-highlight-oracle/oracle_lab.py run \
@@ -250,13 +268,16 @@ application defaults are therefore not silently admitted as oracle inputs.
 | `rawtherapee-disabled` | Independent complete pipeline | RawTherapee no-recovery baseline |
 | `rawtherapee-coloropp` | Independent complete pipeline | RawTherapee opposed-colour reconstruction |
 | `rawtherapee-color-propagation` | Independent complete pipeline | RawTherapee colour-propagation reconstruction |
+| `darktable-highlights-clip` | Same Darktable normalized-DNG pipeline | Controlled clipped baseline |
+| `darktable-highlights-opposed` | Same Darktable normalized-DNG pipeline | Controlled inpaint-opposed ablation |
 | `darktable-default` | Independent isolated default pipeline | Executable-defined history with no sidecar or custom presets |
 | `darktable-xmp` | Independent controlled-XMP pipeline | Darktable result under an explicit experiment profile |
 | `vkdt-hilite-disabled` | Same vkdt normalized-DNG pipeline | Baseline with only the raw-mosaic hilite node removed |
 | `vkdt-hilite` | Same vkdt normalized-DNG pipeline | Raw-mosaic multiscale inpainting before demosaic |
 
-The PP3, controlled XMP, and vkdt graph files are experiment inputs and are hashed in the run
-manifest. Their source lineage is recorded in comments and `upstreams.lock.json`.
+The PP3, bundled or caller-supplied XMP, and vkdt graph files are experiment inputs and are hashed
+in the run manifest. Their source lineage is recorded here, in `REFERENCE_NOTES.md`, and in
+`upstreams.lock.json`.
 
 ## Source references and licensing
 
@@ -374,11 +395,13 @@ The local matrix uses three named RAW sources and six cases. CFA projection inva
 `nikon-he-unclipped-cloud` control because that crop contains 617,792 samples at physical white, and
 the topology-required Phase 4 gate correctly rejected it. Matrix `20260825.4` retains the visually
 reviewed `nikon-he-bright-unclipped-control`, a varied settlement/barrier crop containing zero
-physical-white samples, and declares three independently runnable candidates: vkdt hilite,
-RawTherapee Coloropp, and RawTherapee Color propagation. Source audit, immutable region export, and
-complete topology-required evaluations for all three candidates pass. The immutable catalog is
-`fixture-matrix-20260825d.json`, SHA-256
-`3aa1ad2672336856022f4d64b7f64731c5b9681764dd151f58407fb9b1e46074`.
+physical-white samples. Matrix `20260825.5` declares six independently runnable candidates: vkdt
+hilite, both RawTherapee modes, Darktable opposed, LibRaw H2 blend, and LibRaw H3 rebuild. Source
+audit, immutable region export, and complete topology-required evaluations for all six candidates
+pass. The immutable catalog is `fixture-matrix-20260825e.json`, SHA-256
+`fe86bb9151615c6e746bcefc42b4b3ea06e6738071cccfc427c8a070ccdc6a42`.
+The six candidate-evaluation receipts are retained beside the local catalog under
+`evaluations/20260825.5/`; every receipt binds that exact matrix SHA and preserves all six cases.
 
 These percentages measure changed pixels against each engine's own disabled baseline. They describe
 write footprint, not perceptual quality and not cross-engine colour equivalence. On that bounded
@@ -387,10 +410,17 @@ sky case, while Color propagation changes about 0.65% and vkdt about 0.0029%. Bo
 change roughly 4--5% in the lamp cases and 5.06% in the Sony sun-disc case, versus at most 0.096%
 and 1.23% respectively for vkdt. The repaired control remains quiet in all three comparisons.
 
+The controlled Darktable opposed pass remains below the false-colour threshold in both lamp cases,
+the Nikon smooth-sky case, and the repaired control, but changes about 7.66% of the reliable Sony
+sun-disc exterior relative to Darktable clip. LibRaw H2 and H3 are much broader: each changes about
+5.10% of the repaired zero-physical-white control, 32--56% of the lamp exteriors, and roughly
+96--100% of the Nikon smooth-sky and Sony sun-disc exteriors. This makes LibRaw useful negative and
+boundary evidence, not a plausible direct production candidate.
+
 The receipts still expose substantial offline working memory: analysis peak RSS ranges from
 hundreds of megabytes to more than one gigabyte for selected crops because this owner retains and
 writes several float RGB artifacts. That cost is recorded honestly and does not enter Shadow's
-preview path. All three candidates remain oracle evidence rather than drop-in production admission.
+preview path. All six candidates remain oracle evidence rather than drop-in production admission.
 
 ## Exactness boundary and remaining work
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import re
+import struct
 import sys
 import tempfile
 import unittest
@@ -143,6 +145,23 @@ class OracleLabContractTest(unittest.TestCase):
         )
         self.assertEqual(plan, "a controlled XMP is required; pass --darktable-xmp")
 
+    def test_bundled_darktable_profiles_differ_only_in_highlight_mode(self) -> None:
+        parameters = []
+        for name in (
+            "darktable-highlights-clip.xmp",
+            "darktable-highlights-opposed.xmp",
+        ):
+            contents = (OWNER_ROOT / "profiles" / name).read_text(encoding="utf-8")
+            match = re.search(r'darktable:params="([0-9a-f]+)"', contents)
+            self.assertIsNotNone(match)
+            assert match is not None
+            parameters.append(bytes.fromhex(match.group(1)))
+        clip, opposed = parameters
+        self.assertEqual(len(clip), 48)
+        self.assertEqual(struct.unpack("<i", clip[:4]), (0,))
+        self.assertEqual(struct.unpack("<i", opposed[:4]), (5,))
+        self.assertEqual(clip[4:], opposed[4:])
+
     def test_rawtherapee_macos_launcher_resolves_to_direct_cli(self) -> None:
         launcher = self.root / "rawtherapee-cli"
         direct = self.root / "rawtherapee-cli-bin"
@@ -274,9 +293,31 @@ class OracleLabContractTest(unittest.TestCase):
             record["id"]: record["supporting_files"] for record in manifest["adapters"]
         }
         self.assertEqual(len(supporting_files["darktable-xmp"]), 1)
+        self.assertEqual(len(supporting_files["darktable-highlights-clip"]), 1)
+        self.assertEqual(len(supporting_files["darktable-highlights-opposed"]), 1)
         self.assertEqual(len(supporting_files["rawtherapee-coloropp"]), 1)
         self.assertEqual(len(supporting_files["vkdt-hilite"]), 1)
         self.assertTrue(supporting_files["darktable-xmp"][0]["sha256"])
+
+        darktable_records = {
+            record["id"]: record
+            for record in manifest["adapters"]
+            if record["id"].startswith("darktable-highlights-")
+        }
+        self.assertEqual(
+            {
+                record["comparison_class"]
+                for record in darktable_records.values()
+            },
+            {"same-darktable-pipeline-highlight-ablation"},
+        )
+        clip_profile = pathlib.Path(
+            darktable_records["darktable-highlights-clip"]["supporting_files"][0]["path"]
+        )
+        opposed_profile = pathlib.Path(
+            darktable_records["darktable-highlights-opposed"]["supporting_files"][0]["path"]
+        )
+        self.assertNotEqual(clip_profile.name, opposed_profile.name)
 
         with self.assertRaisesRegex(ValueError, "already exists"):
             oracle.run(oracle.parser().parse_args(arguments))

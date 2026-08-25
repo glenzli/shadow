@@ -27,8 +27,13 @@ TOOL_ROOT = pathlib.Path(__file__).resolve().parent
 REPOSITORY_ROOT = TOOL_ROOT.parents[1]
 UPSTREAM_LOCK = TOOL_ROOT / "upstreams.lock.json"
 MANIFEST_SCHEMA = "shadow.raw-highlight-oracle-run.v1"
-ORCHESTRATOR_VERSION = "20260825.4"
+ORCHESTRATOR_VERSION = "20260825.5"
 SAFE_RUN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+
+BUILTIN_DARKTABLE_PROFILES = {
+    "darktable-highlights-clip": "darktable-highlights-clip.xmp",
+    "darktable-highlights-opposed": "darktable-highlights-opposed.xmp",
+}
 
 DEFAULT_ADAPTERS = (
     "shadow-rawframe",
@@ -41,6 +46,8 @@ DEFAULT_ADAPTERS = (
     "rawtherapee-disabled",
     "rawtherapee-coloropp",
     "rawtherapee-color-propagation",
+    "darktable-highlights-clip",
+    "darktable-highlights-opposed",
     "darktable-default",
     "darktable-xmp",
     "vkdt-hilite-disabled",
@@ -292,6 +299,89 @@ def rawtherapee_plan(
     )
 
 
+def darktable_plan(
+    adapter_id: str,
+    tools: ToolSelection,
+    source: pathlib.Path,
+    run_directory: pathlib.Path,
+) -> AdapterPlan | str:
+    if tools.darktable_cli is None:
+        return "darktable-cli was not found; pass --darktable-cli"
+    if adapter_id == "darktable-xmp" and tools.darktable_xmp is None:
+        return "a controlled XMP is required; pass --darktable-xmp"
+
+    directory = adapter_directory(run_directory, adapter_id)
+    output = directory / "result.tif"
+    input_arguments = [str(source)]
+    supporting_files: tuple[pathlib.Path, ...] = ()
+    controlled_ablation = adapter_id in BUILTIN_DARKTABLE_PROFILES
+    if controlled_ablation:
+        profile = TOOL_ROOT / "profiles" / BUILTIN_DARKTABLE_PROFILES[adapter_id]
+        input_arguments.append(str(profile))
+        supporting_files = (profile,)
+    elif adapter_id == "darktable-xmp":
+        assert tools.darktable_xmp is not None
+        input_arguments.append(str(tools.darktable_xmp))
+        supporting_files = (tools.darktable_xmp,)
+    input_arguments.append(str(output))
+
+    if controlled_ablation:
+        highlight_stage = (
+            "cfa-opposed-reconstruction"
+            if adapter_id == "darktable-highlights-opposed"
+            else "cfa-highlight-clip"
+        )
+        comparison_class = "same-darktable-pipeline-highlight-ablation"
+        note = (
+            "The bundled XMP profiles are byte-identical except for the highlight "
+            "module mode: clip versus inpaint opposed."
+        )
+    elif adapter_id == "darktable-default":
+        highlight_stage = "raw-reconstruction"
+        comparison_class = "independent-container-pipeline"
+        note = (
+            "The in-memory empty library selects Darktable's executable-defined "
+            "default history without reading an adjacent sidecar."
+        )
+    else:
+        highlight_stage = "raw-reconstruction"
+        comparison_class = "independent-container-pipeline"
+        note = (
+            "A caller-supplied XMP is mandatory so adjacent user sidecars "
+            "cannot affect the run."
+        )
+
+    return AdapterPlan(
+        adapter_id=adapter_id,
+        stages=("container-decode", highlight_stage, "demosaic", "colour"),
+        comparison_class=comparison_class,
+        executable=tools.darktable_cli,
+        argv=(
+            str(tools.darktable_cli),
+            *input_arguments,
+            "--apply-custom-presets",
+            "false",
+            "--hq",
+            "true",
+            "--core",
+            "--configdir",
+            str(directory / "config"),
+            "--cachedir",
+            str(directory / "cache"),
+            "--tmpdir",
+            str(directory / "tmp"),
+            "--library",
+            ":memory:" if adapter_id == "darktable-default" else str(directory / "library.db"),
+            "--conf",
+            "plugins/imageio/format/tiff/bpp=16",
+        ),
+        working_directory=directory,
+        environment={},
+        supporting_files=supporting_files,
+        notes=(note,),
+    )
+
+
 def build_plan(
     adapter_id: str,
     tools: ToolSelection,
@@ -438,62 +528,12 @@ def build_plan(
         return rawtherapee_plan(
             adapter_id, "rawtherapee-color-propagation.pp3", tools, source, run_directory
         )
-    if adapter_id in {"darktable-default", "darktable-xmp"}:
-        if tools.darktable_cli is None:
-            return "darktable-cli was not found; pass --darktable-cli"
-        if adapter_id == "darktable-xmp" and tools.darktable_xmp is None:
-            return "a controlled XMP is required; pass --darktable-xmp"
-        output = directory / "result.tif"
-        input_arguments = [str(source)]
-        supporting_files: tuple[pathlib.Path, ...] = ()
-        if adapter_id == "darktable-xmp":
-            assert tools.darktable_xmp is not None
-            input_arguments.append(str(tools.darktable_xmp))
-            supporting_files = (tools.darktable_xmp,)
-        input_arguments.append(str(output))
-        return AdapterPlan(
-            adapter_id=adapter_id,
-            stages=("container-decode", "raw-reconstruction", "demosaic", "colour"),
-            comparison_class="independent-container-pipeline",
-            executable=tools.darktable_cli,
-            argv=(
-                str(tools.darktable_cli),
-                *input_arguments,
-                "--apply-custom-presets",
-                "false",
-                "--hq",
-                "true",
-                "--core",
-                "--configdir",
-                str(directory / "config"),
-                "--cachedir",
-                str(directory / "cache"),
-                "--tmpdir",
-                str(directory / "tmp"),
-                "--library",
-                (
-                    ":memory:"
-                    if adapter_id == "darktable-default"
-                    else str(directory / "library.db")
-                ),
-                "--conf",
-                "plugins/imageio/format/tiff/bpp=16",
-            ),
-            working_directory=directory,
-            environment={},
-            supporting_files=supporting_files,
-            notes=(
-                (
-                    "The in-memory empty library selects Darktable's executable-defined default "
-                    "history without reading an adjacent sidecar."
-                    if adapter_id == "darktable-default"
-                    else (
-                        "A caller-supplied XMP is mandatory so adjacent user sidecars "
-                        "cannot affect the run."
-                    )
-                ),
-            ),
-        )
+    if adapter_id in {
+        "darktable-default",
+        "darktable-xmp",
+        *BUILTIN_DARKTABLE_PROFILES,
+    }:
+        return darktable_plan(adapter_id, tools, source, run_directory)
     if adapter_id in {"vkdt-hilite-disabled", "vkdt-hilite"}:
         if tools.vkdt_cli is None:
             return "vkdt-cli was not found; pass --vkdt-cli"

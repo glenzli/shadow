@@ -126,18 +126,29 @@ The external local catalog admits three named RAW files in place and six cases c
 classes. Source size/SHA auditing, immutable region export, and complete per-case topology analyses
 have completed. CFA projection proved that the original Nikon "unclipped cloud" control contains
 617,792 physical-white samples, and the topology-required gate correctly rejected it. Matrix
-`20260825.4` retains the visually reviewed replacement containing zero physical-white samples and
-declares vkdt hilite, RawTherapee Coloropp, and RawTherapee Color propagation. Its source audit and
-all topology-required candidate evaluations pass; the immutable catalog identity is
-`fixture-matrix-20260825d.json` at SHA-256
-`3aa1ad2672336856022f4d64b7f64731c5b9681764dd151f58407fb9b1e46074`.
+`20260825.5` retains the visually reviewed replacement containing zero physical-white samples and
+declares six candidates: vkdt hilite, both RawTherapee modes, Darktable opposed, LibRaw H2 blend,
+and LibRaw H3 rebuild. Its source audit and all topology-required candidate evaluations pass; the
+immutable catalog identity is `fixture-matrix-20260825e.json` at SHA-256
+`fe86bb9151615c6e746bcefc42b4b3ea06e6738071cccfc427c8a070ccdc6a42`.
+All six candidate-evaluation receipts are retained in the external local catalog's
+`evaluations/20260825.5/` directory and bind that exact identity.
 
 Each candidate explicitly owns only external oracle output, uses full-frame context, and makes no
 Shadow preview/detail/export equivalence claim. Relative to each engine's disabled baseline,
 RawTherapee Coloropp writes broadly across the Nikon smooth-sky control (about 43.78%), while Color
 propagation is materially more selective (about 0.65%). Both modes still write roughly 4--5% in the
 lamp cases and 5.06% around the Sony sun disc. These are write-footprint diagnostics, not a quality
-ranking. The next comparison must add a controlled darktable opposed-CFA candidate and a LibRaw
-same-engine ablation before any behavior is admitted to production. The receipts still show
-substantial offline working memory, so the correct outcome remains research evidence rather than
-automatic production admission.
+ranking. The controlled Darktable opposed pass is selective on the lamp and Nikon cases but changes
+about 7.66% of the Sony sun-disc reliable exterior. LibRaw H2/H3 also modify 5.10% of the repaired
+unclipped control and broad majorities of several bright cases, so they remain negative evidence.
+The next production-facing study should compare Shadow's strict same-`RawFrame` opposed result
+against the selective Darktable cases, then isolate which clip-mask, white-balance, or replacement-
+ownership differences explain the remaining Sony behavior. The receipts still show substantial
+offline working memory, so the correct outcome remains research evidence rather than automatic
+production admission.
+
+The controlled Darktable runs also expose one interchange follow-up: RawSpeed reports that the
+research DNG lacks a standard camera `Make`. This does not invalidate the same-input clip/opposed
+delta, but it blocks treating Darktable's full colour rendering as a camera-profile reference until
+the normalized-DNG metadata owner adds and independently verifies standard camera identity.
