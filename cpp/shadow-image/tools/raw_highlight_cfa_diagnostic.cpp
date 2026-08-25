@@ -637,7 +637,9 @@ void render_highlight_threshold_ablation(
     constexpr std::uint32_t maximum_edge = 1'536U;
     constexpr std::array<const char*, 3U> channel_names{"R", "G", "B"};
 
-    const auto response_policy = detail::editable_raw_cfa_sampling_policy(transform);
+    auto response_policy = detail::editable_raw_cfa_sampling_policy(transform);
+    response_policy.terminal_highlight_admission =
+        detail::CfaTerminalHighlightAdmission::linear_response_limit;
     auto physical_policy = response_policy;
     physical_policy.terminal_highlight_admission =
         detail::CfaTerminalHighlightAdmission::physical_white;

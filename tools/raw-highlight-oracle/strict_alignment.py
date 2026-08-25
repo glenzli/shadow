@@ -13,7 +13,7 @@ from typing import Iterable
 
 
 REPORT_SCHEMA = "shadow.raw-highlight-strict-alignment.v1"
-REPORT_VERSION = "20260826.1"
+REPORT_VERSION = "20260826.2"
 ORACLE_MANIFEST_SCHEMA = "shadow.raw-highlight-oracle-run.v1"
 STRICT_ADAPTER_ID = "shadow-cfa-opposed"
 STRICT_COMPARISON_CLASS = "same-decoded-cfa-reference"
@@ -315,8 +315,9 @@ def build_report(fixtures: Iterable[tuple[str, pathlib.Path]]) -> dict[str, obje
             "input_boundary": "same provider-neutral RawFrame",
             "counts": "per-CFA-channel ownership counts; not a spatial intersection proof",
             "threshold_hypothesis": (
-                "Shadow production selects response-shoulder candidates while the pinned "
-                "Darktable adaptation selects its physical-white clip domain"
+                "Shadow production and the pinned Darktable adaptation both select their "
+                "physical-white clip domain; response-shoulder admission remains an offline "
+                "threshold-ablation branch"
             ),
             "linear_output": "shared Shadow area sampling and camera matrix",
             "admission": "diagnostic evidence only",

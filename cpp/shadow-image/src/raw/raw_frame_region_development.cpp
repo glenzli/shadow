@@ -408,7 +408,7 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
 
     // Keep black-subtracted CFA samples through white balance before demosaic. The editable source
     // retains WB-induced float headroom. The default exports calibrated response-risk evidence and
-    // reconstructs only an unmeasured near-terminal channel upward from its two locally sampled
+    // reconstructs only a physical-white photosite upward from its two locally sampled
     // opponents; opt-in aggressive repair also feathers bounded physical-white evidence before the
     // camera-domain neutral pull. Neither route invents spatial detail or borrows hue from a
     // neighbouring object.

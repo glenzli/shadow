@@ -427,10 +427,10 @@ void cfa_white_balance_retains_editable_headroom() {
     );
     expect(
         image::raw_highlight_treatment_identity(cpu.highlight_recovery)
-            == "sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.18;"
+            == "sensor-highlights=cfa-opposed-point+cached-chrominance@20260826.1;"
                "recovery=local-opposed+cached-global-chrominance;"
                "headroom=physical-white-wb-fp32;"
-               "clipped-highlight=cfa-opposed-response-limit-chrominance-v23",
+               "clipped-highlight=cfa-opposed-physical-white-chrominance-v24",
         "the default source receipt identifies cached-chrominance terminal highlight reconstruction"
     );
 
@@ -566,6 +566,27 @@ void cfa_white_balance_retains_editable_headroom() {
     expect(
         maximum_metal_difference <= 4.0e-5F,
         "Metal matches the CPU physical-white evidence path"
+    );
+
+    const auto response_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        response_limited,
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::metal
+    );
+    float response_metal_difference = 0.0F;
+    for (std::size_t index = 0U; index < response_default.scene_linear.samples.size(); ++index) {
+        response_metal_difference = std::max(
+            response_metal_difference,
+            std::abs(
+                response_default.scene_linear.samples[index]
+                - response_metal.scene_linear.samples[index]
+            )
+        );
+    }
+    expect(
+        response_metal_difference <= 4.0e-5F,
+        "Metal and CPU both leave response-terminal but physically measured photosites unchanged"
     );
 }
 
@@ -732,10 +753,10 @@ void sensor_clipped_highlights_reconstruct_false_chroma() {
     expect(
         aggressive_boundary.valid()
             && image::raw_highlight_treatment_identity(aggressive_boundary.highlight_recovery)
-                   == "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260824.18;"
+                   == "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260826.1;"
                       "recovery=local-opposed+cached-global-chrominance+explicit-spatial-chroma;"
                       "headroom=physical-white-wb-fp32;"
-                      "clipped-highlight=cfa-opposed-response-limit-chrominance-v23",
+                      "clipped-highlight=cfa-opposed-physical-white-chrominance-v24",
         "aggressive cached-chrominance CFA reconstruction remains cache-visible"
     );
     float default_boundary_chroma = 0.0F;

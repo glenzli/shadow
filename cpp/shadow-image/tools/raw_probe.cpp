@@ -509,7 +509,7 @@ void render_highlight_cfa_diagnostic(
     std::cout << "highlight_cfa_diagnostic.status=ok\n"
               << "highlight_cfa_diagnostic.algorithm=darktable-opposed-photosite-v1\n"
               << "highlight_cfa_diagnostic.threshold=0.987\n"
-              << "highlight_cfa_diagnostic.threshold_domain=linear-response-limit\n"
+              << "highlight_cfa_diagnostic.threshold_domain=physical-white\n"
               << "timing.highlight_cfa_compiled_chrominance_ms=" << compiled_chrominance_ms << '\n';
     for (std::size_t channel = 0U; channel < 3U; ++channel) {
         std::cout << "highlight_cfa_diagnostic.channel." << channel_names[channel]

@@ -248,10 +248,10 @@ photosite。Darktable 的第二项不是空间模糊，而是 factual clipping �
 温度或色调改变时，使用新的四相位 gain 在这个有界 sidecar 上重新求三色 offset，不重新扫描
 RAW，也不复制完整图像。
 
-原生重建中，只有线性响应归一化值至少 `0.987` 的 photosite 成为 terminal candidate；当
-provider 提供逐相位 `linear_response_limits` 时以该边界为 1.0，否则回退到 coding white。
-编码值仍以 coding white 归一化并保留其场景亮度，因此接管失去可靠色比的响应肩部不会把
-15311～16383 一类有效余量压成 1.0：
+原生重建中，只有 physical-white 归一化值至少 `0.987` 的 photosite 成为 terminal candidate。
+provider 的逐相位 `linear_response_limits` 仍用于连续 highlight-risk 置信度，但不再扩大
+重建写入所有权。编码值继续以 coding white 归一化并保留其场景亮度，因此 exact-white
+photosite 的单向修复不会把白平衡产生的 fp32 余量压成 1.0：
 
 ```text
 reconstructed = max(measured, reference + cached_chrominance[channel])
@@ -262,17 +262,16 @@ offset 只在同一个 terminal gate 内生效，不产生膨胀 mask、RGB 羽�
 oracle 统计并排报告，以便继续量化采样误差，而不是靠截图猜参数。
 
 `BayerCfaSamplingPolicy::terminal_highlight_admission` 把 gate 的归一化域变成显式策略，但
-默认值固定为 `linear_response_limit`。`physical_white` 只供离线
-`--highlight-threshold-ablation` 使用：两支共享同一 `RawFrame`、白平衡、已编译 chrominance
-offset、area sampler 和 camera matrix，只替换上述 gate 的归一化分母。这个枚举不是 Recipe
-参数，不进入桌面 UI、缓存身份、warm session、CPU/Metal 分支或 preview/detail/export
-语义。若未来要改变生产默认，必须另行修改算法身份、Metal 数学和跨路径合同；不能把本次
-oracle 注入误当成已经发布的行为。
+默认值固定为 `physical_white`。`linear_response_limit` 保留为离线
+`--highlight-threshold-ablation` 的显式对照：两支共享同一 `RawFrame`、白平衡、已编译
+chrominance offset、area sampler 和 camera matrix，只替换上述 gate 的归一化分母。这个枚举
+不是 Recipe 参数，也不进入桌面 UI。生产 CPU/Metal、preview/detail/export 使用同一个
+physical-white gate；最窄 highlight identity 已更新，因此旧缓存不会冒充新语义。
 
 ### 4.3 缩略 area preview 的特殊顺序
 
 缩略预览不能先把一个 area bin 平均成 RGB，再决定是否修复。当前实现对 bin 中每个 CFA
-photosite 先走与 point/detail 完全相同的 terminal gate：只有线性响应归一化值至少 `0.987`
+photosite 先走与 point/detail 完全相同的 terminal gate：只有 physical-white 归一化值至少 `0.987`
 的 photosite 才能进入 opposed estimate，并且只允许单向抬高：
 
 ```text
@@ -447,11 +446,11 @@ scene-RGB pass 或禁止 resident detail，都应先被视为性能回归，而�
 | Shadow RawFrame developer | `2026082202` |
 | sensor clipping mask schema | `3` |
 | highlight chroma risk schema | `5` |
-| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-point+cached-chrominance@20260824.18` |
+| 默认 CFA 高光 | `sensor-highlights=cfa-opposed-point+cached-chrominance@20260826.1` |
 | 默认 recovery | `local-opposed+cached-global-chrominance` |
 | 头部余量 | `physical-white-wb-fp32` |
-| ordinary clipped highlight | `clipped-highlight=cfa-opposed-response-limit-chrominance-v23` |
-| aggressive 诊断 | `cfa-opposed-cached-chrominance-feathered@20260824.18` |
+| ordinary clipped highlight | `clipped-highlight=cfa-opposed-physical-white-chrominance-v24` |
+| aggressive 诊断 | `cfa-opposed-cached-chrominance-feathered@20260826.1` |
 | Camera RGB fallback | `clipped-highlight=boundary-propagated-scene-shoulder-v17` |
 
 完整 `pipeline_identity` 还包含 provider/version、requested/effective plan、backend、denoise、

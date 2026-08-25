@@ -27,14 +27,14 @@ Shadow's existing `raw_highlight_reference_pipeline` is the strict reference ada
 from Shadow's exact `RawFrame`; no external container decoder is involved. Its display PPM is for
 inspection, while its linear PFM and CFA-domain CSVs are the diagnostic truth.
 
-The strict alignment receipt now makes the remaining threshold distinction explicit. The pinned
-adaptation evaluates `0.987` in the physical-white-normalized domain, while Shadow production
-evaluates the same numeric shoulder in the calibrated linear-response domain. On the verified
-fixtures, the latter limits are `15311/16383` for both Nikon inputs and `15360/16383` for Sony.
-That expands production candidate counts by about 4.42--14.13%, although actual one-sided write
-counts remain within about 1.26--2.64% of the reference totals. Per-channel WB gains and
-chrominance-offset deltas remain in the receipt so a future experiment can separate mask admission
-from opposed-colour estimation. Counts alone do not prove that the two spatial masks overlap.
+The Phase 5 strict-alignment receipt made the former threshold distinction explicit. The pinned
+adaptation evaluated `0.987` in the physical-white-normalized domain, while the then-current Shadow
+production branch evaluated the same numeric shoulder in the calibrated linear-response domain.
+On the verified fixtures, the latter limits are `15311/16383` for both Nikon inputs and
+`15360/16383` for Sony. That expanded candidate counts by about 4.42--14.13%, although actual
+one-sided write counts remained within about 1.26--2.64% of the reference totals. Per-channel WB
+gains and chrominance-offset deltas remain in the receipt so later experiments can separate mask
+admission from opposed-colour estimation. Counts alone do not prove that two spatial masks overlap.
 
 The strict threshold adapter now supplies that spatial proof. It evaluates both admission domains
 through the same Shadow sampler and records exact candidate/write intersections. Across lamp,
@@ -44,9 +44,11 @@ adaptation's clipped counts exactly. Against the pinned same-`RawFrame` linear o
 regions show no changed pixels in the Nikon unclipped control and no metric where the physical-white
 branch is farther away. The largest improvements are in luminance curvature at the clipped
 boundary, not in broad colour mixing, which supports the hypothesis that the extra response-shoulder
-writes create the remaining contour. It still does not prove that Darktable is perceptually ideal,
-so the evidence stays offline until a production-path experiment updates all backend identities and
-contracts together.
+writes create the remaining contour. It still does not prove that Darktable is perceptually ideal.
+Phase 6 therefore promotes only physical-white admission to Shadow production, updates both CPU and
+Metal identities and contracts together, and retains response-limit admission as an explicit
+offline ablation branch rather than production write ownership. Fresh strict-alignment receipts now
+report physical-white for both Shadow production and the pinned reference.
 
 The external Darktable ablation uses two bundled version-4 highlight XMP records. Their 48-byte
 parameter payloads differ only in the first little-endian integer: `0` for clip and `5` for inpaint

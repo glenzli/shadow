@@ -82,6 +82,15 @@ void ordinary_raw_rebinds_without_a_second_decode() {
                    == image::RawWhiteBalanceMode::as_shot,
         "rebound and original immutable sessions retain independent exact RAW receipts"
     );
+    expect(
+        initial.raw_pipeline_receipt().pipeline_identity.find(
+            "clipped-highlight=cfa-opposed-physical-white-chrominance-v24"
+        ) != std::string::npos
+            && rebound.raw_pipeline_receipt().pipeline_identity.find(
+                   "clipped-highlight=cfa-opposed-physical-white-chrominance-v24"
+               ) != std::string::npos,
+        "warm white-balance rebinding retains the cache-visible physical-white source policy"
+    );
 
     const std::array<image::AdjustmentNode, 0U> neutral{};
     const auto original_pixels = initial.render_rgb8(neutral);

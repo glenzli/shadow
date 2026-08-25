@@ -122,7 +122,7 @@ namespace {
     case CfaTerminalHighlightAdmission::physical_white:
         return normalized_sensor_sample(frame, raw_x, raw_y);
     }
-    return normalized_linear_response_sample(frame, raw_x, raw_y);
+    return normalized_sensor_sample(frame, raw_x, raw_y);
 }
 
 [[nodiscard]] bool physical_sensor_white(
@@ -1087,6 +1087,7 @@ editable_raw_cfa_sampling_policy(const RawFrameLinearTransform& transform) noexc
     // particular RAW white-balance transform is active. Keep the source evidence available for
     // camera-neutral and manual-WB inputs as well; only the gain normalisation itself is optional.
     policy.cap_physical_sensor_white = true;
+    policy.terminal_highlight_admission = CfaTerminalHighlightAdmission::physical_white;
     policy.preserve_terminal_white_balance_headroom = true;
     policy.require_shared_terminal_headroom = false;
     policy.reconstruct_terminal_highlights = true;

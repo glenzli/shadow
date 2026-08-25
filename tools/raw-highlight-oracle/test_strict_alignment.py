@@ -18,7 +18,7 @@ class StrictAlignmentTests(unittest.TestCase):
             "highlight_reference.maximum_absolute_difference": "0.125",
             "highlight_cfa_diagnostic.domain.strongest_boundary_difference": "0.250",
             "highlight_cfa_diagnostic.threshold": "0.987",
-            "highlight_cfa_diagnostic.threshold_domain": "linear-response-limit",
+            "highlight_cfa_diagnostic.threshold_domain": "physical-white",
             "highlight_reference.threshold": "0.987",
             "highlight_reference.threshold_domain": "physical-white",
             "highlight_reference.cfa.white_levels": "1000,1000,1000,1000",
@@ -80,8 +80,12 @@ class StrictAlignmentTests(unittest.TestCase):
             self.assertFalse(
                 fixture["interpretation_boundary"]["count_comparison_is_spatial_overlap"]
             )
-            self.assertEqual(fixture["thresholds"]["shadow"]["domain"], "linear-response-limit")
+            self.assertEqual(fixture["thresholds"]["shadow"]["domain"], "physical-white")
             self.assertEqual(fixture["thresholds"]["reference"]["domain"], "physical-white")
+            self.assertIn(
+                "both select their physical-white clip domain",
+                report["method"]["threshold_hypothesis"],
+            )
 
     def test_writes_one_immutable_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

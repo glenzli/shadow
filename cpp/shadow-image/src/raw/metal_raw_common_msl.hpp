@@ -179,7 +179,7 @@ inline float normalized_sample(
 ) {
     const float measured = unreconstructed_normalized_sample(samples, parameters, x, y);
     if (parameters.cap_physical_sensor_white == 0u
-        || normalized_linear_response_sample(samples, parameters, x, y) < 0.987f) {
+        || normalized_sensor_sample(samples, parameters, x, y) < 0.987f) {
         return measured;
     }
     return opposed_highlight_reconstructed_sample(

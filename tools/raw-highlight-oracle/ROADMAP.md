@@ -173,7 +173,8 @@ the physical-white reference by 4.42% (lamp), 14.13% (Nikon sky), and 12.18% (So
 write totals differ by only 2.08%, 1.26%, and 2.64%. This isolates the next experiment: hold WB,
 opposed estimation, area sampling, and camera matrix fixed, then ablate only response-limit versus
 physical-white candidate admission. The result must be evaluated on all six admitted regions before
-any default-path change; the current calibrated response-limit behavior remains production truth.
+any default-path change; at the time of this receipt the calibrated response-limit behavior remained
+production truth.
 
 The controlled ablation is now complete. `shadow-threshold-ablation` holds `RawFrame`, WB, compiled
 opposed chrominance, area sampling, and camera matrix fixed and changes only the terminal admission
@@ -185,11 +186,25 @@ question, but it does not itself authorize a default change.
 
 ## Phase 6 — production parity experiment
 
-Status: ready, not started.
+Status: production parity implemented and validated for the changed highlight contract.
 
-The next step is a narrow production experiment that changes the default admission domain together
-with CPU/Metal parity, algorithm/cache identity, preview/detail/export contracts, and representative
-interactive timing. It must preserve the one-sided photosite write owner and may not import the
-offline full-frame artifact path. Acceptance requires the existing six-region oracle comparison,
-source-fresh CPU/Metal tests, and proof that warm slider edits reuse the same prepared source with no
-new host/device transfer or full-frame pass.
+The production branch now changes only terminal admission from response limit to physical white.
+The response-limit branch remains explicit in the offline A/B adapter, while response evidence still
+feeds highlight-risk confidence. CPU and Metal use the same physical-white gate, the narrow highlight
+identity is versioned, and warm white-balance rebinding asserts the same cache-visible policy without
+a second decode. The one-sided photosite owner remains inside the existing fused sampling pass; no
+offline full-frame artifact, side buffer, pass, or host/device transfer enters production.
+
+Source-fresh point/area CPU, fused CPU/Metal, warm-rebind, resident-source, and full-detail contracts
+pass. A forced-Metal response-terminal fixture proves CPU and Metal both leave a photosite measured
+until physical white, while warm rebind retains one decode and the same cache-visible highlight
+identity. The rebuilt physical-white oracle images are byte-identical to the Phase 5 artifacts on
+all three sources, and all six fixed-region metric payloads are identical.
+
+The representative 3000x2000 fused-Metal source timing remains within run-to-run noise: the
+unmodified baseline measured 270.948 ms and the warmed production build measured 266.181 ms. No ABI
+field, device buffer, pass, dispatch, full-frame readback, or host/device transfer was added. One
+required-Metal resident test still reports its pre-existing DCP provenance flag mismatch; an
+independent build of unmodified HEAD reproduces the same failure. Region pixels, denoise provenance,
+demosaic provenance, and the changed highlight contracts pass, so this baseline receipt defect is
+not attributed to the threshold change.

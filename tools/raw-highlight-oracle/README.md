@@ -438,14 +438,14 @@ hundreds of megabytes to more than one gigabyte for selected crops because this 
 writes several float RGB artifacts. That cost is recorded honestly and does not enter Shadow's
 preview path. All six candidates remain oracle evidence rather than drop-in production admission.
 
-The strict same-`RawFrame` three-fixture alignment adds a narrower result. Shadow's production
-response-shoulder selector admits 4.42% more candidates than the physical-white Darktable
+The strict same-`RawFrame` three-fixture alignment adds a narrower result. Shadow's then-production
+response-shoulder selector admitted 4.42% more candidates than the physical-white Darktable
 adaptation on the lamp fixture, 14.13% more on the Nikon smooth-sky fixture, and 12.18% more on the
 Sony sun fixture. Actual one-sided writes are much closer: 2.08%, 1.26%, and 2.64% more,
 respectively. The provider facts explain the mask difference: both Nikon inputs use linear-response
 limits `15311` below physical white `16383`, while Sony uses `15360` below `16383`. This is evidence
-for a controlled threshold-domain ablation, not authorization to discard Shadow's calibrated
-response shoulder. The complete local receipt is
+for the controlled threshold-domain ablation that preceded the production change. The complete
+historical receipt is
 `/private/tmp/shadow-raw-strict-alignment/three-fixture-20260826c/alignment.json`; RAW and rendered
 payloads remain outside the repository.
 
@@ -472,10 +472,16 @@ physical-white reference. Six fixed-region comparisons against that same-`RawFra
 the repaired unclipped control unchanged and place the physical-white branch closer on every
 reported non-zero boundary/core metric. The strongest separation is boundary continuity: lamp
 curvature error falls by roughly 94--97%, Nikon-sky curvature by about 72%, and Sony-ray curvature
-by about 77%. This is reference proximity, not a perceptual-quality proof or automatic production
-admission. The verified local run roots are
+by about 77%. This is reference proximity, not a general perceptual-quality proof. Phase 6 promotes
+only the physical-white admission gate to production; response-limit remains an explicit oracle
+branch and continues to inform risk evidence without gaining write ownership. The verified Phase 5
+run roots are
 `/private/tmp/shadow-threshold-ablation-runs-20260826-a/` and
 `/private/tmp/shadow-threshold-darktable-objective-20260826-a/`.
+The source-fresh Phase 6 rerun is under
+`/private/tmp/shadow-threshold-ablation-production-20260826-a/` and
+`/private/tmp/shadow-physical-production-objective-20260826-a/`; all three physical-white linear
+artifacts and all six fixed-region metric payloads are identical to the Phase 5 receipts.
 
 ## Exactness boundary and remaining work
 

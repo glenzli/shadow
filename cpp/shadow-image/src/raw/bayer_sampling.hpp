@@ -16,12 +16,12 @@ namespace detail {
 using CameraRgb = std::array<float, 3U>;
 
 enum class CfaTerminalHighlightAdmission : std::uint8_t {
-    // Production default: the provider-calibrated response frontier owns the point where colour
-    // ratios stop being trustworthy, even when the stored code has not reached physical white.
+    // Offline diagnostic: admit reconstruction at the provider-calibrated response frontier.
+    // This intentionally broader branch remains available to the oracle threshold ablation.
     linear_response_limit = 0,
-    // Offline ablation only: admit reconstruction after the stored photosite reaches its
-    // per-phase physical white. This isolates threshold-domain choice without changing any
-    // downstream sampling, colour transform, or presentation behavior.
+    // Production default: only the exact photosite whose stored code reaches per-phase physical
+    // white may be replaced. Response evidence still informs highlight-risk confidence without
+    // expanding reconstruction write ownership.
     physical_white,
 };
 
@@ -33,7 +33,7 @@ struct BayerCfaSamplingPolicy final {
     float white_balance_scale = 1.0F;
     bool cap_physical_sensor_white = false;
     CfaTerminalHighlightAdmission terminal_highlight_admission =
-        CfaTerminalHighlightAdmission::linear_response_limit;
+        CfaTerminalHighlightAdmission::physical_white;
     // Physical-white detection and topology remain active, but a terminal photosite may retain its
     // CFA white-balance-scaled fp32 value instead of being projected onto a common 1.0 ceiling.
     // Editable RAW uses this scene-referred domain; diagnostics may disable it to compare the old

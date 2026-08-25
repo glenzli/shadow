@@ -266,7 +266,7 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
     response_limited.descriptor.has_linear_response_limits = true;
     response_limited.descriptor.linear_response_limits = {900U, 900U, 900U, 900U};
     response_limited.samples[4U * 7U + 4U] = 889U;
-    const auto response_terminal = image::detail::opposed_highlight_cfa_sample_at(
+    const auto production_physical_white = image::detail::opposed_highlight_cfa_sample_at(
         response_limited,
         4U,
         4U,
@@ -274,27 +274,26 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
         treatment
     );
     expect(
-        response_terminal.terminal_candidate
-            && response_terminal.reconstructed > response_terminal.measured + 0.1F,
-        "a provider-calibrated response frontier owns terminal chroma before coding white while "
-        "retaining the measured code-domain luminance"
+        !production_physical_white.terminal_candidate
+            && std::abs(
+                   production_physical_white.reconstructed - production_physical_white.measured
+               ) < 1.0e-6F,
+        "production excludes a response-terminal photosite that has not reached physical white"
     );
-    auto physical_white_treatment = treatment;
-    physical_white_treatment.terminal_highlight_admission =
-        image::detail::CfaTerminalHighlightAdmission::physical_white;
-    const auto physical_white_ablation = image::detail::opposed_highlight_cfa_sample_at(
+    auto response_limit_diagnostic = treatment;
+    response_limit_diagnostic.terminal_highlight_admission =
+        image::detail::CfaTerminalHighlightAdmission::linear_response_limit;
+    const auto response_terminal = image::detail::opposed_highlight_cfa_sample_at(
         response_limited,
         4U,
         4U,
         &transform,
-        physical_white_treatment
+        response_limit_diagnostic
     );
     expect(
-        !physical_white_ablation.terminal_candidate
-            && std::abs(physical_white_ablation.reconstructed - physical_white_ablation.measured)
-                   < 1.0e-6F,
-        "the offline physical-white ablation excludes a response-terminal photosite while the "
-        "production policy remains response-limit based"
+        response_terminal.terminal_candidate
+            && response_terminal.reconstructed > response_terminal.measured + 0.1F,
+        "the offline response-limit diagnostic retains the broader calibrated admission branch"
     );
     response_limited.samples[4U * 7U + 4U] = 1'000U;
     const auto physical_white_terminal = image::detail::opposed_highlight_cfa_sample_at(
@@ -302,11 +301,11 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
         4U,
         4U,
         &transform,
-        physical_white_treatment
+        treatment
     );
     expect(
         physical_white_terminal.terminal_candidate,
-        "the physical-white ablation still admits a photosite at calibrated physical white"
+        "production admits a photosite at calibrated physical white"
     );
     response_limited.samples[4U * 7U + 4U] = 888U;
     const auto response_measured = image::detail::opposed_highlight_cfa_sample_at(
@@ -314,7 +313,7 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
         4U,
         4U,
         &transform,
-        treatment
+        response_limit_diagnostic
     );
     expect(
         !response_measured.terminal_candidate

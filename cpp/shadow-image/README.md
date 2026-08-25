@@ -156,12 +156,12 @@ Current contract rules:
   step it was intended to prevent; physical-white topology therefore remains a separate signal,
   and only a shared three-colour terminal core may reconstruct missing luminance. Each
   reconstruction footprint separately retains exact per-colour physical-white coverage. Before
-  the camera matrix, a near-terminal channel may move only upward toward the cube-root mean of its
+  the camera matrix, only a physical-white photosite may move upward toward the cube-root mean of its
   two locally reconstructed opposing colours; this recovers a plausible neutral highlight
   shoulder without spreading a neighbouring object's hue, and leaves a one-colour emitter
   unchanged when its opposing reference is lower. Reduced CFA-area previews
-  keep measured and response-shoulder contributions separate for each colour until the final area
-  average. An opposed estimate may replace only a response-shoulder photosite using its local
+  keep measured and terminal contributions separate for each colour until the final area
+  average. An opposed estimate may replace only a physical-white photosite using its local
   opposing colours; a reliable dark fixture contribution sharing the same preview bin remains
   exact. This removes both the false pink ratio and the compensating preview-width yellow/grey
   contour without expanding write ownership. Area previews then skip post-demosaic scene-RGB
