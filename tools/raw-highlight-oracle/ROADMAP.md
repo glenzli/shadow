@@ -22,9 +22,9 @@ they remain explicit `unavailable` adapter results until separately built or ins
 
 ## Phase 2 — normalized mosaic interchange
 
-Status: transport and independent LibRaw sample round-trip implemented; RawTherapee and isolated
-Darktable normalized-DNG child execution is available, while the vkdt child matrix remains in
-progress.
+Status: implemented. RawTherapee, isolated Darktable, and pinned vkdt normalized-DNG child
+execution are available. The vkdt route has a strict hilite on/off graph ablation and has completed
+host-GPU runs for Nikon HE*, the lamp edge, and Sony sun fixtures.
 
 Goal: make more reconstruction engines consume equivalent decoded sensor evidence.
 
@@ -59,16 +59,18 @@ interoperable `WhiteLevel` is therefore the exact common value when all sites ag
 conservative minimum. The exact four-site values remain in the private descriptor and the run must
 not call the standard projection calibration-equivalent in the unequal case.
 
-Remaining acceptance:
+Accepted boundaries:
 
 - run RawTherapee, Darktable, and vkdt from the generated DNG under pinned profiles/graphs;
 - keep the implemented fail-closed parent manifest and normalized-DNG artifact identity receipt;
 - distinguish byte-preserving import, metadata projection, and complete reconstruction output;
-- add the remaining vkdt normalized child once its pinned CLI build is available.
+- record the exact vkdt executable, graph, MoltenVK ICD, and non-flipped PFM row convention.
 
 ## Phase 3 — versioned objective comparison
 
-Add a separate analysis owner that consumes linear outputs and emits:
+Status: implemented in `linear_image.py` and `objective_metrics.py`.
+
+The separate analysis owner consumes explicitly declared linear or sRGB outputs and emits:
 
 - registered linear crops and an explicit exposure/white normalization receipt;
 - per-channel and luminance difference maps;
@@ -81,7 +83,19 @@ Add a separate analysis owner that consumes linear outputs and emits:
 Metrics must be reported by region and must never hide a worse boundary behind one whole-image
 average. Visual contact sheets are secondary evidence derived from the registered linear outputs.
 
+Same-pipeline ablations use identity normalization. Cross-pipeline exploratory comparisons may use
+declared reliable-exterior RGB normalization, but their differences remain complete-pipeline
+evidence. PFM orientation is part of the receipt because pinned vkdt emits top-down, non-flipped
+PFM rows rather than the standard bottom-up convention.
+
+Current acceptance limit: the first clipped cores are manual normalized rectangles. They are
+reviewable crop/mask inputs, not factual sensor topology. Phase 3 is operational, while the next
+quality increment is to derive the damage mask from byte-exact CFA values and per-site physical
+white levels.
+
 ## Phase 4 — fixture admission and production candidates
+
+Status: oracle admission/evaluation infrastructure implemented; no production candidate admitted.
 
 Curate a small, locally licensed matrix covering:
 
@@ -104,3 +118,11 @@ For each candidate algorithm, first state:
 Only then may the production owner evaluate a change. An oracle that requires a slow multiscale
 pass may still be valuable as a one-time RAW source preparation, but it must not migrate into every
 slider event or create a preview/detail semantic fork.
+
+The first external local catalog admits three named RAW files in place and six cases covering all
+required classes. Source size/SHA auditing, immutable region export, complete per-case candidate
+coverage, and non-aggregated evaluation have completed. The vkdt hilite candidate explicitly owns
+only external oracle output, uses full-frame context, and makes no Shadow preview/detail/export
+equivalence claim. Its receipts show broad writes in some bright controls and substantial offline
+working memory, so the correct outcome is research evidence rather than automatic production
+admission.

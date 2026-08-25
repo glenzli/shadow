@@ -44,9 +44,10 @@ separate adapters because a single on/off comparison would not reveal which fami
 applies each `-p` profile in command-line order. The oracle profiles therefore contain only the
 `HLRecovery` group. They do not import the user's default profile or an adjacent sidecar.
 
-RawTherapee still performs its own container decode, calibration, demosaic, and colour conversion.
-Until a normalized interchange route exists, its output is a complete-pipeline oracle rather than
-a same-CFA algorithm comparison.
+RawTherapee still performs its own DNG import, calibration, demosaic, and colour conversion. The
+normalized-DNG route now removes proprietary-container decoding as a variable and verifies the
+parent sensor samples before the child run. Its output is nevertheless a complete reconstruction
+pipeline unless two RawTherapee profiles differ only at the highlight-recovery setting.
 
 ## vkdt
 
@@ -60,9 +61,21 @@ and fills the clipped sites. The `soft` parameter changes scale weighting; `desa
 source colour against rejection of false chromatic-aberration colour.
 
 This family is structurally different from a fixed-radius colour feather. It can reconstruct broad
-clipped regions while keeping replacement ownership at damaged sites, but it is also more expensive
-and its result depends on scale/desaturation policy. The bundled graph exposes the default module
-between raw denoise and demosaic and exports linear PFM without a display tone mapper.
+clipped regions, but it is also more expensive and its result depends on scale/desaturation policy.
+The bundled on/off graphs keep raw input, denoise, demosaic, colour, and output fixed; the disabled
+graph removes only `hilite`. That makes their difference attributable to the module within vkdt,
+without claiming equivalence to Shadow's production stages.
+
+The output module writes a deliberately non-flipped PFM. In the Phase 3 reader this must be declared
+as `top-down`; applying the standard bottom-up PFM convention silently mirrors a plausible image and
+invalidates region evidence. Real Nikon HE*, lamp, and Sony runs also showed that the multiscale
+module can alter broad bright areas outside a manually labelled clipped core. Replacement ownership
+therefore remains a measured property, not an assumption taken from the algorithm description.
+
+On macOS the pinned CLI uses Vulkan through MoltenVK and requires host Metal access. A valid loader
+and ICD can still fail inside a filesystem sandbox that does not expose Metal. The executable,
+graph, and ICD identities belong in the oracle receipt; host execution is not permission to skip
+those records.
 
 vkdt is BSD-2-Clause by default and has per-file exceptions, including GPL-3.0 files. Inspect the
 exact files before adapting code; never infer a file's license only from the repository headline.
@@ -101,3 +114,10 @@ A useful comparison should preserve more than a screenshot:
 The first three decide whether two results are even comparable. The next four describe recovery
 quality. The last item decides whether a successful oracle is compatible with Shadow's responsive
 editing contract.
+
+For the first Phase 3/4 matrix, normalized rectangles bound the analysis but do not prove clipping.
+A zero error at a manually chosen boundary can mean the algorithm is excellent, or simply that the
+boundary missed the factual damaged CFA sites. Conversely, a high false-colour exterior fraction on
+an ordinary bright control is useful evidence of broad algorithm writes. The next reference mask
+should therefore be projected from Shadow's byte-exact active CFA and physical-white receipts, with
+the human rectangle retained only as the scene crop.

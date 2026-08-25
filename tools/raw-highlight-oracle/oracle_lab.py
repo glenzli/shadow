@@ -27,7 +27,7 @@ TOOL_ROOT = pathlib.Path(__file__).resolve().parent
 REPOSITORY_ROOT = TOOL_ROOT.parents[1]
 UPSTREAM_LOCK = TOOL_ROOT / "upstreams.lock.json"
 MANIFEST_SCHEMA = "shadow.raw-highlight-oracle-run.v1"
-ORCHESTRATOR_VERSION = "20260825.3"
+ORCHESTRATOR_VERSION = "20260825.4"
 SAFE_RUN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 DEFAULT_ADAPTERS = (
@@ -43,6 +43,7 @@ DEFAULT_ADAPTERS = (
     "rawtherapee-color-propagation",
     "darktable-default",
     "darktable-xmp",
+    "vkdt-hilite-disabled",
     "vkdt-hilite",
 )
 
@@ -71,6 +72,7 @@ class ToolSelection:
     darktable_xmp: pathlib.Path | None
     rawtherapee_cli: pathlib.Path | None
     vkdt_cli: pathlib.Path | None
+    vkdt_icd: pathlib.Path | None
 
 
 def sha256_file(path: pathlib.Path) -> str:
@@ -492,15 +494,30 @@ def build_plan(
                 ),
             ),
         )
-    if adapter_id == "vkdt-hilite":
+    if adapter_id in {"vkdt-hilite-disabled", "vkdt-hilite"}:
         if tools.vkdt_cli is None:
             return "vkdt-cli was not found; pass --vkdt-cli"
         output = directory / "result"
-        graph = TOOL_ROOT / "graphs" / "vkdt-hilite.cfg"
+        enabled = adapter_id == "vkdt-hilite"
+        graph = TOOL_ROOT / "graphs" / (
+            "vkdt-hilite.cfg" if enabled else "vkdt-hilite-disabled.cfg"
+        )
+        environment = (
+            {"VK_ICD_FILENAMES": str(tools.vkdt_icd)}
+            if tools.vkdt_icd is not None
+            else {}
+        )
+        supporting_files = (
+            (graph, tools.vkdt_icd) if tools.vkdt_icd is not None else (graph,)
+        )
         return AdapterPlan(
             adapter_id=adapter_id,
-            stages=("container-decode", "raw-denoise", "cfa-inpaint", "demosaic", "colour"),
-            comparison_class="independent-container-pipeline",
+            stages=(
+                ("container-decode", "raw-denoise", "cfa-inpaint", "demosaic", "colour")
+                if enabled
+                else ("container-decode", "raw-denoise", "demosaic", "colour")
+            ),
+            comparison_class="same-vkdt-pipeline-highlight-ablation",
             executable=tools.vkdt_cli,
             argv=(
                 str(tools.vkdt_cli),
@@ -519,11 +536,17 @@ def build_plan(
                 f"param:i-raw:main:filename:{source}",
             ),
             working_directory=tools.vkdt_cli.parent,
-            environment={},
-            supporting_files=(graph,),
+            environment=environment,
+            supporting_files=supporting_files,
             notes=(
-                "vkdt reconstructs highlights in raw mosaic space before demosaic.",
+                (
+                    "vkdt reconstructs highlights in raw mosaic space before demosaic."
+                    if enabled
+                    else "This baseline removes only vkdt's raw-mosaic hilite node."
+                ),
                 "The graph intentionally omits display tone mapping and exports linear PFM.",
+                "On macOS the adapter requires host Metal access; a sandboxed process may report "
+                "VK_ERROR_INCOMPATIBLE_DRIVER even when the recorded MoltenVK ICD is valid.",
             ),
         )
     raise ValueError(f"unknown adapter: {adapter_id}")
@@ -576,8 +599,10 @@ def run_adapter(
 ) -> None:
     directory = adapter_directory(run_directory, plan.adapter_id)
     directory.mkdir(parents=True, exist_ok=False)
-    for value in plan.environment.values():
-        pathlib.Path(value).mkdir(parents=True, exist_ok=True)
+    for key in ("RT_SETTINGS", "RT_CACHE"):
+        value = plan.environment.get(key)
+        if value is not None:
+            pathlib.Path(value).mkdir(parents=True, exist_ok=True)
     if plan.adapter_id.startswith("darktable-"):
         for name in ("config", "cache", "tmp"):
             (directory / name).mkdir(parents=True, exist_ok=True)
@@ -658,6 +683,7 @@ def selected_tools(args: argparse.Namespace) -> ToolSelection:
         darktable_xmp=resolve_optional_file(args.darktable_xmp),
         rawtherapee_cli=resolve_rawtherapee_executable(args.rawtherapee_cli),
         vkdt_cli=resolve_executable(args.vkdt_cli, ("vkdt-cli",)),
+        vkdt_icd=resolve_optional_file(args.vkdt_icd),
     )
 
 
@@ -809,6 +835,10 @@ def add_tool_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--darktable-xmp")
     parser.add_argument("--rawtherapee-cli")
     parser.add_argument("--vkdt-cli")
+    parser.add_argument(
+        "--vkdt-icd",
+        help="optional Vulkan ICD JSON recorded and passed as VK_ICD_FILENAMES",
+    )
     parser.add_argument(
         "--oracle",
         action="append",

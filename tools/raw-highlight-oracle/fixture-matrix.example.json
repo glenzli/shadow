@@ -1,0 +1,117 @@
+{
+  "schema": "shadow.raw-highlight-fixture-definition.v1",
+  "fixtures": [
+    {
+      "id": "nikon-he-local",
+      "source_path": "/absolute/local/path/to/nikon-he-or-he-star.nef",
+      "license": "local-user-owned-research-fixture",
+      "cases": [
+        {
+          "id": "nikon-he-smooth-sky",
+          "class": "nikon-he-smooth-clipping",
+          "region": {
+            "schema": "shadow.raw-highlight-region.v1",
+            "id": "nikon-he-smooth-sky",
+            "description": "Large smooth clipped sky patch and its cloud boundary.",
+            "crop_normalized": [0.0, 0.0, 1.0, 0.58],
+            "clipped_core_rectangles": [[0.53, 0.28, 0.24, 0.34]],
+            "reliable_exterior_rectangles": [[0.03, 0.08, 0.35, 0.36]],
+            "boundary_radius_pixels": 12
+          }
+        },
+        {
+          "id": "nikon-he-unclipped-cloud",
+          "class": "ordinary-unclipped-control",
+          "region": {
+            "schema": "shadow.raw-highlight-region.v1",
+            "id": "nikon-he-unclipped-cloud",
+            "description": "Ordinary bright but unclipped cloud used as a no-regression control.",
+            "crop_normalized": [0.02, 0.02, 0.38, 0.34],
+            "clipped_core_rectangles": [[0.35, 0.3, 0.2, 0.22]],
+            "reliable_exterior_rectangles": [[0.02, 0.02, 0.25, 0.25]],
+            "boundary_radius_pixels": 8
+          }
+        }
+      ]
+    },
+    {
+      "id": "lamp-local",
+      "source_path": "/absolute/local/path/to/lamp-edge.nef",
+      "license": "local-user-owned-research-fixture",
+      "cases": [
+        {
+          "id": "lamp-dark-frame-edge",
+          "class": "lamp-dark-neighbour",
+          "region": {
+            "schema": "shadow.raw-highlight-region.v1",
+            "id": "lamp-dark-frame-edge",
+            "description": "Clipped lamp beside the dark fixture frame; catches colour expansion.",
+            "crop_normalized": [0.08, 0.0, 0.72, 0.88],
+            "clipped_core_rectangles": [[0.08, 0.05, 0.58, 0.62]],
+            "reliable_exterior_rectangles": [[0.56, 0.02, 0.35, 0.7]],
+            "boundary_radius_pixels": 10
+          }
+        },
+        {
+          "id": "lamp-saturated-emitter",
+          "class": "saturated-single-colour-emitter",
+          "region": {
+            "schema": "shadow.raw-highlight-region.v1",
+            "id": "lamp-saturated-emitter",
+            "description": "Warm emitter core used to detect channel-specific hue inversions.",
+            "crop_normalized": [0.04, 0.0, 0.52, 0.56],
+            "clipped_core_rectangles": [[0.12, 0.08, 0.5, 0.55]],
+            "reliable_exterior_rectangles": [[0.68, 0.05, 0.28, 0.7]],
+            "boundary_radius_pixels": 10
+          }
+        }
+      ]
+    },
+    {
+      "id": "sony-sun-local",
+      "source_path": "/absolute/local/path/to/sony-sun.arw",
+      "license": "local-user-owned-research-fixture",
+      "cases": [
+        {
+          "id": "sony-sun-disc-gradient",
+          "class": "sony-sun-disc-gradient",
+          "region": {
+            "schema": "shadow.raw-highlight-region.v1",
+            "id": "sony-sun-disc-gradient",
+            "description": "Sun disc, halo, and adjacent sky gradient.",
+            "crop_normalized": [0.0, 0.06, 0.42, 0.42],
+            "clipped_core_rectangles": [[0.27, 0.3, 0.16, 0.2]],
+            "reliable_exterior_rectangles": [[0.02, 0.02, 0.22, 0.28]],
+            "boundary_radius_pixels": 12
+          }
+        },
+        {
+          "id": "sony-sun-specular-rays",
+          "class": "specular-highlight",
+          "region": {
+            "schema": "shadow.raw-highlight-region.v1",
+            "id": "sony-sun-specular-rays",
+            "description": "Small intense rays and rock-edge highlights around the sun.",
+            "crop_normalized": [0.08, 0.18, 0.28, 0.3],
+            "clipped_core_rectangles": [[0.32, 0.18, 0.16, 0.2]],
+            "reliable_exterior_rectangles": [[0.02, 0.55, 0.3, 0.3]],
+            "boundary_radius_pixels": 6
+          }
+        }
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "id": "oracle-vkdt-hilite",
+      "write_ownership": "External immutable oracle output only; no Shadow production pixels are mutated.",
+      "context_radius": { "unit": "full-frame" },
+      "reusable_upstream_state": "Verified Shadow normalized-DNG parent artifact and manifest receipt.",
+      "recomputation_frontier": "One-time RAW reconstruction before any interactive recipe adjustment.",
+      "residency_and_transfers": "CPU DNG storage to Vulkan GPU mosaic processing, then GPU output to CPU linear PFM.",
+      "cache_identity_impact": "Oracle run and artifact SHA-256 only; no product cache identity.",
+      "cancellation_behavior": "Separate process with bounded timeout; incomplete run remains failed and immutable.",
+      "preview_detail_export_equivalence": "Oracle only. It makes no production preview/detail/export equivalence claim."
+    }
+  ]
+}

@@ -29,15 +29,23 @@ named source RAW (read-only; never copied)
         +-- LibRaw/dcraw_emu  H0 clip / H2 blend / H3 rebuild
         +-- RawTherapee       disabled / Coloropp / Color propagation
         +-- Darktable         isolated default history / caller-controlled XMP
-        `-- vkdt              raw denoise -> CFA hilite -> demosaic -> linear PFM
+        `-- vkdt              raw denoise -> [CFA hilite] -> demosaic -> linear PFM
                                 |
                                 `-- immutable run manifest + hashed artifacts + logs
+                                                |
+                                                +-- region-aware linear objective analysis
+                                                `-- local no-copy fixture/candidate matrix
 ```
 
 `oracle_lab.py` owns orchestration, isolation, provenance, and the comparison boundary. It does not
 contain or choose Shadow's production algorithm. The production owner remains
 [`shadow-image`](../../cpp/shadow-image/README.md), including the same-`RawFrame` diagnostic emitted
 by `shadow-raw-probe --highlight-cfa-diagnostic`.
+
+`linear_image.py` owns bounded PFM/TIFF ingestion. `objective_metrics.py` owns Phase 3 registration,
+normalization, masks, metrics, and derived images. `fixture_matrix.py` owns Phase 4 local source
+admission, SHA audit, region export, candidate declarations, and complete per-case evaluation. The
+split keeps format parsing and fixture policy out of the adapter orchestrator.
 
 [`REFERENCE_NOTES.md`](REFERENCE_NOTES.md) records the inspected algorithm families and failure
 boundaries. [`ROADMAP.md`](ROADMAP.md) defines the normalized-mosaic and objective-metric phases.
@@ -64,8 +72,10 @@ Unavailable optional tools are recorded instead of silently substituted. `--stri
 selected adapter is unavailable or fails. Repeat `--require ADAPTER` to make only named adapters
 mandatory.
 
-The orchestrator uses only the Python standard library. External tools are never built, installed,
-downloaded, or updated automatically.
+The adapter orchestrator and fixture catalog use only the Python standard library. Objective
+analysis additionally requires NumPy. TIFF analysis records and invokes `tiffcp` to normalize
+compression and planar layout before reading only the requested crop. External tools are never
+built, installed, downloaded, or updated automatically by these scripts.
 
 ## Local CLI setup
 
@@ -91,8 +101,21 @@ python3 tools/raw-highlight-oracle/oracle_lab.py inventory \
 
 `unprocessed_raw`, rather than `dcraw_emu`, owns the independent pre-demosaic round-trip. The
 Homebrew LibRaw `dcraw_emu` does not expose classic dcraw's `-D` document option. `vkdt` has no
-locally discovered Homebrew formula; build the pinned source under `~/probe/vkdt` and pass its
-absolute `vkdt-cli` path when that oracle is selected.
+locally discovered Homebrew formula. On macOS its pinned CLI needs the Vulkan loader, MoltenVK,
+and shader compiler:
+
+```sh
+brew install vulkan-loader molten-vk glslang vulkan-tools
+git clone https://github.com/hanatos/vkdt ~/probe/vkdt
+git -C ~/probe/vkdt checkout b95b3a0ae88959589dc11d07c9040aead5acd1f8
+```
+
+Build a task-private copy with Rawler input (`VKDT_USE_RAWINPUT=2`) and pass its absolute
+`vkdt-cli`. The oracle also accepts the exact MoltenVK ICD JSON through `--vkdt-icd`; both the CLI
+and ICD are hashed. Codex's filesystem sandbox does not expose Metal, so a sandboxed run can return
+`VK_ERROR_INCOMPATIBLE_DRIVER` even though `vulkaninfo --summary` succeeds on the host. A real vkdt
+run therefore requires host GPU execution. This is an execution-environment fact, not an algorithm
+fallback.
 
 ## Inventory and execution
 
@@ -172,6 +195,26 @@ python3 tools/raw-highlight-oracle/oracle_lab.py run \
   --strict
 ```
 
+Run the strict within-vkdt highlight ablation from that same parent:
+
+```sh
+python3 tools/raw-highlight-oracle/oracle_lab.py run \
+  --input /private/tmp/parent/adapters/shadow-normalized-dng/normalized.dng \
+  --normalized-parent-manifest /private/tmp/parent/manifest.json \
+  --output-root /private/tmp/shadow-raw-oracles \
+  --run-name vkdt-ablation \
+  --oracle vkdt-hilite-disabled \
+  --oracle vkdt-hilite \
+  --require vkdt-hilite-disabled \
+  --require vkdt-hilite \
+  --vkdt-cli /absolute/task-build/bin/vkdt-cli \
+  --vkdt-icd /opt/homebrew/opt/molten-vk/etc/vulkan/icd.d/MoltenVK_icd.json
+```
+
+The two graphs share input, raw denoise, demosaic, colour, and output. The disabled graph removes
+only the raw-mosaic `hilite` node, making it a stronger algorithm ablation than subtracting two
+unrelated complete pipelines.
+
 `darktable-default` uses an empty in-memory library, disables custom presets, and therefore records
 the executable-defined default history without reading an adjacent sidecar. For a named experiment,
 select `darktable-xmp` only with an XMP that was created and reviewed for the experiment:
@@ -207,7 +250,8 @@ application defaults are therefore not silently admitted as oracle inputs.
 | `rawtherapee-color-propagation` | Independent complete pipeline | RawTherapee colour-propagation reconstruction |
 | `darktable-default` | Independent isolated default pipeline | Executable-defined history with no sidecar or custom presets |
 | `darktable-xmp` | Independent controlled-XMP pipeline | Darktable result under an explicit experiment profile |
-| `vkdt-hilite` | Independent GPU pipeline | Raw-mosaic multiscale inpainting before demosaic |
+| `vkdt-hilite-disabled` | Same vkdt normalized-DNG pipeline | Baseline with only the raw-mosaic hilite node removed |
+| `vkdt-hilite` | Same vkdt normalized-DNG pipeline | Raw-mosaic multiscale inpainting before demosaic |
 
 The PP3, controlled XMP, and vkdt graph files are experiment inputs and are hashed in the run
 manifest. Their source lineage is recorded in comments and `upstreams.lock.json`.
@@ -229,6 +273,75 @@ reinspect the relevant files and their per-file license, update the lock, and re
 Shadow is GPL-3.0, but compatible project-level licensing does not remove attribution, per-file
 exception, or source-provenance obligations.
 
+## Phase 3 objective comparison
+
+Objective analysis consumes declared RGB TIFF or PFM inputs and never assumes that a container's
+integer samples are already linear. Every input declares `linear` or `srgb`; sRGB is decoded with a
+recorded IEC 61966-2-1 piecewise transform. PFM row orientation is also explicit. Standard PFM is
+`bottom-up`, while pinned vkdt's `o-pfm` source documents and emits a non-flipped `top-down`
+dialect. Omitting `--reference-pfm-orientation top-down` or the corresponding candidate option for
+vkdt produces a vertically mirrored but otherwise plausible analysis and is invalid evidence.
+
+Use identity normalization for a same-pipeline ablation. `exterior-rgb` is only for an explicitly
+declared complete-pipeline comparison, where per-channel reliable-exterior p99.5 scales are part of
+the receipt. It must not be used to hide a candidate's broad write footprint.
+
+```sh
+python3 tools/raw-highlight-oracle/objective_metrics.py \
+  --reference /private/tmp/vkdt-off/result.pfm \
+  --reference-transfer linear \
+  --reference-pfm-orientation top-down \
+  --candidate oracle-vkdt-hilite=/private/tmp/vkdt-on/result.pfm \
+  --candidate-transfer oracle-vkdt-hilite=linear \
+  --candidate-pfm-orientation oracle-vkdt-hilite=top-down \
+  --candidate-manifest oracle-vkdt-hilite=/private/tmp/vkdt-on/manifest.json \
+  --region-spec /private/tmp/regions/sony-sun-disc-gradient.json \
+  --output-root /private/tmp/shadow-raw-objective \
+  --run-name sony-vkdt-ablation \
+  --normalization identity \
+  --max-shift 0
+```
+
+One immutable analysis emits registered linear crops, RGB and luminance difference PFMs,
+clipped-core/boundary/reliable-exterior/false-colour PGMs, per-region numerical summaries, source
+and conversion identities, adapter runtime when a matching run manifest is supplied, analysis
+runtime, artifact sizes, and analysis peak RSS. Whole-image averages are deliberately absent.
+
+## Phase 4 local fixture and candidate matrix
+
+The repository contains only a schema and a path-placeholder example. A real definition and
+catalog stay outside the checkout. `build` hashes each named local RAW in place and records
+`copied_into_catalog=false`; `audit` detects missing or changed sources and requires all six scene
+classes. `export-regions` materializes immutable Phase 3 region JSON files. `evaluate` refuses
+partial case coverage and preserves each case instead of collapsing it into one quality score.
+
+```sh
+python3 tools/raw-highlight-oracle/fixture_matrix.py build \
+  --definition /private/tmp/local-fixture-definition.json \
+  --output /absolute/local/payloads/fixture-matrix.json \
+  --matrix-version 20260825.2
+
+python3 tools/raw-highlight-oracle/fixture_matrix.py audit \
+  --catalog /absolute/local/payloads/fixture-matrix.json
+
+python3 tools/raw-highlight-oracle/fixture_matrix.py export-regions \
+  --catalog /absolute/local/payloads/fixture-matrix.json \
+  --output-directory /private/tmp/raw-highlight-regions
+```
+
+Candidate declarations are mandatory before evaluation: write ownership, context radius,
+reusable upstream state, recomputation frontier, residency/transfers, cache impact, cancellation,
+and preview/detail/export equivalence. An oracle declaration explicitly makes no production
+equivalence claim.
+
+The first complete local matrix used three named RAW sources and six cases, covering every required
+class. It completed a same-vkdt-pipeline hilite on/off evaluation without copying a RAW into the
+catalog or repository. The receipts also exposed an important result: vkdt's multiscale pass can
+change broad bright areas outside a hand-labelled core, so it is valuable oracle evidence but not a
+drop-in production admission. Analysis peak RSS ranged from hundreds of megabytes to more than one
+gigabyte for the selected crops because this offline owner retains and writes several float RGB
+artifacts. That cost is recorded honestly and does not enter Shadow's preview path.
+
 ## Exactness boundary and remaining work
 
 The normalized-mosaic-to-DNG bridge is implemented. It preserves the active samples byte-for-byte,
@@ -240,16 +353,17 @@ conservative minimum and records `standard_white_projection=conservative-minimum
 transport evidence, not a claim that every external decoder received four independent white
 levels.
 
-RawTherapee and Darktable can now consume a generated DNG in a child run whose parent artifact is
-verified and recorded. The remaining normalized child is vkdt; it stays unavailable until the
-pinned CLI is built. Each reconstruction output is still classified as a complete pipeline rather
-than byte-preserving transport evidence.
+RawTherapee, Darktable, and the pinned vkdt CLI can consume a generated DNG in a child run whose
+parent artifact is verified and recorded. Nikon HE*, the lamp edge, and Sony sun fixtures have all
+completed the vkdt normalized child on the host GPU. Each external reconstruction output remains a
+complete pipeline unless a same-engine ablation (such as vkdt hilite on/off) holds the other stages
+fixed.
 
-Likewise, the harness currently records artifact hashes and pipeline evidence rather than imposing
-one image-quality score. Objective comparisons should be added as separate, versioned analysis
-owners: linear-domain alignment, clipped-topology masks, boundary hue error, false-colour area,
-luminance continuity, and runtime/memory measurements. Capture One may remain a manually exported
-visual reference, but it is not a reproducible executable oracle.
+The Phase 3/4 owners now produce those versioned metrics and a complete local candidate evaluation.
+The first regions are manual normalized rectangles and therefore remain reviewable fixture data,
+not ground-truth sensor clipping masks. The next quality improvement is to derive topology from the
+byte-exact CFA/physical-white evidence and use the rectangles only as bounded crops. Capture One may
+remain a manually exported visual reference, but it is not a reproducible executable oracle.
 
 ## Validation
 

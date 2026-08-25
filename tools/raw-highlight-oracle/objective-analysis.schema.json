@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shadow.local/schemas/raw-highlight-objective-analysis-v1.json",
+  "title": "Shadow RAW highlight objective analysis",
+  "type": "object",
+  "required": [
+    "schema",
+    "analysis_version",
+    "run_name",
+    "linear_contract",
+    "region",
+    "region_spec",
+    "reference",
+    "candidates",
+    "resource_usage"
+  ],
+  "properties": {
+    "schema": {
+      "const": "shadow.raw-highlight-objective-analysis.v1"
+    },
+    "analysis_version": {
+      "type": "string"
+    },
+    "run_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "linear_contract": {
+      "type": "object",
+      "required": [
+        "primaries",
+        "transfer",
+        "negative_values_preserved",
+        "values_above_one_preserved"
+      ],
+      "properties": {
+        "primaries": { "type": "string" },
+        "transfer": { "const": "linear" },
+        "negative_values_preserved": { "const": true },
+        "values_above_one_preserved": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "region": {
+      "$ref": "#/$defs/region"
+    },
+    "region_spec": {
+      "$ref": "#/$defs/fileIdentity"
+    },
+    "reference": {
+      "type": "object"
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "image",
+          "image_format",
+          "image_receipt",
+          "requested_crop_xywh",
+          "registration",
+          "exposure_white_normalization",
+          "metrics",
+          "artifacts"
+        ]
+      }
+    },
+    "resource_usage": {
+      "type": "object",
+      "required": ["analysis_elapsed_ms", "analysis_peak_rss_bytes"],
+      "properties": {
+        "analysis_elapsed_ms": { "type": "number", "minimum": 0 },
+        "analysis_peak_rss_bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "fileIdentity": {
+      "type": "object",
+      "required": ["basename", "size_bytes", "sha256"],
+      "properties": {
+        "basename": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "normalizedRectangle": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "region": {
+      "type": "object",
+      "required": [
+        "schema",
+        "id",
+        "crop_normalized",
+        "clipped_core_rectangles"
+      ],
+      "properties": {
+        "schema": { "const": "shadow.raw-highlight-region.v1" },
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "crop_normalized": { "$ref": "#/$defs/normalizedRectangle" },
+        "clipped_core_rectangles": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/normalizedRectangle" }
+        },
+        "reliable_exterior_rectangles": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/normalizedRectangle" }
+        },
+        "boundary_radius_pixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
