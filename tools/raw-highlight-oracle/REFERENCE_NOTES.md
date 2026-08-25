@@ -36,6 +36,18 @@ counts remain within about 1.26--2.64% of the reference totals. Per-channel WB g
 chrominance-offset deltas remain in the receipt so a future experiment can separate mask admission
 from opposed-colour estimation. Counts alone do not prove that the two spatial masks overlap.
 
+The strict threshold adapter now supplies that spatial proof. It evaluates both admission domains
+through the same Shadow sampler and records exact candidate/write intersections. Across lamp,
+Nikon-sky, and Sony, `physical-white` is a strict subset of `linear-response-limit`; there are zero
+physical-only candidates or writes. Its per-channel candidate counts equal the pinned Darktable
+adaptation's clipped counts exactly. Against the pinned same-`RawFrame` linear output, the six fixed
+regions show no changed pixels in the Nikon unclipped control and no metric where the physical-white
+branch is farther away. The largest improvements are in luminance curvature at the clipped
+boundary, not in broad colour mixing, which supports the hypothesis that the extra response-shoulder
+writes create the remaining contour. It still does not prove that Darktable is perceptually ideal,
+so the evidence stays offline until a production-path experiment updates all backend identities and
+contracts together.
+
 The external Darktable ablation uses two bundled version-4 highlight XMP records. Their 48-byte
 parameter payloads differ only in the first little-endian integer: `0` for clip and `5` for inpaint
 opposed. Darktable 5.6 completed both profiles on all three verified normalized DNGs without changing

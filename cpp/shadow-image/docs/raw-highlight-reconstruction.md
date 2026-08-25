@@ -261,6 +261,14 @@ offset 只在同一个 terminal gate 内生效，不产生膨胀 mask、RGB 羽�
 单向；若一色发光体的实测通道本来更高，它完全不变。stride 4 的模型可由 probe 同 full
 oracle 统计并排报告，以便继续量化采样误差，而不是靠截图猜参数。
 
+`BayerCfaSamplingPolicy::terminal_highlight_admission` 把 gate 的归一化域变成显式策略，但
+默认值固定为 `linear_response_limit`。`physical_white` 只供离线
+`--highlight-threshold-ablation` 使用：两支共享同一 `RawFrame`、白平衡、已编译 chrominance
+offset、area sampler 和 camera matrix，只替换上述 gate 的归一化分母。这个枚举不是 Recipe
+参数，不进入桌面 UI、缓存身份、warm session、CPU/Metal 分支或 preview/detail/export
+语义。若未来要改变生产默认，必须另行修改算法身份、Metal 数学和跨路径合同；不能把本次
+oracle 注入误当成已经发布的行为。
+
 ### 4.3 缩略 area preview 的特殊顺序
 
 缩略预览不能先把一个 area bin 平均成 RGB，再决定是否修复。当前实现对 bin 中每个 CFA

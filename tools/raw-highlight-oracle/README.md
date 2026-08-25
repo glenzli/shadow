@@ -449,6 +449,34 @@ response shoulder. The complete local receipt is
 `/private/tmp/shadow-raw-strict-alignment/three-fixture-20260826c/alignment.json`; RAW and rendered
 payloads remain outside the repository.
 
+The follow-up `shadow-threshold-ablation` adapter now makes that experiment reproducible:
+
+```bash
+python3 tools/raw-highlight-oracle/oracle_lab.py run \
+  --input /absolute/source.raw \
+  --output-root /private/tmp/shadow-threshold-ablation \
+  --run-name source-id \
+  --oracle shadow-threshold-ablation \
+  --require shadow-threshold-ablation \
+  --shadow-probe /absolute/build/shadow-raw-probe
+```
+
+It writes linear/display response-limit and physical-white outputs plus their absolute difference.
+Per-channel receipts record candidate/write intersection and union, response-only/physical-only
+counts, IoU, and positive deltas. Both branches share decoded CFA, white balance, compiled opposed
+chrominance, area sampling, and camera matrix; no product render or cache is read or mutated.
+
+On the three verified sources, every physical-white candidate set is an exact subset of the
+response-limit set, and its per-channel candidate counts exactly match the pinned Darktable
+physical-white reference. Six fixed-region comparisons against that same-`RawFrame` reference leave
+the repaired unclipped control unchanged and place the physical-white branch closer on every
+reported non-zero boundary/core metric. The strongest separation is boundary continuity: lamp
+curvature error falls by roughly 94--97%, Nikon-sky curvature by about 72%, and Sony-ray curvature
+by about 77%. This is reference proximity, not a perceptual-quality proof or automatic production
+admission. The verified local run roots are
+`/private/tmp/shadow-threshold-ablation-runs-20260826-a/` and
+`/private/tmp/shadow-threshold-darktable-objective-20260826-a/`.
+
 ## Exactness boundary and remaining work
 
 The normalized-mosaic-to-DNG bridge is implemented. It preserves the active samples byte-for-byte,

@@ -627,4 +627,214 @@ void render_highlight_cfa_domain_diagnostic(
               << reference_outputs.difference_ppm.string() << '\n';
 }
 
+void render_highlight_threshold_ablation(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::filesystem::path& output_directory
+) {
+    constexpr float terminal_threshold = 0.987F;
+    constexpr float raised_epsilon = 1.0e-6F;
+    constexpr std::uint32_t maximum_edge = 1'536U;
+    constexpr std::array<const char*, 3U> channel_names{"R", "G", "B"};
+
+    const auto response_policy = detail::editable_raw_cfa_sampling_policy(transform);
+    auto physical_policy = response_policy;
+    physical_policy.terminal_highlight_admission =
+        detail::CfaTerminalHighlightAdmission::physical_white;
+
+    std::array<std::uint64_t, 3U> response_candidates{};
+    std::array<std::uint64_t, 3U> physical_candidates{};
+    std::array<std::uint64_t, 3U> candidate_intersection{};
+    std::array<std::uint64_t, 3U> response_only_candidates{};
+    std::array<std::uint64_t, 3U> physical_only_candidates{};
+    std::array<std::uint64_t, 3U> response_raised{};
+    std::array<std::uint64_t, 3U> physical_raised{};
+    std::array<std::uint64_t, 3U> raised_intersection{};
+    std::array<std::uint64_t, 3U> response_only_raised{};
+    std::array<std::uint64_t, 3U> physical_only_raised{};
+    std::array<long double, 3U> response_positive_delta{};
+    std::array<long double, 3U> physical_positive_delta{};
+
+    const auto& descriptor = frame.descriptor;
+    const std::uint32_t first_x = descriptor.active_margins.left;
+    const std::uint32_t first_y = descriptor.active_margins.top;
+    const std::uint32_t last_x = first_x + descriptor.active_dimensions.width;
+    const std::uint32_t last_y = first_y + descriptor.active_dimensions.height;
+    for (std::uint32_t y = first_y; y < last_y; ++y) {
+        for (std::uint32_t x = first_x; x < last_x; ++x) {
+            const auto channel = cfa_rgb_index(descriptor.bayer_2x2[(y & 1U) * 2U + (x & 1U)]);
+            if (!channel.has_value()) {
+                continue;
+            }
+            const auto response =
+                detail::opposed_highlight_cfa_sample_at(frame, x, y, &transform, response_policy);
+            const auto physical =
+                detail::opposed_highlight_cfa_sample_at(frame, x, y, &transform, physical_policy);
+            const bool response_candidate = response.terminal_candidate;
+            const bool physical_candidate = physical.terminal_candidate;
+            response_candidates[*channel] += response_candidate ? 1U : 0U;
+            physical_candidates[*channel] += physical_candidate ? 1U : 0U;
+            candidate_intersection[*channel] += response_candidate && physical_candidate ? 1U : 0U;
+            response_only_candidates[*channel] +=
+                response_candidate && !physical_candidate ? 1U : 0U;
+            physical_only_candidates[*channel] +=
+                physical_candidate && !response_candidate ? 1U : 0U;
+
+            const float response_delta = response.reconstructed - response.measured;
+            const float physical_delta = physical.reconstructed - physical.measured;
+            const bool response_wrote = response_delta > raised_epsilon;
+            const bool physical_wrote = physical_delta > raised_epsilon;
+            response_raised[*channel] += response_wrote ? 1U : 0U;
+            physical_raised[*channel] += physical_wrote ? 1U : 0U;
+            raised_intersection[*channel] += response_wrote && physical_wrote ? 1U : 0U;
+            response_only_raised[*channel] += response_wrote && !physical_wrote ? 1U : 0U;
+            physical_only_raised[*channel] += physical_wrote && !response_wrote ? 1U : 0U;
+            response_positive_delta[*channel] += response_wrote ? response_delta : 0.0F;
+            physical_positive_delta[*channel] += physical_wrote ? physical_delta : 0.0F;
+        }
+    }
+
+    const Dimensions dimensions =
+        reference_preview_dimensions(descriptor.active_dimensions, maximum_edge);
+    const auto grid = detail::make_bayer_area_sampling_grid(frame, dimensions);
+    const auto sample_count = static_cast<std::size_t>(dimensions.pixel_count()) * 3U;
+    std::vector<float> response_scene(sample_count);
+    std::vector<float> physical_scene(sample_count);
+    std::vector<float> absolute_difference(sample_count);
+    std::vector<float> per_pixel_maximum(static_cast<std::size_t>(dimensions.pixel_count()));
+    long double difference_total = 0.0L;
+    double difference_maximum = 0.0;
+    for (std::uint32_t y = 0U; y < dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < dimensions.width; ++x) {
+            const auto response_camera =
+                detail::area_camera_rgb_sample_at(frame, grid, x, y, &transform, response_policy);
+            const auto physical_camera =
+                detail::area_camera_rgb_sample_at(frame, grid, x, y, &transform, physical_policy);
+            const auto response_rgb = camera_rgb_to_scene_rgb(transform, response_camera.values);
+            const auto physical_rgb = camera_rgb_to_scene_rgb(transform, physical_camera.values);
+            const auto pixel = static_cast<std::size_t>(y) * dimensions.width + x;
+            float pixel_maximum = 0.0F;
+            for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                const auto index = pixel * 3U + channel;
+                response_scene[index] = response_rgb[channel];
+                physical_scene[index] = physical_rgb[channel];
+                absolute_difference[index] =
+                    std::abs(response_rgb[channel] - physical_rgb[channel]);
+                pixel_maximum = std::max(pixel_maximum, absolute_difference[index]);
+                difference_total += absolute_difference[index];
+                difference_maximum =
+                    std::max(difference_maximum, static_cast<double>(absolute_difference[index]));
+            }
+            per_pixel_maximum[pixel] = pixel_maximum;
+        }
+    }
+    const std::size_t percentile_index =
+        per_pixel_maximum.empty() ? 0U : (per_pixel_maximum.size() - 1U) * 995U / 1'000U;
+    if (!per_pixel_maximum.empty()) {
+        std::nth_element(
+            per_pixel_maximum.begin(),
+            per_pixel_maximum.begin() + static_cast<std::ptrdiff_t>(percentile_index),
+            per_pixel_maximum.end()
+        );
+    }
+    const float percentile = per_pixel_maximum.empty() ? 0.0F : per_pixel_maximum[percentile_index];
+    const float difference_scale = percentile <= 1.0e-8F ? 1.0F : 0.5F / percentile;
+
+    const auto response_pfm = output_directory / "highlight-threshold-response-limit-linear.pfm";
+    const auto physical_pfm = output_directory / "highlight-threshold-physical-white-linear.pfm";
+    const auto response_ppm = output_directory / "highlight-threshold-response-limit-display.ppm";
+    const auto physical_ppm = output_directory / "highlight-threshold-physical-white-display.ppm";
+    const auto difference_ppm = output_directory / "highlight-threshold-absolute-difference.ppm";
+    write_float_pfm(response_pfm, dimensions, response_scene);
+    write_float_pfm(physical_pfm, dimensions, physical_scene);
+    write_display_ppm(response_ppm, dimensions, response_scene);
+    write_display_ppm(physical_ppm, dimensions, physical_scene);
+    write_display_ppm(difference_ppm, dimensions, absolute_difference, difference_scale);
+
+    std::cout << "highlight_threshold_ablation.status=ok\n"
+              << "highlight_threshold_ablation.algorithm=shadow-cfa-opposed-admission-v1\n"
+              << "highlight_threshold_ablation.threshold=" << terminal_threshold << '\n'
+              << "highlight_threshold_ablation.fixed="
+                 "rawframe+white-balance+compiled-chrominance+area-sampling+camera-matrix\n"
+              << "highlight_threshold_ablation.response.domain=linear-response-limit\n"
+              << "highlight_threshold_ablation.physical.domain=physical-white\n"
+              << "highlight_threshold_ablation.dimensions=" << dimensions.width << 'x'
+              << dimensions.height << '\n';
+    std::uint64_t candidate_intersection_total = 0U;
+    std::uint64_t candidate_union_total = 0U;
+    std::uint64_t raised_intersection_total = 0U;
+    std::uint64_t raised_union_total = 0U;
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        const auto candidate_union = response_candidates[channel] + physical_candidates[channel]
+                                     - candidate_intersection[channel];
+        const auto raised_union =
+            response_raised[channel] + physical_raised[channel] - raised_intersection[channel];
+        candidate_intersection_total += candidate_intersection[channel];
+        candidate_union_total += candidate_union;
+        raised_intersection_total += raised_intersection[channel];
+        raised_union_total += raised_union;
+        std::cout << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".response_candidates=" << response_candidates[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".physical_candidates=" << physical_candidates[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".candidate_intersection=" << candidate_intersection[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".response_only_candidates=" << response_only_candidates[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".physical_only_candidates=" << physical_only_candidates[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".response_raised=" << response_raised[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".physical_raised=" << physical_raised[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".raised_intersection=" << raised_intersection[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".response_only_raised=" << response_only_raised[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".physical_only_raised=" << physical_only_raised[channel] << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".response_mean_positive_delta="
+                  << (response_raised[channel] == 0U
+                          ? 0.0
+                          : static_cast<double>(
+                                response_positive_delta[channel]
+                                / static_cast<long double>(response_raised[channel])
+                            ))
+                  << '\n'
+                  << "highlight_threshold_ablation.channel." << channel_names[channel]
+                  << ".physical_mean_positive_delta="
+                  << (physical_raised[channel] == 0U
+                          ? 0.0
+                          : static_cast<double>(
+                                physical_positive_delta[channel]
+                                / static_cast<long double>(physical_raised[channel])
+                            ))
+                  << '\n';
+    }
+    std::cout
+        << "highlight_threshold_ablation.candidate_iou="
+        << (candidate_union_total == 0U ? 1.0
+                                        : static_cast<double>(candidate_intersection_total)
+                                              / static_cast<double>(candidate_union_total))
+        << '\n'
+        << "highlight_threshold_ablation.raised_iou="
+        << (raised_union_total == 0U ? 1.0
+                                     : static_cast<double>(raised_intersection_total)
+                                           / static_cast<double>(raised_union_total))
+        << '\n'
+        << "highlight_threshold_ablation.mean_absolute_difference="
+        << (sample_count == 0U
+                ? 0.0
+                : static_cast<double>(difference_total / static_cast<long double>(sample_count)))
+        << '\n'
+        << "highlight_threshold_ablation.maximum_absolute_difference=" << difference_maximum << '\n'
+        << "highlight_threshold_ablation.difference_scale=" << difference_scale << '\n'
+        << "highlight_threshold_ablation.response_linear=" << response_pfm.string() << '\n'
+        << "highlight_threshold_ablation.physical_linear=" << physical_pfm.string() << '\n'
+        << "highlight_threshold_ablation.response_display=" << response_ppm.string() << '\n'
+        << "highlight_threshold_ablation.physical_display=" << physical_ppm.string() << '\n'
+        << "highlight_threshold_ablation.absolute_difference=" << difference_ppm.string() << '\n';
+}
+
 } // namespace shadow::image::probe_detail

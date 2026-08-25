@@ -155,7 +155,8 @@ the normalized-DNG metadata owner adds and independently verifies standard camer
 
 ## Phase 5 — strict production/reference attribution
 
-Status: repeatable alignment receipt implemented; no production threshold change admitted.
+Status: repeatable alignment and threshold-domain ablation receipts implemented; no production
+threshold change admitted.
 
 `strict_alignment.py` consumes successful `shadow-cfa-opposed` manifests and fails closed unless
 the adapter used the `same-decoded-cfa-reference` comparison class. The probe now reports, per CFA
@@ -173,3 +174,22 @@ write totals differ by only 2.08%, 1.26%, and 2.64%. This isolates the next expe
 opposed estimation, area sampling, and camera matrix fixed, then ablate only response-limit versus
 physical-white candidate admission. The result must be evaluated on all six admitted regions before
 any default-path change; the current calibrated response-limit behavior remains production truth.
+
+The controlled ablation is now complete. `shadow-threshold-ablation` holds `RawFrame`, WB, compiled
+opposed chrominance, area sampling, and camera matrix fixed and changes only the terminal admission
+domain. Physical-white candidates exactly match the pinned reference counts and form a strict
+subset of response-limit candidates on all three sources. Against the pinned same-decode linear
+reference, the physical-white branch is closer on every non-zero metric across the six regions,
+while the zero-physical-white control remains unchanged. This resolves the threshold attribution
+question, but it does not itself authorize a default change.
+
+## Phase 6 — production parity experiment
+
+Status: ready, not started.
+
+The next step is a narrow production experiment that changes the default admission domain together
+with CPU/Metal parity, algorithm/cache identity, preview/detail/export contracts, and representative
+interactive timing. It must preserve the one-sided photosite write owner and may not import the
+offline full-frame artifact path. Acceptance requires the existing six-region oracle comparison,
+source-fresh CPU/Metal tests, and proof that warm slider edits reuse the same prepared source with no
+new host/device transfer or full-frame pass.

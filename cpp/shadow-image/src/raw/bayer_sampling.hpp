@@ -14,6 +14,17 @@ struct RawFrameLinearTransform;
 namespace detail {
 
 using CameraRgb = std::array<float, 3U>;
+
+enum class CfaTerminalHighlightAdmission : std::uint8_t {
+    // Production default: the provider-calibrated response frontier owns the point where colour
+    // ratios stop being trustworthy, even when the stored code has not reached physical white.
+    linear_response_limit = 0,
+    // Offline ablation only: admit reconstruction after the stored photosite reaches its
+    // per-phase physical white. This isolates threshold-domain choice without changing any
+    // downstream sampling, colour transform, or presentation behavior.
+    physical_white,
+};
+
 // Editable RAW keeps the exact CFA white-balance scale before demosaic but retains the resulting
 // float headroom. Only a sample that has reached its physical sensor white may be limited at the
 // white point, so an unsaturated sample amplified above one by white balance stays editable.
@@ -21,6 +32,8 @@ using CameraRgb = std::array<float, 3U>;
 struct BayerCfaSamplingPolicy final {
     float white_balance_scale = 1.0F;
     bool cap_physical_sensor_white = false;
+    CfaTerminalHighlightAdmission terminal_highlight_admission =
+        CfaTerminalHighlightAdmission::linear_response_limit;
     // Physical-white detection and topology remain active, but a terminal photosite may retain its
     // CFA white-balance-scaled fp32 value instead of being projected onto a common 1.0 ceiling.
     // Editable RAW uses this scene-referred domain; diagnostics may disable it to compare the old

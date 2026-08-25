@@ -279,6 +279,35 @@ void opposed_reconstruction_repairs_the_terminal_cfa_site_before_demosaic() {
         "a provider-calibrated response frontier owns terminal chroma before coding white while "
         "retaining the measured code-domain luminance"
     );
+    auto physical_white_treatment = treatment;
+    physical_white_treatment.terminal_highlight_admission =
+        image::detail::CfaTerminalHighlightAdmission::physical_white;
+    const auto physical_white_ablation = image::detail::opposed_highlight_cfa_sample_at(
+        response_limited,
+        4U,
+        4U,
+        &transform,
+        physical_white_treatment
+    );
+    expect(
+        !physical_white_ablation.terminal_candidate
+            && std::abs(physical_white_ablation.reconstructed - physical_white_ablation.measured)
+                   < 1.0e-6F,
+        "the offline physical-white ablation excludes a response-terminal photosite while the "
+        "production policy remains response-limit based"
+    );
+    response_limited.samples[4U * 7U + 4U] = 1'000U;
+    const auto physical_white_terminal = image::detail::opposed_highlight_cfa_sample_at(
+        response_limited,
+        4U,
+        4U,
+        &transform,
+        physical_white_treatment
+    );
+    expect(
+        physical_white_terminal.terminal_candidate,
+        "the physical-white ablation still admits a photosite at calibrated physical white"
+    );
     response_limited.samples[4U * 7U + 4U] = 888U;
     const auto response_measured = image::detail::opposed_highlight_cfa_sample_at(
         response_limited,

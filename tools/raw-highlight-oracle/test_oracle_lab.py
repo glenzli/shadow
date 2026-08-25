@@ -57,6 +57,14 @@ elif "--highlight-cfa-diagnostic" in args:
     output.mkdir(parents=True, exist_ok=True)
     (output / "difference.ppm").write_bytes(b"P6\\n1 1\\n255\\n\\0\\0\\0")
     print("highlight.reference=darktable-opposed")
+elif "--highlight-threshold-ablation" in args:
+    output = pathlib.Path(args[1])
+    output.mkdir(parents=True, exist_ok=True)
+    pfm = b"PF\\n1 1\\n-1.0\\n" + bytes(12)
+    (output / "highlight-threshold-response-limit-linear.pfm").write_bytes(pfm)
+    (output / "highlight-threshold-physical-white-linear.pfm").write_bytes(pfm)
+    print("highlight_threshold_ablation.status=ok")
+    print("highlight_threshold_ablation.fixed=rawframe+white-balance+compiled-chrominance+area-sampling+camera-matrix")
 elif "-D" in args and "-Z" in args:
     output = pathlib.Path(args[args.index("-Z") + 1])
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -144,6 +152,22 @@ class OracleLabContractTest(unittest.TestCase):
             "darktable-xmp", tools, pathlib.Path("/INPUT.raw"), pathlib.Path("/RUN")
         )
         self.assertEqual(plan, "a controlled XMP is required; pass --darktable-xmp")
+
+    def test_threshold_ablation_is_classified_as_strict_same_decode(self) -> None:
+        arguments = oracle.parser().parse_args(
+            ["inventory", "--shadow-probe", str(self.executable)]
+        )
+        plan = oracle.build_plan(
+            "shadow-threshold-ablation",
+            oracle.selected_tools(arguments),
+            pathlib.Path("/INPUT.raw"),
+            pathlib.Path("/RUN"),
+        )
+        self.assertIsInstance(plan, oracle.AdapterPlan)
+        assert isinstance(plan, oracle.AdapterPlan)
+        self.assertEqual(plan.comparison_class, "same-decoded-cfa-threshold-ablation")
+        self.assertEqual(plan.argv[-1], "--highlight-threshold-ablation")
+        self.assertIn("fixed-opposed-reconstruction", plan.stages)
 
     def test_bundled_darktable_profiles_differ_only_in_highlight_mode(self) -> None:
         parameters = []

@@ -27,7 +27,7 @@ TOOL_ROOT = pathlib.Path(__file__).resolve().parent
 REPOSITORY_ROOT = TOOL_ROOT.parents[1]
 UPSTREAM_LOCK = TOOL_ROOT / "upstreams.lock.json"
 MANIFEST_SCHEMA = "shadow.raw-highlight-oracle-run.v1"
-ORCHESTRATOR_VERSION = "20260825.5"
+ORCHESTRATOR_VERSION = "20260826.1"
 SAFE_RUN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 BUILTIN_DARKTABLE_PROFILES = {
@@ -39,6 +39,7 @@ DEFAULT_ADAPTERS = (
     "shadow-rawframe",
     "shadow-normalized-dng",
     "shadow-cfa-opposed",
+    "shadow-threshold-ablation",
     "libraw-identify",
     "libraw-h0-clip",
     "libraw-h2-blend",
@@ -471,6 +472,34 @@ def build_plan(
                 "This is the first strict same-decoder reconstruction comparison.",
             ),
         )
+    if adapter_id == "shadow-threshold-ablation":
+        if tools.shadow_probe is None:
+            return "shadow-raw-probe was not found; pass --shadow-probe"
+        return AdapterPlan(
+            adapter_id=adapter_id,
+            stages=(
+                "shadow-provider-route",
+                "provider-neutral-rawframe",
+                "fixed-opposed-reconstruction",
+                "threshold-domain-ablation",
+            ),
+            comparison_class="same-decoded-cfa-threshold-ablation",
+            executable=tools.shadow_probe,
+            argv=(
+                str(tools.shadow_probe),
+                str(source),
+                str(directory),
+                "--highlight-threshold-ablation",
+            ),
+            working_directory=directory,
+            environment={},
+            notes=(
+                "Both branches share RawFrame, white balance, compiled opposed chrominance, "
+                "area sampling, and camera matrix.",
+                "Only response-limit versus physical-white candidate admission changes.",
+                "The adapter is offline evidence and cannot affect Shadow product rendering.",
+            ),
+        )
     if adapter_id == "libraw-identify":
         if tools.raw_identify is None:
             return "raw-identify was not found; pass --raw-identify"
@@ -796,7 +825,9 @@ def run(args: argparse.Namespace) -> int:
         "normalized_parent": parent_receipt,
         "comparison_boundary": {
             "strict_same_decode": [
-                adapter_id for adapter_id in selected if adapter_id == "shadow-cfa-opposed"
+                adapter_id
+                for adapter_id in selected
+                if adapter_id in {"shadow-cfa-opposed", "shadow-threshold-ablation"}
             ],
             "decoder_evidence": [
                 adapter_id
@@ -811,6 +842,7 @@ def run(args: argparse.Namespace) -> int:
                     "shadow-rawframe",
                     "shadow-normalized-dng",
                     "shadow-cfa-opposed",
+                    "shadow-threshold-ablation",
                     "libraw-identify",
                 }
             ],

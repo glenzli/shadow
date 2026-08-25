@@ -574,6 +574,34 @@ void render_highlight_cfa_diagnostic(
               << "timing.highlight_cfa_diagnostic_ms=" << timer.elapsed_ms() << '\n';
 }
 
+void render_highlight_threshold_ablation(
+    image::DecodeSession& session,
+    const fs::path& output_directory
+) {
+    const Stopwatch timer;
+    const image::RawFrame frame = session.decode_raw_frame();
+    if (!frame.valid() || !frame.is_bayer_2x2()) {
+        throw std::runtime_error("highlight threshold ablation requires a valid Bayer RAW frame");
+    }
+    const auto plan = image::preview_raw_development_plan();
+    image::RawFrameLinearTransform transform =
+        image::raw_pipeline_detail::prepare_raw_frame_linear_transform(
+            frame.descriptor,
+            plan.white_balance,
+            nullptr
+        );
+    const auto chrominance_model = image::detail::build_opposed_highlight_chrominance_model(frame);
+    const auto policy = image::detail::editable_raw_cfa_sampling_policy(transform);
+    const auto chrominance = image::detail::evaluate_opposed_highlight_chrominance_model(
+        chrominance_model,
+        &transform,
+        policy
+    );
+    transform.opposed_highlight_chrominance_offsets = chrominance.offsets;
+    image::probe_detail::render_highlight_threshold_ablation(frame, transform, output_directory);
+    std::cout << "timing.highlight_threshold_ablation_ms=" << timer.elapsed_ms() << '\n';
+}
+
 [[nodiscard]] RawFrameNormalizationCandidates calculate_normalization_candidates(
     const image::RawFrame& frame,
     const std::array<RawFrameCfaSiteStatistics, 4U>& statistics
@@ -1163,6 +1191,7 @@ int run(
     const bool denoise_diagnostic,
     const bool highlight_diagnostic,
     const bool highlight_cfa_diagnostic,
+    const bool highlight_threshold_ablation,
     const bool raw_frame_only,
     const bool raw_frame_statistics_only,
     const std::optional<RawFrameInspectionRegion> raw_frame_inspection_region,
@@ -1183,6 +1212,10 @@ int run(
     print_session(provider->info(), *session);
     if (highlight_cfa_diagnostic) {
         render_highlight_cfa_diagnostic(*session, output_directory);
+        return 0;
+    }
+    if (highlight_threshold_ablation) {
+        render_highlight_threshold_ablation(*session, output_directory);
         return 0;
     }
     if (raw_frame_only || raw_frame_statistics_only) {
@@ -1249,6 +1282,8 @@ int main(const int argument_count, char** arguments) {
         argument_count == 4 && std::string_view(arguments[3]) == "--highlight-diagnostic";
     const bool highlight_cfa_diagnostic =
         argument_count == 4 && std::string_view(arguments[3]) == "--highlight-cfa-diagnostic";
+    const bool highlight_threshold_ablation =
+        argument_count == 4 && std::string_view(arguments[3]) == "--highlight-threshold-ablation";
     const bool raw_frame_only =
         argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-only";
     const bool raw_frame_statistics_only =
@@ -1259,10 +1294,11 @@ int main(const int argument_count, char** arguments) {
         argument_count == 6 && std::string_view(arguments[3]) == "--manual-white-balance";
     if (argument_count != 3 && !preview_only && !denoise_diagnostic && !highlight_diagnostic
         && !highlight_cfa_diagnostic && !raw_frame_only && !raw_frame_statistics_only
-        && !raw_frame_statistics_region && !manual_white_balance) {
+        && !highlight_threshold_ablation && !raw_frame_statistics_region && !manual_white_balance) {
         std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> "
                      "[--preview-only|--denoise-diagnostic|--highlight-diagnostic|"
                      "--highlight-cfa-diagnostic|"
+                     "--highlight-threshold-ablation|"
                      "--raw-frame-only|--raw-frame-stats|"
                      "--raw-frame-stats-region <x> <y> <width> <height>|"
                      "--manual-white-balance <kelvin> <tint>]\n";
@@ -1304,6 +1340,7 @@ int main(const int argument_count, char** arguments) {
             denoise_diagnostic,
             highlight_diagnostic,
             highlight_cfa_diagnostic,
+            highlight_threshold_ablation,
             raw_frame_only,
             raw_frame_statistics_only || raw_frame_statistics_region,
             raw_frame_inspection_region,

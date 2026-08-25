@@ -110,6 +110,21 @@ namespace {
     );
 }
 
+[[nodiscard]] float normalized_terminal_admission_sample(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y,
+    const BayerCfaSamplingPolicy sampling_policy
+) noexcept {
+    switch (sampling_policy.terminal_highlight_admission) {
+    case CfaTerminalHighlightAdmission::linear_response_limit:
+        return normalized_linear_response_sample(frame, raw_x, raw_y);
+    case CfaTerminalHighlightAdmission::physical_white:
+        return normalized_sensor_sample(frame, raw_x, raw_y);
+    }
+    return normalized_linear_response_sample(frame, raw_x, raw_y);
+}
+
 [[nodiscard]] bool physical_sensor_white(
     const RawFrame& frame,
     const std::uint32_t raw_x,
@@ -581,7 +596,7 @@ CfaOpposedHighlightSample opposed_highlight_cfa_sample_at(
     };
     if (!sampling_policy.cap_physical_sensor_white
         || !sampling_policy.reconstruct_terminal_highlights
-        || normalized_linear_response_sample(frame, raw_x, raw_y) < 0.987F) {
+        || normalized_terminal_admission_sample(frame, raw_x, raw_y, sampling_policy) < 0.987F) {
         return result;
     }
 
