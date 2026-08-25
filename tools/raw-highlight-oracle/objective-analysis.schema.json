@@ -78,6 +78,7 @@
         "image_space": { "enum": ["active", "display"] },
         "source_dimensions": { "$ref": "#/$defs/dimensions" },
         "matched_dimensions": { "$ref": "#/$defs/dimensions" },
+        "reference_geometry": { "$ref": "#/$defs/referenceGeometry" },
         "crop_xywh": { "$ref": "#/$defs/pixelRectangle" },
         "selected_sample_count": { "type": "integer", "minimum": 0 }
       },
@@ -166,6 +167,24 @@
       ],
       "minItems": 4,
       "maxItems": 4
+    },
+    "referenceGeometry": {
+      "type": "object",
+      "required": [
+        "method",
+        "source_crop_xywh",
+        "output_dimensions",
+        "resampling"
+      ],
+      "properties": {
+        "method": {
+          "enum": ["identity-v1", "exact-integer-crop-v1"]
+        },
+        "source_crop_xywh": { "$ref": "#/$defs/pixelRectangle" },
+        "output_dimensions": { "$ref": "#/$defs/dimensions" },
+        "resampling": { "const": false }
+      },
+      "additionalProperties": false
     },
     "region": {
       "type": "object",

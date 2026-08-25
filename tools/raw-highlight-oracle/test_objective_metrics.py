@@ -227,11 +227,83 @@ class ObjectiveMetricsContractTest(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(document["analysis_version"], "20260825.2")
+        self.assertEqual(document["analysis_version"], "20260825.3")
         self.assertEqual(document["topology"]["selected_sample_count"], 256)
+        self.assertEqual(
+            document["topology"]["reference_geometry"],
+            {
+                "method": "identity-v1",
+                "source_crop_xywh": [0, 0, 64, 48],
+                "output_dimensions": [64, 48],
+                "resampling": False,
+            },
+        )
         source = document["candidates"][0]["clipped_core_source"]
         self.assertEqual(source["mode"], "cfa-topology")
         self.assertEqual(source["selected_pixel_count"], 256)
+
+        cropped_reference_path = self.root / "cropped-reference.pfm"
+        cropped_candidate_path = self.root / "cropped-candidate.pfm"
+        linear.write_pfm(cropped_reference_path, self.reference[4:-4, 4:-4])
+        linear.write_pfm(cropped_candidate_path, self.candidate[4:-4, 4:-4])
+        with self.assertRaisesRegex(
+            ValueError,
+            "declare an exact integer crop",
+        ):
+            topology.read_topology_mask(
+                topology_root / "synthetic" / "topology.json",
+                "physical-white",
+                "active",
+                (56, 40),
+                (0, 0, 56, 40),
+            )
+        cropped_output_root = self.root / "cropped-topology-analyses"
+        self.assertEqual(
+            objective.main(
+                [
+                    "--reference",
+                    str(cropped_reference_path),
+                    "--candidate",
+                    f"synthetic={cropped_candidate_path}",
+                    "--candidate-transfer",
+                    "synthetic=linear",
+                    "--region-spec",
+                    str(self.region_path),
+                    "--topology-manifest",
+                    str(topology_root / "synthetic" / "topology.json"),
+                    "--topology-image-space",
+                    "active",
+                    "--topology-reference-crop-xywh",
+                    "4,4,56,40",
+                    "--output-root",
+                    str(cropped_output_root),
+                    "--run-name",
+                    "synthetic-cropped-topology-analysis",
+                    "--normalization",
+                    "exterior-rgb",
+                    "--max-shift",
+                    "0",
+                ]
+            ),
+            0,
+        )
+        cropped_document = json.loads(
+            (
+                cropped_output_root
+                / "synthetic-cropped-topology-analysis"
+                / "analysis.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(cropped_document["topology"]["selected_sample_count"], 256)
+        self.assertEqual(
+            cropped_document["topology"]["reference_geometry"],
+            {
+                "method": "exact-integer-crop-v1",
+                "source_crop_xywh": [4, 4, 56, 40],
+                "output_dimensions": [56, 40],
+                "resampling": False,
+            },
+        )
 
     def test_analysis_directory_is_immutable(self) -> None:
         output_root = self.root / "immutable"

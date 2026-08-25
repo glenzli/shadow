@@ -91,8 +91,10 @@ PFM rows rather than the standard bottom-up convention.
 The analysis can now replace the manual core with a factual mask derived from byte-exact active CFA
 values and four-site physical whites. It preserves response-shoulder and shared-three-colour masks
 as separate facts, verifies staging and topology payload identities, applies RawFrame orientation,
-and fails when image dimensions would require implicit resampling. Manual core rectangles remain
-only as an explicit compatibility fallback.
+and fails when image dimensions would require implicit resampling. A decoder that removes a known
+sensor border may declare one exact integer topology-to-reference crop; the receipt records the
+source rectangle, output dimensions, and `resampling=false`. Manual core rectangles remain only as
+an explicit compatibility fallback.
 
 ## Phase 4 — fixture admission and production candidates
 
@@ -120,14 +122,22 @@ Only then may the production owner evaluate a change. An oracle that requires a 
 pass may still be valuable as a one-time RAW source preparation, but it must not migrate into every
 slider event or create a preview/detail semantic fork.
 
-The first external local catalog admits three named RAW files in place and originally declared six
-cases covering all required classes. Source size/SHA auditing, immutable region export, and complete
-per-case topology analyses have completed. CFA
-projection proved that the named Nikon "unclipped cloud" control contains 617,792 physical-white
-samples, so topology-required aggregation now rejects the matrix until a genuine unclipped
-replacement is admitted.
-The vkdt hilite candidate explicitly owns
-only external oracle output, uses full-frame context, and makes no Shadow preview/detail/export
-equivalence claim. Its receipts show broad writes in some bright controls and substantial offline
-working memory, so the correct outcome is research evidence rather than automatic production
-admission.
+The external local catalog admits three named RAW files in place and six cases covering all required
+classes. Source size/SHA auditing, immutable region export, and complete per-case topology analyses
+have completed. CFA projection proved that the original Nikon "unclipped cloud" control contains
+617,792 physical-white samples, and the topology-required gate correctly rejected it. Matrix
+`20260825.4` retains the visually reviewed replacement containing zero physical-white samples and
+declares vkdt hilite, RawTherapee Coloropp, and RawTherapee Color propagation. Its source audit and
+all topology-required candidate evaluations pass; the immutable catalog identity is
+`fixture-matrix-20260825d.json` at SHA-256
+`3aa1ad2672336856022f4d64b7f64731c5b9681764dd151f58407fb9b1e46074`.
+
+Each candidate explicitly owns only external oracle output, uses full-frame context, and makes no
+Shadow preview/detail/export equivalence claim. Relative to each engine's disabled baseline,
+RawTherapee Coloropp writes broadly across the Nikon smooth-sky control (about 43.78%), while Color
+propagation is materially more selective (about 0.65%). Both modes still write roughly 4--5% in the
+lamp cases and 5.06% around the Sony sun disc. These are write-footprint diagnostics, not a quality
+ranking. The next comparison must add a controlled darktable opposed-CFA candidate and a LibRaw
+same-engine ablation before any behavior is admitted to production. The receipts still show
+substantial offline working memory, so the correct outcome remains research evidence rather than
+automatic production admission.

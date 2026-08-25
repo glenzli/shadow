@@ -330,6 +330,13 @@ only the scene crop and optional reliable exterior; the factual CFA mask replace
 Exact reference dimensions are required, so an accidental resample fails closed. Whole-image
 averages are deliberately absent.
 
+Some oracle pipelines remove a deterministic sensor border. Declare that geometry explicitly with
+`--topology-reference-crop-xywh X,Y,WIDTH,HEIGHT`. The receipt records an exact integer crop from
+the oriented topology plane to the reference dimensions and asserts `resampling=false`; dimensions
+that still disagree continue to fail closed. For example, the pinned RawTherapee normalized-DNG
+route emits Sony output at `8632x5752` from an `8640x5760` active plane, represented as
+`--topology-reference-crop-xywh 4,4,8632,5752`.
+
 ## Phase 4 local fixture and candidate matrix
 
 The repository contains only a schema and a path-placeholder example. A real definition and
@@ -363,16 +370,27 @@ For a sensor-factual evaluation, pass all six analysis receipts with
 physical-white samples; every clipped class must contain at least one. A mislabeled fixture fails
 before an evaluation artifact is written.
 
-The first complete local matrix used three named RAW sources and six cases. CFA projection later
-invalidated the purported `nikon-he-unclipped-cloud` control: that crop contains 617,792 samples at
-physical white and must be replaced before the matrix can again claim a genuine unclipped control.
-All six regions completed same-vkdt-pipeline hilite on/off topology analyses without copying a RAW
-into the catalog or repository, but the topology-required Phase 4 aggregation correctly rejects the
-current matrix until that control is replaced. The receipts also exposed an important result: vkdt's multiscale pass can
-change broad bright areas outside a hand-labelled core, so it is valuable oracle evidence but not a
-drop-in production admission. Analysis peak RSS ranged from hundreds of megabytes to more than one
-gigabyte for the selected crops because this offline owner retains and writes several float RGB
-artifacts. That cost is recorded honestly and does not enter Shadow's preview path.
+The local matrix uses three named RAW sources and six cases. CFA projection invalidated the original
+`nikon-he-unclipped-cloud` control because that crop contains 617,792 samples at physical white, and
+the topology-required Phase 4 gate correctly rejected it. Matrix `20260825.4` retains the visually
+reviewed `nikon-he-bright-unclipped-control`, a varied settlement/barrier crop containing zero
+physical-white samples, and declares three independently runnable candidates: vkdt hilite,
+RawTherapee Coloropp, and RawTherapee Color propagation. Source audit, immutable region export, and
+complete topology-required evaluations for all three candidates pass. The immutable catalog is
+`fixture-matrix-20260825d.json`, SHA-256
+`3aa1ad2672336856022f4d64b7f64731c5b9681764dd151f58407fb9b1e46074`.
+
+These percentages measure changed pixels against each engine's own disabled baseline. They describe
+write footprint, not perceptual quality and not cross-engine colour equivalence. On that bounded
+measurement, RawTherapee Coloropp changes about 43.78% of the reliable exterior in the Nikon smooth
+sky case, while Color propagation changes about 0.65% and vkdt about 0.0029%. Both RawTherapee modes
+change roughly 4--5% in the lamp cases and 5.06% in the Sony sun-disc case, versus at most 0.096%
+and 1.23% respectively for vkdt. The repaired control remains quiet in all three comparisons.
+
+The receipts still expose substantial offline working memory: analysis peak RSS ranges from
+hundreds of megabytes to more than one gigabyte for selected crops because this owner retains and
+writes several float RGB artifacts. That cost is recorded honestly and does not enter Shadow's
+preview path. All three candidates remain oracle evidence rather than drop-in production admission.
 
 ## Exactness boundary and remaining work
 

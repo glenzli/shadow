@@ -293,6 +293,7 @@ def read_topology_mask(
     image_space: str,
     expected_dimensions: tuple[int, int],
     crop_xywh: tuple[int, int, int, int],
+    reference_geometry_crop_xywh: tuple[int, int, int, int] | None = None,
 ) -> tuple[np.ndarray, dict[str, object]]:
     path = manifest_path.expanduser().resolve()
     document = json.loads(path.read_text(encoding="utf-8"))
@@ -318,12 +319,33 @@ def read_topology_mask(
     selected = (bitfield & np.uint8(MASK_BITS[mask_name])) != 0
     oriented = _oriented_mask(selected, int(coordinate["orientation"]), image_space)
     expected_width, expected_height = expected_dimensions
-    if oriented.shape != (expected_height, expected_width):
+    source_height, source_width = oriented.shape
+    if reference_geometry_crop_xywh is None:
+        geometry_crop = (0, 0, source_width, source_height)
+        geometry_method = "identity-v1"
+    else:
+        geometry_crop = reference_geometry_crop_xywh
+        geometry_method = "exact-integer-crop-v1"
+    geometry_x, geometry_y, geometry_width, geometry_height = geometry_crop
+    if (
+        geometry_x < 0
+        or geometry_y < 0
+        or geometry_width <= 0
+        or geometry_height <= 0
+        or geometry_x + geometry_width > source_width
+        or geometry_y + geometry_height > source_height
+    ):
+        raise ValueError("topology reference geometry crop is outside the oriented mask")
+    matched = oriented[
+        geometry_y : geometry_y + geometry_height,
+        geometry_x : geometry_x + geometry_width,
+    ]
+    if matched.shape != (expected_height, expected_width):
         raise ValueError(
-            "topology and reference dimensions differ; explicit resampling is not yet admitted"
+            "topology and reference dimensions differ; declare an exact integer crop instead of resampling"
         )
     x, y, crop_width, crop_height = crop_xywh
-    cropped = np.asarray(oriented[y : y + crop_height, x : x + crop_width], dtype=bool)
+    cropped = np.asarray(matched[y : y + crop_height, x : x + crop_width], dtype=bool)
     if cropped.shape != (crop_height, crop_width):
         raise ValueError("topology crop is incomplete")
     receipt = {
@@ -333,6 +355,12 @@ def read_topology_mask(
         "image_space": image_space,
         "source_dimensions": [width, height],
         "matched_dimensions": [expected_width, expected_height],
+        "reference_geometry": {
+            "method": geometry_method,
+            "source_crop_xywh": list(geometry_crop),
+            "output_dimensions": [expected_width, expected_height],
+            "resampling": False,
+        },
         "crop_xywh": list(crop_xywh),
         "selected_sample_count": int(np.count_nonzero(cropped)),
     }

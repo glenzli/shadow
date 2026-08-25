@@ -52,6 +52,18 @@ def _parse_orientation_assignment(value: str) -> tuple[str, str]:
     return identifier, orientation
 
 
+def _parse_pixel_rectangle(value: str) -> tuple[int, int, int, int]:
+    try:
+        x, y, width, height = (int(component) for component in value.split(","))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected X,Y,WIDTH,HEIGHT integers") from exc
+    if x < 0 or y < 0 or width <= 0 or height <= 0:
+        raise argparse.ArgumentTypeError(
+            "expected non-negative X,Y and positive WIDTH,HEIGHT"
+        )
+    return (x, y, width, height)
+
+
 def _identity(path: pathlib.Path) -> dict[str, object]:
     if not path.is_file():
         raise ValueError(f"input does not exist: {path}")
@@ -429,6 +441,7 @@ def analyse(args: argparse.Namespace) -> int:
             args.topology_image_space,
             reference_dimensions,
             reference_crop,
+            args.topology_reference_crop_xywh,
         )
     manifest_assignments = dict(args.candidate_manifest)
     transfer_assignments = dict(args.candidate_transfer)
@@ -601,7 +614,7 @@ def analyse(args: argparse.Namespace) -> int:
     elapsed_ms = (time.monotonic() - started) * 1000.0
     document = {
         "schema": ANALYSIS_SCHEMA,
-        "analysis_version": "20260825.2",
+        "analysis_version": "20260825.3",
         "run_name": args.run_name,
         "linear_contract": {
             "primaries": args.primaries,
@@ -675,6 +688,15 @@ def parser() -> argparse.ArgumentParser:
         choices=("active", "display"),
         default="display",
         help="project the active sensor mask through RawFrame orientation before cropping",
+    )
+    result.add_argument(
+        "--topology-reference-crop-xywh",
+        type=_parse_pixel_rectangle,
+        metavar="X,Y,WIDTH,HEIGHT",
+        help=(
+            "explicit exact crop from the oriented topology plane to reference dimensions; "
+            "no resampling is performed"
+        ),
     )
     result.add_argument("--output-root", type=pathlib.Path, required=True)
     result.add_argument("--run-name", required=True)
