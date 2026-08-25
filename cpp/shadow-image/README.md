@@ -19,6 +19,10 @@ Its `shadow-cfa-opposed` adapter is the strict reconstruction comparison because
 this owner's exact provider-neutral `RawFrame`. External-container adapters are intentionally
 classified as complete independent pipelines: their visual differences also include decoder,
 calibration, demosaic, and colour-transform choices and are not attributed to this owner alone.
+The strict probe also emits per-channel reference clip/write counts, effective WB gains, and the
+two threshold domains. `tools/raw-highlight-oracle/strict_alignment.py` turns those bounded facts
+into an immutable cross-fixture receipt without adding work, buffers, or cache identity to desktop
+preview, detail, or export.
 
 The line-based manifests under
 [`cmake/source-manifests/`](cmake/source-manifests/) are the single compiled-source index shared

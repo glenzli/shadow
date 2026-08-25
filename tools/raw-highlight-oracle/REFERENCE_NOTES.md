@@ -27,6 +27,15 @@ Shadow's existing `raw_highlight_reference_pipeline` is the strict reference ada
 from Shadow's exact `RawFrame`; no external container decoder is involved. Its display PPM is for
 inspection, while its linear PFM and CFA-domain CSVs are the diagnostic truth.
 
+The strict alignment receipt now makes the remaining threshold distinction explicit. The pinned
+adaptation evaluates `0.987` in the physical-white-normalized domain, while Shadow production
+evaluates the same numeric shoulder in the calibrated linear-response domain. On the verified
+fixtures, the latter limits are `15311/16383` for both Nikon inputs and `15360/16383` for Sony.
+That expands production candidate counts by about 4.42--14.13%, although actual one-sided write
+counts remain within about 1.26--2.64% of the reference totals. Per-channel WB gains and
+chrominance-offset deltas remain in the receipt so a future experiment can separate mask admission
+from opposed-colour estimation. Counts alone do not prove that the two spatial masks overlap.
+
 The external Darktable ablation uses two bundled version-4 highlight XMP records. Their 48-byte
 parameter payloads differ only in the first little-endian integer: `0` for clip and `5` for inpaint
 opposed. Darktable 5.6 completed both profiles on all three verified normalized DNGs without changing

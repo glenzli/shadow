@@ -152,3 +152,24 @@ The controlled Darktable runs also expose one interchange follow-up: RawSpeed re
 research DNG lacks a standard camera `Make`. This does not invalidate the same-input clip/opposed
 delta, but it blocks treating Darktable's full colour rendering as a camera-profile reference until
 the normalized-DNG metadata owner adds and independently verifies standard camera identity.
+
+## Phase 5 — strict production/reference attribution
+
+Status: repeatable alignment receipt implemented; no production threshold change admitted.
+
+`strict_alignment.py` consumes successful `shadow-cfa-opposed` manifests and fails closed unless
+the adapter used the `same-decoded-cfa-reference` comparison class. The probe now reports, per CFA
+channel:
+
+- effective WB gain and Darktable-adaptation clip value;
+- physical-white clipped and actually changed reference photosites;
+- Shadow response-shoulder candidates and actually raised photosites;
+- compiled/reference chrominance offsets;
+- shared-downstream linear and strongest-boundary differences.
+
+The verified three-fixture receipt shows that response-limit candidate admission is broader than
+the physical-white reference by 4.42% (lamp), 14.13% (Nikon sky), and 12.18% (Sony), while actual
+write totals differ by only 2.08%, 1.26%, and 2.64%. This isolates the next experiment: hold WB,
+opposed estimation, area sampling, and camera matrix fixed, then ablate only response-limit versus
+physical-white candidate admission. The result must be evaluated on all six admitted regions before
+any default-path change; the current calibrated response-limit behavior remains production truth.

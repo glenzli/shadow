@@ -150,6 +150,22 @@ python3 tools/raw-highlight-oracle/oracle_lab.py run \
   --shadow-probe /absolute/task-build/cpp/shadow-image/shadow-raw-probe
 ```
 
+Combine one or more successful strict manifests into an immutable alignment receipt:
+
+```sh
+python3 tools/raw-highlight-oracle/strict_alignment.py \
+  --fixture lamp=/absolute/lamp-strict-cfa/manifest.json \
+  --fixture sony=/absolute/sony-strict-cfa/manifest.json \
+  --output-root /private/tmp/shadow-raw-strict-alignment \
+  --run-name lamp-sony-a
+```
+
+The receipt compares per-CFA-channel candidate and write counts, effective white-balance gains,
+opposed chrominance offsets, and the shared-downstream linear output. Count agreement is explicitly
+not a spatial mask-intersection proof. The analyzer is a separate owner because execution and
+cross-run attribution have different schemas and failure policies; `oracle_lab.py` remains the
+adapter/run orchestrator.
+
 Run the locally installed LibRaw ablation:
 
 ```sh
@@ -421,6 +437,17 @@ The receipts still expose substantial offline working memory: analysis peak RSS 
 hundreds of megabytes to more than one gigabyte for selected crops because this owner retains and
 writes several float RGB artifacts. That cost is recorded honestly and does not enter Shadow's
 preview path. All six candidates remain oracle evidence rather than drop-in production admission.
+
+The strict same-`RawFrame` three-fixture alignment adds a narrower result. Shadow's production
+response-shoulder selector admits 4.42% more candidates than the physical-white Darktable
+adaptation on the lamp fixture, 14.13% more on the Nikon smooth-sky fixture, and 12.18% more on the
+Sony sun fixture. Actual one-sided writes are much closer: 2.08%, 1.26%, and 2.64% more,
+respectively. The provider facts explain the mask difference: both Nikon inputs use linear-response
+limits `15311` below physical white `16383`, while Sony uses `15360` below `16383`. This is evidence
+for a controlled threshold-domain ablation, not authorization to discard Shadow's calibrated
+response shoulder. The complete local receipt is
+`/private/tmp/shadow-raw-strict-alignment/three-fixture-20260826c/alignment.json`; RAW and rendered
+payloads remain outside the repository.
 
 ## Exactness boundary and remaining work
 

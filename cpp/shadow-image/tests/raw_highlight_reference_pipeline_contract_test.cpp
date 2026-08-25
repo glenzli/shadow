@@ -123,6 +123,32 @@ void opposed_reference_changes_only_factually_clipped_photosites() {
         observed_changes == plane.changed_photosites,
         "reference change accounting must match its owned CFA plane"
     );
+    expect(
+        plane.clipped_photosites
+                == plane.clipped_photosites_by_channel[0]
+                       + plane.clipped_photosites_by_channel[1]
+                       + plane.clipped_photosites_by_channel[2]
+            && plane.changed_photosites
+                   == plane.changed_photosites_by_channel[0]
+                          + plane.changed_photosites_by_channel[1]
+                          + plane.changed_photosites_by_channel[2],
+        "per-channel reference ownership must sum to the complete CFA accounting"
+    );
+    expect(
+        plane.clipped_photosites_by_channel[0] > 0U
+            && plane.clipped_photosites_by_channel[1] == 0U
+            && plane.clipped_photosites_by_channel[2] == 0U
+            && plane.changed_photosites_by_channel[0] == plane.changed_photosites
+            && plane.changed_photosites_by_channel[1] == 0U
+            && plane.changed_photosites_by_channel[2] == 0U,
+        "the isolated red fixture must keep clip and write ownership on its red CFA phase"
+    );
+    expect(
+        std::abs(plane.effective_white_balance_gains[0] - 1.0F) < 1.0e-6F
+            && std::abs(plane.effective_white_balance_gains[1] - 2.0F) < 1.0e-6F
+            && std::abs(plane.effective_white_balance_gains[2] - 2.0F) < 1.0e-6F,
+        "reference diagnostics must retain the effective per-channel white-balance gains"
+    );
 }
 
 void opposed_reference_area_output_is_finite() {

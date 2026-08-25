@@ -328,6 +328,18 @@ struct ReferenceRenderOutputs final {
     constexpr std::array<const char*, 3U> channel_names{"R", "G", "B"};
     std::cout << "highlight_reference.algorithm=darktable-opposed-source-943d74a50e5b\n"
               << "highlight_reference.stage=post-rawframe-pre-demosaic\n"
+              << "highlight_reference.threshold=0.987\n"
+              << "highlight_reference.threshold_domain=physical-white\n"
+              << "highlight_reference.cfa.white_levels="
+              << frame.descriptor.white_levels[0] << ',' << frame.descriptor.white_levels[1] << ','
+              << frame.descriptor.white_levels[2] << ',' << frame.descriptor.white_levels[3] << '\n'
+              << "highlight_reference.cfa.has_linear_response_limits="
+              << (frame.descriptor.has_linear_response_limits ? "yes" : "no") << '\n'
+              << "highlight_reference.cfa.linear_response_limits="
+              << frame.descriptor.linear_response_limits[0] << ','
+              << frame.descriptor.linear_response_limits[1] << ','
+              << frame.descriptor.linear_response_limits[2] << ','
+              << frame.descriptor.linear_response_limits[3] << '\n'
               << "highlight_reference.shared_downstream=shadow-area-sampling-and-camera-matrix\n"
               << "highlight_reference.dimensions=" << dimensions.width << 'x' << dimensions.height
               << '\n'
@@ -335,7 +347,16 @@ struct ReferenceRenderOutputs final {
               << "highlight_reference.changed_photosites=" << reference.changed_photosites << '\n';
     for (std::size_t channel = 0U; channel < 3U; ++channel) {
         std::cout << "highlight_reference.channel." << channel_names[channel]
+                  << ".effective_white_balance_gain="
+                  << reference.effective_white_balance_gains[channel] << '\n'
+                  << "highlight_reference.channel." << channel_names[channel]
                   << ".clip=" << reference.clip_values[channel] << '\n'
+                  << "highlight_reference.channel." << channel_names[channel]
+                  << ".clipped_photosites="
+                  << reference.clipped_photosites_by_channel[channel] << '\n'
+                  << "highlight_reference.channel." << channel_names[channel]
+                  << ".changed_photosites="
+                  << reference.changed_photosites_by_channel[channel] << '\n'
                   << "highlight_reference.channel." << channel_names[channel]
                   << ".chrominance_offset=" << reference.chrominance_offsets[channel] << '\n'
                   << "highlight_reference.channel." << channel_names[channel]

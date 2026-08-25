@@ -126,7 +126,7 @@ dilated_mask_value(const std::uint8_t* const input, const std::size_t width) noe
     return false;
 }
 
-[[nodiscard]] std::array<float, 3U> clip_values_for(
+[[nodiscard]] std::array<float, 3U> effective_white_balance_gains_for(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const detail::BayerCfaSamplingPolicy policy
@@ -142,13 +142,12 @@ dilated_mask_value(const std::uint8_t* const input, const std::size_t width) noe
         gains[index] += transform.apply_cfa_white_balance ? transform.cfa_white_balance[site] : 1.0;
         ++counts[index];
     }
-    std::array<float, 3U> clips{};
-    for (std::size_t channel = 0U; channel < clips.size(); ++channel) {
+    std::array<float, 3U> effective_gains{};
+    for (std::size_t channel = 0U; channel < effective_gains.size(); ++channel) {
         const double gain = counts[channel] == 0U ? 1.0 : gains[channel] / counts[channel];
-        clips[channel] =
-            darktable_opposed_clip_magic * static_cast<float>(gain) * policy.white_balance_scale;
+        effective_gains[channel] = static_cast<float>(gain) * policy.white_balance_scale;
     }
-    return clips;
+    return effective_gains;
 }
 
 [[nodiscard]] std::array<float, 3U> missing_channel_fallback(
@@ -223,7 +222,12 @@ DarktableOpposedReferencePlane make_darktable_opposed_reference_plane(
     const auto sample_count = static_cast<std::size_t>(plane.dimensions.pixel_count());
     plane.measured_samples.resize(sample_count);
     plane.reconstructed_samples.resize(sample_count);
-    plane.clip_values = clip_values_for(frame, transform, policy);
+    plane.effective_white_balance_gains =
+        effective_white_balance_gains_for(frame, transform, policy);
+    for (std::size_t channel = 0U; channel < plane.clip_values.size(); ++channel) {
+        plane.clip_values[channel] =
+            darktable_opposed_clip_magic * plane.effective_white_balance_gains[channel];
+    }
 
     for (std::uint32_t y = 0U; y < plane.dimensions.height; ++y) {
         for (std::uint32_t x = 0U; x < plane.dimensions.width; ++x) {
@@ -339,10 +343,14 @@ DarktableOpposedReferencePlane make_darktable_opposed_reference_plane(
                 continue;
             }
             ++plane.clipped_photosites;
+            ++plane.clipped_photosites_by_channel[channel_index];
             const float reference = opposed_reference_at(plane.measured_samples, plane, x, y)
                                     + plane.chrominance_offsets[channel_index];
             plane.reconstructed_samples[index] = std::max(measured, reference);
-            plane.changed_photosites += plane.reconstructed_samples[index] > measured ? 1U : 0U;
+            if (plane.reconstructed_samples[index] > measured) {
+                ++plane.changed_photosites;
+                ++plane.changed_photosites_by_channel[channel_index];
+            }
         }
     }
     return plane;

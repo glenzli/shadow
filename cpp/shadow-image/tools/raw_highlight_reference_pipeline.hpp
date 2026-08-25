@@ -18,9 +18,12 @@ struct DarktableOpposedReferencePlane final {
     std::array<RawCfaColor, 4U> bayer_2x2{};
     std::vector<float> measured_samples;
     std::vector<float> reconstructed_samples;
+    std::array<float, 3U> effective_white_balance_gains{};
     std::array<float, 3U> clip_values{};
     std::array<float, 3U> chrominance_offsets{};
     std::array<std::uint64_t, 3U> chrominance_support{};
+    std::array<std::uint64_t, 3U> clipped_photosites_by_channel{};
+    std::array<std::uint64_t, 3U> changed_photosites_by_channel{};
     std::uint64_t clipped_photosites = 0U;
     std::uint64_t changed_photosites = 0U;
 
