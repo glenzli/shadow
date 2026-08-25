@@ -101,9 +101,33 @@ int main(int argc, char* argv[]) {
     QObject* const retained_busy_indicator = overlays->findChild<QObject*>(
         QStringLiteral("precisionRetainedPreviewBusyIndicator")
     );
+    QObject* const retained_busy_rotor = overlays->findChild<QObject*>(
+        QStringLiteral("precisionRetainedPreviewBusyIndicatorRotor")
+    );
+    QObject* const detail_wait_hint = overlays->findChild<QObject*>(
+        QStringLiteral("precisionDetailWaitingHint")
+    );
+    QObject* const detail_wait_spinner = overlays->findChild<QObject*>(
+        QStringLiteral("precisionDetailWaitSpinner")
+    );
+    QObject* const primary_wait_overlay = overlays->findChild<QObject*>(
+        QStringLiteral("precisionPrimaryWaitOverlay")
+    );
     if (!require(
             retained_busy_indicator != nullptr,
             "retained-preview pending state has a spinner affordance"
+        )
+        || !require(
+            retained_busy_rotor != nullptr,
+            "the retained-preview spinner exposes an explicitly animated rotor"
+        )
+        || !require(
+            detail_wait_hint != nullptr && detail_wait_spinner != nullptr,
+            "foreground full-detail waiting has a dedicated spinner affordance"
+        )
+        || !require(
+            primary_wait_overlay != nullptr,
+            "opening and first-render waiting owns a delayed foreground overlay"
         )
         || !require(
             !retained_busy_indicator->property("visible").toBool(),
@@ -129,23 +153,79 @@ int main(int argc, char* argv[]) {
         )) {
         return EXIT_FAILURE;
     }
+    const double rotation_before = retained_busy_rotor->property("rotation").toDouble();
+    QTest::qWait(120);
+    drainBindings();
+    if (!require(
+            std::abs(
+                retained_busy_rotor->property("rotation").toDouble() - rotation_before
+            ) > 1.0,
+            "a disclosed wait has visibly moving state instead of a static glyph"
+        )) {
+        return EXIT_FAILURE;
+    }
 
     editor.rendering = false;
     editor.full_resolution_preparing = true;
     emit editor.stateChanged();
     drainBindings();
     if (!require(
-            retained_busy_indicator->property("visible").toBool(),
-            "full-resolution preparation while retaining the old frame is made visible"
+            !retained_busy_indicator->property("visible").toBool(),
+            "idle full-resolution warmup does not interrupt the overview surface"
+        )
+        || !require(
+            !detail_wait_hint->property("visible").toBool(),
+            "idle full-resolution warmup stays hidden while no detail surface is requested"
+        )) {
+        return EXIT_FAILURE;
+    }
+    QTest::qWait(380);
+    drainBindings();
+    if (!require(
+            !retained_busy_indicator->property("visible").toBool(),
+            "background warmup cannot acquire foreground wait state after the delay"
         )) {
         return EXIT_FAILURE;
     }
 
+    overlays->setProperty("fitView", false);
+    editor.detail_mode = true;
+    emit editor.stateChanged();
+    drainBindings();
+    if (!require(
+            detail_wait_hint->property("visible").toBool()
+                && detail_wait_spinner->property("visible").toBool(),
+            "the same full-resolution work is disclosed after the user requests 100% detail"
+        )
+        || !require(
+            !retained_busy_indicator->property("visible").toBool(),
+            "the foreground detail wait does not duplicate the overview spinner"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    overlays->setProperty("fitView", true);
+    editor.detail_mode = false;
+    editor.full_resolution_preparing = false;
+    editor.state_busy = true;
     overlays->setProperty("previewFrameReady", false);
+    emit editor.stateChanged();
     drainBindings();
     if (!require(
             !retained_busy_indicator->property("visible").toBool(),
             "the retained-frame spinner yields to the existing opening/rendering overlay"
+        )
+        || !require(
+            !primary_wait_overlay->property("visible").toBool(),
+            "a fast first render does not flash the primary wait overlay"
+        )) {
+        return EXIT_FAILURE;
+    }
+    QTest::qWait(280);
+    drainBindings();
+    if (!require(
+            primary_wait_overlay->property("visible").toBool(),
+            "a perceptibly long first render shows the animated primary wait overlay"
         )) {
         return EXIT_FAILURE;
     }

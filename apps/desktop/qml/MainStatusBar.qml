@@ -67,7 +67,8 @@ Rectangle {
                         || statusBar.controller.comparisonBusy
                         || statusBar.controller.decisionBusy
                 : statusBar.editor.busy
-                    || statusBar.editor.fullResolutionPreparing
+                    || statusBar.precisionWorkspace
+                        .foregroundFullResolutionPending
             running: visible
         }
 
@@ -101,7 +102,8 @@ Rectangle {
                         : statusBar.controller.comparisonBusy
                             ? statusBar.controller.comparisonStatusText
                             : statusBar.controller.statusText)
-                    : statusBar.editor.fullResolutionPreparing
+                    : statusBar.precisionWorkspace
+                        .foregroundFullResolutionPending
                         ? statusBar.fullResolutionPreparationText()
                         : statusBar.editor.statusText
             color: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex

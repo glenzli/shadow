@@ -9,6 +9,60 @@ import QtQuick.Controls
 Item {
     id: overlays
 
+    // Qt platform styles are allowed to render BusyIndicator very subtly.
+    // Precision's foreground wait state instead uses one explicit accent dot
+    // orbiting a stable ring, so a disclosed wait is visibly alive on every
+    // supported desktop theme.
+    component VisibleWaitSpinner: Item {
+        id: spinner
+
+        required property bool running
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: Theme.previewHudOverlay
+        }
+
+        Rectangle {
+            id: spinnerRing
+            anchors.centerIn: parent
+            width: Math.max(9, Math.round(Math.min(parent.width,
+                parent.height) * 0.72))
+            height: width
+            radius: width / 2
+            color: Theme.transparent
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+
+        Item {
+            id: spinnerRotor
+            objectName: spinner.objectName.length > 0
+                ? spinner.objectName + "Rotor" : ""
+            anchors.centerIn: spinnerRing
+            width: spinnerRing.width
+            height: spinnerRing.height
+
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: -height / 2
+                width: Math.max(3, Math.round(spinnerRing.width * 0.24))
+                height: width
+                radius: width / 2
+                color: Theme.accent
+            }
+
+            NumberAnimation on rotation {
+                from: 0
+                to: 360
+                duration: 720
+                loops: Animation.Infinite
+                running: spinner.running && spinner.visible
+            }
+        }
+    }
+
     required property var editor
     required property bool comparisonActive
     required property int comparisonMode
@@ -28,13 +82,14 @@ Item {
 
     property bool detailWaitMessageVisible: false
     property bool retainedPreviewBusyVisible: false
+    property bool primaryWaitVisible: false
 
     // A ready frame may deliberately remain visible while its replacement is
     // rendering. Surface that unpublished-current-revision state instead of
     // making a responsive retained frame look like a non-responsive slider.
     readonly property bool retainedPreviewReplacementPending:
         previewFrameReady && editor.active
-        && (editor.rendering || editor.fullResolutionPreparing)
+        && editor.rendering && !detailSurfaceRelevant
 
     readonly property bool detailSurfaceRelevant:
         !comparisonActive && !fitView && zoomFactor >= 1.0
@@ -43,6 +98,10 @@ Item {
         && editor.detailErrorText.length === 0
         && !detailImageLoadFailed
         && (editor.detailMode || editor.detailRendering)
+    readonly property bool primaryWaitActive:
+        !previewFrameReady
+        && (editor.stateBusy || editor.rendering
+            || (comparisonActive && editor.beforeRendering))
 
     onDetailWaitActiveChanged: {
         if (!detailWaitActive)
@@ -52,6 +111,11 @@ Item {
     onRetainedPreviewReplacementPendingChanged: {
         if (!retainedPreviewReplacementPending)
             retainedPreviewBusyVisible = false
+    }
+
+    onPrimaryWaitActiveChanged: {
+        if (!primaryWaitActive)
+            primaryWaitVisible = false
     }
 
     Timer {
@@ -71,6 +135,14 @@ Item {
             && !overlays.retainedPreviewBusyVisible
         onTriggered: overlays.retainedPreviewBusyVisible =
             overlays.retainedPreviewReplacementPending
+    }
+
+    Timer {
+        interval: 250
+        running: overlays.primaryWaitActive
+            && !overlays.primaryWaitVisible
+        onTriggered: overlays.primaryWaitVisible =
+            overlays.primaryWaitActive
     }
 
     Rectangle {
@@ -114,12 +186,12 @@ Item {
         }
     }
 
-    BusyIndicator {
+    VisibleWaitSpinner {
         id: retainedPreviewBusyIndicator
         objectName: "precisionRetainedPreviewBusyIndicator"
         anchors.centerIn: parent
-        width: 28
-        height: 28
+        width: 32
+        height: 32
         visible: overlays.retainedPreviewBusyVisible
         running: visible
     }
@@ -159,7 +231,8 @@ Item {
             anchors.centerIn: parent
             spacing: 7
 
-            BusyIndicator {
+            VisibleWaitSpinner {
+                objectName: "precisionDetailWaitSpinner"
                 width: 14
                 height: 14
                 visible: overlays.detailWaitActive
@@ -214,7 +287,7 @@ Item {
             anchors.centerIn: parent
             spacing: 7
 
-            BusyIndicator {
+            VisibleWaitSpinner {
                 width: 14
                 height: 14
                 visible: overlays.editor.beforeRendering
@@ -241,16 +314,15 @@ Item {
     }
 
     Column {
+        objectName: "precisionPrimaryWaitOverlay"
         anchors.centerIn: parent
         spacing: 14
-        visible: !overlays.previewFrameReady
-            && (overlays.editor.stateBusy
-                || overlays.editor.rendering
-                || (overlays.comparisonActive
-                    && overlays.editor.beforeRendering))
+        visible: overlays.primaryWaitVisible
 
-        BusyIndicator {
+        VisibleWaitSpinner {
             anchors.horizontalCenter: parent.horizontalCenter
+            width: 32
+            height: 32
             running: parent.visible
         }
 

@@ -38,6 +38,16 @@ Item {
     readonly property bool proxyActive: editor.active
         && precisionCanvas.visiblePreviewSource.length > 0
         && !precisionCanvas.showingFullDetail
+    // Idle full-resolution source preparation is deliberately background
+    // work. It becomes foreground activity only while the user is actually
+    // waiting on a 100% viewport or the explicit detail loupe.
+    readonly property bool foregroundFullResolutionPending:
+        editor.active && editor.fullResolutionPreparing
+        && (precisionCanvas.detailLoupeVisible
+            || (!precisionCanvas.fitView
+                && precisionCanvas.zoomFactor >= 1.0
+                && !precisionCanvas.comparisonActive
+                && editor.detailMode))
     // Page-level consumers (including the headless acceptance path) need the
     // displayed frame identity, not an implementation-specific canvas id.
     // Keep the canvas as the sole owner of Image readiness while exposing its

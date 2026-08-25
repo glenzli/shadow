@@ -38,6 +38,8 @@ Item {
     property bool valueEditing: false
     readonly property Item dismissalSurface: field.Window.window
         ? field.Window.window.contentItem : field
+    readonly property Item scrollingDismissalSurface:
+        field.nearestFlickableAncestor()
     readonly property bool hasEndpointLabels:
         startLabel.length > 0 || endLabel.length > 0
 
@@ -142,6 +144,25 @@ Item {
         return true
     }
 
+    function nearestFlickableAncestor() {
+        let candidate = field.parent
+        while (candidate) {
+            if (candidate instanceof Flickable)
+                return candidate
+            candidate = candidate.parent
+        }
+        return null
+    }
+
+    function dismissValueEditFrom(surface, eventPoint) {
+        const local = valueInput.mapFromItem(
+            surface, eventPoint.position.x, eventPoint.position.y)
+        if (local.x < 0 || local.y < 0
+                || local.x > valueInput.width
+                || local.y > valueInput.height)
+            field.commitValueEdit(false)
+    }
+
     // Own dismissal beside the editor itself and observe the whole window.
     // The passive handler does not steal the click from the canvas or the
     // next control; it only commits this editor when that click lands outside.
@@ -150,16 +171,32 @@ Item {
         target: null
         enabled: field.valueEditing && field.visible && field.enabled
         acceptedButtons: Qt.LeftButton
-        gesturePolicy: TapHandler.DragThreshold
+        // Precision sliders live inside a ScrollView.  Its Flickable may take
+        // the drag grab even for a short blank-space press, which cancels a
+        // DragThreshold observer before it can dismiss this editor.
+        // ReleaseWithinBounds remains an observation of the completed click:
+        // it neither competes with scrolling nor consumes the target control.
+        gesturePolicy: TapHandler.ReleaseWithinBounds
         grabPermissions: PointerHandler.TakeOverForbidden
-        onTapped: (eventPoint, button) => {
-            const local = valueInput.mapFromItem(
-                parent, eventPoint.position.x, eventPoint.position.y)
-            if (local.x < 0 || local.y < 0
-                    || local.x > valueInput.width
-                    || local.y > valueInput.height)
-                field.commitValueEdit(false)
-        }
+        onTapped: (eventPoint, button) =>
+            field.dismissValueEditFrom(parent, eventPoint)
+    }
+
+    // A ScrollView's internal Flickable is allowed to filter events before a
+    // window-level pointer handler sees them.  Observe that exact local input
+    // surface as well, while keeping the handler passive so blank clicks,
+    // scrolling, buttons, and the next slider retain their own behavior.
+    TapHandler {
+        parent: field.scrollingDismissalSurface
+            ? field.scrollingDismissalSurface : field
+        target: null
+        enabled: field.valueEditing && field.visible && field.enabled
+            && field.scrollingDismissalSurface !== null
+        acceptedButtons: Qt.LeftButton
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+        grabPermissions: PointerHandler.TakeOverForbidden
+        onTapped: (eventPoint, button) =>
+            field.dismissValueEditFrom(parent, eventPoint)
     }
 
     onEnabledChanged: {

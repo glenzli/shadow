@@ -521,6 +521,139 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    // Precision's adjustment inspector hosts sliders inside a ScrollView.  A
+    // blank click there is first observed by the Flickable viewport, so this
+    // real hierarchy must retain the same numeric-editor dismissal contract
+    // as an ordinary window child.
+    QQmlComponent panel_component(&engine);
+    panel_component.setData(
+        R"QML(
+            import QtQuick
+            import QtQuick.Controls
+            ScrollView {
+                width: 340
+                height: 150
+                contentWidth: availableWidth
+                contentHeight: 260
+
+                Item {
+                    objectName: "adjustmentPanelContent"
+                    width: 340
+                    height: 260
+
+                    Rectangle {
+                        objectName: "adjustmentPanelBlankTarget"
+                        x: 0
+                        y: 70
+                        width: parent.width
+                        height: 190
+                        color: "transparent"
+                        property int tapCount: 0
+                        TapHandler { onTapped: parent.tapCount += 1 }
+                    }
+                }
+            }
+        )QML",
+        QUrl(QStringLiteral("inmemory:/AdjustmentPanelSurface.qml"))
+    );
+    while (panel_component.isLoading()) {
+        drainBindings();
+    }
+    std::unique_ptr<QObject> panel_surface(panel_component.create());
+    if (!panel_surface) {
+        std::cerr << panel_component.errorString().toStdString();
+        return EXIT_FAILURE;
+    }
+    auto panel_slider = createSourceComponent(
+        engine,
+        QStringLiteral("ShadowSlider.qml"),
+        {
+            {QStringLiteral("label"), QStringLiteral("Temperature")},
+            {QStringLiteral("from"), 2'000.0},
+            {QStringLiteral("to"), 25'000.0},
+            {QStringLiteral("neutralValue"), 5'500.0},
+            {QStringLiteral("value"), 5'668.0},
+            {QStringLiteral("width"), 300.0},
+        }
+    );
+    if (!panel_slider) {
+        return EXIT_FAILURE;
+    }
+    QObject::connect(
+        panel_slider.get(),
+        SIGNAL(edited(double)),
+        &recorder,
+        SLOT(recordEdited(double))
+    );
+
+    QQuickWindow panel_window;
+    panel_window.resize(360, 180);
+    auto* const panel_surface_item = qobject_cast<QQuickItem*>(panel_surface.get());
+    auto* const panel_content = panel_surface->findChild<QQuickItem*>(
+        QStringLiteral("adjustmentPanelContent")
+    );
+    QObject* const panel_blank_target = panel_surface->findChild<QObject*>(
+        QStringLiteral("adjustmentPanelBlankTarget")
+    );
+    auto* const panel_slider_item = qobject_cast<QQuickItem*>(panel_slider.get());
+    if (!require(panel_surface_item != nullptr && panel_content != nullptr
+                     && panel_blank_target != nullptr,
+                 "the adjustment-panel fixture exposes its ScrollView content")) {
+        return EXIT_FAILURE;
+    }
+    panel_surface_item->setParentItem(panel_window.contentItem());
+    panel_surface_item->setPosition(QPointF{10.0, 10.0});
+    panel_slider_item->setParentItem(panel_content);
+    panel_slider_item->setPosition(QPointF{20.0, 18.0});
+    panel_window.show();
+    drainBindings();
+
+    auto* const panel_value_label = panel_slider->findChild<QQuickItem*>(
+        QStringLiteral("shadowSliderValueLabel")
+    );
+    QObject* const panel_value_editor = panel_slider->findChild<QObject*>(
+        QStringLiteral("shadowSliderValueEditor")
+    );
+    if (!require(panel_value_label != nullptr && panel_value_editor != nullptr,
+                 "the adjustment-panel slider exposes its numeric editor")) {
+        return EXIT_FAILURE;
+    }
+    const QPointF panel_value_label_center = panel_value_label->mapToItem(
+        panel_window.contentItem(),
+        QPointF{panel_value_label->width() / 2.0, panel_value_label->height() / 2.0}
+    );
+    QTest::mouseClick(
+        &panel_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        panel_value_label_center.toPoint()
+    );
+    drainBindings();
+    const int edits_before_panel_blank = recorder.edited_count;
+    panel_value_editor->setProperty("text", QStringLiteral("6000"));
+    QTest::mouseClick(
+        &panel_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        QPoint{40, 118}
+    );
+    drainBindings();
+    if (!require(
+            !panel_slider->property("valueEditing").toBool(),
+            "clicking blank ScrollView panel content closes the numeric editor"
+        )
+        || !require(
+            recorder.edited_count == edits_before_panel_blank + 1
+                && std::abs(recorder.edited_value - 6'000.0) < 0.000'001,
+            "panel blank dismissal commits the numeric value exactly once"
+        )
+        || !require(
+            panel_blank_target->property("tapCount").toInt() == 1,
+            "panel blank dismissal preserves the clicked panel target"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }
 
