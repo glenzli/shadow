@@ -97,6 +97,38 @@ void EditController::setFoundationWhiteBalanceFromSource(
     }
 }
 
+void EditController::autoFoundationWhiteBalance() {
+    if (!active_ || interactionLocked()) {
+        return;
+    }
+    try {
+        const auto estimated = backend_->autoRawWhiteBalance(
+            photo_id_,
+            source_path_,
+            base_commit_id_,
+            grade_stack_,
+            RAW_WHITE_BALANCE_PICKER_PREVIEW_EDGE
+        );
+        if (!estimated.available) {
+            setStatusMessage(raw_white_balance_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "Automatic RAW White Balance could not find a reliable neutral area"
+            )));
+            return;
+        }
+        const BackendGradeStack before = grade_stack_;
+        grade_stack_.foundation.raw_white_balance_mode = 1U;
+        grade_stack_.foundation.temperature_kelvin = estimated.temperature_kelvin;
+        grade_stack_.foundation.tint = estimated.tint;
+        setRawWhiteBalancePickerActive(false);
+        foundationEdited(QStringLiteral("raw_white_balance/auto"), before);
+    } catch (const std::exception&) {
+        setStatusMessage(raw_white_balance_message(QT_TRANSLATE_NOOP(
+            "EditController", "Automatic RAW White Balance needs the current RAW preview"
+        )));
+    }
+}
+
 void EditController::setFoundationEnabled(const bool enabled) {
     if (!active_ || interactionLocked()
         || grade_stack_.foundation.enabled == enabled) {

@@ -48,6 +48,17 @@ ColumnLayout {
             Layout.rightMargin: 14
             spacing: 6
             Item { Layout.fillWidth: true }
+            ShadowButton {
+                objectName: "foundationAutoWhiteBalanceButton"
+                text: qsTr("AUTO")
+                compact: true
+                minimumButtonWidth: 46
+                variant: ShadowButton.Ghost
+                enabled: foundation.editor.active && !foundation.editor.stateBusy
+                toolTipText: qsTr("Estimate RAW White Balance from neutral areas in the current photo")
+                accessibleName: qsTr("Automatic RAW White Balance")
+                onClicked: foundation.editor.autoFoundationWhiteBalance()
+            }
             ShadowIconButton {
                 source: "qrc:/icons/eyedropper.svg"
                 selected: foundation.editor.rawWhiteBalancePickerActive

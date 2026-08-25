@@ -185,6 +185,21 @@ fn raw_white_balance_picker_reuses_the_same_cfa_source_across_preview_edges() {
 }
 
 #[test]
+fn automatic_white_balance_uses_the_same_bounded_cfa_cache_identity() {
+    let base = key();
+    let mut another_preview_edge = base.clone();
+    another_preview_edge.max_edge = 1_536;
+    assert!(base.shares_raw_white_balance_picker_source(&another_preview_edge));
+
+    let mut changed_optics = another_preview_edge;
+    changed_optics.optics.manual_distortion = 1;
+    assert!(
+        !base.shares_raw_white_balance_picker_source(&changed_optics),
+        "the automatic estimate may not cross a source-stage optics identity"
+    );
+}
+
+#[test]
 fn persisted_manual_white_balance_prepares_an_as_shot_resident_source() {
     let requested =
         RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(

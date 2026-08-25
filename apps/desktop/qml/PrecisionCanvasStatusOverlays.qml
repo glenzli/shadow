@@ -27,6 +27,14 @@ Item {
     required property int comparisonSideBySide
 
     property bool detailWaitMessageVisible: false
+    property bool retainedPreviewBusyVisible: false
+
+    // A ready frame may deliberately remain visible while its replacement is
+    // rendering. Surface that unpublished-current-revision state instead of
+    // making a responsive retained frame look like a non-responsive slider.
+    readonly property bool retainedPreviewReplacementPending:
+        previewFrameReady && editor.active
+        && (editor.rendering || editor.fullResolutionPreparing)
 
     readonly property bool detailSurfaceRelevant:
         !comparisonActive && !fitView && zoomFactor >= 1.0
@@ -41,12 +49,28 @@ Item {
             detailWaitMessageVisible = false
     }
 
+    onRetainedPreviewReplacementPendingChanged: {
+        if (!retainedPreviewReplacementPending)
+            retainedPreviewBusyVisible = false
+    }
+
     Timer {
         interval: 250
         running: overlays.detailWaitActive
             && !overlays.detailWaitMessageVisible
         onTriggered: overlays.detailWaitMessageVisible =
             overlays.detailWaitActive
+    }
+
+    // Most retained-frame replacements settle within one or two display
+    // updates. Do not flash progress chrome for that healthy fast path; only
+    // disclose the still-pending revision once it is perceptible to a person.
+    Timer {
+        interval: 350
+        running: overlays.retainedPreviewReplacementPending
+            && !overlays.retainedPreviewBusyVisible
+        onTriggered: overlays.retainedPreviewBusyVisible =
+            overlays.retainedPreviewReplacementPending
     }
 
     Rectangle {
@@ -88,6 +112,16 @@ Item {
             font.weight: Font.Bold
             font.letterSpacing: 0.7
         }
+    }
+
+    BusyIndicator {
+        id: retainedPreviewBusyIndicator
+        objectName: "precisionRetainedPreviewBusyIndicator"
+        anchors.centerIn: parent
+        width: 28
+        height: 28
+        visible: overlays.retainedPreviewBusyVisible
+        running: visible
     }
 
     Rectangle {

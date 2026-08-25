@@ -61,6 +61,12 @@ void ordinary_raw_rebinds_without_a_second_decode() {
         initial.supports_raw_development_rebinding(),
         "owned RawFrame warm preview advertises camera-space colour rebinding"
     );
+    const auto automatic_white_balance = initial.auto_raw_white_balance();
+    expect(
+        initial.supports_raw_white_balance_picker() && automatic_white_balance.has_value()
+            && automatic_white_balance->valid() && decoder.raw_frame_count() == 1U,
+        "automatic RAW white balance samples the retained CFA without a second decode"
+    );
 
     const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
     const auto telemetry = rebound.raw_rebinding_telemetry();
@@ -265,6 +271,11 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
         initial.supports_raw_development_rebinding() && decoder.raw_frame_count() == 1U
             && decoder.processed_count() == 0U,
         "AI RAW foundation rebind shares its bounded camera RGB and source calibration"
+    );
+    expect(
+        !initial.supports_raw_white_balance_picker()
+            && !initial.auto_raw_white_balance().has_value(),
+        "automatic RAW white balance fails closed for a camera-RGB foundation source"
     );
     expect(
         initial.supports_raw_foundation_amount_rebinding() && decoder.raw_frame_count() == 1U,

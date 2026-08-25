@@ -773,6 +773,7 @@ mod ffi {
             normalized_x: f64,
             normalized_y: f64,
         ) -> FfiRawWhiteBalancePresentation;
+        fn auto_raw_white_balance(self: &EditPreviewHandle) -> FfiRawWhiteBalancePresentation;
         fn rebind_raw_development_plan(
             self: &EditPreviewHandle,
             plan: &FfiRawDevelopmentPlan,

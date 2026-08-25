@@ -474,6 +474,17 @@ impl LibRawEditPreviewSession {
             .then_some((presentation.temperature_kelvin, presentation.tint))
     }
 
+    /// Estimates one neutral white point from a bounded grid over the exact
+    /// retained CFA source. This never prepares or decodes another source.
+    #[must_use]
+    pub fn auto_raw_white_balance(&self) -> Option<(u32, i16)> {
+        let handle = self.handle.as_ref()?;
+        let presentation = handle.auto_raw_white_balance();
+        presentation
+            .available
+            .then_some((presentation.temperature_kelvin, presentation.tint))
+    }
+
     /// Creates a new immutable preview session over the same decoded/denoised RAW basis.
     ///
     /// Only white balance may differ from the source session's request. The returned session owns

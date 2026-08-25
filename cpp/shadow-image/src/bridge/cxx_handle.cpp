@@ -531,6 +531,28 @@ EditPreviewHandle::pick_raw_white_balance(
     return result;
 }
 
+FfiRawWhiteBalancePresentation EditPreviewHandle::auto_raw_white_balance() const noexcept {
+    FfiRawWhiteBalancePresentation result{
+        .available = false,
+        .temperature_kelvin = 5'500U,
+        .tint = 0,
+    };
+    const auto presentation = session_.auto_raw_white_balance();
+    if (!presentation.has_value()) {
+        return result;
+    }
+    const auto temperature = std::llround(presentation->temperature_kelvin);
+    const auto tint = std::llround(presentation->tint);
+    if (temperature < 2'000LL || temperature > 25'000LL
+        || tint < -150LL || tint > 150LL) {
+        return result;
+    }
+    result.available = true;
+    result.temperature_kelvin = static_cast<std::uint32_t>(temperature);
+    result.tint = static_cast<std::int16_t>(tint);
+    return result;
+}
+
 std::unique_ptr<EditPreviewHandle>
 EditPreviewHandle::rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const {
     return std::make_unique<EditPreviewHandle>(

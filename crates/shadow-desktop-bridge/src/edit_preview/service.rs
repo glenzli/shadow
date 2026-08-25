@@ -220,6 +220,63 @@ impl DesktopSession {
         })
     }
 
+    /// Runs one bounded neutral estimate over the exact warm CFA source used
+    /// by the visible preview. It never opens a source or persists an Auto
+    /// mode; the caller receives one ordinary temperature/tint value.
+    pub(crate) fn auto_raw_white_balance(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+    ) -> AnyResult<ffi::FfiRawWhiteBalancePickerResult> {
+        let unavailable = || ffi::FfiRawWhiteBalancePickerResult {
+            available: false,
+            temperature_kelvin: 5_500,
+            tint: 0,
+        };
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let policy = EditPreviewPolicy::from_ffi(request.policy)?;
+        if request.use_working_recipe != policy.uses_working_recipe() {
+            bail!(
+                "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
+                request.use_working_recipe
+            );
+        }
+        let source_environment_cache_identity =
+            current_source_environment_cache_identity(&photo_provider_version());
+        let recipe = resolve_recipe_render(
+            &self.catalog,
+            &self.cache_root,
+            photo_id,
+            &request.base_commit_id,
+            &request.settings,
+            request.use_working_recipe,
+        )?;
+        if recipe.foundation.raw_ai_denoise().is_enabled() {
+            return Ok(unavailable());
+        }
+        let result = self.warm_edit_preview_sessions.auto_raw_white_balance(
+            &WarmEditPreviewSourceRequest {
+                runtime_cache_root: &self.cache_root,
+                source: &source,
+                max_edge: request.max_edge,
+                raw_development_plan: recipe.foundation.preview_plan(),
+                optics: recipe.foundation.optics(),
+                source_environment_cache_identity: &source_environment_cache_identity,
+                raw_foundation: None,
+                interactive_timing_token: None,
+            },
+        )?;
+        Ok(match result {
+            Some((temperature_kelvin, tint)) => ffi::FfiRawWhiteBalancePickerResult {
+                available: true,
+                temperature_kelvin,
+                tint,
+            },
+            None => unavailable(),
+        })
+    }
+
     // Admission, native cancellation, the terminal claim, and publication form
     // one linearized transaction. Splitting that sequence would hide the race
     // invariant this function exists to make auditable.

@@ -52,6 +52,11 @@ class RawPreviewRebindingSource final {
     [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
     [[nodiscard]] std::optional<RawWhiteBalancePresentation>
     pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
+    // Estimates one photographic white point from a bounded grid over the
+    // retained denoised CFA. This is a one-shot action, not a persistent
+    // development mode, and never reopens or re-denoises the source.
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    auto_raw_white_balance() const noexcept;
     [[nodiscard]] const AssetMetadata& metadata() const noexcept;
     [[nodiscard]] RawPreviewRebindingTelemetry telemetry() const noexcept;
 

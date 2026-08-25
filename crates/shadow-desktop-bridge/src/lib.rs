@@ -2557,6 +2557,12 @@ mod ffi {
             normalized_x: f64,
             normalized_y: f64,
         ) -> Result<FfiRawWhiteBalancePickerResult>;
+        fn auto_raw_white_balance(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+        ) -> Result<FfiRawWhiteBalancePickerResult>;
         /// Registers a preview and its native stop handle before Qt queues its
         /// worker. Zero means registration failed.
         fn begin_basic_edit_preview(self: &DesktopSession) -> u64;

@@ -225,6 +225,31 @@ impl WarmEditPreviewSessionCache {
         Ok(session.pick_raw_white_balance(normalized_x, normalized_y))
     }
 
+    /// Estimates from only an already-admitted source-domain RAW basis. Like
+    /// the picker, the one-shot action is forbidden from preparing, staging,
+    /// decoding, or rebinding a session on demand.
+    pub(crate) fn auto_raw_white_balance(
+        &self,
+        request: &WarmEditPreviewSourceRequest<'_>,
+    ) -> AnyResult<Option<(u32, i16)>> {
+        let key = warm_preview_session_key(request)?;
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
+        let Some(session) = entries
+            .iter()
+            .find(|entry| {
+                entry.key.shares_raw_white_balance_picker_source(&key)
+                    && entry.session.supports_raw_white_balance_picker()
+            })
+            .map(|entry| Arc::clone(&entry.session))
+        else {
+            return Ok(None);
+        };
+        Ok(session.auto_raw_white_balance())
+    }
+
     #[cfg(test)]
     fn get_or_prepare_with<Prepare>(
         &self,

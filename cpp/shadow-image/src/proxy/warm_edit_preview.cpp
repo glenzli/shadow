@@ -683,6 +683,13 @@ std::optional<RawWhiteBalancePresentation> WarmEditPreviewSession::pick_raw_whit
                : std::nullopt;
 }
 
+std::optional<RawWhiteBalancePresentation>
+WarmEditPreviewSession::auto_raw_white_balance() const noexcept {
+    return raw_rebinding_source_ != nullptr
+               ? raw_rebinding_source_->auto_raw_white_balance()
+               : std::nullopt;
+}
+
 raw_pipeline_detail::RawPreviewRebindingTelemetry
 WarmEditPreviewSession::raw_rebinding_telemetry() const noexcept {
     return raw_rebinding_source_ != nullptr ? raw_rebinding_source_->telemetry()

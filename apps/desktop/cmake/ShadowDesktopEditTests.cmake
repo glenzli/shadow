@@ -1246,6 +1246,42 @@
     )
 
     add_executable(
+        shadow-precision-canvas-status-overlays-contract-test
+        tests/precision_canvas_status_overlays_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-canvas-status-overlays-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-precision-canvas-status-overlays-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-precision-canvas-status-overlays-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-canvas-status-overlays-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-canvas-status-overlays-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-canvas-status-overlays-contract
+        COMMAND shadow-precision-canvas-status-overlays-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-canvas-status-overlays-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-precision-direct-stroke-interaction-test
         tests/precision_direct_stroke_interaction_test.cpp
         src/edit_stroke_input.cpp

@@ -218,6 +218,8 @@ class WarmEditPreviewSession final {
     [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
     [[nodiscard]] std::optional<RawWhiteBalancePresentation>
     pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    auto_raw_white_balance() const noexcept;
     // Source-stage observability stays attached to the retained camera basis,
     // so a new immutable session can report cumulative rebind execution
     // without polluting Recipe/cache provenance.

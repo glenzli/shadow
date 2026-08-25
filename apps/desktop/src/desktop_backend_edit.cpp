@@ -350,6 +350,38 @@ BackendRawWhiteBalancePickerResult DesktopBackend::pickRawWhiteBalance(
     };
 }
 
+BackendRawWhiteBalancePickerResult DesktopBackend::autoRawWhiteBalance(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack& grade_stack,
+    const std::uint32_t max_edge
+) const {
+    shadow::desktop::FfiEditPreviewRequest request;
+    request.base_commit_id = base_commit_id.toStdString();
+    request.settings = ffi_grade_stack(grade_stack);
+    // The one-shot estimator only consults the already-admitted immutable CFA
+    // session and does not participate in preview terminal arbitration.
+    request.render_token = 0U;
+    request.max_edge = max_edge;
+    request.jpeg_quality = 90U;
+    request.policy = shadow::desktop::FfiEditPreviewPolicy::Interactive;
+    request.use_working_recipe = true;
+    request.mask_coverage_requested = false;
+    request.mask_coverage_target_layer_index = 0U;
+    request.mask_selection_revision = 0U;
+    const auto result = impl_->session->auto_raw_white_balance(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        request
+    );
+    return {
+        .available = result.available,
+        .temperature_kelvin = result.temperature_kelvin,
+        .tint = result.tint,
+    };
+}
+
 std::uint64_t DesktopBackend::beginEditPreviewRequest() const noexcept {
     return impl_->session->begin_basic_edit_preview();
 }

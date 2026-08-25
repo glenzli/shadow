@@ -753,6 +753,7 @@ class EditController final : public QObject {
         double normalized_x,
         double normalized_y
     );
+    Q_INVOKABLE void autoFoundationWhiteBalance();
     Q_INVOKABLE void setWhiteBalanceFromPreview(
         double normalized_x,
         double normalized_y,

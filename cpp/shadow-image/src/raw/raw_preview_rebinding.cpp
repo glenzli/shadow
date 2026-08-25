@@ -40,6 +40,21 @@ struct CompiledPreviewColorBinding final {
     std::string camera_profile_diagnostic;
 };
 
+struct AutoWhiteBalanceCandidate final {
+    double red_to_green = 1.0;
+    double blue_to_green = 1.0;
+    double balanced_chroma = 0.0;
+    double luminance = 0.0;
+};
+
+[[nodiscard]] double median(std::vector<double>& values) {
+    std::sort(values.begin(), values.end());
+    const std::size_t middle = values.size() / 2U;
+    return values.size() % 2U == 0U
+               ? (values[middle - 1U] + values[middle]) * 0.5
+               : values[middle];
+}
+
 [[nodiscard]] bool
 same_plan_except_white_balance(RawDevelopmentPlan left, RawDevelopmentPlan right) noexcept {
     left.white_balance = {};
@@ -447,6 +462,148 @@ std::optional<RawWhiteBalancePresentation> RawPreviewRebindingSource::pick_raw_w
             std::sort(values.begin(), values.end());
             neutral[channel] = values[values.size() / 2U];
         }
+        if (impl_->camera_profile_definition.has_value()) {
+            return raw_dcp_white_balance_presentation(
+                impl_->camera_profile_definition->profile,
+                neutral
+            );
+        }
+        return raw_frame_white_balance_presentation(descriptor, neutral);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<RawWhiteBalancePresentation>
+RawPreviewRebindingSource::auto_raw_white_balance() const noexcept {
+    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
+    if (ordinary == nullptr) {
+        return std::nullopt;
+    }
+    try {
+        const RawFrame& frame = ordinary->denoised_frame;
+        const auto& descriptor = frame.descriptor;
+        const auto as_shot_neutral = raw_as_shot_camera_neutral(descriptor);
+        if (!frame.valid() || !as_shot_neutral.has_value()
+            || descriptor.active_dimensions.width < 3U
+            || descriptor.active_dimensions.height < 3U) {
+            return std::nullopt;
+        }
+
+        constexpr std::uint32_t target_axis_samples = 48U;
+        const auto sample_width = std::min(
+            descriptor.active_dimensions.width,
+            target_axis_samples
+        );
+        const auto sample_height = std::min(
+            descriptor.active_dimensions.height,
+            target_axis_samples
+        );
+        std::vector<AutoWhiteBalanceCandidate> candidates;
+        candidates.reserve(
+            static_cast<std::size_t>(sample_width)
+            * static_cast<std::size_t>(sample_height)
+        );
+
+        for (std::uint32_t sample_y = 0U; sample_y < sample_height; ++sample_y) {
+            const auto active_y = sample_height == 1U
+                ? 0U
+                : static_cast<std::uint32_t>(std::llround(
+                      static_cast<double>(sample_y)
+                      * static_cast<double>(descriptor.active_dimensions.height - 1U)
+                      / static_cast<double>(sample_height - 1U)
+                  ));
+            for (std::uint32_t sample_x = 0U; sample_x < sample_width; ++sample_x) {
+                const auto active_x = sample_width == 1U
+                    ? 0U
+                    : static_cast<std::uint32_t>(std::llround(
+                          static_cast<double>(sample_x)
+                          * static_cast<double>(descriptor.active_dimensions.width - 1U)
+                          / static_cast<double>(sample_width - 1U)
+                      ));
+                const auto sample = detail::bilinear_camera_rgb_sample_at(
+                    frame,
+                    descriptor.active_margins.left + active_x,
+                    descriptor.active_margins.top + active_y,
+                    nullptr
+                );
+                if (!std::isfinite(sample.values[0]) || !std::isfinite(sample.values[1])
+                    || !std::isfinite(sample.values[2]) || sample.values[0] <= 1.0e-6F
+                    || sample.values[1] <= 1.0e-6F || sample.values[2] <= 1.0e-6F
+                    || *std::max_element(
+                           sample.physical_white_coverage.begin(),
+                           sample.physical_white_coverage.end()
+                       ) > 1.0e-6F) {
+                    continue;
+                }
+                const double maximum = *std::max_element(
+                    sample.values.begin(), sample.values.end()
+                );
+                const double luminance = (
+                    static_cast<double>(sample.values[0])
+                    + static_cast<double>(sample.values[1])
+                    + static_cast<double>(sample.values[2])
+                ) / 3.0;
+                if (luminance < 0.02 || maximum > 0.90) {
+                    continue;
+                }
+
+                const std::array<double, 3U> balanced{
+                    static_cast<double>(sample.values[0]) / (*as_shot_neutral)[0],
+                    static_cast<double>(sample.values[1]) / (*as_shot_neutral)[1],
+                    static_cast<double>(sample.values[2]) / (*as_shot_neutral)[2],
+                };
+                const double balanced_mean = (balanced[0] + balanced[1] + balanced[2]) / 3.0;
+                const double balanced_chroma = (
+                    *std::max_element(balanced.begin(), balanced.end())
+                    - *std::min_element(balanced.begin(), balanced.end())
+                ) / std::max(balanced_mean, 1.0e-9);
+                if (!std::isfinite(balanced_chroma) || balanced_chroma > 0.45) {
+                    continue;
+                }
+                candidates.push_back({
+                    .red_to_green = static_cast<double>(sample.values[0])
+                                    / static_cast<double>(sample.values[1]),
+                    .blue_to_green = static_cast<double>(sample.values[2])
+                                     / static_cast<double>(sample.values[1]),
+                    .balanced_chroma = balanced_chroma,
+                    .luminance = luminance,
+                });
+            }
+        }
+        if (candidates.size() < 12U) {
+            return std::nullopt;
+        }
+        std::sort(
+            candidates.begin(),
+            candidates.end(),
+            [](const AutoWhiteBalanceCandidate& left, const AutoWhiteBalanceCandidate& right) {
+                if (left.balanced_chroma != right.balanced_chroma) {
+                    return left.balanced_chroma < right.balanced_chroma;
+                }
+                return left.luminance > right.luminance;
+            }
+        );
+        const std::size_t selected_count = std::min(
+            candidates.size(),
+            std::max<std::size_t>(12U, candidates.size() / 5U)
+        );
+        if (candidates[selected_count - 1U].balanced_chroma > 0.30) {
+            return std::nullopt;
+        }
+        std::vector<double> red_ratios;
+        std::vector<double> blue_ratios;
+        red_ratios.reserve(selected_count);
+        blue_ratios.reserve(selected_count);
+        for (std::size_t index = 0U; index < selected_count; ++index) {
+            red_ratios.push_back(candidates[index].red_to_green);
+            blue_ratios.push_back(candidates[index].blue_to_green);
+        }
+        const std::array<double, 3U> neutral{
+            median(red_ratios),
+            1.0,
+            median(blue_ratios),
+        };
         if (impl_->camera_profile_definition.has_value()) {
             return raw_dcp_white_balance_presentation(
                 impl_->camera_profile_definition->profile,

@@ -121,6 +121,9 @@ class FoundationEditorStub final : public QObject {
         foundation_at_camera = true;
         emit valuesChanged();
     }
+    Q_INVOKABLE void autoFoundationWhiteBalance() {
+        ++automatic_white_balance_count;
+    }
 
     void setAiState(
         const bool enabled,
@@ -180,6 +183,7 @@ class FoundationEditorStub final : public QObject {
     int start_count = 0;
     int cancel_count = 0;
     int white_balance_reset_count = 0;
+    int automatic_white_balance_count = 0;
 
   signals:
     void aiChanged();
@@ -270,6 +274,9 @@ int main(int argc, char* argv[]) {
     auto* const white_balance_reset = foundation_root->findChild<QQuickItem*>(
         QStringLiteral("foundationWhiteBalanceResetButton")
     );
+    auto* const automatic_white_balance = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("foundationAutoWhiteBalanceButton")
+    );
     auto* const highlight_repair =
         foundation_root->findChild<QQuickItem*>(QStringLiteral("foundationHighlightRepairSwitch"));
     auto* const highlight_red_suppression = foundation_root->findChild<QQuickItem*>(
@@ -291,6 +298,10 @@ int main(int argc, char* argv[]) {
         || !require(temperature != nullptr, "absolute Kelvin control is packaged")
         || !require(tint != nullptr, "absolute tint control is packaged")
         || !require(white_balance_reset != nullptr, "camera-value reset is packaged")
+        || !require(
+            automatic_white_balance != nullptr,
+            "one-shot automatic RAW white-balance action is packaged"
+        )
         || !require(
             highlight_repair == nullptr,
             "default clipped-highlight continuity exposes no implementation switch"
@@ -334,6 +345,19 @@ int main(int argc, char* argv[]) {
             "available state exposes an unchecked enable choice"
         )
         || !require(!progress->property("visible").toBool(), "idle state hides progress")) {
+        return EXIT_FAILURE;
+    }
+    if (!require(
+            QMetaObject::invokeMethod(automatic_white_balance, "clicked"),
+            "automatic RAW white-balance button can be activated"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(
+            editor.automatic_white_balance_count == 1,
+            "automatic RAW white balance remains a one-shot action"
+        )) {
         return EXIT_FAILURE;
     }
     if (!require(

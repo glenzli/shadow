@@ -340,6 +340,13 @@ class DesktopBackend final {
         double normalized_x,
         double normalized_y
     ) const;
+    [[nodiscard]] BackendRawWhiteBalancePickerResult autoRawWhiteBalance(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& grade_stack,
+        std::uint32_t max_edge
+    ) const;
     [[nodiscard]] std::uint64_t beginEditPreviewRequest() const noexcept;
     [[nodiscard]] bool cancelEditPreviewRequest(std::uint64_t render_token) const noexcept;
     [[nodiscard]] std::uint64_t beginSubjectMaskJob() const;

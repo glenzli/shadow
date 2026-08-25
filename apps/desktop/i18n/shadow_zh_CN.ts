@@ -261,6 +261,16 @@
         <translation>RAW 白平衡拾取器当前不可用</translation>
     </message>
     <message>
+        <location filename="../src/edit_foundation_controller.cpp" line="112"/>
+        <source>Automatic RAW White Balance could not find a reliable neutral area</source>
+        <translation>自动 RAW 白平衡未能找到可靠的中性区域</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_foundation_controller.cpp" line="126"/>
+        <source>Automatic RAW White Balance needs the current RAW preview</source>
+        <translation>自动 RAW 白平衡需要当前 RAW 预览</translation>
+    </message>
+    <message>
         <location filename="../src/edit_raw_foundation_controller.cpp" line="364"/>
         <source>Analyzing source RAW noise…</source>
         <translation>正在分析源 RAW 噪声…</translation>
@@ -6084,6 +6094,21 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="47"/>
         <source>Pick a neutral area for RAW White Balance</source>
         <translation>为 RAW 白平衡选取中性区域</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="49"/>
+        <source>AUTO</source>
+        <translation>自动</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="55"/>
+        <source>Estimate RAW White Balance from neutral areas in the current photo</source>
+        <translation>根据当前照片中的中性区域估算 RAW 白平衡</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionFoundationAdjustments.qml" line="56"/>
+        <source>Automatic RAW White Balance</source>
+        <translation>自动 RAW 白平衡</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="104"/>

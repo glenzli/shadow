@@ -155,6 +155,10 @@ int main(int argc, char* argv[]) {
             "neutral reset emits the declared neutral value"
         )
         || !require(
+            std::abs(slider->property("value").toDouble()) < 0.000'001,
+            "neutral reset synchronizes the visible slider before model feedback"
+        )
+        || !require(
             recorder.gesture_started_count == 1 && recorder.gesture_finished_count == 1,
             "neutral reset brackets the edit as one undoable gesture"
         )) {
@@ -209,6 +213,19 @@ int main(int argc, char* argv[]) {
         interaction_window.contentItem(),
         QPointF{handle->width() / 2.0, handle->height() / 2.0}
     );
+    QTest::mouseClick(
+        &interaction_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        initial_handle_center.toPoint()
+    );
+    drainBindings();
+    if (!require(
+            std::abs(inline_slider->property("value").toDouble() - 40.0) < 0.000'001,
+            "a thumb click waits for drag or double click instead of starting an edit"
+        )) {
+        return EXIT_FAILURE;
+    }
     QTest::mousePress(
         &interaction_window,
         Qt::LeftButton,
@@ -248,6 +265,258 @@ int main(int argc, char* argv[]) {
             recorder.inline_reset_count == 1
                 && std::abs(recorder.inline_reset_value - 100.0) < 0.000'001,
             "a real thumb double click delegates its declared default exactly once"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    auto keyboard_slider = createSourceComponent(
+        engine,
+        QStringLiteral("ShadowSlider.qml"),
+        {
+            {QStringLiteral("label"), QStringLiteral("Exposure")},
+            {QStringLiteral("from"), -2.0},
+            {QStringLiteral("to"), 2.0},
+            {QStringLiteral("stepSize"), 0.05},
+            {QStringLiteral("neutralValue"), 0.0},
+            {QStringLiteral("value"), 0.5},
+            {QStringLiteral("width"), 320.0},
+        }
+    );
+    auto next_keyboard_slider = createSourceComponent(
+        engine,
+        QStringLiteral("ShadowSlider.qml"),
+        {
+            {QStringLiteral("label"), QStringLiteral("Contrast")},
+            {QStringLiteral("from"), 0.25},
+            {QStringLiteral("to"), 2.5},
+            {QStringLiteral("stepSize"), 0.01},
+            {QStringLiteral("neutralValue"), 1.0},
+            {QStringLiteral("value"), 1.0},
+            {QStringLiteral("width"), 320.0},
+        }
+    );
+    if (!keyboard_slider || !next_keyboard_slider) {
+        return EXIT_FAILURE;
+    }
+    QObject::connect(
+        keyboard_slider.get(),
+        SIGNAL(edited(double)),
+        &recorder,
+        SLOT(recordEdited(double))
+    );
+    QObject::connect(
+        keyboard_slider.get(),
+        SIGNAL(gestureStarted()),
+        &recorder,
+        SLOT(recordGestureStarted())
+    );
+    QObject::connect(
+        keyboard_slider.get(),
+        SIGNAL(gestureFinished()),
+        &recorder,
+        SLOT(recordGestureFinished())
+    );
+
+    QQuickWindow keyboard_window;
+    keyboard_window.resize(360, 96);
+    auto* const keyboard_slider_item = qobject_cast<QQuickItem*>(keyboard_slider.get());
+    auto* const next_keyboard_slider_item =
+        qobject_cast<QQuickItem*>(next_keyboard_slider.get());
+    keyboard_slider_item->setParentItem(keyboard_window.contentItem());
+    keyboard_slider_item->setPosition(QPointF{20.0, 12.0});
+    next_keyboard_slider_item->setParentItem(keyboard_window.contentItem());
+    next_keyboard_slider_item->setPosition(QPointF{20.0, 50.0});
+
+    QQmlComponent consuming_surface_component(&engine);
+    consuming_surface_component.setData(
+        R"QML(
+            import QtQuick
+            Rectangle {
+                width: 16
+                height: 24
+                color: "transparent"
+                property int tapCount: 0
+                TapHandler { onTapped: parent.tapCount += 1 }
+            }
+        )QML",
+        QUrl(QStringLiteral("inmemory:/ConsumingBlankSurface.qml"))
+    );
+    while (consuming_surface_component.isLoading()) {
+        drainBindings();
+    }
+    std::unique_ptr<QObject> consuming_surface(consuming_surface_component.create());
+    if (!consuming_surface) {
+        std::cerr << consuming_surface_component.errorString().toStdString();
+        return EXIT_FAILURE;
+    }
+    auto* const consuming_surface_item = qobject_cast<QQuickItem*>(consuming_surface.get());
+    consuming_surface_item->setParentItem(keyboard_window.contentItem());
+    consuming_surface_item->setPosition(QPointF{0.0, 72.0});
+    consuming_surface_item->setZ(10.0);
+    keyboard_window.show();
+    drainBindings();
+
+    auto* const value_label = keyboard_slider->findChild<QQuickItem*>(
+        QStringLiteral("shadowSliderValueLabel")
+    );
+    QObject* const value_editor = keyboard_slider->findChild<QObject*>(
+        QStringLiteral("shadowSliderValueEditor")
+    );
+    auto* const keyboard_input = keyboard_slider->findChild<QQuickItem*>(
+        QStringLiteral("shadowAdjustmentSliderInput")
+    );
+    auto* const next_keyboard_input = next_keyboard_slider->findChild<QQuickItem*>(
+        QStringLiteral("shadowAdjustmentSliderInput")
+    );
+    if (!require(value_label != nullptr, "the displayed value exposes its click target")
+        || !require(value_editor != nullptr, "the slider owns a compact numeric editor")
+        || !require(keyboard_input != nullptr && next_keyboard_input != nullptr,
+                    "adjustment sliders expose their keyboard focus targets")) {
+        return EXIT_FAILURE;
+    }
+
+    auto* const keyboard_handle = keyboard_slider->findChild<QQuickItem*>(
+        QStringLiteral("shadowInlineSliderHandle")
+    );
+    if (!require(keyboard_handle != nullptr, "the adjustment slider exposes its real thumb")) {
+        return EXIT_FAILURE;
+    }
+    const QPointF keyboard_handle_center = keyboard_handle->mapToItem(
+        keyboard_window.contentItem(),
+        QPointF{keyboard_handle->width() / 2.0, keyboard_handle->height() / 2.0}
+    );
+    const int edits_before_real_reset = recorder.edited_count;
+    QTest::mouseDClick(
+        &keyboard_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        keyboard_handle_center.toPoint()
+    );
+    drainBindings();
+    if (!require(
+            keyboard_slider->property("value").toDouble() == 0.0,
+            "a real thumb double click synchronizes the visible slider to its default"
+        )
+        || !require(
+            recorder.edited_count == edits_before_real_reset + 1
+                && std::abs(recorder.edited_value) < 0.000'001,
+            "a real thumb double click emits one matching default edit"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    const QPointF value_label_center = value_label->mapToItem(
+        keyboard_window.contentItem(),
+        QPointF{value_label->width() / 2.0, value_label->height() / 2.0}
+    );
+    QTest::mouseClick(
+        &keyboard_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        value_label_center.toPoint()
+    );
+    drainBindings();
+    if (!require(
+            keyboard_slider->property("valueEditing").toBool(),
+            "clicking the displayed value enters numeric edit mode"
+        )
+        || !require(
+            value_editor->property("activeFocus").toBool(),
+            "numeric edit mode focuses and selects the compact editor"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    const int edits_before_numeric_entry = recorder.edited_count;
+    const int starts_before_numeric_entry = recorder.gesture_started_count;
+    const int finishes_before_numeric_entry = recorder.gesture_finished_count;
+    value_editor->setProperty("text", QStringLiteral("1.50"));
+    QTest::keyClick(&keyboard_window, Qt::Key_Return);
+    drainBindings();
+    if (!require(
+            recorder.edited_count == edits_before_numeric_entry + 1
+                && std::abs(recorder.edited_value - 1.5) < 0.000'001,
+            "manual numeric entry emits the converted bounded slider value exactly once"
+        )
+        || !require(
+            std::abs(keyboard_slider->property("value").toDouble() - 1.5)
+                < 0.000'001,
+            "manual numeric entry synchronizes the visible slider before model feedback"
+        )
+        || !require(
+            recorder.gesture_started_count == starts_before_numeric_entry + 1
+                && recorder.gesture_finished_count == finishes_before_numeric_entry + 1,
+            "manual numeric entry remains one undoable adjustment gesture"
+        )
+        || !require(
+            !keyboard_slider->property("valueEditing").toBool(),
+            "accepting numeric entry returns to slider interaction"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    const int edits_before_outside_click = recorder.edited_count;
+    QTest::mouseClick(
+        &keyboard_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        value_label_center.toPoint()
+    );
+    drainBindings();
+    value_editor->setProperty("text", QStringLiteral("0.75"));
+    QTest::mouseClick(
+        &keyboard_window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        QPoint{6, 90}
+    );
+    drainBindings();
+    if (!require(
+            !keyboard_slider->property("valueEditing").toBool(),
+            "clicking blank window content closes the numeric editor"
+        )
+        || !require(
+            recorder.edited_count == edits_before_outside_click + 1
+                && std::abs(recorder.edited_value - 0.75) < 0.000'001,
+            "clicking blank content commits the numeric value exactly once"
+        )
+        || !require(
+            consuming_surface->property("tapCount").toInt() == 1,
+            "outside-click dismissal remains passive and preserves the target click"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    keyboard_input->forceActiveFocus(Qt::TabFocusReason);
+    drainBindings();
+    const double value_before_arrow = keyboard_slider->property("value").toDouble();
+    const int edits_before_arrow = recorder.edited_count;
+    QTest::keyClick(&keyboard_window, Qt::Key_Right);
+    drainBindings();
+    if (!require(
+            keyboard_slider->property("value").toDouble() > value_before_arrow,
+            "right arrow performs native step-sized fine adjustment"
+        )
+        || !require(
+            recorder.edited_count == edits_before_arrow + 1,
+            "keyboard fine adjustment follows the public edited-value route"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    QTest::keyClick(&keyboard_window, Qt::Key_Down);
+    drainBindings();
+    if (!require(
+            next_keyboard_input->hasActiveFocus(),
+            "down arrow moves focus to the next adjustment slider"
+        )) {
+        return EXIT_FAILURE;
+    }
+    QTest::keyClick(&keyboard_window, Qt::Key_Up);
+    drainBindings();
+    if (!require(
+            keyboard_input->hasActiveFocus(),
+            "up arrow moves focus to the previous adjustment slider"
         )) {
         return EXIT_FAILURE;
     }
