@@ -50,6 +50,39 @@
     "reference": {
       "type": "object"
     },
+    "topology": {
+      "type": "object",
+      "required": [
+        "manifest",
+        "payload",
+        "mask",
+        "image_space",
+        "source_dimensions",
+        "matched_dimensions",
+        "crop_xywh",
+        "selected_sample_count"
+      ],
+      "properties": {
+        "manifest": { "$ref": "#/$defs/fileIdentity" },
+        "payload": { "$ref": "#/$defs/fileIdentity" },
+        "mask": {
+          "enum": [
+            "physical-white",
+            "linear-response-terminal",
+            "shared-physical-white",
+            "red-physical-white",
+            "green-physical-white",
+            "blue-physical-white"
+          ]
+        },
+        "image_space": { "enum": ["active", "display"] },
+        "source_dimensions": { "$ref": "#/$defs/dimensions" },
+        "matched_dimensions": { "$ref": "#/$defs/dimensions" },
+        "crop_xywh": { "$ref": "#/$defs/pixelRectangle" },
+        "selected_sample_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
     "candidates": {
       "type": "array",
       "minItems": 1,
@@ -62,10 +95,24 @@
           "image_receipt",
           "requested_crop_xywh",
           "registration",
+          "clipped_core_source",
           "exposure_white_normalization",
           "metrics",
           "artifacts"
-        ]
+        ],
+        "properties": {
+          "clipped_core_source": {
+            "type": "object",
+            "required": ["mode", "selected_pixel_count"],
+            "properties": {
+              "mode": {
+                "enum": ["cfa-topology", "manual-region-rectangles"]
+              },
+              "selected_pixel_count": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        }
       }
     },
     "resource_usage": {
@@ -96,6 +143,26 @@
         { "type": "number", "minimum": 0, "maximum": 1 },
         { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
         { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "dimensions": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "integer", "minimum": 1 }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "pixelRectangle": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 1 },
+        { "type": "integer", "minimum": 1 }
       ],
       "minItems": 4,
       "maxItems": 4

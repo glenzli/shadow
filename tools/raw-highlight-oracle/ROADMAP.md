@@ -68,7 +68,7 @@ Accepted boundaries:
 
 ## Phase 3 — versioned objective comparison
 
-Status: implemented in `linear_image.py` and `objective_metrics.py`.
+Status: implemented in `linear_image.py`, `cfa_topology.py`, and `objective_metrics.py`.
 
 The separate analysis owner consumes explicitly declared linear or sRGB outputs and emits:
 
@@ -88,10 +88,11 @@ declared reliable-exterior RGB normalization, but their differences remain compl
 evidence. PFM orientation is part of the receipt because pinned vkdt emits top-down, non-flipped
 PFM rows rather than the standard bottom-up convention.
 
-Current acceptance limit: the first clipped cores are manual normalized rectangles. They are
-reviewable crop/mask inputs, not factual sensor topology. Phase 3 is operational, while the next
-quality increment is to derive the damage mask from byte-exact CFA values and per-site physical
-white levels.
+The analysis can now replace the manual core with a factual mask derived from byte-exact active CFA
+values and four-site physical whites. It preserves response-shoulder and shared-three-colour masks
+as separate facts, verifies staging and topology payload identities, applies RawFrame orientation,
+and fails when image dimensions would require implicit resampling. Manual core rectangles remain
+only as an explicit compatibility fallback.
 
 ## Phase 4 — fixture admission and production candidates
 
@@ -119,9 +120,13 @@ Only then may the production owner evaluate a change. An oracle that requires a 
 pass may still be valuable as a one-time RAW source preparation, but it must not migrate into every
 slider event or create a preview/detail semantic fork.
 
-The first external local catalog admits three named RAW files in place and six cases covering all
-required classes. Source size/SHA auditing, immutable region export, complete per-case candidate
-coverage, and non-aggregated evaluation have completed. The vkdt hilite candidate explicitly owns
+The first external local catalog admits three named RAW files in place and originally declared six
+cases covering all required classes. Source size/SHA auditing, immutable region export, and complete
+per-case topology analyses have completed. CFA
+projection proved that the named Nikon "unclipped cloud" control contains 617,792 physical-white
+samples, so topology-required aggregation now rejects the matrix until a genuine unclipped
+replacement is admitted.
+The vkdt hilite candidate explicitly owns
 only external oracle output, uses full-frame context, and makes no Shadow preview/detail/export
 equivalence claim. Its receipts show broad writes in some bright controls and substantial offline
 working memory, so the correct outcome is research evidence rather than automatic production

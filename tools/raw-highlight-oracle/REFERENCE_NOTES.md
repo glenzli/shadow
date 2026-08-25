@@ -115,9 +115,9 @@ The first three decide whether two results are even comparable. The next four de
 quality. The last item decides whether a successful oracle is compatible with Shadow's responsive
 editing contract.
 
-For the first Phase 3/4 matrix, normalized rectangles bound the analysis but do not prove clipping.
-A zero error at a manually chosen boundary can mean the algorithm is excellent, or simply that the
-boundary missed the factual damaged CFA sites. Conversely, a high false-colour exterior fraction on
-an ordinary bright control is useful evidence of broad algorithm writes. The next reference mask
-should therefore be projected from Shadow's byte-exact active CFA and physical-white receipts, with
-the human rectangle retained only as the scene crop.
+Phase 3 now projects the physical-white mask from Shadow's byte-exact active CFA into the registered
+linear crop. It separately records response-shoulder sites and the native 3x3 shared terminal core,
+because neither is interchangeable with the per-site factual damage mask. Human rectangles retain
+only scene-crop and compatibility-fallback roles. This projection also caught a fixture error: the
+first Nikon "unclipped cloud" control actually contains hundreds of thousands of physical-white
+sites and cannot serve as an unclipped control.

@@ -24,6 +24,7 @@ def load_owner(name: str):
 
 
 linear = load_owner("linear_image")
+topology = load_owner("cfa_topology")
 objective = load_owner("objective_metrics")
 
 
@@ -89,6 +90,17 @@ class ObjectiveMetricsContractTest(unittest.TestCase):
         self.assertEqual(receipt["dy_pixels"], -2)
         np.testing.assert_allclose(registered_reference, registered_candidate, atol=1.0e-6)
 
+    def test_factual_empty_core_preserves_unclipped_control_exterior(self) -> None:
+        region = json.loads(self.region_path.read_text(encoding="utf-8"))
+        masks = objective.build_masks(
+            (48, 64),
+            region,
+            np.zeros((48, 64), dtype=bool),
+        )
+        self.assertEqual(int(np.count_nonzero(masks["clipped_core"])), 0)
+        self.assertEqual(int(np.count_nonzero(masks["boundary_band"])), 0)
+        self.assertGreater(int(np.count_nonzero(masks["reliable_exterior"])), 0)
+
     def test_analysis_emits_region_metrics_masks_and_resource_receipt(self) -> None:
         output_root = self.root / "analyses"
         status = objective.main(
@@ -117,6 +129,9 @@ class ObjectiveMetricsContractTest(unittest.TestCase):
         self.assertEqual(document["schema"], objective.ANALYSIS_SCHEMA)
         self.assertEqual(document["linear_contract"]["transfer"], "linear")
         candidate = document["candidates"][0]
+        self.assertEqual(
+            candidate["clipped_core_source"]["mode"], "manual-region-rectangles"
+        )
         for scale in candidate["exposure_white_normalization"]["candidate_scale_rgb"]:
             self.assertAlmostEqual(scale, 2.0, places=5)
         self.assertGreater(
@@ -132,6 +147,91 @@ class ObjectiveMetricsContractTest(unittest.TestCase):
         self.assertNotIn(str(self.reference_path), serialized)
         self.assertNotIn(str(self.candidate_path), serialized)
         self.assertGreater(document["resource_usage"]["analysis_peak_rss_bytes"], 0)
+
+    def test_analysis_projects_factual_cfa_topology_into_registered_crop(self) -> None:
+        staging = self.root / "source.shadowrawi"
+        samples = np.full((48, 64), 20, dtype="<u2")
+        samples[16:32, 24:40] = 100
+        sample_path = pathlib.Path(f"{staging}.u16le")
+        samples.tofile(sample_path)
+        fields = {
+            "descriptor_contract": "active-camera-colour-response-20260822.1",
+            "width": "64",
+            "height": "48",
+            "cfa": "RGGB",
+            "black": "10,10,10,10",
+            "white": "100,100,100,100",
+            "linear_response": "90,90,90,90",
+            "has_linear_response": "1",
+            "orientation": "0",
+            "bits_per_sample": "16",
+            "as_shot_neutral": "1,1,1,1",
+            "camera_to_xyz_d50": "-",
+            "xyz_to_camera_d65": "-",
+            "camera_to_linear_srgb_d65": "-",
+            "pending_dng_opcode_bytes": "0,0,0",
+            "provider_id_hex": "74657374",
+            "provider_version_hex": "31",
+            "sample_bytes": str(samples.nbytes),
+        }
+        staging.write_text(
+            "shadow-raw-frame-staging-20260822.1 "
+            + " ".join(f"{key}={value}" for key, value in fields.items())
+            + "\n",
+            encoding="utf-8",
+        )
+        topology_root = self.root / "topology"
+        self.assertEqual(
+            topology.main(
+                [
+                    "--staging-manifest",
+                    str(staging),
+                    "--output-root",
+                    str(topology_root),
+                    "--run-name",
+                    "synthetic",
+                ]
+            ),
+            0,
+        )
+        output_root = self.root / "topology-analyses"
+        self.assertEqual(
+            objective.main(
+                [
+                    "--reference",
+                    str(self.reference_path),
+                    "--candidate",
+                    f"synthetic={self.candidate_path}",
+                    "--candidate-transfer",
+                    "synthetic=linear",
+                    "--region-spec",
+                    str(self.region_path),
+                    "--topology-manifest",
+                    str(topology_root / "synthetic" / "topology.json"),
+                    "--topology-image-space",
+                    "active",
+                    "--output-root",
+                    str(output_root),
+                    "--run-name",
+                    "synthetic-topology-analysis",
+                    "--normalization",
+                    "exterior-rgb",
+                    "--max-shift",
+                    "0",
+                ]
+            ),
+            0,
+        )
+        document = json.loads(
+            (output_root / "synthetic-topology-analysis" / "analysis.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(document["analysis_version"], "20260825.2")
+        self.assertEqual(document["topology"]["selected_sample_count"], 256)
+        source = document["candidates"][0]["clipped_core_source"]
+        self.assertEqual(source["mode"], "cfa-topology")
+        self.assertEqual(source["selected_pixel_count"], 256)
 
     def test_analysis_directory_is_immutable(self) -> None:
         output_root = self.root / "immutable"

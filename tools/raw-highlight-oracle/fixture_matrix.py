@@ -344,6 +344,28 @@ def evaluate_candidate(args: argparse.Namespace) -> int:
                 f"analysis for {case_id} must contain candidate {args.candidate_id} exactly once"
             )
         candidate = candidate_matches[0]
+        topology = analysis.get("topology")
+        clipped_core_source = candidate.get("clipped_core_source")
+        if args.require_cfa_topology and (
+            topology is None
+            or not isinstance(clipped_core_source, dict)
+            or clipped_core_source.get("mode") != "cfa-topology"
+        ):
+            raise ValueError(
+                f"analysis for {case_id} does not use a factual CFA topology core"
+            )
+        if args.require_cfa_topology:
+            selected = int(topology.get("selected_sample_count", -1))
+            expects_empty = case["class"] == "ordinary-unclipped-control"
+            if expects_empty and selected != 0:
+                raise ValueError(
+                    f"analysis for {case_id} contradicts its unclipped-control class: "
+                    f"{selected} physical-white samples"
+                )
+            if not expects_empty and selected <= 0:
+                raise ValueError(
+                    f"analysis for {case_id} has no factual physical-white samples"
+                )
         boundary = candidate["metrics"]["boundary_continuity"]
         false_colour = candidate["metrics"]["false_colour_exterior"]
         results.append(
@@ -355,6 +377,8 @@ def evaluate_candidate(args: argparse.Namespace) -> int:
                     "size_bytes": analysis_path.stat().st_size,
                     "sha256": sha256_file(analysis_path),
                 },
+                "clipped_core_source": clipped_core_source,
+                "topology": topology,
                 "boundary_continuity": boundary,
                 "false_colour_exterior": false_colour,
                 "resource_usage": analysis.get("resource_usage"),
@@ -363,7 +387,7 @@ def evaluate_candidate(args: argparse.Namespace) -> int:
         )
     document = {
         "schema": EVALUATION_SCHEMA,
-        "evaluation_version": "20260825.1",
+        "evaluation_version": "20260825.2",
         "candidate": declarations[args.candidate_id],
         "fixture_matrix": {
             "basename": catalog_path.name,
@@ -375,6 +399,7 @@ def evaluate_candidate(args: argparse.Namespace) -> int:
             "whole_image_average": False,
             "per_case_results_preserved": True,
             "automatic_production_admission": False,
+            "factual_cfa_topology_required": args.require_cfa_topology,
         },
         "results": results,
     }
@@ -414,6 +439,11 @@ def parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument("--output", type=pathlib.Path, required=True)
     evaluate.add_argument("--skip-source-hash", action="store_true")
+    evaluate.add_argument(
+        "--require-cfa-topology",
+        action="store_true",
+        help="reject any case whose clipped core is not projected from CFA topology",
+    )
     evaluate.set_defaults(handler=evaluate_candidate)
     return root
 

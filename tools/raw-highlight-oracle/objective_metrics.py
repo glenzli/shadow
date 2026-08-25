@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import pathlib
@@ -14,6 +13,7 @@ from typing import Iterable
 
 import numpy as np
 
+from cfa_topology import MASK_BITS, read_topology_mask
 from linear_image import (
     LinearImage,
     linear_image_dimensions,
@@ -79,16 +79,21 @@ def _normalized_crop(
     return (x0, y0, x1 - x0, y1 - y0)
 
 
+def _centre_crop(array: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    height, width = shape
+    if height > array.shape[0] or width > array.shape[1]:
+        raise ValueError("centre crop cannot enlarge its input")
+    y = (array.shape[0] - height) // 2
+    x = (array.shape[1] - width) // 2
+    return array[y : y + height, x : x + width]
+
+
 def _centre_match(reference: np.ndarray, candidate: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    height = min(reference.shape[0], candidate.shape[0])
-    width = min(reference.shape[1], candidate.shape[1])
-
-    def crop(array: np.ndarray) -> np.ndarray:
-        y = (array.shape[0] - height) // 2
-        x = (array.shape[1] - width) // 2
-        return array[y : y + height, x : x + width]
-
-    return crop(reference), crop(candidate)
+    shape = (
+        min(reference.shape[0], candidate.shape[0]),
+        min(reference.shape[1], candidate.shape[1]),
+    )
+    return _centre_crop(reference, shape), _centre_crop(candidate, shape)
 
 
 def _luma(pixels: np.ndarray) -> np.ndarray:
@@ -214,9 +219,39 @@ def _erode(mask: np.ndarray, radius: int) -> np.ndarray:
     return ~_dilate(~mask, radius)
 
 
-def build_masks(shape: tuple[int, int], region: dict[str, object]) -> dict[str, np.ndarray]:
-    core = _rectangle_mask(shape, region.get("clipped_core_rectangles", []))
-    if not bool(np.any(core)):
+def registered_reference_mask(
+    mask: np.ndarray,
+    candidate_shape: tuple[int, int],
+    registration: dict[str, object],
+) -> np.ndarray:
+    matched_shape = (
+        min(mask.shape[0], candidate_shape[0]),
+        min(mask.shape[1], candidate_shape[1]),
+    )
+    matched = _centre_crop(mask, matched_shape)
+    registered, _ = _overlap_for_shift(
+        matched,
+        matched,
+        int(registration["dx_pixels"]),
+        int(registration["dy_pixels"]),
+    )
+    return registered
+
+
+def build_masks(
+    shape: tuple[int, int],
+    region: dict[str, object],
+    clipped_core: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
+    factual_core = clipped_core is not None
+    core = (
+        np.asarray(clipped_core, dtype=bool)
+        if clipped_core is not None
+        else _rectangle_mask(shape, region.get("clipped_core_rectangles", []))
+    )
+    if core.shape != shape:
+        raise ValueError("clipped core dimensions do not match the registered image")
+    if not factual_core and not bool(np.any(core)):
         raise ValueError("region must define a non-empty clipped core")
     radius = int(region.get("boundary_radius_pixels", 8))
     if radius < 1 or radius > 128:
@@ -231,8 +266,10 @@ def build_masks(shape: tuple[int, int], region: dict[str, object]) -> dict[str, 
         else ~expanded
     )
     exterior &= ~expanded
-    if not bool(np.any(boundary)) or not bool(np.any(exterior)):
-        raise ValueError("region masks must contain boundary and reliable exterior pixels")
+    if bool(np.any(core)) and not bool(np.any(boundary)):
+        raise ValueError("region mask must contain boundary pixels")
+    if not bool(np.any(exterior)):
+        raise ValueError("region mask must contain reliable exterior pixels")
     return {"clipped_core": core, "boundary_band": boundary, "reliable_exterior": exterior}
 
 
@@ -383,6 +420,16 @@ def analyse(args: argparse.Namespace) -> int:
     reference_pixels, reference_transfer = decode_transfer(
         reference_image.pixels, args.reference_transfer
     )
+    topology_core: np.ndarray | None = None
+    topology_receipt: dict[str, object] | None = None
+    if args.topology_manifest is not None:
+        topology_core, topology_receipt = read_topology_mask(
+            args.topology_manifest,
+            args.topology_mask,
+            args.topology_image_space,
+            reference_dimensions,
+            reference_crop,
+        )
     manifest_assignments = dict(args.candidate_manifest)
     transfer_assignments = dict(args.candidate_transfer)
     orientation_assignments = dict(args.candidate_pfm_orientation)
@@ -413,7 +460,20 @@ def analyse(args: argparse.Namespace) -> int:
         registered_reference, registered_candidate, registration = register_translation(
             reference_pixels, candidate_pixels, args.max_shift
         )
-        masks = build_masks(registered_reference.shape[:2], region)
+        registered_core = (
+            registered_reference_mask(
+                topology_core,
+                candidate_pixels.shape[:2],
+                registration,
+            )
+            if topology_core is not None
+            else None
+        )
+        masks = build_masks(
+            registered_reference.shape[:2],
+            region,
+            registered_core,
+        )
         registered_candidate, normalization = normalise_candidate(
             registered_reference,
             registered_candidate,
@@ -465,28 +525,47 @@ def analyse(args: argparse.Namespace) -> int:
         write_pgm(paths["false_colour_mask"], false_colour)
         metrics: dict[str, object] = {}
         for mask_name, mask in masks.items():
-            metrics[mask_name] = {
-                "rgb_difference": _masked_summary(rgb_difference, mask),
-                "luma_difference": _masked_summary(luma_difference, mask),
-            }
+            if bool(np.any(mask)):
+                metrics[mask_name] = {
+                    "available": True,
+                    "rgb_difference": _masked_summary(rgb_difference, mask),
+                    "luma_difference": _masked_summary(luma_difference, mask),
+                }
+            else:
+                metrics[mask_name] = {
+                    "available": False,
+                    "pixel_count": 0,
+                    "reason": "factual-clipped-core-empty",
+                }
         boundary = masks["boundary_band"]
-        metrics["boundary_continuity"] = {
-            "mean_hue_error_degrees": float(np.degrees(np.mean(hue_difference[boundary]))),
-            "p95_hue_error_degrees": float(
-                np.degrees(np.percentile(hue_difference[boundary], 95.0))
-            ),
-            "mean_absolute_chroma_error": float(
-                np.mean(np.abs(chroma_difference[boundary]))
-            ),
-            "mean_absolute_luminance_slope_error": float(
-                np.mean(np.abs(candidate_gradient[boundary] - reference_gradient[boundary]))
-            ),
-            "mean_absolute_luminance_curvature_error": float(
-                np.mean(
-                    np.abs(candidate_curvature[boundary] - reference_curvature[boundary])
-                )
-            ),
-        }
+        if bool(np.any(boundary)):
+            metrics["boundary_continuity"] = {
+                "available": True,
+                "mean_hue_error_degrees": float(
+                    np.degrees(np.mean(hue_difference[boundary]))
+                ),
+                "p95_hue_error_degrees": float(
+                    np.degrees(np.percentile(hue_difference[boundary], 95.0))
+                ),
+                "mean_absolute_chroma_error": float(
+                    np.mean(np.abs(chroma_difference[boundary]))
+                ),
+                "mean_absolute_luminance_slope_error": float(
+                    np.mean(
+                        np.abs(candidate_gradient[boundary] - reference_gradient[boundary])
+                    )
+                ),
+                "mean_absolute_luminance_curvature_error": float(
+                    np.mean(
+                        np.abs(candidate_curvature[boundary] - reference_curvature[boundary])
+                    )
+                ),
+            }
+        else:
+            metrics["boundary_continuity"] = {
+                "available": False,
+                "reason": "factual-clipped-core-empty",
+            }
         metrics["false_colour_exterior"] = {
             "pixel_count": int(np.count_nonzero(false_colour)),
             "exterior_pixel_count": int(np.count_nonzero(exterior)),
@@ -503,6 +582,12 @@ def analyse(args: argparse.Namespace) -> int:
             "transfer_decode": candidate_transfer,
             "requested_crop_xywh": list(candidate_crop),
             "registration": registration,
+            "clipped_core_source": {
+                "mode": (
+                    "cfa-topology" if registered_core is not None else "manual-region-rectangles"
+                ),
+                "selected_pixel_count": int(np.count_nonzero(masks["clipped_core"])),
+            },
             "exposure_white_normalization": normalization,
             "metrics": metrics,
             "artifacts": [_artifact(path, run_directory) for path in paths.values()],
@@ -516,7 +601,7 @@ def analyse(args: argparse.Namespace) -> int:
     elapsed_ms = (time.monotonic() - started) * 1000.0
     document = {
         "schema": ANALYSIS_SCHEMA,
-        "analysis_version": "20260825.1",
+        "analysis_version": "20260825.2",
         "run_name": args.run_name,
         "linear_contract": {
             "primaries": args.primaries,
@@ -533,6 +618,7 @@ def analyse(args: argparse.Namespace) -> int:
             "transfer_decode": reference_transfer,
             "requested_crop_xywh": list(reference_crop),
         },
+        **({"topology": topology_receipt} if topology_receipt is not None else {}),
         "candidates": candidate_records,
         "resource_usage": {
             "analysis_elapsed_ms": round(elapsed_ms, 3),
@@ -577,6 +663,19 @@ def parser() -> argparse.ArgumentParser:
         metavar="ID=PATH",
     )
     result.add_argument("--region-spec", type=pathlib.Path, required=True)
+    result.add_argument("--topology-manifest", type=pathlib.Path)
+    result.add_argument(
+        "--topology-mask",
+        choices=tuple(MASK_BITS),
+        default="physical-white",
+        help="factual CFA mask used as the clipped core when --topology-manifest is supplied",
+    )
+    result.add_argument(
+        "--topology-image-space",
+        choices=("active", "display"),
+        default="display",
+        help="project the active sensor mask through RawFrame orientation before cropping",
+    )
     result.add_argument("--output-root", type=pathlib.Path, required=True)
     result.add_argument("--run-name", required=True)
     result.add_argument("--primaries", default="sRGB-D65")

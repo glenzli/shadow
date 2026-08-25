@@ -143,12 +143,18 @@ class FixtureMatrixContractTest(unittest.TestCase):
         for matrix_fixture in catalog["fixtures"]:
             for case in matrix_fixture["cases"]:
                 case_id = case["id"]
+                unclipped = case["class"] == "ordinary-unclipped-control"
                 analysis_path = self.root / f"{case_id}.analysis.json"
                 analysis_path.write_text(
                     json.dumps(
                         {
                             "schema": "shadow.raw-highlight-objective-analysis.v1",
                             "region": {"id": case_id},
+                            "topology": {
+                                "manifest": {"sha256": "a" * 64},
+                                "mask": "physical-white",
+                                "selected_sample_count": 0 if unclipped else 16,
+                            },
                             "resource_usage": {
                                 "analysis_elapsed_ms": 1.0,
                                 "analysis_peak_rss_bytes": 1024,
@@ -156,8 +162,13 @@ class FixtureMatrixContractTest(unittest.TestCase):
                             "candidates": [
                                 {
                                     "id": "candidate-a",
+                                    "clipped_core_source": {
+                                        "mode": "cfa-topology",
+                                        "selected_pixel_count": 0 if unclipped else 16,
+                                    },
                                     "metrics": {
                                         "boundary_continuity": {
+                                            "available": not unclipped,
                                             "mean_hue_error_degrees": 1.0
                                         },
                                         "false_colour_exterior": {
@@ -180,6 +191,7 @@ class FixtureMatrixContractTest(unittest.TestCase):
                     str(self.catalog_path),
                     "--candidate-id",
                     "candidate-a",
+                    "--require-cfa-topology",
                     *analysis_arguments,
                     "--output",
                     str(evaluation),
@@ -190,7 +202,16 @@ class FixtureMatrixContractTest(unittest.TestCase):
         document = json.loads(evaluation.read_text(encoding="utf-8"))
         self.assertEqual(document["schema"], fixture.EVALUATION_SCHEMA)
         self.assertFalse(document["aggregation_policy"]["whole_image_average"])
+        self.assertTrue(
+            document["aggregation_policy"]["factual_cfa_topology_required"]
+        )
         self.assertEqual(len(document["results"]), 6)
+        self.assertTrue(
+            all(
+                result["clipped_core_source"]["mode"] == "cfa-topology"
+                for result in document["results"]
+            )
+        )
 
 
 if __name__ == "__main__":
