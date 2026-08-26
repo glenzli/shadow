@@ -21,12 +21,12 @@ use shadow_ai::{
     AI_JOB_REQUEST_CONTRACT_VERSION, AdmittedExecution, AdmittedModelIdentity, AiCapability,
     AiGeneratedPayload, AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactHashAlgorithm,
     ArtifactReference, BackendKind, CancellationToken, ExecutionLease, ExecutionPlanIdentity,
-    ExecutionRouteIdentity, FallbackDisclosure, InferRuntimeClient, InputRole, MaskPrompt,
-    MaskPromptPoint, MaskSemantic, NumericPrecision, ObservationTarget, PrivacyClass,
-    ProviderExecutionClass, ProviderIdentity, ProviderTerminal, RasterExtent, ResourceEstimate,
-    RunPlan, RuntimeProgressReporter, RuntimeProvider, RuntimeUsage, SoftMaskArtifact,
-    SoftMaskEncoding, SubjectMaskParameters, TaskPriority, UnitInterval,
-    bind_local_service_execution,
+    ExecutionRouteIdentity, FaceAnalysisProvider, FaceBoundingBox, FallbackDisclosure,
+    InferRuntimeClient, InputRole, MaskPrompt, MaskPromptPoint,
+    MaskSemantic, NumericPrecision, ObservationTarget, PrivacyClass, ProviderExecutionClass,
+    ProviderIdentity, ProviderTerminal, RasterExtent, ResourceEstimate, RunPlan,
+    RuntimeProgressReporter, RuntimeProvider, RuntimeUsage, SoftMaskArtifact, SoftMaskEncoding,
+    SubjectMaskParameters, TaskPriority, UnitInterval, bind_local_service_execution,
 };
 use shadow_core::{
     DerivedRasterStageError, DerivedRasterStageReceipt, FilesystemDerivedRasterStore,
@@ -38,6 +38,7 @@ use thiserror::Error;
 const MAX_PROVIDER_INPUT_JPEG_BYTES: usize = 64 * 1024 * 1024;
 const SOFT_MASK_MEDIA_TYPE: &str = "application/x-shadow-soft-mask";
 const SOFT_MASK_ENCODING_VERSION: u32 = 1;
+const INFER_FACE_PARSING_CAPABILITY: &str = "infer.vision.face-parsing@20260813.1";
 
 #[derive(Debug)]
 pub(crate) struct SubjectMaskRuntime {
@@ -75,7 +76,33 @@ pub(crate) struct SubjectMaskInvocation {
     /// original-image normalized coordinate space used by Grade Node masks.
     pub(crate) original_space_input_jpeg: PathBuf,
     pub(crate) coordinate_extent: RasterExtent,
-    pub(crate) points: Vec<MaskPromptPoint>,
+    pub(crate) selection: SubjectMaskSelection,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum SubjectMaskSelection {
+    PromptedSubject {
+        points: Vec<MaskPromptPoint>,
+    },
+    FaceRegion {
+        anchor: MaskPromptPoint,
+        region: FaceRegion,
+    },
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub(crate) enum FaceRegion {
+    Face,
+    Skin,
+    Eyes,
+    Eyebrows,
+    LipsAndMouth,
+    Nose,
+    Ears,
+    Hair,
+    Neck,
+    Clothing,
+    Accessories,
 }
 
 impl SubjectMaskRuntime {
@@ -139,8 +166,12 @@ impl SubjectMaskRuntime {
         }
         let photo_id = PhotoId::from_str(&invocation.photo_id)
             .map_err(|_| SubjectMaskRuntimeError::InvalidPhotoId)?;
+        let prompt_points = match &invocation.selection {
+            SubjectMaskSelection::PromptedSubject { points } => points.clone(),
+            SubjectMaskSelection::FaceRegion { anchor, .. } => vec![anchor.clone()],
+        };
         let prompt = MaskPrompt::Points {
-            points: invocation.points.clone(),
+            points: prompt_points,
         };
         prompt
             .validate()
@@ -184,29 +215,79 @@ impl SubjectMaskRuntime {
             "shadow:subject-mask/photo:{}/artifact:{input_content_hash}",
             invocation.photo_id
         );
-        let Some(evidence) = client.segment_subject_soft_mask_cancellable(
-            &input_bytes,
-            &source_revision,
-            match &request.parameters {
-                AiTaskParameters::SubjectMask(parameters) => match &parameters.prompt {
-                    MaskPrompt::Points { points } => points,
-                    MaskPrompt::AutomaticSubject | MaskPrompt::Box { .. } => {
-                        unreachable!("this runtime always requires points")
-                    }
-                },
-                _ => unreachable!("subject-mask request has subject-mask parameters"),
-            },
-            cancellation,
-        )?
-        else {
-            return Ok(cancelled_stage_receipt(&invocation));
+        let (samples, raster_extent, provenance, api_contract) = match &invocation.selection {
+            SubjectMaskSelection::PromptedSubject { .. } => {
+                let Some(evidence) = client.segment_subject_soft_mask_cancellable(
+                    &input_bytes,
+                    &source_revision,
+                    match &request.parameters {
+                        AiTaskParameters::SubjectMask(parameters) => match &parameters.prompt {
+                            MaskPrompt::Points { points } => points,
+                            MaskPrompt::AutomaticSubject | MaskPrompt::Box { .. } => {
+                                unreachable!("this runtime always requires points")
+                            }
+                        },
+                        _ => unreachable!("subject-mask request has subject-mask parameters"),
+                    },
+                    cancellation,
+                )?
+                else {
+                    return Ok(cancelled_stage_receipt(&invocation));
+                };
+                if evidence.input_extent != invocation.coordinate_extent {
+                    return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                }
+                (
+                    evidence.samples,
+                    RasterExtent::new(256, 256)
+                        .map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?,
+                    evidence.provenance,
+                    shadow_ai::INFER_SUBJECT_MASK_CAPABILITY,
+                )
+            }
+            SubjectMaskSelection::FaceRegion { anchor, region } => {
+                if cancellation.is_cancelled() {
+                    return Ok(cancelled_stage_receipt(&invocation));
+                }
+                let detections =
+                    client.detect_faces(&input_bytes, "image/jpeg", &source_revision)?;
+                if detections.width != invocation.coordinate_extent.width
+                    || detections.height != invocation.coordinate_extent.height
+                {
+                    return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                }
+                let face_box =
+                    select_face_box(&detections.detections, anchor, invocation.coordinate_extent)
+                        .ok_or(SubjectMaskRuntimeError::NoFaceDetected)?;
+                if cancellation.is_cancelled() {
+                    return Ok(cancelled_stage_receipt(&invocation));
+                }
+                let parsed =
+                    client.parse_face(&input_bytes, "image/jpeg", &source_revision, face_box)?;
+                if parsed.width != invocation.coordinate_extent.width
+                    || parsed.height != invocation.coordinate_extent.height
+                {
+                    return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                }
+                let samples = compose_face_region_mask(
+                    &parsed.labels,
+                    invocation.coordinate_extent,
+                    *region,
+                )?;
+                (
+                    samples,
+                    invocation.coordinate_extent,
+                    parsed.provenance,
+                    INFER_FACE_PARSING_CAPABILITY,
+                )
+            }
         };
-        if evidence.input_extent != invocation.coordinate_extent {
-            return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+        if cancellation.is_cancelled() {
+            return Ok(cancelled_stage_receipt(&invocation));
         }
-        write_verified_soft_mask(&output_mask, &evidence.samples)?;
-        let payload = soft_mask_payload(&evidence.samples, invocation.coordinate_extent)?;
-        let (route, plan) = infer_route_and_plan(&evidence.provenance)?;
+        write_verified_soft_mask(&output_mask, &samples, raster_extent)?;
+        let payload = soft_mask_payload(&samples, raster_extent, invocation.coordinate_extent)?;
+        let (route, plan) = infer_route_and_plan(&provenance, api_contract)?;
         let execution = bind_local_service_execution(
             format!("infer-subject-mask-execution-{}", invocation.request_id),
             request,
@@ -273,6 +354,75 @@ struct PreverifiedInferSubjectMaskProvider {
     payload: AiGeneratedPayload,
 }
 
+fn select_face_box(
+    detections: &[shadow_ai::DetectedFace],
+    anchor: &MaskPromptPoint,
+    extent: RasterExtent,
+) -> Option<FaceBoundingBox> {
+    let x =
+        (anchor.x.get() as f32 * extent.width as f32).min(extent.width.saturating_sub(1) as f32);
+    let y =
+        (anchor.y.get() as f32 * extent.height as f32).min(extent.height.saturating_sub(1) as f32);
+    detections
+        .iter()
+        .filter(|face| {
+            let bounds = face.bounding_box;
+            x >= bounds.x
+                && y >= bounds.y
+                && x <= bounds.x + bounds.width
+                && y <= bounds.y + bounds.height
+        })
+        .max_by(|left, right| left.confidence.total_cmp(&right.confidence))
+        .or_else(|| {
+            detections.iter().min_by(|left, right| {
+                face_anchor_distance(left.bounding_box, x, y, extent)
+                    .total_cmp(&face_anchor_distance(right.bounding_box, x, y, extent))
+            })
+        })
+        .map(|face| face.bounding_box)
+}
+
+fn face_anchor_distance(bounds: FaceBoundingBox, x: f32, y: f32, extent: RasterExtent) -> f32 {
+    let dx = (bounds.x + bounds.width * 0.5 - x) / extent.width as f32;
+    let dy = (bounds.y + bounds.height * 0.5 - y) / extent.height as f32;
+    dx * dx + dy * dy
+}
+
+fn compose_face_region_mask(
+    labels: &[u8],
+    extent: RasterExtent,
+    region: FaceRegion,
+) -> Result<Vec<u8>, SubjectMaskRuntimeError> {
+    let expected = u64::from(extent.width)
+        .checked_mul(u64::from(extent.height))
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or(SubjectMaskRuntimeError::RuntimeMaskMalformed)?;
+    if labels.len() != expected {
+        return Err(SubjectMaskRuntimeError::RuntimeMaskMalformed);
+    }
+    let classes: &[u8] = match region {
+        FaceRegion::Face => &[1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13],
+        FaceRegion::Skin => &[1],
+        FaceRegion::Eyes => &[4, 5],
+        FaceRegion::Eyebrows => &[2, 3],
+        FaceRegion::LipsAndMouth => &[11, 12, 13],
+        FaceRegion::Nose => &[10],
+        FaceRegion::Ears => &[7, 8],
+        FaceRegion::Hair => &[17],
+        FaceRegion::Neck => &[14],
+        FaceRegion::Clothing => &[16],
+        FaceRegion::Accessories => &[6, 9, 15, 18],
+    };
+    let samples = labels
+        .iter()
+        .map(|label| if classes.contains(label) { u8::MAX } else { 0 })
+        .collect::<Vec<_>>();
+    if samples.iter().all(|sample| *sample == 0) {
+        return Err(SubjectMaskRuntimeError::FaceRegionUnavailable);
+    }
+    Ok(samples)
+}
+
 impl RuntimeProvider for PreverifiedInferSubjectMaskProvider {
     type Output = AiGeneratedPayload;
 
@@ -307,8 +457,16 @@ impl RuntimeProvider for PreverifiedInferSubjectMaskProvider {
     }
 }
 
-fn write_verified_soft_mask(path: &Path, samples: &[u8]) -> Result<(), SubjectMaskRuntimeError> {
-    if samples.len() != 256 * 256 {
+fn write_verified_soft_mask(
+    path: &Path,
+    samples: &[u8],
+    raster_extent: RasterExtent,
+) -> Result<(), SubjectMaskRuntimeError> {
+    let expected = u64::from(raster_extent.width)
+        .checked_mul(u64::from(raster_extent.height))
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or(SubjectMaskRuntimeError::RuntimeMaskMalformed)?;
+    if samples.len() != expected {
         return Err(SubjectMaskRuntimeError::RuntimeMaskMalformed);
     }
     let mut file = OpenOptions::new()
@@ -325,6 +483,7 @@ fn write_verified_soft_mask(path: &Path, samples: &[u8]) -> Result<(), SubjectMa
 
 fn soft_mask_payload(
     samples: &[u8],
+    raster_extent: RasterExtent,
     coordinate_extent: RasterExtent,
 ) -> Result<AiGeneratedPayload, SubjectMaskRuntimeError> {
     let artifact = shadow_ai::GeneratedArtifactReference::new(
@@ -337,8 +496,7 @@ fn soft_mask_payload(
     .map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?;
     Ok(AiGeneratedPayload::SoftMask(SoftMaskArtifact {
         artifact,
-        raster_extent: RasterExtent::new(256, 256)
-            .map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?,
+        raster_extent,
         coordinate_extent,
         coordinate_space: MaskCoordinateSpace::Original,
         encoding: SoftMaskEncoding::Gray8Unorm,
@@ -348,6 +506,7 @@ fn soft_mask_payload(
 
 fn infer_route_and_plan(
     provenance: &shadow_ai::VisionProvenance,
+    api_contract_revision: &str,
 ) -> Result<(ExecutionRouteIdentity, RunPlan), SubjectMaskRuntimeError> {
     if provenance.execution_provider_fallback_reason.is_some() {
         return Err(SubjectMaskRuntimeError::RuntimeFallbackDisclosed);
@@ -377,7 +536,7 @@ fn infer_route_and_plan(
             service_revision: provenance.runtime.clone(),
             model_id: provenance.model_build.clone(),
             model_revision: provenance.artifact_sha256.clone(),
-            api_contract_revision: shadow_ai::INFER_SUBJECT_MASK_CAPABILITY.into(),
+            api_contract_revision: api_contract_revision.into(),
         },
     };
     Ok((
@@ -409,6 +568,10 @@ pub(crate) enum SubjectMaskRuntimeError {
     RuntimeGeometryMismatch,
     #[error("Infer Runtime returned a malformed subject probability mask")]
     RuntimeMaskMalformed,
+    #[error("Infer Runtime found no face near the selected point")]
+    NoFaceDetected,
+    #[error("the selected facial region is not visible in this face")]
+    FaceRegionUnavailable,
     #[error("Infer Runtime disclosed a forbidden execution-provider fallback")]
     RuntimeFallbackDisclosed,
     #[error("Infer Runtime returned malformed subject-mask provenance")]

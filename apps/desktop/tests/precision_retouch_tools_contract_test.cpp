@@ -24,8 +24,12 @@ class FakeRetouchEditor final : public QObject {
     Q_PROPERTY(QVariantList retouchStrokes READ retouchStrokes NOTIFY parametersChanged)
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
     Q_PROPERTY(int retouchCreationMode READ retouchCreationMode NOTIFY retouchCreationModeChanged)
+    Q_PROPERTY(int retouchBrushRadius READ retouchBrushRadius NOTIFY retouchBrushChanged)
+    Q_PROPERTY(double retouchBrushStrength READ retouchBrushStrength NOTIFY retouchBrushChanged)
+    Q_PROPERTY(double retouchBrushFeather READ retouchBrushFeather NOTIFY retouchBrushChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive NOTIFY retouchPickerActiveChanged)
     Q_PROPERTY(bool retouchSourceAligned READ retouchSourceAligned NOTIFY retouchSourceChanged)
+    Q_PROPERTY(bool retouchSourcePicking READ retouchSourcePicking NOTIFY retouchSourceChanged)
     Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
 
   public:
@@ -46,11 +50,23 @@ class FakeRetouchEditor final : public QObject {
     [[nodiscard]] int retouchCreationMode() const noexcept {
         return creation_mode_;
     }
+    [[nodiscard]] int retouchBrushRadius() const noexcept {
+        return brush_radius_;
+    }
+    [[nodiscard]] double retouchBrushStrength() const noexcept {
+        return brush_strength_;
+    }
+    [[nodiscard]] double retouchBrushFeather() const noexcept {
+        return brush_feather_;
+    }
     [[nodiscard]] bool retouchPickerActive() const noexcept {
         return picker_active_;
     }
     [[nodiscard]] bool retouchSourceAligned() const noexcept {
         return source_aligned_;
+    }
+    [[nodiscard]] bool retouchSourcePicking() const noexcept {
+        return source_picking_;
     }
     [[nodiscard]] bool retouchSourceSampled() const noexcept {
         return source_sampled_;
@@ -70,8 +86,24 @@ class FakeRetouchEditor final : public QObject {
         picker_active_ = active;
         emit retouchPickerActiveChanged();
     }
+    Q_INVOKABLE void setRetouchBrushRadius(const int radius) {
+        brush_radius_ = radius;
+        emit retouchBrushChanged();
+    }
+    Q_INVOKABLE void setRetouchBrushStrength(const double strength) {
+        brush_strength_ = strength;
+        emit retouchBrushChanged();
+    }
+    Q_INVOKABLE void setRetouchBrushFeather(const double feather) {
+        brush_feather_ = feather;
+        emit retouchBrushChanged();
+    }
     Q_INVOKABLE void setRetouchSourceAligned(const bool aligned) {
         source_aligned_ = aligned;
+        emit retouchSourceChanged();
+    }
+    Q_INVOKABLE void setRetouchSourcePicking(const bool picking) {
+        source_picking_ = picking;
         emit retouchSourceChanged();
     }
     Q_INVOKABLE void clearRetouchSource() {
@@ -147,14 +179,19 @@ class FakeRetouchEditor final : public QObject {
     void parametersChanged();
     void retouchCreationModeChanged();
     void retouchPickerActiveChanged();
+    void retouchBrushChanged();
     void retouchSourceChanged();
 
   private:
     QVariantList strokes_;
     QVariantList spots_;
     int creation_mode_ = 0;
+    int brush_radius_ = 18;
+    double brush_strength_ = 1.0;
+    double brush_feather_ = 0.28;
     bool picker_active_ = true;
     bool source_aligned_ = true;
+    bool source_picking_ = false;
     bool source_sampled_ = false;
 };
 
@@ -371,6 +408,16 @@ int main(int argc, char* argv[]) {
         tools->findChildren<QObject*>(QStringLiteral("retouchSelectedRegionInspector"));
     QObject* const strength_slider =
         tools->findChild<QObject*>(QStringLiteral("retouchStrengthSlider"));
+    QObject* const brush_size_slider =
+        tools->findChild<QObject*>(QStringLiteral("retouchBrushSizeSlider"));
+    QObject* const brush_strength_slider =
+        tools->findChild<QObject*>(QStringLiteral("retouchBrushStrengthSlider"));
+    QObject* const brush_feather_slider =
+        tools->findChild<QObject*>(QStringLiteral("retouchBrushFeatherSlider"));
+    QObject* const clone_tool_button =
+        tools->findChild<QObject*>(QStringLiteral("retouchCloneToolButton"));
+    QObject* const select_source_button =
+        tools->findChild<QObject*>(QStringLiteral("retouchSelectSourceButton"));
     if (!require(
             tools->property("regionCount").toInt() == 3,
             "the compact picker exposes every authored region"
@@ -390,6 +437,14 @@ int main(int argc, char* argv[]) {
             "the selected repair exposes a persisted strength slider that resets to 100 percent"
         )
         || !require(
+            brush_size_slider != nullptr && brush_strength_slider != nullptr
+                && brush_feather_slider != nullptr
+                && brush_size_slider->property("value").toInt() == 18
+                && std::abs(brush_strength_slider->property("value").toDouble() - 1.0) < 1.0e-9
+                && std::abs(brush_feather_slider->property("value").toDouble() - 0.28) < 1.0e-9,
+            "new repairs expose one independent size, strength, and feather tool session"
+        )
+        || !require(
             QMetaObject::invokeMethod(
                 tools.get(),
                 "selectRegion",
@@ -398,6 +453,31 @@ int main(int argc, char* argv[]) {
             ) && selection.count == 1
                 && !selection.last_continuous && selection.last_index == 0,
             "a compact region button emits one cross-panel selection"
+        )
+        || !require(
+            clone_tool_button != nullptr && select_source_button != nullptr
+                && QMetaObject::invokeMethod(clone_tool_button, "click")
+                && editor.retouchCreationMode() == 1 && editor.retouchSourcePicking()
+                && select_source_button->property("selected").toBool(),
+            "Clone enters one explicit source-pick state before painting"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    if (!require(
+            QMetaObject::invokeMethod(brush_size_slider, "edited", Q_ARG(double, 37.0))
+                && QMetaObject::invokeMethod(brush_strength_slider, "edited", Q_ARG(double, 0.73))
+                && QMetaObject::invokeMethod(brush_feather_slider, "edited", Q_ARG(double, 0.41)),
+            "tool-session sliders publish their authored values"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(
+            editor.retouchBrushRadius() == 37
+                && std::abs(editor.retouchBrushStrength() - 0.73) < 1.0e-9
+                && std::abs(editor.retouchBrushFeather() - 0.41) < 1.0e-9,
+            "tool-session slider edits reach the next-repair controller state"
         )) {
         return EXIT_FAILURE;
     }
@@ -500,7 +580,7 @@ int main(int argc, char* argv[]) {
     );
     std::unique_ptr<QObject> stroke_handle(stroke_component.createWithInitialProperties({
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
-        {QStringLiteral("modelData"), strokeRegion(0)},
+        {QStringLiteral("modelData"), strokeRegion(0, 6.0)},
         {QStringLiteral("pixelScale"), 1.0},
         {QStringLiteral("selected"), false},
         {QStringLiteral("width"), 200.0},
@@ -530,18 +610,19 @@ int main(int argc, char* argv[]) {
     stroke_window.show();
     drainBindings();
     if (stroke_item != nullptr) {
-        sendClick(stroke_window, QPointF(80.0, 50.0));
+        sendClick(stroke_window, QPointF(60.0, 50.0));
     }
     if (!require(
             target_hit_area != nullptr && source_hit_area != nullptr
                 && target_hit_area->property("enabled").toBool()
-                && !source_hit_area->property("enabled").toBool(),
-            "an unselected stroke catches its target but never lets its donor steal input"
+                && source_hit_area->property("enabled").toBool(),
+            "an unselected stroke exposes both target and source as direct inputs"
         )
         || !require(
             invokeContains(stroke_handle.get(), "targetContains", 80.0, 50.0)
                 && !invokeContains(stroke_handle.get(), "targetContains", 80.0, 5.0)
-                && invokeContains(stroke_handle.get(), "sourceContains", 80.0, 50.0),
+                && !invokeContains(stroke_handle.get(), "sourceContains", 60.0, 50.0)
+                && invokeContains(stroke_handle.get(), "sourceContains", 190.0, 50.0),
             "target and donor hit tests follow swept coverage instead of a bounding box"
         )
         || !require(
@@ -553,7 +634,7 @@ int main(int argc, char* argv[]) {
     }
     editor.stroke_position_write_count_ = 0;
     editor.end_key_.clear();
-    sendDrag(stroke_window, QPointF(80.0, 50.0), QPointF(88.0, 54.0));
+    sendDrag(stroke_window, QPointF(60.0, 50.0), QPointF(68.0, 54.0));
     if (!require(
             editor.stroke_position_write_count_ > 0 && editor.stroke_position_index_ == 0
                 && editor.stroke_position_dx_ > 0.0 && editor.stroke_position_dy_ > 0.0
@@ -562,7 +643,18 @@ int main(int argc, char* argv[]) {
         )) {
         return EXIT_FAILURE;
     }
+    const int stroke_selection_count_before_source = selection.target_count;
+    editor.begin_key_.clear();
+    sendClick(stroke_window, QPointF(190.0, 50.0));
+    if (!require(
+            selection.target_count == stroke_selection_count_before_source + 1
+                && editor.begin_key_ == QStringLiteral("retouch/stroke/0/source"),
+            "an unselected continuous donor selects its repair and starts source editing directly"
+        )) {
+        return EXIT_FAILURE;
+    }
     stroke_handle->setProperty("selected", true);
+    stroke_handle->setProperty("modelData", strokeRegion(0));
     editor.begin_key_.clear();
     drainBindings();
     if (!require(
@@ -589,7 +681,7 @@ int main(int argc, char* argv[]) {
     );
     std::unique_ptr<QObject> spot_handle(spot_component.createWithInitialProperties({
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
-        {QStringLiteral("modelData"), spotRegion(0)},
+        {QStringLiteral("modelData"), spotRegion(0, 6.0)},
         {QStringLiteral("pixelScale"), 1.0},
         {QStringLiteral("selected"), false},
         {QStringLiteral("width"), 200.0},
@@ -631,8 +723,8 @@ int main(int argc, char* argv[]) {
             spot_target_hit_area != nullptr && spot_source_hit_area != nullptr
                 && spot_target_hit_area->property("enabled").toBool()
                 && spot_source_hit_area->property("visible").toBool()
-                && !spot_source_hit_area->property("enabled").toBool(),
-            "an unselected spot keeps its donor visible without letting it intercept input"
+                && spot_source_hit_area->property("enabled").toBool(),
+            "an unselected spot keeps its visible donor directly interactive"
         )
         || !require(
             spot_item != nullptr && selection.target_count == spot_selection_count_before_click + 1
@@ -642,7 +734,18 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    const int spot_selection_count_before_source = selection.target_count;
+    editor.begin_key_.clear();
+    sendClick(spot_window, QPointF(188.0, 50.0));
+    if (!require(
+            selection.target_count == spot_selection_count_before_source + 1
+                && editor.begin_key_ == QStringLiteral("retouch/0/source"),
+            "an unselected spot donor selects its repair and starts source editing directly"
+        )) {
+        return EXIT_FAILURE;
+    }
     spot_handle->setProperty("selected", true);
+    spot_handle->setProperty("modelData", spotRegion(0));
     editor.begin_key_.clear();
     drainBindings();
     if (!require(

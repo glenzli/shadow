@@ -12,6 +12,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -23,7 +24,9 @@ class FakeDirectStrokeEditor final : public QObject {
     Q_PROPERTY(bool stateBusy READ stateBusy NOTIFY stateBusyChanged)
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY photoGeometryChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive CONSTANT)
+    Q_PROPERTY(int retouchBrushRadius READ retouchBrushRadius NOTIFY retouchBrushChanged)
     Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
+    Q_PROPERTY(bool retouchSourcePicking READ retouchSourcePicking NOTIFY retouchSourceChanged)
     Q_PROPERTY(
         QVariantMap retouchSampledSource READ retouchSampledSource NOTIFY retouchSourceChanged
     )
@@ -72,8 +75,14 @@ class FakeDirectStrokeEditor final : public QObject {
     [[nodiscard]] bool retouchPickerActive() const noexcept {
         return true;
     }
+    [[nodiscard]] int retouchBrushRadius() const noexcept {
+        return retouch_brush_radius;
+    }
     [[nodiscard]] bool retouchSourceSampled() const noexcept {
         return !retouch_sampled_source.isEmpty();
+    }
+    [[nodiscard]] bool retouchSourcePicking() const noexcept {
+        return retouch_source_picking;
     }
     [[nodiscard]] QVariantMap retouchSampledSource() const {
         return retouch_sampled_source;
@@ -129,10 +138,15 @@ class FakeDirectStrokeEditor final : public QObject {
     Q_INVOKABLE void setPhotoCropBounds(double, double, double, double) {}
     Q_INVOKABLE void setRetouchSourceFromPreview(const double x, const double y) {
         ++sample_source_count;
+        retouch_source_picking = false;
         retouch_sampled_source = {
             {QStringLiteral("x"), x},
             {QStringLiteral("y"), y},
         };
+        emit retouchSourceChanged();
+    }
+    Q_INVOKABLE void setRetouchSourcePicking(const bool picking) {
+        retouch_source_picking = picking;
         emit retouchSourceChanged();
     }
     Q_INVOKABLE void moveRetouchSourceFromPreview(const double x, const double y) {
@@ -142,6 +156,10 @@ class FakeDirectStrokeEditor final : public QObject {
             {QStringLiteral("y"), y},
         };
         emit retouchSourceChanged();
+    }
+    Q_INVOKABLE void adjustRetouchBrushRadius(const int direction) {
+        retouch_brush_radius = std::clamp(retouch_brush_radius + direction, 1, 128);
+        emit retouchBrushChanged();
     }
     Q_INVOKABLE void addRetouchSpotFromPreview(
         double,
@@ -230,7 +248,9 @@ class FakeDirectStrokeEditor final : public QObject {
     int committed_retouch_width = 0;
     int committed_retouch_height = 0;
     int liquify_brush_mode = 0;
+    int retouch_brush_radius = 18;
     bool state_busy = false;
+    bool retouch_source_picking = false;
     QVariantMap retouch_sampled_source;
 
   signals:
@@ -239,6 +259,7 @@ class FakeDirectStrokeEditor final : public QObject {
     void selectedGradeNodeChanged();
     void stateBusyChanged();
     void retouchSourceChanged();
+    void retouchBrushChanged();
     void liquifyBrushChanged();
 };
 
@@ -408,11 +429,51 @@ void sendMouse(
            );
 }
 
+[[nodiscard]] bool cloneSourceAnchorContract() {
+    // A reduced copy of the looped cable-repair stroke that exposed the bug:
+    // its first pointer sample lies on the left edge, while rendering and the
+    // donor overlay transform around the stroke bounds midpoint.
+    const QVector<QPointF> points{
+        {0.5825106534090909, 0.29345703125},
+        {0.5910822088068182, 0.29194557883522726},
+        {0.6127041903409091, 0.2961270419034091},
+        {0.6044122869318181, 0.29978249289772724},
+        {0.5840553977272728, 0.29978249289772724},
+    };
+    const auto center = EditStrokeInput::normalizedBoundsCenter(std::span<const QPointF>(
+        points.constData(),
+        static_cast<std::size_t>(points.size())
+    ));
+    const QPointF sampled_source{0.497607421875, 0.29353777521306815};
+    constexpr double width = 1'536.0;
+    constexpr double height = 1'024.0;
+    constexpr double radius = 18.0;
+    if (!require(
+            center.has_value() && std::abs(center->x() - 0.597607421875) < 1.0e-12
+                && std::abs(center->y() - 0.29586403586647725) < 1.0e-12
+                && std::abs(center->x() - points.constFirst().x()) > 0.01,
+            "a looped repair uses the rendered coverage midpoint rather than its first edge sample"
+        )) {
+        return false;
+    }
+    const QPointF offset_radii{
+        (sampled_source.x() - center->x()) * width / radius,
+        (sampled_source.y() - center->y()) * height / radius,
+    };
+    return require(
+        std::abs(center->x() + offset_radii.x() * radius / width - sampled_source.x()) < 1.0e-12
+            && std::abs(
+                   center->y() + offset_radii.y() * radius / height - sampled_source.y()
+               ) < 1.0e-12,
+        "the visible sampled-source crosshair is the actual donor coverage anchor"
+    );
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
     QGuiApplication application(argc, argv);
-    if (!decoderContract()) {
+    if (!decoderContract() || !cloneSourceAnchorContract()) {
         return EXIT_FAILURE;
     }
 
@@ -515,28 +576,44 @@ int main(int argc, char* argv[]) {
     window.show();
     drainBindings();
 
-    sendMouse(
-        window,
-        QEvent::MouseButtonPress,
-        QPointF{100, 120},
-        Qt::LeftButton,
-        Qt::LeftButton,
-        Qt::AltModifier
-    );
-    sendMouse(
-        window,
-        QEvent::MouseButtonRelease,
-        QPointF{100, 120},
-        Qt::LeftButton,
-        Qt::NoButton,
-        Qt::AltModifier
-    );
+    QObject* const brush_cursor = picker->findChild<QObject*>(QStringLiteral("retouchBrushCursor"));
+    QObject* const smaller_brush =
+        picker->findChild<QObject*>(QStringLiteral("retouchBrushSmallerShortcut"));
+    QObject* const larger_brush =
+        picker->findChild<QObject*>(QStringLiteral("retouchBrushLargerShortcut"));
+    if (!require(
+            brush_cursor != nullptr && smaller_brush != nullptr && larger_brush != nullptr
+                && std::abs(brush_cursor->property("width").toDouble() - 36.0) < 0.01,
+            "the retouch cursor presents the authored level-zero brush radius"
+        )
+        || !require(
+            QMetaObject::invokeMethod(smaller_brush, "activated")
+                && editor.retouch_brush_radius == 17,
+            "the conventional left-bracket shortcut reduces the next repair radius"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(
+            std::abs(brush_cursor->property("width").toDouble() - 34.0) < 0.01
+                && QMetaObject::invokeMethod(larger_brush, "activated")
+                && editor.retouch_brush_radius == 18,
+            "shortcut edits and the live cursor remain in one brush-session state"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+
+    editor.setRetouchSourcePicking(true);
+    sendMouse(window, QEvent::MouseButtonPress, QPointF{100, 120}, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseButtonRelease, QPointF{100, 120}, Qt::LeftButton, Qt::NoButton);
     QObject* const sampled_source_marker =
         picker->findChild<QObject*>(QStringLiteral("retouchSampledSourceMarker"));
     if (!require(
-            editor.sample_source_count == 1 && sampled_source_marker != nullptr
+            editor.sample_source_count == 1 && !editor.retouch_source_picking
+                && sampled_source_marker != nullptr
                 && sampled_source_marker->property("visible").toBool(),
-            "Option/Alt sampling creates a visible source marker before painting"
+            "explicit source-pick mode consumes one click and leaves a visible movable source"
         )) {
         return EXIT_FAILURE;
     }
@@ -555,6 +632,17 @@ int main(int argc, char* argv[]) {
         )) {
         return EXIT_FAILURE;
     }
+
+    picker->setProperty("selectedRetouchIndex", 0);
+    drainBindings();
+    if (!require(
+            !sampled_source_marker->property("visible").toBool(),
+            "a selected authored repair shows only its exact donor overlay, not the next-source marker"
+        )) {
+        return EXIT_FAILURE;
+    }
+    picker->setProperty("selectedRetouchIndex", -1);
+    drainBindings();
 
     sendMouse(window, QEvent::MouseButtonPress, QPointF{60, 80}, Qt::LeftButton, Qt::LeftButton);
     sendMouse(window, QEvent::MouseMove, QPointF{130, 95}, Qt::NoButton, Qt::LeftButton);

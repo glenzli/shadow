@@ -65,10 +65,13 @@ Popup {
         }
     }
 
-    function startAiMask() {
-        if (!currentNodeAvailable)
+    function startAiMask(faceRegions) {
+        if (!newNodeAvailable)
             return;
-        if (menu.editor.beginAiMaskPrompt()) {
+        const started = faceRegions
+            ? menu.editor.beginAiFaceMaskPrompt()
+            : menu.editor.beginAiMaskPrompt();
+        if (started) {
             menu.close();
             menu.aiMaskRequested();
         }
@@ -279,9 +282,19 @@ Popup {
             Layout.fillWidth: true
             text: qsTr("AI subject")
             variant: ShadowButton.Secondary
-            enabled: menu.currentNodeAvailable
-            toolTipText: qsTr("Prompt SAM 2.1 on the selected Grade Node")
-            onClicked: menu.startAiMask()
+            enabled: menu.newNodeAvailable
+            toolTipText: qsTr("Create a new Grade Node and prompt SAM 2.1")
+            onClicked: menu.startAiMask(false)
+        }
+
+        ShadowButton {
+            objectName: "aiPeopleDetailsMaskAction"
+            Layout.fillWidth: true
+            text: qsTr("AI people details")
+            variant: ShadowButton.Secondary
+            enabled: menu.newNodeAvailable
+            toolTipText: qsTr("Create a new Grade Node and select facial features")
+            onClicked: menu.startAiMask(true)
         }
 
         MaskAction {

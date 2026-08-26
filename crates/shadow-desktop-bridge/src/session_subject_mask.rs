@@ -15,7 +15,7 @@ use super::{
     DesktopSession, ffi,
     recipe_v1::{GradeStackDraft, decode_grade_stack_draft_recipe_v1},
     subject_mask_runtime::{
-        SubjectMaskInvocation,
+        FaceRegion, SubjectMaskInvocation, SubjectMaskSelection,
         geometry::{map_output_prompt_to_original, project_gray8_mask_to_output},
     },
     subject_mask_service::{SubjectMaskCompletion, SubjectMaskServiceError},
@@ -153,7 +153,20 @@ impl DesktopSession {
                     coordinate_extent,
                 )
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let selection = match request.kind {
+            ffi::FfiSubjectMaskKind::PromptedSubject => {
+                SubjectMaskSelection::PromptedSubject { points }
+            }
+            ffi::FfiSubjectMaskKind::FaceRegion => SubjectMaskSelection::FaceRegion {
+                anchor: points
+                    .into_iter()
+                    .find(|point| point.polarity == MaskPointPolarity::Foreground)
+                    .context("face-region selection requires one face click")?,
+                region: face_region(request.face_region),
+            },
+            _ => bail!("subject-mask selection kind is unsupported"),
+        };
         let prepared_input = self
             .subject_mask_runtime
             .prepare_input_jpeg(&input_preview.bytes)?;
@@ -172,7 +185,7 @@ impl DesktopSession {
                 photo_id: photo_id.to_owned(),
                 original_space_input_jpeg: prepared_input.path().to_path_buf(),
                 coordinate_extent,
-                points,
+                selection,
             },
             &cancellation,
         ) {
@@ -309,6 +322,23 @@ impl DesktopSession {
 
     pub(crate) fn discard_subject_mask_proposal(&self, proposal_token: u64) -> AnyResult<()> {
         Ok(self.subject_masks.discard_proposal(proposal_token)?)
+    }
+}
+
+fn face_region(region: ffi::FfiFaceRegion) -> FaceRegion {
+    match region {
+        ffi::FfiFaceRegion::Face => FaceRegion::Face,
+        ffi::FfiFaceRegion::Skin => FaceRegion::Skin,
+        ffi::FfiFaceRegion::Eyes => FaceRegion::Eyes,
+        ffi::FfiFaceRegion::Eyebrows => FaceRegion::Eyebrows,
+        ffi::FfiFaceRegion::LipsAndMouth => FaceRegion::LipsAndMouth,
+        ffi::FfiFaceRegion::Nose => FaceRegion::Nose,
+        ffi::FfiFaceRegion::Ears => FaceRegion::Ears,
+        ffi::FfiFaceRegion::Hair => FaceRegion::Hair,
+        ffi::FfiFaceRegion::Neck => FaceRegion::Neck,
+        ffi::FfiFaceRegion::Clothing => FaceRegion::Clothing,
+        ffi::FfiFaceRegion::Accessories => FaceRegion::Accessories,
+        _ => FaceRegion::Face,
     }
 }
 

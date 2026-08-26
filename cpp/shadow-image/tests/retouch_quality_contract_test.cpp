@@ -175,6 +175,84 @@ void clone_preserves_high_frequency_source_structure_without_blur() {
     );
 }
 
+void clone_does_not_invent_a_cable_fitting_absent_from_the_donor() {
+    constexpr std::uint32_t width = 160U;
+    constexpr std::uint32_t height = 96U;
+    constexpr std::uint32_t wire_y = 48U;
+    constexpr std::uint32_t target_x = 110U;
+    constexpr std::int32_t source_delta_x = -50;
+    constexpr std::uint16_t radius = 6U;
+    std::vector<float> samples(static_cast<std::size_t>(width) * height * 3U, 0.82F);
+    for (std::uint32_t x = 0U; x < width; ++x) {
+        const std::size_t wire = sample_index(x, wire_y, width);
+        samples[wire] = 0.18F;
+        samples[wire + 1U] = 0.18F;
+        samples[wire + 2U] = 0.18F;
+    }
+    for (std::uint32_t y = wire_y - 3U; y <= wire_y + 3U; ++y) {
+        const std::size_t fitting = sample_index(target_x, y, width);
+        samples[fitting] = 0.02F;
+        samples[fitting + 1U] = 0.02F;
+        samples[fitting + 2U] = 0.02F;
+    }
+
+    const image::RetouchStroke stroke{
+        .points =
+            {
+                {.x = 104.5 / static_cast<double>(width),
+                 .y = 48.5 / static_cast<double>(height)},
+                {.x = 116.5 / static_cast<double>(width),
+                 .y = 48.5 / static_cast<double>(height)},
+            },
+        .radius_level_zero_pixels = radius,
+        .mode = image::SpotRepairMode::clone,
+        .source_offset_x_radii = static_cast<double>(source_delta_x) / radius,
+        .source_offset_y_radii = 0.0,
+        .feather = 0.28,
+        .strength = 1.0,
+    };
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "clean-cable-clone",
+            .parameters = image::SpotHealAdjustment{.strokes = {stroke}},
+        },
+    };
+    const auto cloned = image::execute_adjustment_nodes(rgb_raster(width, height, samples), nodes);
+    const std::size_t repaired = sample_index(target_x, wire_y, width);
+    const std::size_t donor = sample_index(
+        static_cast<std::uint32_t>(static_cast<std::int32_t>(target_x) + source_delta_x),
+        wire_y,
+        width
+    );
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        expect_close(
+            cloned.samples[repaired + channel],
+            samples[donor + channel],
+            "a full-strength clone removes the target fitting with the clean donor wire"
+        );
+    }
+
+    for (std::uint32_t y = wire_y - radius; y <= wire_y + radius; ++y) {
+        for (std::uint32_t x = target_x - 10U; x <= target_x + 10U; ++x) {
+            const std::size_t target = sample_index(x, y, width);
+            const std::size_t source = sample_index(
+                static_cast<std::uint32_t>(static_cast<std::int32_t>(x) + source_delta_x),
+                y,
+                width
+            );
+            for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                const float lower = std::min(samples[target + channel], samples[source + channel]);
+                const float upper = std::max(samples[target + channel], samples[source + channel]);
+                expect(
+                    cloned.samples[target + channel] >= lower - 1.0e-6F
+                        && cloned.samples[target + channel] <= upper + 1.0e-6F,
+                    "clone output remains a convex blend of target and donor and cannot invent a point"
+                );
+            }
+        }
+    }
+}
+
 void clone_applies_the_authored_source_transform_without_resampling_the_target_shape() {
     constexpr std::uint32_t width = 64U;
     constexpr std::uint32_t height = 48U;
@@ -292,6 +370,7 @@ void structure_heal_preserves_a_target_edge_that_crosses_the_repair() {
 int main() {
     heal_tracks_local_illumination_instead_of_stamping_a_global_tone();
     clone_preserves_high_frequency_source_structure_without_blur();
+    clone_does_not_invent_a_cable_fitting_absent_from_the_donor();
     clone_applies_the_authored_source_transform_without_resampling_the_target_shape();
     structure_heal_preserves_a_target_edge_that_crosses_the_repair();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

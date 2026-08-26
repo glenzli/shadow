@@ -83,10 +83,23 @@ class FakeMaskEditor final : public QObject {
         return create_result_;
     }
 
+    Q_INVOKABLE bool beginAiMaskPrompt() {
+        ++subject_prompt_count_;
+        return ai_prompt_result_;
+    }
+
+    Q_INVOKABLE bool beginAiFaceMaskPrompt() {
+        ++face_prompt_count_;
+        return ai_prompt_result_;
+    }
+
     bool create_result_ = true;
     int create_count_ = 0;
     int last_kind_ = -1;
     int last_destination_ = -1;
+    bool ai_prompt_result_ = true;
+    int subject_prompt_count_ = 0;
+    int face_prompt_count_ = 0;
 
   signals:
     void availabilityChanged();
@@ -115,6 +128,10 @@ namespace {
 }
 
 [[nodiscard]] bool invokeWithInt(QObject* target, const char* method, const int value) {
+    return QMetaObject::invokeMethod(target, method, Q_ARG(QVariant, QVariant(value)));
+}
+
+[[nodiscard]] bool invokeWithBool(QObject* target, const char* method, const bool value) {
     return QMetaObject::invokeMethod(target, method, Q_ARG(QVariant, QVariant(value)));
 }
 
@@ -148,8 +165,13 @@ int main(int argc, char* argv[]) {
     QQuickItem* destination_selector =
         menu->findChild<QQuickItem*>(QStringLiteral("maskDestinationSelector"));
     QQuickItem* brush_action = menu->findChild<QQuickItem*>(QStringLiteral("brushMaskAction"));
+    QQuickItem* subject_action =
+        menu->findChild<QQuickItem*>(QStringLiteral("aiSubjectMaskAction"));
+    QQuickItem* people_details_action =
+        menu->findChild<QQuickItem*>(QStringLiteral("aiPeopleDetailsMaskAction"));
     if (!require(
-            destination_selector != nullptr && brush_action != nullptr
+            destination_selector != nullptr && brush_action != nullptr && subject_action != nullptr
+                && people_details_action != nullptr
                 && destination_selector->y() < brush_action->y(),
             "the destination choice is presented before mask type selection"
         )
@@ -178,6 +200,12 @@ int main(int argc, char* argv[]) {
                 && invokeWithInt(menu.get(), "createMask", 5) && editor.create_count_ == 3
                 && editor.last_kind_ == 5 && editor.last_destination_ == 1,
             "color conditions use the same atomic new-node transaction"
+        )
+        || !require(
+            invokeWithBool(menu.get(), "startAiMask", false)
+                && invokeWithBool(menu.get(), "startAiMask", true)
+                && editor.subject_prompt_count_ == 1 && editor.face_prompt_count_ == 1,
+            "both AI selectors delegate one controller-owned new-node transaction"
         )) {
         return EXIT_FAILURE;
     }
@@ -219,6 +247,10 @@ int main(int argc, char* argv[]) {
             invokeWithInt(menu.get(), "selectDestination", 1)
                 && menu->property("destination").toInt() == 0,
             "a full node stack falls back to the selected empty node"
+        )
+        || !require(
+            invokeWithBool(menu.get(), "startAiMask", false) && editor.subject_prompt_count_ == 1,
+            "AI selection cannot start when no new Grade Node can be created"
         )) {
         return EXIT_FAILURE;
     }

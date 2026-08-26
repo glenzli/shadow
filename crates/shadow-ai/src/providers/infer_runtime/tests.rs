@@ -1,12 +1,15 @@
 use std::{
-    io::{Read, Write},
+    io::{Cursor, Read, Write},
     net::TcpListener,
     thread,
 };
 
+use base64::Engine as _;
 use infer_runtime_client::{
-    BoundingBox, FaceDetection, ImageGeometry, VisionProvenance as SdkVisionProvenance,
+    BoundingBox, EncodedLabelMap, FaceDetection, FaceParsingOntology, FaceParsingRegion,
+    FaceParsingResponse, ImageGeometry, VisionProvenance as SdkVisionProvenance,
 };
+use sha2::Digest as _;
 
 use super::*;
 
@@ -147,6 +150,79 @@ fn sdk_face_fixture_is_admitted_only_after_shadow_geometry_checks() {
     let admitted = admit_face_detection(response, "source-v1").expect("face evidence");
     assert_eq!(admitted.detections.len(), 1);
     assert_eq!(admitted.provenance.job_id, "vision-job");
+}
+
+#[test]
+fn sdk_face_parsing_fixture_admits_only_verified_full_image_labels() {
+    let labels = image::GrayImage::from_fn(4, 3, |x, _| image::Luma([(x % 4) as u8]));
+    let mut encoded = Cursor::new(Vec::new());
+    image::DynamicImage::ImageLuma8(labels.clone())
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .expect("encode label fixture");
+    let bytes = encoded.into_inner();
+    let regions = (0_u8..19)
+        .map(|value| FaceParsingRegion {
+            class_id: format!(
+                "celebamask_hq_19:{}",
+                FACE_PARSING_CLASS_IDS[usize::from(value)]
+            ),
+            label: FACE_PARSING_CLASS_IDS[usize::from(value)].replace('_', " "),
+            label_value: value,
+            pixel_count: if value < 4 { 3 } else { 0 },
+            bounding_box: None,
+        })
+        .collect();
+    let response = FaceParsingResponse {
+        id: "face-parse-job".into(),
+        object: "vision.face_parsing".into(),
+        created_at: 1,
+        status: "completed".into(),
+        source_revision: "source-v2".into(),
+        data_classification: BIOMETRIC_CLASSIFICATION.into(),
+        image: ImageGeometry {
+            width: 4,
+            height: 3,
+            orientation: EXPECTED_FACE_PARSING_ORIENTATION.into(),
+        },
+        face_box: BoundingBox {
+            x: 0.0,
+            y: 0.0,
+            width: 4.0,
+            height: 3.0,
+        },
+        label_map: EncodedLabelMap {
+            content_type: "image/png".into(),
+            encoding: "indexed_u8_png".into(),
+            data_base64: STANDARD.encode(&bytes),
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            width: 4,
+            height: 3,
+        },
+        ontology: FaceParsingOntology {
+            id: FACE_PARSING_ONTOLOGY.into(),
+            revision: "20260813.1".into(),
+            background_value: 0,
+            class_count: 19,
+        },
+        regions,
+        provenance: sdk_provenance(false),
+    };
+
+    let expected_box = FaceBoundingBox {
+        x: 0.0,
+        y: 0.0,
+        width: 4.0,
+        height: 3.0,
+    };
+    let parsed = admit_face_parsing(response.clone(), "source-v2", expected_box)
+        .expect("face parsing evidence");
+    assert_eq!(parsed.width, 4);
+    assert_eq!(parsed.height, 3);
+    assert_eq!(parsed.labels, labels.into_raw());
+
+    let mut tampered = response;
+    tampered.label_map.sha256 = "00".repeat(32);
+    assert!(admit_face_parsing(tampered, "source-v2", expected_box).is_err());
 }
 
 fn sdk_provenance(tokenizer: bool) -> SdkVisionProvenance {

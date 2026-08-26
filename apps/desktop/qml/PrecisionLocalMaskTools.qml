@@ -30,18 +30,25 @@ ColumnLayout {
         visible: localMask.currentTabIndex === 0 && localMask.inspector.editor.aiMaskPromptActive
         title: qsTr("AI MASK")
         summary: localMask.inspector.editor.aiMaskBusy
-            ? qsTr("Identifying subject…")
+            ? localMask.inspector.editor.aiMaskFaceRegionMode
+                ? qsTr("Identifying facial details…")
+                : qsTr("Identifying subject…")
             : localMask.inspector.editor.aiMaskHasCandidate
                 ? qsTr("Candidate ready")
-                : qsTr("%1 prompt points").arg(localMask.inspector.editor.aiMaskPromptPoints.length)
-        toolTipText: qsTr("Include points identify the subject. Exclude points remove nearby regions.")
+                : localMask.inspector.editor.aiMaskFaceRegionMode
+                    ? qsTr("Click one face")
+                    : qsTr("%1 prompt points").arg(localMask.inspector.editor.aiMaskPromptPoints.length)
+        toolTipText: localMask.inspector.editor.aiMaskFaceRegionMode
+            ? qsTr("Choose a facial region, then click the face to bind it to this Grade Node.")
+            : qsTr("Include points identify the subject. Exclude points remove nearby regions.")
         sectionEnabled: true
         resetAvailable: true
         resetEnabled: !localMask.inspector.editor.aiMaskBusy
             && (localMask.inspector.editor.aiMaskPromptPoints.length > 0
                 || localMask.inspector.editor.aiMaskHasCandidate)
         onResetRequested: {
-            localMask.inspector.editor.aiMaskForegroundMode = true
+            if (!localMask.inspector.editor.aiMaskFaceRegionMode)
+                localMask.inspector.editor.aiMaskForegroundMode = true
             localMask.inspector.editor.clearAiMaskPromptPoints()
         }
 
@@ -50,6 +57,44 @@ ColumnLayout {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             spacing: 8
+            visible: localMask.inspector.editor.aiMaskFaceRegionMode
+
+            Label {
+                text: qsTr("Region")
+                color: Theme.textSecondary
+                font.pixelSize: 10
+            }
+
+            ComboBox {
+                id: faceRegionSelector
+                objectName: "aiFaceRegionSelector"
+                Layout.fillWidth: true
+                model: [
+                    qsTr("Face"),
+                    qsTr("Skin"),
+                    qsTr("Eyes"),
+                    qsTr("Eyebrows"),
+                    qsTr("Lips and mouth"),
+                    qsTr("Nose"),
+                    qsTr("Ears"),
+                    qsTr("Hair"),
+                    qsTr("Neck"),
+                    qsTr("Clothing"),
+                    qsTr("Accessories")
+                ]
+                currentIndex: Number(localMask.inspector.editor.aiMaskFaceRegion || 0)
+                enabled: !localMask.inspector.editor.aiMaskBusy
+                Accessible.name: qsTr("Facial region")
+                onActivated: index => localMask.inspector.editor.aiMaskFaceRegion = index
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            spacing: 8
+            visible: !localMask.inspector.editor.aiMaskFaceRegionMode
 
             ShadowButton {
                 compact: true
@@ -75,6 +120,7 @@ ColumnLayout {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             spacing: 8
+            visible: !localMask.inspector.editor.aiMaskFaceRegionMode
 
             ShadowButton {
                 compact: true

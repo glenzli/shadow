@@ -124,6 +124,14 @@ bool EditController::aiMaskBusy() const noexcept {
     return ai_mask_controller_ && ai_mask_controller_->busy();
 }
 
+bool EditController::aiMaskFaceRegionMode() const noexcept {
+    return ai_mask_controller_ && ai_mask_controller_->faceRegionMode();
+}
+
+int EditController::aiMaskFaceRegion() const noexcept {
+    return ai_mask_controller_ ? ai_mask_controller_->faceRegion() : 0;
+}
+
 bool EditController::aiMaskForegroundMode() const noexcept {
     return !ai_mask_controller_ || ai_mask_controller_->foregroundMode();
 }
@@ -153,12 +161,23 @@ QString EditController::aiMaskCandidateSource() const {
 }
 
 bool EditController::beginAiMaskPrompt() {
-    return ai_mask_controller_ && ai_mask_controller_->beginPrompt();
+    return ai_mask_controller_
+           && ai_mask_controller_->beginPrompt(AiMaskSelectionKind::PromptedSubject);
+}
+
+bool EditController::beginAiFaceMaskPrompt() {
+    return ai_mask_controller_ && ai_mask_controller_->beginPrompt(AiMaskSelectionKind::FaceRegion);
 }
 
 void EditController::setAiMaskForegroundMode(const bool foreground) {
     if (ai_mask_controller_) {
         ai_mask_controller_->setForegroundMode(foreground);
+    }
+}
+
+void EditController::setAiMaskFaceRegion(const int region) {
+    if (ai_mask_controller_) {
+        ai_mask_controller_->setFaceRegion(region);
     }
 }
 
@@ -273,6 +292,14 @@ bool EditAiMaskController::foregroundMode() const noexcept {
     return foreground_mode_;
 }
 
+bool EditAiMaskController::faceRegionMode() const noexcept {
+    return active_ && selection_kind_ == AiMaskSelectionKind::FaceRegion;
+}
+
+int EditAiMaskController::faceRegion() const noexcept {
+    return static_cast<int>(face_region_);
+}
+
 bool EditAiMaskController::canGenerate() const noexcept {
     return owner_.subjectMaskExecutionAllowed() && active_ && !busy() && contextIsCurrent()
            && std::ranges::any_of(
@@ -310,9 +337,9 @@ QVariantList EditAiMaskController::promptPoints() const {
     return result;
 }
 
-bool EditAiMaskController::beginPrompt() {
+bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
     if (active_) {
-        return true;
+        return selection_kind_ == kind;
     }
     if (!owner_.subjectMaskExecutionAllowed()) {
         owner_.setStatusMessage(ai_mask_message(
@@ -320,24 +347,30 @@ bool EditAiMaskController::beginPrompt() {
         ));
         return false;
     }
-    const auto* const target = owner_.selectedGradeNode();
-    if (!owner_.active_ || owner_.interactionLocked() || target == nullptr || !target->enabled
-        || target->local_mask_kind != 0U) {
-        owner_.setStatusMessage(ai_mask_message(QT_TRANSLATE_NOOP(
-            "EditController",
-            "AI Mask needs an enabled Grade Node without an existing mask"
-        )));
+    if (!owner_.active_ || owner_.interactionLocked() || !owner_.canAddGradeNode()) {
+        owner_.setStatusMessage(ai_mask_message(
+            QT_TRANSLATE_NOOP("EditController", "AI selection needs room for a new Grade Node")
+        ));
         return false;
     }
 
     const bool previous_busy = owner_.busy();
     const bool previously_locked = owner_.interactionLocked();
+    const qsizetype previous_node_count = owner_.grade_stack_.grade_nodes.size();
+    owner_.addGradeNode();
+    const auto* const target = owner_.selectedGradeNode();
+    if (owner_.grade_stack_.grade_nodes.size() != previous_node_count + 1 || target == nullptr
+        || !target->enabled || target->local_mask_kind != 0U) {
+        return false;
+    }
     owner_.finishActiveGesture();
     owner_.setRetouchPickerActive(false);
     owner_.setPointColorPickerActive(false);
     owner_.setWhiteBalancePickerActive(false);
     owner_.setCropToolActive(false);
     static_cast<void>(prompt_state_.reset_context());
+    selection_kind_ = kind;
+    face_region_ = BackendFaceRegion::Face;
     foreground_mode_ = true;
     context_ = CapturedContext{
         .photo_id = owner_.photo_id_,
@@ -350,16 +383,35 @@ bool EditAiMaskController::beginPrompt() {
     active_ = true;
     publishStateChange(previous_busy, previously_locked);
     owner_.setStatusMessage(ai_mask_message(
-        QT_TRANSLATE_NOOP("EditController", "AI Mask · click the subject to add an include point")
+        kind == AiMaskSelectionKind::FaceRegion
+            ? QT_TRANSLATE_NOOP(
+                  "EditController",
+                  "People details · choose a region, then click the face"
+              )
+            : QT_TRANSLATE_NOOP(
+                  "EditController",
+                  "AI Mask · click the subject to add an include point"
+              )
     ));
     return true;
 }
 
 void EditAiMaskController::setForegroundMode(const bool foreground) {
-    if (!active_ || busy() || foreground_mode_ == foreground) {
+    if (!active_ || faceRegionMode() || busy() || foreground_mode_ == foreground) {
         return;
     }
     foreground_mode_ = foreground;
+    emit owner_.aiMaskPromptChanged();
+}
+
+void EditAiMaskController::setFaceRegion(const int region) {
+    if (!faceRegionMode() || busy() || region < static_cast<int>(BackendFaceRegion::Face)
+        || region > static_cast<int>(BackendFaceRegion::Accessories)
+        || region == static_cast<int>(face_region_)) {
+        return;
+    }
+    face_region_ = static_cast<BackendFaceRegion>(region);
+    retireCandidate();
     emit owner_.aiMaskPromptChanged();
 }
 
@@ -367,11 +419,15 @@ void EditAiMaskController::appendPoint(const double x, const double y, const boo
     if (!active_) {
         return;
     }
+    if (faceRegionMode() && !prompt_state_.points().empty()) {
+        static_cast<void>(prompt_state_.clear_points());
+    }
     const auto mutation = prompt_state_.append_point({
         .x = x,
         .y = y,
-        .polarity = foreground ? shadow::desktop::AiMaskPromptPolarity::Foreground
-                               : shadow::desktop::AiMaskPromptPolarity::Background,
+        .polarity = faceRegionMode() || foreground
+                        ? shadow::desktop::AiMaskPromptPolarity::Foreground
+                        : shadow::desktop::AiMaskPromptPolarity::Background,
     });
     if (mutation == shadow::desktop::AiMaskPromptMutationResult::PointLimitReached) {
         owner_.setStatusMessage(ai_mask_message(
@@ -383,7 +439,7 @@ void EditAiMaskController::appendPoint(const double x, const double y, const boo
         return;
     }
     retireCandidate();
-    foreground_mode_ = foreground;
+    foreground_mode_ = faceRegionMode() || foreground;
     emit owner_.aiMaskPromptChanged();
 }
 
@@ -456,6 +512,10 @@ void EditAiMaskController::generate() {
         .grade_stack = owner_.grade_stack_,
         .target_grade_node_index = context_->target_grade_node_index,
         .target_grade_node_id = context_->target_grade_node_id,
+        .kind = selection_kind_ == AiMaskSelectionKind::FaceRegion
+                    ? BackendSubjectMaskKind::FaceRegion
+                    : BackendSubjectMaskKind::PromptedSubject,
+        .face_region = face_region_,
     };
     request.points.reserve(static_cast<qsizetype>(snapshot->points.size()));
     for (const auto& point : snapshot->points) {
@@ -478,9 +538,11 @@ void EditAiMaskController::generate() {
         )
     );
     publishStateChange(previous_busy, previously_locked);
-    owner_.setStatusMessage(
-        ai_mask_message(QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying the subject…"))
-    );
+    owner_.setStatusMessage(ai_mask_message(
+        faceRegionMode()
+            ? QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying facial details…")
+            : QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying the subject…")
+    ));
 }
 
 void EditAiMaskController::applyCandidate() {
@@ -546,6 +608,7 @@ void EditAiMaskController::resetContext() {
     retireCandidate();
     active_ = false;
     foreground_mode_ = true;
+    selection_kind_ = AiMaskSelectionKind::PromptedSubject;
     context_.reset();
     publishStateChange(previous_busy, previously_locked);
 }
@@ -581,10 +644,14 @@ void EditAiMaskController::finishExecution() {
         return;
     case BackendSubjectMaskTerminal::Unavailable:
         owner_.setStatusMessage(ai_mask_message(
-            QT_TRANSLATE_NOOP(
-                "EditController",
-                "Local SAM 2.1 is unavailable · check the model directory · %1"
-            ),
+            faceRegionMode() ? QT_TRANSLATE_NOOP(
+                                   "EditController",
+                                   "Local face parsing is unavailable · check Infer Runtime · %1"
+                               )
+                             : QT_TRANSLATE_NOOP(
+                                   "EditController",
+                                   "Local SAM 2.1 is unavailable · check the model directory · %1"
+                               ),
             {task.result.detail}
         ));
         publishStateChange(previous_busy, previously_locked);
@@ -620,10 +687,16 @@ void EditAiMaskController::finishExecution() {
     candidate_proposal_token_ = task.result.proposal_token;
     candidate_generation_ = task.result.generation;
     candidate_source_ = candidate_source;
-    owner_.setStatusMessage(ai_mask_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "AI Mask candidate ready · add points to refine or apply"
-    )));
+    owner_.setStatusMessage(ai_mask_message(
+        faceRegionMode() ? QT_TRANSLATE_NOOP(
+                               "EditController",
+                               "Facial detail candidate ready · choose another region or apply"
+                           )
+                         : QT_TRANSLATE_NOOP(
+                               "EditController",
+                               "AI Mask candidate ready · add points to refine or apply"
+                           )
+    ));
     publishStateChange(previous_busy, previously_locked);
 }
 
@@ -652,6 +725,7 @@ void EditAiMaskController::finishApply() {
     const QString target_grade_node_id = context_->target_grade_node_id;
     active_ = false;
     foreground_mode_ = true;
+    selection_kind_ = AiMaskSelectionKind::PromptedSubject;
     static_cast<void>(prompt_state_.reset_context());
     context_.reset();
     owner_.applySubjectMaskState(std::move(task.state), before, target_grade_node_id);

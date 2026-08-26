@@ -23,8 +23,18 @@ struct EditRetouchDonorRequest final {
     EditRetouchDonorMode mode = EditRetouchDonorMode::Heal;
 };
 
-// Selects one source displacement in brush-radius units. The result is stored
-// in the existing Recipe source-offset fields, so every later preview, detail
-// render, and export consumes the same decision without re-running analysis.
-[[nodiscard]] std::optional<QPointF>
-select_edit_retouch_donor_offset(const EditRetouchDonorRequest& request);
+struct EditRetouchDonorSelection final {
+    QPointF offset_radii;
+    // Zero means the sampled boundary has no convincing nearby match; one is
+    // an exact and meaningfully preferred match. The score is presentation
+    // guidance only: the selected offset remains deterministic Recipe input.
+    double confidence = 0.0;
+    std::size_t candidate_count = 0U;
+};
+
+// Selects one source displacement in brush-radius units and reports how well
+// the target boundary is explained by that nearby source. The offset is stored
+// in the existing Recipe fields, so every later preview, detail render, and
+// export consumes the same decision without re-running analysis.
+[[nodiscard]] std::optional<EditRetouchDonorSelection>
+select_edit_retouch_donor(const EditRetouchDonorRequest& request);

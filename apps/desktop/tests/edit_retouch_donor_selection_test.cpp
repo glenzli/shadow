@@ -111,23 +111,26 @@ int main() {
     const QSize dimensions(320, 200);
     const std::vector<std::uint8_t> pixels = vertical_gradient(dimensions);
     const std::array<QPointF, 1U> centered{QPointF(0.5, 0.5)};
-    const auto centered_offset =
-        select_edit_retouch_donor_offset(request(pixels, dimensions, centered));
+    const auto centered_offset = select_edit_retouch_donor(request(pixels, dimensions, centered));
     if (!require(centered_offset.has_value(), "a valid preview selects a donor")
         || !require(
-            std::abs(centered_offset->x() - 2.5) < 1.0e-9
-                && std::abs(centered_offset->y()) < 1.0e-9,
+            std::abs(centered_offset->offset_radii.x() - 2.5) < 1.0e-9
+                && std::abs(centered_offset->offset_radii.y()) < 1.0e-9,
             "selection follows matching texture rather than changing gradient bands"
+        )
+        || !require(
+            centered_offset->confidence > 0.7 && centered_offset->candidate_count > 1U,
+            "an equivalent smooth donor reports useful automatic-source confidence"
         )) {
         return EXIT_FAILURE;
     }
 
     const std::array<QPointF, 1U> near_right_edge{QPointF(0.94, 0.5)};
     const auto edge_offset =
-        select_edit_retouch_donor_offset(request(pixels, dimensions, near_right_edge));
+        select_edit_retouch_donor(request(pixels, dimensions, near_right_edge));
     if (!require(edge_offset.has_value(), "an edge target still finds an in-bounds donor")
         || !require(
-            edge_offset->x() < 0.0 && std::abs(edge_offset->y()) < 1.0e-9,
+            edge_offset->offset_radii.x() < 0.0 && std::abs(edge_offset->offset_radii.y()) < 1.0e-9,
             "edge selection rejects clamped source pixels and searches inward"
         )) {
         return EXIT_FAILURE;
@@ -142,10 +145,10 @@ int main() {
         static_cast<double>(target_x) / static_cast<double>(dimensions.width() - 1),
         static_cast<double>(target_y) / static_cast<double>(dimensions.height() - 1)
     )};
-    const auto texture_clone = select_edit_retouch_donor_offset(
+    const auto texture_clone = select_edit_retouch_donor(
         request(textured, dimensions, textured_target, EditRetouchDonorMode::Clone)
     );
-    const auto texture_heal = select_edit_retouch_donor_offset(
+    const auto texture_heal = select_edit_retouch_donor(
         request(textured, dimensions, textured_target, EditRetouchDonorMode::Heal)
     );
     if (!require(
@@ -153,9 +156,10 @@ int main() {
             "multiscale texture fixtures select a donor for both modes"
         )
         || !require(
-            std::abs(texture_clone->x() - 5.0) < 1.0e-9 && std::abs(texture_clone->y()) < 1.0e-9
-                && std::abs(texture_heal->x() - 5.0) < 1.0e-9
-                && std::abs(texture_heal->y()) < 1.0e-9,
+            std::abs(texture_clone->offset_radii.x() - 5.0) < 1.0e-9
+                && std::abs(texture_clone->offset_radii.y()) < 1.0e-9
+                && std::abs(texture_heal->offset_radii.x() - 5.0) < 1.0e-9
+                && std::abs(texture_heal->offset_radii.y()) < 1.0e-9,
             "multiscale color and directed-gradient structure recover the copied texture"
         )) {
         return EXIT_FAILURE;
@@ -166,14 +170,15 @@ int main() {
         QPointF(0.55, 0.5),
     };
     const auto separated_stroke =
-        select_edit_retouch_donor_offset(request(pixels, dimensions, horizontal_stroke));
+        select_edit_retouch_donor(request(pixels, dimensions, horizontal_stroke));
     if (!require(separated_stroke.has_value(), "a long stroke finds a non-overlapping donor")) {
         return EXIT_FAILURE;
     }
     const double stroke_length_radii = 0.15 * static_cast<double>(dimensions.width() - 1) / 10.0;
     const double minimum_separation = 2.15;
-    const double gap_x = std::max(0.0, std::abs(separated_stroke->x()) - stroke_length_radii);
-    const double gap_y = std::abs(separated_stroke->y());
+    const double gap_x =
+        std::max(0.0, std::abs(separated_stroke->offset_radii.x()) - stroke_length_radii);
+    const double gap_y = std::abs(separated_stroke->offset_radii.y());
     if (!require(
             std::hypot(gap_x, gap_y) >= minimum_separation - 1.0e-9,
             "donor selection rejects source strokes that overlap their target sweep"
@@ -184,7 +189,7 @@ int main() {
     EditRetouchDonorRequest malformed = request(pixels, dimensions, centered);
     malformed.preview_row_stride_bytes = 1U;
     if (!require(
-            !select_edit_retouch_donor_offset(malformed).has_value(),
+            !select_edit_retouch_donor(malformed).has_value(),
             "malformed preview storage fails closed"
         )) {
         return EXIT_FAILURE;

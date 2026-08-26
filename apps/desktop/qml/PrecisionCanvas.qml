@@ -607,6 +607,7 @@ Rectangle {
                     displayScale: canvas.displayScale
                     levelZeroWidth: canvas.imagePixelWidth
                     levelZeroHeight: canvas.imagePixelHeight
+                    selectedRetouchIndex: canvas.selectedRetouchIndex
                     interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive || canvas.editor.rawWhiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
                 }
 

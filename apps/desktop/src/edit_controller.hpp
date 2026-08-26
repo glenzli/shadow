@@ -231,6 +231,11 @@ class EditController final : public QObject {
     Q_PROPERTY(QString maskCoverageSource READ maskCoverageSource NOTIFY maskCoverageSourceChanged)
     Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool aiMaskFaceRegionMode READ aiMaskFaceRegionMode NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(
+        int aiMaskFaceRegion READ aiMaskFaceRegion WRITE setAiMaskFaceRegion NOTIFY
+            aiMaskPromptChanged
+    )
     Q_PROPERTY(
         bool aiMaskForegroundMode READ aiMaskForegroundMode WRITE setAiMaskForegroundMode NOTIFY
             aiMaskPromptChanged
@@ -379,9 +384,22 @@ class EditController final : public QObject {
             retouchCreationModeChanged
     )
     Q_PROPERTY(
+        int retouchBrushRadius READ retouchBrushRadius WRITE setRetouchBrushRadius NOTIFY
+            retouchBrushChanged
+    )
+    Q_PROPERTY(
+        double retouchBrushFeather READ retouchBrushFeather WRITE setRetouchBrushFeather NOTIFY
+            retouchBrushChanged
+    )
+    Q_PROPERTY(
+        double retouchBrushStrength READ retouchBrushStrength WRITE setRetouchBrushStrength NOTIFY
+            retouchBrushChanged
+    )
+    Q_PROPERTY(
         bool retouchSourceAligned READ retouchSourceAligned WRITE setRetouchSourceAligned NOTIFY
             retouchSourceChanged
     )
+    Q_PROPERTY(bool retouchSourcePicking READ retouchSourcePicking NOTIFY retouchSourceChanged)
     Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
     Q_PROPERTY(
         QVariantMap retouchSampledSource READ retouchSampledSource NOTIFY retouchSourceChanged
@@ -493,6 +511,8 @@ class EditController final : public QObject {
     [[nodiscard]] QString maskCoverageSource() const;
     [[nodiscard]] bool aiMaskPromptActive() const noexcept;
     [[nodiscard]] bool aiMaskBusy() const noexcept;
+    [[nodiscard]] bool aiMaskFaceRegionMode() const noexcept;
+    [[nodiscard]] int aiMaskFaceRegion() const noexcept;
     [[nodiscard]] bool aiMaskForegroundMode() const noexcept;
     [[nodiscard]] QVariantList aiMaskPromptPoints() const;
     [[nodiscard]] bool aiMaskCanGenerate() const noexcept;
@@ -554,7 +574,11 @@ class EditController final : public QObject {
     [[nodiscard]] bool pointColorPickerActive() const noexcept;
     [[nodiscard]] bool retouchPickerActive() const noexcept;
     [[nodiscard]] int retouchCreationMode() const noexcept;
+    [[nodiscard]] int retouchBrushRadius() const noexcept;
+    [[nodiscard]] double retouchBrushFeather() const noexcept;
+    [[nodiscard]] double retouchBrushStrength() const noexcept;
     [[nodiscard]] bool retouchSourceAligned() const noexcept;
+    [[nodiscard]] bool retouchSourcePicking() const noexcept;
     [[nodiscard]] bool retouchSourceSampled() const noexcept;
     [[nodiscard]] QVariantMap retouchSampledSource() const;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
@@ -626,7 +650,9 @@ class EditController final : public QObject {
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setMaskToolActive(bool active);
     Q_INVOKABLE bool beginAiMaskPrompt();
+    Q_INVOKABLE bool beginAiFaceMaskPrompt();
     Q_INVOKABLE void setAiMaskForegroundMode(bool foreground);
+    Q_INVOKABLE void setAiMaskFaceRegion(int region);
     Q_INVOKABLE void
     addAiMaskPromptPoint(double normalized_x, double normalized_y, bool foreground);
     Q_INVOKABLE void undoAiMaskPromptPoint();
@@ -638,7 +664,12 @@ class EditController final : public QObject {
     Q_INVOKABLE void cancelFoundationAiDenoise();
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
+    Q_INVOKABLE void setRetouchBrushRadius(int radius_level_zero_pixels);
+    Q_INVOKABLE void setRetouchBrushFeather(double feather);
+    Q_INVOKABLE void setRetouchBrushStrength(double strength);
+    Q_INVOKABLE void adjustRetouchBrushRadius(int direction);
     Q_INVOKABLE void setRetouchSourceAligned(bool aligned);
+    Q_INVOKABLE void setRetouchSourcePicking(bool picking);
     Q_INVOKABLE void setRetouchSourceFromPreview(double normalized_x, double normalized_y);
     Q_INVOKABLE void moveRetouchSourceFromPreview(double normalized_x, double normalized_y);
     Q_INVOKABLE void clearRetouchSource();
@@ -749,10 +780,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void setPointColorPickerActive(bool active);
     Q_INVOKABLE void setWhiteBalancePickerActive(bool active);
     Q_INVOKABLE void setRawWhiteBalancePickerActive(bool active);
-    Q_INVOKABLE void setFoundationWhiteBalanceFromSource(
-        double normalized_x,
-        double normalized_y
-    );
+    Q_INVOKABLE void setFoundationWhiteBalanceFromSource(double normalized_x, double normalized_y);
     Q_INVOKABLE void autoFoundationWhiteBalance();
     Q_INVOKABLE void setWhiteBalanceFromPreview(
         double normalized_x,
@@ -869,6 +897,7 @@ class EditController final : public QObject {
     void pointColorPickerActiveChanged();
     void retouchPickerActiveChanged();
     void retouchCreationModeChanged();
+    void retouchBrushChanged();
     void retouchSourceChanged();
     void liquifyBrushChanged();
     void whiteBalancePickerActiveChanged();
@@ -1096,7 +1125,11 @@ class EditController final : public QObject {
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
     int retouch_creation_mode_ = 0;
+    int retouch_brush_radius_ = 18;
+    double retouch_brush_feather_ = 0.28;
+    double retouch_brush_strength_ = 1.0;
     bool retouch_source_aligned_ = true;
+    bool retouch_source_picking_ = false;
     std::optional<QPointF> retouch_source_anchor_;
     std::optional<QPointF> retouch_aligned_source_offset_radii_;
     double liquify_brush_radius_ = 0.08;

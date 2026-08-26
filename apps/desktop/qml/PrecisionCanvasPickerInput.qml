@@ -20,9 +20,47 @@ Item {
     required property real levelZeroWidth
     required property real levelZeroHeight
     required property bool interactionEnabled
+    // The sampled anchor belongs to authoring the next repair. Once an
+    // authored region is selected, its own exact donor outline is the single
+    // source authority shown on canvas; keeping this session marker visible
+    // would present two unrelated-looking source positions.
+    property int selectedRetouchIndex: -1
 
     visible: interactionEnabled
     enabled: visible
+
+    function showRetouchBrushSizeHud() {
+        retouchBrushSizeHudTimer.restart()
+    }
+
+    Shortcut {
+        objectName: "retouchBrushSmallerShortcut"
+        sequence: "["
+        context: Qt.ApplicationShortcut
+        enabled: pickerInput.enabled && pickerInput.editor.retouchPickerActive
+            && !pickerInput.editor.stateBusy
+        onActivated: {
+            pickerInput.editor.adjustRetouchBrushRadius(-1)
+            pickerInput.showRetouchBrushSizeHud()
+        }
+    }
+
+    Shortcut {
+        objectName: "retouchBrushLargerShortcut"
+        sequence: "]"
+        context: Qt.ApplicationShortcut
+        enabled: pickerInput.enabled && pickerInput.editor.retouchPickerActive
+            && !pickerInput.editor.stateBusy
+        onActivated: {
+            pickerInput.editor.adjustRetouchBrushRadius(1)
+            pickerInput.showRetouchBrushSizeHud()
+        }
+    }
+
+    Timer {
+        id: retouchBrushSizeHudTimer
+        interval: 850
+    }
 
     function normalizedContentPoint(sourceItem, sourceX, sourceY) {
         if (previewContentRect.width <= 0 || previewContentRect.height <= 0) {
@@ -107,10 +145,13 @@ Item {
         property var retouchDraftPoints: []
 
         function retouchBrushDiameter() {
-            // The persisted repair target has an 18px level-zero radius.
-            // Coverage must remain exact even when the image is fitted far
-            // below 1:1. Pointer affordance is handled separately.
-            return Math.max(0.5, 36 * pickerInput.displayScale)
+            // Coverage follows the level-zero radius that will be authored on
+            // release. Keep it exact even when the image is fitted below 1:1.
+            return Math.max(
+                0.5,
+                2 * Number(pickerInput.editor.retouchBrushRadius)
+                    * pickerInput.displayScale
+            )
         }
 
         function appendRetouchDraftPoint(mouse, force) {
@@ -225,10 +266,11 @@ Item {
                 inputArea, mouse.x, mouse.y)
             if (normalized === null)
                 return
-            // Option on macOS and Alt on Windows/Linux establish the durable
-            // source anchor for the following repair gestures. Sampling is a
-            // tool-session action, so it must never create an empty target.
-            if ((mouse.modifiers & Qt.AltModifier) !== 0) {
+            // Explicit source-pick mode makes Clone a visible two-step
+            // operation. Option/Alt remains the fast way to replace the
+            // source while painting either repair mode.
+            if (pickerInput.editor.retouchSourcePicking
+                    || (mouse.modifiers & Qt.AltModifier) !== 0) {
                 pickerInput.editor.setRetouchSourceFromPreview(
                     normalized.x, normalized.y)
                 retouchGestureActive = false
@@ -264,6 +306,8 @@ Item {
         z: 4
         visible: pickerInput.editor.retouchPickerActive
             && pickerInput.editor.retouchSourceSampled
+            && (pickerInput.editor.retouchSourcePicking
+                || pickerInput.selectedRetouchIndex < 0)
         width: 34
         height: 34
         x: canvasPoint.x - width / 2
@@ -339,6 +383,7 @@ Item {
         y: inputArea.pointerY
 
         Rectangle {
+            objectName: "retouchBrushCursor"
             visible: pickerInput.editor.retouchPickerActive
             anchors.centerIn: parent
             width: inputArea.retouchBrushDiameter()
@@ -363,6 +408,44 @@ Item {
                 height: 4
                 radius: 2
                 color: Theme.previewCompareDivider
+            }
+
+            Label {
+                visible: pickerInput.editor.retouchSourcePicking
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.top
+                anchors.bottomMargin: 5
+                text: qsTr("SOURCE")
+                color: Theme.accent
+                font.pixelSize: 9
+                font.bold: true
+
+                Rectangle {
+                    z: -1
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    radius: 3
+                    color: Theme.previewHudStrongOverlay
+                }
+            }
+
+            Label {
+                visible: retouchBrushSizeHudTimer.running
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.bottom
+                anchors.topMargin: 6
+                text: qsTr("%1 px").arg(pickerInput.editor.retouchBrushRadius)
+                color: Theme.previewCompareDivider
+                font.pixelSize: 10
+                font.bold: true
+
+                Rectangle {
+                    z: -1
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    radius: 3
+                    color: Theme.previewHudStrongOverlay
+                }
             }
         }
 

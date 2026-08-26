@@ -13,11 +13,14 @@ mod subject_mask;
 
 use std::{collections::BTreeMap, fmt, io::Write, path::Path};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use image::ImageFormat;
 use infer_runtime_client::{
-    Client as SdkClient, DiscoveryResolver, FaceDetectionResponse, FaceEmbeddingResponse,
-    FivePointLandmarks, Point,
+    BoundingBox, Client as SdkClient, DiscoveryResolver, FaceDetectionResponse,
+    FaceEmbeddingResponse, FaceParsingResponse, FivePointLandmarks, Point,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use tempfile::NamedTempFile;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
@@ -52,7 +55,31 @@ pub use subject_mask::{INFER_SUBJECT_MASK_CAPABILITY, InferSubjectMaskEvidence};
 
 const MAX_DETECTIONS: usize = 4_096;
 const EXPECTED_FACE_ORIENTATION: &str = "input_pixels_no_exif_transform";
+const EXPECTED_FACE_PARSING_ORIENTATION: &str = "display_pixels_orientation_normalized";
 const BIOMETRIC_CLASSIFICATION: &str = "sensitive_biometric";
+pub const FACE_PARSING_ONTOLOGY: &str = "celebamask_hq_19";
+const FACE_PARSING_CLASS_COUNT: usize = 19;
+const FACE_PARSING_CLASS_IDS: [&str; FACE_PARSING_CLASS_COUNT] = [
+    "background",
+    "skin",
+    "left_eyebrow",
+    "right_eyebrow",
+    "left_eye",
+    "right_eye",
+    "eyeglasses",
+    "left_ear",
+    "right_ear",
+    "earring",
+    "nose",
+    "mouth",
+    "upper_lip",
+    "lower_lip",
+    "neck",
+    "necklace",
+    "clothing",
+    "hair",
+    "hat",
+];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisionProvenance {
@@ -112,6 +139,15 @@ pub struct EmbeddedFace {
     pub provenance: VisionProvenance,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedFace {
+    pub source_revision: String,
+    pub width: u32,
+    pub height: u32,
+    pub labels: Vec<u8>,
+    pub provenance: VisionProvenance,
+}
+
 pub trait FaceAnalysisProvider {
     /// # Errors
     ///
@@ -134,6 +170,19 @@ pub trait FaceAnalysisProvider {
         source_revision: &str,
         landmarks: FaceLandmarks,
     ) -> Result<EmbeddedFace, InferRuntimeClientError>;
+
+    /// Returns one full-image CelebAMask-HQ label map for the selected face.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider-specific error without logging image bytes.
+    fn parse_face(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+    ) -> Result<ParsedFace, InferRuntimeClientError>;
 }
 
 /// Synchronous product adapter over the official asynchronous SDK.
@@ -347,6 +396,33 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         ))?;
         admit_face_embedding(response, source_revision)
     }
+
+    fn parse_face(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+    ) -> Result<ParsedFace, InferRuntimeClientError> {
+        if !valid_face_box(face_box) {
+            return malformed("face parsing requires a finite positive face box");
+        }
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata("interactive", None);
+        let response = self.block_on(self.sdk.parse_face(
+            staged.path(),
+            media_type,
+            source_revision,
+            BoundingBox {
+                x: face_box.x,
+                y: face_box.y,
+                width: face_box.width,
+                height: face_box.height,
+            },
+            &metadata,
+        ))?;
+        admit_face_parsing(response, source_revision, face_box)
+    }
 }
 
 fn admit_face_detection(
@@ -431,6 +507,87 @@ fn admit_face_embedding(
         },
         provenance: admit_vision_provenance(response.provenance)?,
     })
+}
+
+fn admit_face_parsing(
+    response: FaceParsingResponse,
+    expected_source_revision: &str,
+    expected_face_box: FaceBoundingBox,
+) -> Result<ParsedFace, InferRuntimeClientError> {
+    if response.object != "vision.face_parsing"
+        || response.status != "completed"
+        || response.source_revision != expected_source_revision
+        || response.data_classification != BIOMETRIC_CLASSIFICATION
+        || response.image.orientation != EXPECTED_FACE_PARSING_ORIENTATION
+        || response.image.width == 0
+        || response.image.height == 0
+        || response.label_map.content_type != "image/png"
+        || response.label_map.encoding != "indexed_u8_png"
+        || response.label_map.width != response.image.width
+        || response.label_map.height != response.image.height
+        || response.ontology.id != FACE_PARSING_ONTOLOGY
+        || response.ontology.background_value != 0
+        || response.ontology.class_count != FACE_PARSING_CLASS_COUNT
+        || response.regions.len() != FACE_PARSING_CLASS_COUNT
+        || !same_face_box(&response.face_box, expected_face_box)
+    {
+        return malformed("face parsing response violated Shadow's typed evidence contract");
+    }
+    let encoded = STANDARD
+        .decode(&response.label_map.data_base64)
+        .map_err(|_| {
+            InferRuntimeClientError::MalformedResponse(
+                "face parsing label map is not valid base64".into(),
+            )
+        })?;
+    if format!("{:x}", Sha256::digest(&encoded)) != response.label_map.sha256 {
+        return malformed("face parsing label-map digest does not match its evidence");
+    }
+    let decoded =
+        image::load_from_memory_with_format(&encoded, ImageFormat::Png).map_err(|_| {
+            InferRuntimeClientError::MalformedResponse(
+                "face parsing label map is not a decodable PNG".into(),
+            )
+        })?;
+    if decoded.color() != image::ColorType::L8 {
+        return malformed("face parsing label map is not an indexed Gray8 raster");
+    }
+    let decoded = decoded.into_luma8();
+    if decoded.width() != response.image.width || decoded.height() != response.image.height {
+        return malformed("face parsing label map dimensions changed after decoding");
+    }
+    let mut class_counts = [0_u64; FACE_PARSING_CLASS_COUNT];
+    for label in decoded.as_raw() {
+        let Some(count) = class_counts.get_mut(usize::from(*label)) else {
+            return malformed("face parsing label map contains an unknown class");
+        };
+        *count += 1;
+    }
+    if response.regions.iter().enumerate().any(|(index, region)| {
+        usize::from(region.label_value) != index
+            || region.class_id
+                != format!(
+                    "{}:{}",
+                    FACE_PARSING_ONTOLOGY, FACE_PARSING_CLASS_IDS[index]
+                )
+            || region.pixel_count != class_counts[index]
+    }) {
+        return malformed("face parsing label map violated the CelebAMask-HQ ontology");
+    }
+    Ok(ParsedFace {
+        source_revision: response.source_revision,
+        width: response.image.width,
+        height: response.image.height,
+        labels: decoded.into_raw(),
+        provenance: admit_vision_provenance(response.provenance)?,
+    })
+}
+
+fn same_face_box(actual: &BoundingBox, expected: FaceBoundingBox) -> bool {
+    (actual.x - expected.x).abs() <= 0.01
+        && (actual.y - expected.y).abs() <= 0.01
+        && (actual.width - expected.width).abs() <= 0.01
+        && (actual.height - expected.height).abs() <= 0.01
 }
 
 fn admit_vision_provenance(
@@ -541,6 +698,16 @@ fn valid_detection(detection: &DetectedFace, width: u32, height: u32) -> bool {
                 && f64::from(point.x) < width
                 && f64::from(point.y) < height
         })
+}
+
+fn valid_face_box(value: FaceBoundingBox) -> bool {
+    [value.x, value.y, value.width, value.height]
+        .iter()
+        .all(|component| component.is_finite())
+        && value.x >= 0.0
+        && value.y >= 0.0
+        && value.width > 0.0
+        && value.height > 0.0
 }
 
 fn valid_provenance(provenance: &VisionProvenance) -> bool {

@@ -9,10 +9,14 @@ Slider {
 
     property real neutralValue: from
     property bool showNeutralMarker: neutralValue > from && neutralValue < to
-    // Most adjustments visualize distance from their neutral value. Amount
-    // controls instead fill from the logical minimum while keeping an
-    // independent reset value (for example AI strength resets to 100%).
-    property bool fillFromMinimum: false
+    // Most adjustments visualize distance from their neutral value. A
+    // non-negative amount whose default is its maximum is different: filling
+    // from that maximum makes 0% look full and 100% look empty. Detect that
+    // common amount contract by default while still allowing a caller to
+    // override it explicitly.
+    property bool fillFromMinimum: from >= 0
+        && Math.abs(neutralValue - to)
+            <= Math.max(0.0000001, Math.abs(to - from) * 0.0000001)
     property color accent: Theme.accent
     property bool semanticTrack: false
     property color trackStartColor: Theme.track

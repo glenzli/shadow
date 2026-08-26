@@ -1553,6 +1553,27 @@ mod ffi {
         foreground: bool,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiSubjectMaskKind {
+        PromptedSubject,
+        FaceRegion,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiFaceRegion {
+        Face,
+        Skin,
+        Eyes,
+        Eyebrows,
+        LipsAndMouth,
+        Nose,
+        Ears,
+        Hair,
+        Neck,
+        Clothing,
+        Accessories,
+    }
+
     /// Immutable input captured before the desktop queues one SAM worker.
     #[derive(Debug)]
     struct FfiSubjectMaskRequest {
@@ -1562,6 +1583,8 @@ mod ffi {
         settings: FfiEditSettings,
         target_grade_node_index: u32,
         target_grade_node_id: String,
+        kind: FfiSubjectMaskKind,
+        face_region: FfiFaceRegion,
         points: Vec<FfiSubjectMaskPoint>,
     }
 

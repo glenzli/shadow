@@ -199,7 +199,10 @@ Item {
         id: sourceCircle
         objectName: "retouchSpotSourceCircle"
 
-        z: 2
+        // A selected donor wins when it overlaps its target. Before
+        // selection, the target retains priority at the overlap while the
+        // distinct donor area remains directly clickable.
+        z: repairHandle.selected ? 2 : 0
         x: repairHandle.sourceX - width / 2
         y: repairHandle.sourceY - height / 2
         width: repairHandle.sourceRadiusPixels * 2
@@ -245,10 +248,11 @@ Item {
                 repairHandle.interactionRadiusPixels
                     - repairHandle.radiusPixels
             )
-            // Keep every donor visible, but only the selected repair owns
-            // donor input. Unselected donors must not steal target selection
-            // or a new paint gesture from the lower canvas input.
-            enabled: repairHandle.selected
+            // The donor itself is a first-class selection target. Pressing an
+            // unselected donor selects its repair and begins the source move
+            // in the same gesture, so editing never requires a hidden
+            // target-first step.
+            enabled: true
             acceptedButtons: Qt.LeftButton
             hoverEnabled: true
             preventStealing: true

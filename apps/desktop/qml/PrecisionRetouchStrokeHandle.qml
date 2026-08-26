@@ -256,31 +256,21 @@ Item {
         font.bold: true
     }
 
-    Item {
-        id: targetHitMask
-        anchors.fill: parent
-        visible: false
-
-        function contains(point) {
-            return strokeHandle.targetContains(point.x, point.y)
-        }
-    }
-
-    Item {
-        id: sourceHitMask
-        anchors.fill: parent
-        visible: false
-
-        function contains(point) {
-            return strokeHandle.sourceContains(point.x, point.y)
-        }
-    }
-
     MouseArea {
         id: targetPointer
         objectName: "retouchStrokeTargetHitArea"
 
-        anchors.fill: parent
+        readonly property point horizontalBounds: strokeHandle.pointBounds(true)
+        readonly property point verticalBounds: strokeHandle.pointBounds(false)
+        readonly property real hitRadius: Math.max(
+            strokeHandle.interactionRadiusPixels,
+            strokeHandle.radiusPixels + 3
+        )
+
+        x: horizontalBounds.x - hitRadius
+        y: verticalBounds.x - hitRadius
+        width: horizontalBounds.y - horizontalBounds.x + 2 * hitRadius
+        height: verticalBounds.y - verticalBounds.x + 2 * hitRadius
         z: 3
         visible: strokeHandle.points.length > 0
         enabled: visible
@@ -290,6 +280,19 @@ Item {
         preventStealing: true
         propagateComposedEvents: false
         cursorShape: Qt.SizeAllCursor
+
+        Item {
+            id: targetHitMask
+            anchors.fill: parent
+            visible: false
+
+            function contains(point) {
+                return strokeHandle.targetContains(
+                    point.x + targetPointer.x,
+                    point.y + targetPointer.y
+                )
+            }
+        }
 
         onPressed: mouse => {
             strokeHandle.selectTarget()
@@ -326,13 +329,22 @@ Item {
         id: sourcePointer
         objectName: "retouchStrokeSourceHitArea"
 
-        anchors.fill: parent
-        z: 4
-        // Donor manipulation belongs to the selected repair. This keeps
-        // unselected donor overlays from stealing a target selection or a
-        // new paint gesture. When donor and target overlap, the selected
-        // donor remains above the target and therefore keeps drag priority.
-        visible: strokeHandle.selected && strokeHandle.points.length > 0
+        readonly property point horizontalBounds:
+            strokeHandle.transformedSourceBounds(true)
+        readonly property point verticalBounds:
+            strokeHandle.transformedSourceBounds(false)
+
+        x: horizontalBounds.x + strokeHandle.sourceOffsetX
+        y: verticalBounds.x + strokeHandle.sourceOffsetY
+        width: horizontalBounds.y - horizontalBounds.x
+        height: verticalBounds.y - verticalBounds.x
+        // Preserve target selection at overlaps until the repair is selected;
+        // the distinct unselected donor coverage is still directly clickable.
+        z: strokeHandle.selected ? 4 : 2
+        // The source coverage remains a direct selection target even before
+        // its repair is selected. One press selects the repair and starts the
+        // source gesture, including when source and target overlap.
+        visible: strokeHandle.points.length > 0
         enabled: visible
         containmentMask: sourceHitMask
         acceptedButtons: Qt.LeftButton
@@ -341,6 +353,19 @@ Item {
         propagateComposedEvents: false
         cursorShape: Qt.CrossCursor
         focus: strokeHandle.selected
+
+        Item {
+            id: sourceHitMask
+            anchors.fill: parent
+            visible: false
+
+            function contains(point) {
+                return strokeHandle.sourceContains(
+                    point.x + sourcePointer.x,
+                    point.y + sourcePointer.y
+                )
+            }
+        }
 
         Keys.onPressed: event => {
             const distance = (event.modifiers & Qt.ShiftModifier) !== 0

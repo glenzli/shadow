@@ -28,6 +28,45 @@ subject_mask_terminal(const shadow::desktop::FfiSubjectMaskTerminal terminal) {
     }
 }
 
+[[nodiscard]] shadow::desktop::FfiSubjectMaskKind
+ffi_subject_mask_kind(const BackendSubjectMaskKind kind) {
+    switch (kind) {
+    case BackendSubjectMaskKind::PromptedSubject:
+        return shadow::desktop::FfiSubjectMaskKind::PromptedSubject;
+    case BackendSubjectMaskKind::FaceRegion:
+        return shadow::desktop::FfiSubjectMaskKind::FaceRegion;
+    }
+    throw std::runtime_error("unknown subject-mask selection kind");
+}
+
+[[nodiscard]] shadow::desktop::FfiFaceRegion ffi_face_region(const BackendFaceRegion region) {
+    switch (region) {
+    case BackendFaceRegion::Face:
+        return shadow::desktop::FfiFaceRegion::Face;
+    case BackendFaceRegion::Skin:
+        return shadow::desktop::FfiFaceRegion::Skin;
+    case BackendFaceRegion::Eyes:
+        return shadow::desktop::FfiFaceRegion::Eyes;
+    case BackendFaceRegion::Eyebrows:
+        return shadow::desktop::FfiFaceRegion::Eyebrows;
+    case BackendFaceRegion::LipsAndMouth:
+        return shadow::desktop::FfiFaceRegion::LipsAndMouth;
+    case BackendFaceRegion::Nose:
+        return shadow::desktop::FfiFaceRegion::Nose;
+    case BackendFaceRegion::Ears:
+        return shadow::desktop::FfiFaceRegion::Ears;
+    case BackendFaceRegion::Hair:
+        return shadow::desktop::FfiFaceRegion::Hair;
+    case BackendFaceRegion::Neck:
+        return shadow::desktop::FfiFaceRegion::Neck;
+    case BackendFaceRegion::Clothing:
+        return shadow::desktop::FfiFaceRegion::Clothing;
+    case BackendFaceRegion::Accessories:
+        return shadow::desktop::FfiFaceRegion::Accessories;
+    }
+    throw std::runtime_error("unknown face-region selector");
+}
+
 } // namespace
 
 std::uint64_t DesktopBackend::beginSubjectMaskJob() const {
@@ -50,6 +89,8 @@ BackendSubjectMaskResult DesktopBackend::executeSubjectMaskJob(
     ffi_request.settings = ffi_grade_stack(request.grade_stack);
     ffi_request.target_grade_node_index = request.target_grade_node_index;
     ffi_request.target_grade_node_id = request.target_grade_node_id.toStdString();
+    ffi_request.kind = ffi_subject_mask_kind(request.kind);
+    ffi_request.face_region = ffi_face_region(request.face_region);
     ffi_request.points.reserve(static_cast<std::size_t>(request.points.size()));
     for (const auto& point : request.points) {
         ffi_request.points.push_back({

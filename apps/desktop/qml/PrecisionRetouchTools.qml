@@ -103,6 +103,7 @@ ColumnLayout {
             spacing: 8
 
             ShadowIconButton {
+                objectName: "retouchHealToolButton"
                 buttonSize: 36
                 iconSize: 19
                 source: "qrc:/icons/heal.svg"
@@ -113,10 +114,12 @@ ColumnLayout {
                 onClicked: {
                     retouch.inspector.editor.setRetouchCreationMode(0)
                     retouch.inspector.editor.setRetouchPickerActive(true)
+                    retouch.inspector.editor.setRetouchSourcePicking(false)
                 }
             }
 
             ShadowIconButton {
+                objectName: "retouchCloneToolButton"
                 buttonSize: 36
                 iconSize: 19
                 source: "qrc:/icons/clone.svg"
@@ -127,10 +130,69 @@ ColumnLayout {
                 onClicked: {
                     retouch.inspector.editor.setRetouchCreationMode(1)
                     retouch.inspector.editor.setRetouchPickerActive(true)
+                    if (!retouch.inspector.editor.retouchSourceSampled)
+                        retouch.inspector.editor.setRetouchSourcePicking(true)
                 }
             }
 
             Item { Layout.fillWidth: true }
+        }
+
+        ShadowSlider {
+            objectName: "retouchBrushSizeSlider"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Size")
+            from: 1
+            to: 128
+            stepSize: 1
+            neutralValue: 18
+            decimals: 0
+            suffix: qsTr(" px")
+            value: retouch.inspector.editor.retouchBrushRadius
+            enabled: retouch.controlsEnabled
+            toolTipText: qsTr("Radius used by the next repair · use [ and ] over the image")
+            onEdited: value =>
+                retouch.inspector.editor.setRetouchBrushRadius(Math.round(value))
+        }
+
+        ShadowSlider {
+            objectName: "retouchBrushStrengthSlider"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Strength")
+            from: 0
+            to: 1
+            stepSize: 0.01
+            neutralValue: 1
+            decimals: 0
+            displayMultiplier: 100
+            suffix: qsTr("%")
+            value: retouch.inspector.editor.retouchBrushStrength
+            enabled: retouch.controlsEnabled
+            toolTipText: qsTr("Opacity used by the next repair")
+            onEdited: value => retouch.inspector.editor.setRetouchBrushStrength(value)
+        }
+
+        ShadowSlider {
+            objectName: "retouchBrushFeatherSlider"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Feather")
+            from: 0
+            to: 1
+            stepSize: 0.01
+            neutralValue: 0.28
+            decimals: 0
+            displayMultiplier: 100
+            suffix: qsTr("%")
+            value: retouch.inspector.editor.retouchBrushFeather
+            enabled: retouch.controlsEnabled
+            toolTipText: qsTr("Edge softness used by the next repair")
+            onEdited: value => retouch.inspector.editor.setRetouchBrushFeather(value)
         }
 
         RowLayout {
@@ -141,6 +203,18 @@ ColumnLayout {
             Layout.topMargin: 4
             spacing: 6
             visible: retouch.inspector.editor.retouchPickerActive
+
+            ShadowButton {
+                objectName: "retouchSelectSourceButton"
+                Layout.fillWidth: true
+                compact: true
+                selected: retouch.inspector.editor.retouchSourcePicking
+                text: retouch.inspector.editor.retouchSourceSampled
+                    ? qsTr("Reselect source") : qsTr("Select source")
+                toolTipText: qsTr("Click, then choose a source directly on the image")
+                onClicked: retouch.inspector.editor.setRetouchSourcePicking(
+                    !retouch.inspector.editor.retouchSourcePicking)
+            }
 
             ShadowButton {
                 objectName: "retouchAlignedSourceButton"
@@ -167,7 +241,9 @@ ColumnLayout {
                 compact: true
                 visible: retouch.inspector.editor.retouchSourceSampled
                 text: qsTr("Clear")
-                toolTipText: qsTr("Return to automatic nearby source selection")
+                toolTipText: retouch.inspector.editor.retouchCreationMode === 1
+                    ? qsTr("Clear and choose a new clone source")
+                    : qsTr("Return to automatic nearby source selection")
                 onClicked: retouch.inspector.editor.clearRetouchSource()
             }
         }
@@ -179,9 +255,13 @@ ColumnLayout {
             Layout.topMargin: 6
             Layout.bottomMargin: 10
             text: retouch.inspector.editor.retouchPickerActive
-                ? (retouch.inspector.editor.retouchSourceSampled
+                ? (retouch.inspector.editor.retouchSourcePicking
+                    ? qsTr("Click the image to choose the source area.")
+                    : retouch.inspector.editor.retouchSourceSampled
                     ? qsTr("Source set · drag its crosshair to move · paint the repair")
-                    : qsTr("Option/Alt-click to set a source, then paint · drag an outlined source to revise a repair"))
+                    : retouch.inspector.editor.retouchCreationMode === 1
+                        ? qsTr("Select a source before painting with Clone.")
+                        : qsTr("Heal selects a nearby source automatically · use Select source to override"))
                 : retouch.regionCount > 0
                     ? qsTr("Select a repair region below or on the image.")
                     : qsTr("Choose Heal or Clone, then paint on the image.")

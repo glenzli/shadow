@@ -12,6 +12,11 @@
 
 class EditController;
 
+enum class AiMaskSelectionKind : std::uint8_t {
+    PromptedSubject,
+    FaceRegion,
+};
+
 struct EditAiMaskExecutionResult final {
     BackendSubjectMaskResult result;
     QString error;
@@ -37,13 +42,16 @@ class EditAiMaskController final {
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] bool locksInteraction() const noexcept;
     [[nodiscard]] bool foregroundMode() const noexcept;
+    [[nodiscard]] bool faceRegionMode() const noexcept;
+    [[nodiscard]] int faceRegion() const noexcept;
     [[nodiscard]] bool canGenerate() const noexcept;
     [[nodiscard]] bool hasCandidate() const noexcept;
     [[nodiscard]] QString candidateSource() const;
     [[nodiscard]] QVariantList promptPoints() const;
 
-    [[nodiscard]] bool beginPrompt();
+    [[nodiscard]] bool beginPrompt(AiMaskSelectionKind kind);
     void setForegroundMode(bool foreground);
+    void setFaceRegion(int region);
     void appendPoint(double x, double y, bool foreground);
     void undoPoint();
     void clearPoints();
@@ -80,5 +88,7 @@ class EditAiMaskController final {
     QString candidate_source_;
     bool active_ = false;
     bool foreground_mode_ = true;
+    AiMaskSelectionKind selection_kind_ = AiMaskSelectionKind::PromptedSubject;
+    BackendFaceRegion face_region_ = BackendFaceRegion::Face;
     bool apply_in_flight_ = false;
 };

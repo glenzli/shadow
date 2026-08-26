@@ -14,7 +14,12 @@ Item {
     property alias to: slider.to
     property alias stepSize: slider.stepSize
     property real neutralValue: from
-    property bool fillFromMinimum: false
+    // Positive amount controls commonly reset at their maximum (opacity,
+    // strength, quality). Their progress must still run minimum -> current;
+    // centered and signed adjustments continue to fill from neutral.
+    property bool fillFromMinimum: from >= 0
+        && Math.abs(neutralValue - to)
+            <= Math.max(0.0000001, Math.abs(to - from) * 0.0000001)
     property int decimals: 2
     property real displayMultiplier: 1.0
     property string suffix: ""

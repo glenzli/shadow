@@ -2,7 +2,9 @@
 
 #include <QVariantMap>
 
+#include <algorithm>
 #include <cmath>
+#include <numeric>
 
 std::optional<QVector<EditStrokeInput::NormalizedSample>>
 EditStrokeInput::decodeNormalizedSamples(
@@ -60,4 +62,29 @@ std::optional<QVector<QPointF>> EditStrokeInput::decodeNormalizedPoints(
         points.push_back(sample.position);
     }
     return points;
+}
+
+std::optional<QPointF>
+EditStrokeInput::normalizedBoundsCenter(const std::span<const QPointF> points) noexcept {
+    if (points.empty()) {
+        return std::nullopt;
+    }
+    double lower_x = 1.0;
+    double upper_x = 0.0;
+    double lower_y = 1.0;
+    double upper_y = 0.0;
+    for (const QPointF& point : points) {
+        if (!std::isfinite(point.x()) || !std::isfinite(point.y()) || point.x() < 0.0
+            || point.x() > 1.0 || point.y() < 0.0 || point.y() > 1.0) {
+            return std::nullopt;
+        }
+        lower_x = std::min(lower_x, point.x());
+        upper_x = std::max(upper_x, point.x());
+        lower_y = std::min(lower_y, point.y());
+        upper_y = std::max(upper_y, point.y());
+    }
+    return QPointF{
+        std::midpoint(lower_x, upper_x),
+        std::midpoint(lower_y, upper_y),
+    };
 }

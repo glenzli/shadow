@@ -300,7 +300,8 @@ sampled_path(const std::span<const QPointF> points, const double width, const do
 
 } // namespace
 
-std::optional<QPointF> select_edit_retouch_donor_offset(const EditRetouchDonorRequest& request) {
+std::optional<EditRetouchDonorSelection>
+select_edit_retouch_donor(const EditRetouchDonorRequest& request) {
     if (!valid_request(request)) {
         return std::nullopt;
     }
@@ -324,7 +325,9 @@ std::optional<QPointF> select_edit_retouch_donor_offset(const EditRetouchDonorRe
     constexpr std::size_t direction_count = 16U;
     const double maximum_offset_radii = (512.0 - 1.0) / request.radius_level_zero_pixels - 1.0;
     double best_score = std::numeric_limits<double>::infinity();
+    double second_best_score = std::numeric_limits<double>::infinity();
     std::optional<QPointF> best;
+    std::size_t candidate_count = 0U;
     for (const double distance : distances) {
         if (distance > maximum_offset_radii) {
             continue;
@@ -352,11 +355,34 @@ std::optional<QPointF> select_edit_retouch_donor_offset(const EditRetouchDonorRe
             }
             const double score =
                 candidate_score(request, path, offset_x, offset_y, radius_x, radius_y);
+            if (!std::isfinite(score)) {
+                continue;
+            }
+            ++candidate_count;
             if (score < best_score) {
+                second_best_score = best_score;
                 best_score = score;
                 best = QPointF(offset_x_radii, offset_y_radii);
+            } else if (score < second_best_score) {
+                second_best_score = score;
             }
         }
     }
-    return best;
+    if (!best.has_value()) {
+        return std::nullopt;
+    }
+    // Boundary similarity is the primary signal. Candidate separation is a
+    // smaller tiebreaker so an even sky or wall remains a useful, confident
+    // automatic source instead of being rejected merely because many nearby
+    // patches are equivalent.
+    const double absolute_quality = 1.0 / (1.0 + 20.0 * best_score);
+    const double separation =
+        std::isfinite(second_best_score) && second_best_score > 1.0e-12
+            ? std::clamp((second_best_score - best_score) / second_best_score, 0.0, 1.0)
+            : 0.0;
+    return EditRetouchDonorSelection{
+        .offset_radii = *best,
+        .confidence = std::clamp(absolute_quality * (0.82 + 0.18 * separation), 0.0, 1.0),
+        .candidate_count = candidate_count,
+    };
 }

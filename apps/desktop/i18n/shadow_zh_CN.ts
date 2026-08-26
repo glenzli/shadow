@@ -866,6 +866,18 @@
         <translation>已添加修复点</translation>
     </message>
     <message>
+        <location filename="../src/edit_retouch_controller.cpp" line="472"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="584"/>
+        <source>Using a nearby fallback source · drag the outlined source to refine it</source>
+        <translation>正在使用邻近备用源区 · 拖动带轮廓的源区可进一步调整</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_retouch_controller.cpp" line="477"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="589"/>
+        <source>Automatic repair source is uncertain · drag the outlined source to refine it</source>
+        <translation>自动修复源区可信度较低 · 拖动带轮廓的源区可进一步调整</translation>
+    </message>
+    <message>
         <location filename="../src/edit_retouch_controller.cpp" line="190"/>
         <source>Repair supports at most 64 strokes</source>
         <translation>修复最多支持 64 笔</translation>
@@ -1337,14 +1349,17 @@
         <translation>AI 蒙版正在识别主体…</translation>
     </message>
     <message>
+        <source>AI Mask is identifying facial details…</source>
+        <translation>AI 蒙版正在识别人脸细节…</translation>
+    </message>
+    <message>
         <location filename="../src/edit_ai_mask_controller.cpp" line="420"/>
         <source>AI Mask is waiting for the current adjustments to finish saving</source>
         <translation>AI 蒙版正在等待当前调整保存完成</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="326"/>
-        <source>AI Mask needs an enabled Grade Node without an existing mask</source>
-        <translation>AI 蒙版需要一个已启用且尚无蒙版的调色节点</translation>
+        <source>AI selection needs room for a new Grade Node</source>
+        <translation>AI 选择需要有空间新建调色节点</translation>
     </message>
     <message>
         <location filename="../src/edit_ai_mask_controller.cpp" line="604"/>
@@ -1383,6 +1398,10 @@
         <translation>AI 蒙版候选已就绪 · 可继续添加提示点细化或应用</translation>
     </message>
     <message>
+        <source>Facial detail candidate ready · choose another region or apply</source>
+        <translation>人脸细节候选已就绪 · 可选择其他区域或应用</translation>
+    </message>
+    <message>
         <location filename="../src/edit_ai_mask_controller.cpp" line="637"/>
         <source>Could not apply AI Mask · %1</source>
         <translation>无法应用 AI 蒙版 · %1</translation>
@@ -1396,6 +1415,14 @@
         <location filename="../src/edit_ai_mask_controller.cpp" line="584"/>
         <source>Local SAM 2.1 is unavailable · check the model directory · %1</source>
         <translation>本地 SAM 2.1 不可用 · 请检查模型目录 · %1</translation>
+    </message>
+    <message>
+        <source>Local face parsing is unavailable · check Infer Runtime · %1</source>
+        <translation>本地人脸解析不可用 · 请检查 Infer Runtime · %1</translation>
+    </message>
+    <message>
+        <source>People details · choose a region, then click the face</source>
+        <translation>人物细节 · 选择区域，然后点击人脸</translation>
     </message>
     <message>
         <location filename="../src/edit_liquify_controller.cpp" line="217"/>
@@ -1507,6 +1534,14 @@
         <location filename="../src/edit_retouch_controller.cpp" line="282"/>
         <source>Repair source sampled</source>
         <translation>修复源区已取样</translation>
+    </message>
+    <message>
+        <source>Click the image to choose a repair source</source>
+        <translation>点击图像选择修复源区</translation>
+    </message>
+    <message>
+        <source>Choose a clone source before painting</source>
+        <translation>请先选择仿制源区，再开始绘制</translation>
     </message>
     <message>
         <location filename="../src/edit_retouch_controller.cpp" line="350"/>
@@ -7381,6 +7416,27 @@ R %2 · G %3 · B %4</translation>
         <translation>使用带羽化的修复或附近仿制源移除小瑕疵。</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="150"/>
+        <source>Radius used by the next repair · use [ and ] over the image</source>
+        <translation>用于下一处修复的半径 · 在图像上使用 [ 和 ] 调整</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="167"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="186"/>
+        <source>%</source>
+        <translation>%</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="170"/>
+        <source>Opacity used by the next repair</source>
+        <translation>用于下一处修复的不透明度</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="189"/>
+        <source>Edge softness used by the next repair</source>
+        <translation>用于下一处修复的边缘柔和度</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="95"/>
         <location filename="../qml/PrecisionRetouchTools.qml" line="111"/>
         <source>Heal</source>
@@ -7455,9 +7511,32 @@ R %2 · G %3 · B %4</translation>
         <translation>已绘制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="185"/>
-        <source>Option/Alt-click to set a source, then paint · drag an outlined source to revise a repair</source>
-        <translation>Option/Alt 点击设置源区，然后绘制 · 拖动带轮廓的源区可调整已有修复</translation>
+        <source>Select source</source>
+        <translation>选择源区</translation>
+    </message>
+    <message>
+        <source>Reselect source</source>
+        <translation>重新选择源区</translation>
+    </message>
+    <message>
+        <source>Click, then choose a source directly on the image</source>
+        <translation>点击后直接在图像上选择源区</translation>
+    </message>
+    <message>
+        <source>Clear and choose a new clone source</source>
+        <translation>清除并重新选择仿制源区</translation>
+    </message>
+    <message>
+        <source>Click the image to choose the source area.</source>
+        <translation>点击图像选择源区。</translation>
+    </message>
+    <message>
+        <source>Select a source before painting with Clone.</source>
+        <translation>使用仿制前请先选择源区。</translation>
+    </message>
+    <message>
+        <source>Heal selects a nearby source automatically · use Select source to override</source>
+        <translation>修复会自动选择附近源区 · 可用“选择源区”手动覆盖</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRetouchTools.qml" line="152"/>
@@ -7660,6 +7739,10 @@ R %2 · G %3 · B %4</translation>
         <translation>AI 主体</translation>
     </message>
     <message>
+        <source>AI people details</source>
+        <translation>AI 人物细节</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="91"/>
         <source>Clear</source>
         <translation>清除</translation>
@@ -7695,9 +7778,76 @@ R %2 · G %3 · B %4</translation>
         <translation>包含点用于识别主体，排除点用于移除邻近区域。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionMaskCreateMenu.qml" line="283"/>
-        <source>Prompt SAM 2.1 on the selected Grade Node</source>
-        <translation>在所选调色节点上使用 SAM 2.1 提示点蒙版</translation>
+        <source>Create a new Grade Node and prompt SAM 2.1</source>
+        <translation>新建调色节点并使用 SAM 2.1 提示点蒙版</translation>
+    </message>
+    <message>
+        <source>Create a new Grade Node and select facial features</source>
+        <translation>新建调色节点并选择人脸五官</translation>
+    </message>
+    <message>
+        <source>Choose a facial region, then click the face to bind it to this Grade Node.</source>
+        <translation>选择人脸区域，然后点击人脸，将蒙版绑定到此调色节点。</translation>
+    </message>
+    <message>
+        <source>Identifying facial details…</source>
+        <translation>正在识别人脸细节…</translation>
+    </message>
+    <message>
+        <source>Click one face</source>
+        <translation>点击一张人脸</translation>
+    </message>
+    <message>
+        <source>Region</source>
+        <translation>区域</translation>
+    </message>
+    <message>
+        <source>Facial region</source>
+        <translation>人脸区域</translation>
+    </message>
+    <message>
+        <source>Face</source>
+        <translation>人脸</translation>
+    </message>
+    <message>
+        <source>Skin</source>
+        <translation>皮肤</translation>
+    </message>
+    <message>
+        <source>Eyes</source>
+        <translation>眼睛</translation>
+    </message>
+    <message>
+        <source>Eyebrows</source>
+        <translation>眉毛</translation>
+    </message>
+    <message>
+        <source>Lips and mouth</source>
+        <translation>嘴唇与口部</translation>
+    </message>
+    <message>
+        <source>Nose</source>
+        <translation>鼻子</translation>
+    </message>
+    <message>
+        <source>Ears</source>
+        <translation>耳朵</translation>
+    </message>
+    <message>
+        <source>Hair</source>
+        <translation>头发</translation>
+    </message>
+    <message>
+        <source>Neck</source>
+        <translation>颈部</translation>
+    </message>
+    <message>
+        <source>Clothing</source>
+        <translation>衣服</translation>
+    </message>
+    <message>
+        <source>Accessories</source>
+        <translation>配饰</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="82"/>
@@ -11808,6 +11958,11 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/PrecisionCanvasPickerInput.qml" line="301"/>
         <source>SOURCE</source>
         <translation>源区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="410"/>
+        <source>%1 px</source>
+        <translation>%1 像素</translation>
     </message>
 </context>
 <context>

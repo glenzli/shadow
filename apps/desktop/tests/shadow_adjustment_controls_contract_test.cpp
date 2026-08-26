@@ -172,7 +172,6 @@ int main(int argc, char* argv[]) {
             {QStringLiteral("from"), 0.0},
             {QStringLiteral("to"), 100.0},
             {QStringLiteral("neutralValue"), 100.0},
-            {QStringLiteral("fillFromMinimum"), true},
             {QStringLiteral("value"), 40.0},
             {QStringLiteral("width"), 240.0},
         }
@@ -187,12 +186,23 @@ int main(int argc, char* argv[]) {
         SLOT(recordInlineReset(double))
     );
     if (!require(
+            inline_slider->property("fillFromMinimum").toBool(),
+            "positive maximum-default amounts fill from their logical minimum by default"
+        )
+        || !require(
             std::abs(inline_slider->property("fillStartPosition").toDouble()) < 0.000'001,
             "amount slider fill begins at its logical minimum"
         )
         || !require(
             std::abs(inline_slider->property("fillEndPosition").toDouble() - 0.4) < 0.000'001,
             "amount slider fill ends at its current value"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    if (!require(
+            !slider->property("fillFromMinimum").toBool(),
+            "signed adjustments continue to visualize distance from neutral"
         )) {
         return EXIT_FAILURE;
     }

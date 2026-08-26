@@ -36,6 +36,34 @@ fn empty_prepared_input_is_rejected_without_creating_scratch() {
     assert_eq!(count_files(&fixture.scratch_root), 0);
 }
 
+#[test]
+fn face_region_composition_maps_only_the_selected_ontology_classes() {
+    let extent = RasterExtent::new(4, 2).unwrap();
+    let labels = [1, 4, 5, 10, 11, 12, 13, 17];
+
+    assert_eq!(
+        compose_face_region_mask(&labels, extent, FaceRegion::Eyes).unwrap(),
+        vec![0, 255, 255, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        compose_face_region_mask(&labels, extent, FaceRegion::LipsAndMouth).unwrap(),
+        vec![0, 0, 0, 0, 255, 255, 255, 0]
+    );
+    assert_eq!(
+        compose_face_region_mask(&labels, extent, FaceRegion::Hair).unwrap(),
+        vec![0, 0, 0, 0, 0, 0, 0, 255]
+    );
+}
+
+#[test]
+fn absent_face_region_fails_instead_of_staging_an_empty_mask() {
+    let extent = RasterExtent::new(2, 2).unwrap();
+    assert!(matches!(
+        compose_face_region_mask(&[1, 1, 1, 1], extent, FaceRegion::Accessories),
+        Err(SubjectMaskRuntimeError::FaceRegionUnavailable)
+    ));
+}
+
 struct Fixture {
     root: PathBuf,
     scratch_root: PathBuf,

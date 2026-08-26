@@ -361,6 +361,25 @@ struct BackendSubjectMaskPoint final {
     bool operator==(const BackendSubjectMaskPoint&) const = default;
 };
 
+enum class BackendSubjectMaskKind : std::uint8_t {
+    PromptedSubject,
+    FaceRegion,
+};
+
+enum class BackendFaceRegion : std::uint8_t {
+    Face,
+    Skin,
+    Eyes,
+    Eyebrows,
+    LipsAndMouth,
+    Nose,
+    Ears,
+    Hair,
+    Neck,
+    Clothing,
+    Accessories,
+};
+
 enum class BackendSubjectMaskTerminal : std::uint8_t {
     Staged,
     Unavailable,
@@ -375,6 +394,8 @@ struct BackendSubjectMaskRequest final {
     BackendGradeStack grade_stack;
     std::uint32_t target_grade_node_index = 0;
     QString target_grade_node_id;
+    BackendSubjectMaskKind kind = BackendSubjectMaskKind::PromptedSubject;
+    BackendFaceRegion face_region = BackendFaceRegion::Face;
     QVector<BackendSubjectMaskPoint> points;
 };
 
