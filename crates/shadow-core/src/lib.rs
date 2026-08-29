@@ -78,8 +78,10 @@ pub use library_metadata::{
 };
 pub use native_path::{NativePathError, native_location, native_path_from_location};
 pub use people_analysis::{
-    DEFAULT_PEOPLE_MAXIMUM_COSINE_DISTANCE, PeopleAnalysisError, PeopleAnalysisPolicy,
-    PeopleAnalysisReport, PeopleAnalysisSkipped, PeopleGroupPreview, analyze_review_people,
+    DEFAULT_PEOPLE_MAXIMUM_COSINE_DISTANCE, PeopleAnalysisControl, PeopleAnalysisError,
+    PeopleAnalysisPhase, PeopleAnalysisPolicy, PeopleAnalysisProgress, PeopleAnalysisReport,
+    PeopleAnalysisSkipped, PeopleGroupPreview, analyze_review_people,
+    analyze_review_people_with_control,
 };
 pub use performance::{
     DecodePerformance, DurationStats, IMPORT_ENGINE_PERFORMANCE_SCHEMA_VERSION,
