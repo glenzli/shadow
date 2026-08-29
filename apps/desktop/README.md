@@ -371,6 +371,10 @@ Its implementation follows the same navigation:
 - [`src/edit_mask_assignment_controller.cpp`](src/edit_mask_assignment_controller.cpp) owns the
   atomic choice between attaching a new mask to the selected empty node and creating, masking,
   inserting, and selecting one new node. QML never chains those state mutations.
+- [`src/edit_ai_mask_controller.*`](src/edit_ai_mask_controller.hpp) owns the complete subject-mask
+  prompt lifecycle: one node-bound input session, point refinement, provider-job cancellation,
+  candidate presentation, and the separate apply transaction. One identity-checked rendered input
+  is reused across refinements and retired on apply, cancellation, or edit-context change.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
   presentation, in-session clipboard semantics, the enumerable scalar-parameter contract,
   geometry/condition validation, and brush strokes. Ordinary photo-local masks are not named or

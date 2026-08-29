@@ -11,6 +11,12 @@ fn policy_controls_analysis_recipe_and_cache_admission() {
     assert!(!interactive.admits_durable_cache());
     assert!(!interactive.returns_sensor_diagnostics());
 
+    let subject_mask_input = EditPreviewPolicy::SubjectMaskInput;
+    assert!(subject_mask_input.uses_working_recipe());
+    assert!(!subject_mask_input.requires_analysis());
+    assert!(!subject_mask_input.admits_durable_cache());
+    assert!(!subject_mask_input.returns_sensor_diagnostics());
+
     let settled =
         EditPreviewPolicy::from_ffi(ffi::FfiEditPreviewPolicy::Settled).expect("settled policy");
     assert!(settled.uses_working_recipe());
@@ -43,6 +49,10 @@ fn policy_controls_analysis_recipe_and_cache_admission() {
     ));
     assert!(!admits_recipe_preview_cache(
         interactive,
+        PreviewTerminalClaim::Completed
+    ));
+    assert!(!admits_recipe_preview_cache(
+        subject_mask_input,
         PreviewTerminalClaim::Completed
     ));
     assert!(admits_recipe_preview_cache(

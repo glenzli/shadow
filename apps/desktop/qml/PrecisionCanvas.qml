@@ -548,15 +548,21 @@ Rectangle {
                     z: 101
                     interactionEnabled: canvas.editor.aiMaskPromptActive && !canvas.comparisonActive && canvas.previewFrameReady
                     busy: canvas.editor.aiMaskBusy
+                    faceRegionMode: canvas.editor.aiMaskFaceRegionMode
                     foregroundMode: canvas.editor.aiMaskForegroundMode
                     promptPoints: canvas.editor.aiMaskPromptPoints
                     candidateSource: canvas.editor.aiMaskCandidateSource
                     candidateVisible: canvas.editor.aiMaskHasCandidate
                     foregroundColor: Theme.labelGreen
                     backgroundColor: Theme.labelRed
+                    candidateColor: Theme.labelPurple
                     onPointRequested: (normalizedX, normalizedY, foreground) => canvas.editor.addAiMaskPromptPoint(normalizedX, normalizedY, foreground)
                     onUndoRequested: canvas.editor.undoAiMaskPromptPoint()
                     onClearRequested: canvas.editor.clearAiMaskPromptPoints()
+                    onForegroundModeRequested: foreground => canvas.editor.aiMaskForegroundMode = foreground
+                    onRetryRequested: canvas.editor.generateAiMask()
+                    onApplyRequested: canvas.editor.applyAiMaskCandidate()
+                    onCancelRequested: canvas.editor.cancelAiMaskPrompt()
                 }
 
                 PrecisionCropOverlay {

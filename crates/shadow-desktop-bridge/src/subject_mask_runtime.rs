@@ -14,7 +14,10 @@ use std::{
     path::Path,
     path::PathBuf,
     str::FromStr,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use shadow_ai::{
@@ -22,11 +25,11 @@ use shadow_ai::{
     AiGeneratedPayload, AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactHashAlgorithm,
     ArtifactReference, BackendKind, CancellationToken, ExecutionLease, ExecutionPlanIdentity,
     ExecutionRouteIdentity, FaceAnalysisProvider, FaceBoundingBox, FallbackDisclosure,
-    InferRuntimeClient, InputRole, MaskPrompt, MaskPromptPoint,
-    MaskSemantic, NumericPrecision, ObservationTarget, PrivacyClass, ProviderExecutionClass,
-    ProviderIdentity, ProviderTerminal, RasterExtent, ResourceEstimate, RunPlan,
-    RuntimeProgressReporter, RuntimeProvider, RuntimeUsage, SoftMaskArtifact, SoftMaskEncoding,
-    SubjectMaskParameters, TaskPriority, UnitInterval, bind_local_service_execution,
+    InferRuntimeClient, InputRole, MaskPrompt, MaskPromptPoint, MaskSemantic, NumericPrecision,
+    ObservationTarget, PrivacyClass, ProviderExecutionClass, ProviderIdentity, ProviderTerminal,
+    RasterExtent, ResourceEstimate, RunPlan, RuntimeProgressReporter, RuntimeProvider,
+    RuntimeUsage, SoftMaskArtifact, SoftMaskEncoding, SubjectMaskParameters, TaskPriority,
+    UnitInterval, bind_local_service_execution,
 };
 use shadow_core::{
     DerivedRasterStageError, DerivedRasterStageReceipt, FilesystemDerivedRasterStore,
@@ -49,23 +52,6 @@ pub(crate) struct SubjectMaskRuntime {
 }
 
 #[derive(Debug)]
-pub(crate) struct PreparedSubjectMaskInput {
-    path: PathBuf,
-}
-
-impl PreparedSubjectMaskInput {
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for PreparedSubjectMaskInput {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-#[derive(Debug)]
 pub(crate) struct SubjectMaskInvocation {
     pub(crate) request_id: String,
     pub(crate) promotion_id: String,
@@ -74,7 +60,8 @@ pub(crate) struct SubjectMaskInvocation {
     /// Display-encoded current edits with final photo geometry forced to
     /// identity. Prompt points and the generated raster therefore share the
     /// original-image normalized coordinate space used by Grade Node masks.
-    pub(crate) original_space_input_jpeg: PathBuf,
+    pub(crate) original_space_input_jpeg: Arc<[u8]>,
+    pub(crate) original_space_input_content_hash: String,
     pub(crate) coordinate_extent: RasterExtent,
     pub(crate) selection: SubjectMaskSelection,
 }
@@ -121,26 +108,6 @@ impl SubjectMaskRuntime {
         })
     }
 
-    pub(crate) fn prepare_input_jpeg(
-        &self,
-        bytes: &[u8],
-    ) -> Result<PreparedSubjectMaskInput, SubjectMaskRuntimeError> {
-        if bytes.is_empty() || bytes.len() > MAX_PROVIDER_INPUT_JPEG_BYTES {
-            return Err(SubjectMaskRuntimeError::InputSize(bytes.len()));
-        }
-        let path = self.next_scratch_path("input", "jpg")?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(SubjectMaskRuntimeError::Scratch)?;
-        if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
-            let _ = fs::remove_file(&path);
-            return Err(SubjectMaskRuntimeError::Scratch(error));
-        }
-        Ok(PreparedSubjectMaskInput { path })
-    }
-
     pub(crate) fn stage(
         &self,
         store: &FilesystemDerivedRasterStore,
@@ -159,11 +126,8 @@ impl SubjectMaskRuntime {
         invocation: SubjectMaskInvocation,
         cancellation: &CancellationToken,
     ) -> Result<DerivedRasterStageReceipt, SubjectMaskRuntimeError> {
-        let input_bytes = fs::read(&invocation.original_space_input_jpeg)
-            .map_err(|_| SubjectMaskRuntimeError::InputUnavailable)?;
-        if input_bytes.is_empty() || input_bytes.len() > MAX_PROVIDER_INPUT_JPEG_BYTES {
-            return Err(SubjectMaskRuntimeError::InputSize(input_bytes.len()));
-        }
+        let input_bytes = invocation.original_space_input_jpeg.as_ref();
+        validate_input_jpeg(input_bytes)?;
         let photo_id = PhotoId::from_str(&invocation.photo_id)
             .map_err(|_| SubjectMaskRuntimeError::InvalidPhotoId)?;
         let prompt_points = match &invocation.selection {
@@ -176,7 +140,7 @@ impl SubjectMaskRuntime {
         prompt
             .validate()
             .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?;
-        let input_content_hash = blake3::hash(&input_bytes).to_hex().to_string();
+        let input_content_hash = &invocation.original_space_input_content_hash;
         let request = AiJobRequest {
             contract_version: AI_JOB_REQUEST_CONTRACT_VERSION,
             request_id: invocation.request_id.clone(),
@@ -218,7 +182,7 @@ impl SubjectMaskRuntime {
         let (samples, raster_extent, provenance, api_contract) = match &invocation.selection {
             SubjectMaskSelection::PromptedSubject { .. } => {
                 let Some(evidence) = client.segment_subject_soft_mask_cancellable(
-                    &input_bytes,
+                    input_bytes,
                     &source_revision,
                     match &request.parameters {
                         AiTaskParameters::SubjectMask(parameters) => match &parameters.prompt {
@@ -250,7 +214,7 @@ impl SubjectMaskRuntime {
                     return Ok(cancelled_stage_receipt(&invocation));
                 }
                 let detections =
-                    client.detect_faces(&input_bytes, "image/jpeg", &source_revision)?;
+                    client.detect_faces(input_bytes, "image/jpeg", &source_revision)?;
                 if detections.width != invocation.coordinate_extent.width
                     || detections.height != invocation.coordinate_extent.height
                 {
@@ -263,7 +227,7 @@ impl SubjectMaskRuntime {
                     return Ok(cancelled_stage_receipt(&invocation));
                 }
                 let parsed =
-                    client.parse_face(&input_bytes, "image/jpeg", &source_revision, face_box)?;
+                    client.parse_face(input_bytes, "image/jpeg", &source_revision, face_box)?;
                 if parsed.width != invocation.coordinate_extent.width
                     || parsed.height != invocation.coordinate_extent.height
                 {
@@ -335,6 +299,14 @@ impl SubjectMaskRuntime {
         Ok(self
             .scratch_root
             .join(format!("subject-mask-{role}-{token}.{extension}")))
+    }
+}
+
+fn validate_input_jpeg(bytes: &[u8]) -> Result<(), SubjectMaskRuntimeError> {
+    if bytes.is_empty() || bytes.len() > MAX_PROVIDER_INPUT_JPEG_BYTES {
+        Err(SubjectMaskRuntimeError::InputSize(bytes.len()))
+    } else {
+        Ok(())
     }
 }
 
@@ -554,8 +526,6 @@ fn infer_route_and_plan(
 
 #[derive(Debug, Error)]
 pub(crate) enum SubjectMaskRuntimeError {
-    #[error("subject-mask input JPEG is unavailable")]
-    InputUnavailable,
     #[error("subject-mask input JPEG size {0} is outside the bounded contract")]
     InputSize(usize),
     #[error("subject-mask photo identity is invalid")]

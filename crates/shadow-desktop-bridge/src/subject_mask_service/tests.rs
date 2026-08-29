@@ -9,6 +9,77 @@ use super::*;
 static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn one_input_is_prepared_once_and_reused_by_later_prompt_jobs() {
+    let fixture = Fixture::new("reuse-input");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let identity = input_identity("photo-a");
+
+    assert!(matches!(
+        service.admit_input(session, &identity).unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    assert!(matches!(
+        service.admit_input(session, &identity),
+        Err(SubjectMaskServiceError::InputPreparationInFlight(token)) if token == session
+    ));
+
+    let extent = RasterExtent::new(1_024, 683).unwrap();
+    let prepared = service
+        .complete_input_preparation(session, &identity, b"stable JPEG bytes".to_vec(), extent)
+        .unwrap();
+    let reused = match service.admit_input(session, &identity).unwrap() {
+        SubjectMaskInputAdmission::Reuse(input) => input,
+        SubjectMaskInputAdmission::Prepare => panic!("prepared input must be reused"),
+    };
+
+    assert!(Arc::ptr_eq(&prepared.bytes, &reused.bytes));
+    assert_eq!(prepared.content_hash, reused.content_hash);
+    assert_eq!(reused.coordinate_extent, extent);
+    service.finish_input_session(session).unwrap();
+    assert!(matches!(
+        service.admit_input(session, &identity),
+        Err(SubjectMaskServiceError::UnknownInputSession(token)) if token == session
+    ));
+}
+
+#[test]
+fn input_session_rejects_recipe_identity_changes() {
+    let fixture = Fixture::new("identity-change");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let first = input_identity("photo-a");
+    let changed = input_identity("photo-b");
+
+    assert!(matches!(
+        service.admit_input(session, &first).unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    assert!(matches!(
+        service.admit_input(session, &changed),
+        Err(SubjectMaskServiceError::InputIdentityChanged(token)) if token == session
+    ));
+}
+
+#[test]
+fn cancelled_preparation_can_be_retried_in_the_same_prompt_session() {
+    let fixture = Fixture::new("retry-input");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let identity = input_identity("photo-a");
+
+    assert!(matches!(
+        service.admit_input(session, &identity).unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    service.abort_input_preparation(session, &identity).unwrap();
+    assert!(matches!(
+        service.admit_input(session, &identity).unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+}
+
+#[test]
 fn cancellation_reaches_provider_and_returns_the_attached_preview_token() {
     let fixture = Fixture::new("cancel");
     let service = SubjectMaskService::open(&fixture.store_root).unwrap();
@@ -79,6 +150,17 @@ fn terminal_receipt_retires_the_job_exactly_once() {
         ),
         Err(SubjectMaskServiceError::UnknownJob(token)) if token == job
     ));
+}
+
+fn input_identity(photo_id: &str) -> SubjectMaskInputIdentity {
+    SubjectMaskInputIdentity {
+        photo_id: photo_id.into(),
+        source_path: format!("/{photo_id}.jpg"),
+        base_commit_id: "base-commit".into(),
+        grade_stack: GradeStackDraft::default(),
+        target_grade_node_index: 0,
+        target_grade_node_id: "target-node".into(),
+    }
 }
 
 struct Fixture {

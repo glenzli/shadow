@@ -251,6 +251,18 @@
 <context>
     <name>EditController</name>
     <message>
+        <source>AI Mask · click the subject to select it</source>
+        <translation>AI 蒙版 · 点击要选择的主体</translation>
+    </message>
+    <message>
+        <source>People details · click one face</source>
+        <translation>人物细节 · 点击一张人脸</translation>
+    </message>
+    <message>
+        <source>AI Mask cannot continue until the current adjustments are saved</source>
+        <translation>当前调整保存完成前无法继续生成 AI 蒙版</translation>
+    </message>
+    <message>
         <location filename="../src/edit_foundation_controller.cpp" line="80"/>
         <source>RAW White Balance picker needs the current RAW preview</source>
         <translation>RAW 白平衡拾取器需要当前 RAW 预览</translation>
@@ -1376,11 +1388,6 @@
         <location filename="../src/edit_ai_mask_controller.cpp" line="410"/>
         <source>AI subject selection is disabled in Settings</source>
         <translation>设置中已禁止执行 AI 主体选择</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="429"/>
-        <source>Add at least one include point before generating</source>
-        <translation>生成前请至少添加一个包含点</translation>
     </message>
     <message>
         <location filename="../src/edit_ai_mask_controller.cpp" line="516"/>
@@ -5295,6 +5302,78 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionWorkspace</name>
     <message>
+        <source>Updating selection…</source>
+        <translation>正在更新选择…</translation>
+    </message>
+    <message>
+        <source>Facial detail selected · confirm or choose another region</source>
+        <translation>已选择人脸细节 · 确认应用或选择其他区域</translation>
+    </message>
+    <message>
+        <source>Selected area preview · add or subtract points to refine</source>
+        <translation>当前选择预览 · 添加或减去提示点以细化</translation>
+    </message>
+    <message>
+        <source>Selection was not generated · click Retry selection</source>
+        <translation>选择尚未生成 · 点击“重试选择”</translation>
+    </message>
+    <message>
+        <source>Click the face to select the chosen detail</source>
+        <translation>点击人脸以选择指定细节</translation>
+    </message>
+    <message>
+        <source>Click the object to select it</source>
+        <translation>点击要选择的对象</translation>
+    </message>
+    <message>
+        <source>Choose Add, then click the object first</source>
+        <translation>请先选择“添加”，然后点击对象</translation>
+    </message>
+    <message>
+        <source>PEOPLE DETAIL MASK</source>
+        <translation>人物细节蒙版</translation>
+    </message>
+    <message>
+        <source>AI SUBJECT MASK</source>
+        <translation>AI 主体蒙版</translation>
+    </message>
+    <message>
+        <source>Selection preview</source>
+        <translation>选择预览</translation>
+    </message>
+    <message>
+        <source>Selection needs retry</source>
+        <translation>选择需要重试</translation>
+    </message>
+    <message>
+        <source>Click the object</source>
+        <translation>点击对象</translation>
+    </message>
+    <message>
+        <source>Choose a detail, then click one face. The selected area appears on the photo before it is applied.</source>
+        <translation>选择一个细节，再点击人脸。应用前会先在照片上显示所选区域。</translation>
+    </message>
+    <message>
+        <source>Click the object to create a selection. Add or subtract points to refine the visible overlay.</source>
+        <translation>点击对象即可创建选择。添加或减去提示点可细化画面上的蒙版预览。</translation>
+    </message>
+    <message>
+        <source>Add selection (+)</source>
+        <translation>添加选择（+）</translation>
+    </message>
+    <message>
+        <source>Subtract selection (−)</source>
+        <translation>减去选择（−）</translation>
+    </message>
+    <message>
+        <source>Retry selection</source>
+        <translation>重试选择</translation>
+    </message>
+    <message>
+        <source>Apply mask</source>
+        <translation>应用蒙版</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionDetailLoupe.qml" line="385"/>
         <source>200%</source>
         <translation>200%</translation>
@@ -6635,21 +6714,6 @@ R %2 · G %3 · B %4</translation>
         <translation>无蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="35"/>
-        <source>Candidate ready</source>
-        <translation>候选已就绪</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="109"/>
-        <source>Regenerate</source>
-        <translation>重新生成</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="129"/>
-        <source>Apply candidate</source>
-        <translation>应用候选</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="141"/>
         <source>Edit the selector attached to this Grade Node.</source>
         <translation>编辑此调色节点的作用选区。</translation>
@@ -7719,16 +7783,6 @@ R %2 · G %3 · B %4</translation>
         <translation>上限</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="36"/>
-        <source>%1 prompt points</source>
-        <translation>%1 个提示点</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="31"/>
-        <source>AI MASK</source>
-        <translation>AI 蒙版</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="23"/>
         <source>AI mask</source>
         <translation>AI 蒙版</translation>
@@ -7748,29 +7802,9 @@ R %2 · G %3 · B %4</translation>
         <translation>清除</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="66"/>
-        <source>Exclude</source>
-        <translation>排除</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="110"/>
-        <source>Generate</source>
-        <translation>生成</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="107"/>
-        <source>Generating…</source>
-        <translation>生成中…</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="33"/>
         <source>Identifying subject…</source>
         <translation>正在识别主体…</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="57"/>
-        <source>Include</source>
-        <translation>包含</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="37"/>

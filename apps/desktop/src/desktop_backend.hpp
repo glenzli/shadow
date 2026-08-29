@@ -349,6 +349,8 @@ class DesktopBackend final {
     ) const;
     [[nodiscard]] std::uint64_t beginEditPreviewRequest() const noexcept;
     [[nodiscard]] bool cancelEditPreviewRequest(std::uint64_t render_token) const noexcept;
+    [[nodiscard]] std::uint64_t beginSubjectMaskInputSession() const;
+    void finishSubjectMaskInputSession(std::uint64_t subject_mask_input_session_token) const;
     [[nodiscard]] std::uint64_t beginSubjectMaskJob() const;
     void cancelSubjectMaskJob(std::uint64_t subject_mask_job_token) const;
     [[nodiscard]] BackendSubjectMaskResult executeSubjectMaskJob(

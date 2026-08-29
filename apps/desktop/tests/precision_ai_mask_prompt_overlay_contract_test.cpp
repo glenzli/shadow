@@ -1,5 +1,6 @@
 #include <QColor>
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QMouseEvent>
 #include <QObject>
@@ -36,13 +37,35 @@ class PromptRecorder final : public QObject {
         ++clear_count;
     }
 
+    void onForegroundModeRequested(const bool foreground) {
+        ++foreground_mode_count;
+        last_foreground_mode = foreground;
+    }
+
+    void onRetryRequested() {
+        ++retry_count;
+    }
+
+    void onApplyRequested() {
+        ++apply_count;
+    }
+
+    void onCancelRequested() {
+        ++cancel_count;
+    }
+
   public:
     int point_count = 0;
     int undo_count = 0;
     int clear_count = 0;
+    int foreground_mode_count = 0;
+    int retry_count = 0;
+    int apply_count = 0;
+    int cancel_count = 0;
     double last_x = 0.0;
     double last_y = 0.0;
     bool last_foreground = false;
+    bool last_foreground_mode = true;
 };
 
 namespace {
@@ -58,6 +81,20 @@ void drainBindings() {
     QCoreApplication::processEvents();
     QCoreApplication::sendPostedEvents();
     QCoreApplication::processEvents();
+}
+
+[[nodiscard]] bool waitForProperty(
+    QObject& object,
+    const char* const property,
+    const bool expected,
+    const int timeout_ms = 1000
+) {
+    QElapsedTimer timer;
+    timer.start();
+    while (object.property(property).toBool() != expected && timer.elapsed() < timeout_ms) {
+        QCoreApplication::processEvents();
+    }
+    return object.property(property).toBool() == expected;
 }
 
 void click(QQuickWindow& window, const QPointF& position) {
@@ -116,10 +153,12 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<QObject> object{component.createWithInitialProperties({
         {QStringLiteral("interactionEnabled"), true},
         {QStringLiteral("busy"), false},
+        {QStringLiteral("faceRegionMode"), false},
         {QStringLiteral("foregroundMode"), true},
         {QStringLiteral("promptPoints"), initial_points},
         {QStringLiteral("foregroundColor"), QColor{QStringLiteral("#73c48b")}},
         {QStringLiteral("backgroundColor"), QColor{QStringLiteral("#ef787d")}},
+        {QStringLiteral("candidateColor"), QColor{QStringLiteral("#b18ae3")}},
         {QStringLiteral("candidateSource"), QString{}},
         {QStringLiteral("candidateVisible"), false},
         {QStringLiteral("width"), 400.0},
@@ -140,6 +179,15 @@ int main(int argc, char* argv[]) {
     );
     QObject::connect(overlay, SIGNAL(undoRequested()), &recorder, SLOT(onUndoRequested()));
     QObject::connect(overlay, SIGNAL(clearRequested()), &recorder, SLOT(onClearRequested()));
+    QObject::connect(
+        overlay,
+        SIGNAL(foregroundModeRequested(bool)),
+        &recorder,
+        SLOT(onForegroundModeRequested(bool))
+    );
+    QObject::connect(overlay, SIGNAL(retryRequested()), &recorder, SLOT(onRetryRequested()));
+    QObject::connect(overlay, SIGNAL(applyRequested()), &recorder, SLOT(onApplyRequested()));
+    QObject::connect(overlay, SIGNAL(cancelRequested()), &recorder, SLOT(onCancelRequested()));
 
     QQuickWindow window;
     window.setGeometry(0, 0, 400, 200);
@@ -167,8 +215,42 @@ int main(int argc, char* argv[]) {
     drainBindings();
     auto* const candidate = overlay->findChild<QQuickItem*>(QStringLiteral("aiMaskCandidateImage"));
     if (!require(
-            candidate != nullptr && !candidate->property("source").toUrl().isEmpty(),
-            "a staged candidate source is projected below the prompt points"
+            candidate != nullptr && !candidate->property("source").toUrl().isEmpty()
+                && waitForProperty(*overlay, "candidateRendered", true)
+                && candidate->property("opacity").toDouble() >= 0.5,
+            "a staged candidate becomes a clearly visible colored overlay below the prompt points"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    if (!require(
+            overlay->property("guidanceText").toString().contains(QStringLiteral("preview")),
+            "the canvas explains that the visible pixels are the current selection preview"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    auto* const action_dock = overlay->findChild<QQuickItem*>(QStringLiteral("aiMaskActionDock"));
+    auto* const apply_button = overlay->findChild<QQuickItem*>(QStringLiteral("aiMaskApplyButton"));
+    auto* const cancel_button =
+        overlay->findChild<QQuickItem*>(QStringLiteral("aiMaskCancelButton"));
+    if (!require(
+            action_dock != nullptr && action_dock->isVisible() && apply_button != nullptr
+                && apply_button->isVisible() && apply_button->isEnabled()
+                && cancel_button != nullptr && cancel_button->isVisible()
+                && cancel_button->isEnabled(),
+            "a ready candidate keeps visible Apply and Cancel actions on the canvas"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    QMetaObject::invokeMethod(overlay, "requestForegroundMode", Q_ARG(QVariant, false));
+    QMetaObject::invokeMethod(overlay, "requestApply");
+    QMetaObject::invokeMethod(overlay, "requestCancel");
+    if (!require(
+            recorder.foreground_mode_count == 1 && !recorder.last_foreground_mode
+                && recorder.apply_count == 1 && recorder.cancel_count == 1,
+            "refinement and terminal actions remain controller-owned requests"
         )) {
         return EXIT_FAILURE;
     }
@@ -202,11 +284,20 @@ int main(int argc, char* argv[]) {
     }
 
     overlay->setProperty("busy", true);
+    if (!require(
+            overlay->property("guidanceText").toString().contains(QStringLiteral("Updating")),
+            "busy state is visible as an in-canvas selection update"
+        )) {
+        return EXIT_FAILURE;
+    }
     click(window, QPointF{200.0, 100.0});
     QMetaObject::invokeMethod(overlay, "requestUndo");
+    QMetaObject::invokeMethod(overlay, "requestApply");
+    QMetaObject::invokeMethod(overlay, "requestCancel");
     if (!require(
-            recorder.point_count == 2 && recorder.undo_count == 1,
-            "busy generation freezes point mutation"
+            recorder.point_count == 2 && recorder.undo_count == 1 && recorder.apply_count == 1
+                && recorder.cancel_count == 2,
+            "busy generation freezes mutation and apply while keeping Cancel reachable"
         )) {
         return EXIT_FAILURE;
     }

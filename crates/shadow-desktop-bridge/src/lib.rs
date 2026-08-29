@@ -1577,6 +1577,8 @@ mod ffi {
     /// Immutable input captured before the desktop queues one SAM worker.
     #[derive(Debug)]
     struct FfiSubjectMaskRequest {
+        /// Opaque prompt-lifecycle authority for one reusable rendered input.
+        input_session_token: u64,
         job_token: u64,
         generation: u64,
         base_commit_id: String,
@@ -2592,6 +2594,15 @@ mod ffi {
         /// Returns true only when cancellation won the unique terminal claim
         /// and the native cooperative stop signal was issued.
         fn cancel_basic_edit_preview(self: &DesktopSession, render_token: u64) -> bool;
+        /// Allocates one bounded AI-mask job before Qt queues preview/model
+        /// work. The token owns provider cancellation and proposal completion.
+        fn begin_subject_mask_input_session(self: &DesktopSession) -> Result<u64>;
+        /// Retires the rendered input shared by one completed or cancelled
+        /// prompt lifecycle.
+        fn finish_subject_mask_input_session(
+            self: &DesktopSession,
+            subject_mask_input_session_token: u64,
+        ) -> Result<()>;
         /// Allocates one bounded AI-mask job before Qt queues preview/model
         /// work. The token owns provider cancellation and proposal completion.
         fn begin_subject_mask_job(self: &DesktopSession) -> Result<u64>;

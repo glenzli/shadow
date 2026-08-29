@@ -42,6 +42,7 @@ impl SubjectMaskRuntimePaths {
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
             .ok_or(SubjectMaskRuntimePathError::ApplicationDataDirectory)?;
+        let infer_credential_root = shared_infer_credential_root(application_data_root);
 
         Ok(Self {
             scratch_root: cache_root.join("ai").join("subject-mask"),
@@ -53,11 +54,27 @@ impl SubjectMaskRuntimePaths {
                 .map_err(|_| SubjectMaskRuntimePathError::InvalidInferBaseUrl)?,
             infer_credential_file: override_path(&environment, INFER_CREDENTIAL_OVERRIDE)
                 .unwrap_or_else(|| {
-                    application_data_root
+                    infer_credential_root
                         .join("credentials")
                         .join("infer-runtime-shadow.token")
                 }),
         })
+    }
+}
+
+fn shared_infer_credential_root(application_data_root: &Path) -> &Path {
+    let Some(parent) = application_data_root.parent() else {
+        return application_data_root;
+    };
+    let duplicates_application_name = application_data_root
+        .file_name()
+        .zip(parent.file_name())
+        .is_some_and(|(application_name, organization_name)| application_name == organization_name);
+
+    if duplicates_application_name {
+        parent
+    } else {
+        application_data_root
     }
 }
 

@@ -114,6 +114,27 @@ EditAiMaskController::EditAiMaskController(
         &owner_,
         [this] { finishApply(); }
     );
+    pending_generation_retry_.setSingleShot(true);
+    QObject::connect(&pending_generation_retry_, &QTimer::timeout, &owner_, [this] {
+        tryStartPendingGeneration();
+    });
+    const auto schedule_pending_generation_retry = [this] {
+        if (generation_pending_) {
+            pending_generation_retry_.start(0);
+        }
+    };
+    QObject::connect(
+        &owner_,
+        &EditController::autosavePendingChanged,
+        &pending_generation_retry_,
+        schedule_pending_generation_retry
+    );
+    QObject::connect(
+        &owner_,
+        &EditController::stateBusyChanged,
+        &pending_generation_retry_,
+        schedule_pending_generation_retry
+    );
 }
 
 bool EditController::aiMaskPromptActive() const noexcept {
@@ -257,6 +278,7 @@ void EditController::applySubjectMaskState(
 }
 
 EditAiMaskController::~EditAiMaskController() {
+    pending_generation_retry_.stop();
     QObject::disconnect(&execution_watcher_, nullptr, &owner_, nullptr);
     QObject::disconnect(&apply_watcher_, nullptr, &owner_, nullptr);
     const auto job_token = prompt_state_.reset_context();
@@ -265,6 +287,7 @@ EditAiMaskController::~EditAiMaskController() {
             backend_->cancelSubjectMaskJob(*job_token);
         } catch (...) {}
     }
+    retireInputSession();
     retireCandidate();
     execution_watcher_.waitForFinished();
     if (execution_watcher_.future().isValid()) {
@@ -281,7 +304,8 @@ bool EditAiMaskController::active() const noexcept {
 }
 
 bool EditAiMaskController::busy() const noexcept {
-    return execution_watcher_.isRunning() || prompt_state_.busy() || apply_in_flight_;
+    return generation_pending_ || execution_watcher_.isRunning() || prompt_state_.busy()
+           || apply_in_flight_;
 }
 
 bool EditAiMaskController::locksInteraction() const noexcept {
@@ -302,12 +326,7 @@ int EditAiMaskController::faceRegion() const noexcept {
 
 bool EditAiMaskController::canGenerate() const noexcept {
     return owner_.subjectMaskExecutionAllowed() && active_ && !busy() && contextIsCurrent()
-           && std::ranges::any_of(
-               prompt_state_.points(),
-               [](const shadow::desktop::AiMaskPromptPoint& point) {
-                   return point.polarity == shadow::desktop::AiMaskPromptPolarity::Foreground;
-               }
-           );
+           && hasForegroundPoint();
 }
 
 bool EditAiMaskController::hasCandidate() const noexcept {
@@ -354,6 +373,17 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
         return false;
     }
 
+    std::uint64_t input_session_token = 0;
+    try {
+        input_session_token = backend_->beginSubjectMaskInputSession();
+    } catch (const std::exception& error) {
+        owner_.setStatusMessage(ai_mask_message(
+            QT_TRANSLATE_NOOP("EditController", "Could not start AI Mask · %1"),
+            {QString::fromUtf8(error.what())}
+        ));
+        return false;
+    }
+
     const bool previous_busy = owner_.busy();
     const bool previously_locked = owner_.interactionLocked();
     const qsizetype previous_node_count = owner_.grade_stack_.grade_nodes.size();
@@ -361,6 +391,9 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
     const auto* const target = owner_.selectedGradeNode();
     if (owner_.grade_stack_.grade_nodes.size() != previous_node_count + 1 || target == nullptr
         || !target->enabled || target->local_mask_kind != 0U) {
+        try {
+            backend_->finishSubjectMaskInputSession(input_session_token);
+        } catch (...) {}
         return false;
     }
     owner_.finishActiveGesture();
@@ -379,6 +412,7 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
         .target_grade_node_index = static_cast<std::uint32_t>(owner_.selected_grade_node_index_),
         .grade_stack = owner_.grade_stack_,
         .photo_generation = owner_.photo_generation_,
+        .input_session_token = input_session_token,
     };
     active_ = true;
     publishStateChange(previous_busy, previously_locked);
@@ -413,6 +447,9 @@ void EditAiMaskController::setFaceRegion(const int region) {
     face_region_ = static_cast<BackendFaceRegion>(region);
     retireCandidate();
     emit owner_.aiMaskPromptChanged();
+    if (!prompt_state_.points().empty()) {
+        requestGeneration();
+    }
 }
 
 void EditAiMaskController::appendPoint(const double x, const double y, const bool foreground) {
@@ -441,31 +478,83 @@ void EditAiMaskController::appendPoint(const double x, const double y, const boo
     retireCandidate();
     foreground_mode_ = faceRegionMode() || foreground;
     emit owner_.aiMaskPromptChanged();
+    requestGeneration();
 }
 
 void EditAiMaskController::undoPoint() {
     if (prompt_state_.undo_point() == shadow::desktop::AiMaskPromptMutationResult::Applied) {
         retireCandidate();
         emit owner_.aiMaskPromptChanged();
+        if (hasForegroundPoint()) {
+            requestGeneration();
+        } else {
+            generation_pending_ = false;
+            owner_.setStatusMessage(ai_mask_message(
+                QT_TRANSLATE_NOOP("EditController", "AI Mask · click the subject to select it")
+            ));
+        }
     }
 }
 
 void EditAiMaskController::clearPoints() {
     if (prompt_state_.clear_points() == shadow::desktop::AiMaskPromptMutationResult::Applied) {
         retireCandidate();
+        generation_pending_ = false;
         emit owner_.aiMaskPromptChanged();
+        owner_.setStatusMessage(ai_mask_message(
+            faceRegionMode()
+                ? QT_TRANSLATE_NOOP("EditController", "People details · click one face")
+                : QT_TRANSLATE_NOOP("EditController", "AI Mask · click the subject to select it")
+        ));
     }
 }
 
 void EditAiMaskController::generate() {
-    if (!active_ || busy() || !contextIsCurrent()) {
+    requestGeneration();
+}
+
+void EditAiMaskController::requestGeneration() {
+    if (!active_ || apply_in_flight_ || !contextIsCurrent() || !hasForegroundPoint()) {
+        return;
+    }
+    const bool previous_busy = owner_.busy();
+    const bool previously_locked = owner_.interactionLocked();
+    generation_pending_ = true;
+    publishStateChange(previous_busy, previously_locked);
+    tryStartPendingGeneration();
+}
+
+void EditAiMaskController::tryStartPendingGeneration() {
+    if (!generation_pending_ || !active_ || apply_in_flight_ || execution_watcher_.isRunning()
+        || prompt_state_.busy()) {
+        return;
+    }
+    if (!contextIsCurrent() || !hasForegroundPoint()) {
+        const bool previous_busy = owner_.busy();
+        const bool previously_locked = owner_.interactionLocked();
+        generation_pending_ = false;
+        publishStateChange(previous_busy, previously_locked);
         return;
     }
     if (!owner_.subjectMaskExecutionAllowed()) {
+        const bool previous_busy = owner_.busy();
+        const bool previously_locked = owner_.interactionLocked();
+        generation_pending_ = false;
         owner_.setStatusMessage(ai_mask_message(
             QT_TRANSLATE_NOOP("EditController", "AI subject selection is disabled in Settings")
         ));
-        emit owner_.aiMaskPromptChanged();
+        publishStateChange(previous_busy, previously_locked);
+        return;
+    }
+    if (owner_.autosaveFailed()) {
+        const bool previous_busy = owner_.busy();
+        const bool previously_locked = owner_.interactionLocked();
+        generation_pending_ = false;
+        owner_.setStatusMessage(ai_mask_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "AI Mask cannot continue until the current adjustments are saved"
+        )));
+        publishStateChange(previous_busy, previously_locked);
         return;
     }
     if (owner_.dirty_ || owner_.stateTaskRunning()) {
@@ -480,20 +569,26 @@ void EditAiMaskController::generate() {
         emit owner_.aiMaskPromptChanged();
         return;
     }
-    if (!canGenerate()) {
-        owner_.setStatusMessage(ai_mask_message(
-            QT_TRANSLATE_NOOP("EditController", "Add at least one include point before generating")
-        ));
+    startGeneration();
+}
+
+void EditAiMaskController::startGeneration() {
+    if (!generation_pending_ || !active_ || execution_watcher_.isRunning() || prompt_state_.busy()
+        || apply_in_flight_ || !contextIsCurrent() || !hasForegroundPoint()) {
         return;
     }
     std::uint64_t job_token = 0;
     try {
         job_token = backend_->beginSubjectMaskJob();
     } catch (const std::exception& error) {
+        const bool previous_busy = owner_.busy();
+        const bool previously_locked = owner_.interactionLocked();
+        generation_pending_ = false;
         owner_.setStatusMessage(ai_mask_message(
             QT_TRANSLATE_NOOP("EditController", "Could not start AI Mask · %1"),
             {QString::fromUtf8(error.what())}
         ));
+        publishStateChange(previous_busy, previously_locked);
         return;
     }
     const auto snapshot = prompt_state_.begin_request(job_token);
@@ -501,11 +596,16 @@ void EditAiMaskController::generate() {
         try {
             backend_->cancelSubjectMaskJob(job_token);
         } catch (...) {}
+        const bool previous_busy = owner_.busy();
+        const bool previously_locked = owner_.interactionLocked();
+        generation_pending_ = false;
+        publishStateChange(previous_busy, previously_locked);
         return;
     }
     retireCandidate();
 
     BackendSubjectMaskRequest request{
+        .input_session_token = context_->input_session_token,
         .job_token = snapshot->job_token,
         .generation = snapshot->generation,
         .base_commit_id = owner_.base_commit_id_,
@@ -528,6 +628,7 @@ void EditAiMaskController::generate() {
 
     const bool previous_busy = owner_.busy();
     const bool previously_locked = owner_.interactionLocked();
+    generation_pending_ = false;
     execution_watcher_.setFuture(
         QtConcurrent::run(
             execute_subject_mask,
@@ -605,6 +706,9 @@ void EditAiMaskController::resetContext() {
             backend_->cancelSubjectMaskJob(*job_token);
         } catch (...) {}
     }
+    retireInputSession();
+    pending_generation_retry_.stop();
+    generation_pending_ = false;
     retireCandidate();
     active_ = false;
     foreground_mode_ = true;
@@ -716,6 +820,7 @@ void EditAiMaskController::finishApply() {
     if (!contextIsCurrent()) {
         active_ = false;
         static_cast<void>(prompt_state_.reset_context());
+        retireInputSession();
         context_.reset();
         publishStateChange(previous_busy, previously_locked);
         return;
@@ -727,6 +832,7 @@ void EditAiMaskController::finishApply() {
     foreground_mode_ = true;
     selection_kind_ = AiMaskSelectionKind::PromptedSubject;
     static_cast<void>(prompt_state_.reset_context());
+    retireInputSession();
     context_.reset();
     owner_.applySubjectMaskState(std::move(task.state), before, target_grade_node_id);
     owner_.setStatusMessage(
@@ -757,6 +863,26 @@ bool EditAiMaskController::contextIsCurrent() const noexcept {
     const auto* const target = owner_.selectedGradeNode();
     return target != nullptr && target->grade_node_id == context_->target_grade_node_id
            && target->local_mask_kind == 0U;
+}
+
+bool EditAiMaskController::hasForegroundPoint() const noexcept {
+    return std::ranges::any_of(
+        prompt_state_.points(),
+        [](const shadow::desktop::AiMaskPromptPoint& point) {
+            return point.polarity == shadow::desktop::AiMaskPromptPolarity::Foreground;
+        }
+    );
+}
+
+void EditAiMaskController::retireInputSession() noexcept {
+    if (!context_ || context_->input_session_token == 0) {
+        return;
+    }
+    const std::uint64_t input_session_token = context_->input_session_token;
+    context_->input_session_token = 0;
+    try {
+        backend_->finishSubjectMaskInputSession(input_session_token);
+    } catch (...) {}
 }
 
 void EditAiMaskController::retireCandidate() noexcept {

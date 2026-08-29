@@ -4,6 +4,7 @@
 #include "edit_ai_mask_prompt_state.hpp"
 
 #include <QFutureWatcher>
+#include <QTimer>
 #include <QVariantList>
 
 #include <cstdint>
@@ -68,12 +69,18 @@ class EditAiMaskController final {
         std::uint32_t target_grade_node_index = 0;
         BackendGradeStack grade_stack;
         std::uint64_t photo_generation = 0;
+        std::uint64_t input_session_token = 0;
     };
 
     void finishExecution();
     void finishApply();
+    void requestGeneration();
+    void tryStartPendingGeneration();
+    void startGeneration();
     void publishStateChange(bool previous_busy, bool previously_locked);
     [[nodiscard]] bool contextIsCurrent() const noexcept;
+    [[nodiscard]] bool hasForegroundPoint() const noexcept;
+    void retireInputSession() noexcept;
     void retireCandidate() noexcept;
     void discardProposal(std::uint64_t proposal_token) const noexcept;
 
@@ -82,6 +89,7 @@ class EditAiMaskController final {
     shadow::desktop::EditAiMaskPromptState prompt_state_;
     QFutureWatcher<EditAiMaskExecutionResult> execution_watcher_;
     QFutureWatcher<EditAiMaskApplyResult> apply_watcher_;
+    QTimer pending_generation_retry_;
     std::optional<CapturedContext> context_;
     std::uint64_t candidate_proposal_token_ = 0;
     std::uint64_t candidate_generation_ = 0;
@@ -90,5 +98,6 @@ class EditAiMaskController final {
     bool foreground_mode_ = true;
     AiMaskSelectionKind selection_kind_ = AiMaskSelectionKind::PromptedSubject;
     BackendFaceRegion face_region_ = BackendFaceRegion::Face;
+    bool generation_pending_ = false;
     bool apply_in_flight_ = false;
 };

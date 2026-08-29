@@ -388,6 +388,7 @@ enum class BackendSubjectMaskTerminal : std::uint8_t {
 };
 
 struct BackendSubjectMaskRequest final {
+    std::uint64_t input_session_token = 0;
     std::uint64_t job_token = 0;
     std::uint64_t generation = 0;
     QString base_commit_id;

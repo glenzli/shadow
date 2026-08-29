@@ -18,7 +18,10 @@ use super::{
         FaceRegion, SubjectMaskInvocation, SubjectMaskSelection,
         geometry::{map_output_prompt_to_original, project_gray8_mask_to_output},
     },
-    subject_mask_service::{SubjectMaskCompletion, SubjectMaskServiceError},
+    subject_mask_service::{
+        SubjectMaskCompletion, SubjectMaskInputAdmission, SubjectMaskInputIdentity,
+        SubjectMaskServiceError,
+    },
     wall_clock::current_time_ms,
 };
 
@@ -27,6 +30,19 @@ const SUBJECT_MASK_INPUT_JPEG_QUALITY: u8 = 95;
 const SUBJECT_MASK_CANDIDATE_PREVIEW_EDGE: u32 = 256;
 
 impl DesktopSession {
+    pub(crate) fn begin_subject_mask_input_session(&self) -> AnyResult<u64> {
+        Ok(self.subject_masks.begin_input_session()?)
+    }
+
+    pub(crate) fn finish_subject_mask_input_session(
+        &self,
+        subject_mask_input_session_token: u64,
+    ) -> AnyResult<()> {
+        Ok(self
+            .subject_masks
+            .finish_input_session(subject_mask_input_session_token)?)
+    }
+
     pub(crate) fn begin_subject_mask_job(&self) -> AnyResult<u64> {
         Ok(self.subject_masks.begin_job()?)
     }
@@ -86,64 +102,102 @@ impl DesktopSession {
             &request.target_grade_node_id,
         )?;
         let display_points = subject_mask_points(&request.points)?;
-
-        let render_token = self.begin_basic_edit_preview();
-        if render_token == 0 {
-            bail!("subject-mask input preview registry is full");
-        }
-        if let Err(error) = self
+        let input_identity = SubjectMaskInputIdentity {
+            photo_id: photo_id.to_owned(),
+            source_path: source_path.to_owned(),
+            base_commit_id: request.base_commit_id.clone(),
+            grade_stack: grade_stack.clone(),
+            target_grade_node_index: request.target_grade_node_index,
+            target_grade_node_id: request.target_grade_node_id.clone(),
+        };
+        let prepared_input = match self
             .subject_masks
-            .attach_preview_render(request.job_token, render_token)
+            .admit_input(request.input_session_token, &input_identity)?
         {
-            let _ = self.cancel_basic_edit_preview(render_token);
-            if matches!(error, SubjectMaskServiceError::JobCancelled(_)) {
-                self.subject_masks.finish_job(request.job_token)?;
-                return Ok(subject_mask_terminal(
-                    request,
-                    ffi::FfiSubjectMaskTerminal::Cancelled,
-                    0,
-                    String::new(),
-                ));
-            }
-            return Err(error.into());
-        }
+            SubjectMaskInputAdmission::Reuse(input) => input,
+            SubjectMaskInputAdmission::Prepare => {
+                let prepared = (|| -> AnyResult<Option<_>> {
+                    let render_token = self.begin_basic_edit_preview();
+                    if render_token == 0 {
+                        bail!("subject-mask input preview registry is full");
+                    }
+                    if let Err(error) = self
+                        .subject_masks
+                        .attach_preview_render(request.job_token, render_token)
+                    {
+                        let _ = self.cancel_basic_edit_preview(render_token);
+                        if matches!(error, SubjectMaskServiceError::JobCancelled(_)) {
+                            return Ok(None);
+                        }
+                        return Err(error.into());
+                    }
 
-        let mut original_space_settings = request.settings.clone();
-        original_space_settings.geometry = identity_ffi_geometry();
-        let input_preview = self.render_basic_edit_preview(
-            photo_id,
-            source_path,
-            &ffi::FfiEditPreviewRequest {
-                base_commit_id: request.base_commit_id.clone(),
-                settings: original_space_settings,
-                render_token,
-                max_edge: SUBJECT_MASK_INPUT_MAX_EDGE,
-                jpeg_quality: SUBJECT_MASK_INPUT_JPEG_QUALITY,
-                policy: ffi::FfiEditPreviewPolicy::Settled,
-                use_working_recipe: true,
-                mask_coverage_requested: false,
-                mask_coverage_target_layer_index: 0,
-                mask_selection_revision: 0,
-            },
-        )?;
-        if input_preview.terminal == ffi::FfiEditPreviewTerminal::Cancelled
-            || cancellation.is_cancelled()
-        {
-            self.subject_masks.finish_job(request.job_token)?;
-            return Ok(subject_mask_terminal(
-                request,
-                ffi::FfiSubjectMaskTerminal::Cancelled,
-                0,
-                String::new(),
-            ));
-        }
-        if input_preview.terminal != ffi::FfiEditPreviewTerminal::Completed
-            || input_preview.row_stride_bytes != 0
-        {
-            bail!("subject-mask input preview returned an invalid terminal payload");
-        }
-        let coordinate_extent = RasterExtent::new(input_preview.width, input_preview.height)
-            .context("subject-mask input preview dimensions are invalid")?;
+                    let mut original_space_settings = request.settings.clone();
+                    original_space_settings.geometry = identity_ffi_geometry();
+                    let input_preview = self.render_subject_mask_input_preview(
+                        photo_id,
+                        source_path,
+                        &ffi::FfiEditPreviewRequest {
+                            base_commit_id: request.base_commit_id.clone(),
+                            settings: original_space_settings,
+                            render_token,
+                            max_edge: SUBJECT_MASK_INPUT_MAX_EDGE,
+                            jpeg_quality: SUBJECT_MASK_INPUT_JPEG_QUALITY,
+                            // The subject-mask render entry replaces this
+                            // public work class with its internal no-analysis
+                            // JPEG policy while retaining the same working
+                            // Recipe source.
+                            policy: ffi::FfiEditPreviewPolicy::Settled,
+                            use_working_recipe: true,
+                            mask_coverage_requested: false,
+                            mask_coverage_target_layer_index: 0,
+                            mask_selection_revision: 0,
+                        },
+                    )?;
+                    if input_preview.terminal == ffi::FfiEditPreviewTerminal::Cancelled
+                        || cancellation.is_cancelled()
+                    {
+                        return Ok(None);
+                    }
+                    if input_preview.terminal != ffi::FfiEditPreviewTerminal::Completed
+                        || input_preview.row_stride_bytes != 0
+                    {
+                        bail!("subject-mask input preview returned an invalid terminal payload");
+                    }
+                    let coordinate_extent =
+                        RasterExtent::new(input_preview.width, input_preview.height)
+                            .context("subject-mask input preview dimensions are invalid")?;
+                    Ok(Some(self.subject_masks.complete_input_preparation(
+                        request.input_session_token,
+                        &input_identity,
+                        input_preview.bytes,
+                        coordinate_extent,
+                    )?))
+                })();
+                match prepared {
+                    Ok(Some(input)) => input,
+                    Ok(None) => {
+                        let _ = self
+                            .subject_masks
+                            .abort_input_preparation(request.input_session_token, &input_identity);
+                        self.subject_masks.finish_job(request.job_token)?;
+                        return Ok(subject_mask_terminal(
+                            request,
+                            ffi::FfiSubjectMaskTerminal::Cancelled,
+                            0,
+                            String::new(),
+                        ));
+                    }
+                    Err(error) => {
+                        let _ = self
+                            .subject_masks
+                            .abort_input_preparation(request.input_session_token, &input_identity);
+                        return Err(error);
+                    }
+                }
+            }
+        };
+        let coordinate_extent = prepared_input.coordinate_extent;
         let points = display_points
             .into_iter()
             .map(|point| {
@@ -167,9 +221,6 @@ impl DesktopSession {
             },
             _ => bail!("subject-mask selection kind is unsupported"),
         };
-        let prepared_input = self
-            .subject_mask_runtime
-            .prepare_input_jpeg(&input_preview.bytes)?;
         let receipt = match self.subject_mask_runtime.stage(
             self.subject_masks.store(),
             SubjectMaskInvocation {
@@ -183,7 +234,8 @@ impl DesktopSession {
                 ),
                 generation: request.generation,
                 photo_id: photo_id.to_owned(),
-                original_space_input_jpeg: prepared_input.path().to_path_buf(),
+                original_space_input_jpeg: prepared_input.bytes,
+                original_space_input_content_hash: prepared_input.content_hash,
                 coordinate_extent,
                 selection,
             },

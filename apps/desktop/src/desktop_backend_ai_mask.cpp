@@ -69,6 +69,16 @@ ffi_subject_mask_kind(const BackendSubjectMaskKind kind) {
 
 } // namespace
 
+std::uint64_t DesktopBackend::beginSubjectMaskInputSession() const {
+    return impl_->session->begin_subject_mask_input_session();
+}
+
+void DesktopBackend::finishSubjectMaskInputSession(
+    const std::uint64_t subject_mask_input_session_token
+) const {
+    impl_->session->finish_subject_mask_input_session(subject_mask_input_session_token);
+}
+
 std::uint64_t DesktopBackend::beginSubjectMaskJob() const {
     return impl_->session->begin_subject_mask_job();
 }
@@ -83,6 +93,7 @@ BackendSubjectMaskResult DesktopBackend::executeSubjectMaskJob(
     const BackendSubjectMaskRequest& request
 ) const {
     shadow::desktop::FfiSubjectMaskRequest ffi_request;
+    ffi_request.input_session_token = request.input_session_token;
     ffi_request.job_token = request.job_token;
     ffi_request.generation = request.generation;
     ffi_request.base_commit_id = request.base_commit_id.toStdString();

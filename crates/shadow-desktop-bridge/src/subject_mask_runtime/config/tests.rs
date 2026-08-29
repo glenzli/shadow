@@ -15,7 +15,7 @@ fn default_layout_uses_discovery_and_keeps_durable_rasters_outside_preview_cache
     assert_eq!(
         paths.infer_credential_file,
         Path::new(
-            "/Users/test/Library/Application Support/Shadow/Shadow/credentials/infer-runtime-shadow.token"
+            "/Users/test/Library/Application Support/Shadow/credentials/infer-runtime-shadow.token"
         )
     );
     assert_eq!(
@@ -25,6 +25,23 @@ fn default_layout_uses_discovery_and_keeps_durable_rasters_outside_preview_cache
     assert_eq!(
         paths.derived_raster_store_root,
         Path::new("/Users/test/Library/Application Support/Shadow/Shadow/derived-rasters")
+    );
+}
+
+#[test]
+fn nonduplicated_application_data_root_remains_the_shared_credential_root() {
+    let paths = SubjectMaskRuntimePaths::discover_with(
+        Path::new("/Applications/Shadow.app/Contents/MacOS/Shadow"),
+        Path::new("/Users/test/Library/Application Support/Shadow/cache"),
+        |_| None,
+    )
+    .unwrap();
+
+    assert_eq!(
+        paths.infer_credential_file,
+        Path::new(
+            "/Users/test/Library/Application Support/Shadow/credentials/infer-runtime-shadow.token"
+        )
     );
 }
 

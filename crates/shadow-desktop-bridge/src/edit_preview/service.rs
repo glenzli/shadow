@@ -28,6 +28,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum EditPreviewPolicy {
     Interactive,
+    SubjectMaskInput,
     Settled,
     PresentationCommit,
     NeutralBefore,
@@ -49,7 +50,7 @@ impl EditPreviewPolicy {
     }
 
     pub(super) const fn requires_analysis(self) -> bool {
-        !matches!(self, Self::Interactive)
+        !matches!(self, Self::Interactive | Self::SubjectMaskInput)
     }
 
     const fn admits_durable_cache(self) -> bool {
@@ -57,7 +58,7 @@ impl EditPreviewPolicy {
     }
 
     pub(super) const fn returns_sensor_diagnostics(self) -> bool {
-        !matches!(self, Self::Interactive)
+        !matches!(self, Self::Interactive | Self::SubjectMaskInput)
     }
 }
 
@@ -130,6 +131,7 @@ fn mask_coverage_request(
 
 enum CompletedEditPreview {
     Interactive(OwnedInteractivePreviewFrame),
+    Encoded(shadow_domain::ProxyPayload),
     Materialized(Box<AnalyzedEditPreview>),
 }
 
@@ -287,6 +289,35 @@ impl DesktopSession {
         source_path: &str,
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<Box<OwnedEditedPreview>> {
+        let policy = EditPreviewPolicy::from_ffi(request.policy)?;
+        self.render_basic_edit_preview_owned_with_policy(photo_id, source_path, request, policy)
+    }
+
+    /// Produces the exact identity-geometry JPEG consumed by the local
+    /// subject-mask runtime without settled-only analysis or durable Recipe
+    /// preview admission.
+    pub(crate) fn render_subject_mask_input_preview(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+    ) -> AnyResult<ffi::FfiEditedPreview> {
+        self.render_basic_edit_preview_owned_with_policy(
+            photo_id,
+            source_path,
+            request,
+            EditPreviewPolicy::SubjectMaskInput,
+        )
+        .and_then(OwnedEditedPreview::into_materialized_projection)
+    }
+
+    fn render_basic_edit_preview_owned_with_policy(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+        policy: EditPreviewPolicy,
+    ) -> AnyResult<Box<OwnedEditedPreview>> {
         let render = (|| -> AnyResult<Box<OwnedEditedPreview>> {
             match self
                 .edit_preview_render_tokens
@@ -311,7 +342,6 @@ impl DesktopSession {
                 .map_err(|error| preview_registry_error(&error, request.render_token))?;
 
             let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
-            let policy = EditPreviewPolicy::from_ffi(request.policy)?;
             let interactive_timing =
                 matches!(policy, EditPreviewPolicy::Interactive) && interactive_timing_enabled();
             let interactive_started = interactive_timing.then(Instant::now);
@@ -412,6 +442,18 @@ impl DesktopSession {
                         CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
                     }
                 }
+                EditPreviewPolicy::SubjectMaskInput => {
+                    match session.render_plan_cancellable(
+                        &recipe.plan,
+                        request.jpeg_quality,
+                        &native_cancellation,
+                    )? {
+                        CancellableEditPreview::Completed(proxy) => {
+                            CancellableEditPreview::Completed(CompletedEditPreview::Encoded(proxy))
+                        }
+                        CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
+                    }
+                }
                 EditPreviewPolicy::Settled
                 | EditPreviewPolicy::PresentationCommit
                 | EditPreviewPolicy::NeutralBefore => {
@@ -507,6 +549,16 @@ impl DesktopSession {
                     frame,
                     session.optics_receipt(),
                 )),
+                CompletedEditPreview::Encoded(proxy) => {
+                    Ok(OwnedEditedPreview::materialized(completed_edited_preview(
+                        proxy,
+                        None,
+                        None,
+                        session.optics_receipt(),
+                        session.sensor_clipping_mask(),
+                        policy,
+                    )))
+                }
                 CompletedEditPreview::Materialized(rendered) => {
                     let rendered = *rendered;
                     Ok(OwnedEditedPreview::materialized(completed_edited_preview(

@@ -28,16 +28,19 @@ ColumnLayout {
     ShadowAdjustmentSection {
         Layout.fillWidth: true
         visible: localMask.currentTabIndex === 0 && localMask.inspector.editor.aiMaskPromptActive
-        title: qsTr("AI MASK")
+        title: localMask.inspector.editor.aiMaskFaceRegionMode
+            ? qsTr("PEOPLE DETAIL MASK") : qsTr("AI SUBJECT MASK")
         summary: localMask.inspector.editor.aiMaskBusy
             ? localMask.inspector.editor.aiMaskFaceRegionMode
                 ? qsTr("Identifying facial details…")
                 : qsTr("Identifying subject…")
             : localMask.inspector.editor.aiMaskHasCandidate
-                ? qsTr("Candidate ready")
+                ? qsTr("Selection preview")
                 : localMask.inspector.editor.aiMaskFaceRegionMode
                     ? qsTr("Click one face")
-                    : qsTr("%1 prompt points").arg(localMask.inspector.editor.aiMaskPromptPoints.length)
+                    : localMask.inspector.editor.aiMaskPromptPoints.length > 0
+                        ? qsTr("Selection needs retry")
+                        : qsTr("Click the object")
         toolTipText: localMask.inspector.editor.aiMaskFaceRegionMode
             ? qsTr("Choose a facial region, then click the face to bind it to this Grade Node.")
             : qsTr("Include points identify the subject. Exclude points remove nearby regions.")
@@ -50,6 +53,18 @@ ColumnLayout {
             if (!localMask.inspector.editor.aiMaskFaceRegionMode)
                 localMask.inspector.editor.aiMaskForegroundMode = true
             localMask.inspector.editor.clearAiMaskPromptPoints()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            wrapMode: Text.WordWrap
+            color: Theme.textSecondary
+            font.pixelSize: 10
+            text: localMask.inspector.editor.aiMaskFaceRegionMode
+                ? qsTr("Choose a detail, then click one face. The selected area appears on the photo before it is applied.")
+                : qsTr("Click the object to create a selection. Add or subtract points to refine the visible overlay.")
         }
 
         RowLayout {
@@ -99,8 +114,8 @@ ColumnLayout {
             ShadowButton {
                 compact: true
                 Layout.fillWidth: true
-                text: qsTr("Include")
-                variant: localMask.inspector.editor.aiMaskForegroundMode ? ShadowButton.Secondary : ShadowButton.Ghost
+                text: qsTr("Add selection (+)")
+                variant: localMask.inspector.editor.aiMaskForegroundMode ? ShadowButton.Primary : ShadowButton.Ghost
                 enabled: !localMask.inspector.editor.aiMaskBusy
                 onClicked: localMask.inspector.editor.aiMaskForegroundMode = true
             }
@@ -108,8 +123,8 @@ ColumnLayout {
             ShadowButton {
                 compact: true
                 Layout.fillWidth: true
-                text: qsTr("Exclude")
-                variant: !localMask.inspector.editor.aiMaskForegroundMode ? ShadowButton.Secondary : ShadowButton.Ghost
+                text: qsTr("Subtract selection (−)")
+                variant: !localMask.inspector.editor.aiMaskForegroundMode ? ShadowButton.Primary : ShadowButton.Ghost
                 enabled: !localMask.inspector.editor.aiMaskBusy
                 onClicked: localMask.inspector.editor.aiMaskForegroundMode = false
             }
@@ -149,13 +164,11 @@ ColumnLayout {
 
             ShadowButton {
                 Layout.fillWidth: true
-                text: localMask.inspector.editor.aiMaskBusy
-                    ? qsTr("Generating…")
-                    : localMask.inspector.editor.aiMaskHasCandidate
-                        ? qsTr("Regenerate")
-                        : qsTr("Generate")
-                variant: localMask.inspector.editor.aiMaskHasCandidate
-                    ? ShadowButton.Secondary : ShadowButton.Primary
+                visible: !localMask.inspector.editor.aiMaskBusy
+                    && !localMask.inspector.editor.aiMaskHasCandidate
+                    && localMask.inspector.editor.aiMaskPromptPoints.length > 0
+                text: qsTr("Retry selection")
+                variant: ShadowButton.Secondary
                 enabled: localMask.inspector.editor.aiMaskCanGenerate && !localMask.inspector.editor.aiMaskBusy
                 onClicked: localMask.inspector.editor.generateAiMask()
             }
@@ -172,7 +185,7 @@ ColumnLayout {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             visible: localMask.inspector.editor.aiMaskHasCandidate
-            text: qsTr("Apply candidate")
+            text: qsTr("Apply mask")
             variant: ShadowButton.Primary
             enabled: !localMask.inspector.editor.aiMaskBusy
             onClicked: localMask.inspector.editor.applyAiMaskCandidate()
