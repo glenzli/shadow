@@ -363,7 +363,8 @@ struct BackendSubjectMaskPoint final {
 
 enum class BackendSubjectMaskKind : std::uint8_t {
     PromptedSubject,
-    FaceRegion,
+    PeopleDiscovery,
+    PeopleRegions,
 };
 
 enum class BackendFaceRegion : std::uint8_t {
@@ -382,9 +383,18 @@ enum class BackendFaceRegion : std::uint8_t {
 
 enum class BackendSubjectMaskTerminal : std::uint8_t {
     Staged,
+    PeopleReady,
     Unavailable,
     Cancelled,
     Failed,
+};
+
+struct BackendSubjectMaskPerson final {
+    std::uint32_t index = 0;
+    double confidence = 0.0;
+    QByteArray thumbnail_jpeg;
+    bool regions_analyzed = false;
+    std::uint32_t available_region_mask = 0;
 };
 
 struct BackendSubjectMaskRequest final {
@@ -396,7 +406,8 @@ struct BackendSubjectMaskRequest final {
     std::uint32_t target_grade_node_index = 0;
     QString target_grade_node_id;
     BackendSubjectMaskKind kind = BackendSubjectMaskKind::PromptedSubject;
-    BackendFaceRegion face_region = BackendFaceRegion::Face;
+    std::uint32_t person_index = 0;
+    std::uint32_t face_region_mask = 1;
     QVector<BackendSubjectMaskPoint> points;
 };
 
@@ -409,6 +420,7 @@ struct BackendSubjectMaskResult final {
     std::uint32_t preview_width = 0;
     std::uint32_t preview_height = 0;
     QByteArray preview_samples;
+    QVector<BackendSubjectMaskPerson> people;
 };
 
 struct BackendSubjectMaskApplyRequest final {

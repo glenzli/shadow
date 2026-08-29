@@ -1102,6 +1102,48 @@
     )
 
     add_executable(
+        shadow-precision-people-mask-selector-contract-test
+        tests/precision_people_mask_selector_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-people-mask-selector-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-people-mask-selector-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-precision-people-mask-selector-contract-test
+        URI Shadow.PeopleMaskSelectorContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PrecisionPeopleMaskSelector.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-people-mask-selector-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-people-mask-selector-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-people-mask-selector-contract
+        COMMAND shadow-precision-people-mask-selector-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-people-mask-selector-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-precision-detail-loupe-contract-test
         tests/precision_detail_loupe_contract_test.cpp
     )

@@ -255,8 +255,8 @@
         <translation>AI 蒙版 · 点击要选择的主体</translation>
     </message>
     <message>
-        <source>People details · click one face</source>
-        <translation>人物细节 · 点击一张人脸</translation>
+        <source>People details · choose a person and details</source>
+        <translation>人物细节 · 选择人物与细节</translation>
     </message>
     <message>
         <source>AI Mask cannot continue until the current adjustments are saved</source>
@@ -1428,8 +1428,20 @@
         <translation>本地人脸解析不可用 · 请检查 Infer Runtime · %1</translation>
     </message>
     <message>
-        <source>People details · choose a region, then click the face</source>
-        <translation>人物细节 · 选择区域，然后点击人脸</translation>
+        <source>People details · detecting people…</source>
+        <translation>人物细节 · 正在检测人物…</translation>
+    </message>
+    <message>
+        <source>AI Mask is detecting people…</source>
+        <translation>AI 蒙版正在检测人物…</translation>
+    </message>
+    <message>
+        <source>People details · no people detected</source>
+        <translation>人物细节 · 未检测到人物</translation>
+    </message>
+    <message>
+        <source>Selected details are not visible · choose another region</source>
+        <translation>所选细节不可见 · 请选择其他区域</translation>
     </message>
     <message>
         <location filename="../src/edit_liquify_controller.cpp" line="217"/>
@@ -5318,8 +5330,8 @@ R %2 · G %3 · B %4</translation>
         <translation>选择尚未生成 · 点击“重试选择”</translation>
     </message>
     <message>
-        <source>Click the face to select the chosen detail</source>
-        <translation>点击人脸以选择指定细节</translation>
+        <source>Choose a person and details in the panel</source>
+        <translation>请在面板中选择人物与细节</translation>
     </message>
     <message>
         <source>Click the object to select it</source>
@@ -5350,8 +5362,8 @@ R %2 · G %3 · B %4</translation>
         <translation>点击对象</translation>
     </message>
     <message>
-        <source>Choose a detail, then click one face. The selected area appears on the photo before it is applied.</source>
-        <translation>选择一个细节，再点击人脸。应用前会先在照片上显示所选区域。</translation>
+        <source>People are detected automatically. Choose one person, then select one or more visible details to preview their combined mask.</source>
+        <translation>系统会自动检测人物。选择一位人物，再选择一个或多个可见细节，以预览组合蒙版。</translation>
     </message>
     <message>
         <source>Click the object to create a selection. Add or subtract points to refine the visible overlay.</source>
@@ -7820,24 +7832,40 @@ R %2 · G %3 · B %4</translation>
         <translation>新建调色节点并选择人脸五官</translation>
     </message>
     <message>
-        <source>Choose a facial region, then click the face to bind it to this Grade Node.</source>
-        <translation>选择人脸区域，然后点击人脸，将蒙版绑定到此调色节点。</translation>
+        <source>Choose one person and combine visible details. The result remains the current Grade Node's mask.</source>
+        <translation>选择一位人物并组合可见细节。结果仍作为当前调色节点的蒙版。</translation>
     </message>
     <message>
         <source>Identifying facial details…</source>
         <translation>正在识别人脸细节…</translation>
     </message>
     <message>
-        <source>Click one face</source>
-        <translation>点击一张人脸</translation>
+        <source>Choose a person and details</source>
+        <translation>选择人物与细节</translation>
     </message>
     <message>
-        <source>Region</source>
-        <translation>区域</translation>
+        <source>Details</source>
+        <translation>细节</translation>
     </message>
     <message>
-        <source>Facial region</source>
-        <translation>人脸区域</translation>
+        <source>People</source>
+        <translation>人物</translation>
+    </message>
+    <message>
+        <source>Detecting people</source>
+        <translation>正在检测人物</translation>
+    </message>
+    <message>
+        <source>Looking for people in this photo…</source>
+        <translation>正在这张照片中查找人物…</translation>
+    </message>
+    <message>
+        <source>No person selected · retry detection</source>
+        <translation>尚未选择人物 · 重试检测</translation>
+    </message>
+    <message>
+        <source>Person %1</source>
+        <translation>人物 %1</translation>
     </message>
     <message>
         <source>Face</source>

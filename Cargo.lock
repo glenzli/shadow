@@ -1443,6 +1443,7 @@ dependencies = [
  "blake3",
  "cxx",
  "cxx-build",
+ "image",
  "rusqlite",
  "serde",
  "serde_json",

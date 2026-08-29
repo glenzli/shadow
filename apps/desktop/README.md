@@ -372,9 +372,13 @@ Its implementation follows the same navigation:
   atomic choice between attaching a new mask to the selected empty node and creating, masking,
   inserting, and selecting one new node. QML never chains those state mutations.
 - [`src/edit_ai_mask_controller.*`](src/edit_ai_mask_controller.hpp) owns the complete subject-mask
-  prompt lifecycle: one node-bound input session, point refinement, provider-job cancellation,
-  candidate presentation, and the separate apply transaction. One identity-checked rendered input
-  is reused across refinements and retired on apply, cancellation, or edit-context change.
+  lifecycle: one node-bound input session, point refinement, transient current-photo people,
+  composable visible-detail selection, provider-job cancellation, candidate presentation, and the
+  separate apply transaction. One identity-checked rendered input is reused across refinements;
+  face detection is reused for the session, and each parsed person is recomposed locally after its
+  first analysis. Input, person thumbnails, and parsed labels are retired on apply, cancellation,
+  or edit-context change. [`qml/PrecisionPeopleMaskSelector.qml`](qml/PrecisionPeopleMaskSelector.qml)
+  owns the temporary person cards and multi-select detail list without creating another mask system.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
   presentation, in-session clipboard semantics, the enumerable scalar-parameter contract,
   geometry/condition validation, and brush strokes. Ordinary photo-local masks are not named or

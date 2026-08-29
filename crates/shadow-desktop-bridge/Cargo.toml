@@ -13,6 +13,7 @@ crate-type = ["rlib", "staticlib"]
 anyhow.workspace = true
 blake3.workspace = true
 cxx.workspace = true
+image.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -14,13 +14,14 @@ use shadow_ai::{
 use super::{
     DesktopSession, ffi,
     recipe_v1::{GradeStackDraft, decode_grade_stack_draft_recipe_v1},
+    subject_mask_people::{FaceRegionSet, prepare_person_candidates},
     subject_mask_runtime::{
-        FaceRegion, SubjectMaskInvocation, SubjectMaskSelection,
+        SubjectMaskInvocation, SubjectMaskSelection,
         geometry::{map_output_prompt_to_original, project_gray8_mask_to_output},
     },
     subject_mask_service::{
         SubjectMaskCompletion, SubjectMaskInputAdmission, SubjectMaskInputIdentity,
-        SubjectMaskServiceError,
+        SubjectMaskPersonSnapshot, SubjectMaskServiceError,
     },
     wall_clock::current_time_ms,
 };
@@ -101,7 +102,13 @@ impl DesktopSession {
             request.target_grade_node_index,
             &request.target_grade_node_id,
         )?;
-        let display_points = subject_mask_points(&request.points)?;
+        let display_points = match request.kind {
+            ffi::FfiSubjectMaskKind::PromptedSubject => subject_mask_points(&request.points)?,
+            ffi::FfiSubjectMaskKind::PeopleDiscovery | ffi::FfiSubjectMaskKind::PeopleRegions => {
+                Vec::new()
+            }
+            _ => bail!("subject-mask selection kind is unsupported"),
+        };
         let input_identity = SubjectMaskInputIdentity {
             photo_id: photo_id.to_owned(),
             source_path: source_path.to_owned(),
@@ -198,6 +205,54 @@ impl DesktopSession {
             }
         };
         let coordinate_extent = prepared_input.coordinate_extent;
+        if request.kind == ffi::FfiSubjectMaskKind::PeopleDiscovery {
+            let people = match self
+                .subject_masks
+                .people_snapshot(request.input_session_token, &input_identity)?
+            {
+                Some(people) => people,
+                None => {
+                    let detections = match self.subject_mask_runtime.detect_people(
+                        &prepared_input.bytes,
+                        &prepared_input.content_hash,
+                        coordinate_extent,
+                        &cancellation,
+                    ) {
+                        Ok(Some(detections)) => detections,
+                        Ok(None) => {
+                            self.subject_masks.finish_job(request.job_token)?;
+                            return Ok(subject_mask_terminal(
+                                request,
+                                ffi::FfiSubjectMaskTerminal::Cancelled,
+                                0,
+                                String::new(),
+                            ));
+                        }
+                        Err(error) => {
+                            self.subject_masks.finish_job(request.job_token)?;
+                            return Ok(subject_mask_terminal(
+                                request,
+                                ffi::FfiSubjectMaskTerminal::Unavailable,
+                                0,
+                                error.to_string(),
+                            ));
+                        }
+                    };
+                    let candidates = prepare_person_candidates(
+                        &prepared_input.bytes,
+                        coordinate_extent,
+                        &detections,
+                    )?;
+                    self.subject_masks.cache_people(
+                        request.input_session_token,
+                        &input_identity,
+                        candidates,
+                    )?
+                }
+            };
+            self.subject_masks.finish_job(request.job_token)?;
+            return Ok(people_ready_result(request, people, String::new()));
+        }
         let points = display_points
             .into_iter()
             .map(|point| {
@@ -212,13 +267,73 @@ impl DesktopSession {
             ffi::FfiSubjectMaskKind::PromptedSubject => {
                 SubjectMaskSelection::PromptedSubject { points }
             }
-            ffi::FfiSubjectMaskKind::FaceRegion => SubjectMaskSelection::FaceRegion {
-                anchor: points
-                    .into_iter()
-                    .find(|point| point.polarity == MaskPointPolarity::Foreground)
-                    .context("face-region selection requires one face click")?,
-                region: face_region(request.face_region),
-            },
+            ffi::FfiSubjectMaskKind::PeopleRegions => {
+                let regions = FaceRegionSet::from_bits(request.face_region_mask)?;
+                let person = self.subject_masks.person_candidate(
+                    request.input_session_token,
+                    &input_identity,
+                    request.person_index,
+                )?;
+                let parsed = match self.subject_masks.parsed_person(
+                    request.input_session_token,
+                    &input_identity,
+                    request.person_index,
+                )? {
+                    Some(parsed) => parsed,
+                    None => {
+                        let parsed = match self.subject_mask_runtime.parse_person(
+                            &prepared_input.bytes,
+                            &prepared_input.content_hash,
+                            coordinate_extent,
+                            &person,
+                            &cancellation,
+                        ) {
+                            Ok(Some(parsed)) => parsed,
+                            Ok(None) => {
+                                self.subject_masks.finish_job(request.job_token)?;
+                                return Ok(subject_mask_terminal(
+                                    request,
+                                    ffi::FfiSubjectMaskTerminal::Cancelled,
+                                    0,
+                                    String::new(),
+                                ));
+                            }
+                            Err(error) => {
+                                self.subject_masks.finish_job(request.job_token)?;
+                                return Ok(subject_mask_terminal(
+                                    request,
+                                    ffi::FfiSubjectMaskTerminal::Unavailable,
+                                    0,
+                                    error.to_string(),
+                                ));
+                            }
+                        };
+                        self.subject_masks.cache_parsed_person(
+                            request.input_session_token,
+                            &input_identity,
+                            request.person_index,
+                            parsed,
+                        )?
+                    }
+                };
+                if !regions.intersects(parsed.available_regions) {
+                    self.subject_masks.finish_job(request.job_token)?;
+                    let people = self
+                        .subject_masks
+                        .people_snapshot(request.input_session_token, &input_identity)?
+                        .unwrap_or_default();
+                    return Ok(people_ready_result(
+                        request,
+                        people,
+                        "the selected facial regions are not visible for this person".into(),
+                    ));
+                }
+                SubjectMaskSelection::FaceRegions {
+                    person,
+                    regions,
+                    parsed,
+                }
+            }
             _ => bail!("subject-mask selection kind is unsupported"),
         };
         let receipt = match self.subject_mask_runtime.stage(
@@ -234,8 +349,8 @@ impl DesktopSession {
                 ),
                 generation: request.generation,
                 photo_id: photo_id.to_owned(),
-                original_space_input_jpeg: prepared_input.bytes,
-                original_space_input_content_hash: prepared_input.content_hash,
+                original_space_input_jpeg: prepared_input.bytes.clone(),
+                original_space_input_content_hash: prepared_input.content_hash.clone(),
                 coordinate_extent,
                 selection,
             },
@@ -313,6 +428,11 @@ impl DesktopSession {
                 result.preview_width = output_extent.width;
                 result.preview_height = output_extent.height;
                 result.preview_samples = preview_samples;
+                result.people = project_people(
+                    self.subject_masks
+                        .people_snapshot(request.input_session_token, &input_identity)?
+                        .unwrap_or_default(),
+                );
                 result
             }
             SubjectMaskCompletion::Unavailable { reason } => subject_mask_terminal(
@@ -374,23 +494,6 @@ impl DesktopSession {
 
     pub(crate) fn discard_subject_mask_proposal(&self, proposal_token: u64) -> AnyResult<()> {
         Ok(self.subject_masks.discard_proposal(proposal_token)?)
-    }
-}
-
-fn face_region(region: ffi::FfiFaceRegion) -> FaceRegion {
-    match region {
-        ffi::FfiFaceRegion::Face => FaceRegion::Face,
-        ffi::FfiFaceRegion::Skin => FaceRegion::Skin,
-        ffi::FfiFaceRegion::Eyes => FaceRegion::Eyes,
-        ffi::FfiFaceRegion::Eyebrows => FaceRegion::Eyebrows,
-        ffi::FfiFaceRegion::LipsAndMouth => FaceRegion::LipsAndMouth,
-        ffi::FfiFaceRegion::Nose => FaceRegion::Nose,
-        ffi::FfiFaceRegion::Ears => FaceRegion::Ears,
-        ffi::FfiFaceRegion::Hair => FaceRegion::Hair,
-        ffi::FfiFaceRegion::Neck => FaceRegion::Neck,
-        ffi::FfiFaceRegion::Clothing => FaceRegion::Clothing,
-        ffi::FfiFaceRegion::Accessories => FaceRegion::Accessories,
-        _ => FaceRegion::Face,
     }
 }
 
@@ -473,7 +576,33 @@ fn subject_mask_terminal(
         preview_width: 0,
         preview_height: 0,
         preview_samples: Vec::new(),
+        people: Vec::new(),
     }
+}
+
+fn people_ready_result(
+    request: &ffi::FfiSubjectMaskRequest,
+    people: Vec<SubjectMaskPersonSnapshot>,
+    detail: String,
+) -> ffi::FfiSubjectMaskResult {
+    let mut result =
+        subject_mask_terminal(request, ffi::FfiSubjectMaskTerminal::PeopleReady, 0, detail);
+    result.people = project_people(people);
+    result
+}
+
+fn project_people(people: Vec<SubjectMaskPersonSnapshot>) -> Vec<ffi::FfiSubjectMaskPerson> {
+    people
+        .into_iter()
+        .enumerate()
+        .map(|(index, person)| ffi::FfiSubjectMaskPerson {
+            index: index as u32,
+            confidence: f64::from(person.candidate.confidence),
+            thumbnail_jpeg: person.candidate.thumbnail_jpeg.as_ref().to_vec(),
+            regions_analyzed: person.available_regions.is_some(),
+            available_region_mask: person.available_regions.map_or(0, |regions| regions.bits()),
+        })
+        .collect()
 }
 
 #[cfg(test)]

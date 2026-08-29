@@ -17,22 +17,18 @@ bool EditAiMaskPromptState::busy() const noexcept {
     return active_request_.has_value();
 }
 
-std::optional<std::uint64_t>
-EditAiMaskPromptState::active_job_token() const noexcept {
+std::optional<std::uint64_t> EditAiMaskPromptState::active_job_token() const noexcept {
     if (!active_request_) {
         return std::nullopt;
     }
     return active_request_->job_token;
 }
 
-AiMaskPromptMutationResult EditAiMaskPromptState::append_point(
-    const AiMaskPromptPoint point
-) {
+AiMaskPromptMutationResult EditAiMaskPromptState::append_point(const AiMaskPromptPoint point) {
     if (busy()) {
         return AiMaskPromptMutationResult::Busy;
     }
-    if (!std::isfinite(point.x) || !std::isfinite(point.y)
-        || point.x < 0.0 || point.x > 1.0
+    if (!std::isfinite(point.x) || !std::isfinite(point.y) || point.x < 0.0 || point.x > 1.0
         || point.y < 0.0 || point.y > 1.0) {
         return AiMaskPromptMutationResult::InvalidPoint;
     }
@@ -75,10 +71,17 @@ AiMaskPromptMutationResult EditAiMaskPromptState::clear_points() noexcept {
     return AiMaskPromptMutationResult::Applied;
 }
 
-std::optional<AiMaskPromptSnapshot> EditAiMaskPromptState::begin_request(
-    const std::uint64_t job_token
-) {
-    if (job_token == 0 || busy() || points_.empty()) {
+AiMaskPromptMutationResult EditAiMaskPromptState::invalidate_selection() noexcept {
+    if (busy()) {
+        return AiMaskPromptMutationResult::Busy;
+    }
+    return advance_generation() ? AiMaskPromptMutationResult::Applied
+                                : AiMaskPromptMutationResult::GenerationExhausted;
+}
+
+std::optional<AiMaskPromptSnapshot>
+EditAiMaskPromptState::begin_request(const std::uint64_t job_token, const bool allow_empty) {
+    if (job_token == 0 || busy() || (!allow_empty && points_.empty())) {
         return std::nullopt;
     }
     AiMaskPromptSnapshot snapshot{
@@ -93,8 +96,7 @@ std::optional<AiMaskPromptSnapshot> EditAiMaskPromptState::begin_request(
     return snapshot;
 }
 
-std::optional<std::uint64_t>
-EditAiMaskPromptState::cancel_active_request() noexcept {
+std::optional<std::uint64_t> EditAiMaskPromptState::cancel_active_request() noexcept {
     if (!active_request_ || !advance_generation()) {
         return std::nullopt;
     }
@@ -117,15 +119,13 @@ AiMaskPromptCompletion EditAiMaskPromptState::complete_request(
     const std::uint64_t job_token,
     const std::uint64_t generation
 ) noexcept {
-    if (!active_request_
-        || active_request_->job_token != job_token
+    if (!active_request_ || active_request_->job_token != job_token
         || active_request_->generation != generation) {
         return AiMaskPromptCompletion::Stale;
     }
     active_request_.reset();
-    return generation == generation_
-        ? AiMaskPromptCompletion::Current
-        : AiMaskPromptCompletion::Stale;
+    return generation == generation_ ? AiMaskPromptCompletion::Current
+                                     : AiMaskPromptCompletion::Stale;
 }
 
 bool EditAiMaskPromptState::advance_generation() noexcept {

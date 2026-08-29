@@ -96,6 +96,13 @@ namespace {
     return QStringLiteral("data:image/png;base64,%1").arg(QString::fromLatin1(png.toBase64()));
 }
 
+[[nodiscard]] QString person_thumbnail_source(const QByteArray& jpeg) {
+    if (jpeg.isEmpty()) {
+        return {};
+    }
+    return QStringLiteral("data:image/jpeg;base64,%1").arg(QString::fromLatin1(jpeg.toBase64()));
+}
+
 } // namespace
 
 EditAiMaskController::EditAiMaskController(
@@ -153,6 +160,18 @@ int EditController::aiMaskFaceRegion() const noexcept {
     return ai_mask_controller_ ? ai_mask_controller_->faceRegion() : 0;
 }
 
+QVariantList EditController::aiMaskPeople() const {
+    return ai_mask_controller_ ? ai_mask_controller_->people() : QVariantList{};
+}
+
+int EditController::aiMaskSelectedPerson() const noexcept {
+    return ai_mask_controller_ ? ai_mask_controller_->selectedPerson() : -1;
+}
+
+int EditController::aiMaskFaceRegionMask() const noexcept {
+    return ai_mask_controller_ ? ai_mask_controller_->faceRegionMask() : 0;
+}
+
 bool EditController::aiMaskForegroundMode() const noexcept {
     return !ai_mask_controller_ || ai_mask_controller_->foregroundMode();
 }
@@ -199,6 +218,18 @@ void EditController::setAiMaskForegroundMode(const bool foreground) {
 void EditController::setAiMaskFaceRegion(const int region) {
     if (ai_mask_controller_) {
         ai_mask_controller_->setFaceRegion(region);
+    }
+}
+
+void EditController::setAiMaskSelectedPerson(const int person_index) {
+    if (ai_mask_controller_) {
+        ai_mask_controller_->setSelectedPerson(person_index);
+    }
+}
+
+void EditController::toggleAiMaskFaceRegion(const int region, const bool selected) {
+    if (ai_mask_controller_) {
+        ai_mask_controller_->toggleFaceRegion(region, selected);
     }
 }
 
@@ -324,9 +355,34 @@ int EditAiMaskController::faceRegion() const noexcept {
     return static_cast<int>(face_region_);
 }
 
+QVariantList EditAiMaskController::people() const {
+    QVariantList result;
+    result.reserve(people_.size());
+    for (const auto& person : people_) {
+        result.push_back(
+            QVariantMap{
+                {QStringLiteral("index"), person.index},
+                {QStringLiteral("confidence"), person.confidence},
+                {QStringLiteral("thumbnailSource"), person_thumbnail_source(person.thumbnail_jpeg)},
+                {QStringLiteral("regionsAnalyzed"), person.regions_analyzed},
+                {QStringLiteral("availableRegionMask"), person.available_region_mask},
+            }
+        );
+    }
+    return result;
+}
+
+int EditAiMaskController::selectedPerson() const noexcept {
+    return selected_person_;
+}
+
+int EditAiMaskController::faceRegionMask() const noexcept {
+    return static_cast<int>(face_region_mask_);
+}
+
 bool EditAiMaskController::canGenerate() const noexcept {
     return owner_.subjectMaskExecutionAllowed() && active_ && !busy() && contextIsCurrent()
-           && hasForegroundPoint();
+           && selectionReady();
 }
 
 bool EditAiMaskController::hasCandidate() const noexcept {
@@ -404,6 +460,10 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
     static_cast<void>(prompt_state_.reset_context());
     selection_kind_ = kind;
     face_region_ = BackendFaceRegion::Face;
+    people_.clear();
+    selected_person_ = -1;
+    face_region_mask_ = 1U;
+    people_discovery_complete_ = false;
     foreground_mode_ = true;
     context_ = CapturedContext{
         .photo_id = owner_.photo_id_,
@@ -418,15 +478,15 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
     publishStateChange(previous_busy, previously_locked);
     owner_.setStatusMessage(ai_mask_message(
         kind == AiMaskSelectionKind::FaceRegion
-            ? QT_TRANSLATE_NOOP(
-                  "EditController",
-                  "People details · choose a region, then click the face"
-              )
+            ? QT_TRANSLATE_NOOP("EditController", "People details · detecting people…")
             : QT_TRANSLATE_NOOP(
                   "EditController",
                   "AI Mask · click the subject to add an include point"
               )
     ));
+    if (kind == AiMaskSelectionKind::FaceRegion) {
+        requestGeneration();
+    }
     return true;
 }
 
@@ -445,11 +505,43 @@ void EditAiMaskController::setFaceRegion(const int region) {
         return;
     }
     face_region_ = static_cast<BackendFaceRegion>(region);
+    face_region_mask_ = 1U << static_cast<std::uint32_t>(region);
+    static_cast<void>(prompt_state_.invalidate_selection());
     retireCandidate();
     emit owner_.aiMaskPromptChanged();
-    if (!prompt_state_.points().empty()) {
+    if (selected_person_ >= 0) {
         requestGeneration();
     }
+}
+
+void EditAiMaskController::setSelectedPerson(const int person_index) {
+    if (!faceRegionMode() || busy() || person_index < 0 || person_index >= people_.size()
+        || selected_person_ == person_index) {
+        return;
+    }
+    selected_person_ = person_index;
+    static_cast<void>(prompt_state_.invalidate_selection());
+    retireCandidate();
+    emit owner_.aiMaskPromptChanged();
+    requestGeneration();
+}
+
+void EditAiMaskController::toggleFaceRegion(const int region, const bool selected) {
+    if (!faceRegionMode() || busy() || region < static_cast<int>(BackendFaceRegion::Face)
+        || region > static_cast<int>(BackendFaceRegion::Accessories)) {
+        return;
+    }
+    const std::uint32_t bit = 1U << static_cast<std::uint32_t>(region);
+    const std::uint32_t updated = selected ? face_region_mask_ | bit : face_region_mask_ & ~bit;
+    if (updated == 0U || updated == face_region_mask_) {
+        return;
+    }
+    face_region_mask_ = updated;
+    face_region_ = static_cast<BackendFaceRegion>(region);
+    static_cast<void>(prompt_state_.invalidate_selection());
+    retireCandidate();
+    emit owner_.aiMaskPromptChanged();
+    requestGeneration();
 }
 
 void EditAiMaskController::appendPoint(const double x, const double y, const bool foreground) {
@@ -503,18 +595,25 @@ void EditAiMaskController::clearPoints() {
         emit owner_.aiMaskPromptChanged();
         owner_.setStatusMessage(ai_mask_message(
             faceRegionMode()
-                ? QT_TRANSLATE_NOOP("EditController", "People details · click one face")
+                ? QT_TRANSLATE_NOOP(
+                      "EditController",
+                      "People details · choose a person and details"
+                  )
                 : QT_TRANSLATE_NOOP("EditController", "AI Mask · click the subject to select it")
         ));
     }
 }
 
 void EditAiMaskController::generate() {
+    if (faceRegionMode() && people_discovery_complete_ && people_.isEmpty()) {
+        people_discovery_complete_ = false;
+        static_cast<void>(prompt_state_.invalidate_selection());
+    }
     requestGeneration();
 }
 
 void EditAiMaskController::requestGeneration() {
-    if (!active_ || apply_in_flight_ || !contextIsCurrent() || !hasForegroundPoint()) {
+    if (!active_ || apply_in_flight_ || !contextIsCurrent() || !selectionReady()) {
         return;
     }
     const bool previous_busy = owner_.busy();
@@ -529,7 +628,7 @@ void EditAiMaskController::tryStartPendingGeneration() {
         || prompt_state_.busy()) {
         return;
     }
-    if (!contextIsCurrent() || !hasForegroundPoint()) {
+    if (!contextIsCurrent() || !selectionReady()) {
         const bool previous_busy = owner_.busy();
         const bool previously_locked = owner_.interactionLocked();
         generation_pending_ = false;
@@ -574,7 +673,7 @@ void EditAiMaskController::tryStartPendingGeneration() {
 
 void EditAiMaskController::startGeneration() {
     if (!generation_pending_ || !active_ || execution_watcher_.isRunning() || prompt_state_.busy()
-        || apply_in_flight_ || !contextIsCurrent() || !hasForegroundPoint()) {
+        || apply_in_flight_ || !contextIsCurrent() || !selectionReady()) {
         return;
     }
     std::uint64_t job_token = 0;
@@ -591,7 +690,7 @@ void EditAiMaskController::startGeneration() {
         publishStateChange(previous_busy, previously_locked);
         return;
     }
-    const auto snapshot = prompt_state_.begin_request(job_token);
+    const auto snapshot = prompt_state_.begin_request(job_token, faceRegionMode());
     if (!snapshot) {
         try {
             backend_->cancelSubjectMaskJob(job_token);
@@ -604,6 +703,10 @@ void EditAiMaskController::startGeneration() {
     }
     retireCandidate();
 
+    active_request_kind_ = faceRegionMode() ? people_discovery_complete_
+                                                  ? BackendSubjectMaskKind::PeopleRegions
+                                                  : BackendSubjectMaskKind::PeopleDiscovery
+                                            : BackendSubjectMaskKind::PromptedSubject;
     BackendSubjectMaskRequest request{
         .input_session_token = context_->input_session_token,
         .job_token = snapshot->job_token,
@@ -612,10 +715,9 @@ void EditAiMaskController::startGeneration() {
         .grade_stack = owner_.grade_stack_,
         .target_grade_node_index = context_->target_grade_node_index,
         .target_grade_node_id = context_->target_grade_node_id,
-        .kind = selection_kind_ == AiMaskSelectionKind::FaceRegion
-                    ? BackendSubjectMaskKind::FaceRegion
-                    : BackendSubjectMaskKind::PromptedSubject,
-        .face_region = face_region_,
+        .kind = active_request_kind_,
+        .person_index = selected_person_ < 0 ? 0U : static_cast<std::uint32_t>(selected_person_),
+        .face_region_mask = face_region_mask_,
     };
     request.points.reserve(static_cast<qsizetype>(snapshot->points.size()));
     for (const auto& point : snapshot->points) {
@@ -641,7 +743,9 @@ void EditAiMaskController::startGeneration() {
     publishStateChange(previous_busy, previously_locked);
     owner_.setStatusMessage(ai_mask_message(
         faceRegionMode()
-            ? QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying facial details…")
+            ? active_request_kind_ == BackendSubjectMaskKind::PeopleDiscovery
+                  ? QT_TRANSLATE_NOOP("EditController", "AI Mask is detecting people…")
+                  : QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying facial details…")
             : QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying the subject…")
     ));
 }
@@ -713,6 +817,10 @@ void EditAiMaskController::resetContext() {
     active_ = false;
     foreground_mode_ = true;
     selection_kind_ = AiMaskSelectionKind::PromptedSubject;
+    people_.clear();
+    selected_person_ = -1;
+    face_region_mask_ = 1U;
+    people_discovery_complete_ = false;
     context_.reset();
     publishStateChange(previous_busy, previously_locked);
 }
@@ -767,6 +875,33 @@ void EditAiMaskController::finishExecution() {
         ));
         publishStateChange(previous_busy, previously_locked);
         return;
+    case BackendSubjectMaskTerminal::PeopleReady:
+        people_ = task.result.people;
+        people_discovery_complete_ = true;
+        retireCandidate();
+        if (people_.isEmpty()) {
+            selected_person_ = -1;
+            owner_.setStatusMessage(ai_mask_message(
+                QT_TRANSLATE_NOOP("EditController", "People details · no people detected")
+            ));
+            publishStateChange(previous_busy, previously_locked);
+            return;
+        }
+        if (selected_person_ < 0 || selected_person_ >= people_.size()) {
+            selected_person_ = 0;
+        }
+        static_cast<void>(prompt_state_.invalidate_selection());
+        if (!task.result.detail.isEmpty()) {
+            owner_.setStatusMessage(ai_mask_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "Selected details are not visible · choose another region"
+            )));
+            publishStateChange(previous_busy, previously_locked);
+            return;
+        }
+        publishStateChange(previous_busy, previously_locked);
+        requestGeneration();
+        return;
     case BackendSubjectMaskTerminal::Staged:
         break;
     }
@@ -791,6 +926,9 @@ void EditAiMaskController::finishExecution() {
     candidate_proposal_token_ = task.result.proposal_token;
     candidate_generation_ = task.result.generation;
     candidate_source_ = candidate_source;
+    if (!task.result.people.isEmpty()) {
+        people_ = task.result.people;
+    }
     owner_.setStatusMessage(ai_mask_message(
         faceRegionMode() ? QT_TRANSLATE_NOOP(
                                "EditController",
@@ -831,6 +969,10 @@ void EditAiMaskController::finishApply() {
     active_ = false;
     foreground_mode_ = true;
     selection_kind_ = AiMaskSelectionKind::PromptedSubject;
+    people_.clear();
+    selected_person_ = -1;
+    face_region_mask_ = 1U;
+    people_discovery_complete_ = false;
     static_cast<void>(prompt_state_.reset_context());
     retireInputSession();
     context_.reset();
@@ -872,6 +1014,15 @@ bool EditAiMaskController::hasForegroundPoint() const noexcept {
             return point.polarity == shadow::desktop::AiMaskPromptPolarity::Foreground;
         }
     );
+}
+
+bool EditAiMaskController::selectionReady() const noexcept {
+    if (!faceRegionMode()) {
+        return hasForegroundPoint();
+    }
+    return !people_discovery_complete_
+           || (selected_person_ >= 0 && selected_person_ < people_.size()
+               && face_region_mask_ != 0U);
 }
 
 void EditAiMaskController::retireInputSession() noexcept {

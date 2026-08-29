@@ -15,6 +15,7 @@ Item {
     required property bool faceRegionMode
     required property bool foregroundMode
     required property var promptPoints
+    property int peopleCount: 0
     required property color foregroundColor
     required property color backgroundColor
     required property color candidateColor
@@ -37,17 +38,20 @@ Item {
             ? faceRegionMode
                 ? qsTranslate("PrecisionWorkspace", "Facial detail selected · confirm or choose another region")
                 : qsTranslate("PrecisionWorkspace", "Selected area preview · add or subtract points to refine")
+            : faceRegionMode
+                ? peopleCount > 0
+                    ? qsTranslate("PrecisionWorkspace", "Choose a person and details in the panel")
+                    : qsTranslate("PrecisionWorkspace", "No person selected · retry detection")
             : pointCount > 0
                 ? qsTranslate("PrecisionWorkspace", "Selection was not generated · click Retry selection")
-                : faceRegionMode
-                    ? qsTranslate("PrecisionWorkspace", "Click the face to select the chosen detail")
-                    : foregroundMode
+                : foregroundMode
                         ? qsTranslate("PrecisionWorkspace", "Click the object to select it")
                         : qsTranslate("PrecisionWorkspace", "Choose Add, then click the object first")
     readonly property bool canAddPoint: interactionEnabled
         && !busy
         && width > 0
         && height > 0
+        && !faceRegionMode
         && pointCount < maximumPoints
 
     signal pointRequested(real normalizedX, real normalizedY, bool foreground)
@@ -92,7 +96,8 @@ Item {
     }
 
     function requestRetry() {
-        if (interactionEnabled && !busy && !candidateVisible && pointCount > 0)
+        if (interactionEnabled && !busy && !candidateVisible
+                && (pointCount > 0 || faceRegionMode))
             retryRequested()
     }
 
@@ -215,7 +220,7 @@ Item {
     Repeater {
         id: promptRepeater
 
-        model: overlay.promptPoints
+        model: overlay.faceRegionMode ? [] : overlay.promptPoints
 
         delegate: Item {
             id: marker
@@ -278,7 +283,7 @@ Item {
         objectName: "aiMaskPromptSurface"
         z: 1
         anchors.fill: parent
-        enabled: overlay.canAddPoint
+        enabled: overlay.canAddPoint && !overlay.faceRegionMode
         acceptedButtons: Qt.LeftButton
         cursorShape: overlay.busy ? Qt.BusyCursor
             : overlay.canAddPoint ? Qt.CrossCursor : Qt.ArrowCursor
@@ -331,7 +336,9 @@ Item {
 
             OverlayActionButton {
                 objectName: "aiMaskRetrySelectionButton"
-                visible: !overlay.candidateVisible && overlay.pointCount > 0
+                visible: !overlay.candidateVisible
+                    && (overlay.pointCount > 0
+                        || (overlay.faceRegionMode && overlay.peopleCount === 0))
                 label: qsTranslate("PrecisionWorkspace", "Retry selection")
                 buttonEnabled: !overlay.busy
                 onClicked: overlay.requestRetry()

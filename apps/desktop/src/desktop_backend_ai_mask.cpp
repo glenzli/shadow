@@ -17,6 +17,8 @@ subject_mask_terminal(const shadow::desktop::FfiSubjectMaskTerminal terminal) {
     switch (terminal) {
     case shadow::desktop::FfiSubjectMaskTerminal::Staged:
         return BackendSubjectMaskTerminal::Staged;
+    case shadow::desktop::FfiSubjectMaskTerminal::PeopleReady:
+        return BackendSubjectMaskTerminal::PeopleReady;
     case shadow::desktop::FfiSubjectMaskTerminal::Unavailable:
         return BackendSubjectMaskTerminal::Unavailable;
     case shadow::desktop::FfiSubjectMaskTerminal::Cancelled:
@@ -33,38 +35,12 @@ ffi_subject_mask_kind(const BackendSubjectMaskKind kind) {
     switch (kind) {
     case BackendSubjectMaskKind::PromptedSubject:
         return shadow::desktop::FfiSubjectMaskKind::PromptedSubject;
-    case BackendSubjectMaskKind::FaceRegion:
-        return shadow::desktop::FfiSubjectMaskKind::FaceRegion;
+    case BackendSubjectMaskKind::PeopleDiscovery:
+        return shadow::desktop::FfiSubjectMaskKind::PeopleDiscovery;
+    case BackendSubjectMaskKind::PeopleRegions:
+        return shadow::desktop::FfiSubjectMaskKind::PeopleRegions;
     }
     throw std::runtime_error("unknown subject-mask selection kind");
-}
-
-[[nodiscard]] shadow::desktop::FfiFaceRegion ffi_face_region(const BackendFaceRegion region) {
-    switch (region) {
-    case BackendFaceRegion::Face:
-        return shadow::desktop::FfiFaceRegion::Face;
-    case BackendFaceRegion::Skin:
-        return shadow::desktop::FfiFaceRegion::Skin;
-    case BackendFaceRegion::Eyes:
-        return shadow::desktop::FfiFaceRegion::Eyes;
-    case BackendFaceRegion::Eyebrows:
-        return shadow::desktop::FfiFaceRegion::Eyebrows;
-    case BackendFaceRegion::LipsAndMouth:
-        return shadow::desktop::FfiFaceRegion::LipsAndMouth;
-    case BackendFaceRegion::Nose:
-        return shadow::desktop::FfiFaceRegion::Nose;
-    case BackendFaceRegion::Ears:
-        return shadow::desktop::FfiFaceRegion::Ears;
-    case BackendFaceRegion::Hair:
-        return shadow::desktop::FfiFaceRegion::Hair;
-    case BackendFaceRegion::Neck:
-        return shadow::desktop::FfiFaceRegion::Neck;
-    case BackendFaceRegion::Clothing:
-        return shadow::desktop::FfiFaceRegion::Clothing;
-    case BackendFaceRegion::Accessories:
-        return shadow::desktop::FfiFaceRegion::Accessories;
-    }
-    throw std::runtime_error("unknown face-region selector");
 }
 
 } // namespace
@@ -101,7 +77,8 @@ BackendSubjectMaskResult DesktopBackend::executeSubjectMaskJob(
     ffi_request.target_grade_node_index = request.target_grade_node_index;
     ffi_request.target_grade_node_id = request.target_grade_node_id.toStdString();
     ffi_request.kind = ffi_subject_mask_kind(request.kind);
-    ffi_request.face_region = ffi_face_region(request.face_region);
+    ffi_request.person_index = request.person_index;
+    ffi_request.face_region_mask = request.face_region_mask;
     ffi_request.points.reserve(static_cast<std::size_t>(request.points.size()));
     for (const auto& point : request.points) {
         ffi_request.points.push_back({
@@ -115,7 +92,7 @@ BackendSubjectMaskResult DesktopBackend::executeSubjectMaskJob(
         source_path.toStdString(),
         ffi_request
     );
-    return {
+    BackendSubjectMaskResult projected{
         .terminal = subject_mask_terminal(result.terminal),
         .job_token = result.job_token,
         .generation = result.generation,
@@ -125,6 +102,17 @@ BackendSubjectMaskResult DesktopBackend::executeSubjectMaskJob(
         .preview_height = result.preview_height,
         .preview_samples = qbytes(result.preview_samples),
     };
+    projected.people.reserve(static_cast<qsizetype>(result.people.size()));
+    for (const auto& person : result.people) {
+        projected.people.push_back({
+            .index = person.index,
+            .confidence = person.confidence,
+            .thumbnail_jpeg = qbytes(person.thumbnail_jpeg),
+            .regions_analyzed = person.regions_analyzed,
+            .available_region_mask = person.available_region_mask,
+        });
+    }
+    return projected;
 }
 
 BackendPhotoEditState DesktopBackend::applySubjectMaskProposal(

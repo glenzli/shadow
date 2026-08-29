@@ -45,6 +45,9 @@ class EditAiMaskController final {
     [[nodiscard]] bool foregroundMode() const noexcept;
     [[nodiscard]] bool faceRegionMode() const noexcept;
     [[nodiscard]] int faceRegion() const noexcept;
+    [[nodiscard]] QVariantList people() const;
+    [[nodiscard]] int selectedPerson() const noexcept;
+    [[nodiscard]] int faceRegionMask() const noexcept;
     [[nodiscard]] bool canGenerate() const noexcept;
     [[nodiscard]] bool hasCandidate() const noexcept;
     [[nodiscard]] QString candidateSource() const;
@@ -53,6 +56,8 @@ class EditAiMaskController final {
     [[nodiscard]] bool beginPrompt(AiMaskSelectionKind kind);
     void setForegroundMode(bool foreground);
     void setFaceRegion(int region);
+    void setSelectedPerson(int person_index);
+    void toggleFaceRegion(int region, bool selected);
     void appendPoint(double x, double y, bool foreground);
     void undoPoint();
     void clearPoints();
@@ -80,6 +85,7 @@ class EditAiMaskController final {
     void publishStateChange(bool previous_busy, bool previously_locked);
     [[nodiscard]] bool contextIsCurrent() const noexcept;
     [[nodiscard]] bool hasForegroundPoint() const noexcept;
+    [[nodiscard]] bool selectionReady() const noexcept;
     void retireInputSession() noexcept;
     void retireCandidate() noexcept;
     void discardProposal(std::uint64_t proposal_token) const noexcept;
@@ -98,6 +104,11 @@ class EditAiMaskController final {
     bool foreground_mode_ = true;
     AiMaskSelectionKind selection_kind_ = AiMaskSelectionKind::PromptedSubject;
     BackendFaceRegion face_region_ = BackendFaceRegion::Face;
+    QVector<BackendSubjectMaskPerson> people_;
+    int selected_person_ = -1;
+    std::uint32_t face_region_mask_ = 1U;
+    bool people_discovery_complete_ = false;
+    BackendSubjectMaskKind active_request_kind_ = BackendSubjectMaskKind::PromptedSubject;
     bool generation_pending_ = false;
     bool apply_in_flight_ = false;
 };

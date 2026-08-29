@@ -58,6 +58,7 @@ mod session_shared_grade;
 mod session_subject_mask;
 mod shared_grade_application;
 mod shared_grade_library;
+mod subject_mask_people;
 mod subject_mask_runtime;
 mod subject_mask_service;
 
@@ -1556,22 +1557,17 @@ mod ffi {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum FfiSubjectMaskKind {
         PromptedSubject,
-        FaceRegion,
+        PeopleDiscovery,
+        PeopleRegions,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum FfiFaceRegion {
-        Face,
-        Skin,
-        Eyes,
-        Eyebrows,
-        LipsAndMouth,
-        Nose,
-        Ears,
-        Hair,
-        Neck,
-        Clothing,
-        Accessories,
+    #[derive(Debug)]
+    struct FfiSubjectMaskPerson {
+        index: u32,
+        confidence: f64,
+        thumbnail_jpeg: Vec<u8>,
+        regions_analyzed: bool,
+        available_region_mask: u32,
     }
 
     /// Immutable input captured before the desktop queues one SAM worker.
@@ -1586,13 +1582,15 @@ mod ffi {
         target_grade_node_index: u32,
         target_grade_node_id: String,
         kind: FfiSubjectMaskKind,
-        face_region: FfiFaceRegion,
+        person_index: u32,
+        face_region_mask: u32,
         points: Vec<FfiSubjectMaskPoint>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum FfiSubjectMaskTerminal {
         Staged,
+        PeopleReady,
         Unavailable,
         Cancelled,
         Failed,
@@ -1612,6 +1610,7 @@ mod ffi {
         preview_width: u32,
         preview_height: u32,
         preview_samples: Vec<u8>,
+        people: Vec<FfiSubjectMaskPerson>,
     }
 
     /// Apply-time identity and working-ref expectations captured after the UI

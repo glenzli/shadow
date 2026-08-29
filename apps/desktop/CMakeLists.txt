@@ -829,6 +829,7 @@ qt_add_qml_module(
         qml/PrecisionDetailLoupeState.qml
         qml/PrecisionActiveStrokeCoverage.qml
         qml/PrecisionAiMaskPromptOverlay.qml
+        qml/PrecisionPeopleMaskSelector.qml
         qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml

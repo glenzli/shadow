@@ -236,6 +236,12 @@ class EditController final : public QObject {
         int aiMaskFaceRegion READ aiMaskFaceRegion WRITE setAiMaskFaceRegion NOTIFY
             aiMaskPromptChanged
     )
+    Q_PROPERTY(QVariantList aiMaskPeople READ aiMaskPeople NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(
+        int aiMaskSelectedPerson READ aiMaskSelectedPerson WRITE setAiMaskSelectedPerson NOTIFY
+            aiMaskPromptChanged
+    )
+    Q_PROPERTY(int aiMaskFaceRegionMask READ aiMaskFaceRegionMask NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(
         bool aiMaskForegroundMode READ aiMaskForegroundMode WRITE setAiMaskForegroundMode NOTIFY
             aiMaskPromptChanged
@@ -513,6 +519,9 @@ class EditController final : public QObject {
     [[nodiscard]] bool aiMaskBusy() const noexcept;
     [[nodiscard]] bool aiMaskFaceRegionMode() const noexcept;
     [[nodiscard]] int aiMaskFaceRegion() const noexcept;
+    [[nodiscard]] QVariantList aiMaskPeople() const;
+    [[nodiscard]] int aiMaskSelectedPerson() const noexcept;
+    [[nodiscard]] int aiMaskFaceRegionMask() const noexcept;
     [[nodiscard]] bool aiMaskForegroundMode() const noexcept;
     [[nodiscard]] QVariantList aiMaskPromptPoints() const;
     [[nodiscard]] bool aiMaskCanGenerate() const noexcept;
@@ -653,6 +662,8 @@ class EditController final : public QObject {
     Q_INVOKABLE bool beginAiFaceMaskPrompt();
     Q_INVOKABLE void setAiMaskForegroundMode(bool foreground);
     Q_INVOKABLE void setAiMaskFaceRegion(int region);
+    Q_INVOKABLE void setAiMaskSelectedPerson(int person_index);
+    Q_INVOKABLE void toggleAiMaskFaceRegion(int region, bool selected);
     Q_INVOKABLE void
     addAiMaskPromptPoint(double normalized_x, double normalized_y, bool foreground);
     Q_INVOKABLE void undoAiMaskPromptPoint();

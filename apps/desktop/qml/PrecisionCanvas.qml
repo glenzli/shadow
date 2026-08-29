@@ -551,6 +551,7 @@ Rectangle {
                     faceRegionMode: canvas.editor.aiMaskFaceRegionMode
                     foregroundMode: canvas.editor.aiMaskForegroundMode
                     promptPoints: canvas.editor.aiMaskPromptPoints
+                    peopleCount: canvas.editor.aiMaskPeople.length
                     candidateSource: canvas.editor.aiMaskCandidateSource
                     candidateVisible: canvas.editor.aiMaskHasCandidate
                     foregroundColor: Theme.labelGreen

@@ -80,6 +80,68 @@ fn cancelled_preparation_can_be_retried_in_the_same_prompt_session() {
 }
 
 #[test]
+fn people_and_parsed_labels_are_cached_for_one_input_session() {
+    let fixture = Fixture::new("people-cache");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let identity = input_identity("photo-a");
+    assert!(matches!(
+        service.admit_input(session, &identity).unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    service
+        .complete_input_preparation(
+            session,
+            &identity,
+            b"stable JPEG bytes".to_vec(),
+            RasterExtent::new(2, 2).unwrap(),
+        )
+        .unwrap();
+
+    let candidate = SubjectMaskPersonCandidate {
+        bounding_box: shadow_ai::FaceBoundingBox {
+            x: 0.0,
+            y: 0.0,
+            width: 2.0,
+            height: 2.0,
+        },
+        confidence: 0.9,
+        thumbnail_jpeg: Arc::from(&b"thumbnail"[..]),
+    };
+    let first = service
+        .cache_people(session, &identity, vec![candidate.clone()])
+        .unwrap();
+    let reused = service
+        .cache_people(session, &identity, Vec::new())
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(reused.len(), 1);
+
+    let parsed = ParsedSubjectMaskPerson::new(
+        vec![1, 4, 5, 17],
+        RasterExtent::new(2, 2).unwrap(),
+        vision_provenance(),
+    )
+    .unwrap();
+    let first_parsed = service
+        .cache_parsed_person(session, &identity, 0, parsed)
+        .unwrap();
+    let reused_parsed = service
+        .parsed_person(session, &identity, 0)
+        .unwrap()
+        .unwrap();
+    assert!(Arc::ptr_eq(&first_parsed, &reused_parsed));
+    assert_eq!(
+        service
+            .people_snapshot(session, &identity)
+            .unwrap()
+            .unwrap()[0]
+            .available_regions,
+        Some(first_parsed.available_regions)
+    );
+}
+
+#[test]
 fn cancellation_reaches_provider_and_returns_the_attached_preview_token() {
     let fixture = Fixture::new("cancel");
     let service = SubjectMaskService::open(&fixture.store_root).unwrap();
@@ -160,6 +222,24 @@ fn input_identity(photo_id: &str) -> SubjectMaskInputIdentity {
         grade_stack: GradeStackDraft::default(),
         target_grade_node_index: 0,
         target_grade_node_id: "target-node".into(),
+    }
+}
+
+fn vision_provenance() -> shadow_ai::VisionProvenance {
+    shadow_ai::VisionProvenance {
+        job_id: "job".into(),
+        provider: "provider".into(),
+        deployment: "deployment".into(),
+        model_build: "build".into(),
+        artifact_sha256: "artifact".into(),
+        preprocessing_identity: "pre".into(),
+        postprocessing_identity: "post".into(),
+        tokenizer: None,
+        runtime: "runtime".into(),
+        requested_execution_provider: "cpu".into(),
+        actual_execution_provider: "cpu".into(),
+        execution_provider_fallback_reason: None,
+        precision: "fp32".into(),
     }
 }
 

@@ -303,6 +303,20 @@ int main(int argc, char* argv[]) {
     }
 
     overlay->setProperty("busy", false);
+    overlay->setProperty("candidateVisible", false);
+    overlay->setProperty("faceRegionMode", true);
+    overlay->setProperty("peopleCount", 2);
+    drainBindings();
+    click(window, QPointF{200.0, 100.0});
+    if (!require(
+            recorder.point_count == 2 && overlay->property("renderedPointCount").toInt() == 0
+                && overlay->property("guidanceText").toString().contains(QStringLiteral("person")),
+            "people-detail mode uses the panel list and never asks for a canvas point"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    overlay->setProperty("faceRegionMode", false);
     overlay->setProperty("maximumPoints", 2);
     click(window, QPointF{200.0, 100.0});
     return require(
