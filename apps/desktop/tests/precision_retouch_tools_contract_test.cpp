@@ -427,8 +427,8 @@ int main(int argc, char* argv[]) {
             "all regions share exactly one selected-region inspector"
         )
         || !require(
-            tools->property("selectedRegionDisplayIndex").toInt() == 1,
-            "the selected continuous region keeps its display position"
+            tools->property("selectedRegionDisplayIndex").toInt() == 2,
+            "continuous regions follow legacy compatibility spots in execution order"
         )
         || !require(
             strength_slider != nullptr
@@ -492,8 +492,8 @@ int main(int argc, char* argv[]) {
     QObject* const reset_source =
         tools->findChild<QObject*>(QStringLiteral("retouchResetSourceButton"));
     if (!require(
-            tools->property("selectedRegionDisplayIndex").toInt() == 2,
-            "legacy spots follow continuous strokes in one stable region order"
+            tools->property("selectedRegionDisplayIndex").toInt() == 0,
+            "legacy compatibility spots keep the same first execution position shown by the UI"
         )
         || !require(
             blend_selector != nullptr && blend_selector->property("visible").toBool()

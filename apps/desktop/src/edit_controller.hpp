@@ -265,6 +265,10 @@ class EditController final : public QObject {
     // or disabled.
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
     Q_PROPERTY(QVariantList retouchStrokes READ retouchStrokes NOTIFY parametersChanged)
+    Q_PROPERTY(
+        bool retouchNodeEnabled READ retouchNodeEnabled WRITE setRetouchNodeEnabled NOTIFY
+            parametersChanged
+    )
     // Liquify is one optional photo-private structural node. The controller
     // exposes its ordered gestures, not a reusable node-list identity.
     Q_PROPERTY(QVariantList liquifyStrokes READ liquifyStrokes NOTIFY parametersChanged)
@@ -338,6 +342,7 @@ class EditController final : public QObject {
     Q_PROPERTY(
         QString selectedRecipeNodeKind READ selectedRecipeNodeKind NOTIFY selectedGradeNodeChanged
     )
+    Q_PROPERTY(bool retouchNodeMaterialized READ retouchNodeMaterialized NOTIFY parametersChanged)
     Q_PROPERTY(bool liquifyNodeMaterialized READ liquifyNodeMaterialized NOTIFY parametersChanged)
     Q_PROPERTY(bool canAddGradeNode READ canAddGradeNode NOTIFY gradeNodeActionsChanged)
     Q_PROPERTY(bool canDeleteGradeNode READ canDeleteGradeNode NOTIFY gradeNodeActionsChanged)
@@ -532,6 +537,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
+    [[nodiscard]] bool retouchNodeEnabled() const noexcept;
     [[nodiscard]] QVariantList liquifyStrokes() const;
     [[nodiscard]] bool liquifyNodeEnabled() const noexcept;
     [[nodiscard]] double liquifyBrushRadius() const noexcept;
@@ -561,6 +567,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool foundationSelected() const noexcept;
     [[nodiscard]] bool rawDenoiseSelected() const noexcept;
     [[nodiscard]] QString selectedRecipeNodeKind() const;
+    [[nodiscard]] bool retouchNodeMaterialized() const noexcept;
     [[nodiscard]] bool liquifyNodeMaterialized() const noexcept;
     [[nodiscard]] bool canAddGradeNode() const noexcept;
     [[nodiscard]] bool canDeleteGradeNode() const noexcept;
@@ -728,6 +735,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void translateRetouchStroke(int index, double normalized_dx, double normalized_dy);
     Q_INVOKABLE void removeRetouchStroke(int index);
     Q_INVOKABLE void clearRetouch();
+    void setRetouchNodeEnabled(bool enabled);
     void setLiquifyBrushRadius(double radius);
     void setLiquifyBrushStrength(double strength);
     void setLiquifyBrushHardness(double hardness);
@@ -816,6 +824,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void removeCanvasNode();
     Q_INVOKABLE void selectFoundationNode();
     Q_INVOKABLE void selectRawDenoiseNode();
+    Q_INVOKABLE void selectRetouchNode();
     Q_INVOKABLE void selectLiquifyNode();
     Q_INVOKABLE void selectCanvasNode();
     Q_INVOKABLE void undo();

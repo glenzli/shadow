@@ -357,6 +357,7 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
             .collect::<AnyResult<Vec<_>>>()?,
         retouch_spots: snapshot.retouch_spots().to_vec(),
         retouch_strokes: snapshot.retouch_strokes().to_vec(),
+        retouch_enabled: snapshot.retouch_enabled(),
         liquify: snapshot.structural_nodes().liquify().cloned(),
         canvas: *snapshot.canvas_node(),
     };

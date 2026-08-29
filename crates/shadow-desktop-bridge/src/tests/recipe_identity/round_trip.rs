@@ -65,6 +65,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         grade_nodes: vec![created.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
@@ -135,6 +136,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         grade_nodes: vec![created],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
@@ -223,6 +225,7 @@ fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
             grade_nodes: vec![grade_node],
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            retouch_enabled: true,
             liquify: None,
             canvas: PhotoCanvasNode::identity(),
         },
@@ -349,6 +352,7 @@ fn current_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QByteArray>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include <cstdint>
@@ -8,6 +10,10 @@
 struct BackendPeopleGroup final {
     QString group_id;
     std::uint32_t member_count = 0;
+    /// Logical photo identities used only to reject a contradictory session
+    /// merge. No face geometry or embedding crosses the desktop boundary.
+    QStringList photo_ids;
+    QByteArray thumbnail_jpeg;
 };
 
 /// Session-only anonymous-person analysis summary. Biometric vectors and face

@@ -123,6 +123,9 @@ pub(crate) struct GradeStackDraft {
     /// Photo-local continuous repair/clone brush strokes. These remain
     /// separate from legacy circular spots so one drag is one durable edit.
     pub(crate) retouch_strokes: Vec<RetouchStroke>,
+    /// Node-level bypass for the complete photo-local repair stage. Authored
+    /// regions remain present and editable while this is false.
+    pub(crate) retouch_enabled: bool,
     /// Optional singleton photo-private Liquify node. It is structural,
     /// non-shareable, and always evaluates immediately before Canvas.
     pub(crate) liquify: Option<PhotoLiquifyNode>,
@@ -138,6 +141,7 @@ impl Default for GradeStackDraft {
             grade_nodes: vec![GradeNodeDraft::neutral(BASIC_LAYER_LABEL)],
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            retouch_enabled: true,
             liquify: None,
             canvas: PhotoCanvasNode::identity(),
         }

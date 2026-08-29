@@ -409,6 +409,24 @@ void EditController::clearRetouchSource() {
     emit retouchSourceChanged();
 }
 
+bool EditController::retouchNodeEnabled() const noexcept {
+    return (!grade_stack_.retouch_spots.isEmpty() || !grade_stack_.retouch_strokes.isEmpty())
+        && grade_stack_.retouch_enabled;
+}
+
+void EditController::setRetouchNodeEnabled(const bool enabled) {
+    if (!active_ || interactionLocked()
+        || (grade_stack_.retouch_spots.isEmpty() && grade_stack_.retouch_strokes.isEmpty())
+        || grade_stack_.retouch_enabled == enabled) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_enabled = enabled;
+    setFullResolutionState(false, false, 0);
+    parameterEdited(QStringLiteral("retouch/enabled"), before);
+}
+
 void EditController::addRetouchSpotFromPreview(
     const double normalized_x,
     const double normalized_y,
@@ -441,6 +459,7 @@ void EditController::addRetouchSpotFromPreview(
     }
     finishActiveGesture();
     const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_enabled = true;
     const std::array<QPointF, 1U> target_points{
         QPointF(normalized_x, normalized_y),
     };
@@ -559,6 +578,7 @@ void EditController::addRetouchStrokeFromPreview(
     }
     finishActiveGesture();
     const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_enabled = true;
     QVector<BackendRetouchStrokePoint> stroke_points;
     stroke_points.reserve(normalized_points->size());
     for (const QPointF& point : *normalized_points) {

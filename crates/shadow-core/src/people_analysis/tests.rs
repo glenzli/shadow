@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use shadow_ai::{
     DetectedFace, DetectedFaceBatch, EmbeddedFace, FaceAnalysisProvider, FaceBoundingBox,
     FaceEmbedding, FaceEmbeddingEligibility, FaceLandmarks, FacePoint, InferRuntimeClient,
-    InferRuntimeClientError, VisionProvenance,
+    InferRuntimeClientError, ParsedFace, VisionProvenance,
 };
 use shadow_cache::ContentAddressedStore;
 use shadow_catalog::{
@@ -75,6 +75,22 @@ impl FaceAnalysisProvider for FakeFaceProvider {
             provenance: provenance("sface-sha256"),
         })
     }
+
+    fn parse_face(
+        &self,
+        _image: &[u8],
+        _media_type: &str,
+        source_revision: &str,
+        _face_box: FaceBoundingBox,
+    ) -> Result<ParsedFace, InferRuntimeClientError> {
+        Ok(ParsedFace {
+            source_revision: source_revision.into(),
+            width: 2,
+            height: 2,
+            labels: vec![0; 4],
+            provenance: provenance("face-parser-sha256"),
+        })
+    }
 }
 
 fn provenance(artifact_sha256: &str) -> VisionProvenance {
@@ -114,6 +130,11 @@ fn cached_visuals_reach_transient_anonymous_grouping_without_persisting_vectors(
     assert_eq!(report.embedded_faces, 2);
     assert_eq!(report.grouping.groups.len(), 1);
     assert_eq!(report.grouping.groups[0].members.len(), 2);
+    assert_eq!(report.group_previews.len(), 1);
+    let thumbnail = image::load_from_memory(&report.group_previews[0].thumbnail_jpeg)
+        .expect("decode representative face thumbnail");
+    assert_eq!(thumbnail.width(), 88);
+    assert_eq!(thumbnail.height(), 88);
     assert!(!report.truncated);
     fixture.finish();
 }

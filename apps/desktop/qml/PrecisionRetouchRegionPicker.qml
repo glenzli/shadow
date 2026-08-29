@@ -5,8 +5,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Compact navigation for all photo-local repair regions. Parameters belong to
-// PrecisionRetouchRegionInspector, so the collection never multiplies sliders.
+// Compact navigation for all photo-local repair regions in execution order:
+// compatible legacy spots first, followed by the one ordered stroke collection.
+// Parameters belong to PrecisionRetouchRegionInspector, so the collection never
+// multiplies sliders.
 ColumnLayout {
     id: regionPicker
     objectName: "retouchRegionPicker"
@@ -18,7 +20,8 @@ ColumnLayout {
     signal regionRequested(bool continuous, int index)
 
     readonly property int strokeCount: editor.retouchStrokes.length
-    readonly property int regionCount: strokeCount + editor.retouchSpots.length
+    readonly property int spotCount: editor.retouchSpots.length
+    readonly property int regionCount: strokeCount + spotCount
     readonly property int focusRingGutter: 2
     readonly property int regionButtonSize: 34
     readonly property int regionButtonSpacing: 6
@@ -26,7 +29,7 @@ ColumnLayout {
         const collection = selectedContinuous ? editor.retouchStrokes : editor.retouchSpots;
         for (let itemIndex = 0; itemIndex < collection.length; ++itemIndex) {
             if (Number(collection[itemIndex].index) === selectedIndex) {
-                return selectedContinuous ? itemIndex : strokeCount + itemIndex;
+                return selectedContinuous ? spotCount + itemIndex : itemIndex;
             }
         }
         return -1;
@@ -105,8 +108,8 @@ ColumnLayout {
             spacing: regionPicker.regionButtonSpacing
 
             Repeater {
-                id: strokeRepeater
-                model: regionPicker.editor.retouchStrokes
+                id: spotRepeater
+                model: regionPicker.editor.retouchSpots
 
                 delegate: ShadowIconButton {
                     required property var modelData
@@ -118,11 +121,11 @@ ColumnLayout {
                     buttonSize: regionPicker.regionButtonSize
                     iconSize: 18
                     source: Number(modelData.mode) === 1 ? "qrc:/icons/clone.svg" : "qrc:/icons/heal.svg"
-                    selected: regionPicker.selectedContinuous && regionPicker.selectedIndex === regionIndex
+                    selected: !regionPicker.selectedContinuous && regionPicker.selectedIndex === regionIndex
                     Accessible.selected: selected
                     toolTipText: qsTr("Repair region %1").arg(displayIndex + 1)
                     accessibleName: toolTipText
-                    onClicked: regionPicker.regionRequested(true, regionIndex)
+                    onClicked: regionPicker.regionRequested(false, regionIndex)
                     onActiveFocusChanged: {
                         if (activeFocus) {
                             regionFlickable.ensureDisplayIndexVisible(displayIndex);
@@ -136,24 +139,24 @@ ColumnLayout {
             }
 
             Repeater {
-                id: spotRepeater
-                model: regionPicker.editor.retouchSpots
+                id: strokeRepeater
+                model: regionPicker.editor.retouchStrokes
 
                 delegate: ShadowIconButton {
                     required property var modelData
                     required property int index
                     readonly property int regionIndex: Number(modelData.index)
-                    readonly property int displayIndex: regionPicker.strokeCount + index
+                    readonly property int displayIndex: regionPicker.spotCount + index
                     objectName: "retouchRegionButton"
 
                     buttonSize: regionPicker.regionButtonSize
                     iconSize: 18
                     source: Number(modelData.mode) === 1 ? "qrc:/icons/clone.svg" : "qrc:/icons/heal.svg"
-                    selected: !regionPicker.selectedContinuous && regionPicker.selectedIndex === regionIndex
+                    selected: regionPicker.selectedContinuous && regionPicker.selectedIndex === regionIndex
                     Accessible.selected: selected
                     toolTipText: qsTr("Repair region %1").arg(displayIndex + 1)
                     accessibleName: toolTipText
-                    onClicked: regionPicker.regionRequested(false, regionIndex)
+                    onClicked: regionPicker.regionRequested(true, regionIndex)
                     onActiveFocusChanged: {
                         if (activeFocus) {
                             regionFlickable.ensureDisplayIndexVisible(displayIndex);

@@ -1,7 +1,7 @@
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
     LiquifyStroke, MaskBrushPoint, MaskDefinition, PhotoLiquifyNode, RawFoundationDenoise,
-    RawFoundationDenoiseModel, UnitInterval,
+    RawFoundationDenoiseModel, RetouchPoint, RetouchStroke, UnitInterval,
 };
 
 use crate::ffi;
@@ -383,6 +383,25 @@ fn ordered_bypassed_liquify_round_trips_exactly_through_the_desktop_dto() {
     let absent =
         encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("encode absence");
     assert!(absent.liquify_strokes.is_empty());
+}
+
+#[test]
+fn bypassed_retouch_node_round_trips_without_discarding_regions() {
+    let mut draft = GradeStackDraft::default();
+    draft.retouch_strokes = vec![
+        RetouchStroke::new(vec![RetouchPoint::new(unit(0.4), unit(0.6))], 24)
+            .expect("one-point Repair region"),
+    ];
+    draft.retouch_enabled = false;
+
+    let wire = encode_grade_stack_draft_recipe_v1(draft).expect("encode Repair node");
+    assert!(!wire.retouch_enabled);
+    assert_eq!(wire.retouch_strokes.len(), 1);
+
+    let decoded = decode_grade_stack_draft_recipe_v1(&wire).expect("decode Repair node");
+    assert!(!decoded.retouch_enabled);
+    assert_eq!(decoded.retouch_strokes.len(), 1);
+    assert_eq!(decoded.retouch_strokes[0].points().len(), 1);
 }
 
 #[test]

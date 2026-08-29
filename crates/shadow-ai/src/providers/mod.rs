@@ -24,7 +24,7 @@ pub use infer_runtime::{
     InferRawFoundationSource, InferRawFoundationStaging, InferRuntimeAttemptSnapshot,
     InferRuntimeCancelResult, InferRuntimeCapabilityCatalog, InferRuntimeClient,
     InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
-    InferRuntimeJobListPage, InferRuntimeJobSnapshot, InferSubjectMaskEvidence,
+    InferRuntimeJobListPage, InferRuntimeJobSnapshot, InferSubjectMaskEvidence, ParsedFace,
     RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256, RAWNIND_FOUNDATION_MODEL_ID,
     RAWNIND_FOUNDATION_PACKAGE_SHA256, RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256,
     SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance,

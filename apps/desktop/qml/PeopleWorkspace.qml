@@ -9,6 +9,7 @@ Item {
 
     required property var controller
     readonly property int renderedGroupCount: peopleGroupRepeater.count
+    readonly property int selectedGroupCount: controller.selectedGroupCount
 
     function requestStartAnalysis() {
         if (!controller.busy)
@@ -18,6 +19,22 @@ Item {
     function requestClearSession() {
         if (!controller.busy && controller.hasResults)
             controller.clearSessionResults()
+    }
+
+    function requestMergeSelection() {
+        if (!controller.busy && controller.canMergeSelectedGroups)
+            controller.mergeSelectedGroups()
+    }
+
+    function requestUndoMerge() {
+        if (!controller.busy && controller.canUndoMerge)
+            controller.undoLastMerge()
+    }
+
+    function requestToggleRenderedGroup(index) {
+        const renderedGroups = controller.groups
+        if (!controller.busy && index >= 0 && index < renderedGroups.length)
+            controller.toggleGroupSelection(String(renderedGroups[index].groupId))
     }
 
     Rectangle {
@@ -108,7 +125,7 @@ Item {
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Processing stays on this device. Face vectors and groups are not saved to the Library.")
+                            text: qsTr("Processing stays on this device. Face vectors, groups, and merges are not saved to the Library.")
                             color: Theme.textMuted
                             font.pixelSize: 11
                             wrapMode: Text.WordWrap
@@ -232,6 +249,62 @@ Item {
                 }
             }
 
+            Rectangle {
+                visible: people.controller.groups.length > 1
+                    || people.controller.canUndoMerge
+                Layout.fillWidth: true
+                implicitHeight: mergeContent.implicitHeight + 24
+                radius: 10
+                color: Theme.panel
+                border.color: Theme.border
+
+                RowLayout {
+                    id: mergeContent
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 10
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Label {
+                            text: qsTr("Merge recognition results")
+                            color: Theme.textPrimary
+                            font.weight: Font.DemiBold
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: people.controller.mergeSelectionText
+                            color: people.controller.selectedGroupCount >= 2
+                                && !people.controller.canMergeSelectedGroups
+                                ? Theme.warningText : Theme.textMuted
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    ShadowButton {
+                        objectName: "peopleUndoMergeButton"
+                        visible: people.controller.canUndoMerge
+                        text: qsTr("Undo merge")
+                        enabled: !people.controller.busy
+                        variant: ShadowButton.Ghost
+                        onClicked: people.requestUndoMerge()
+                    }
+
+                    ShadowButton {
+                        objectName: "peopleMergeButton"
+                        text: qsTr("Merge selected")
+                        enabled: !people.controller.busy
+                            && people.controller.canMergeSelectedGroups
+                        variant: ShadowButton.Primary
+                        onClicked: people.requestMergeSelection()
+                    }
+                }
+            }
+
             Label {
                 visible: people.controller.truncated
                 Layout.fillWidth: true
@@ -264,15 +337,27 @@ Item {
                     model: people.controller.groups
 
                     delegate: Rectangle {
+                        required property int index
                         required property var modelData
+                        readonly property bool selected:
+                            Boolean(modelData.selected)
 
                         objectName: "peopleGroupCard"
 
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 170
+                        Layout.preferredHeight: 188
                         radius: 12
-                        color: Theme.panelRaised
-                        border.color: Theme.border
+                        color: selected ? Theme.accentSurface : Theme.panelRaised
+                        border.width: selected ? 2 : 1
+                        border.color: selected ? Theme.accent : Theme.border
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Person %1, %n photos", "", modelData.photoCount)
+                            .arg(modelData.displayIndex)
+                        Accessible.checked: selected
+
+                        TapHandler {
+                            onTapped: people.requestToggleRenderedGroup(peopleGroup.index)
+                        }
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -283,14 +368,29 @@ Item {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.preferredWidth: 76
                                 Layout.preferredHeight: 76
-                                radius: 38
+                                radius: 10
                                 color: Theme.accentSurface
+
+                                Image {
+                                    anchors.fill: parent
+                                    anchors.margins: 3
+                                    source: String(
+                                        peopleGroup.modelData.thumbnailSource || "")
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: false
+                                    smooth: true
+                                    mipmap: true
+                                    visible: String(source).length > 0
+                                }
 
                                 ShadowIcon {
                                     anchors.centerIn: parent
                                     source: "qrc:/icons/people.svg"
                                     color: Theme.accent
                                     size: 34
+                                    visible: String(
+                                        peopleGroup.modelData.thumbnailSource || "").length === 0
                                 }
                             }
 
@@ -309,6 +409,15 @@ Item {
                                 text: qsTr("%n photos", "", peopleGroup.modelData.photoCount)
                                 color: Theme.textMuted
                                 font.pixelSize: 11
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+
+                            Label {
+                                visible: Boolean(peopleGroup.modelData.merged)
+                                Layout.fillWidth: true
+                                text: qsTr("Merged in this session")
+                                color: Theme.accent
+                                font.pixelSize: 10
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }

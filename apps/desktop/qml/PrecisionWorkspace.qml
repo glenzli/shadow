@@ -73,6 +73,8 @@ Item {
                 return
             editor.selectCanvasNode()
         }
+        if (nextTool === toolRepair)
+            editor.selectRetouchNode()
 
         editor.setPointColorPickerActive(false)
         editor.setWhiteBalancePickerActive(false)
@@ -233,6 +235,10 @@ Item {
             onCropToolRequested: {
                 if (precision.activeSpecialTool !== precision.toolCrop)
                     precision.setActiveSpecialTool(precision.toolCrop)
+            }
+            onRepairToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolRepair)
+                    precision.setActiveSpecialTool(precision.toolRepair)
             }
             onLiquifyToolRequested: {
                 if (precision.activeSpecialTool !== precision.toolLiquify)

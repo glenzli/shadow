@@ -13,6 +13,7 @@ Item {
     required property var editor
 
     signal cropGeometryRequested
+    signal repairRequested
     signal liquifyRequested
 
     function openAdd(anchorItem) {
@@ -120,6 +121,15 @@ Item {
                     addGradeNodePopup.close()
                     menus.editor.selectLiquifyNode()
                     menus.liquifyRequested()
+                }
+            }
+
+            PopupAction {
+                text: qsTr("Repair")
+                onClicked: {
+                    addGradeNodePopup.close()
+                    menus.editor.selectRetouchNode()
+                    menus.repairRequested()
                 }
             }
 

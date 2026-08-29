@@ -459,6 +459,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         }
         settings.retouch_strokes.push_back(std::move(ffi_stroke));
     }
+    settings.retouch_enabled = source.retouch_enabled;
     settings.liquify_enabled = source.liquify_enabled;
     settings.liquify_strokes.reserve(static_cast<std::size_t>(source.liquify_strokes.size()));
     for (const auto& stroke : source.liquify_strokes) {
@@ -581,6 +582,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         }
         result.retouch_strokes.push_back(std::move(decoded));
     }
+    result.retouch_enabled = source.retouch_enabled;
     result.liquify_enabled = source.liquify_enabled;
     result.liquify_strokes.reserve(
         checked_qt_vector_size(source.liquify_strokes.size(), "liquify_strokes")

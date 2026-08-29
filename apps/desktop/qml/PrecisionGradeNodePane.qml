@@ -21,6 +21,7 @@ Rectangle {
 
     signal maskToolRequested
     signal cropToolRequested
+    signal repairToolRequested
     signal liquifyToolRequested
 
     color: pane.panel
@@ -28,6 +29,7 @@ Rectangle {
         id: gradeNodeMenus
         editor: pane.editor
         onCropGeometryRequested: pane.cropToolRequested()
+        onRepairRequested: pane.repairToolRequested()
         onLiquifyRequested: pane.liquifyToolRequested()
     }
 
@@ -210,6 +212,28 @@ Rectangle {
             onActivated: {
                 pane.editor.selectLiquifyNode()
                 pane.liquifyToolRequested()
+            }
+        }
+
+        StructuralNodeRow {
+            objectName: "retouchNodeRow"
+            visible: pane.editor.retouchNodeMaterialized
+                || pane.editor.selectedRecipeNodeKind === "retouch"
+            nodeLabel: qsTr("Repair")
+            nodeStatus: pane.editor.retouchNodeMaterialized
+                ? (pane.editor.retouchNodeEnabled
+                    ? qsTr("PHOTO · ENABLED")
+                    : qsTr("PHOTO · BYPASSED"))
+                : qsTr("EMPTY · DRAW TO CREATE")
+            nodeGlyph: "R"
+            nodeSelected: pane.editor.selectedRecipeNodeKind === "retouch"
+            bypassAvailable: pane.editor.retouchNodeMaterialized
+            nodeEnabled: pane.editor.retouchNodeEnabled
+            onEnabledToggled: enabled =>
+                pane.editor.retouchNodeEnabled = enabled
+            onActivated: {
+                pane.editor.selectRetouchNode()
+                pane.repairToolRequested()
             }
         }
 

@@ -296,7 +296,7 @@ fn append_photo_retouch_nodes(
         node_id: RECIPE_V1_RETOUCH_RENDER_NODE_ID.to_owned(),
         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
         implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-        enabled: true,
+        enabled: snapshot.retouch_enabled(),
         operation: AdjustmentRenderOperation::SpotHeal {
             targets: snapshot
                 .retouch_spots()

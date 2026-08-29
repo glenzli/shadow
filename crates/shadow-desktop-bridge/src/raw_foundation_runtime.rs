@@ -9,8 +9,10 @@ pub(crate) mod config;
 mod infer_materialization;
 
 use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard, TryLockError},
+    thread,
+    time::Duration,
 };
 
 use shadow_ai::{
@@ -39,11 +41,73 @@ use crate::raw_foundation_noise_assessment::{
     RawFoundationNoiseAssessment, RawFoundationNoiseAssessmentError, assess_staged_bayer_noise,
 };
 
+const SOURCE_PREPARATION_WAIT_INTERVAL: Duration = Duration::from_millis(10);
+
 #[derive(Debug)]
 pub(crate) struct RawFoundationRuntime {
     raw_frame_staging_root: PathBuf,
     store: FoundationArtifactStore,
     infer_materializer: InferRawFoundationMaterializer,
+    /// One exact active-source staging is enough to bridge the automatic
+    /// noise assessment and a following materialization. The staging owner
+    /// itself caps the file-backed Bayer payload at 512 MiB.
+    prepared_source: Mutex<PreparedRawFoundationSourceCache<IsolatedRawFrameStaging>>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct PreparedRawFoundationSourceIdentity {
+    source_path: PathBuf,
+    source: RepresentationFingerprint,
+    source_sha256: String,
+}
+
+#[derive(Debug)]
+struct PreparedRawFoundationSourceEntry<Payload> {
+    identity: PreparedRawFoundationSourceIdentity,
+    payload: Arc<Payload>,
+}
+
+#[derive(Debug)]
+struct PreparedRawFoundationSourceCache<Payload> {
+    entry: Option<PreparedRawFoundationSourceEntry<Payload>>,
+}
+
+impl<Payload> Default for PreparedRawFoundationSourceCache<Payload> {
+    fn default() -> Self {
+        Self { entry: None }
+    }
+}
+
+impl<Payload> PreparedRawFoundationSourceCache<Payload> {
+    fn get_or_prepare<Error>(
+        &mut self,
+        identity: PreparedRawFoundationSourceIdentity,
+        prepare: impl FnOnce() -> Result<Payload, Error>,
+    ) -> Result<Arc<Payload>, Error> {
+        if let Some(entry) = self
+            .entry
+            .as_ref()
+            .filter(|entry| entry.identity == identity)
+        {
+            return Ok(Arc::clone(&entry.payload));
+        }
+        let payload = Arc::new(prepare()?);
+        self.entry = Some(PreparedRawFoundationSourceEntry { identity, payload });
+        Ok(Arc::clone(
+            &self
+                .entry
+                .as_ref()
+                .expect("prepared source inserted")
+                .payload,
+        ))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PreparedRawFoundationSource {
+    source: RepresentationFingerprint,
+    source_sha256: String,
+    staging: Arc<IsolatedRawFrameStaging>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -104,6 +168,7 @@ impl RawFoundationRuntime {
             raw_frame_staging_root: paths.raw_frame_staging_root,
             store,
             infer_materializer,
+            prepared_source: Mutex::new(PreparedRawFoundationSourceCache::default()),
         })
     }
 
@@ -128,29 +193,23 @@ impl RawFoundationRuntime {
         if cancellation.is_cancelled() {
             return Ok(RawFoundationRuntimeOutcome::Cancelled);
         }
-        let before = fingerprint_source(&invocation.input_raw)
-            .map_err(RawFoundationRuntimeError::SourceInventory)?;
-        let source_sha256 = sha256_file(&invocation.input_raw)?;
-        let after_hash = fingerprint_source(&invocation.input_raw)
-            .map_err(RawFoundationRuntimeError::SourceInventory)?;
-        if before != after_hash {
-            return Err(RawFoundationRuntimeError::SourceChanged);
-        }
-        if cancellation.is_cancelled() {
+        let Some(prepared) = self.prepare_source(&invocation.input_raw, cancellation)? else {
             return Ok(RawFoundationRuntimeOutcome::Cancelled);
-        }
+        };
 
-        self.materialize_infer(invocation, before, &source_sha256, cancellation, progress)
+        self.materialize_infer(invocation, prepared, cancellation, progress)
     }
 
     /// Estimates visible sensor noise from the isolated provider-neutral Bayer
     /// staging. This path never verifies, admits, or executes the AI model.
     pub(crate) fn assess_noise(
         &self,
-        input_raw: &std::path::Path,
+        input_raw: &Path,
     ) -> Result<RawFoundationNoiseAssessment, RawFoundationRuntimeError> {
-        let staging = self.stage_decoded_raw_frame(input_raw)?;
-        Ok(assess_staged_bayer_noise(staging.manifest_path())?)
+        let prepared = self
+            .prepare_source(input_raw, &CancellationToken::default())?
+            .ok_or(RawFoundationRuntimeError::Cancelled)?;
+        Ok(assess_staged_bayer_noise(prepared.staging.manifest_path())?)
     }
 
     /// Recomputes the exact plan and resolves only an existing verified cache hit.
@@ -159,11 +218,38 @@ impl RawFoundationRuntime {
     /// admitting Infer Runtime work or creating a cache partial.
     pub(crate) fn resolve_cached(
         &self,
-        input_raw: &std::path::Path,
+        input_raw: &Path,
         cancellation: &CancellationToken,
     ) -> Result<Option<RawFoundationReady>, RawFoundationRuntimeError> {
+        let prepared = self
+            .prepare_source(input_raw, cancellation)?
+            .ok_or(RawFoundationRuntimeError::Cancelled)?;
+        let cached = self.infer_materializer.resolve_cached(
+            &self.store,
+            &prepared.source_sha256,
+            prepared.source.byte_len,
+            &prepared.staging,
+        )?;
+        if fingerprint_source(input_raw).map_err(RawFoundationRuntimeError::SourceInventory)?
+            != prepared.source
+        {
+            return Err(RawFoundationRuntimeError::SourceChanged);
+        }
+        Ok(cached.map(|materialized| {
+            ready_from_infer(materialized, input_raw, prepared.source, prepared.staging)
+        }))
+    }
+
+    fn prepare_source(
+        &self,
+        input_raw: &Path,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<PreparedRawFoundationSource>, RawFoundationRuntimeError> {
+        let Some(mut cache) = self.prepared_source_guard(cancellation)? else {
+            return Ok(None);
+        };
         if cancellation.is_cancelled() {
-            return Err(RawFoundationRuntimeError::Cancelled);
+            return Ok(None);
         }
         let before =
             fingerprint_source(input_raw).map_err(RawFoundationRuntimeError::SourceInventory)?;
@@ -173,26 +259,51 @@ impl RawFoundationRuntime {
         if before != after_hash {
             return Err(RawFoundationRuntimeError::SourceChanged);
         }
-        let staging = self.stage_decoded_raw_frame(input_raw)?;
-        let cached = self.infer_materializer.resolve_cached(
-            &self.store,
-            &source_sha256,
-            before.byte_len,
-            &staging,
-        )?;
+        let identity = PreparedRawFoundationSourceIdentity {
+            source_path: input_raw.to_path_buf(),
+            source: before,
+            source_sha256: source_sha256.clone(),
+        };
+        let staging = cache.get_or_prepare(identity, || self.stage_decoded_raw_frame(input_raw))?;
+        if cancellation.is_cancelled() {
+            return Ok(None);
+        }
         if fingerprint_source(input_raw).map_err(RawFoundationRuntimeError::SourceInventory)?
             != before
         {
             return Err(RawFoundationRuntimeError::SourceChanged);
         }
-        Ok(cached.map(|materialized| {
-            ready_from_infer(materialized, input_raw, before, Arc::new(staging))
+        Ok(Some(PreparedRawFoundationSource {
+            source: before,
+            source_sha256,
+            staging,
         }))
+    }
+
+    fn prepared_source_guard(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        Option<MutexGuard<'_, PreparedRawFoundationSourceCache<IsolatedRawFrameStaging>>>,
+        RawFoundationRuntimeError,
+    > {
+        loop {
+            if cancellation.is_cancelled() {
+                return Ok(None);
+            }
+            match self.prepared_source.try_lock() {
+                Ok(cache) => return Ok(Some(cache)),
+                Err(TryLockError::WouldBlock) => thread::sleep(SOURCE_PREPARATION_WAIT_INTERVAL),
+                Err(TryLockError::Poisoned(_)) => {
+                    return Err(RawFoundationRuntimeError::SourcePreparationStatePoisoned);
+                }
+            }
+        }
     }
 
     fn stage_decoded_raw_frame(
         &self,
-        input_raw: &std::path::Path,
+        input_raw: &Path,
     ) -> Result<IsolatedRawFrameStaging, RawFoundationRuntimeError> {
         let helper_path = configured_helper_path().ok_or_else(|| {
             RawFoundationRuntimeError::DecodedInput(
@@ -206,17 +317,15 @@ impl RawFoundationRuntime {
     fn materialize_infer(
         &self,
         invocation: &RawFoundationInvocation,
-        source: RepresentationFingerprint,
-        source_sha256: &str,
+        prepared: PreparedRawFoundationSource,
         cancellation: &CancellationToken,
         progress: &dyn RuntimeProgressSink,
     ) -> Result<RawFoundationRuntimeOutcome, RawFoundationRuntimeError> {
-        let staging = self.stage_decoded_raw_frame(&invocation.input_raw)?;
         let outcome = match self.infer_materializer.materialize(
             &self.store,
-            source_sha256,
-            source.byte_len,
-            &staging,
+            &prepared.source_sha256,
+            prepared.source.byte_len,
+            &prepared.staging,
             cancellation,
             progress,
         ) {
@@ -230,7 +339,7 @@ impl RawFoundationRuntime {
         };
         if fingerprint_source(&invocation.input_raw)
             .map_err(RawFoundationRuntimeError::SourceInventory)?
-            != source
+            != prepared.source
         {
             return Err(RawFoundationRuntimeError::SourceChanged);
         }
@@ -239,8 +348,8 @@ impl RawFoundationRuntime {
                 RawFoundationRuntimeOutcome::Ready(Box::new(ready_from_infer(
                     *materialized,
                     &invocation.input_raw,
-                    source,
-                    Arc::new(staging),
+                    prepared.source,
+                    prepared.staging,
                 )))
             }
             InferMaterializationOutcome::Cancelled => RawFoundationRuntimeOutcome::Cancelled,
@@ -250,7 +359,7 @@ impl RawFoundationRuntime {
 
 fn ready_from_infer(
     materialized: InferMaterializedFoundation,
-    source_path: &std::path::Path,
+    source_path: &Path,
     source: RepresentationFingerprint,
     raw_frame_staging: Arc<IsolatedRawFrameStaging>,
 ) -> RawFoundationReady {
@@ -279,6 +388,8 @@ pub(crate) enum RawFoundationRuntimeError {
     NoiseAssessment(#[from] RawFoundationNoiseAssessmentError),
     #[error("RAW foundation cache resolution was cancelled")]
     Cancelled,
+    #[error("RAW foundation source preparation state is poisoned")]
+    SourcePreparationStatePoisoned,
     #[error(transparent)]
     SourceHash(#[from] FoundationArtifactError),
     #[error(transparent)]
@@ -286,3 +397,6 @@ pub(crate) enum RawFoundationRuntimeError {
     #[error(transparent)]
     Store(#[from] FoundationArtifactStoreError),
 }
+
+#[cfg(test)]
+mod tests;

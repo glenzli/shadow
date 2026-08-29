@@ -1,6 +1,6 @@
 //! Desktop-session delegation for transient anonymous-person analysis.
 
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{Context, Result as AnyResult};
 use shadow_ai::InferRuntimeClient;
@@ -40,6 +40,11 @@ fn ffi_people_analysis_report(
         .saturating_add(report.skipped.stale_input)
         .saturating_add(report.skipped.low_detection_confidence)
         .saturating_add(report.skipped.ineligible_embedding);
+    let mut group_previews = report
+        .group_previews
+        .into_iter()
+        .map(|preview| (preview.group_id, preview.thumbnail_jpeg))
+        .collect::<HashMap<_, _>>();
     Ok(ffi::FfiPeopleAnalysisReport {
         analyzed_photos: bounded_u32(report.analyzed_photos, "analyzed photo count")?,
         detected_faces: bounded_u32(report.detected_faces, "detected face count")?,
@@ -52,9 +57,18 @@ fn ffi_people_analysis_report(
             .groups
             .into_iter()
             .map(|group| {
+                let member_count = bounded_u32(group.members.len(), "people group member count")?;
+                let photo_ids = group
+                    .members
+                    .into_iter()
+                    .map(|member| member.photo_id.to_string())
+                    .collect();
+                let thumbnail_jpeg = group_previews.remove(&group.group_id).unwrap_or_default();
                 Ok(ffi::FfiPeopleGroup {
                     group_id: group.group_id,
-                    member_count: bounded_u32(group.members.len(), "people group member count")?,
+                    member_count,
+                    photo_ids,
+                    thumbnail_jpeg,
                 })
             })
             .collect::<AnyResult<Vec<_>>>()?,

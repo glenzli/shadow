@@ -63,8 +63,10 @@ Application startup is split from environment-driven automation:
   Precision-only window: its only terminal actions are cancel and complete/export.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
   session-only anonymous-people analysis lifecycle: worker admission, safe failure presentation,
-  in-memory summary projection, rerun, localization, and clear-on-request/destruction. It delegates
-  model execution through `DesktopBackend`; no embeddings or face geometry enter Qt.
+  in-memory summary projection, conflict-safe group selection, one-step merge undo, rerun,
+  localization, and clear-on-request/destruction. It delegates model execution through
+  `DesktopBackend`; only logical photo ids needed to reject co-occurring-face merges enter Qt, while
+  embeddings and face geometry remain in Rust.
 - [`src/semantic_search_controller.*`](src/semantic_search_controller.hpp) owns manual,
   session-only natural-language search admission, safe failure presentation, and the bounded
   high/possible relevance projection; weak relative matches stay hidden.
@@ -95,8 +97,9 @@ Application startup is split from environment-driven automation:
   is an application-level workspace beside Review, Precision, and People; Library Management
   remains a secondary route rather than consuming a top-level tab.
 - [`qml/PeopleWorkspace.qml`](qml/PeopleWorkspace.qml) owns the manually triggered People preview,
-  local-only disclosure, analysis summary, anonymous cards, and session-clear interaction. It does
-  not imply persistence, naming, merge/split facts, or automatic background analysis.
+  local-only disclosure, analysis summary, bounded representative face crops, selectable anonymous
+  cards, reversible session merge, and session-clear interaction. It does not imply persistence,
+  naming, durable merge/split facts, or automatic background analysis.
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns the compact grid/filmstrip
   modes and batch controls inside Review. It does not route to Map; the application title bar owns
   that workspace transition.

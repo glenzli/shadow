@@ -4,7 +4,9 @@
 //! infer-runtime supplies typed YuNet/SFace evidence, and this owner rejects
 //! stale results before producing an in-memory grouping proposal.
 
-use std::fmt::Write as _;
+mod thumbnail;
+
+use std::{collections::BTreeMap, fmt::Write as _};
 
 use serde::Serialize;
 use shadow_ai::{
@@ -79,6 +81,17 @@ pub struct PeopleAnalysisReport {
     pub truncated: bool,
     pub skipped: PeopleAnalysisSkipped,
     pub grouping: AnonymousPeopleGroupingPlan,
+    /// Bounded, request-local face crops for the representative member of
+    /// each visible group. They are presentation payloads and never serialize
+    /// into CLI output, Catalog state, or the rebuildable grouping plan.
+    #[serde(skip_serializing)]
+    pub group_previews: Vec<PeopleGroupPreview>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PeopleGroupPreview {
+    pub group_id: String,
+    pub thumbnail_jpeg: Vec<u8>,
 }
 
 /// Analyzes a bounded, stable Review ordering without persisting embeddings.
@@ -104,6 +117,8 @@ pub fn analyze_review_people(
     let mut detected_faces = 0;
     let mut skipped = PeopleAnalysisSkipped::default();
     let mut truncated = false;
+    let mut occurrence_thumbnails = BTreeMap::new();
+    let mut resident_thumbnail_bytes = 0_usize;
 
     'pages: loop {
         let page = catalog.review_page(cursor.as_ref(), REVIEW_PAGE_SIZE)?;
@@ -134,6 +149,8 @@ pub fn analyze_review_people(
             }
             detected_faces += detection.detections.len();
             let mut current_occurrences = Vec::new();
+            let mut thumbnail_source = None;
+            let mut thumbnail_decode_attempted = false;
             for (ordinal, face) in detection.detections.into_iter().enumerate() {
                 if face.confidence < policy.minimum_detection_confidence {
                     skipped.low_detection_confidence += 1;
@@ -163,6 +180,24 @@ pub fn analyze_review_people(
                     &detection.provenance,
                     &embedded.provenance,
                 )?;
+                if !thumbnail_decode_attempted {
+                    thumbnail_decode_attempted = true;
+                    if thumbnail::source_dimensions_admitted(
+                        record.artifact.dimensions.width,
+                        record.artifact.dimensions.height,
+                    ) {
+                        thumbnail_source = image::load_from_memory(&image).ok();
+                    }
+                }
+                if let Some(source) = thumbnail_source.as_ref()
+                    && let Some(thumbnail) =
+                        thumbnail::face_thumbnail_jpeg(source, face.bounding_box)
+                    && resident_thumbnail_bytes.saturating_add(thumbnail.len())
+                        <= thumbnail::MAX_RESIDENT_PEOPLE_THUMBNAIL_BYTES
+                {
+                    resident_thumbnail_bytes += thumbnail.len();
+                    occurrence_thumbnails.insert(occurrence_id.clone(), thumbnail);
+                }
                 current_occurrences.push(FaceOccurrenceEvidence {
                     occurrence_id,
                     photo_id: item.photo_id,
@@ -185,6 +220,18 @@ pub fn analyze_review_people(
     }
 
     let grouping = propose_anonymous_people(&occurrences, policy.grouping)?;
+    let group_previews = grouping
+        .groups
+        .iter()
+        .filter_map(|group| {
+            occurrence_thumbnails
+                .remove(&group.review_start)
+                .map(|thumbnail_jpeg| PeopleGroupPreview {
+                    group_id: group.group_id.clone(),
+                    thumbnail_jpeg,
+                })
+        })
+        .collect();
     Ok(PeopleAnalysisReport {
         analyzed_photos,
         detected_faces,
@@ -192,6 +239,7 @@ pub fn analyze_review_people(
         truncated,
         skipped,
         grouping,
+        group_previews,
     })
 }
 

@@ -545,6 +545,7 @@ pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> 
         grade_nodes: vec![grade_node.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };
@@ -663,6 +664,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     .with_context(|| format!("retouch stroke {index} is invalid"))
             })
             .collect::<AnyResult<Vec<_>>>()?,
+        retouch_enabled: settings.retouch_enabled,
         liquify: photo_liquify_from_ffi(&settings.liquify_strokes, settings.liquify_enabled)?,
         canvas: photo_canvas_from_ffi(&settings.geometry)?,
     };
@@ -1150,6 +1152,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 strength: stroke.strength().get(),
             })
             .collect(),
+        retouch_enabled: grade_stack.retouch_enabled,
         liquify_enabled,
         liquify_strokes,
         geometry: ffi_photo_canvas(grade_stack.canvas),

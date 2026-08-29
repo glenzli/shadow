@@ -10,6 +10,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSet>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -30,6 +31,10 @@ class FakePeopleAnalysisController final : public QObject {
     Q_PROPERTY(uint skippedItems READ skippedItems NOTIFY changed)
     Q_PROPERTY(uint ungroupedFaces READ ungroupedFaces NOTIFY changed)
     Q_PROPERTY(bool truncated READ truncated NOTIFY changed)
+    Q_PROPERTY(int selectedGroupCount READ selectedGroupCount NOTIFY changed)
+    Q_PROPERTY(bool canMergeSelectedGroups READ canMergeSelectedGroups NOTIFY changed)
+    Q_PROPERTY(bool canUndoMerge READ canUndoMerge NOTIFY changed)
+    Q_PROPERTY(QString mergeSelectionText READ mergeSelectionText NOTIFY changed)
 
   public:
     bool busy() const noexcept {
@@ -45,20 +50,39 @@ class FakePeopleAnalysisController final : public QObject {
         return {};
     }
     QVariantList groups() const {
-        return has_results_
-            ? QVariantList{
-                  QVariantMap{
-                      {QStringLiteral("groupId"), QStringLiteral("a")},
-                      {QStringLiteral("displayIndex"), 1},
-                      {QStringLiteral("photoCount"), 3},
-                  },
-                  QVariantMap{
-                      {QStringLiteral("groupId"), QStringLiteral("b")},
-                      {QStringLiteral("displayIndex"), 2},
-                      {QStringLiteral("photoCount"), 2},
-                  },
-              }
-            : QVariantList{};
+        if (!has_results_) {
+            return {};
+        }
+        if (merged_) {
+            return {
+                QVariantMap{
+                    {QStringLiteral("groupId"), QStringLiteral("session-merged-person-1")},
+                    {QStringLiteral("displayIndex"), 1},
+                    {QStringLiteral("photoCount"), 5},
+                    {QStringLiteral("thumbnailSource"), QString{}},
+                    {QStringLiteral("selected"), false},
+                    {QStringLiteral("merged"), true},
+                },
+            };
+        }
+        return {
+            QVariantMap{
+                {QStringLiteral("groupId"), QStringLiteral("a")},
+                {QStringLiteral("displayIndex"), 1},
+                {QStringLiteral("photoCount"), 3},
+                {QStringLiteral("thumbnailSource"), QString{}},
+                {QStringLiteral("selected"), selected_.contains(QStringLiteral("a"))},
+                {QStringLiteral("merged"), false},
+            },
+            QVariantMap{
+                {QStringLiteral("groupId"), QStringLiteral("b")},
+                {QStringLiteral("displayIndex"), 2},
+                {QStringLiteral("photoCount"), 2},
+                {QStringLiteral("thumbnailSource"), QString{}},
+                {QStringLiteral("selected"), selected_.contains(QStringLiteral("b"))},
+                {QStringLiteral("merged"), false},
+            },
+        };
     }
     uint analyzedPhotos() const noexcept {
         return has_results_ ? 9U : 0U;
@@ -78,6 +102,19 @@ class FakePeopleAnalysisController final : public QObject {
     bool truncated() const noexcept {
         return false;
     }
+    int selectedGroupCount() const noexcept {
+        return static_cast<int>(selected_.size());
+    }
+    bool canMergeSelectedGroups() const noexcept {
+        return selected_.size() >= 2;
+    }
+    bool canUndoMerge() const noexcept {
+        return can_undo_merge_;
+    }
+    QString mergeSelectionText() const {
+        return selected_.size() >= 2 ? QStringLiteral("Ready to merge")
+                                     : QStringLiteral("Select people");
+    }
 
     Q_INVOKABLE void startAnalysis() {
         ++start_count;
@@ -87,17 +124,50 @@ class FakePeopleAnalysisController final : public QObject {
     Q_INVOKABLE void clearSessionResults() {
         ++clear_count;
         has_results_ = false;
+        selected_.clear();
+        emit changed();
+    }
+    Q_INVOKABLE void toggleGroupSelection(const QString& group_id) {
+        if (selected_.contains(group_id)) {
+            selected_.remove(group_id);
+        } else {
+            selected_.insert(group_id);
+        }
+        emit changed();
+    }
+    Q_INVOKABLE void mergeSelectedGroups() {
+        if (!canMergeSelectedGroups()) {
+            return;
+        }
+        ++merge_count;
+        merged_ = true;
+        can_undo_merge_ = true;
+        selected_.clear();
+        emit changed();
+    }
+    Q_INVOKABLE void undoLastMerge() {
+        if (!can_undo_merge_) {
+            return;
+        }
+        ++undo_count;
+        merged_ = false;
+        can_undo_merge_ = false;
         emit changed();
     }
 
     int start_count = 0;
     int clear_count = 0;
+    int merge_count = 0;
+    int undo_count = 0;
 
   signals:
     void changed();
 
   private:
     bool has_results_ = false;
+    bool merged_ = false;
+    bool can_undo_merge_ = false;
+    QSet<QString> selected_;
 };
 
 namespace {
@@ -181,6 +251,53 @@ int main(int argc, char* argv[]) {
         || !require(
             workspace->property("renderedGroupCount").toInt() == 2,
             "anonymous group cards follow session results"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    if (!require(
+            QMetaObject::invokeMethod(
+                workspace,
+                "requestToggleRenderedGroup",
+                Q_ARG(QVariant, QVariant{0})
+            ),
+            "first person card selection entry is packaged"
+        )
+        || !require(
+            QMetaObject::invokeMethod(
+                workspace,
+                "requestToggleRenderedGroup",
+                Q_ARG(QVariant, QVariant{1})
+            ),
+            "second person card selection entry is packaged"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    auto* const merge_button =
+        workspace->findChild<QQuickItem*>(QStringLiteral("peopleMergeButton"));
+    if (!require(controller.selectedGroupCount() == 2, "cards select merge candidates")
+        || !require(merge_button != nullptr, "merge action is packaged")) {
+        return EXIT_FAILURE;
+    }
+    click(window, *merge_button);
+    if (!require(controller.merge_count == 1, "merge action reaches the controller")
+        || !require(
+            workspace->property("renderedGroupCount").toInt() == 1,
+            "merged people become one visible group"
+        )) {
+        return EXIT_FAILURE;
+    }
+    auto* const undo_button =
+        workspace->findChild<QQuickItem*>(QStringLiteral("peopleUndoMergeButton"));
+    if (!require(undo_button != nullptr, "merge undo is packaged")) {
+        return EXIT_FAILURE;
+    }
+    click(window, *undo_button);
+    if (!require(controller.undo_count == 1, "undo action reaches the controller")
+        || !require(
+            workspace->property("renderedGroupCount").toInt() == 2,
+            "undo restores separate person groups"
         )) {
         return EXIT_FAILURE;
     }

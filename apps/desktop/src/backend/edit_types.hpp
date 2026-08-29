@@ -344,6 +344,8 @@ struct BackendGradeStack final {
     QVector<BackendGradeNode> grade_nodes;
     QVector<BackendRetouchSpot> retouch_spots;
     QVector<BackendRetouchStroke> retouch_strokes;
+    // The photo-local Repair node keeps all authored areas while bypassed.
+    bool retouch_enabled = true;
     // Empty strokes plus false is the canonical absent-node projection.
     // A materialized node retains this flag while bypassed.
     bool liquify_enabled = false;

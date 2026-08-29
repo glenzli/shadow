@@ -217,6 +217,42 @@ fn retouch_strokes_persist_as_one_continuous_photo_local_operation() {
 }
 
 #[test]
+fn retouch_stage_bypass_preserves_authored_regions_and_legacy_default() {
+    let stroke = RetouchStroke::new(
+        vec![RetouchPoint::new(
+            UnitInterval::new(0.35).expect("normalized x"),
+            UnitInterval::new(0.65).expect("normalized y"),
+        )],
+        20,
+    )
+    .expect("one-point repair region");
+    let enabled = RecipeSnapshot::new_with_input_settings_masks_retouch_strokes_and_geometry(
+        CURRENT_RECIPE_SCHEMA_VERSION,
+        RecipeInputSettings::default(),
+        Vec::new(),
+        Vec::new(),
+        vec![stroke.clone()],
+        PhotoGeometry::identity(),
+        Vec::new(),
+    )
+    .expect("enabled repair recipe");
+
+    assert!(enabled.retouch_enabled());
+    let enabled_json = serde_json::to_string(&enabled).expect("serialize enabled repair");
+    assert!(!enabled_json.contains("retouch_enabled"));
+
+    let bypassed = enabled.with_retouch_enabled(false);
+    assert!(!bypassed.retouch_enabled());
+    assert_eq!(bypassed.retouch_strokes(), std::slice::from_ref(&stroke));
+    let bypassed_json = serde_json::to_string(&bypassed).expect("serialize bypassed repair");
+    assert!(bypassed_json.contains("\"retouch_enabled\":false"));
+    let decoded: RecipeSnapshot =
+        serde_json::from_str(&bypassed_json).expect("deserialize bypassed repair");
+    assert!(!decoded.retouch_enabled());
+    assert_eq!(decoded.retouch_strokes(), std::slice::from_ref(&stroke));
+}
+
+#[test]
 fn photo_geometry_is_recipe_local() {
     let geometry = PhotoGeometry::new(
         UnitInterval::new(0.125).unwrap(),

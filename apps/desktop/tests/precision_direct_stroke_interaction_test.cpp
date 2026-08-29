@@ -644,13 +644,23 @@ int main(int argc, char* argv[]) {
     picker->setProperty("selectedRetouchIndex", -1);
     drainBindings();
 
+    sendMouse(window, QEvent::MouseButtonPress, QPointF{50, 70}, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseButtonRelease, QPointF{50, 70}, Qt::LeftButton, Qt::NoButton);
+    if (!require(
+            editor.stroke_commit_count == 1 && editor.spot_commit_count == 0
+                && editor.committed_points.size() == 1,
+            "a click authors one ordered stroke region instead of reopening the legacy spot list"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     sendMouse(window, QEvent::MouseButtonPress, QPointF{60, 80}, Qt::LeftButton, Qt::LeftButton);
     sendMouse(window, QEvent::MouseMove, QPointF{130, 95}, Qt::NoButton, Qt::LeftButton);
     sendMouse(window, QEvent::MouseMove, QPointF{220, 120}, Qt::NoButton, Qt::LeftButton);
     sendMouse(window, QEvent::MouseButtonRelease, QPointF{260, 125}, Qt::LeftButton, Qt::NoButton);
 
     if (!require(
-            picker->property("visible").toBool() && editor.stroke_commit_count == 1
+            picker->property("visible").toBool() && editor.stroke_commit_count == 2
                 && editor.committed_points.size() >= 3 && editor.committed_retouch_width == 4'000
                 && editor.committed_retouch_height == 3'000,
             "retouch commits one batch with authoritative level-zero geometry"

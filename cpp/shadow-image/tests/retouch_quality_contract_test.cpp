@@ -175,6 +175,56 @@ void clone_preserves_high_frequency_source_structure_without_blur() {
     );
 }
 
+void one_point_clone_stroke_executes_as_a_click_authored_region() {
+    constexpr std::uint32_t width = 40U;
+    constexpr std::uint32_t height = 24U;
+    constexpr std::uint32_t target_x = 12U;
+    constexpr std::uint32_t target_y = 12U;
+    constexpr std::uint32_t donor_x = 21U;
+    constexpr std::uint16_t radius = 3U;
+    std::vector<float> samples(static_cast<std::size_t>(width) * height * 3U, 0.0F);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const std::size_t sample = sample_index(x, y, width);
+            samples[sample] = 0.01F * static_cast<float>(x);
+            samples[sample + 1U] = 0.02F * static_cast<float>(y);
+            samples[sample + 2U] = 0.01F * static_cast<float>(x + y);
+        }
+    }
+    const image::RetouchStroke stroke{
+        .points = {{
+            .x = 12.5 / static_cast<double>(width),
+            .y = 12.5 / static_cast<double>(height),
+        }},
+        .radius_level_zero_pixels = radius,
+        .mode = image::SpotRepairMode::clone,
+        .source_offset_x_radii = 3.0,
+        .source_offset_y_radii = 0.0,
+        .feather = 0.0,
+    };
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "one-point-click-clone",
+            .parameters = image::SpotHealAdjustment{.strokes = {stroke}},
+        },
+    };
+    const auto cloned = image::execute_adjustment_nodes(rgb_raster(width, height, samples), nodes);
+    const std::size_t target = sample_index(target_x, target_y, width);
+    const std::size_t donor = sample_index(donor_x, target_y, width);
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        expect_close(
+            cloned.samples[target + channel],
+            samples[donor + channel],
+            "a one-point stroke applies its clone donor at the click center"
+        );
+    }
+    expect_close(
+        cloned.samples[sample_index(2U, 2U, width)],
+        samples[sample_index(2U, 2U, width)],
+        "a one-point stroke leaves pixels outside its circular footprint unchanged"
+    );
+}
+
 void clone_does_not_invent_a_cable_fitting_absent_from_the_donor() {
     constexpr std::uint32_t width = 160U;
     constexpr std::uint32_t height = 96U;
@@ -370,6 +420,7 @@ void structure_heal_preserves_a_target_edge_that_crosses_the_repair() {
 int main() {
     heal_tracks_local_illumination_instead_of_stamping_a_global_tone();
     clone_preserves_high_frequency_source_structure_without_blur();
+    one_point_clone_stroke_executes_as_a_click_authored_region();
     clone_does_not_invent_a_cable_fitting_absent_from_the_donor();
     clone_applies_the_authored_source_transform_without_resampling_the_target_shape();
     structure_heal_preserves_a_target_edge_that_crosses_the_repair();

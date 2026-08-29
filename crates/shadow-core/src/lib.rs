@@ -79,7 +79,7 @@ pub use library_metadata::{
 pub use native_path::{NativePathError, native_location, native_path_from_location};
 pub use people_analysis::{
     DEFAULT_PEOPLE_MAXIMUM_COSINE_DISTANCE, PeopleAnalysisError, PeopleAnalysisPolicy,
-    PeopleAnalysisReport, PeopleAnalysisSkipped, analyze_review_people,
+    PeopleAnalysisReport, PeopleAnalysisSkipped, PeopleGroupPreview, analyze_review_people,
 };
 pub use performance::{
     DecodePerformance, DurationStats, IMPORT_ENGINE_PERFORMANCE_SCHEMA_VERSION,

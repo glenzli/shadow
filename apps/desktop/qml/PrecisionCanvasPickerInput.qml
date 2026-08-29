@@ -211,11 +211,14 @@ Item {
                 }
                 Qt.callLater(activeRetouchCoverage.clearStroke)
             } else if (!canceled && retouchPressPoint !== null) {
-                // A click remains a single legacy spot: existing recipes and
-                // the precise spot workflow retain their original behavior.
-                pickerInput.editor.addRetouchSpotFromPreview(
-                    retouchPressPoint.x,
-                    retouchPressPoint.y,
+                // A click is a one-point continuous region. Legacy spot
+                // records remain editable, but all newly authored repairs
+                // now share one ordered stroke collection.
+                pickerInput.editor.addRetouchStrokeFromPreview(
+                    [{
+                        "x": retouchPressPoint.x,
+                        "y": retouchPressPoint.y
+                    }],
                     pickerInput.readyPreviewGeneration,
                     Math.max(1, Math.round(pickerInput.levelZeroWidth)),
                     Math.max(1, Math.round(pickerInput.levelZeroHeight)))

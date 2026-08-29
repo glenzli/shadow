@@ -5010,6 +5010,24 @@ R %2 · G %3 · B %4</translation>
         <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
         <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
     </message>
+    <message>
+        <source>Select at least two people that should be one person.</source>
+        <translation>请选择至少两个应归为同一人的人物分组。</translation>
+    </message>
+    <message>
+        <source>Select one more person to merge.</source>
+        <translation>请再选择一个人物分组进行合并。</translation>
+    </message>
+    <message>
+        <source>These groups contain faces from the same photo and cannot be merged.</source>
+        <translation>这些分组包含来自同一张照片的人脸，不能合并。</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n people selected for merging.</source>
+        <translation>
+            <numerusform>已选择 %n 个人物分组进行合并。</numerusform>
+        </translation>
+    </message>
 </context>
 <context>
     <name>PeopleWorkspace</name>
@@ -5030,8 +5048,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PeopleWorkspace.qml" line="111"/>
-        <source>Processing stays on this device. Face vectors and groups are not saved to the Library.</source>
-        <translation>处理仅在此设备上进行。人脸向量和分组不会保存到图库。</translation>
+        <source>Processing stays on this device. Face vectors, groups, and merges are not saved to the Library.</source>
+        <translation>处理仅在此设备上进行。人脸向量、分组和合并结果不会保存到图库。</translation>
     </message>
     <message>
         <location filename="../qml/PeopleWorkspace.qml" line="127"/>
@@ -5069,6 +5087,18 @@ R %2 · G %3 · B %4</translation>
         <translation>匿名分组</translation>
     </message>
     <message>
+        <source>Merge recognition results</source>
+        <translation>合并识别结果</translation>
+    </message>
+    <message>
+        <source>Undo merge</source>
+        <translation>撤销合并</translation>
+    </message>
+    <message>
+        <source>Merge selected</source>
+        <translation>合并所选</translation>
+    </message>
+    <message>
         <location filename="../qml/PeopleWorkspace.qml" line="238"/>
         <source>This preview reached its safety limit. A later background workflow can continue incrementally.</source>
         <translation>此预览已达到安全上限。后续后台流程可以继续增量分析。</translation>
@@ -5084,11 +5114,21 @@ R %2 · G %3 · B %4</translation>
         <translation>人物 %1</translation>
     </message>
     <message numerus="yes">
+        <source>Person %1, %n photos</source>
+        <translation>
+            <numerusform>人物 %1，%n 张照片</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <location filename="../qml/PeopleWorkspace.qml" line="309"/>
         <source>%n photos</source>
         <translation>
             <numerusform>%n 张照片</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Merged in this session</source>
+        <translation>本次会话中已合并</translation>
     </message>
     <message>
         <location filename="../qml/PeopleWorkspace.qml" line="326"/>

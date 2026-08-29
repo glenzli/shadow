@@ -7,12 +7,12 @@ use shadow_bridge::{
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
     LiquifyStroke, ManagedRasterMask, MaskDefinition, PhotoLiquifyNode, RasterMaskEncoding,
-    UnitInterval,
+    RetouchPoint, RetouchStroke, UnitInterval,
 };
 
 use super::{
-    adjustment_liquify, adjustment_local_mask, adjustment_local_mask_with_resolver,
-    compile_recipe_render_plan,
+    RECIPE_V1_RETOUCH_RENDER_NODE_ID, adjustment_liquify, adjustment_local_mask,
+    adjustment_local_mask_with_resolver, compile_recipe_render_plan,
 };
 use crate::recipe_v1::managed_raster_resolution::ManagedRasterMaskResolver;
 use crate::recipe_v1::{GradeStackDraft, grade_stack_recipe_v1_snapshot};
@@ -227,4 +227,30 @@ fn liquify_compilation_preserves_authored_paths_and_brush_units_exactly() {
             ],
         }
     );
+}
+
+#[test]
+fn retouch_bypass_disables_one_render_node_without_discarding_regions() {
+    let unit = |value| UnitInterval::new(value).expect("unit interval");
+    let mut draft = GradeStackDraft::default();
+    draft.retouch_strokes = vec![
+        RetouchStroke::new(vec![RetouchPoint::new(unit(0.3), unit(0.6))], 18)
+            .expect("one-point repair region"),
+    ];
+    draft.retouch_enabled = false;
+
+    let snapshot = grade_stack_recipe_v1_snapshot(&draft, None).expect("Recipe snapshot");
+    let plan = compile_recipe_render_plan(&snapshot).expect("render plan");
+    let retouch = plan
+        .nodes
+        .iter()
+        .find(|node| node.node_id == RECIPE_V1_RETOUCH_RENDER_NODE_ID)
+        .expect("photo-local Repair render node");
+
+    assert!(!retouch.enabled);
+    assert!(matches!(
+        &retouch.operation,
+        AdjustmentRenderOperation::SpotHeal { targets, strokes }
+            if targets.is_empty() && strokes.len() == 1 && strokes[0].points.len() == 1
+    ));
 }

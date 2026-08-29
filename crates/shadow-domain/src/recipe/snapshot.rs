@@ -42,6 +42,14 @@ pub struct RecipeSnapshot {
     /// remain byte-for-byte compatible and independently editable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     retouch_strokes: Vec<RetouchStroke>,
+    /// Node-level bypass for the complete photo-local repair stage. The
+    /// regions remain authored while bypassed, and legacy snapshots default
+    /// to enabled because repair previously had no bypass control.
+    #[serde(
+        default = "retouch_enabled_default",
+        skip_serializing_if = "bool_is_true"
+    )]
+    retouch_enabled: bool,
     /// Fixed, photo-private structural topology. Flattening retains the
     /// existing top-level Recipe v1 `geometry` field while adding an optional
     /// `liquify` field. The in-memory type makes duplicate or reordered
@@ -269,6 +277,7 @@ impl RecipeSnapshot {
             masks,
             retouch_spots,
             retouch_strokes,
+            retouch_enabled: true,
             structural_nodes,
             layers,
         };
@@ -283,6 +292,7 @@ impl RecipeSnapshot {
             masks: Vec::new(),
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            retouch_enabled: true,
             structural_nodes: PhotoStructuralNodes::default(),
             layers: Vec::new(),
         }
@@ -330,6 +340,20 @@ impl RecipeSnapshot {
     /// recipe. These remain photo-local and run after every Grade Node.
     pub fn retouch_strokes(&self) -> &[RetouchStroke] {
         &self.retouch_strokes
+    }
+
+    /// Returns whether the complete photo-local repair stage participates in
+    /// rendering. Bypassing never discards its independently editable areas.
+    pub const fn retouch_enabled(&self) -> bool {
+        self.retouch_enabled
+    }
+
+    /// Preserves every authored repair region while changing the fixed
+    /// photo-local stage bypass state.
+    #[must_use]
+    pub const fn with_retouch_enabled(mut self, enabled: bool) -> Self {
+        self.retouch_enabled = enabled;
+        self
     }
 
     /// Returns the complete fixed-order, photo-local structural topology.
@@ -428,6 +452,14 @@ impl RecipeSnapshot {
         }
         Ok(())
     }
+}
+
+const fn retouch_enabled_default() -> bool {
+    true
+}
+
+const fn bool_is_true(value: &bool) -> bool {
+    *value
 }
 
 /// Returns the stable semantic cache identity of one Recipe snapshot.

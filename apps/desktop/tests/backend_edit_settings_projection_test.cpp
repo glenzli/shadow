@@ -199,6 +199,7 @@ void require(const bool condition, const std::string& message) {
         .feather = 0.45,
         .strength = 0.58,
     }};
+    stack.retouch_enabled = false;
     stack.liquify_enabled = false;
     stack.liquify_strokes = {
         {

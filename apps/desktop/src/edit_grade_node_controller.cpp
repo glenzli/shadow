@@ -152,6 +152,10 @@ QString EditController::selectedRecipeNodeKind() const {
     return selected_recipe_node_kind_;
 }
 
+bool EditController::retouchNodeMaterialized() const noexcept {
+    return !grade_stack_.retouch_spots.isEmpty() || !grade_stack_.retouch_strokes.isEmpty();
+}
+
 bool EditController::liquifyNodeMaterialized() const noexcept {
     return !grade_stack_.liquify_strokes.isEmpty();
 }
@@ -287,6 +291,24 @@ void EditController::selectRawDenoiseNode() {
     emit gradeNodeEnabledChanged();
     notifyParametersChanged();
     emit toneCurveChanged();
+}
+
+void EditController::selectRetouchNode() {
+    if (!active_ || interactionLocked()
+        || selected_recipe_node_kind_ == QStringLiteral("retouch")) {
+        return;
+    }
+    finishActiveGesture();
+    setPointColorPickerActive(false);
+    setRetouchPickerActive(false);
+    setWhiteBalancePickerActive(false);
+    selected_recipe_node_kind_ = QStringLiteral("retouch");
+    selected_point_color_index_ = -1;
+    clearPointColorScopeReference();
+    emit selectedGradeNodeChanged();
+    emit gradeNodeActionsChanged();
+    emit gradeNodeEnabledChanged();
+    notifyParametersChanged();
 }
 
 void EditController::selectLiquifyNode() {

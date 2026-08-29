@@ -38,7 +38,7 @@ ColumnLayout {
             : null)
     readonly property int selectedRegionDisplayIndex:
         selectedRegionContinuous
-            ? selectedRegionIndex : strokeCount + selectedRegionIndex
+            ? spotCount + selectedRegionIndex : selectedRegionIndex
     readonly property int regionInspectorCount:
         selectedRegion === null ? 0 : 1
 

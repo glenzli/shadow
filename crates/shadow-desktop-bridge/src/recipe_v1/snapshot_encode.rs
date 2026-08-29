@@ -118,6 +118,7 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
         structural_nodes,
         recipe_v1_layers,
     )
+    .map(|snapshot| snapshot.with_retouch_enabled(grade_stack.retouch_enabled))
     .map_err(Into::into)
 }
 

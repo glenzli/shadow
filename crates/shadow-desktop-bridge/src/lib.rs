@@ -1014,10 +1014,17 @@ mod ffi {
     struct FfiPeopleGroup {
         group_id: String,
         member_count: u32,
+        /// Logical photo identities only. Face geometry and embeddings remain
+        /// inside Rust; the desktop uses these ids solely to reject an
+        /// impossible merge of two faces that co-occur in one photo.
+        photo_ids: Vec<String>,
+        /// Bounded request-local representative face crop. It is discarded
+        /// with the People session and never enters the Catalog.
+        thumbnail_jpeg: Vec<u8>,
     }
 
     /// Session-only projection of local face analysis. No embeddings or face
-    /// observations cross the desktop ABI.
+    /// geometry cross the desktop ABI.
     #[derive(Debug)]
     struct FfiPeopleAnalysisReport {
         analyzed_photos: u32,
@@ -1471,6 +1478,8 @@ mod ffi {
         grade_nodes: Vec<FfiGradeNode>,
         retouch_spots: Vec<FfiRetouchSpot>,
         retouch_strokes: Vec<FfiRetouchStroke>,
+        /// Node-level bypass for the complete photo-local repair stage.
+        retouch_enabled: bool,
         /// False with an empty stroke vector is the canonical absent node.
         /// A non-empty vector retains this value while bypassed.
         liquify_enabled: bool,
