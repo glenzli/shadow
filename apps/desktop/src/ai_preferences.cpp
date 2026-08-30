@@ -10,6 +10,7 @@ namespace {
 
 constexpr auto raw_denoise_allowed_key = "ai/raw_denoise_execution_allowed";
 constexpr auto subject_mask_allowed_key = "ai/subject_mask_execution_allowed";
+constexpr auto image_completion_allowed_key = "ai/image_completion_execution_allowed";
 constexpr auto people_analysis_consent_state_key = "ai/people_analysis_consent_state";
 constexpr auto people_analysis_consent_revision_key = "ai/people_analysis_consent_revision";
 constexpr int people_analysis_consent_revision = 1;
@@ -55,6 +56,12 @@ AiPreferences::AiPreferences(
         settings_
             ->value(QString::fromLatin1(subject_mask_allowed_key), subject_mask_execution_allowed_)
             .toBool();
+    image_completion_execution_allowed_ = settings_
+                                              ->value(
+                                                  QString::fromLatin1(image_completion_allowed_key),
+                                                  image_completion_execution_allowed_
+                                              )
+                                              .toBool();
     const int stored_people_consent_revision =
         settings_->value(QString::fromLatin1(people_analysis_consent_revision_key), 0).toInt();
     const QString stored_people_consent_state =
@@ -130,6 +137,10 @@ bool AiPreferences::subjectMaskExecutionAllowed() const noexcept {
     return subject_mask_execution_allowed_;
 }
 
+bool AiPreferences::imageCompletionExecutionAllowed() const noexcept {
+    return image_completion_execution_allowed_;
+}
+
 bool AiPreferences::peopleAnalysisExecutionAllowed() const noexcept {
     return people_analysis_consent_state_ == QStringLiteral("granted");
 }
@@ -190,6 +201,15 @@ void AiPreferences::setSubjectMaskExecutionAllowed(const bool allowed) {
     subject_mask_execution_allowed_ = allowed;
     persist(subject_mask_allowed_key, allowed);
     emit subjectMaskExecutionAllowedChanged();
+}
+
+void AiPreferences::setImageCompletionExecutionAllowed(const bool allowed) {
+    if (image_completion_execution_allowed_ == allowed) {
+        return;
+    }
+    image_completion_execution_allowed_ = allowed;
+    persist(image_completion_allowed_key, allowed);
+    emit imageCompletionExecutionAllowedChanged();
 }
 
 void AiPreferences::grantPeopleAnalysisConsent() {

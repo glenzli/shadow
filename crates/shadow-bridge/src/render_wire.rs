@@ -563,6 +563,39 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                 vec![],
             )
         }
+        AdjustmentRenderOperation::ImageCompletion { patches } => {
+            let mut parameters = Vec::with_capacity(patches.len() * 9);
+            let mut group_lengths = Vec::with_capacity(patches.len() + 1);
+            let payload_len = patches.iter().map(|patch| patch.rgba8.len()).sum();
+            let mut payload = Vec::with_capacity(payload_len);
+            group_lengths.push(
+                u32::try_from(patches.len()).expect("validated completion patch count fits u32"),
+            );
+            for patch in patches {
+                parameters.extend([
+                    f64::from(patch.raster_width),
+                    f64::from(patch.raster_height),
+                    f64::from(patch.coordinate_width),
+                    f64::from(patch.coordinate_height),
+                    patch.bounds_left,
+                    patch.bounds_top,
+                    patch.bounds_right,
+                    patch.bounds_bottom,
+                    patch.strength,
+                ]);
+                group_lengths.push(
+                    u32::try_from(patch.rgba8.len())
+                        .expect("validated completion patch byte length fits u32"),
+                );
+                payload.extend_from_slice(&patch.rgba8);
+            }
+            (
+                ffi::FfiAdjustmentOperation::ImageCompletion,
+                parameters,
+                group_lengths,
+                payload,
+            )
+        }
     };
     let detail_effects_pass = match &node.operation {
         AdjustmentRenderOperation::Sharpen {

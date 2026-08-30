@@ -6,6 +6,7 @@
 //! synchronous provider traits, input staging, strict evidence admission, and
 //! stale/cache/publish policy in callers.
 
+mod image_completion;
 mod image_understanding;
 mod raw_foundation;
 mod semantic;
@@ -27,6 +28,7 @@ use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
 use crate::{FaceBoundingBox, FaceEmbedding, FaceLandmarks, FacePoint};
 
+pub use image_completion::{INFER_IMAGE_COMPLETION_CAPABILITY, InferImageCompletionEvidence};
 pub use image_understanding::{
     ClassificationReviewCategory, ClassificationReviewDisposition, ClassificationReviewEvidence,
     ClassificationReviewProvider, ClassificationReviewRequest, ClassificationReviewSuggestion,

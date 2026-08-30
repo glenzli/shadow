@@ -175,8 +175,8 @@ fn projection_applies_final_canvas_flip_without_mutating_source() {
 
 fn foreground(x: f64, y: f64) -> MaskPromptPoint {
     MaskPromptPoint {
-        x: UnitInterval::new(x).unwrap(),
-        y: UnitInterval::new(y).unwrap(),
+        x: shadow_ai::UnitInterval::new(x).unwrap(),
+        y: shadow_ai::UnitInterval::new(y).unwrap(),
         polarity: MaskPointPolarity::Foreground,
     }
 }

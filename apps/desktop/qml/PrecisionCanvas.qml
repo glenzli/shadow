@@ -37,6 +37,7 @@ Rectangle {
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
+    readonly property int toolCompletion: 5
 
     // Public viewport state.
     property real zoomFactor: 1.0
@@ -565,6 +566,16 @@ Rectangle {
                     onRetryRequested: canvas.editor.generateAiMask()
                     onApplyRequested: canvas.editor.applyAiMaskCandidate()
                     onCancelRequested: canvas.editor.cancelAiMaskPrompt()
+                }
+
+                PrecisionAiCompletionOverlay {
+                    anchors.fill: parent
+                    z: 102
+                    editor: canvas.editor
+                    interactionEnabled:
+                        canvas.activeToolMode === canvas.toolCompletion
+                        && !canvas.comparisonActive
+                        && canvas.previewFrameReady
                 }
 
                 PrecisionCropOverlay {

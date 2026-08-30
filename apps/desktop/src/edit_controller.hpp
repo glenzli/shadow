@@ -28,6 +28,7 @@
 #include <optional>
 
 class EditPreviewPresentationContext;
+class EditAiCompletionController;
 class EditAiMaskController;
 class EditAutoGeometryController;
 class EditPersistenceTaskCoordinator;
@@ -252,6 +253,47 @@ class EditController final : public QObject {
     Q_PROPERTY(bool aiMaskCanGenerate READ aiMaskCanGenerate NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskHasCandidate READ aiMaskHasCandidate NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(QString aiMaskCandidateSource READ aiMaskCandidateSource NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool imageCompletionActive READ imageCompletionActive NOTIFY imageCompletionChanged)
+    Q_PROPERTY(bool imageCompletionBusy READ imageCompletionBusy NOTIFY imageCompletionChanged)
+    Q_PROPERTY(
+        bool imageCompletionCanGenerate READ imageCompletionCanGenerate NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionExecutionAllowed READ imageCompletionExecutionAllowed WRITE
+            setImageCompletionExecutionAllowed NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionHasCandidate READ imageCompletionHasCandidate NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        QString imageCompletionCandidateSource READ imageCompletionCandidateSource NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        QVariantList imageCompletionBrushPoints READ imageCompletionBrushPoints NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        double imageCompletionBrushRadius READ imageCompletionBrushRadius WRITE
+            setImageCompletionBrushRadius NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionEraseMode READ imageCompletionEraseMode WRITE
+            setImageCompletionEraseMode NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
+        QVariantList imageCompletionRegions READ imageCompletionRegions NOTIFY parametersChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionNodeMaterialized READ imageCompletionNodeMaterialized NOTIFY
+            parametersChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionNodeEnabled READ imageCompletionNodeEnabled WRITE
+            setImageCompletionNodeEnabled NOTIFY parametersChanged
+    )
     Q_PROPERTY(
         bool rawDenoiseExecutionAllowed READ rawDenoiseExecutionAllowed NOTIFY
             foundationAiDenoiseChanged
@@ -536,6 +578,18 @@ class EditController final : public QObject {
     [[nodiscard]] bool aiMaskCanGenerate() const noexcept;
     [[nodiscard]] bool aiMaskHasCandidate() const noexcept;
     [[nodiscard]] QString aiMaskCandidateSource() const;
+    [[nodiscard]] bool imageCompletionActive() const noexcept;
+    [[nodiscard]] bool imageCompletionBusy() const noexcept;
+    [[nodiscard]] bool imageCompletionCanGenerate() const noexcept;
+    [[nodiscard]] bool imageCompletionExecutionAllowed() const noexcept;
+    [[nodiscard]] bool imageCompletionHasCandidate() const noexcept;
+    [[nodiscard]] QString imageCompletionCandidateSource() const;
+    [[nodiscard]] QVariantList imageCompletionBrushPoints() const;
+    [[nodiscard]] double imageCompletionBrushRadius() const noexcept;
+    [[nodiscard]] bool imageCompletionEraseMode() const noexcept;
+    [[nodiscard]] QVariantList imageCompletionRegions() const;
+    [[nodiscard]] bool imageCompletionNodeMaterialized() const noexcept;
+    [[nodiscard]] bool imageCompletionNodeEnabled() const noexcept;
     [[nodiscard]] bool rawDenoiseExecutionAllowed() const noexcept;
     [[nodiscard]] bool subjectMaskExecutionAllowed() const noexcept;
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
@@ -683,6 +737,23 @@ class EditController final : public QObject {
     Q_INVOKABLE void generateAiMask();
     Q_INVOKABLE void applyAiMaskCandidate();
     Q_INVOKABLE void cancelAiMaskPrompt();
+    Q_INVOKABLE bool beginImageCompletion();
+    Q_INVOKABLE quint32 beginImageCompletionStroke();
+    Q_INVOKABLE void
+    addImageCompletionBrushPoint(double normalized_x, double normalized_y, quint32 stroke_id);
+    Q_INVOKABLE void undoImageCompletionStroke();
+    Q_INVOKABLE void clearImageCompletionSelection();
+    Q_INVOKABLE void generateImageCompletion();
+    Q_INVOKABLE void retryImageCompletion();
+    Q_INVOKABLE void applyImageCompletionCandidate();
+    Q_INVOKABLE void cancelImageCompletion();
+    Q_INVOKABLE void setImageCompletionBrushRadius(double radius);
+    Q_INVOKABLE void setImageCompletionEraseMode(bool erase);
+    Q_INVOKABLE void setImageCompletionExecutionAllowed(bool allowed);
+    Q_INVOKABLE void setImageCompletionNodeEnabled(bool enabled);
+    Q_INVOKABLE void setImageCompletionRegionEnabled(int index, bool enabled);
+    Q_INVOKABLE void setImageCompletionRegionStrength(int index, double strength);
+    Q_INVOKABLE void removeImageCompletionRegion(int index);
     Q_INVOKABLE void startFoundationAiDenoise();
     Q_INVOKABLE void cancelFoundationAiDenoise();
     Q_INVOKABLE void setRetouchPickerActive(bool active);
@@ -830,6 +901,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void selectFoundationNode();
     Q_INVOKABLE void selectRawDenoiseNode();
     Q_INVOKABLE void selectRetouchNode();
+    Q_INVOKABLE void selectImageCompletionNode();
     Q_INVOKABLE void selectLiquifyNode();
     Q_INVOKABLE void selectCanvasNode();
     Q_INVOKABLE void undo();
@@ -917,6 +989,7 @@ class EditController final : public QObject {
     void maskToolActiveChanged();
     void maskCoverageSourceChanged();
     void aiMaskPromptChanged();
+    void imageCompletionChanged();
     void toneCurveChanged();
     void pointColorScopeChanged();
     void pointColorPickerActiveChanged();
@@ -962,6 +1035,7 @@ class EditController final : public QObject {
         const BackendGradeStack& before,
         const QString& target_grade_node_id
     );
+    void applyImageCompletionState(BackendPhotoEditState state, const BackendGradeStack& before);
     void setGradeStack(BackendGradeStack grade_stack, const QString& preferred_grade_node_id = {});
     [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
     [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
@@ -1049,6 +1123,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool
     acceptParameter(double value, double minimum, double maximum, const char* label_source);
 
+    friend class EditAiCompletionController;
     friend class EditAiMaskController;
     friend class EditAutoGeometryController;
     friend class EditRawFoundationController;
@@ -1058,6 +1133,7 @@ class EditController final : public QObject {
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
     AiPreferences* ai_preferences_ = nullptr;
     EditPersistenceState persistence_state_;
+    std::unique_ptr<EditAiCompletionController> image_completion_controller_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
     std::unique_ptr<EditAutoGeometryController> auto_geometry_controller_;
     std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;

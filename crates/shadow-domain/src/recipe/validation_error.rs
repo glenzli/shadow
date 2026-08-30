@@ -147,6 +147,32 @@ pub enum RecipeValidationError {
     TooManyRetouchSpots(usize),
     #[error("Recipe contains {0} retouch strokes, but at most 64 are supported")]
     TooManyRetouchStrokes(usize),
+    #[error("AI completion reference supports contract {expected}, received contract {actual}")]
+    UnsupportedImageCompletionReferenceVersion { expected: u32, actual: u32 },
+    #[error("AI completion storage revision must be non-zero")]
+    ZeroImageCompletionStorageRevision,
+    #[error("AI completion content identity must be a lowercase BLAKE3 digest")]
+    InvalidImageCompletionContentHash,
+    #[error("AI completion object identity is not canonical for its revision and digest")]
+    InvalidImageCompletionStoreObjectId,
+    #[error("AI completion {kind} extent {width}x{height} is outside the supported bound")]
+    InvalidImageCompletionExtent {
+        kind: &'static str,
+        width: u32,
+        height: u32,
+    },
+    #[error(
+        "AI completion byte length does not match tightly packed RGBA8: expected {expected}, got {actual}"
+    )]
+    ImageCompletionByteLengthMismatch { expected: u64, actual: u64 },
+    #[error("AI completion bounds must have positive width and height")]
+    DegenerateImageCompletionBounds,
+    #[error("AI completion source Recipe identity must be a lowercase BLAKE3 digest")]
+    InvalidImageCompletionSourceIdentity,
+    #[error("AI completion {kind} provenance is empty or too long")]
+    InvalidImageCompletionProvenance { kind: &'static str },
+    #[error("Recipe contains {0} AI completion regions, but at most 32 are supported")]
+    TooManyImageCompletionRegions(usize),
     #[error("photo crop must retain non-zero width and height")]
     DegeneratePhotoCrop,
     #[error("photo straighten angle {0}° is outside the supported -45°..45° range")]

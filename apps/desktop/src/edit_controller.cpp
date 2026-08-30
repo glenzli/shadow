@@ -1,5 +1,6 @@
 #include "edit_controller.hpp"
 #include "ai_preferences.hpp"
+#include "edit_ai_completion_controller.hpp"
 #include "edit_ai_mask_controller.hpp"
 #include "edit_auto_geometry_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
@@ -46,12 +47,11 @@ EditController::EditController(
     preview_presentation_context_(std::move(preview_presentation_context)),
     ai_preferences_(ai_preferences), persistence_state_(*this, [this] { startAutosave(); }),
     versions_(this), tone_curve_points_(this) {
+    image_completion_controller_ = std::make_unique<EditAiCompletionController>(*this, backend_);
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
     auto_geometry_controller_ = std::make_unique<EditAutoGeometryController>(*this);
-    persistence_task_coordinator_ = std::make_unique<EditPersistenceTaskCoordinator>(
-        *this,
-        [this] { finishStateTask(); }
-    );
+    persistence_task_coordinator_ =
+        std::make_unique<EditPersistenceTaskCoordinator>(*this, [this] { finishStateTask(); });
     raw_foundation_controller_ = std::make_unique<EditRawFoundationController>(*this, backend_);
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
@@ -87,12 +87,14 @@ EditController::EditController(
     );
     connect(this, &EditController::sourceIdentityChanged, this, [this] {
         ai_mask_controller_->resetContext();
+        image_completion_controller_->resetContext();
     });
     connect(this, &EditController::selectedGradeNodeChanged, this, [this] {
         ai_mask_controller_->resetContext();
     });
     connect(this, &EditController::parametersChanged, this, [this] {
         ai_mask_controller_->resetContext();
+        image_completion_controller_->resetContext();
     });
     connect(this, &EditController::sourceIdentityChanged, this, [this] {
         auto_geometry_controller_->resetContext();
@@ -121,6 +123,12 @@ EditController::EditController(
             &AiPreferences::subjectMaskExecutionAllowedChanged,
             this,
             &EditController::aiMaskPromptChanged
+        );
+        connect(
+            ai_preferences_,
+            &AiPreferences::imageCompletionExecutionAllowedChanged,
+            this,
+            &EditController::imageCompletionChanged
         );
     }
     connect(
@@ -153,6 +161,7 @@ EditController::~EditController() {
     auto_geometry_controller_.reset();
     raw_foundation_controller_.reset();
     ai_mask_controller_.reset();
+    image_completion_controller_.reset();
     preview_debounce_.stop();
     detail_debounce_.stop();
     detail_warmup_debounce_.stop();
@@ -172,6 +181,7 @@ bool EditController::active() const noexcept {
 bool EditController::busy() const noexcept {
     return stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
            || (ai_mask_controller_ && ai_mask_controller_->busy())
+           || (image_completion_controller_ && image_completion_controller_->busy())
            || (auto_geometry_controller_ && auto_geometry_controller_->busy());
 }
 
@@ -185,10 +195,10 @@ bool EditController::interactionLocked() const noexcept {
     // head when the transaction returns. Opening a photo, creating a named
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
-    return persistence_state_.hasPendingVersionSave()
-           || persistence_state_.hasPendingVersionLoad()
+    return persistence_state_.hasPendingVersionSave() || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
-           || (ai_mask_controller_ && ai_mask_controller_->locksInteraction());
+           || (ai_mask_controller_ && ai_mask_controller_->locksInteraction())
+           || (image_completion_controller_ && image_completion_controller_->locksInteraction());
 }
 
 bool EditController::rendering() const noexcept {
@@ -245,8 +255,7 @@ bool EditController::dirty() const noexcept {
 
 bool EditController::autosavePending() const noexcept {
     return !autosaveFailed()
-           && (persistence_state_.autosaveRequested()
-               || persistence_state_.autosaveDebounceActive()
+           && (persistence_state_.autosaveRequested() || persistence_state_.autosaveDebounceActive()
                || (stateTaskRunning() && stateTaskKind() == EditStateTaskKind::Autosave
                    && stateTaskFutureRunning()));
 }

@@ -67,6 +67,8 @@ fn grade_stack_rejects_cross_grade_node_render_op_identity_reuse() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };
@@ -195,6 +197,8 @@ fn template_rejects_retained_identity_rewrite_and_deleted_node_reuse() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };
@@ -217,6 +221,8 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
                 retouch_spots: Vec::new(),
                 retouch_strokes: Vec::new(),
                 retouch_enabled: true,
+                image_completions: Vec::new(),
+                image_completion_enabled: true,
                 liquify: None,
                 canvas: PhotoCanvasNode::identity(),
             },
@@ -235,6 +241,8 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };

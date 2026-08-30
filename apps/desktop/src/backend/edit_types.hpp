@@ -289,6 +289,35 @@ struct BackendPhotoGeometry final {
     bool operator==(const BackendPhotoGeometry&) const = default;
 };
 
+// One immutable accepted region in the fixed photo-local AI Completion node.
+// Pixel bytes stay in the managed derived-raster store; the desktop transports
+// only verified identity, placement, provenance, and editable presentation.
+struct BackendImageCompletionRegion final {
+    QString store_object_id;
+    std::uint32_t storage_revision = 0;
+    QString content_blake3;
+    std::uint64_t byte_len = 0;
+    std::uint32_t raster_width = 0;
+    std::uint32_t raster_height = 0;
+    std::uint32_t coordinate_width = 0;
+    std::uint32_t coordinate_height = 0;
+    double bounds_left = 0.0;
+    double bounds_top = 0.0;
+    double bounds_right = 1.0;
+    double bounds_bottom = 1.0;
+    QString source_recipe_blake3;
+    QString provider;
+    QString deployment;
+    QString model_build;
+    QString postprocessing_identity;
+    QString api_contract_revision;
+    QString actual_execution_provider;
+    bool enabled = true;
+    double strength = 1.0;
+
+    bool operator==(const BackendImageCompletionRegion&) const = default;
+};
+
 struct BackendGradeStack final {
     // One optional fixed, photo-local AI source node before Foundation. It
     // cannot be duplicated, reordered, masked, or shared. Presence is distinct
@@ -351,6 +380,8 @@ struct BackendGradeStack final {
     QVector<BackendRetouchStroke> retouch_strokes;
     // The photo-local Repair node keeps all authored areas while bypassed.
     bool retouch_enabled = true;
+    QVector<BackendImageCompletionRegion> image_completions;
+    bool image_completion_enabled = true;
     // Empty strokes plus false is the canonical absent-node projection.
     // A materialized node retains this flag while bypassed.
     bool liquify_enabled = false;
@@ -446,6 +477,48 @@ struct BackendSubjectMaskApplyRequest final {
     QString semantic_query;
     std::uint8_t semantic_maximum_regions = 0;
     std::uint8_t semantic_score_threshold_percent = 0;
+};
+
+struct BackendImageCompletionBrushPoint final {
+    double x = 0.5;
+    double y = 0.5;
+    double radius = 0.04;
+    bool erase = false;
+    std::uint32_t stroke_id = 0;
+};
+
+enum class BackendImageCompletionTerminal : std::uint8_t {
+    Staged,
+    Unavailable,
+    Cancelled,
+    Failed,
+};
+
+struct BackendImageCompletionRequest final {
+    std::uint64_t job_token = 0;
+    std::uint64_t generation = 0;
+    QString base_commit_id;
+    BackendGradeStack grade_stack;
+    QVector<BackendImageCompletionBrushPoint> points;
+};
+
+struct BackendImageCompletionResult final {
+    BackendImageCompletionTerminal terminal = BackendImageCompletionTerminal::Failed;
+    std::uint64_t job_token = 0;
+    std::uint64_t generation = 0;
+    std::uint64_t proposal_token = 0;
+    QString detail;
+    std::uint32_t preview_width = 0;
+    std::uint32_t preview_height = 0;
+    QByteArray preview_rgba8;
+};
+
+struct BackendImageCompletionApplyRequest final {
+    std::uint64_t proposal_token = 0;
+    std::uint64_t generation = 0;
+    QString base_commit_id;
+    QString expected_working_commit_id;
+    BackendGradeStack grade_stack;
 };
 
 enum class BackendRawFoundationJobPhase : std::uint8_t {

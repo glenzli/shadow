@@ -119,6 +119,12 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
         recipe_v1_layers,
     )
     .map(|snapshot| snapshot.with_retouch_enabled(grade_stack.retouch_enabled))
+    .and_then(|snapshot| {
+        snapshot.with_image_completions(
+            grade_stack.image_completions.clone(),
+            grade_stack.image_completion_enabled,
+        )
+    })
     .map_err(Into::into)
 }
 

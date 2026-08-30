@@ -526,6 +526,7 @@ mod ffi {
         Lut3D,
         Sharpen,
         SpotHeal,
+        ImageCompletion,
     }
 
     #[derive(Debug, Clone, Copy)]

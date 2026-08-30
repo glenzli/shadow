@@ -12,6 +12,7 @@
 #include "edit_execution_validation.hpp"
 #include "finishing_effects_cpu.hpp"
 #include "guided_selective_tone.hpp"
+#include "image_completion.hpp"
 #include "oklab_color_warper.hpp"
 #include "perceptual_color.hpp"
 #include "perceptual_contrast.hpp"
@@ -46,6 +47,7 @@ namespace {
 using detail::apply_color_matrix;
 using detail::apply_creative_detail_grading_cpu;
 using detail::apply_finishing_effects_cpu;
+using detail::apply_image_completion;
 using detail::apply_oklab_color_warper_cpu;
 using detail::apply_perceptual_color_cpu;
 using detail::apply_prepared_guided_selective_tone_cpu;
@@ -76,6 +78,7 @@ using detail::transform_rgb_pixels;
 using detail::validate_edit_execution_context;
 using detail::validate_edit_image;
 using detail::validate_guided_selective_tone;
+using detail::validate_image_completion;
 using detail::validate_oklab_color_warper;
 using detail::validate_perceptual_color;
 using detail::Vector3;
@@ -235,6 +238,12 @@ validate_node(const AdjustmentNode& node, const std::size_t index) {
                 } catch (const EditError& error) {
                     throw_node_error(error.code(), index, node, error.what());
                 }
+            } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
+                try {
+                    validate_image_completion(parameters);
+                } catch (const EditError& error) {
+                    throw_node_error(error.code(), index, node, error.what());
+                }
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 const auto unit = [](const double value) {
                     return std::isfinite(value) && value >= 0.0 && value <= 1.0;
@@ -340,6 +349,11 @@ prepare_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
                 return value.intensity == 0.0;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 return value.spots.empty() && value.strokes.empty();
+            } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
+                return value.patches.empty()
+                       || std::ranges::all_of(value.patches, [](const auto& patch) {
+                              return patch.strength == 0.0;
+                          });
             } else {
                 static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
                 switch (value.execution_pass) {
@@ -508,6 +522,8 @@ void apply_node(
                 });
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 apply_spot_heal(image, parameters, context);
+            } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
+                apply_image_completion(image, parameters, context);
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 switch (parameters.execution_pass) {
                 case DetailEffectsExecutionPass::technical_detail:
@@ -547,6 +563,7 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     case AdjustmentOperation::perceptual_color:
     case AdjustmentOperation::oklab_color_warper:
     case AdjustmentOperation::lut_3d:
+    case AdjustmentOperation::image_completion:
         return AdjustmentLocality::pixel_local;
     case AdjustmentOperation::selective_tone:
     case AdjustmentOperation::sharpen:

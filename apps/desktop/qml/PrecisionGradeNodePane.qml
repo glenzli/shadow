@@ -23,6 +23,7 @@ Rectangle {
     signal cropToolRequested
     signal repairToolRequested
     signal liquifyToolRequested
+    signal completionToolRequested
 
     color: pane.panel
     PrecisionGradeNodeMenus {
@@ -212,6 +213,30 @@ Rectangle {
             onActivated: {
                 pane.editor.selectLiquifyNode()
                 pane.liquifyToolRequested()
+            }
+        }
+
+        StructuralNodeRow {
+            objectName: "imageCompletionNodeRow"
+            visible: pane.editor.imageCompletionNodeMaterialized
+                || pane.editor.selectedRecipeNodeKind === "completion"
+            nodeLabel: qsTr("AI Completion")
+            nodeStatus: pane.editor.imageCompletionNodeMaterialized
+                ? (pane.editor.imageCompletionNodeEnabled
+                    ? qsTr("%n REGION(S) · ENABLED", "",
+                        pane.editor.imageCompletionRegions.length)
+                    : qsTr("%n REGION(S) · BYPASSED", "",
+                        pane.editor.imageCompletionRegions.length))
+                : qsTr("EMPTY · PAINT TO CREATE")
+            nodeGlyph: "AI"
+            nodeSelected: pane.editor.selectedRecipeNodeKind === "completion"
+            bypassAvailable: pane.editor.imageCompletionNodeMaterialized
+            nodeEnabled: pane.editor.imageCompletionNodeEnabled
+            onEnabledToggled: enabled =>
+                pane.editor.imageCompletionNodeEnabled = enabled
+            onActivated: {
+                pane.editor.selectImageCompletionNode()
+                pane.completionToolRequested()
             }
         }
 

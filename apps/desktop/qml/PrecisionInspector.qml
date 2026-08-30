@@ -46,6 +46,7 @@ Rectangle {
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
+    readonly property int toolCompletion: 5
 
     function manualOpticsActive() {
         return Number(editor.manualOpticsDistortion) !== 0 || Number(editor.manualOpticsTcaRedCyan) !== 0 || Number(editor.manualOpticsTcaBlueYellow) !== 0 || Number(editor.manualOpticsVignettingAmount) !== 0;
@@ -174,6 +175,19 @@ Rectangle {
                     enabled: inspector.editor.active && inspector.previewFrameReady
                         && !inspector.editor.stateBusy
                     onClicked: inspector.toolModeRequested(inspector.toolLiquify)
+                }
+
+                ShadowIconButton {
+                    buttonSize: 34
+                    iconSize: 19
+                    source: "qrc:/icons/candidate.svg"
+                    selected: inspector.activeToolMode === inspector.toolCompletion
+                    toolTipText: qsTr("AI Completion")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active && inspector.previewFrameReady
+                        && (!inspector.editor.stateBusy || selected)
+                    onClicked:
+                        inspector.toolModeRequested(inspector.toolCompletion)
                 }
 
                 Item {
@@ -312,6 +326,7 @@ Rectangle {
                         PrecisionFoundationAdjustments {
                             Layout.fillWidth: true
                             visible: !inspector.editor.rawDenoiseSelected
+                                && inspector.editor.selectedRecipeNodeKind !== "completion"
                                 && inspectorTabStrip.currentIndex === 0
                             editor: inspector.editor
                             gradeControlsEnabled: inspector.editor.gradeNodeEnabled
@@ -332,10 +347,22 @@ Rectangle {
                             accent: inspector.accent
                         }
 
+                        PrecisionAiCompletionTools {
+                            Layout.fillWidth: true
+                            visible:
+                                inspector.editor.selectedRecipeNodeKind === "completion"
+                                && inspectorTabStrip.currentIndex === 0
+                            editor: inspector.editor
+                            authoring: false
+                            onStartRequested:
+                                inspector.toolModeRequested(inspector.toolCompletion)
+                        }
+
                         ColumnLayout {
                             objectName: "gradeNodeInspector"
                             Layout.fillWidth: true
                             visible: !inspector.editor.rawDenoiseSelected
+                                && inspector.editor.selectedRecipeNodeKind !== "completion"
                             spacing: 8
                             enabled: inspector.editor.foundationSelected
                                 || inspector.editor.gradeNodeEnabled
@@ -565,7 +592,10 @@ Rectangle {
                     ColumnLayout {
                         width: parent.width
                         spacing: 0
-                        enabled: inspector.editor.active && !inspector.editor.stateBusy
+                        enabled: inspector.editor.active
+                            && (!inspector.editor.stateBusy
+                                || inspector.activeToolMode
+                                    === inspector.toolCompletion)
 
                         PrecisionLocalMaskTools {
                             Layout.fillWidth: true
@@ -600,6 +630,16 @@ Rectangle {
                                 === inspector.toolLiquify
                             inspector: inspector
                             currentTabIndex: 0
+                        }
+
+                        PrecisionAiCompletionTools {
+                            Layout.fillWidth: true
+                            visible: inspector.activeToolMode
+                                === inspector.toolCompletion
+                            editor: inspector.editor
+                            authoring: true
+                            onExitRequested:
+                                inspector.toolModeRequested(inspector.toolCompletion)
                         }
 
                         Item {

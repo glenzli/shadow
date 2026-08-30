@@ -4,11 +4,11 @@ use std::{collections::HashSet, path::Path};
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentLiquify,
-    AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLiquifyReconstructStroke,
-    AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation,
-    AdjustmentRenderPlan, AdjustmentRetouchStroke, AdjustmentRetouchStrokePoint,
-    AdjustmentSpotHealTarget,
+    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+    AdjustmentImageCompletionPatch, AdjustmentLiquify, AdjustmentLiquifyPoint,
+    AdjustmentLiquifyPushStroke, AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke,
+    AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
+    AdjustmentRetouchStroke, AdjustmentRetouchStrokePoint, AdjustmentSpotHealTarget,
     COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     ColorRangeParameters,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
@@ -59,11 +59,12 @@ use shadow_domain::{
 };
 
 use super::{
-    MAX_GRADE_NODES, apply_detail_effect_values, ffi_adapter::adjustment_geometry,
+    MAX_GRADE_NODES, apply_detail_effect_values,
+    ffi_adapter::adjustment_geometry,
     fixed_color_mixer, fixed_selective_color, grade_node_recipe_v1_render_ops,
-    managed_raster_resolution::ManagedRasterMaskResolver, oklab_color_warper_from_ffi,
-    point_color_ranges_from_vector, required_bool, required_float, required_float_vector,
-    required_text, selective_tone_parameters, tone_curve_points_from_vector,
+    managed_raster_resolution::{ManagedImageCompletionResolver, ManagedRasterMaskResolver},
+    oklab_color_warper_from_ffi, point_color_ranges_from_vector, required_bool, required_float,
+    required_float_vector, required_text, selective_tone_parameters, tone_curve_points_from_vector,
 };
 
 // Retouch is photo-local rather than a Grade Node. These fixed, compiler-only
@@ -72,6 +73,7 @@ use super::{
 const RECIPE_V1_RETOUCH_LAYER_START_ID: &str = "recipe-v1-photo-retouch:start";
 const RECIPE_V1_RETOUCH_RENDER_NODE_ID: &str = "recipe-v1-photo-retouch:spots";
 const RECIPE_V1_RETOUCH_LAYER_END_ID: &str = "recipe-v1-photo-retouch:end";
+const RECIPE_V1_IMAGE_COMPLETION_NODE_ID: &str = "recipe-v1-photo-ai-completion";
 
 /// Compiles the currently executable Recipe v1 adapter subset into dependency
 /// order. Recipe `LayerInstance` vector order is the Grade Node execution
@@ -81,19 +83,23 @@ const RECIPE_V1_RETOUCH_LAYER_END_ID: &str = "recipe-v1-photo-retouch:end";
 pub(crate) fn compile_recipe_render_plan(
     snapshot: &RecipeSnapshot,
 ) -> AnyResult<AdjustmentRenderPlan> {
-    compile_recipe_render_plan_with_resolver(snapshot, None)
+    compile_recipe_render_plan_with_resolver(snapshot, None, None)
 }
 
-pub(crate) fn compile_recipe_render_plan_with_managed_rasters(
+pub(crate) fn compile_recipe_render_plan_with_managed_rasters<R>(
     snapshot: &RecipeSnapshot,
-    resolver: &dyn ManagedRasterMaskResolver,
-) -> AnyResult<AdjustmentRenderPlan> {
-    compile_recipe_render_plan_with_resolver(snapshot, Some(resolver))
+    resolver: &R,
+) -> AnyResult<AdjustmentRenderPlan>
+where
+    R: ManagedRasterMaskResolver + ManagedImageCompletionResolver,
+{
+    compile_recipe_render_plan_with_resolver(snapshot, Some(resolver), Some(resolver))
 }
 
 fn compile_recipe_render_plan_with_resolver(
     snapshot: &RecipeSnapshot,
-    resolver: Option<&dyn ManagedRasterMaskResolver>,
+    mask_resolver: Option<&dyn ManagedRasterMaskResolver>,
+    completion_resolver: Option<&dyn ManagedImageCompletionResolver>,
 ) -> AnyResult<AdjustmentRenderPlan> {
     validate_recipe_compilation_contract(snapshot)?;
     // A photo-local repair must run after every Grade Node. It uses an
@@ -129,7 +135,7 @@ fn compile_recipe_render_plan_with_resolver(
                     })?;
                     Some(adjustment_local_mask_with_resolver(
                         definition.definition(),
-                        resolver,
+                        mask_resolver,
                     )?)
                 }
             };
@@ -184,6 +190,12 @@ fn compile_recipe_render_plan_with_resolver(
     if has_retouch {
         append_photo_retouch_nodes(snapshot, &mut compiled, &mut compiled_node_ids)?;
     }
+    append_photo_image_completion_node(
+        snapshot,
+        completion_resolver,
+        &mut compiled,
+        &mut compiled_node_ids,
+    )?;
     if compiled.len() > MAX_ADJUSTMENT_RENDER_NODES {
         bail!("Recipe render compiler supports at most 256 executable nodes");
     }
@@ -198,6 +210,40 @@ fn compile_recipe_render_plan_with_resolver(
     plan.validate()
         .context("validate compiled Recipe render plan")?;
     Ok(plan)
+}
+
+fn append_photo_image_completion_node(
+    snapshot: &RecipeSnapshot,
+    resolver: Option<&dyn ManagedImageCompletionResolver>,
+    compiled: &mut Vec<AdjustmentRenderNode>,
+    compiled_node_ids: &mut HashSet<String>,
+) -> AnyResult<()> {
+    if snapshot.image_completions().is_empty() {
+        return Ok(());
+    }
+    let resolver = resolver.context(
+        "Recipe contains managed AI completion bytes but no application-store resolver was supplied",
+    )?;
+    let patches: Vec<AdjustmentImageCompletionPatch> = snapshot
+        .image_completions()
+        .iter()
+        .filter(|region| region.enabled())
+        .map(|region| resolver.resolve_completion(region.patch(), region.strength().get()))
+        .collect::<AnyResult<_>>()?;
+    if patches.is_empty() {
+        return Ok(());
+    }
+    if !compiled_node_ids.insert(RECIPE_V1_IMAGE_COMPLETION_NODE_ID.to_owned()) {
+        bail!("Recipe render compiler rejects duplicate photo AI-completion id");
+    }
+    compiled.push(AdjustmentRenderNode {
+        node_id: RECIPE_V1_IMAGE_COMPLETION_NODE_ID.to_owned(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: snapshot.image_completion_enabled(),
+        operation: AdjustmentRenderOperation::ImageCompletion { patches },
+    });
+    Ok(())
 }
 
 fn validate_recipe_compilation_contract(snapshot: &RecipeSnapshot) -> AnyResult<()> {

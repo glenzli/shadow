@@ -311,6 +311,24 @@ void EditController::selectRetouchNode() {
     notifyParametersChanged();
 }
 
+void EditController::selectImageCompletionNode() {
+    if (!active_ || (interactionLocked() && !imageCompletionActive())
+        || selected_recipe_node_kind_ == QStringLiteral("completion")) {
+        return;
+    }
+    finishActiveGesture();
+    setPointColorPickerActive(false);
+    setRetouchPickerActive(false);
+    setWhiteBalancePickerActive(false);
+    selected_recipe_node_kind_ = QStringLiteral("completion");
+    selected_point_color_index_ = -1;
+    clearPointColorScopeReference();
+    emit selectedGradeNodeChanged();
+    emit gradeNodeActionsChanged();
+    emit gradeNodeEnabledChanged();
+    notifyParametersChanged();
+}
+
 void EditController::selectLiquifyNode() {
     if (!active_ || interactionLocked()
         || selected_recipe_node_kind_ == QStringLiteral("liquify")) {

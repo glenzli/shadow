@@ -390,6 +390,7 @@ fn payload_artifact(payload: &AiGeneratedPayload) -> &GeneratedArtifactReference
     match payload {
         AiGeneratedPayload::SoftMask(mask) => &mask.artifact,
         AiGeneratedPayload::DenoisedRaster(raster) => &raster.artifact,
+        AiGeneratedPayload::ImageCompletionPatch(patch) => &patch.artifact,
     }
 }
 
@@ -397,6 +398,7 @@ fn payload_artifact_mut(payload: &mut AiGeneratedPayload) -> &mut GeneratedArtif
     match payload {
         AiGeneratedPayload::SoftMask(mask) => &mut mask.artifact,
         AiGeneratedPayload::DenoisedRaster(raster) => &mut raster.artifact,
+        AiGeneratedPayload::ImageCompletionPatch(patch) => &mut patch.artifact,
     }
 }
 

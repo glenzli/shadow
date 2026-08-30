@@ -10,6 +10,7 @@ use super::{BridgeError, MAX_WARM_EDIT_PREVIEW_EDGE};
 
 mod detail_effects;
 mod geometry;
+mod image_completion;
 mod liquify;
 mod local_mask;
 mod lut;
@@ -27,6 +28,10 @@ pub use detail_effects::{
     TECHNICAL_DETAIL_IMPLEMENTATION_VERSION, TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION,
 };
 pub use geometry::{AdjustmentGeometry, AdjustmentQuarterTurn};
+pub use image_completion::{
+    AdjustmentImageCompletionPatch, MAX_ADJUSTMENT_IMAGE_COMPLETION_BYTES,
+    MAX_ADJUSTMENT_IMAGE_COMPLETION_EDGE, MAX_ADJUSTMENT_IMAGE_COMPLETION_PATCHES,
+};
 pub use liquify::{
     AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
     AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke,
@@ -62,6 +67,7 @@ pub use selective_tone::{
 };
 
 use detail_effects::validate_sharpen;
+use image_completion::validate_image_completion;
 use local_mask::validate_adjustment_local_mask;
 use lut::validate_lut;
 use oklab_color_warper::validate_oklab_color_warper;
@@ -138,6 +144,11 @@ pub enum AdjustmentRenderOperation {
         /// this alongside legacy targets makes old click-to-repair recipes
         /// decode and render exactly as before.
         strokes: Vec<AdjustmentRetouchStroke>,
+    },
+    /// Accepted photo-local generated pixels. Alpha in every RGBA8 patch is
+    /// the exact user-authored selection and bounds use original-image space.
+    ImageCompletion {
+        patches: Vec<AdjustmentImageCompletionPatch>,
     },
 }
 
@@ -329,6 +340,9 @@ pub(super) fn validate_render_operation(
         AdjustmentRenderOperation::Sharpen { parameters, .. } => validate_sharpen(parameters),
         AdjustmentRenderOperation::SpotHeal { targets, strokes } => {
             validate_spot_heal(targets, strokes)
+        }
+        AdjustmentRenderOperation::ImageCompletion { patches } => {
+            validate_image_completion(patches)
         }
     }
 }

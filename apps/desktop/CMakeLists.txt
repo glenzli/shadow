@@ -293,6 +293,7 @@ qt_add_executable(
     ${SHADOW_DESKTOP_HISTORY_PROJECTION_SOURCES}
     src/desktop_backend.cpp
     src/desktop_backend_ai_mask.cpp
+    src/desktop_backend_ai_completion.cpp
     src/desktop_backend_raw_foundation.cpp
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
@@ -349,6 +350,8 @@ qt_add_executable(
     src/edit_adjustment_reset_controller.cpp
     src/edit_ai_mask_controller.cpp
     src/edit_ai_mask_controller.hpp
+    src/edit_ai_completion_controller.cpp
+    src/edit_ai_completion_controller.hpp
     src/edit_auto_geometry_controller.cpp
     src/edit_auto_geometry_controller.hpp
     src/edit_ai_mask_prompt_state.cpp
@@ -829,6 +832,8 @@ qt_add_qml_module(
         qml/PrecisionDetailLoupeState.qml
         qml/PrecisionActiveStrokeCoverage.qml
         qml/PrecisionAiMaskPromptOverlay.qml
+        qml/PrecisionAiCompletionOverlay.qml
+        qml/PrecisionAiCompletionTools.qml
         qml/PrecisionPeopleMaskSelector.qml
         qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionCanvasStatusOverlays.qml

@@ -75,6 +75,8 @@ pub(in crate::tests) fn ffi_parameters(
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {

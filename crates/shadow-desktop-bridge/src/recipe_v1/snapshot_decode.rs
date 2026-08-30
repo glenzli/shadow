@@ -358,6 +358,8 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
         retouch_spots: snapshot.retouch_spots().to_vec(),
         retouch_strokes: snapshot.retouch_strokes().to_vec(),
         retouch_enabled: snapshot.retouch_enabled(),
+        image_completions: snapshot.image_completions().to_vec(),
+        image_completion_enabled: snapshot.image_completion_enabled(),
         liquify: snapshot.structural_nodes().liquify().cloned(),
         canvas: *snapshot.canvas_node(),
     };

@@ -19,6 +19,7 @@
 mod condition_mask;
 mod edit_graph;
 mod history;
+mod image_completion;
 mod input_settings;
 mod layer;
 mod local_mask;
@@ -50,6 +51,11 @@ pub use edit_graph::{
     OperationDescriptor, ParameterBlock, ParameterValue, PortType, ProcessingStage,
 };
 pub use history::{NamedVersion, RecipeBranch, RecipeCommit, RecipeHistory};
+pub use image_completion::{
+    ImageCompletionRegion, MANAGED_IMAGE_COMPLETION_REFERENCE_VERSION,
+    MAX_IMAGE_COMPLETION_PATCH_DIMENSION, MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE,
+    ManagedImageCompletionPatch,
+};
 pub use input_settings::{RecipeInputSettings, RecipeOpticsSettings};
 pub use layer::{
     AdjustmentScope, BlendMode, LayerContent, LayerInstance, LayerRevision, LayerRevisionSelector,

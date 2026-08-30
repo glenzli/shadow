@@ -251,6 +251,70 @@
 <context>
     <name>EditController</name>
     <message>
+        <source>AI Completion applied · the region is now managed by the photo node</source>
+        <translation>AI 补全已应用 · 该区域现由照片节点管理</translation>
+    </message>
+    <message>
+        <source>AI Completion cancelled</source>
+        <translation>已取消 AI 补全</translation>
+    </message>
+    <message>
+        <source>AI Completion candidate ready · apply, retry, or cancel</source>
+        <translation>AI 补全候选已就绪 · 可以应用、重试或取消</translation>
+    </message>
+    <message>
+        <source>AI Completion cannot continue until the current adjustments are saved</source>
+        <translation>保存当前调整后才能继续 AI 补全</translation>
+    </message>
+    <message>
+        <source>AI Completion failed · %1</source>
+        <translation>AI 补全失败 · %1</translation>
+    </message>
+    <message>
+        <source>AI Completion is before Liquify · bypass Liquify before generating</source>
+        <translation>AI 补全位于液化之前 · 生成前请旁路液化</translation>
+    </message>
+    <message>
+        <source>AI Completion is unavailable · check Infer Runtime and the local model · %1</source>
+        <translation>AI 补全不可用 · 请检查 Infer Runtime 和本地模型 · %1</translation>
+    </message>
+    <message>
+        <source>AI Completion is waiting for current adjustments to finish saving</source>
+        <translation>AI 补全正在等待当前调整保存完成</translation>
+    </message>
+    <message>
+        <source>AI Completion requires local execution permission</source>
+        <translation>AI 补全需要本机执行权限</translation>
+    </message>
+    <message>
+        <source>AI Completion returned an invalid candidate preview</source>
+        <translation>AI 补全返回了无效的候选预览</translation>
+    </message>
+    <message>
+        <source>AI Completion selection is too complex</source>
+        <translation>AI 补全选区过于复杂</translation>
+    </message>
+    <message>
+        <source>AI Completion · applying candidate…</source>
+        <translation>AI 补全 · 正在应用候选…</translation>
+    </message>
+    <message>
+        <source>AI Completion · generating a local candidate…</source>
+        <translation>AI 补全 · 正在生成本地候选…</translation>
+    </message>
+    <message>
+        <source>AI Completion · paint the area to replace, then generate</source>
+        <translation>AI 补全 · 涂抹要替换的区域，然后生成</translation>
+    </message>
+    <message>
+        <source>Could not apply AI Completion · %1</source>
+        <translation>无法应用 AI 补全 · %1</translation>
+    </message>
+    <message>
+        <source>Could not start AI Completion · %1</source>
+        <translation>无法启动 AI 补全 · %1</translation>
+    </message>
+    <message>
         <source>Enter a semantic subject of at most 256 bytes</source>
         <translation>请输入不超过 256 字节的语义主体</translation>
     </message>
@@ -5521,6 +5585,114 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PrecisionWorkspace</name>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n REGION(S) · BYPASSED</source>
+        <translation>
+            <numerusform>%n 个区域 · 已旁路</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n REGION(S) · ENABLED</source>
+        <translation>
+            <numerusform>%n 个区域 · 已启用</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>ACCEPTED REGIONS · %L1</source>
+        <translation>已接受区域 · %L1</translation>
+    </message>
+    <message>
+        <source>AI COMPLETION</source>
+        <translation>AI 补全</translation>
+    </message>
+    <message>
+        <source>AI Completion</source>
+        <translation>AI 补全</translation>
+    </message>
+    <message>
+        <source>AI Completion is evaluated before Liquify. Bypass the Liquify node while painting and generating, then turn it back on.</source>
+        <translation>AI 补全在液化之前执行。涂抹和生成时请先旁路液化节点，完成后再重新启用。</translation>
+    </message>
+    <message>
+        <source>Accepted regions belong to this photo&apos;s fixed AI Completion node and are used by preview, detail, and export.</source>
+        <translation>已接受区域属于此照片的固定 AI 补全节点，并统一用于预览、细节和导出。</translation>
+    </message>
+    <message>
+        <source>Allow local AI Completion?</source>
+        <translation>允许本机 AI 补全吗？</translation>
+    </message>
+    <message>
+        <source>Brush size</source>
+        <translation>画笔大小</translation>
+    </message>
+    <message>
+        <source>Cancel generation</source>
+        <translation>取消生成</translation>
+    </message>
+    <message>
+        <source>Candidate preview is shown on the photo.</source>
+        <translation>候选预览已显示在照片上。</translation>
+    </message>
+    <message>
+        <source>EMPTY · PAINT TO CREATE</source>
+        <translation>空 · 涂抹以创建</translation>
+    </message>
+    <message>
+        <source>Erase</source>
+        <translation>擦除</translation>
+    </message>
+    <message>
+        <source>Exit</source>
+        <translation>退出</translation>
+    </message>
+    <message>
+        <source>Generate preview</source>
+        <translation>生成预览</translation>
+    </message>
+    <message>
+        <source>Generating a local candidate…</source>
+        <translation>正在生成本地候选…</translation>
+    </message>
+    <message>
+        <source>No candidate generated yet.</source>
+        <translation>尚未生成候选。</translation>
+    </message>
+    <message>
+        <source>Paint</source>
+        <translation>涂抹</translation>
+    </message>
+    <message>
+        <source>Paint a new region</source>
+        <translation>涂抹新区域</translation>
+    </message>
+    <message>
+        <source>Paint the area to replace. Generation creates a preview candidate; the photo Recipe changes only after Apply.</source>
+        <translation>涂抹要替换的区域。生成只会创建预览候选；点击应用后才会修改照片 Recipe。</translation>
+    </message>
+    <message>
+        <source>Region %L1</source>
+        <translation>区域 %L1</translation>
+    </message>
+    <message>
+        <source>Remove this accepted region</source>
+        <translation>移除此已接受区域</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>重试</translation>
+    </message>
+    <message>
+        <source>Shadow will send a bounded crop of this photo and your painted selection to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI &amp; Models settings.</source>
+        <translation>Shadow 会将此照片的有限裁剪区域和你的涂抹选区发送到本机 Infer Runtime。Shadow 不会上传该请求。之后可在“AI 与模型”设置中关闭此权限。</translation>
+    </message>
+    <message>
+        <source>Undo stroke</source>
+        <translation>撤销笔划</translation>
+    </message>
     <message>
         <source>AI semantic</source>
         <translation>AI 语义</translation>
@@ -11606,6 +11778,14 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 </context>
 <context>
     <name>SettingsAiPane</name>
+    <message>
+        <source>AI Completion sends the current photo crop and your painted selection only to Infer Runtime on this device. Turning this off blocks new generation; accepted photo nodes remain available.</source>
+        <translation>AI 补全只会将当前照片裁剪区域和涂抹选区发送到本机 Infer Runtime。关闭后会阻止新的生成任务；已接受的照片节点仍可使用。</translation>
+    </message>
+    <message>
+        <source>Allow local AI Completion</source>
+        <translation>允许本机 AI 补全</translation>
+    </message>
     <message>
         <location filename="../qml/SettingsAiPane.qml" line="59"/>
         <source>AI &amp; Models</source>

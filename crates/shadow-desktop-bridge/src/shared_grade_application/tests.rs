@@ -24,6 +24,8 @@ fn merge_replaces_an_older_revision_in_place_and_preserves_bypass() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };
@@ -47,6 +49,8 @@ fn merge_is_idempotent_for_the_same_materialized_revision() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };

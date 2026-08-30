@@ -12,8 +12,9 @@ use shadow_bridge::{
     SELECTIVE_COLOR_VALUE_COUNT, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
-    LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS, MaskBrushPoint,
-    MaskDefinition, NodeId, PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
+    ImageCompletionRegion, LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS,
+    ManagedImageCompletionPatch, MaskBrushPoint, MaskDefinition, NodeId, PhotoCanvasNode,
+    PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
     RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN, RawFoundationDenoise, RawFoundationDenoiseModel,
     RawTemperatureTint, RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RetouchMode,
     RetouchPoint, RetouchSpot, RetouchStroke, SemanticMaskAggregation, SemanticMaskIntent,
@@ -571,6 +572,8 @@ pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> 
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };
@@ -690,6 +693,39 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
             })
             .collect::<AnyResult<Vec<_>>>()?,
         retouch_enabled: settings.retouch_enabled,
+        image_completions: settings
+            .image_completions
+            .iter()
+            .enumerate()
+            .map(|(index, region)| {
+                let patch = ManagedImageCompletionPatch::new(
+                    region.store_object_id.clone(),
+                    region.storage_revision,
+                    region.content_blake3.clone(),
+                    region.byte_len,
+                    region.raster_width,
+                    region.raster_height,
+                    region.coordinate_width,
+                    region.coordinate_height,
+                    UnitInterval::new(region.bounds_left)?,
+                    UnitInterval::new(region.bounds_top)?,
+                    UnitInterval::new(region.bounds_right)?,
+                    UnitInterval::new(region.bounds_bottom)?,
+                    region.source_recipe_blake3.clone(),
+                    region.provider.clone(),
+                    region.deployment.clone(),
+                    region.model_build.clone(),
+                    region.postprocessing_identity.clone(),
+                    region.api_contract_revision.clone(),
+                    region.actual_execution_provider.clone(),
+                )
+                .with_context(|| format!("AI completion region {index} is invalid"))?;
+                Ok(ImageCompletionRegion::new(patch)
+                    .with_enabled(region.enabled)
+                    .with_strength(UnitInterval::new(region.strength)?))
+            })
+            .collect::<AnyResult<Vec<_>>>()?,
+        image_completion_enabled: settings.image_completion_enabled,
         liquify: photo_liquify_from_ffi(&settings.liquify_strokes, settings.liquify_enabled)?,
         canvas: photo_canvas_from_ffi(&settings.geometry)?,
     };
@@ -1178,6 +1214,37 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
             })
             .collect(),
         retouch_enabled: grade_stack.retouch_enabled,
+        image_completions: grade_stack
+            .image_completions
+            .into_iter()
+            .map(|region| {
+                let patch = region.patch();
+                ffi::FfiImageCompletionRegion {
+                    store_object_id: patch.store_object_id().to_owned(),
+                    storage_revision: patch.storage_revision(),
+                    content_blake3: patch.content_blake3().to_owned(),
+                    byte_len: patch.byte_len(),
+                    raster_width: patch.raster_width(),
+                    raster_height: patch.raster_height(),
+                    coordinate_width: patch.coordinate_width(),
+                    coordinate_height: patch.coordinate_height(),
+                    bounds_left: patch.bounds_left().get(),
+                    bounds_top: patch.bounds_top().get(),
+                    bounds_right: patch.bounds_right().get(),
+                    bounds_bottom: patch.bounds_bottom().get(),
+                    source_recipe_blake3: patch.source_recipe_blake3().to_owned(),
+                    provider: patch.provider().to_owned(),
+                    deployment: patch.deployment().to_owned(),
+                    model_build: patch.model_build().to_owned(),
+                    postprocessing_identity: patch.postprocessing_identity().to_owned(),
+                    api_contract_revision: patch.api_contract_revision().to_owned(),
+                    actual_execution_provider: patch.actual_execution_provider().to_owned(),
+                    enabled: region.enabled(),
+                    strength: region.strength().get(),
+                }
+            })
+            .collect(),
+        image_completion_enabled: grade_stack.image_completion_enabled,
         liquify_enabled,
         liquify_strokes,
         geometry: ffi_photo_canvas(grade_stack.canvas),

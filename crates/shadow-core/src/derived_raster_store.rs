@@ -17,7 +17,10 @@ use shadow_ai::{
     ManagedDerivedStoreRead, ManagedDerivedStoreWrite, ManagedGeneratedArtifactReference,
     SoftMaskEncoding,
 };
-use shadow_domain::{ManagedRasterMask, MaskDefinition, RasterMaskEncoding, RecipeValidationError};
+use shadow_domain::{
+    ImageCompletionRegion, ManagedImageCompletionPatch, ManagedRasterMask, MaskDefinition,
+    RasterMaskEncoding, RecipeValidationError, UnitInterval,
+};
 use thiserror::Error;
 
 const STORAGE_REVISION: u32 = 1;
@@ -25,6 +28,8 @@ const BLAKE3_DIRECTORY: &str = "b3";
 const COPY_BUFFER_BYTES: usize = 64 * 1024;
 pub const SHADOW_SOFT_MASK_MEDIA_TYPE: &str = "application/x-shadow-soft-mask";
 pub const SHADOW_SOFT_MASK_ENCODING_VERSION: u32 = 1;
+pub const SHADOW_RGBA8_MEDIA_TYPE: &str = "application/x-shadow-rgba8";
+pub const SHADOW_RGBA8_ENCODING_VERSION: u32 = 1;
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Filesystem authority for immutable, content-addressed generated rasters.
@@ -148,6 +153,28 @@ impl FilesystemDerivedRasterStore {
             SHADOW_SOFT_MASK_ENCODING_VERSION,
         )?;
         self.open_verified_identity(&artifact, mask.store_object_id(), mask.storage_revision())
+    }
+
+    /// Opens accepted RGBA8 completion bytes after revalidating their exact
+    /// persisted Recipe identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Recipe reference is malformed, its store
+    /// identity is unavailable, or the managed bytes fail verification.
+    pub fn open_recipe_completion_patch(
+        &self,
+        patch: &ManagedImageCompletionPatch,
+    ) -> Result<File, DerivedRasterStoreError> {
+        patch.validate()?;
+        let artifact = GeneratedArtifactReference::new(
+            ArtifactHashAlgorithm::Blake3_256,
+            patch.content_blake3().to_owned(),
+            patch.byte_len(),
+            SHADOW_RGBA8_MEDIA_TYPE.into(),
+            SHADOW_RGBA8_ENCODING_VERSION,
+        )?;
+        self.open_verified_identity(&artifact, patch.store_object_id(), patch.storage_revision())
     }
 
     fn open_verified_identity(
@@ -280,6 +307,65 @@ pub fn managed_soft_mask_definition(
     Ok(MaskDefinition::managed_raster(raster, invert)?)
 }
 
+/// Converts one promoted completion proposal into an immutable Recipe region.
+///
+/// # Errors
+///
+/// Returns an error when the managed object is not an admitted completion
+/// patch or its media, hash, extent, bounds, or provenance is invalid.
+#[allow(clippy::too_many_arguments)]
+pub fn managed_image_completion_region(
+    managed: &ManagedDerivedRaster,
+    bounds_left: UnitInterval,
+    bounds_top: UnitInterval,
+    bounds_right: UnitInterval,
+    bounds_bottom: UnitInterval,
+) -> Result<ImageCompletionRegion, DerivedRasterStoreError> {
+    let AiGeneratedPayload::ImageCompletionPatch(patch) = managed.payload() else {
+        return Err(DerivedRasterStoreError::ExpectedImageCompletionPatch);
+    };
+    let artifact = managed.managed_artifact().artifact();
+    if artifact.hash_algorithm() != ArtifactHashAlgorithm::Blake3_256 {
+        return Err(DerivedRasterStoreError::UnsupportedHashAlgorithm(
+            artifact.hash_algorithm(),
+        ));
+    }
+    if artifact.media_type() != SHADOW_RGBA8_MEDIA_TYPE {
+        return Err(DerivedRasterStoreError::UnsupportedCompletionMediaType(
+            artifact.media_type().to_owned(),
+        ));
+    }
+    if artifact.encoding_version() != SHADOW_RGBA8_ENCODING_VERSION {
+        return Err(
+            DerivedRasterStoreError::UnsupportedCompletionEncodingVersion(
+                artifact.encoding_version(),
+            ),
+        );
+    }
+    let reference = ManagedImageCompletionPatch::new(
+        managed.managed_artifact().store_object_id().to_owned(),
+        managed.managed_artifact().storage_revision(),
+        artifact.content_hash().to_owned(),
+        artifact.byte_len(),
+        patch.raster_extent.width,
+        patch.raster_extent.height,
+        patch.coordinate_extent.width,
+        patch.coordinate_extent.height,
+        bounds_left,
+        bounds_top,
+        bounds_right,
+        bounds_bottom,
+        patch.source_recipe_blake3.clone(),
+        patch.provider.clone(),
+        patch.deployment.clone(),
+        patch.model_build.clone(),
+        patch.postprocessing_identity.clone(),
+        patch.api_contract_revision.clone(),
+        patch.actual_execution_provider.clone(),
+    )?;
+    Ok(ImageCompletionRegion::new(reference))
+}
+
 impl ManagedDerivedRasterStore for FilesystemDerivedRasterStore {
     type Error = DerivedRasterStoreError;
 
@@ -303,6 +389,7 @@ fn payload_artifact(payload: &AiGeneratedPayload) -> &GeneratedArtifactReference
     match payload {
         AiGeneratedPayload::SoftMask(mask) => &mask.artifact,
         AiGeneratedPayload::DenoisedRaster(raster) => &raster.artifact,
+        AiGeneratedPayload::ImageCompletionPatch(patch) => &patch.artifact,
     }
 }
 
@@ -535,10 +622,16 @@ pub enum DerivedRasterStoreError {
     UnsupportedHashAlgorithm(ArtifactHashAlgorithm),
     #[error("managed derived-raster payload is not a soft mask")]
     ExpectedSoftMask,
+    #[error("managed derived-raster payload is not an image-completion patch")]
+    ExpectedImageCompletionPatch,
     #[error("managed soft-mask media type is unsupported: {0}")]
     UnsupportedMaskMediaType(String),
     #[error("managed soft-mask encoding version is unsupported: {0}")]
     UnsupportedMaskEncodingVersion(u32),
+    #[error("managed image-completion media type is unsupported: {0}")]
+    UnsupportedCompletionMediaType(String),
+    #[error("managed image-completion encoding version is unsupported: {0}")]
+    UnsupportedCompletionEncodingVersion(u32),
     #[error(transparent)]
     InvalidRecipeReference(#[from] RecipeValidationError),
     #[error("generated raster path has no parent: {path}")]

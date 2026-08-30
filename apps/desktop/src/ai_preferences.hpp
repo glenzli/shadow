@@ -25,6 +25,10 @@ class AiPreferences final : public QObject {
             setSubjectMaskExecutionAllowed NOTIFY subjectMaskExecutionAllowedChanged
     )
     Q_PROPERTY(
+        bool imageCompletionExecutionAllowed READ imageCompletionExecutionAllowed WRITE
+            setImageCompletionExecutionAllowed NOTIFY imageCompletionExecutionAllowedChanged
+    )
+    Q_PROPERTY(
         bool peopleAnalysisExecutionAllowed READ peopleAnalysisExecutionAllowed NOTIFY
             peopleAnalysisConsentChanged
     )
@@ -76,6 +80,7 @@ class AiPreferences final : public QObject {
 
     [[nodiscard]] bool rawDenoiseExecutionAllowed() const noexcept;
     [[nodiscard]] bool subjectMaskExecutionAllowed() const noexcept;
+    [[nodiscard]] bool imageCompletionExecutionAllowed() const noexcept;
     [[nodiscard]] bool peopleAnalysisExecutionAllowed() const noexcept;
     [[nodiscard]] bool peopleAnalysisConsentDecided() const noexcept;
     [[nodiscard]] QString peopleAnalysisConsentState() const;
@@ -90,6 +95,7 @@ class AiPreferences final : public QObject {
 
     void setRawDenoiseExecutionAllowed(bool allowed);
     void setSubjectMaskExecutionAllowed(bool allowed);
+    void setImageCompletionExecutionAllowed(bool allowed);
     Q_INVOKABLE void grantPeopleAnalysisConsent();
     Q_INVOKABLE void denyPeopleAnalysisConsent();
     Q_INVOKABLE void revokePeopleAnalysisConsent();
@@ -103,6 +109,7 @@ class AiPreferences final : public QObject {
   signals:
     void rawDenoiseExecutionAllowedChanged();
     void subjectMaskExecutionAllowedChanged();
+    void imageCompletionExecutionAllowedChanged();
     void peopleAnalysisConsentChanged();
     void imageUnderstandingExecutionAllowedChanged();
     void imageUnderstandingBackgroundEnabledChanged();
@@ -118,6 +125,7 @@ class AiPreferences final : public QObject {
     QString model_storage_path_;
     bool raw_denoise_execution_allowed_ = true;
     bool subject_mask_execution_allowed_ = true;
+    bool image_completion_execution_allowed_ = false;
     QString people_analysis_consent_state_ = QStringLiteral("not_asked");
     bool image_understanding_execution_allowed_ = true;
     bool image_understanding_background_enabled_ = false;

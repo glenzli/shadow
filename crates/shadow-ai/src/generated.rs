@@ -287,6 +287,34 @@ pub struct DenoiseParameters {
     pub chroma_reduction: UnitInterval,
 }
 
+/// Provider-neutral input identity for one bounded image-completion proposal.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageCompletionParameters {
+    pub coordinate_extent: RasterExtent,
+    pub source_recipe_blake3: String,
+    pub mask_revision: String,
+}
+
+impl ImageCompletionParameters {
+    /// Validates the exact source, mask, and coordinate identity of a proposal.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the extent is invalid or either digest is not a
+    /// canonical 256-bit lowercase hexadecimal identity.
+    pub fn validate(&self) -> Result<(), AiArtifactContractError> {
+        self.coordinate_extent.validate()?;
+        if !canonical_digest(&self.source_recipe_blake3) {
+            return Err(AiArtifactContractError::InvalidCompletionSourceIdentity);
+        }
+        if !canonical_digest(&self.mask_revision) {
+            return Err(AiArtifactContractError::InvalidCompletionMaskIdentity);
+        }
+        Ok(())
+    }
+}
+
 impl DenoiseParameters {
     /// Validates the denoise parameter contract.
     ///
@@ -307,6 +335,7 @@ pub enum AiTaskParameters {
     None,
     SubjectMask(SubjectMaskParameters),
     Denoise(DenoiseParameters),
+    ImageCompletion(ImageCompletionParameters),
     /// Provider-neutral request to materialize the photo's full RAW foundation.
     RawFoundation,
 }
@@ -326,6 +355,9 @@ impl AiTaskParameters {
             }
             (AiTaskKind::Denoise, Self::Denoise(parameters)) => parameters.validate(),
             (AiTaskKind::MaterializeRawFoundation, Self::RawFoundation) => Ok(()),
+            (AiTaskKind::GenerateInpaintPatch, Self::ImageCompletion(parameters)) => {
+                parameters.validate()
+            }
             (AiTaskKind::ProposeSubjectMask, _) => {
                 Err(AiArtifactContractError::TaskParameterMismatch {
                     task,
@@ -342,10 +374,20 @@ impl AiTaskParameters {
                     expected: "raw_foundation",
                 })
             }
-            (_, Self::None) => Ok(()),
-            (_, Self::SubjectMask(_) | Self::Denoise(_) | Self::RawFoundation) => {
-                Err(AiArtifactContractError::UnexpectedTaskParameters(task))
+            (AiTaskKind::GenerateInpaintPatch, _) => {
+                Err(AiArtifactContractError::TaskParameterMismatch {
+                    task,
+                    expected: "image_completion",
+                })
             }
+            (_, Self::None) => Ok(()),
+            (
+                _,
+                Self::SubjectMask(_)
+                | Self::Denoise(_)
+                | Self::ImageCompletion(_)
+                | Self::RawFoundation,
+            ) => Err(AiArtifactContractError::UnexpectedTaskParameters(task)),
         }
     }
 }
@@ -466,6 +508,67 @@ pub struct DenoisedRasterArtifact {
     pub full_resolution: bool,
 }
 
+/// Raw tightly packed RGBA8 completion bytes. RGB is the generated proposal;
+/// alpha is the exact user selection, so pixels outside it are immutable.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageCompletionPatchArtifact {
+    pub artifact: GeneratedArtifactReference,
+    pub raster_extent: RasterExtent,
+    pub coordinate_extent: RasterExtent,
+    pub source_recipe_blake3: String,
+    pub provider: String,
+    pub deployment: String,
+    pub model_build: String,
+    pub postprocessing_identity: String,
+    pub api_contract_revision: String,
+    pub actual_execution_provider: String,
+}
+
+impl ImageCompletionPatchArtifact {
+    /// Validates the generated raster and its complete execution provenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the artifact identity, dimensions, byte count,
+    /// source digest, media encoding, or provenance is outside the admitted
+    /// completion-patch contract.
+    pub fn validate(&self) -> Result<(), AiArtifactContractError> {
+        self.artifact.validate()?;
+        self.raster_extent.validate()?;
+        self.coordinate_extent.validate()?;
+        let expected = u64::from(self.raster_extent.width)
+            .checked_mul(u64::from(self.raster_extent.height))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or(AiArtifactContractError::CompletionPatchTooLarge)?;
+        if self.artifact.byte_len() != expected {
+            return Err(AiArtifactContractError::CompletionPatchByteLengthMismatch {
+                expected,
+                actual: self.artifact.byte_len(),
+            });
+        }
+        if self.artifact.media_type() != "application/x-shadow-rgba8" {
+            return Err(AiArtifactContractError::InvalidCompletionPatchMediaType);
+        }
+        if !canonical_digest(&self.source_recipe_blake3) {
+            return Err(AiArtifactContractError::InvalidCompletionSourceIdentity);
+        }
+        for value in [
+            &self.provider,
+            &self.deployment,
+            &self.model_build,
+            &self.postprocessing_identity,
+            &self.api_contract_revision,
+            &self.actual_execution_provider,
+        ] {
+            if value.trim().is_empty() || value.len() > 256 {
+                return Err(AiArtifactContractError::InvalidCompletionProvenance);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl DenoisedRasterArtifact {
     /// Validates artifact identity, domain/layout agreement, and tiling.
     ///
@@ -517,6 +620,7 @@ impl DenoisedRasterArtifact {
 pub enum AiGeneratedPayload {
     SoftMask(SoftMaskArtifact),
     DenoisedRaster(DenoisedRasterArtifact),
+    ImageCompletionPatch(ImageCompletionPatchArtifact),
 }
 
 impl AiGeneratedPayload {
@@ -530,6 +634,9 @@ impl AiGeneratedPayload {
         match (task, self) {
             (AiTaskKind::ProposeSubjectMask, Self::SoftMask(mask)) => mask.validate(),
             (AiTaskKind::Denoise, Self::DenoisedRaster(raster)) => raster.validate(),
+            (AiTaskKind::GenerateInpaintPatch, Self::ImageCompletionPatch(patch)) => {
+                patch.validate()
+            }
             (AiTaskKind::ProposeSubjectMask, _) => {
                 Err(AiArtifactContractError::TaskPayloadMismatch {
                     task,
@@ -540,6 +647,12 @@ impl AiGeneratedPayload {
                 task,
                 expected: "denoised_raster",
             }),
+            (AiTaskKind::GenerateInpaintPatch, _) => {
+                Err(AiArtifactContractError::TaskPayloadMismatch {
+                    task,
+                    expected: "image_completion_patch",
+                })
+            }
             _ => Err(AiArtifactContractError::UnexpectedGeneratedPayload(task)),
         }
     }
@@ -599,6 +712,25 @@ pub enum AiArtifactContractError {
     },
     #[error("task {0:?} does not produce this generated-artifact payload")]
     UnexpectedGeneratedPayload(AiTaskKind),
+    #[error("image-completion source Recipe identity must be a lowercase 256-bit digest")]
+    InvalidCompletionSourceIdentity,
+    #[error("image-completion mask identity must be a lowercase 256-bit digest")]
+    InvalidCompletionMaskIdentity,
+    #[error("image-completion patch dimensions overflow the byte contract")]
+    CompletionPatchTooLarge,
+    #[error("image-completion patch byte length mismatch: expected {expected}, got {actual}")]
+    CompletionPatchByteLengthMismatch { expected: u64, actual: u64 },
+    #[error("image-completion patch must use Shadow's raw RGBA8 media type")]
+    InvalidCompletionPatchMediaType,
+    #[error("image-completion provenance is incomplete or exceeds its bound")]
+    InvalidCompletionProvenance,
+}
+
+fn canonical_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 #[cfg(test)]

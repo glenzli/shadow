@@ -312,6 +312,9 @@ Its implementation follows the same navigation:
   comparison receipts, feedback, and explicit decision mutation.
 - [`src/desktop_backend_edit.cpp`](src/desktop_backend_edit.cpp) owns Precision state, shared
   Grade Nodes, preview/detail rendering, and durable edit transitions.
+  [`src/desktop_backend_ai_completion.cpp`](src/desktop_backend_ai_completion.cpp) is the narrow
+  Qt/CXX projection for AI-completion source rendering, cancellable generation, proposal
+  consumption, and accepted-patch mutation.
 - [`src/desktop_backend_cache.cpp`](src/desktop_backend_cache.cpp) owns export-service access and
   conservative cache inventory/maintenance.
 - [`src/desktop_backend_remote_library.cpp`](src/desktop_backend_remote_library.cpp) owns the
@@ -382,6 +385,11 @@ Its implementation follows the same navigation:
   first analysis. Input, person thumbnails, and parsed labels are retired on apply, cancellation,
   or edit-context change. [`qml/PrecisionPeopleMaskSelector.qml`](qml/PrecisionPeopleMaskSelector.qml)
   owns the temporary person cards and multi-select detail list without creating another mask system.
+- [`src/edit_ai_completion_controller.*`](src/edit_ai_completion_controller.hpp) owns the
+  photo-local completion brush, local-execution authorization, cancellable proposal lifecycle,
+  stale-context rejection, apply/retry transitions, and accepted-region presentation. Accepted
+  rasters remain parameters of the fixed AI Completion node; QML does not create a parallel
+  retouch or asset subsystem.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
   presentation, in-session clipboard semantics, the enumerable scalar-parameter contract,
   geometry/condition validation, and brush strokes. Ordinary photo-local masks are not named or
@@ -547,6 +555,11 @@ Precision presentation follows the same responsibility tree:
   input keep that feedback independent of preview generation churn, then perform one history and
   preview mutation when the pointer is released. Persistent coverage remains with the feature-
   specific overlays.
+- [`qml/PrecisionAiCompletionOverlay.qml`](qml/PrecisionAiCompletionOverlay.qml) owns transient
+  paint/erase coverage and the generated candidate overlay.
+  [`qml/PrecisionAiCompletionTools.qml`](qml/PrecisionAiCompletionTools.qml) owns first-use local
+  authorization, brush controls, generation/cancellation, apply/retry, and the accepted-region
+  list; the controller remains the only Recipe mutation authority.
 - [`qml/PrecisionLiquifyOverlay.qml`](qml/PrecisionLiquifyOverlay.qml) owns Liquify pointer
   sampling, admission, and a high-contrast radius/hardness brush cursor. The live deformation is
   the gesture feedback, so Liquify never paints a coverage trail over the photograph. Preview

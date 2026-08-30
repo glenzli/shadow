@@ -49,12 +49,15 @@ mod session_preview_store;
 
 // Non-destructive edit contracts and shared Grade Node application.
 mod edit_version_diff;
+mod image_completion_runtime;
+mod image_completion_service;
 mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
 mod raw_foundation_runtime;
 mod raw_foundation_service;
 mod recipe_v1;
 mod session_edit_history;
+mod session_image_completion;
 mod session_raw_foundation;
 mod session_shared_grade;
 mod session_subject_mask;
@@ -1413,6 +1416,34 @@ mod ffi {
         strength: f64,
     }
 
+    /// One accepted immutable RGBA8 AI-completion patch. The desktop never
+    /// transports its pixel payload; this DTO carries only the verified store
+    /// authority and editable placement/strength state.
+    #[derive(Debug, Clone)]
+    struct FfiImageCompletionRegion {
+        store_object_id: String,
+        storage_revision: u32,
+        content_blake3: String,
+        byte_len: u64,
+        raster_width: u32,
+        raster_height: u32,
+        coordinate_width: u32,
+        coordinate_height: u32,
+        bounds_left: f64,
+        bounds_top: f64,
+        bounds_right: f64,
+        bounds_bottom: f64,
+        source_recipe_blake3: String,
+        provider: String,
+        deployment: String,
+        model_build: String,
+        postprocessing_identity: String,
+        api_contract_revision: String,
+        actual_execution_provider: String,
+        enabled: bool,
+        strength: f64,
+    }
+
     /// One pressure-bearing point in a photo-private Liquify push gesture.
     /// Coordinates stay normalized to the uncropped original image so a
     /// later Canvas crop or orientation edit never moves the authored intent.
@@ -1513,6 +1544,8 @@ mod ffi {
         retouch_strokes: Vec<FfiRetouchStroke>,
         /// Node-level bypass for the complete photo-local repair stage.
         retouch_enabled: bool,
+        image_completions: Vec<FfiImageCompletionRegion>,
+        image_completion_enabled: bool,
         /// False with an empty stroke vector is the canonical absent node.
         /// A non-empty vector retains this value while bypassed.
         liquify_enabled: bool,
@@ -1674,6 +1707,58 @@ mod ffi {
         semantic_query: String,
         semantic_maximum_regions: u8,
         semantic_score_threshold_percent: u8,
+    }
+
+    /// One ordered brush sample in the displayed final-canvas coordinate
+    /// space. Samples sharing a stroke id are connected; erase samples clear
+    /// the transient selection and never enter the Recipe directly.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiImageCompletionBrushPoint {
+        x: f64,
+        y: f64,
+        radius: f64,
+        erase: bool,
+        stroke_id: u32,
+    }
+
+    #[derive(Debug)]
+    struct FfiImageCompletionRequest {
+        job_token: u64,
+        generation: u64,
+        base_commit_id: String,
+        settings: FfiEditSettings,
+        points: Vec<FfiImageCompletionBrushPoint>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiImageCompletionTerminal {
+        Staged,
+        Unavailable,
+        Cancelled,
+        Failed,
+    }
+
+    /// One full-canvas transient RGBA8 candidate. Empty for every non-staged
+    /// terminal; durable bytes remain behind the opaque proposal token.
+    #[derive(Debug)]
+    struct FfiImageCompletionResult {
+        terminal: FfiImageCompletionTerminal,
+        job_token: u64,
+        generation: u64,
+        proposal_token: u64,
+        detail: String,
+        preview_width: u32,
+        preview_height: u32,
+        preview_rgba8: Vec<u8>,
+    }
+
+    #[derive(Debug)]
+    struct FfiImageCompletionApplyRequest {
+        proposal_token: u64,
+        generation: u64,
+        base_commit_id: String,
+        expected_working_commit_id: String,
+        settings: FfiEditSettings,
     }
 
     /// Session-local state for one model-pinned AI RAW foundation job.
@@ -2697,6 +2782,29 @@ mod ffi {
         /// Explicitly retires a staged proposal that lost the UI generation
         /// race or was abandoned by the user.
         fn discard_subject_mask_proposal(self: &DesktopSession, proposal_token: u64) -> Result<()>;
+        /// Allocates one cancellable completion job before Qt submits its
+        /// input render and Infer Runtime work.
+        fn begin_image_completion_job(self: &DesktopSession) -> Result<u64>;
+        fn cancel_image_completion_job(
+            self: &DesktopSession,
+            image_completion_job_token: u64,
+        ) -> Result<()>;
+        fn execute_image_completion_job(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiImageCompletionRequest,
+        ) -> Result<FfiImageCompletionResult>;
+        fn apply_image_completion_proposal(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiImageCompletionApplyRequest,
+        ) -> Result<FfiPhotoEditState>;
+        fn discard_image_completion_proposal(
+            self: &DesktopSession,
+            proposal_token: u64,
+        ) -> Result<()>;
         /// Probes Infer Runtime's RawNIND capability without decoding a source
         /// or starting inference.
         fn probe_raw_foundation_runtime(self: &DesktopSession) -> FfiRawFoundationRuntimeStatus;
@@ -2856,6 +2964,8 @@ struct DesktopSession {
     people_library: people_library_store::PeopleLibraryStore,
     subject_masks: subject_mask_service::SubjectMaskService,
     subject_mask_runtime: subject_mask_runtime::SubjectMaskRuntime,
+    image_completions: image_completion_service::ImageCompletionService,
+    image_completion_runtime: image_completion_runtime::ImageCompletionRuntime,
     raw_foundations: raw_foundation_service::RawFoundationService,
     raw_foundation_runtime: raw_foundation_runtime::RawFoundationRuntime,
     library: LibraryService,
@@ -2911,7 +3021,15 @@ fn open_desktop_session_at(
         &subject_mask_paths.derived_raster_store_root,
     )?;
     let subject_mask_runtime = subject_mask_runtime::SubjectMaskRuntime::new(
-        subject_mask_paths.scratch_root,
+        subject_mask_paths.scratch_root.clone(),
+        subject_mask_paths.infer_base_url_override.clone(),
+        subject_mask_paths.infer_credential_file.clone(),
+    )?;
+    let image_completions = image_completion_service::ImageCompletionService::open(
+        &subject_mask_paths.derived_raster_store_root,
+    )?;
+    let image_completion_runtime = image_completion_runtime::ImageCompletionRuntime::new(
+        subject_mask_paths.scratch_root.join("image-completion"),
         subject_mask_paths.infer_base_url_override,
         subject_mask_paths.infer_credential_file,
     )?;
@@ -2963,6 +3081,8 @@ fn open_desktop_session_at(
         people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,
         subject_masks,
         subject_mask_runtime,
+        image_completions,
+        image_completion_runtime,
         raw_foundations: raw_foundation_service::RawFoundationService::new(),
         raw_foundation_runtime,
     }))

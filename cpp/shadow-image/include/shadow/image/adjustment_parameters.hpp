@@ -353,6 +353,23 @@ struct SpotHealAdjustment final {
     std::vector<RetouchStroke> strokes;
 };
 
+struct ImageCompletionPatch final {
+    std::uint32_t raster_width = 0U;
+    std::uint32_t raster_height = 0U;
+    std::uint32_t coordinate_width = 0U;
+    std::uint32_t coordinate_height = 0U;
+    double bounds_left = 0.0;
+    double bounds_top = 0.0;
+    double bounds_right = 1.0;
+    double bounds_bottom = 1.0;
+    double strength = 1.0;
+    std::vector<std::uint8_t> rgba8;
+};
+
+struct ImageCompletionAdjustment final {
+    std::vector<ImageCompletionPatch> patches;
+};
+
 using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
@@ -365,6 +382,7 @@ using AdjustmentParameters = std::variant<
     OklabColorWarperAdjustment,
     CubeLutAdjustment,
     SharpenAdjustment,
-    SpotHealAdjustment>;
+    SpotHealAdjustment,
+    ImageCompletionAdjustment>;
 
 } // namespace shadow::image

@@ -129,6 +129,8 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };
@@ -311,6 +313,8 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };

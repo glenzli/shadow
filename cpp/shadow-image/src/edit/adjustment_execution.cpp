@@ -65,6 +65,7 @@ metal_ineligibility(const EditExecutionPlan& plan, const std::span<const Adjustm
             }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::spot_heal:
+            case AdjustmentOperation::image_completion:
                 return "Metal adjustment does not support active operation "
                        + std::string(operation_id(step.operation));
             }

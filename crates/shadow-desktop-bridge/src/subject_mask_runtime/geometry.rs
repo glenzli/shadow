@@ -1,8 +1,8 @@
 //! Prompt-coordinate projection from the displayed final canvas back into the
 //! original-image space where Grade Node masks are evaluated.
 
-use shadow_ai::{MaskPointPolarity, MaskPromptPoint, RasterExtent, UnitInterval};
-use shadow_domain::{PhotoGeometry, PhotoQuarterTurn};
+use shadow_ai::{MaskPointPolarity, MaskPromptPoint, RasterExtent, UnitInterval as AiUnitInterval};
+use shadow_domain::{PhotoGeometry, PhotoQuarterTurn, UnitInterval};
 
 /// Maps one normalized point from the cropped/oriented/straightened output
 /// canvas into the original-image normalized coordinate space.
@@ -75,8 +75,8 @@ pub(crate) fn map_output_prompt_to_original(
     let normalized_x = ((crop_left + crop_x) / source_width).clamp(0.0, 1.0);
     let normalized_y = ((crop_top + crop_y) / source_height).clamp(0.0, 1.0);
     MaskPromptPoint {
-        x: UnitInterval::new(normalized_x).expect("clamped original-space prompt x is valid"),
-        y: UnitInterval::new(normalized_y).expect("clamped original-space prompt y is valid"),
+        x: AiUnitInterval::new(normalized_x).expect("clamped original-space prompt x is valid"),
+        y: AiUnitInterval::new(normalized_y).expect("clamped original-space prompt y is valid"),
         polarity: point.polarity,
     }
 }
@@ -112,8 +112,8 @@ pub(crate) fn project_gray8_mask_to_output(
             let output_x = (f64::from(column) + 0.5) / f64::from(output_extent.width);
             let original = map_output_prompt_to_original(
                 MaskPromptPoint {
-                    x: UnitInterval::new(output_x).ok()?,
-                    y: UnitInterval::new(output_y).ok()?,
+                    x: AiUnitInterval::new(output_x).ok()?,
+                    y: AiUnitInterval::new(output_y).ok()?,
                     polarity: MaskPointPolarity::Foreground,
                 },
                 geometry,
@@ -125,6 +125,79 @@ pub(crate) fn project_gray8_mask_to_output(
                 original.x.get(),
                 original.y.get(),
             ));
+        }
+    }
+    Some(output)
+}
+
+/// Projects one original-space completion patch into a full-canvas RGBA8
+/// presentation raster. This is transient candidate UI only; accepted render
+/// bytes continue through the native Recipe node.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn project_rgba8_patch_to_output(
+    rgba8: &[u8],
+    raster_extent: RasterExtent,
+    coordinate_extent: RasterExtent,
+    bounds_left: UnitInterval,
+    bounds_top: UnitInterval,
+    bounds_right: UnitInterval,
+    bounds_bottom: UnitInterval,
+    geometry: PhotoGeometry,
+    output_extent: RasterExtent,
+) -> Option<Vec<u8>> {
+    let raster_len = usize::try_from(
+        u64::from(raster_extent.width)
+            .checked_mul(u64::from(raster_extent.height))?
+            .checked_mul(4)?,
+    )
+    .ok()?;
+    let output_len = usize::try_from(
+        u64::from(output_extent.width)
+            .checked_mul(u64::from(output_extent.height))?
+            .checked_mul(4)?,
+    )
+    .ok()?;
+    if rgba8.len() != raster_len || bounds_left >= bounds_right || bounds_top >= bounds_bottom {
+        return None;
+    }
+    let mut output = vec![0_u8; output_len];
+    for row in 0..output_extent.height {
+        let output_y = (f64::from(row) + 0.5) / f64::from(output_extent.height);
+        for column in 0..output_extent.width {
+            let output_x = (f64::from(column) + 0.5) / f64::from(output_extent.width);
+            let original = map_output_prompt_to_original(
+                MaskPromptPoint {
+                    x: AiUnitInterval::new(output_x).ok()?,
+                    y: AiUnitInterval::new(output_y).ok()?,
+                    polarity: MaskPointPolarity::Foreground,
+                },
+                geometry,
+                coordinate_extent,
+            );
+            if original.x.get() < bounds_left.get()
+                || original.x.get() >= bounds_right.get()
+                || original.y.get() < bounds_top.get()
+                || original.y.get() >= bounds_bottom.get()
+            {
+                continue;
+            }
+            let patch_x =
+                (original.x.get() - bounds_left.get()) / (bounds_right.get() - bounds_left.get());
+            let patch_y =
+                (original.y.get() - bounds_top.get()) / (bounds_bottom.get() - bounds_top.get());
+            let sample_x =
+                ((patch_x * f64::from(raster_extent.width)) as u32).min(raster_extent.width - 1);
+            let sample_y =
+                ((patch_y * f64::from(raster_extent.height)) as u32).min(raster_extent.height - 1);
+            let source = usize::try_from(
+                (u64::from(sample_y) * u64::from(raster_extent.width) + u64::from(sample_x)) * 4,
+            )
+            .ok()?;
+            let target = usize::try_from(
+                (u64::from(row) * u64::from(output_extent.width) + u64::from(column)) * 4,
+            )
+            .ok()?;
+            output[target..target + 4].copy_from_slice(&rgba8[source..source + 4]);
         }
     }
     Some(output)

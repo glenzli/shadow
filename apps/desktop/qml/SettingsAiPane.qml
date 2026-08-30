@@ -143,6 +143,25 @@ ScrollView {
         }
 
         SettingsCard {
+            ShadowSwitch {
+                objectName: "imageCompletionExecutionPermissionSwitch"
+                Layout.fillWidth: true
+                text: qsTr("Allow local AI Completion")
+                checked: root.aiPreferences.imageCompletionExecutionAllowed
+                onToggled:
+                    root.aiPreferences.imageCompletionExecutionAllowed = checked
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("AI Completion sends the current photo crop and your painted selection only to Infer Runtime on this device. Turning this off blocks new generation; accepted photo nodes remain available.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        SettingsCard {
             Label {
                 text: qsTr("People")
                 color: Theme.textPrimary

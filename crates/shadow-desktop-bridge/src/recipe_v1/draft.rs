@@ -5,9 +5,9 @@ use shadow_bridge::{
     PerceptualColorParameters, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
-    LayerId, LayerRevisionId, MaskDefinition, PhotoCanvasNode, PhotoFoundationNode,
-    PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke, SemanticMaskIntent,
-    UnitInterval, operation::BASIC_LAYER_LABEL,
+    ImageCompletionRegion, LayerId, LayerRevisionId, MaskDefinition, PhotoCanvasNode,
+    PhotoFoundationNode, PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke,
+    SemanticMaskIntent, UnitInterval, operation::BASIC_LAYER_LABEL,
 };
 
 use super::GradeNodeRecipeV1Identity;
@@ -127,6 +127,10 @@ pub(crate) struct GradeStackDraft {
     /// Node-level bypass for the complete photo-local repair stage. Authored
     /// regions remain present and editable while this is false.
     pub(crate) retouch_enabled: bool,
+    /// Accepted photo-local AI completion patches. These form one fixed node
+    /// after Retouch and before Liquify/Canvas.
+    pub(crate) image_completions: Vec<ImageCompletionRegion>,
+    pub(crate) image_completion_enabled: bool,
     /// Optional singleton photo-private Liquify node. It is structural,
     /// non-shareable, and always evaluates immediately before Canvas.
     pub(crate) liquify: Option<PhotoLiquifyNode>,
@@ -143,6 +147,8 @@ impl Default for GradeStackDraft {
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
             retouch_enabled: true,
+            image_completions: Vec::new(),
+            image_completion_enabled: true,
             liquify: None,
             canvas: PhotoCanvasNode::identity(),
         }

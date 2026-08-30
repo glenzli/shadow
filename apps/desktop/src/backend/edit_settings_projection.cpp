@@ -468,6 +468,33 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         settings.retouch_strokes.push_back(std::move(ffi_stroke));
     }
     settings.retouch_enabled = source.retouch_enabled;
+    settings.image_completions.reserve(static_cast<std::size_t>(source.image_completions.size()));
+    for (const auto& region : source.image_completions) {
+        settings.image_completions.push_back({
+            .store_object_id = region.store_object_id.toStdString(),
+            .storage_revision = region.storage_revision,
+            .content_blake3 = region.content_blake3.toStdString(),
+            .byte_len = region.byte_len,
+            .raster_width = region.raster_width,
+            .raster_height = region.raster_height,
+            .coordinate_width = region.coordinate_width,
+            .coordinate_height = region.coordinate_height,
+            .bounds_left = region.bounds_left,
+            .bounds_top = region.bounds_top,
+            .bounds_right = region.bounds_right,
+            .bounds_bottom = region.bounds_bottom,
+            .source_recipe_blake3 = region.source_recipe_blake3.toStdString(),
+            .provider = region.provider.toStdString(),
+            .deployment = region.deployment.toStdString(),
+            .model_build = region.model_build.toStdString(),
+            .postprocessing_identity = region.postprocessing_identity.toStdString(),
+            .api_contract_revision = region.api_contract_revision.toStdString(),
+            .actual_execution_provider = region.actual_execution_provider.toStdString(),
+            .enabled = region.enabled,
+            .strength = region.strength,
+        });
+    }
+    settings.image_completion_enabled = source.image_completion_enabled;
     settings.liquify_enabled = source.liquify_enabled;
     settings.liquify_strokes.reserve(static_cast<std::size_t>(source.liquify_strokes.size()));
     for (const auto& stroke : source.liquify_strokes) {
@@ -591,6 +618,35 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         result.retouch_strokes.push_back(std::move(decoded));
     }
     result.retouch_enabled = source.retouch_enabled;
+    result.image_completions.reserve(
+        checked_qt_vector_size(source.image_completions.size(), "image_completions")
+    );
+    for (const auto& region : source.image_completions) {
+        result.image_completions.push_back({
+            .store_object_id = qstring(region.store_object_id),
+            .storage_revision = region.storage_revision,
+            .content_blake3 = qstring(region.content_blake3),
+            .byte_len = region.byte_len,
+            .raster_width = region.raster_width,
+            .raster_height = region.raster_height,
+            .coordinate_width = region.coordinate_width,
+            .coordinate_height = region.coordinate_height,
+            .bounds_left = region.bounds_left,
+            .bounds_top = region.bounds_top,
+            .bounds_right = region.bounds_right,
+            .bounds_bottom = region.bounds_bottom,
+            .source_recipe_blake3 = qstring(region.source_recipe_blake3),
+            .provider = qstring(region.provider),
+            .deployment = qstring(region.deployment),
+            .model_build = qstring(region.model_build),
+            .postprocessing_identity = qstring(region.postprocessing_identity),
+            .api_contract_revision = qstring(region.api_contract_revision),
+            .actual_execution_provider = qstring(region.actual_execution_provider),
+            .enabled = region.enabled,
+            .strength = region.strength,
+        });
+    }
+    result.image_completion_enabled = source.image_completion_enabled;
     result.liquify_enabled = source.liquify_enabled;
     result.liquify_strokes.reserve(
         checked_qt_vector_size(source.liquify_strokes.size(), "liquify_strokes")

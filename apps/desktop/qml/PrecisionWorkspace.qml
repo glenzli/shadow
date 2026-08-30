@@ -25,6 +25,7 @@ Item {
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
+    readonly property int toolCompletion: 5
     property int activeSpecialTool: toolNone
     property bool selectedRetouchContinuous: true
     property int selectedRetouchIndex: -1
@@ -75,6 +76,14 @@ Item {
         }
         if (nextTool === toolRepair)
             editor.selectRetouchNode()
+        if (nextTool === toolCompletion) {
+            editor.selectImageCompletionNode()
+            if (!editor.imageCompletionActive && !editor.beginImageCompletion())
+                return
+        }
+
+        if (nextTool !== toolCompletion && editor.imageCompletionActive)
+            editor.cancelImageCompletion()
 
         editor.setPointColorPickerActive(false)
         editor.setWhiteBalancePickerActive(false)
@@ -99,6 +108,8 @@ Item {
         editor.setCropToolActive(false)
         editor.setRetouchPickerActive(false)
         editor.setRawWhiteBalancePickerActive(false)
+        if (editor.imageCompletionActive)
+            editor.cancelImageCompletion()
     }
 
     function reconcileRecipeNodeSelection() {
@@ -160,6 +171,14 @@ Item {
         function onActiveChanged() {
             if (!precision.editor.active)
                 precision.leaveSpecialTool()
+        }
+
+        function onImageCompletionChanged() {
+            if (precision.activeSpecialTool === precision.toolCompletion
+                    && !precision.editor.imageCompletionActive
+                    && !precision.editor.imageCompletionBusy) {
+                precision.activeSpecialTool = precision.toolNone
+            }
         }
     }
 
@@ -243,6 +262,10 @@ Item {
             onLiquifyToolRequested: {
                 if (precision.activeSpecialTool !== precision.toolLiquify)
                     precision.setActiveSpecialTool(precision.toolLiquify)
+            }
+            onCompletionToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolCompletion)
+                    precision.setActiveSpecialTool(precision.toolCompletion)
             }
         }
 

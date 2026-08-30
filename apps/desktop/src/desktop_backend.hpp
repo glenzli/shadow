@@ -377,6 +377,19 @@ class DesktopBackend final {
         const BackendSubjectMaskApplyRequest& request
     ) const;
     void discardSubjectMaskProposal(std::uint64_t proposal_token) const;
+    [[nodiscard]] std::uint64_t beginImageCompletionJob() const;
+    void cancelImageCompletionJob(std::uint64_t image_completion_job_token) const;
+    [[nodiscard]] BackendImageCompletionResult executeImageCompletionJob(
+        const QString& photo_id,
+        const QString& source_path,
+        const BackendImageCompletionRequest& request
+    ) const;
+    [[nodiscard]] BackendPhotoEditState applyImageCompletionProposal(
+        const QString& photo_id,
+        const QString& source_path,
+        const BackendImageCompletionApplyRequest& request
+    ) const;
+    void discardImageCompletionProposal(std::uint64_t proposal_token) const;
     [[nodiscard]] BackendRawFoundationRuntimeStatus probeRawFoundationRuntime() const;
     [[nodiscard]] BackendRawFoundationNoiseAssessment
     assessRawFoundationNoise(const QString& photo_id, const QString& source_path) const;

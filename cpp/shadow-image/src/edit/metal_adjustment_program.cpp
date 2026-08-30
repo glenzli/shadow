@@ -35,11 +35,13 @@ constexpr std::size_t rgb_channels = 3U;
 
 namespace detail {
 
-MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
-                                                    const std::span<const AdjustmentNode> nodes,
-                                                    const EditExecutionPlan& plan,
-                                                    const AdjustmentExecutionContext context,
-                                                    const bool input_already_validated) {
+MetalAdjustmentPreparation prepare_metal_adjustment(
+    const FloatRgbImage& input,
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const AdjustmentExecutionContext context,
+    const bool input_already_validated
+) {
     if (!input_already_validated) {
         validate_edit_image(input);
     }
@@ -91,9 +93,11 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
             std::size_t emitted_operation_count = 1U;
             if (step.operation == AdjustmentOperation::oklab_lightness_tone_curve) {
                 const auto& parameters = std::get<OklabLightnessToneCurve>(node.parameters);
-                if (parameters.lightness.points.size() < 2U ||
-                    !checked_resource_add(curve_segment_count,
-                                          parameters.lightness.points.size() - 1U)) {
+                if (parameters.lightness.points.size() < 2U
+                    || !checked_resource_add(
+                        curve_segment_count,
+                        parameters.lightness.points.size() - 1U
+                    )) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal curve segment table exceeds its uint32 ABI",
@@ -101,9 +105,12 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 }
             } else if (step.operation == AdjustmentOperation::oklab_opponent_tone_curves) {
                 const auto& parameters = std::get<OklabOpponentToneCurves>(node.parameters);
-                if (parameters.a.points.size() < 2U || parameters.b.points.size() < 2U ||
-                    !checked_resource_add(curve_segment_count, parameters.a.points.size() - 1U) ||
-                    !checked_resource_add(curve_segment_count, parameters.b.points.size() - 1U)) {
+                if (parameters.a.points.size() < 2U || parameters.b.points.size() < 2U
+                    || !checked_resource_add(curve_segment_count, parameters.a.points.size() - 1U)
+                    || !checked_resource_add(
+                        curve_segment_count,
+                        parameters.b.points.size() - 1U
+                    )) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal opponent-curve segment table exceeds its uint32 ABI",
@@ -119,8 +126,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 }
             } else if (step.operation == AdjustmentOperation::oklab_color_warper) {
                 const auto& parameters = std::get<OklabColorWarperAdjustment>(node.parameters);
-                if (!checked_resource_add(perceptual_mixer_entry_count,
-                                          parameters.control_points.size())) {
+                if (!checked_resource_add(
+                        perceptual_mixer_entry_count,
+                        parameters.control_points.size()
+                    )) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal Color Warper control table exceeds its uint32 ABI",
@@ -137,20 +146,26 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                             "Metal perceptual-color plan contains no active sub-operation",
                     };
                 }
-                if (stages.hue_mapping_active() &&
-                    (!checked_resource_add(perceptual_mixer_entry_count,
-                                           perceptual_hue_band_count) ||
-                     !checked_resource_add(perceptual_range_entry_count,
-                                           parameters.additional_color_ranges.size()))) {
+                if (stages.hue_mapping_active()
+                    && (!checked_resource_add(
+                            perceptual_mixer_entry_count,
+                            perceptual_hue_band_count
+                        )
+                        || !checked_resource_add(
+                            perceptual_range_entry_count,
+                            parameters.additional_color_ranges.size()
+                        ))) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
                             "Metal perceptual-color resource tables exceed their uint32 ABI",
                     };
                 }
-                if (stages.selective_color_active() &&
-                    !checked_resource_add(selective_color_entry_count,
-                                          selective_color_target_count)) {
+                if (stages.selective_color_active()
+                    && !checked_resource_add(
+                        selective_color_entry_count,
+                        selective_color_target_count
+                    )) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal Selective Color table exceeds its uint32 ABI",
@@ -200,9 +215,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
     prepared.selective_color_entries.reserve(selective_color_entry_count);
 
     const auto checked_parameter_float = [](const double value) -> std::optional<float> {
-        if (!std::isfinite(value) ||
-            value > static_cast<double>(std::numeric_limits<float>::max()) ||
-            value < -static_cast<double>(std::numeric_limits<float>::max())) {
+        if (!std::isfinite(value) || value > static_cast<double>(std::numeric_limits<float>::max())
+            || value < -static_cast<double>(std::numeric_limits<float>::max())) {
             return std::nullopt;
         }
         const float converted = static_cast<float>(value);
@@ -214,24 +228,25 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
         if (!converted.has_value()) {
             return std::nullopt;
         }
-        if (value != 0.0 &&
-            (*converted == 0.0F || std::abs(*converted) < std::numeric_limits<float>::min())) {
+        if (value != 0.0
+            && (*converted == 0.0F || std::abs(*converted) < std::numeric_limits<float>::min())) {
             return std::nullopt;
         }
         // Perceptual controls are authored as bounded doubles but executed as fp32 on Metal.
         // Reject a future parameter extension that would quantize beyond a small number of
         // float ULPs rather than silently selecting another hue/range or CMYK amount.
-        const double tolerance = 16.0 * static_cast<double>(std::numeric_limits<float>::epsilon()) *
-                                 std::max(1.0, std::abs(value));
+        const double tolerance = 16.0 * static_cast<double>(std::numeric_limits<float>::epsilon())
+                                 * std::max(1.0, std::abs(value));
         if (std::abs(static_cast<double>(*converted) - value) > tolerance) {
             return std::nullopt;
         }
         return converted;
     };
-    const auto checked_normalized_interval =
-        [&checked_parameter_float](
-            const double source_minimum, const double source_maximum,
-            const double maximum_relative_quantization) -> std::optional<std::array<float, 2U>> {
+    const auto checked_normalized_interval = [&checked_parameter_float](
+                                                 const double source_minimum,
+                                                 const double source_maximum,
+                                                 const double maximum_relative_quantization
+                                             ) -> std::optional<std::array<float, 2U>> {
         const auto minimum = checked_parameter_float(source_minimum);
         const auto maximum = checked_parameter_float(source_maximum);
         if (!minimum.has_value() || !maximum.has_value() || !(*minimum < *maximum)) {
@@ -239,39 +254,45 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
         }
         const double source_span = source_maximum - source_minimum;
         const float metal_span = *maximum - *minimum;
-        if (!std::isfinite(source_span) || !(source_span > 0.0) || !std::isfinite(metal_span) ||
-            metal_span < std::numeric_limits<float>::min()) {
+        if (!std::isfinite(source_span) || !(source_span > 0.0) || !std::isfinite(metal_span)
+            || metal_span < std::numeric_limits<float>::min()) {
             return std::nullopt;
         }
         // Metal has no fp64 arithmetic. Reject intervals whose fp32 endpoints would move the
         // normalized coordinate materially instead of silently sampling a different curve/LUT.
-        const double endpoint_error =
-            std::max(std::abs(static_cast<double>(*minimum) - source_minimum),
-                     std::abs(static_cast<double>(*maximum) - source_maximum));
+        const double endpoint_error = std::max(
+            std::abs(static_cast<double>(*minimum) - source_minimum),
+            std::abs(static_cast<double>(*maximum) - source_maximum)
+        );
         const double span_error = std::abs(static_cast<double>(metal_span) - source_span);
-        if (endpoint_error / source_span > maximum_relative_quantization ||
-            span_error / source_span > maximum_relative_quantization) {
+        if (endpoint_error / source_span > maximum_relative_quantization
+            || span_error / source_span > maximum_relative_quantization) {
             return std::nullopt;
         }
         return std::array<float, 2U>{*minimum, *maximum};
     };
-    const auto fill_matrix_rows =
-        [&checked_parameter_float](const Matrix3& matrix, std::array<float, 4U>& row_0,
-                                   std::array<float, 4U>& row_1, std::array<float, 4U>& row_2) {
-            std::array<std::array<float, 4U>*, 3U> rows{&row_0, &row_1, &row_2};
-            for (std::size_t row = 0U; row < 3U; ++row) {
-                for (std::size_t column = 0U; column < 3U; ++column) {
-                    const auto converted = checked_parameter_float(matrix[row][column]);
-                    if (!converted.has_value()) {
-                        return false;
-                    }
-                    (*rows[row])[column] = *converted;
+    const auto fill_matrix_rows = [&checked_parameter_float](
+                                      const Matrix3& matrix,
+                                      std::array<float, 4U>& row_0,
+                                      std::array<float, 4U>& row_1,
+                                      std::array<float, 4U>& row_2
+                                  ) {
+        std::array<std::array<float, 4U>*, 3U> rows{&row_0, &row_1, &row_2};
+        for (std::size_t row = 0U; row < 3U; ++row) {
+            for (std::size_t column = 0U; column < 3U; ++column) {
+                const auto converted = checked_parameter_float(matrix[row][column]);
+                if (!converted.has_value()) {
+                    return false;
                 }
+                (*rows[row])[column] = *converted;
             }
-            return true;
-        };
-    const auto fill_vector = [&checked_parameter_float](const std::array<double, 4U>& source,
-                                                        std::array<float, 4U>& destination) {
+        }
+        return true;
+    };
+    const auto fill_vector = [&checked_parameter_float](
+                                 const std::array<double, 4U>& source,
+                                 std::array<float, 4U>& destination
+                             ) {
         for (std::size_t component = 0U; component < source.size(); ++component) {
             const auto converted = checked_parameter_float(source[component]);
             if (!converted.has_value()) {
@@ -281,18 +302,19 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
         }
         return true;
     };
-    const auto fill_semantic_vector =
-        [&checked_semantic_float](const std::array<double, 4U>& source,
-                                  std::array<float, 4U>& destination) {
-            for (std::size_t component = 0U; component < source.size(); ++component) {
-                const auto converted = checked_semantic_float(source[component]);
-                if (!converted.has_value()) {
-                    return false;
-                }
-                destination[component] = *converted;
+    const auto fill_semantic_vector = [&checked_semantic_float](
+                                          const std::array<double, 4U>& source,
+                                          std::array<float, 4U>& destination
+                                      ) {
+        for (std::size_t component = 0U; component < source.size(); ++component) {
+            const auto converted = checked_semantic_float(source[component]);
+            if (!converted.has_value()) {
+                return false;
             }
-            return true;
-        };
+            destination[component] = *converted;
+        }
+        return true;
+    };
     for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
         const auto coefficient =
             checked_parameter_float(input.working_space.luminance_coefficients[channel]);
@@ -308,8 +330,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
     std::optional<WorkingSpaceTransform> working_transform;
     for (const auto& segment : plan.segments) {
         for (const auto& step : segment.steps) {
-            if (step.node_index >= nodes.size() ||
-                step.node_index > std::numeric_limits<std::uint32_t>::max()) {
+            if (step.node_index >= nodes.size()
+                || step.node_index > std::numeric_limits<std::uint32_t>::max()) {
                 return MetalAdjustmentPreparation{
                     .program = std::nullopt,
                     .diagnostic = "Metal adjustment source-node index exceeds its uint32 ABI",
@@ -333,9 +355,17 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                     static_cast<std::uint32_t>(MetalAdjustmentOpcode::rgb_white_balance);
                 const auto& parameters = std::get<RgbWhiteBalanceAdjustment>(node.parameters);
                 const Matrix3 adaptation = prepare_rgb_white_balance_matrix(
-                    input.working_space, parameters, node, step.node_index);
-                if (!fill_matrix_rows(adaptation, operation_record.parameter_0,
-                                      operation_record.parameter_1, operation_record.parameter_2)) {
+                    input.working_space,
+                    parameters,
+                    node,
+                    step.node_index
+                );
+                if (!fill_matrix_rows(
+                        adaptation,
+                        operation_record.parameter_0,
+                        operation_record.parameter_1,
+                        operation_record.parameter_2
+                    )) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal white-balance matrix exceeds finite fp32 range",
@@ -412,11 +442,11 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 const ToneCurveSet& source = curve.source();
                 const std::span<const double> knot_derivatives = curve.knot_derivatives();
                 const std::size_t segment_count = curve.segment_count();
-                if (curve.is_identity() || segment_count == 0U ||
-                    prepared.curve_segments.size() > std::numeric_limits<std::uint32_t>::max() ||
-                    segment_count > std::numeric_limits<std::uint32_t>::max() ||
-                    prepared.curve_segments.size() >
-                        std::numeric_limits<std::uint32_t>::max() - segment_count) {
+                if (curve.is_identity() || segment_count == 0U
+                    || prepared.curve_segments.size() > std::numeric_limits<std::uint32_t>::max()
+                    || segment_count > std::numeric_limits<std::uint32_t>::max()
+                    || prepared.curve_segments.size()
+                           > std::numeric_limits<std::uint32_t>::max() - segment_count) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
@@ -430,8 +460,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                     const ToneCurvePoint left = source.points[index];
                     const ToneCurvePoint right = source.points[index + 1U];
                     const auto metal_interval = checked_normalized_interval(
-                        left.x, right.x,
-                        128.0 * static_cast<double>(std::numeric_limits<float>::epsilon()));
+                        left.x,
+                        right.x,
+                        128.0 * static_cast<double>(std::numeric_limits<float>::epsilon())
+                    );
                     if (!metal_interval.has_value()) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
@@ -447,15 +479,17 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                                 knot_derivatives[index],
                                 0.0,
                             },
-                            segment_record.left) ||
-                        !fill_vector(
+                            segment_record.left
+                        )
+                        || !fill_vector(
                             {
                                 static_cast<double>((*metal_interval)[1]),
                                 right.y,
                                 knot_derivatives[index + 1U],
                                 0.0,
                             },
-                            segment_record.right)) {
+                            segment_record.right
+                        )) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic = "Metal curve segment exceeds finite fp32 range",
@@ -467,8 +501,9 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                     prepared.curve_segments[operation_record.resource_offset].left;
                 operation_record.parameter_1 =
                     prepared
-                        .curve_segments[static_cast<std::size_t>(operation_record.resource_offset) +
-                                        segment_count - 1U]
+                        .curve_segments
+                            [static_cast<std::size_t>(operation_record.resource_offset)
+                             + segment_count - 1U]
                         .right;
                 if (!working_transform.has_value()) {
                     working_transform =
@@ -489,12 +524,12 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                     const std::span<const double> knot_derivatives =
                         prepared_curve.knot_derivatives();
                     const std::size_t segment_count = prepared_curve.segment_count();
-                    if (segment_count == 0U ||
-                        prepared.curve_segments.size() >
-                            std::numeric_limits<std::uint32_t>::max() ||
-                        segment_count > std::numeric_limits<std::uint32_t>::max() ||
-                        prepared.curve_segments.size() >
-                            std::numeric_limits<std::uint32_t>::max() - segment_count) {
+                    if (segment_count == 0U
+                        || prepared.curve_segments.size()
+                               > std::numeric_limits<std::uint32_t>::max()
+                        || segment_count > std::numeric_limits<std::uint32_t>::max()
+                        || prepared.curve_segments.size()
+                               > std::numeric_limits<std::uint32_t>::max() - segment_count) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic = "Metal opponent-curve resource range is inconsistent "
@@ -515,8 +550,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                         const ToneCurvePoint left = source.points[index];
                         const ToneCurvePoint right = source.points[index + 1U];
                         const auto metal_interval = checked_normalized_interval(
-                            left.x, right.x,
-                            128.0 * static_cast<double>(std::numeric_limits<float>::epsilon()));
+                            left.x,
+                            right.x,
+                            128.0 * static_cast<double>(std::numeric_limits<float>::epsilon())
+                        );
                         if (!metal_interval.has_value()) {
                             return MetalAdjustmentPreparation{
                                 .program = std::nullopt,
@@ -532,15 +569,17 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                                     knot_derivatives[index],
                                     0.0,
                                 },
-                                segment_record.left) ||
-                            !fill_vector(
+                                segment_record.left
+                            )
+                            || !fill_vector(
                                 {
                                     static_cast<double>((*metal_interval)[1]),
                                     right.y,
                                     knot_derivatives[index + 1U],
                                     0.0,
                                 },
-                                segment_record.right)) {
+                                segment_record.right
+                            )) {
                             return MetalAdjustmentPreparation{
                                 .program = std::nullopt,
                                 .diagnostic =
@@ -560,12 +599,12 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 operation_record.opcode =
                     static_cast<std::uint32_t>(MetalAdjustmentOpcode::oklab_color_warper);
                 const auto& parameters = std::get<OklabColorWarperAdjustment>(node.parameters);
-                if (parameters.control_points.size() != oklab_color_warper_control_point_count ||
-                    prepared.perceptual_mixer_entries.size() >
-                        std::numeric_limits<std::uint32_t>::max() ||
-                    parameters.control_points.size() >
-                        std::numeric_limits<std::uint32_t>::max() -
-                            prepared.perceptual_mixer_entries.size()) {
+                if (parameters.control_points.size() != oklab_color_warper_control_point_count
+                    || prepared.perceptual_mixer_entries.size()
+                           > std::numeric_limits<std::uint32_t>::max()
+                    || parameters.control_points.size()
+                           > std::numeric_limits<std::uint32_t>::max()
+                                 - prepared.perceptual_mixer_entries.size()) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal Color Warper resource range is inconsistent with its "
@@ -597,8 +636,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 };
                 for (const auto& point : parameters.control_points) {
                     MetalPerceptualMixerEntry entry;
-                    if (!fill_semantic_vector({point.a_offset, point.b_offset, 0.0, 0.0},
-                                              entry.value)) {
+                    if (!fill_semantic_vector(
+                            {point.a_offset, point.b_offset, 0.0, 0.0},
+                            entry.value
+                        )) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic =
@@ -617,20 +658,20 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 operation_record.opcode = static_cast<std::uint32_t>(MetalAdjustmentOpcode::lut_3d);
                 const auto& parameters = std::get<CubeLutAdjustment>(node.parameters);
                 const std::size_t lut_size = parameters.lut.size;
-                if (lut_size < 2U || lut_size > 65U ||
-                    lut_size > std::numeric_limits<std::size_t>::max() / lut_size ||
-                    lut_size * lut_size > std::numeric_limits<std::size_t>::max() / lut_size) {
+                if (lut_size < 2U || lut_size > 65U
+                    || lut_size > std::numeric_limits<std::size_t>::max() / lut_size
+                    || lut_size * lut_size > std::numeric_limits<std::size_t>::max() / lut_size) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal LUT dimensions overflowed",
                     };
                 }
                 const std::size_t expected_entries = lut_size * lut_size * lut_size;
-                if (parameters.lut.entries.size() != expected_entries ||
-                    prepared.lut_entries.size() > std::numeric_limits<std::uint32_t>::max() ||
-                    lut_size > std::numeric_limits<std::uint32_t>::max() ||
-                    expected_entries >
-                        std::numeric_limits<std::uint32_t>::max() - prepared.lut_entries.size()) {
+                if (parameters.lut.entries.size() != expected_entries
+                    || prepared.lut_entries.size() > std::numeric_limits<std::uint32_t>::max()
+                    || lut_size > std::numeric_limits<std::uint32_t>::max()
+                    || expected_entries > std::numeric_limits<std::uint32_t>::max()
+                                              - prepared.lut_entries.size()) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
@@ -648,8 +689,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 for (std::size_t channel = 0U; channel < rgb_channels && domains_are_representable;
                      ++channel) {
                     const auto interval = checked_normalized_interval(
-                        parameters.lut.domain_min[channel], parameters.lut.domain_max[channel],
-                        16.0 * static_cast<double>(std::numeric_limits<float>::epsilon()));
+                        parameters.lut.domain_min[channel],
+                        parameters.lut.domain_max[channel],
+                        16.0 * static_cast<double>(std::numeric_limits<float>::epsilon())
+                    );
                     if (!interval.has_value()) {
                         domains_are_representable = false;
                     } else {
@@ -693,9 +736,9 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
             }
             case AdjustmentOperation::sharpen: {
                 const auto& parameters = std::get<SharpenAdjustment>(node.parameters);
-                if (parameters.execution_pass != DetailEffectsExecutionPass::color_grading ||
-                    parameters.clarity != 0.0 || parameters.texture != 0.0 ||
-                    parameters.local_contrast != 0.0) {
+                if (parameters.execution_pass != DetailEffectsExecutionPass::color_grading
+                    || parameters.clarity != 0.0 || parameters.texture != 0.0
+                    || parameters.local_contrast != 0.0) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
@@ -712,23 +755,26 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                             grading.shadows().delta_lightness(),
                             grading.center(),
                         },
-                        operation_record.parameter_0) ||
-                    !fill_vector(
+                        operation_record.parameter_0
+                    )
+                    || !fill_vector(
                         {
                             grading.midtones().delta_a(),
                             grading.midtones().delta_b(),
                             grading.midtones().delta_lightness(),
                             grading.width(),
                         },
-                        operation_record.parameter_1) ||
-                    !fill_vector(
+                        operation_record.parameter_1
+                    )
+                    || !fill_vector(
                         {
                             grading.highlights().delta_a(),
                             grading.highlights().delta_b(),
                             grading.highlights().delta_lightness(),
                             0.0,
                         },
-                        operation_record.parameter_2)) {
+                        operation_record.parameter_2
+                    )) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal color-grading parameters exceed finite fp32 range",
@@ -757,15 +803,16 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                             static_cast<std::uint32_t>(MetalAdjustmentOpcode::perceptual_mapping),
                         .source_node_index = static_cast<std::uint32_t>(step.node_index),
                     };
-                    if (prepared.perceptual_mixer_entries.size() >
-                            std::numeric_limits<std::uint32_t>::max() ||
-                        perceptual_hue_band_count > std::numeric_limits<std::uint32_t>::max() -
-                                                        prepared.perceptual_mixer_entries.size() ||
-                        prepared.perceptual_range_entries.size() >
-                            std::numeric_limits<std::uint32_t>::max() ||
-                        parameters.additional_color_ranges.size() >
-                            std::numeric_limits<std::uint32_t>::max() -
-                                prepared.perceptual_range_entries.size()) {
+                    if (prepared.perceptual_mixer_entries.size()
+                            > std::numeric_limits<std::uint32_t>::max()
+                        || perceptual_hue_band_count
+                               > std::numeric_limits<std::uint32_t>::max()
+                                     - prepared.perceptual_mixer_entries.size()
+                        || prepared.perceptual_range_entries.size()
+                               > std::numeric_limits<std::uint32_t>::max()
+                        || parameters.additional_color_ranges.size()
+                               > std::numeric_limits<std::uint32_t>::max()
+                                     - prepared.perceptual_range_entries.size()) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic = "Metal perceptual-color resource range is inconsistent "
@@ -787,15 +834,17 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                                 parameters.color_range.center_degrees,
                                 parameters.color_range.width_degrees,
                             },
-                            mapping_record.parameter_0) ||
-                        !fill_semantic_vector(
+                            mapping_record.parameter_0
+                        )
+                        || !fill_semantic_vector(
                             {
                                 parameters.color_range.softness,
                                 parameters.color_range.hue_shift_degrees,
                                 parameters.color_range.saturation,
                                 parameters.color_range.lightness,
                             },
-                            mapping_record.parameter_1)) {
+                            mapping_record.parameter_1
+                        )) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic = "Metal primary Point Color parameters cannot preserve "
@@ -812,7 +861,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                                     parameters.saturation[band],
                                     parameters.lightness[band],
                                 },
-                                entry.value)) {
+                                entry.value
+                            )) {
                             return MetalAdjustmentPreparation{
                                 .program = std::nullopt,
                                 .diagnostic = "Metal perceptual mixer entries cannot preserve "
@@ -830,15 +880,17 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                                     range.width_degrees,
                                     range.softness,
                                 },
-                                entry.selection) ||
-                            !fill_semantic_vector(
+                                entry.selection
+                            )
+                            || !fill_semantic_vector(
                                 {
                                     range.hue_shift_degrees,
                                     range.saturation,
                                     range.lightness,
                                     0.0,
                                 },
-                                entry.adjustment)) {
+                                entry.adjustment
+                            )) {
                             return MetalAdjustmentPreparation{
                                 .program = std::nullopt,
                                 .diagnostic = "Metal ordered Point Color range cannot preserve "
@@ -858,7 +910,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                 if (stages.opponent_balance_active()) {
                     MetalAdjustmentOp balance_record{
                         .opcode = static_cast<std::uint32_t>(
-                            MetalAdjustmentOpcode::oklab_opponent_balance),
+                            MetalAdjustmentOpcode::oklab_opponent_balance
+                        ),
                         .source_node_index = static_cast<std::uint32_t>(step.node_index),
                     };
                     if (!fill_semantic_vector(
@@ -868,7 +921,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                                 0.0,
                                 0.0,
                             },
-                            balance_record.parameter_0)) {
+                            balance_record.parameter_0
+                        )) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic =
@@ -884,11 +938,11 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                             static_cast<std::uint32_t>(MetalAdjustmentOpcode::selective_color),
                         .source_node_index = static_cast<std::uint32_t>(step.node_index),
                     };
-                    if (prepared.selective_color_entries.size() >
-                            std::numeric_limits<std::uint32_t>::max() ||
-                        selective_color_target_count >
-                            std::numeric_limits<std::uint32_t>::max() -
-                                prepared.selective_color_entries.size()) {
+                    if (prepared.selective_color_entries.size()
+                            > std::numeric_limits<std::uint32_t>::max()
+                        || selective_color_target_count
+                               > std::numeric_limits<std::uint32_t>::max()
+                                     - prepared.selective_color_entries.size()) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic = "Metal Selective Color resource range is inconsistent "
@@ -906,7 +960,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
                                 0.0,
                                 0.0,
                             },
-                            operation_record.parameter_0)) {
+                            operation_record.parameter_0
+                        )) {
                         return MetalAdjustmentPreparation{
                             .program = std::nullopt,
                             .diagnostic =
@@ -937,6 +992,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
             }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::spot_heal:
+            case AdjustmentOperation::image_completion:
                 return MetalAdjustmentPreparation{
                     .program = std::nullopt,
                     .diagnostic = "Metal adjustment received an unsupported operation",
@@ -946,40 +1002,46 @@ MetalAdjustmentPreparation prepare_metal_adjustment(const FloatRgbImage& input,
         }
     }
 
-    if (working_transform.has_value() &&
-        (!fill_matrix_rows(working_transform->rgb_to_xyz, prepared.invocation.rgb_to_xyz_row_0,
-                           prepared.invocation.rgb_to_xyz_row_1,
-                           prepared.invocation.rgb_to_xyz_row_2) ||
-         !fill_matrix_rows(working_transform->xyz_to_rgb, prepared.invocation.xyz_to_rgb_row_0,
-                           prepared.invocation.xyz_to_rgb_row_1,
-                           prepared.invocation.xyz_to_rgb_row_2))) {
+    if (working_transform.has_value()
+        && (!fill_matrix_rows(
+                working_transform->rgb_to_xyz,
+                prepared.invocation.rgb_to_xyz_row_0,
+                prepared.invocation.rgb_to_xyz_row_1,
+                prepared.invocation.rgb_to_xyz_row_2
+            )
+            || !fill_matrix_rows(
+                working_transform->xyz_to_rgb,
+                prepared.invocation.xyz_to_rgb_row_0,
+                prepared.invocation.xyz_to_rgb_row_1,
+                prepared.invocation.xyz_to_rgb_row_2
+            ))) {
         return MetalAdjustmentPreparation{
             .program = std::nullopt,
             .diagnostic = "Metal working-space transform exceeds finite fp32 range",
         };
     }
-    if (prepared.operations.size() != step_count ||
-        prepared.curve_segments.size() != curve_segment_count ||
-        prepared.lut_entries.size() != lut_entry_count ||
-        prepared.perceptual_mixer_entries.size() != perceptual_mixer_entry_count ||
-        prepared.perceptual_range_entries.size() != perceptual_range_entry_count ||
-        prepared.selective_color_entries.size() != selective_color_entry_count) {
+    if (prepared.operations.size() != step_count
+        || prepared.curve_segments.size() != curve_segment_count
+        || prepared.lut_entries.size() != lut_entry_count
+        || prepared.perceptual_mixer_entries.size() != perceptual_mixer_entry_count
+        || prepared.perceptual_range_entries.size() != perceptual_range_entry_count
+        || prepared.selective_color_entries.size() != selective_color_entry_count) {
         return MetalAdjustmentPreparation{
             .program = std::nullopt,
             .diagnostic = "Metal adjustment resource compilation produced inconsistent counts "
-                          "(operations " +
-                          std::to_string(prepared.operations.size()) + "/" +
-                          std::to_string(step_count) + ", curves " +
-                          std::to_string(prepared.curve_segments.size()) + "/" +
-                          std::to_string(curve_segment_count) + ", LUT " +
-                          std::to_string(prepared.lut_entries.size()) + "/" +
-                          std::to_string(lut_entry_count) + ", mixer " +
-                          std::to_string(prepared.perceptual_mixer_entries.size()) + "/" +
-                          std::to_string(perceptual_mixer_entry_count) + ", ranges " +
-                          std::to_string(prepared.perceptual_range_entries.size()) + "/" +
-                          std::to_string(perceptual_range_entry_count) + ", selective " +
-                          std::to_string(prepared.selective_color_entries.size()) + "/" +
-                          std::to_string(selective_color_entry_count) + ")",
+                          "(operations "
+                          + std::to_string(prepared.operations.size()) + "/"
+                          + std::to_string(step_count) + ", curves "
+                          + std::to_string(prepared.curve_segments.size()) + "/"
+                          + std::to_string(curve_segment_count) + ", LUT "
+                          + std::to_string(prepared.lut_entries.size()) + "/"
+                          + std::to_string(lut_entry_count) + ", mixer "
+                          + std::to_string(prepared.perceptual_mixer_entries.size()) + "/"
+                          + std::to_string(perceptual_mixer_entry_count) + ", ranges "
+                          + std::to_string(prepared.perceptual_range_entries.size()) + "/"
+                          + std::to_string(perceptual_range_entry_count) + ", selective "
+                          + std::to_string(prepared.selective_color_entries.size()) + "/"
+                          + std::to_string(selective_color_entry_count) + ")",
         };
     }
     return MetalAdjustmentPreparation{

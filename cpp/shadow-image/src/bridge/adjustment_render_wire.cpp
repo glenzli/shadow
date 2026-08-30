@@ -70,12 +70,14 @@ void require_parameter_count(
 
     if (source.operation != FfiAdjustmentOperation::PerceptualColor
         && source.operation != FfiAdjustmentOperation::SpotHeal
+        && source.operation != FfiAdjustmentOperation::ImageCompletion
         && !source.parameter_group_lengths.empty()) {
         throw_invalid_adjustment_plan(
             "only operations with grouped parameter contracts accept group lengths"
         );
     }
-    if (source.operation != FfiAdjustmentOperation::Lut3D && !source.payload.empty()) {
+    if (source.operation != FfiAdjustmentOperation::Lut3D
+        && source.operation != FfiAdjustmentOperation::ImageCompletion && !source.payload.empty()) {
         throw_invalid_adjustment_plan(
             "only the 3D LUT operation accepts an immutable binary payload"
         );
@@ -482,6 +484,66 @@ void require_parameter_count(
             }
             offset += point_count * 2U;
             parameters.strokes.push_back(std::move(stroke));
+        }
+        result.parameters = std::move(parameters);
+        break;
+    }
+    case FfiAdjustmentOperation::ImageCompletion: {
+        if (source.parameter_group_lengths.empty()) {
+            throw_invalid_adjustment_plan("AI completion requires a patch count group");
+        }
+        const std::size_t patch_count = source.parameter_group_lengths[0];
+        if (patch_count == 0U || patch_count > 32U
+            || source.parameter_group_lengths.size() != patch_count + 1U
+            || source.parameters.size() != patch_count * 9U) {
+            throw_invalid_adjustment_plan("AI completion patch groups are malformed");
+        }
+        std::size_t expected_payload = 0U;
+        for (std::size_t index = 0U; index < patch_count; ++index) {
+            const std::size_t length = source.parameter_group_lengths[index + 1U];
+            if (length > 16U * 1'024U * 1'024U
+                || expected_payload > std::numeric_limits<std::size_t>::max() - length) {
+                throw_invalid_adjustment_plan("AI completion payload exceeds its bound");
+            }
+            expected_payload += length;
+        }
+        if (source.payload.size() != expected_payload) {
+            throw_invalid_adjustment_plan("AI completion payload length does not match its groups");
+        }
+        image::ImageCompletionAdjustment parameters;
+        parameters.patches.reserve(patch_count);
+        std::size_t payload_offset = 0U;
+        for (std::size_t index = 0U; index < patch_count; ++index) {
+            const std::size_t offset = index * 9U;
+            const auto exact_u32 = [&](const std::size_t parameter_index, const char* label) {
+                const double value = source.parameters[offset + parameter_index];
+                if (!std::isfinite(value) || value < 1.0
+                    || value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())
+                    || std::floor(value) != value) {
+                    throw_invalid_adjustment_plan(
+                        std::string("AI completion ") + label + " is not a positive uint32"
+                    );
+                }
+                return static_cast<std::uint32_t>(value);
+            };
+            image::ImageCompletionPatch patch{
+                .raster_width = exact_u32(0U, "raster width"),
+                .raster_height = exact_u32(1U, "raster height"),
+                .coordinate_width = exact_u32(2U, "coordinate width"),
+                .coordinate_height = exact_u32(3U, "coordinate height"),
+                .bounds_left = source.parameters[offset + 4U],
+                .bounds_top = source.parameters[offset + 5U],
+                .bounds_right = source.parameters[offset + 6U],
+                .bounds_bottom = source.parameters[offset + 7U],
+                .strength = source.parameters[offset + 8U],
+            };
+            const std::size_t length = source.parameter_group_lengths[index + 1U];
+            patch.rgba8.assign(
+                source.payload.begin() + static_cast<std::ptrdiff_t>(payload_offset),
+                source.payload.begin() + static_cast<std::ptrdiff_t>(payload_offset + length)
+            );
+            payload_offset += length;
+            parameters.patches.push_back(std::move(patch));
         }
         result.parameters = std::move(parameters);
         break;
