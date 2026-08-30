@@ -93,6 +93,12 @@ class FakeMaskEditor final : public QObject {
         return ai_prompt_result_;
     }
 
+    Q_INVOKABLE bool beginAiSemanticMask(const QString& query) {
+        ++semantic_prompt_count_;
+        last_semantic_query_ = query;
+        return ai_prompt_result_;
+    }
+
     bool create_result_ = true;
     int create_count_ = 0;
     int last_kind_ = -1;
@@ -100,6 +106,8 @@ class FakeMaskEditor final : public QObject {
     bool ai_prompt_result_ = true;
     int subject_prompt_count_ = 0;
     int face_prompt_count_ = 0;
+    int semantic_prompt_count_ = 0;
+    QString last_semantic_query_;
 
   signals:
     void availabilityChanged();
@@ -132,6 +140,10 @@ namespace {
 }
 
 [[nodiscard]] bool invokeWithBool(QObject* target, const char* method, const bool value) {
+    return QMetaObject::invokeMethod(target, method, Q_ARG(QVariant, QVariant(value)));
+}
+
+[[nodiscard]] bool invokeWithString(QObject* target, const char* method, const QString& value) {
     return QMetaObject::invokeMethod(target, method, Q_ARG(QVariant, QVariant(value)));
 }
 
@@ -169,9 +181,11 @@ int main(int argc, char* argv[]) {
         menu->findChild<QQuickItem*>(QStringLiteral("aiSubjectMaskAction"));
     QQuickItem* people_details_action =
         menu->findChild<QQuickItem*>(QStringLiteral("aiPeopleDetailsMaskAction"));
+    QQuickItem* semantic_action =
+        menu->findChild<QQuickItem*>(QStringLiteral("aiSemanticMaskAction"));
     if (!require(
             destination_selector != nullptr && brush_action != nullptr && subject_action != nullptr
-                && people_details_action != nullptr
+                && people_details_action != nullptr && semantic_action != nullptr
                 && destination_selector->y() < brush_action->y(),
             "the destination choice is presented before mask type selection"
         )
@@ -206,6 +220,12 @@ int main(int argc, char* argv[]) {
                 && invokeWithBool(menu.get(), "startAiMask", true)
                 && editor.subject_prompt_count_ == 1 && editor.face_prompt_count_ == 1,
             "both AI selectors delegate one controller-owned new-node transaction"
+        )
+        || !require(
+            invokeWithString(menu.get(), "startSemanticMask", QStringLiteral("red train"))
+                && editor.semantic_prompt_count_ == 1
+                && editor.last_semantic_query_ == QStringLiteral("red train"),
+            "semantic selection delegates one controller-owned query transaction"
         )) {
         return EXIT_FAILURE;
     }

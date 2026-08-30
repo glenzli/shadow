@@ -112,6 +112,23 @@ pub enum RecipeValidationError {
     InvalidManagedRasterMaskExpansion(i8),
     #[error("managed raster-mask feather {0}% must be between 0% and 100%")]
     InvalidManagedRasterMaskFeather(u8),
+    #[error("semantic-mask intent supports contract {expected}, received contract {actual}")]
+    UnsupportedSemanticMaskIntentVersion { expected: u32, actual: u32 },
+    #[error("semantic-mask query must not be empty")]
+    EmptySemanticMaskQuery,
+    #[error("semantic-mask query is {actual_bytes} bytes; maximum is {max_bytes}")]
+    SemanticMaskQueryTooLong {
+        actual_bytes: usize,
+        max_bytes: usize,
+    },
+    #[error("semantic-mask query must use canonical whitespace")]
+    NonCanonicalSemanticMaskQuery,
+    #[error("semantic-mask query revision does not match its canonical query")]
+    InvalidSemanticMaskQueryRevision,
+    #[error("semantic-mask maximum region count {0} must be between 1 and 8")]
+    InvalidSemanticMaskMaximumRegions(u8),
+    #[error("semantic-mask score threshold {0}% must be between 1% and 100%")]
+    InvalidSemanticMaskScoreThreshold(u8),
     #[error("mask {mask_id} revision {revision} appears more than once")]
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]

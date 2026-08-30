@@ -152,6 +152,11 @@ struct BackendGradeNode final {
     // Flattened x/y/begins-stroke triples. Keeping the wire shape flat avoids
     // making Qt own the typed persistent mask contract.
     QVector<double> local_mask_brush_points;
+    // A semantic managed mask keeps its accepted raster for this photo and
+    // this provider-neutral query for re-evaluation when copied elsewhere.
+    QString local_mask_semantic_query;
+    std::uint8_t local_mask_semantic_maximum_regions = 0;
+    std::uint8_t local_mask_semantic_score_threshold_percent = 0;
     QString label;
     // Complete Grade Node strength. The renderer evaluates the graph once and
     // performs one layer-boundary blend, including for masked nodes.
@@ -367,6 +372,7 @@ enum class BackendSubjectMaskKind : std::uint8_t {
     PromptedSubject,
     PeopleDiscovery,
     PeopleRegions,
+    SemanticQuery,
 };
 
 enum class BackendFaceRegion : std::uint8_t {
@@ -410,6 +416,9 @@ struct BackendSubjectMaskRequest final {
     BackendSubjectMaskKind kind = BackendSubjectMaskKind::PromptedSubject;
     std::uint32_t person_index = 0;
     std::uint32_t face_region_mask = 1;
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 0;
+    std::uint8_t semantic_score_threshold_percent = 0;
     QVector<BackendSubjectMaskPoint> points;
 };
 
@@ -434,6 +443,9 @@ struct BackendSubjectMaskApplyRequest final {
     std::uint32_t target_grade_node_index = 0;
     QString target_grade_node_id;
     bool invert = false;
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 0;
+    std::uint8_t semantic_score_threshold_percent = 0;
 };
 
 enum class BackendRawFoundationJobPhase : std::uint8_t {

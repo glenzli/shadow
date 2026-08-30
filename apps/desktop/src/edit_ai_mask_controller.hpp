@@ -16,6 +16,7 @@ class EditController;
 enum class AiMaskSelectionKind : std::uint8_t {
     PromptedSubject,
     FaceRegion,
+    SemanticQuery,
 };
 
 struct EditAiMaskExecutionResult final {
@@ -44,6 +45,8 @@ class EditAiMaskController final {
     [[nodiscard]] bool locksInteraction() const noexcept;
     [[nodiscard]] bool foregroundMode() const noexcept;
     [[nodiscard]] bool faceRegionMode() const noexcept;
+    [[nodiscard]] bool semanticMode() const noexcept;
+    [[nodiscard]] QString semanticQuery() const;
     [[nodiscard]] int faceRegion() const noexcept;
     [[nodiscard]] QVariantList people() const;
     [[nodiscard]] int selectedPerson() const noexcept;
@@ -54,6 +57,12 @@ class EditAiMaskController final {
     [[nodiscard]] QVariantList promptPoints() const;
 
     [[nodiscard]] bool beginPrompt(AiMaskSelectionKind kind);
+    [[nodiscard]] bool beginSemantic(
+        const QString& query,
+        std::uint8_t maximum_regions,
+        std::uint8_t score_threshold_percent,
+        bool prefer_current_node
+    );
     void setForegroundMode(bool foreground);
     void setFaceRegion(int region);
     void setSelectedPerson(int person_index);
@@ -79,6 +88,7 @@ class EditAiMaskController final {
 
     void finishExecution();
     void finishApply();
+    [[nodiscard]] bool beginSelection(AiMaskSelectionKind kind, bool prefer_current_node);
     void requestGeneration();
     void tryStartPendingGeneration();
     void startGeneration();
@@ -103,6 +113,9 @@ class EditAiMaskController final {
     bool active_ = false;
     bool foreground_mode_ = true;
     AiMaskSelectionKind selection_kind_ = AiMaskSelectionKind::PromptedSubject;
+    QString semantic_query_;
+    std::uint8_t semantic_maximum_regions_ = 4;
+    std::uint8_t semantic_score_threshold_percent_ = 30;
     BackendFaceRegion face_region_ = BackendFaceRegion::Face;
     QVector<BackendSubjectMaskPerson> people_;
     int selected_person_ = -1;

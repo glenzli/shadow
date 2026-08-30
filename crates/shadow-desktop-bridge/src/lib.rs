@@ -1334,6 +1334,12 @@ mod ffi {
         local_mask_invert: bool,
         /// Flattened brush triples: x, y, begins-stroke (0 or 1).
         local_mask_brush_points: Vec<f64>,
+        /// Empty for a non-semantic managed raster. The remaining values are
+        /// zero in that case and carry provider-neutral rerun parameters when
+        /// a semantic variant is present.
+        local_mask_semantic_query: String,
+        local_mask_semantic_maximum_regions: u8,
+        local_mask_semantic_score_threshold_percent: u8,
         label: String,
         /// Complete Grade Node strength in [0, 1].
         opacity: f64,
@@ -1595,6 +1601,7 @@ mod ffi {
         PromptedSubject,
         PeopleDiscovery,
         PeopleRegions,
+        SemanticQuery,
     }
 
     #[derive(Debug)]
@@ -1620,6 +1627,9 @@ mod ffi {
         kind: FfiSubjectMaskKind,
         person_index: u32,
         face_region_mask: u32,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
         points: Vec<FfiSubjectMaskPoint>,
     }
 
@@ -1661,6 +1671,9 @@ mod ffi {
         target_grade_node_index: u32,
         target_grade_node_id: String,
         invert: bool,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
     }
 
     /// Session-local state for one model-pinned AI RAW foundation job.

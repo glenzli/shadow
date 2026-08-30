@@ -1,6 +1,7 @@
 //! Recipe-local spatial-mask definitions and immutable revisions.
 
 mod managed_raster;
+mod semantic;
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +10,10 @@ use crate::MaskId;
 pub use managed_raster::{
     MANAGED_RASTER_MASK_REFERENCE_VERSION, MAX_MANAGED_RASTER_MASK_DIMENSION, ManagedRasterMask,
     RasterMaskEncoding,
+};
+pub use semantic::{
+    MAX_SEMANTIC_MASK_QUERY_BYTES, MAX_SEMANTIC_MASK_REGIONS,
+    SEMANTIC_MASK_INTENT_CONTRACT_VERSION, SemanticMaskAggregation, SemanticMaskIntent,
 };
 
 use super::{
@@ -133,6 +138,10 @@ pub enum MaskDefinition {
     /// raster's shorter edge.
     ManagedRaster {
         raster: ManagedRasterMask,
+        /// Optional provider-neutral instruction that can regenerate a
+        /// photo-specific variant when this mask is copied elsewhere.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        semantic_intent: Option<SemanticMaskIntent>,
         #[serde(default)]
         expansion_percent: i8,
         #[serde(default)]
@@ -374,8 +383,33 @@ impl MaskDefinition {
         feather_percent: u8,
         invert: bool,
     ) -> Result<Self, RecipeValidationError> {
+        Self::managed_raster_with_semantic_intent_and_refinement(
+            raster,
+            None,
+            expansion_percent,
+            feather_percent,
+            invert,
+        )
+    }
+
+    /// Stores accepted raster bytes together with the semantic instruction
+    /// used to produce them. Renderers consume only the raster; cross-photo
+    /// authoring may rerun the intent and replace it with a new accepted one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the raster, semantic intent, or refinement
+    /// values violate their fixed contracts.
+    pub fn managed_raster_with_semantic_intent_and_refinement(
+        raster: ManagedRasterMask,
+        semantic_intent: Option<SemanticMaskIntent>,
+        expansion_percent: i8,
+        feather_percent: u8,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
         let definition = Self::ManagedRaster {
             raster,
+            semantic_intent,
             expansion_percent,
             feather_percent,
             invert,
@@ -446,11 +480,15 @@ impl MaskDefinition {
             }
             Self::ManagedRaster {
                 raster,
+                semantic_intent,
                 expansion_percent,
                 feather_percent,
                 ..
             } => {
                 raster.validate()?;
+                if let Some(intent) = semantic_intent {
+                    intent.validate()?;
+                }
                 if !(-100..=100).contains(expansion_percent) {
                     return Err(RecipeValidationError::InvalidManagedRasterMaskExpansion(
                         *expansion_percent,
@@ -464,6 +502,17 @@ impl MaskDefinition {
             }
         }
         Ok(())
+    }
+
+    /// Returns the re-evaluable instruction attached to an accepted semantic
+    /// raster, if this managed mask was created semantically.
+    pub const fn semantic_intent(&self) -> Option<&SemanticMaskIntent> {
+        match self {
+            Self::ManagedRaster {
+                semantic_intent, ..
+            } => semantic_intent.as_ref(),
+            _ => None,
+        }
     }
 }
 

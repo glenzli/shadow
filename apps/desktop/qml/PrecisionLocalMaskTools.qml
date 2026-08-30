@@ -29,13 +29,19 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: localMask.currentTabIndex === 0 && localMask.inspector.editor.aiMaskPromptActive
         title: localMask.inspector.editor.aiMaskFaceRegionMode
-            ? qsTr("PEOPLE DETAIL MASK") : qsTr("AI SUBJECT MASK")
+            ? qsTr("PEOPLE DETAIL MASK")
+            : localMask.inspector.editor.aiMaskSemanticMode
+                ? qsTr("SEMANTIC MASK") : qsTr("AI SUBJECT MASK")
         summary: localMask.inspector.editor.aiMaskBusy
-            ? localMask.inspector.editor.aiMaskFaceRegionMode
+            ? localMask.inspector.editor.aiMaskSemanticMode
+                ? qsTr("Locating semantic subject…")
+            : localMask.inspector.editor.aiMaskFaceRegionMode
                 ? qsTr("Identifying facial details…")
                 : qsTr("Identifying subject…")
             : localMask.inspector.editor.aiMaskHasCandidate
                 ? qsTr("Selection preview")
+                : localMask.inspector.editor.aiMaskSemanticMode
+                    ? qsTr("Semantic selection needs retry")
                 : localMask.inspector.editor.aiMaskFaceRegionMode
                     ? localMask.inspector.editor.aiMaskPeople.length > 0
                         ? qsTr("Choose a person and details")
@@ -45,6 +51,8 @@ ColumnLayout {
                         : qsTr("Click the object")
         toolTipText: localMask.inspector.editor.aiMaskFaceRegionMode
             ? qsTr("Choose one person and combine visible details. The result remains the current Grade Node's mask.")
+            : localMask.inspector.editor.aiMaskSemanticMode
+                ? qsTr("The accepted pixels stay with this photo; the semantic instruction is re-evaluated when copied.")
             : qsTr("Include points identify the subject. Exclude points remove nearby regions.")
         sectionEnabled: true
         resetAvailable: true
@@ -52,7 +60,8 @@ ColumnLayout {
             && (localMask.inspector.editor.aiMaskPromptPoints.length > 0
                 || localMask.inspector.editor.aiMaskHasCandidate)
         onResetRequested: {
-            if (!localMask.inspector.editor.aiMaskFaceRegionMode)
+            if (!localMask.inspector.editor.aiMaskFaceRegionMode
+                    && !localMask.inspector.editor.aiMaskSemanticMode)
                 localMask.inspector.editor.aiMaskForegroundMode = true
             localMask.inspector.editor.clearAiMaskPromptPoints()
         }
@@ -66,6 +75,8 @@ ColumnLayout {
             font.pixelSize: 10
             text: localMask.inspector.editor.aiMaskFaceRegionMode
                 ? qsTr("People are detected automatically. Choose one person, then select one or more visible details to preview their combined mask.")
+                : localMask.inspector.editor.aiMaskSemanticMode
+                    ? qsTr("Looking for “%1”. Preview the result before applying it; no photo pixels are copied from another image.").arg(localMask.inspector.editor.aiMaskSemanticQuery)
                 : qsTr("Click the object to create a selection. Add or subtract points to refine the visible overlay.")
         }
 
@@ -83,6 +94,7 @@ ColumnLayout {
             Layout.rightMargin: 14
             spacing: 8
             visible: !localMask.inspector.editor.aiMaskFaceRegionMode
+                && !localMask.inspector.editor.aiMaskSemanticMode
 
             ShadowButton {
                 compact: true
@@ -109,6 +121,7 @@ ColumnLayout {
             Layout.rightMargin: 14
             spacing: 8
             visible: !localMask.inspector.editor.aiMaskFaceRegionMode
+                && !localMask.inspector.editor.aiMaskSemanticMode
 
             ShadowButton {
                 compact: true
@@ -139,7 +152,8 @@ ColumnLayout {
                 Layout.fillWidth: true
                 visible: !localMask.inspector.editor.aiMaskBusy
                     && !localMask.inspector.editor.aiMaskHasCandidate
-                    && localMask.inspector.editor.aiMaskPromptPoints.length > 0
+                    && (localMask.inspector.editor.aiMaskPromptPoints.length > 0
+                        || localMask.inspector.editor.aiMaskSemanticMode)
                 text: qsTr("Retry selection")
                 variant: ShadowButton.Secondary
                 enabled: localMask.inspector.editor.aiMaskCanGenerate && !localMask.inspector.editor.aiMaskBusy

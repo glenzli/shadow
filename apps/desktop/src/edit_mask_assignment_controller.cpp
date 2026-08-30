@@ -21,6 +21,9 @@ void EditController::initializeLocalMask(BackendGradeNode& grade_node, const int
     grade_node.local_mask_kind = static_cast<std::uint8_t>(kind);
     grade_node.local_mask_invert = false;
     grade_node.local_mask_brush_points.clear();
+    grade_node.local_mask_semantic_query.clear();
+    grade_node.local_mask_semantic_maximum_regions = 0U;
+    grade_node.local_mask_semantic_score_threshold_percent = 0U;
     grade_node.local_mask_x0 = 0.0;
     grade_node.local_mask_y0 = 0.0;
     grade_node.local_mask_x1 = 0.0;

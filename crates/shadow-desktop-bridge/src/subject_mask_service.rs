@@ -23,7 +23,7 @@ use shadow_core::{
     DerivedRasterStoreError, FilesystemDerivedRasterStore, StagedDerivedRasterProposal,
     managed_soft_mask_definition, promote_staged_derived_raster_if_current,
 };
-use shadow_domain::MaskDefinition;
+use shadow_domain::{MaskDefinition, RecipeValidationError, SemanticMaskIntent};
 use thiserror::Error;
 
 use crate::{
@@ -653,6 +653,7 @@ impl SubjectMaskService {
         proposal_token: u64,
         current_generation: u64,
         invert: bool,
+        semantic_intent: Option<SemanticMaskIntent>,
     ) -> Result<MaskDefinition, SubjectMaskServiceError> {
         let staged = self
             .proposals
@@ -663,7 +664,20 @@ impl SubjectMaskService {
         let mut store = self.store.clone();
         let managed =
             promote_staged_derived_raster_if_current(&mut store, current_generation, staged)?;
-        managed_soft_mask_definition(&managed, invert).map_err(SubjectMaskServiceError::Store)
+        let definition = managed_soft_mask_definition(&managed, invert)
+            .map_err(SubjectMaskServiceError::Store)?;
+        let MaskDefinition::ManagedRaster { raster, .. } = definition else {
+            return Err(SubjectMaskServiceError::ExpectedSoftMaskProposal);
+        };
+        Ok(
+            MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+                raster,
+                semantic_intent,
+                0,
+                0,
+                invert,
+            )?,
+        )
     }
 
     fn take_job(&self, job_token: u64) -> Result<Option<SubjectMaskJob>, SubjectMaskServiceError> {
@@ -858,6 +872,8 @@ pub(crate) enum SubjectMaskServiceError {
     Store(#[from] DerivedRasterStoreError),
     #[error(transparent)]
     Promotion(#[from] CurrentDerivedRasterPromotionFailure),
+    #[error(transparent)]
+    Recipe(#[from] RecipeValidationError),
 }
 
 #[cfg(test)]

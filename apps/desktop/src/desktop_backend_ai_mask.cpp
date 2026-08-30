@@ -39,6 +39,8 @@ ffi_subject_mask_kind(const BackendSubjectMaskKind kind) {
         return shadow::desktop::FfiSubjectMaskKind::PeopleDiscovery;
     case BackendSubjectMaskKind::PeopleRegions:
         return shadow::desktop::FfiSubjectMaskKind::PeopleRegions;
+    case BackendSubjectMaskKind::SemanticQuery:
+        return shadow::desktop::FfiSubjectMaskKind::SemanticQuery;
     }
     throw std::runtime_error("unknown subject-mask selection kind");
 }
@@ -79,6 +81,9 @@ BackendSubjectMaskResult DesktopBackend::executeSubjectMaskJob(
     ffi_request.kind = ffi_subject_mask_kind(request.kind);
     ffi_request.person_index = request.person_index;
     ffi_request.face_region_mask = request.face_region_mask;
+    ffi_request.semantic_query = request.semantic_query.toStdString();
+    ffi_request.semantic_maximum_regions = request.semantic_maximum_regions;
+    ffi_request.semantic_score_threshold_percent = request.semantic_score_threshold_percent;
     ffi_request.points.reserve(static_cast<std::size_t>(request.points.size()));
     for (const auto& point : request.points) {
         ffi_request.points.push_back({
@@ -129,6 +134,9 @@ BackendPhotoEditState DesktopBackend::applySubjectMaskProposal(
     ffi_request.target_grade_node_index = request.target_grade_node_index;
     ffi_request.target_grade_node_id = request.target_grade_node_id.toStdString();
     ffi_request.invert = request.invert;
+    ffi_request.semantic_query = request.semantic_query.toStdString();
+    ffi_request.semantic_maximum_regions = request.semantic_maximum_regions;
+    ffi_request.semantic_score_threshold_percent = request.semantic_score_threshold_percent;
     return edit_state(impl_->session->apply_subject_mask_proposal(
         photo_id.toStdString(),
         source_path.toStdString(),

@@ -9,6 +9,7 @@
 mod image_understanding;
 mod raw_foundation;
 mod semantic;
+mod semantic_grounding;
 mod subject_mask;
 
 use std::{collections::BTreeMap, fmt, io::Write, path::Path};
@@ -50,6 +51,9 @@ pub use raw_foundation::{
 pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,
     TextEmbeddingEvidence,
+};
+pub use semantic_grounding::{
+    INFER_SEMANTIC_GROUNDING_CAPABILITY, SemanticGroundedRegion, SemanticGroundingEvidence,
 };
 pub use subject_mask::{INFER_SUBJECT_MASK_CAPABILITY, InferSubjectMaskEvidence};
 

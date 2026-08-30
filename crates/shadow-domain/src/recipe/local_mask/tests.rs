@@ -290,3 +290,65 @@ fn composite_conditions_persist_but_reducible_direct_variants_are_rejected() {
         Err(RecipeValidationError::NonCanonicalConditionMaskExpression)
     );
 }
+
+#[test]
+fn semantic_managed_mask_persists_re_evaluable_intent_without_changing_raster_execution() {
+    let content_blake3 = "cd".repeat(32);
+    let raster = ManagedRasterMask::new(
+        format!(
+            "objects/v1/b3/{}/{}",
+            &content_blake3[..2],
+            &content_blake3[2..]
+        ),
+        1,
+        content_blake3,
+        4,
+        2,
+        2,
+        1_024,
+        768,
+        RasterMaskEncoding::Gray8Unorm,
+    )
+    .expect("managed raster");
+    let intent = SemanticMaskIntent::new("  red   train  ", 4, 30, SemanticMaskAggregation::Union)
+        .expect("semantic intent");
+    assert_eq!(intent.query(), "red train");
+    assert!(
+        intent
+            .query_revision()
+            .starts_with("shadow-semantic-mask-v1:")
+    );
+
+    let definition = MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+        raster,
+        Some(intent.clone()),
+        -12,
+        18,
+        false,
+    )
+    .expect("semantic managed mask");
+    assert_eq!(definition.semantic_intent(), Some(&intent));
+    let encoded = serde_json::to_string(&definition).expect("serialize semantic mask");
+    assert!(encoded.contains(r#""semantic_intent":{"contract_version":1"#));
+    assert!(encoded.contains(r#""query":"red train""#));
+    assert_eq!(
+        serde_json::from_str::<MaskDefinition>(&encoded).expect("deserialize semantic mask"),
+        definition
+    );
+}
+
+#[test]
+fn semantic_mask_intent_rejects_empty_and_unbounded_requests() {
+    assert_eq!(
+        SemanticMaskIntent::new("   ", 4, 30, SemanticMaskAggregation::Union),
+        Err(RecipeValidationError::EmptySemanticMaskQuery)
+    );
+    assert_eq!(
+        SemanticMaskIntent::new("train", 0, 30, SemanticMaskAggregation::Union),
+        Err(RecipeValidationError::InvalidSemanticMaskMaximumRegions(0))
+    );
+    assert_eq!(
+        SemanticMaskIntent::new("train", 4, 0, SemanticMaskAggregation::Union),
+        Err(RecipeValidationError::InvalidSemanticMaskScoreThreshold(0))
+    );
+}

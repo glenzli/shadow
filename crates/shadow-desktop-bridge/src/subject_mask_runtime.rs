@@ -35,7 +35,7 @@ use shadow_core::{
     DerivedRasterStageError, DerivedRasterStageReceipt, FilesystemDerivedRasterStore,
     execute_and_stage_derived_raster,
 };
-use shadow_domain::{MaskCoordinateSpace, PhotoId};
+use shadow_domain::{MaskCoordinateSpace, PhotoId, SemanticMaskIntent};
 use thiserror::Error;
 
 use crate::subject_mask_people::{
@@ -79,6 +79,9 @@ pub(crate) enum SubjectMaskSelection {
         person: SubjectMaskPersonCandidate,
         regions: FaceRegionSet,
         parsed: Arc<ParsedSubjectMaskPerson>,
+    },
+    SemanticQuery {
+        intent: SemanticMaskIntent,
     },
 }
 
@@ -187,24 +190,28 @@ impl SubjectMaskRuntime {
         validate_input_jpeg(input_bytes)?;
         let photo_id = PhotoId::from_str(&invocation.photo_id)
             .map_err(|_| SubjectMaskRuntimeError::InvalidPhotoId)?;
-        let prompt_points = match &invocation.selection {
-            SubjectMaskSelection::PromptedSubject { points } => points.clone(),
-            SubjectMaskSelection::FaceRegions { person, .. } => vec![MaskPromptPoint {
-                x: UnitInterval::new(
-                    ((person.bounding_box.x + person.bounding_box.width * 0.5)
-                        / invocation.coordinate_extent.width as f32) as f64,
-                )
-                .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?,
-                y: UnitInterval::new(
-                    ((person.bounding_box.y + person.bounding_box.height * 0.5)
-                        / invocation.coordinate_extent.height as f32) as f64,
-                )
-                .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?,
-                polarity: MaskPointPolarity::Foreground,
-            }],
-        };
-        let prompt = MaskPrompt::Points {
-            points: prompt_points,
+        let prompt = match &invocation.selection {
+            SubjectMaskSelection::PromptedSubject { points } => MaskPrompt::Points {
+                points: points.clone(),
+            },
+            SubjectMaskSelection::FaceRegions { person, .. } => MaskPrompt::Points {
+                points: vec![MaskPromptPoint {
+                    x: UnitInterval::new(
+                        ((person.bounding_box.x + person.bounding_box.width * 0.5)
+                            / invocation.coordinate_extent.width as f32)
+                            as f64,
+                    )
+                    .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?,
+                    y: UnitInterval::new(
+                        ((person.bounding_box.y + person.bounding_box.height * 0.5)
+                            / invocation.coordinate_extent.height as f32)
+                            as f64,
+                    )
+                    .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?,
+                    polarity: MaskPointPolarity::Foreground,
+                }],
+            },
+            SubjectMaskSelection::SemanticQuery { .. } => MaskPrompt::AutomaticSubject,
         };
         prompt
             .validate()
@@ -280,6 +287,57 @@ impl SubjectMaskRuntime {
                     invocation.coordinate_extent,
                     parsed.provenance.clone(),
                     INFER_FACE_PARSING_CAPABILITY,
+                )
+            }
+            SubjectMaskSelection::SemanticQuery { intent } => {
+                let client = self.client()?;
+                let source_revision = input_source_revision(input_content_hash);
+                let Some(grounding) = client.ground_semantics_cancellable(
+                    input_bytes,
+                    &source_revision,
+                    intent.query(),
+                    intent.query_revision(),
+                    intent.maximum_regions(),
+                    f32::from(intent.score_threshold_percent()) / 100.0,
+                    cancellation,
+                )?
+                else {
+                    return Ok(cancelled_stage_receipt(&invocation));
+                };
+                if grounding.input_extent != invocation.coordinate_extent {
+                    return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                }
+                if grounding.regions.is_empty() {
+                    return Err(SubjectMaskRuntimeError::SemanticQueryNotFound);
+                }
+                let mut merged = vec![0_u8; 256 * 256];
+                let mut sam_provenance = None;
+                for region in grounding.regions {
+                    let Some(evidence) = client.segment_subject_box_soft_mask_cancellable(
+                        input_bytes,
+                        &source_revision,
+                        region,
+                        cancellation,
+                    )?
+                    else {
+                        return Ok(cancelled_stage_receipt(&invocation));
+                    };
+                    if evidence.input_extent != invocation.coordinate_extent
+                        || evidence.samples.len() != merged.len()
+                    {
+                        return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                    }
+                    for (target, sample) in merged.iter_mut().zip(evidence.samples) {
+                        *target = (*target).max(sample);
+                    }
+                    sam_provenance = Some(evidence.provenance);
+                }
+                (
+                    merged,
+                    RasterExtent::new(256, 256)
+                        .map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?,
+                    sam_provenance.ok_or(SubjectMaskRuntimeError::SemanticQueryNotFound)?,
+                    shadow_ai::INFER_SUBJECT_MASK_CAPABILITY,
                 )
             }
         };
@@ -510,6 +568,8 @@ pub(crate) enum SubjectMaskRuntimeError {
     RuntimeGeometryMismatch,
     #[error("Infer Runtime returned a malformed subject probability mask")]
     RuntimeMaskMalformed,
+    #[error("semantic query did not match a visible region")]
+    SemanticQueryNotFound,
     #[error("Infer Runtime disclosed a forbidden execution-provider fallback")]
     RuntimeFallbackDisclosed,
     #[error("Infer Runtime returned malformed subject-mask provenance")]

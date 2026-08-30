@@ -12,7 +12,10 @@ use super::{
     InferRuntimeClient, InferRuntimeClientError, VisionProvenance, admit_vision_provenance,
     local_metadata,
 };
-use crate::{CancellationToken, MaskPointPolarity, MaskPromptPoint, RasterExtent};
+use crate::{
+    CancellationToken, MaskPointPolarity, MaskPromptPoint, RasterExtent,
+    providers::infer_runtime::SemanticGroundedRegion,
+};
 
 pub const INFER_SUBJECT_MASK_CAPABILITY: &str =
     "infer.vision.subject-segmentation-soft-mask@20260814.1";
@@ -86,6 +89,43 @@ impl InferRuntimeClient {
             source_revision,
             &points,
             None,
+            &metadata,
+        );
+        let cancellation = cancellation.clone();
+        let response = self.runtime.block_on(async {
+            tokio::select! {
+                response = request => response.map(Some),
+                () = wait_for_cancellation(cancellation) => Ok(None),
+            }
+        })?;
+        response
+            .map(|response| admit_soft_mask(response, source_revision, input_extent))
+            .transpose()
+    }
+
+    /// Refines one normalized grounding box through the same SAM soft-mask
+    /// capability without inventing a synthetic click prompt.
+    pub fn segment_subject_box_soft_mask_cancellable(
+        &self,
+        image: &[u8],
+        source_revision: &str,
+        box_prompt: SemanticGroundedRegion,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<InferSubjectMaskEvidence>, InferRuntimeClientError> {
+        let input_extent = image_extent(image, ImageFormat::Jpeg)?;
+        let (staged, media_type) = Self::stage_image(image, "image/jpeg", source_revision)?;
+        let metadata = local_metadata("interactive", None);
+        let request = self.sdk().segment_subject_soft_mask(
+            staged.path(),
+            media_type,
+            source_revision,
+            &[],
+            Some(infer_runtime_client::NormalizedBoundingBox {
+                x: box_prompt.x,
+                y: box_prompt.y,
+                width: box_prompt.width,
+                height: box_prompt.height,
+            }),
             &metadata,
         );
         let cancellation = cancellation.clone();

@@ -427,6 +427,10 @@ void EditController::duplicateSelectedGradeNode() {
     duplicate.local_mask_feather = source->local_mask_feather;
     duplicate.local_mask_invert = source->local_mask_invert;
     duplicate.local_mask_brush_points = source->local_mask_brush_points;
+    duplicate.local_mask_semantic_query = source->local_mask_semantic_query;
+    duplicate.local_mask_semantic_maximum_regions = source->local_mask_semantic_maximum_regions;
+    duplicate.local_mask_semantic_score_threshold_percent =
+        source->local_mask_semantic_score_threshold_percent;
 
     const BackendGradeStack before = grade_stack_;
     BackendGradeStack updated = grade_stack_;
@@ -504,6 +508,11 @@ void EditController::publishSelectedGradeNode(const QString& label) {
     published.grade_node.local_mask_feather = selected->local_mask_feather;
     published.grade_node.local_mask_invert = selected->local_mask_invert;
     published.grade_node.local_mask_brush_points = selected->local_mask_brush_points;
+    published.grade_node.local_mask_semantic_query = selected->local_mask_semantic_query;
+    published.grade_node.local_mask_semantic_maximum_regions =
+        selected->local_mask_semantic_maximum_regions;
+    published.grade_node.local_mask_semantic_score_threshold_percent =
+        selected->local_mask_semantic_score_threshold_percent;
     BackendGradeStack updated = grade_stack_;
     updated.grade_nodes[selected_grade_node_index_] = published.grade_node;
     setGradeStack(std::move(updated), published.grade_node.grade_node_id);
@@ -553,6 +562,11 @@ void EditController::insertSharedGradeNode(const QString& layer_id) {
         inserted.local_mask_feather = existing->local_mask_feather;
         inserted.local_mask_invert = existing->local_mask_invert;
         inserted.local_mask_brush_points = existing->local_mask_brush_points;
+        inserted.local_mask_semantic_query = existing->local_mask_semantic_query;
+        inserted.local_mask_semantic_maximum_regions =
+            existing->local_mask_semantic_maximum_regions;
+        inserted.local_mask_semantic_score_threshold_percent =
+            existing->local_mask_semantic_score_threshold_percent;
         *existing = inserted;
     } else {
         if (!canAddGradeNode()) {

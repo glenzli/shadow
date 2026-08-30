@@ -2,7 +2,7 @@ use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, ManagedRasterMask,
     MaskDefinition, PhotoFoundationNode, RasterMaskEncoding, RawFoundationDenoise,
     RawFoundationDenoiseModel, RawTemperatureTint, RawWhiteBalance, RecipeInputSettings,
-    RecipeOpticsSettings, UnitInterval,
+    RecipeOpticsSettings, SemanticMaskAggregation, SemanticMaskIntent, UnitInterval,
 };
 
 use super::super::{
@@ -60,9 +60,18 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
     )
     .expect("managed raster");
     let mut grade_stack = GradeStackDraft::default();
+    let semantic_intent =
+        SemanticMaskIntent::new("red train", 4, 30, SemanticMaskAggregation::Union)
+            .expect("semantic intent");
     grade_stack.grade_nodes[0].local_mask = Some(
-        MaskDefinition::managed_raster_with_refinement(raster, -35, 24, false)
-            .expect("Recipe mask"),
+        MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+            raster,
+            Some(semantic_intent.clone()),
+            -35,
+            24,
+            false,
+        )
+        .expect("Recipe mask"),
     );
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persistable Recipe");
 
@@ -75,6 +84,7 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
             expansion_percent: -35,
             feather_percent: 24,
             invert: false,
+            semantic_intent: Some(semantic_intent.clone()),
         })
     );
 
@@ -82,6 +92,7 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
         expansion_percent: 18,
         feather_percent: 31,
         invert: true,
+        semantic_intent: Some(semantic_intent.clone()),
     });
     let round_trip = grade_stack_recipe_v1_snapshot(&reopened, Some(&snapshot))
         .expect("restore exact raster reference from the explicit base Recipe");
@@ -96,6 +107,7 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
         expansion_percent,
         feather_percent,
         invert,
+        semantic_intent: reopened_intent,
     } = revision.definition()
     else {
         panic!("expected managed raster")
@@ -107,6 +119,7 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
     assert_eq!(*expansion_percent, 18);
     assert_eq!(*feather_percent, 31);
     assert!(*invert, "opaque Qt projection may still toggle inversion");
+    assert_eq!(reopened_intent.as_ref(), Some(&semantic_intent));
 }
 
 #[test]

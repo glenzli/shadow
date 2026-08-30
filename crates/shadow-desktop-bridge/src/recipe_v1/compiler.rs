@@ -448,6 +448,7 @@ fn adjustment_local_mask_with_resolver(
             expansion_percent,
             feather_percent,
             invert,
+            ..
         } => resolver
             .ok_or_else(|| {
                 anyhow!(

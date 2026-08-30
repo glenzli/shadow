@@ -6,17 +6,18 @@ use shadow_bridge::{
 };
 use shadow_domain::{
     LayerId, LayerRevisionId, MaskDefinition, PhotoCanvasNode, PhotoFoundationNode,
-    PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke, UnitInterval,
-    operation::BASIC_LAYER_LABEL,
+    PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke, SemanticMaskIntent,
+    UnitInterval, operation::BASIC_LAYER_LABEL,
 };
 
 use super::GradeNodeRecipeV1Identity;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct PreservedManagedRasterSettings {
     pub(crate) expansion_percent: i8,
     pub(crate) feather_percent: u8,
     pub(crate) invert: bool,
+    pub(crate) semantic_intent: Option<SemanticMaskIntent>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +100,7 @@ impl GradeNodeDraft {
             // the rendered controls but must never inherit the source link.
             shared: None,
             local_mask: self.local_mask.clone(),
-            preserved_managed_raster: self.preserved_managed_raster,
+            preserved_managed_raster: self.preserved_managed_raster.clone(),
             label: self.label.clone(),
             opacity: self.opacity,
             basic: self.basic,

@@ -1,7 +1,8 @@
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
     LiquifyStroke, MaskBrushPoint, MaskDefinition, PhotoLiquifyNode, RawFoundationDenoise,
-    RawFoundationDenoiseModel, RetouchPoint, RetouchStroke, UnitInterval,
+    RawFoundationDenoiseModel, RetouchPoint, RetouchStroke, SemanticMaskAggregation,
+    SemanticMaskIntent, UnitInterval,
 };
 
 use crate::ffi;
@@ -248,10 +249,11 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
     assert_eq!(
         ffi_local_mask_fields(
             None,
-            Some(PreservedManagedRasterSettings {
+            Some(&PreservedManagedRasterSettings {
                 expansion_percent: -35,
                 feather_percent: 24,
                 invert: true,
+                semantic_intent: None,
             })
         )
         .expect("encode opaque managed raster"),
@@ -281,6 +283,7 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
                 expansion_percent: 18,
                 feather_percent: 31,
                 invert: true,
+                semantic_intent: None,
             })
         )
     );
@@ -291,6 +294,36 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
             .expect_err("sub-percent managed refinement is not canonical")
             .to_string()
             .contains("one-percent increments")
+    );
+}
+
+#[test]
+fn semantic_managed_raster_intent_survives_the_qt_dto() {
+    let intent = SemanticMaskIntent::new("red train", 4, 30, SemanticMaskAggregation::Union)
+        .expect("semantic intent");
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].local_mask = None;
+    draft.grade_nodes[0].preserved_managed_raster = Some(PreservedManagedRasterSettings {
+        expansion_percent: 0,
+        feather_percent: 0,
+        invert: false,
+        semantic_intent: Some(intent.clone()),
+    });
+
+    let ffi = encode_grade_stack_draft_recipe_v1(draft).expect("encode semantic managed mask");
+    assert_eq!(ffi.grade_nodes[0].local_mask_semantic_query, "red train");
+    assert_eq!(ffi.grade_nodes[0].local_mask_semantic_maximum_regions, 4);
+    assert_eq!(
+        ffi.grade_nodes[0].local_mask_semantic_score_threshold_percent,
+        30
+    );
+    let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode semantic managed mask");
+    assert_eq!(
+        decoded.grade_nodes[0]
+            .preserved_managed_raster
+            .as_ref()
+            .and_then(|settings| settings.semantic_intent.as_ref()),
+        Some(&intent)
     );
 }
 

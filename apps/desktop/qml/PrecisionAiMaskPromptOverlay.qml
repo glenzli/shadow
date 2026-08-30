@@ -13,6 +13,7 @@ Item {
     required property bool interactionEnabled
     required property bool busy
     required property bool faceRegionMode
+    required property bool semanticMode
     required property bool foregroundMode
     required property var promptPoints
     property int peopleCount: 0
@@ -31,13 +32,19 @@ Item {
     readonly property bool candidateRendered: candidateImage.visible
     readonly property bool actionDockVisible: actionDock.visible
     readonly property string guidanceText: busy
-        ? faceRegionMode
+        ? semanticMode
+            ? qsTranslate("PrecisionWorkspace", "Locating semantic subject…")
+        : faceRegionMode
             ? qsTranslate("PrecisionWorkspace", "Identifying facial details…")
             : qsTranslate("PrecisionWorkspace", "Updating selection…")
         : candidateVisible
-            ? faceRegionMode
+            ? semanticMode
+                ? qsTranslate("PrecisionWorkspace", "Semantic selection preview · confirm or cancel")
+            : faceRegionMode
                 ? qsTranslate("PrecisionWorkspace", "Facial detail selected · confirm or choose another region")
                 : qsTranslate("PrecisionWorkspace", "Selected area preview · add or subtract points to refine")
+            : semanticMode
+                ? qsTranslate("PrecisionWorkspace", "Selection was not generated · retry semantic mask")
             : faceRegionMode
                 ? peopleCount > 0
                     ? qsTranslate("PrecisionWorkspace", "Choose a person and details in the panel")
@@ -52,6 +59,7 @@ Item {
         && width > 0
         && height > 0
         && !faceRegionMode
+        && !semanticMode
         && pointCount < maximumPoints
 
     signal pointRequested(real normalizedX, real normalizedY, bool foreground)
@@ -91,13 +99,13 @@ Item {
     }
 
     function requestForegroundMode(foreground) {
-        if (interactionEnabled && !busy && !faceRegionMode)
+        if (interactionEnabled && !busy && !faceRegionMode && !semanticMode)
             foregroundModeRequested(foreground)
     }
 
     function requestRetry() {
         if (interactionEnabled && !busy && !candidateVisible
-                && (pointCount > 0 || faceRegionMode))
+                && (pointCount > 0 || faceRegionMode || semanticMode))
             retryRequested()
     }
 
@@ -220,7 +228,7 @@ Item {
     Repeater {
         id: promptRepeater
 
-        model: overlay.faceRegionMode ? [] : overlay.promptPoints
+        model: overlay.faceRegionMode || overlay.semanticMode ? [] : overlay.promptPoints
 
         delegate: Item {
             id: marker
@@ -283,7 +291,7 @@ Item {
         objectName: "aiMaskPromptSurface"
         z: 1
         anchors.fill: parent
-        enabled: overlay.canAddPoint && !overlay.faceRegionMode
+        enabled: overlay.canAddPoint && !overlay.faceRegionMode && !overlay.semanticMode
         acceptedButtons: Qt.LeftButton
         cursorShape: overlay.busy ? Qt.BusyCursor
             : overlay.canAddPoint ? Qt.CrossCursor : Qt.ArrowCursor

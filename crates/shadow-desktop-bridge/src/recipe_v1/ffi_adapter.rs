@@ -16,7 +16,8 @@ use shadow_domain::{
     MaskDefinition, NodeId, PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
     RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN, RawFoundationDenoise, RawFoundationDenoiseModel,
     RawTemperatureTint, RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RetouchMode,
-    RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
+    RetouchPoint, RetouchSpot, RetouchStroke, SemanticMaskAggregation, SemanticMaskIntent,
+    UnitInterval,
 };
 
 use crate::ffi;
@@ -53,7 +54,7 @@ type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>
 #[allow(clippy::too_many_lines)]
 fn ffi_local_mask_fields(
     mask: Option<&MaskDefinition>,
-    preserved_managed_raster: Option<PreservedManagedRasterSettings>,
+    preserved_managed_raster: Option<&PreservedManagedRasterSettings>,
 ) -> AnyResult<FfiLocalMaskFields> {
     if mask.is_some() && preserved_managed_raster.is_some() {
         bail!("Grade Node cannot project two local-mask representations at once");
@@ -240,6 +241,20 @@ fn local_mask_definition_from_ffi(
     Option<MaskDefinition>,
     Option<PreservedManagedRasterSettings>,
 )> {
+    if grade_node.local_mask_kind != LOCAL_MASK_MANAGED_RASTER
+        && (!grade_node.local_mask_semantic_query.is_empty()
+            || grade_node.local_mask_semantic_maximum_regions != 0
+            || grade_node.local_mask_semantic_score_threshold_percent != 0)
+    {
+        bail!("Grade Node {index} carries semantic intent without a managed raster mask");
+    }
+    if grade_node.local_mask_kind == LOCAL_MASK_MANAGED_RASTER
+        && grade_node.local_mask_semantic_query.is_empty()
+        && (grade_node.local_mask_semantic_maximum_regions != 0
+            || grade_node.local_mask_semantic_score_threshold_percent != 0)
+    {
+        bail!("Grade Node {index} has semantic bounds without a semantic query");
+    }
     let unit = |name: &str, value: f64| {
         UnitInterval::new(value)
             .with_context(|| format!("Grade Node {index} local mask {name} must be in [0, 1]"))
@@ -339,6 +354,16 @@ fn local_mask_definition_from_ffi(
                     feather_percent: u8::try_from(feather_percent)
                         .context("managed raster feather percentage exceeds u8")?,
                     invert: grade_node.local_mask_invert,
+                    semantic_intent: if grade_node.local_mask_semantic_query.is_empty() {
+                        None
+                    } else {
+                        Some(SemanticMaskIntent::new(
+                            grade_node.local_mask_semantic_query.clone(),
+                            grade_node.local_mask_semantic_maximum_regions,
+                            grade_node.local_mask_semantic_score_threshold_percent,
+                            SemanticMaskAggregation::Union,
+                        )?)
+                    },
                 }),
             ))
         }
@@ -1170,6 +1195,17 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(
         || (String::new(), String::new()),
         |shared| (shared.layer_id.to_string(), shared.revision_id.to_string()),
     );
+    let semantic_intent = grade_node
+        .local_mask
+        .as_ref()
+        .and_then(MaskDefinition::semantic_intent)
+        .or_else(|| {
+            grade_node
+                .preserved_managed_raster
+                .as_ref()
+                .and_then(|settings| settings.semantic_intent.as_ref())
+        })
+        .cloned();
     let (
         local_mask_kind,
         local_mask_x0,
@@ -1183,7 +1219,7 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(
         local_mask_brush_points,
     ) = ffi_local_mask_fields(
         grade_node.local_mask.as_ref(),
-        grade_node.preserved_managed_raster,
+        grade_node.preserved_managed_raster.as_ref(),
     )?;
     Ok(ffi::FfiGradeNode {
         grade_node_id: identity.grade_node_id.to_string(),
@@ -1199,6 +1235,15 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(
         local_mask_feather,
         local_mask_invert,
         local_mask_brush_points,
+        local_mask_semantic_query: semantic_intent
+            .as_ref()
+            .map_or_else(String::new, |intent| intent.query().to_owned()),
+        local_mask_semantic_maximum_regions: semantic_intent
+            .as_ref()
+            .map_or(0, SemanticMaskIntent::maximum_regions),
+        local_mask_semantic_score_threshold_percent: semantic_intent
+            .as_ref()
+            .map_or(0, SemanticMaskIntent::score_threshold_percent),
         label: grade_node.label,
         opacity: grade_node.opacity.get(),
         enabled: grade_node.enabled,

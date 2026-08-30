@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_ai_mask_controller.hpp"
 #include "edit_stroke_input.hpp"
 
 #include <QLatin1StringView>
@@ -151,6 +152,11 @@ QVariantMap EditController::selectedLocalMask() const {
         {QStringLiteral("softness"), grade_node->local_mask_feather},
         {QStringLiteral("inverted"), grade_node->local_mask_invert},
         {QStringLiteral("brushPoints"), brush_points},
+        {QStringLiteral("semanticQuery"), grade_node->local_mask_semantic_query},
+        {QStringLiteral("semanticMaximumRegions"),
+         static_cast<int>(grade_node->local_mask_semantic_maximum_regions)},
+        {QStringLiteral("semanticScoreThresholdPercent"),
+         static_cast<int>(grade_node->local_mask_semantic_score_threshold_percent)},
     };
 }
 
@@ -203,6 +209,10 @@ void EditController::copySelectedLocalMask() {
         .feather = grade_node->local_mask_feather,
         .inverted = grade_node->local_mask_invert,
         .brush_points = grade_node->local_mask_brush_points,
+        .semantic_query = grade_node->local_mask_semantic_query,
+        .semantic_maximum_regions = grade_node->local_mask_semantic_maximum_regions,
+        .semantic_score_threshold_percent =
+            grade_node->local_mask_semantic_score_threshold_percent,
     };
     emit nodeMaskClipboardChanged();
     setStatusMessage(local_mask_message(QT_TRANSLATE_NOOP("EditController", "Copied node mask")));
@@ -228,6 +238,28 @@ void EditController::pasteSelectedLocalMask() {
     const BackendGradeStack before = grade_stack_;
     BackendGradeNode candidate = *grade_node;
     const NodeMaskClipboard& source = *node_mask_clipboard_;
+    if (source.kind == 6U) {
+        if (source.semantic_query.isEmpty()) {
+            setStatusMessage(local_mask_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "This AI mask has no reusable semantic instruction"
+            )));
+            return;
+        }
+        if (ai_mask_controller_ != nullptr
+            && ai_mask_controller_->beginSemantic(
+                source.semantic_query,
+                source.semantic_maximum_regions,
+                source.semantic_score_threshold_percent,
+                true
+            )) {
+            setStatusMessage(local_mask_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "Re-evaluating copied Semantic Mask on this photo…"
+            )));
+        }
+        return;
+    }
     candidate.local_mask_kind = source.kind;
     candidate.local_mask_x0 = source.x0;
     candidate.local_mask_y0 = source.y0;
@@ -238,6 +270,9 @@ void EditController::pasteSelectedLocalMask() {
     candidate.local_mask_feather = source.feather;
     candidate.local_mask_invert = source.inverted;
     candidate.local_mask_brush_points = source.brush_points;
+    candidate.local_mask_semantic_query.clear();
+    candidate.local_mask_semantic_maximum_regions = 0U;
+    candidate.local_mask_semantic_score_threshold_percent = 0U;
     if (candidate == *grade_node) {
         setStatusMessage(local_mask_message(
             QT_TRANSLATE_NOOP("EditController", "Selected Grade Node already uses the copied mask")

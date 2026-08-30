@@ -862,6 +862,7 @@ qt_add_qml_module(
         qml/PrecisionRetouchStrokeHandle.qml
         qml/PrecisionLocalMaskTools.qml
         qml/PrecisionMaskCreateMenu.qml
+        qml/PrecisionSemanticMaskPanel.qml
         qml/PrecisionRetouchTools.qml
         qml/PrecisionRetouchRegionInspector.qml
         qml/PrecisionRetouchRegionPicker.qml

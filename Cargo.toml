@@ -41,7 +41,7 @@ chinese-lunisolar-calendar = { version = "0.2.5", default-features = false }
 cxx = "=1.0.198"
 quick-xml = "0.39.4"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "multipart"] }
-infer-runtime-client = { git = "https://github.com/glenzli/infer-runtime.git", rev = "eedd8fab496a0c98542da121fab228b5acf326f4" }
+infer-runtime-client = { git = "https://github.com/glenzli/infer-runtime.git", rev = "9693a003f9156a11a22446d706b8a61928438ff1" }
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png"] }
 nix = { version = "0.29.0", default-features = false, features = ["fs", "socket", "uio", "user"] }
 rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }

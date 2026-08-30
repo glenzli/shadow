@@ -128,7 +128,7 @@ fn materialize_preserved_managed_rasters(
 ) -> AnyResult<GradeStackDraft> {
     let mut effective = grade_stack.clone();
     for grade_node in &mut effective.grade_nodes {
-        let Some(settings) = grade_node.preserved_managed_raster else {
+        let Some(settings) = grade_node.preserved_managed_raster.as_ref() else {
             continue;
         };
         if grade_node.local_mask.is_some() {
@@ -171,12 +171,15 @@ fn materialize_preserved_managed_rasters(
                 grade_node.recipe_v1_identity.grade_node_id
             );
         };
-        grade_node.local_mask = Some(MaskDefinition::managed_raster_with_refinement(
-            raster.clone(),
-            settings.expansion_percent,
-            settings.feather_percent,
-            settings.invert,
-        )?);
+        grade_node.local_mask = Some(
+            MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+                raster.clone(),
+                settings.semantic_intent.clone(),
+                settings.expansion_percent,
+                settings.feather_percent,
+                settings.invert,
+            )?,
+        );
         grade_node.preserved_managed_raster = None;
     }
     Ok(effective)

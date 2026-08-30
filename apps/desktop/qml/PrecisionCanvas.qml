@@ -549,6 +549,7 @@ Rectangle {
                     interactionEnabled: canvas.editor.aiMaskPromptActive && !canvas.comparisonActive && canvas.previewFrameReady
                     busy: canvas.editor.aiMaskBusy
                     faceRegionMode: canvas.editor.aiMaskFaceRegionMode
+                    semanticMode: canvas.editor.aiMaskSemanticMode
                     foregroundMode: canvas.editor.aiMaskForegroundMode
                     promptPoints: canvas.editor.aiMaskPromptPoints
                     peopleCount: canvas.editor.aiMaskPeople.length

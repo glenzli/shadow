@@ -232,6 +232,8 @@ class EditController final : public QObject {
     Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskFaceRegionMode READ aiMaskFaceRegionMode NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool aiMaskSemanticMode READ aiMaskSemanticMode NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(QString aiMaskSemanticQuery READ aiMaskSemanticQuery NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(
         int aiMaskFaceRegion READ aiMaskFaceRegion WRITE setAiMaskFaceRegion NOTIFY
             aiMaskPromptChanged
@@ -523,6 +525,8 @@ class EditController final : public QObject {
     [[nodiscard]] bool aiMaskPromptActive() const noexcept;
     [[nodiscard]] bool aiMaskBusy() const noexcept;
     [[nodiscard]] bool aiMaskFaceRegionMode() const noexcept;
+    [[nodiscard]] bool aiMaskSemanticMode() const noexcept;
+    [[nodiscard]] QString aiMaskSemanticQuery() const;
     [[nodiscard]] int aiMaskFaceRegion() const noexcept;
     [[nodiscard]] QVariantList aiMaskPeople() const;
     [[nodiscard]] int aiMaskSelectedPerson() const noexcept;
@@ -667,6 +671,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void setMaskToolActive(bool active);
     Q_INVOKABLE bool beginAiMaskPrompt();
     Q_INVOKABLE bool beginAiFaceMaskPrompt();
+    Q_INVOKABLE bool beginAiSemanticMask(const QString& query);
     Q_INVOKABLE void setAiMaskForegroundMode(bool foreground);
     Q_INVOKABLE void setAiMaskFaceRegion(int region);
     Q_INVOKABLE void setAiMaskSelectedPerson(int person_index);
@@ -946,6 +951,9 @@ class EditController final : public QObject {
         double feather = 0.0;
         bool inverted = false;
         QVector<double> brush_points;
+        QString semantic_query;
+        std::uint8_t semantic_maximum_regions = 0;
+        std::uint8_t semantic_score_threshold_percent = 0;
     };
 
     void applyState(BackendPhotoEditState state);

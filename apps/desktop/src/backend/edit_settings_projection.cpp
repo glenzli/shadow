@@ -315,6 +315,10 @@ shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
     for (const double value : source.local_mask_brush_points) {
         result.local_mask_brush_points.push_back(value);
     }
+    result.local_mask_semantic_query = source.local_mask_semantic_query.toStdString();
+    result.local_mask_semantic_maximum_regions = source.local_mask_semantic_maximum_regions;
+    result.local_mask_semantic_score_threshold_percent =
+        source.local_mask_semantic_score_threshold_percent;
     result.label = source.label.toStdString();
     result.opacity = source.opacity;
     result.exposure_render_op_id = source.exposure_render_op_id.toStdString();
@@ -351,6 +355,10 @@ BackendGradeNode grade_node(const shadow::desktop::FfiGradeNode& source) {
     for (const double value : source.local_mask_brush_points) {
         result.local_mask_brush_points.push_back(value);
     }
+    result.local_mask_semantic_query = qstring(source.local_mask_semantic_query);
+    result.local_mask_semantic_maximum_regions = source.local_mask_semantic_maximum_regions;
+    result.local_mask_semantic_score_threshold_percent =
+        source.local_mask_semantic_score_threshold_percent;
     result.label = qstring(source.label);
     result.opacity = source.opacity;
     result.exposure_render_op_id = qstring(source.exposure_render_op_id);

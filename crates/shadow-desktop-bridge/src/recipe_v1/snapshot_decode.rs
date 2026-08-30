@@ -463,6 +463,7 @@ fn recipe_v1_local_mask_from_snapshot(
     }
     match mask.definition() {
         MaskDefinition::ManagedRaster {
+            semantic_intent,
             expansion_percent,
             feather_percent,
             invert,
@@ -473,6 +474,7 @@ fn recipe_v1_local_mask_from_snapshot(
                 expansion_percent: *expansion_percent,
                 feather_percent: *feather_percent,
                 invert: *invert,
+                semantic_intent: semantic_intent.clone(),
             }),
         )),
         definition => Ok((Some(definition.clone()), None)),

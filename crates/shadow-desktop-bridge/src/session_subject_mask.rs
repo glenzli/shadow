@@ -10,6 +10,7 @@ use shadow_ai::{
     MAX_MASK_PROMPT_POINTS, MaskPointPolarity, MaskPrompt, MaskPromptPoint, RasterExtent,
     UnitInterval,
 };
+use shadow_domain::{SemanticMaskAggregation, SemanticMaskIntent};
 
 use super::{
     DesktopSession, ffi,
@@ -104,9 +105,9 @@ impl DesktopSession {
         )?;
         let display_points = match request.kind {
             ffi::FfiSubjectMaskKind::PromptedSubject => subject_mask_points(&request.points)?,
-            ffi::FfiSubjectMaskKind::PeopleDiscovery | ffi::FfiSubjectMaskKind::PeopleRegions => {
-                Vec::new()
-            }
+            ffi::FfiSubjectMaskKind::PeopleDiscovery
+            | ffi::FfiSubjectMaskKind::PeopleRegions
+            | ffi::FfiSubjectMaskKind::SemanticQuery => Vec::new(),
             _ => bail!("subject-mask selection kind is unsupported"),
         };
         let input_identity = SubjectMaskInputIdentity {
@@ -334,6 +335,19 @@ impl DesktopSession {
                     parsed,
                 }
             }
+            ffi::FfiSubjectMaskKind::SemanticQuery => {
+                if !request.points.is_empty() {
+                    bail!("semantic-mask request cannot also carry point prompts");
+                }
+                SubjectMaskSelection::SemanticQuery {
+                    intent: SemanticMaskIntent::new(
+                        request.semantic_query.clone(),
+                        request.semantic_maximum_regions,
+                        request.semantic_score_threshold_percent,
+                        SemanticMaskAggregation::Union,
+                    )?,
+                }
+            }
             _ => bail!("subject-mask selection kind is unsupported"),
         };
         let receipt = match self.subject_mask_runtime.stage(
@@ -475,6 +489,16 @@ impl DesktopSession {
             request.proposal_token,
             request.generation,
             request.invert,
+            if request.semantic_query.is_empty() {
+                None
+            } else {
+                Some(SemanticMaskIntent::new(
+                    request.semantic_query.clone(),
+                    request.semantic_maximum_regions,
+                    request.semantic_score_threshold_percent,
+                    SemanticMaskAggregation::Union,
+                )?)
+            },
         )?;
         let target = grade_stack
             .grade_nodes

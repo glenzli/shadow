@@ -156,6 +156,14 @@ bool EditController::aiMaskFaceRegionMode() const noexcept {
     return ai_mask_controller_ && ai_mask_controller_->faceRegionMode();
 }
 
+bool EditController::aiMaskSemanticMode() const noexcept {
+    return ai_mask_controller_ && ai_mask_controller_->semanticMode();
+}
+
+QString EditController::aiMaskSemanticQuery() const {
+    return ai_mask_controller_ ? ai_mask_controller_->semanticQuery() : QString{};
+}
+
 int EditController::aiMaskFaceRegion() const noexcept {
     return ai_mask_controller_ ? ai_mask_controller_->faceRegion() : 0;
 }
@@ -207,6 +215,11 @@ bool EditController::beginAiMaskPrompt() {
 
 bool EditController::beginAiFaceMaskPrompt() {
     return ai_mask_controller_ && ai_mask_controller_->beginPrompt(AiMaskSelectionKind::FaceRegion);
+}
+
+bool EditController::beginAiSemanticMask(const QString& query) {
+    return ai_mask_controller_
+           && ai_mask_controller_->beginSemantic(query, 4U, 30U, false);
 }
 
 void EditController::setAiMaskForegroundMode(const bool foreground) {
@@ -351,6 +364,14 @@ bool EditAiMaskController::faceRegionMode() const noexcept {
     return active_ && selection_kind_ == AiMaskSelectionKind::FaceRegion;
 }
 
+bool EditAiMaskController::semanticMode() const noexcept {
+    return active_ && selection_kind_ == AiMaskSelectionKind::SemanticQuery;
+}
+
+QString EditAiMaskController::semanticQuery() const {
+    return semanticMode() ? semantic_query_ : QString{};
+}
+
 int EditAiMaskController::faceRegion() const noexcept {
     return static_cast<int>(face_region_);
 }
@@ -413,6 +434,39 @@ QVariantList EditAiMaskController::promptPoints() const {
 }
 
 bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
+    return beginSelection(kind, false);
+}
+
+bool EditAiMaskController::beginSemantic(
+    const QString& query,
+    const std::uint8_t maximum_regions,
+    const std::uint8_t score_threshold_percent,
+    const bool prefer_current_node
+) {
+    const QString normalized = query.simplified();
+    if (normalized.isEmpty() || normalized.toUtf8().size() > 256 || maximum_regions < 1U
+        || maximum_regions > 8U || score_threshold_percent < 1U
+        || score_threshold_percent > 100U) {
+        owner_.setStatusMessage(ai_mask_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "Enter a semantic subject of at most 256 bytes"
+        )));
+        return false;
+    }
+    semantic_query_ = normalized;
+    semantic_maximum_regions_ = maximum_regions;
+    semantic_score_threshold_percent_ = score_threshold_percent;
+    if (beginSelection(AiMaskSelectionKind::SemanticQuery, prefer_current_node)) {
+        return true;
+    }
+    semantic_query_.clear();
+    return false;
+}
+
+bool EditAiMaskController::beginSelection(
+    const AiMaskSelectionKind kind,
+    const bool prefer_current_node
+) {
     if (active_) {
         return selection_kind_ == kind;
     }
@@ -422,7 +476,12 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
         ));
         return false;
     }
-    if (!owner_.active_ || owner_.interactionLocked() || !owner_.canAddGradeNode()) {
+    const auto* current_target = owner_.selectedGradeNode();
+    const bool can_use_current = prefer_current_node && current_target != nullptr
+                                 && current_target->enabled
+                                 && current_target->local_mask_kind == 0U;
+    if (!owner_.active_ || owner_.interactionLocked()
+        || (!can_use_current && !owner_.canAddGradeNode())) {
         owner_.setStatusMessage(ai_mask_message(
             QT_TRANSLATE_NOOP("EditController", "AI selection needs room for a new Grade Node")
         ));
@@ -443,9 +502,16 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
     const bool previous_busy = owner_.busy();
     const bool previously_locked = owner_.interactionLocked();
     const qsizetype previous_node_count = owner_.grade_stack_.grade_nodes.size();
-    owner_.addGradeNode();
+    if (!can_use_current) {
+        owner_.addGradeNode();
+    }
     const auto* const target = owner_.selectedGradeNode();
-    if (owner_.grade_stack_.grade_nodes.size() != previous_node_count + 1 || target == nullptr
+    const bool target_count_valid = can_use_current
+                                        ? owner_.grade_stack_.grade_nodes.size()
+                                              == previous_node_count
+                                        : owner_.grade_stack_.grade_nodes.size()
+                                              == previous_node_count + 1;
+    if (!target_count_valid || target == nullptr
         || !target->enabled || target->local_mask_kind != 0U) {
         try {
             backend_->finishSubjectMaskInputSession(input_session_token);
@@ -479,19 +545,25 @@ bool EditAiMaskController::beginPrompt(const AiMaskSelectionKind kind) {
     owner_.setStatusMessage(ai_mask_message(
         kind == AiMaskSelectionKind::FaceRegion
             ? QT_TRANSLATE_NOOP("EditController", "People details · detecting people…")
+        : kind == AiMaskSelectionKind::SemanticQuery
+            ? QT_TRANSLATE_NOOP("EditController", "Semantic Mask · locating %1…")
             : QT_TRANSLATE_NOOP(
                   "EditController",
                   "AI Mask · click the subject to add an include point"
-              )
+              ),
+        kind == AiMaskSelectionKind::SemanticQuery
+            ? std::initializer_list<LocalizedUiArgument>{semantic_query_}
+            : std::initializer_list<LocalizedUiArgument>{}
     ));
-    if (kind == AiMaskSelectionKind::FaceRegion) {
+    if (kind == AiMaskSelectionKind::FaceRegion || kind == AiMaskSelectionKind::SemanticQuery) {
         requestGeneration();
     }
     return true;
 }
 
 void EditAiMaskController::setForegroundMode(const bool foreground) {
-    if (!active_ || faceRegionMode() || busy() || foreground_mode_ == foreground) {
+    if (!active_ || faceRegionMode() || semanticMode() || busy()
+        || foreground_mode_ == foreground) {
         return;
     }
     foreground_mode_ = foreground;
@@ -545,7 +617,7 @@ void EditAiMaskController::toggleFaceRegion(const int region, const bool selecte
 }
 
 void EditAiMaskController::appendPoint(const double x, const double y, const bool foreground) {
-    if (!active_) {
+    if (!active_ || semanticMode()) {
         return;
     }
     if (faceRegionMode() && !prompt_state_.points().empty()) {
@@ -690,7 +762,8 @@ void EditAiMaskController::startGeneration() {
         publishStateChange(previous_busy, previously_locked);
         return;
     }
-    const auto snapshot = prompt_state_.begin_request(job_token, faceRegionMode());
+    const auto snapshot =
+        prompt_state_.begin_request(job_token, faceRegionMode() || semanticMode());
     if (!snapshot) {
         try {
             backend_->cancelSubjectMaskJob(job_token);
@@ -703,10 +776,13 @@ void EditAiMaskController::startGeneration() {
     }
     retireCandidate();
 
-    active_request_kind_ = faceRegionMode() ? people_discovery_complete_
-                                                  ? BackendSubjectMaskKind::PeopleRegions
-                                                  : BackendSubjectMaskKind::PeopleDiscovery
-                                            : BackendSubjectMaskKind::PromptedSubject;
+    active_request_kind_ = semanticMode()
+                               ? BackendSubjectMaskKind::SemanticQuery
+                           : faceRegionMode()
+                               ? people_discovery_complete_
+                                     ? BackendSubjectMaskKind::PeopleRegions
+                                     : BackendSubjectMaskKind::PeopleDiscovery
+                               : BackendSubjectMaskKind::PromptedSubject;
     BackendSubjectMaskRequest request{
         .input_session_token = context_->input_session_token,
         .job_token = snapshot->job_token,
@@ -718,6 +794,10 @@ void EditAiMaskController::startGeneration() {
         .kind = active_request_kind_,
         .person_index = selected_person_ < 0 ? 0U : static_cast<std::uint32_t>(selected_person_),
         .face_region_mask = face_region_mask_,
+        .semantic_query = semanticMode() ? semantic_query_ : QString{},
+        .semantic_maximum_regions = semanticMode() ? semantic_maximum_regions_ : std::uint8_t{0},
+        .semantic_score_threshold_percent =
+            semanticMode() ? semantic_score_threshold_percent_ : std::uint8_t{0},
     };
     request.points.reserve(static_cast<qsizetype>(snapshot->points.size()));
     for (const auto& point : snapshot->points) {
@@ -742,11 +822,15 @@ void EditAiMaskController::startGeneration() {
     );
     publishStateChange(previous_busy, previously_locked);
     owner_.setStatusMessage(ai_mask_message(
-        faceRegionMode()
+        semanticMode()
+            ? QT_TRANSLATE_NOOP("EditController", "Semantic Mask is locating %1…")
+        : faceRegionMode()
             ? active_request_kind_ == BackendSubjectMaskKind::PeopleDiscovery
                   ? QT_TRANSLATE_NOOP("EditController", "AI Mask is detecting people…")
                   : QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying facial details…")
-            : QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying the subject…")
+            : QT_TRANSLATE_NOOP("EditController", "AI Mask is identifying the subject…"),
+        semanticMode() ? std::initializer_list<LocalizedUiArgument>{semantic_query_}
+                       : std::initializer_list<LocalizedUiArgument>{}
     ));
 }
 
@@ -763,6 +847,10 @@ void EditAiMaskController::applyCandidate() {
         .target_grade_node_index = context_->target_grade_node_index,
         .target_grade_node_id = context_->target_grade_node_id,
         .invert = false,
+        .semantic_query = semanticMode() ? semantic_query_ : QString{},
+        .semantic_maximum_regions = semanticMode() ? semantic_maximum_regions_ : std::uint8_t{0},
+        .semantic_score_threshold_percent =
+            semanticMode() ? semantic_score_threshold_percent_ : std::uint8_t{0},
     };
     candidate_proposal_token_ = 0;
     candidate_generation_ = 0;
@@ -817,6 +905,9 @@ void EditAiMaskController::resetContext() {
     active_ = false;
     foreground_mode_ = true;
     selection_kind_ = AiMaskSelectionKind::PromptedSubject;
+    semantic_query_.clear();
+    semantic_maximum_regions_ = 4U;
+    semantic_score_threshold_percent_ = 30U;
     people_.clear();
     selected_person_ = -1;
     face_region_mask_ = 1U;
@@ -856,7 +947,11 @@ void EditAiMaskController::finishExecution() {
         return;
     case BackendSubjectMaskTerminal::Unavailable:
         owner_.setStatusMessage(ai_mask_message(
-            faceRegionMode() ? QT_TRANSLATE_NOOP(
+            semanticMode() ? QT_TRANSLATE_NOOP(
+                                  "EditController",
+                                  "Semantic Mask is unavailable or found no match · check Infer Runtime · %1"
+                              )
+            : faceRegionMode() ? QT_TRANSLATE_NOOP(
                                    "EditController",
                                    "Local face parsing is unavailable · check Infer Runtime · %1"
                                )
@@ -930,7 +1025,11 @@ void EditAiMaskController::finishExecution() {
         people_ = task.result.people;
     }
     owner_.setStatusMessage(ai_mask_message(
-        faceRegionMode() ? QT_TRANSLATE_NOOP(
+        semanticMode() ? QT_TRANSLATE_NOOP(
+                             "EditController",
+                             "Semantic candidate ready · confirm or cancel"
+                         )
+        : faceRegionMode() ? QT_TRANSLATE_NOOP(
                                "EditController",
                                "Facial detail candidate ready · choose another region or apply"
                            )
@@ -966,9 +1065,14 @@ void EditAiMaskController::finishApply() {
 
     const BackendGradeStack before = owner_.grade_stack_;
     const QString target_grade_node_id = context_->target_grade_node_id;
+    const bool applied_semantic = semanticMode();
+    const QString applied_semantic_query = semantic_query_;
     active_ = false;
     foreground_mode_ = true;
     selection_kind_ = AiMaskSelectionKind::PromptedSubject;
+    semantic_query_.clear();
+    semantic_maximum_regions_ = 4U;
+    semantic_score_threshold_percent_ = 30U;
     people_.clear();
     selected_person_ = -1;
     face_region_mask_ = 1U;
@@ -977,9 +1081,17 @@ void EditAiMaskController::finishApply() {
     retireInputSession();
     context_.reset();
     owner_.applySubjectMaskState(std::move(task.state), before, target_grade_node_id);
-    owner_.setStatusMessage(
-        ai_mask_message(QT_TRANSLATE_NOOP("EditController", "AI Mask applied · Undo is available"))
-    );
+    owner_.setStatusMessage(ai_mask_message(
+        applied_semantic
+            ? QT_TRANSLATE_NOOP(
+                  "EditController",
+                  "Semantic Mask for %1 applied · copying reruns it on the target photo"
+              )
+            : QT_TRANSLATE_NOOP("EditController", "AI Mask applied · Undo is available"),
+        applied_semantic
+            ? std::initializer_list<LocalizedUiArgument>{applied_semantic_query}
+            : std::initializer_list<LocalizedUiArgument>{}
+    ));
     publishStateChange(previous_busy, previously_locked);
 }
 
@@ -1017,6 +1129,9 @@ bool EditAiMaskController::hasForegroundPoint() const noexcept {
 }
 
 bool EditAiMaskController::selectionReady() const noexcept {
+    if (semanticMode()) {
+        return !semantic_query_.isEmpty();
+    }
     if (!faceRegionMode()) {
         return hasForegroundPoint();
     }

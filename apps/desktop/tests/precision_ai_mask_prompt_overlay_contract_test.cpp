@@ -154,6 +154,7 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("interactionEnabled"), true},
         {QStringLiteral("busy"), false},
         {QStringLiteral("faceRegionMode"), false},
+        {QStringLiteral("semanticMode"), false},
         {QStringLiteral("foregroundMode"), true},
         {QStringLiteral("promptPoints"), initial_points},
         {QStringLiteral("foregroundColor"), QColor{QStringLiteral("#73c48b")}},

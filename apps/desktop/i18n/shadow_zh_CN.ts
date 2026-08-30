@@ -251,6 +251,38 @@
 <context>
     <name>EditController</name>
     <message>
+        <source>Enter a semantic subject of at most 256 bytes</source>
+        <translation>请输入不超过 256 字节的语义主体</translation>
+    </message>
+    <message>
+        <source>Re-evaluating copied Semantic Mask on this photo…</source>
+        <translation>正在此照片上重新计算复制的语义蒙版…</translation>
+    </message>
+    <message>
+        <source>Semantic Mask for %1 applied · copying reruns it on the target photo</source>
+        <translation>已应用“%1”的语义蒙版 · 复制时将在目标照片上重新计算</translation>
+    </message>
+    <message>
+        <source>Semantic Mask is locating %1…</source>
+        <translation>语义蒙版正在定位“%1”…</translation>
+    </message>
+    <message>
+        <source>Semantic Mask is unavailable or found no match · check Infer Runtime · %1</source>
+        <translation>语义蒙版不可用或未找到匹配项 · 请检查 Infer Runtime · %1</translation>
+    </message>
+    <message>
+        <source>Semantic Mask · locating %1…</source>
+        <translation>语义蒙版 · 正在定位“%1”…</translation>
+    </message>
+    <message>
+        <source>Semantic candidate ready · confirm or cancel</source>
+        <translation>语义候选已就绪 · 请确认或取消</translation>
+    </message>
+    <message>
+        <source>This AI mask has no reusable semantic instruction</source>
+        <translation>此 AI 蒙版没有可复用的语义指令</translation>
+    </message>
+    <message>
         <location filename="../src/edit_ai_mask_controller.cpp" line="585"/>
         <location filename="../src/edit_ai_mask_controller.cpp" line="602"/>
         <source>AI Mask · click the subject to select it</source>
@@ -5489,6 +5521,82 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PrecisionWorkspace</name>
+    <message>
+        <source>AI semantic</source>
+        <translation>AI 语义</translation>
+    </message>
+    <message>
+        <source>Background</source>
+        <translation>背景</translation>
+    </message>
+    <message>
+        <source>Building</source>
+        <translation>建筑</translation>
+    </message>
+    <message>
+        <source>Choose what the mask should follow. Copying this mask reruns the same meaning on the target photo.</source>
+        <translation>选择蒙版要跟随的内容。复制蒙版时，会在目标照片上按相同含义重新计算。</translation>
+    </message>
+    <message>
+        <source>Create a semantic mask that can be re-evaluated on another photo</source>
+        <translation>创建可在其他照片上重新计算的语义蒙版</translation>
+    </message>
+    <message>
+        <source>Custom subject, for example: red train</source>
+        <translation>自定义主体，例如：红色火车</translation>
+    </message>
+    <message>
+        <source>Locating semantic subject…</source>
+        <translation>正在定位语义主体…</translation>
+    </message>
+    <message>
+        <source>Looking for “%1”. Preview the result before applying it; no photo pixels are copied from another image.</source>
+        <translation>正在查找“%1”。请先预览再应用；不会从其他照片复制像素。</translation>
+    </message>
+    <message>
+        <source>Person</source>
+        <translation>人物</translation>
+    </message>
+    <message>
+        <source>Preview semantic mask</source>
+        <translation>预览语义蒙版</translation>
+    </message>
+    <message>
+        <source>SEMANTIC MASK</source>
+        <translation>语义蒙版</translation>
+    </message>
+    <message>
+        <source>Selection was not generated · retry semantic mask</source>
+        <translation>未生成选择 · 请重试语义蒙版</translation>
+    </message>
+    <message>
+        <source>Semantic selection needs retry</source>
+        <translation>语义选择需要重试</translation>
+    </message>
+    <message>
+        <source>Semantic selection preview · confirm or cancel</source>
+        <translation>语义选择预览 · 请确认或取消</translation>
+    </message>
+    <message>
+        <source>Sky</source>
+        <translation>天空</translation>
+    </message>
+    <message>
+        <source>The accepted pixels stay with this photo; the semantic instruction is re-evaluated when copied.</source>
+        <translation>已接受的像素仅属于此照片；复制时会重新计算语义指令。</translation>
+    </message>
+    <message>
+        <source>Vegetation</source>
+        <translation>植被</translation>
+    </message>
+    <message>
+        <source>Vehicle</source>
+        <translation>车辆</translation>
+    </message>
+    <message>
+        <source>Water</source>
+        <translation>水体</translation>
+    </message>
     <message>
         <location filename="../qml/PrecisionAiMaskPromptOverlay.qml" line="36"/>
         <source>Updating selection…</source>

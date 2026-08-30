@@ -17,6 +17,7 @@ Popup {
     property string openedPhotoId: ""
     property string openedRepresentationId: ""
     property string openedGradeNodeId: ""
+    property bool semanticExpanded: false
     readonly property int currentNodeDestination: 0
     readonly property int newNodeDestination: 1
     readonly property int currentMaskKind: Number(menu.editor.selectedLocalMask.kind || 0)
@@ -72,6 +73,15 @@ Popup {
             ? menu.editor.beginAiFaceMaskPrompt()
             : menu.editor.beginAiMaskPrompt();
         if (started) {
+            menu.close();
+            menu.aiMaskRequested();
+        }
+    }
+
+    function startSemanticMask(query) {
+        if (!newNodeAvailable || query.trim().length === 0)
+            return;
+        if (menu.editor.beginAiSemanticMask(query.trim())) {
             menu.close();
             menu.aiMaskRequested();
         }
@@ -295,6 +305,26 @@ Popup {
             enabled: menu.newNodeAvailable
             toolTipText: qsTr("Create a new Grade Node and select facial features")
             onClicked: menu.startAiMask(true)
+        }
+
+        ShadowButton {
+            objectName: "aiSemanticMaskAction"
+            Layout.fillWidth: true
+            text: qsTr("AI semantic")
+            variant: menu.semanticExpanded ? ShadowButton.Primary : ShadowButton.Secondary
+            enabled: menu.newNodeAvailable
+            toolTipText: qsTr("Create a semantic mask that can be re-evaluated on another photo")
+            onClicked: menu.semanticExpanded = !menu.semanticExpanded
+        }
+
+        PrecisionSemanticMaskPanel {
+            objectName: "semanticMaskCreationPanel"
+            Layout.fillWidth: true
+            Layout.leftMargin: 6
+            Layout.rightMargin: 6
+            visible: menu.semanticExpanded
+            startEnabled: menu.newNodeAvailable
+            onStartRequested: query => menu.startSemanticMask(query)
         }
 
         MaskAction {
