@@ -5,9 +5,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// The tool edits the selected node's one current selector. Creation and node
-// assignment live in PrecisionMaskCreateMenu; this surface owns only mask
-// geometry and in-session copy/paste.
+// One node-bound mask owns an ordered component vector. This surface selects
+// and edits one leaf while the renderer supplies either that leaf's exact
+// coverage or the final composed coverage.
 ColumnLayout {
     id: localMask
 
@@ -22,6 +22,20 @@ ColumnLayout {
     readonly property bool nodeEditable: inspector.editor.active && inspector.editor.hasSelectedGradeNode && inspector.editor.gradeNodeEnabled && !inspector.editor.stateBusy
     readonly property string kindLabel: kind === 1 ? qsTr("Linear gradient") : kind === 2 ? qsTr("Radial gradient") : kind === 3 ? qsTr("Brush") : kind === 4 ? qsTr("Luminance range") : kind === 5 ? qsTr("Color range") : kind === 6 ? qsTr("AI mask") : qsTr("No mask")
     readonly property url kindIcon: kind === 1 ? "qrc:/icons/mask-linear.svg" : kind === 2 ? "qrc:/icons/mask-radial.svg" : kind === 3 ? "qrc:/icons/brush.svg" : kind === 4 ? "qrc:/icons/mask-luminance-range.svg" : kind === 5 ? "qrc:/icons/mask-color-range.svg" : kind === 6 ? "qrc:/icons/mask.svg" : "qrc:/icons/mask-create.svg"
+
+    function operationLabel(operation) {
+        return operation === 0 ? qsTr("Base")
+            : operation === 1 ? qsTr("Add")
+            : operation === 2 ? qsTr("Subtract") : qsTr("Intersect")
+    }
+
+    function componentKindLabel(kindValue) {
+        return kindValue === 1 ? qsTr("Linear gradient")
+            : kindValue === 2 ? qsTr("Radial gradient")
+            : kindValue === 3 ? qsTr("Brush")
+            : kindValue === 4 ? qsTr("Luminance range")
+            : kindValue === 5 ? qsTr("Color range") : qsTr("AI mask")
+    }
 
     spacing: 8
 
@@ -191,6 +205,141 @@ ColumnLayout {
         onResetRequested:
             localMask.inspector.editor.resetSelectedLocalMask()
 
+        ColumnLayout {
+            objectName: "maskComponentList"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            spacing: 4
+            visible: localMask.inspector.editor.localMaskComponents.length > 0
+
+            Repeater {
+                model: localMask.inspector.editor.localMaskComponents
+
+                delegate: Rectangle {
+                    id: componentRow
+                    required property int index
+                    required property var modelData
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 38
+                    radius: 6
+                    color: componentRow.modelData.selected
+                        ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
+                    border.width: componentRow.modelData.selected ? 1 : 0
+                    border.color: Theme.accentBorder
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 9
+                        anchors.rightMargin: 8
+                        spacing: 7
+
+                        Label {
+                            text: localMask.operationLabel(componentRow.modelData.operation)
+                            color: componentRow.modelData.enabled
+                                ? Theme.textSecondary : Theme.textDisabled
+                            font.pixelSize: 9
+                            font.weight: Font.DemiBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: localMask.componentKindLabel(componentRow.modelData.kind)
+                            color: componentRow.modelData.enabled
+                                ? Theme.textPrimary : Theme.textDisabled
+                            font.pixelSize: 10
+                            elide: Text.ElideRight
+                        }
+                        ShadowSwitch {
+                            compact: true
+                            checked: Boolean(componentRow.modelData.enabled)
+                            enabled: localMask.nodeEditable
+                            Accessible.name: qsTr("Enable mask component")
+                            onClicked: {
+                                localMask.inspector.editor.selectLocalMaskComponent(componentRow.index)
+                                localMask.inspector.editor.setSelectedLocalMaskComponentEnabled(checked)
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.rightMargin: 42
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: localMask.inspector.editor.selectLocalMaskComponent(componentRow.index)
+                    }
+                }
+            }
+        }
+
+        RowLayout {
+            objectName: "maskCoverageModeSelector"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: localMask.activeMask
+            spacing: 6
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Overlay")
+                color: Theme.textSecondary
+                font.pixelSize: 10
+            }
+            ShadowButton {
+                compact: true
+                text: qsTr("Selected")
+                variant: localMask.inspector.editor.maskCoverageShowsSelectedComponent
+                    ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: localMask.inspector.editor.maskCoverageShowsSelectedComponent = true
+            }
+            ShadowButton {
+                compact: true
+                text: qsTr("Combined")
+                variant: !localMask.inspector.editor.maskCoverageShowsSelectedComponent
+                    ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: localMask.inspector.editor.maskCoverageShowsSelectedComponent = false
+            }
+        }
+
+        RowLayout {
+            objectName: "selectedMaskComponentOperationSelector"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: localMask.activeMask
+                && Number(localMask.mask.componentIndex || 0) > 0
+            spacing: 4
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Combine")
+                color: Theme.textSecondary
+                font.pixelSize: 10
+            }
+            ShadowButton {
+                compact: true
+                text: qsTr("Add")
+                variant: Number(localMask.mask.operation) === 1
+                    ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: localMask.inspector.editor.setSelectedLocalMaskComponentOperation(1)
+            }
+            ShadowButton {
+                compact: true
+                text: qsTr("Subtract")
+                variant: Number(localMask.mask.operation) === 2
+                    ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: localMask.inspector.editor.setSelectedLocalMaskComponentOperation(2)
+            }
+            ShadowButton {
+                compact: true
+                text: qsTr("Intersect")
+                variant: Number(localMask.mask.operation) === 3
+                    ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: localMask.inspector.editor.setSelectedLocalMaskComponentOperation(3)
+            }
+        }
+
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
@@ -236,10 +385,11 @@ ColumnLayout {
                 iconSize: 19
                 source: "qrc:/icons/trash.svg"
                 variant: ShadowIconButton.Danger
-                toolTipText: qsTr("Remove this node mask")
+                toolTipText: Number(localMask.mask.componentCount || 0) > 1
+                    ? qsTr("Remove selected mask component") : qsTr("Remove this node mask")
                 accessibleName: toolTipText
                 enabled: localMask.nodeEditable
-                onClicked: localMask.inspector.editor.setSelectedLocalMask(0)
+                onClicked: localMask.inspector.editor.removeSelectedLocalMaskComponent()
             }
         }
 
@@ -436,21 +586,49 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Invert")
+                text: qsTr("Invert selected component")
                 color: Theme.textSecondary
                 font.pixelSize: 10
             }
 
             ShadowSwitch {
-                id: invertSwitch
+                id: leafInvertSwitch
 
                 Layout.preferredWidth: 36
                 Layout.preferredHeight: 22
                 compact: true
                 accentColor: localMask.inspector.accent
-                checked: Boolean(localMask.mask.inverted)
+                checked: Boolean(localMask.mask.leafInverted)
                 enabled: localMask.nodeEditable
-                Accessible.name: qsTr("Invert node mask")
+                Accessible.name: qsTr("Invert selected mask component")
+                onClicked: localMask.inspector.editor.setSelectedLocalMaskLeafInverted(checked)
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: localMask.activeMask
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Invert combined result")
+                color: Theme.textSecondary
+                font.pixelSize: 10
+            }
+
+            ShadowSwitch {
+                id: finalInvertSwitch
+
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 22
+                compact: true
+                accentColor: localMask.inspector.accent
+                checked: Boolean(localMask.mask.finalInverted)
+                enabled: localMask.nodeEditable
+                Accessible.name: qsTr("Invert combined node mask")
                 onClicked: localMask.inspector.editor.setSelectedLocalMaskInverted(checked)
             }
         }

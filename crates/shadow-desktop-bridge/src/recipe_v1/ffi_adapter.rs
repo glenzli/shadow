@@ -12,9 +12,10 @@ use shadow_bridge::{
     SELECTIVE_COLOR_VALUE_COUNT, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
-    ImageCompletionRegion, LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS,
-    ManagedImageCompletionPatch, MaskBrushPoint, MaskDefinition, NodeId, PhotoCanvasNode,
-    PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
+    EntityId, ImageCompletionRegion, LayerId, LayerInstanceId, LayerRevisionId,
+    MAX_MASK_BRUSH_POINTS, MAX_MASK_COMPONENTS, ManagedImageCompletionPatch, MaskBrushPoint,
+    MaskComponent, MaskComponentId, MaskComponentOperation, MaskDefinition, NodeId,
+    PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoQuarterTurn,
     RAW_WHITE_BALANCE_DEFAULT_TEMPERATURE_KELVIN, RawFoundationDenoise, RawFoundationDenoiseModel,
     RawTemperatureTint, RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RetouchMode,
     RetouchPoint, RetouchSpot, RetouchStroke, SemanticMaskAggregation, SemanticMaskIntent,
@@ -24,8 +25,9 @@ use shadow_domain::{
 use crate::ffi;
 
 use super::{
-    FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft,
-    LutEditParameters, MAX_GRADE_NODES, PreservedManagedRasterSettings, SharedGradeNodeReference,
+    CompositeMaskDraft, FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity,
+    GradeStackDraft, LutEditParameters, MAX_GRADE_NODES, MaskComponentDraft,
+    MaskComponentDraftDefinition, PreservedManagedRasterSettings, SharedGradeNodeReference,
     grade_stack_recipe_v1_snapshot, point_color_ranges_from_vector_optional,
     recipe_color_grading_render_op_id, recipe_finishing_effects_render_op_id,
     recipe_v1_oklab_color_warper_render_op_id, recipe_v1_oklab_lightness_tone_curve_render_op_id,
@@ -189,6 +191,9 @@ fn ffi_local_mask_fields(
                 "the current Qt Grade Node DTO cannot represent composite, chroma-qualified, or local-detail condition masks"
             )
         }
+        Some(MaskDefinition::Composite { .. }) => {
+            bail!("a composite mask must project through the typed component vector")
+        }
         Some(MaskDefinition::ManagedRaster {
             expansion_percent,
             feather_percent,
@@ -236,76 +241,71 @@ fn exact_managed_raster_percent(
 // variant shares the same validation and managed-raster preservation policy.
 #[allow(clippy::too_many_lines)]
 fn local_mask_definition_from_ffi(
-    grade_node: &ffi::FfiGradeNode,
-    index: usize,
+    component: &ffi::FfiMaskComponent,
+    grade_node_index: usize,
+    component_index: usize,
 ) -> AnyResult<(
     Option<MaskDefinition>,
     Option<PreservedManagedRasterSettings>,
 )> {
-    if grade_node.local_mask_kind != LOCAL_MASK_MANAGED_RASTER
-        && (!grade_node.local_mask_semantic_query.is_empty()
-            || grade_node.local_mask_semantic_maximum_regions != 0
-            || grade_node.local_mask_semantic_score_threshold_percent != 0)
+    let location = format!("Grade Node {grade_node_index} mask component {component_index}");
+    if component.kind != LOCAL_MASK_MANAGED_RASTER
+        && (!component.semantic_query.is_empty()
+            || component.semantic_maximum_regions != 0
+            || component.semantic_score_threshold_percent != 0)
     {
-        bail!("Grade Node {index} carries semantic intent without a managed raster mask");
+        bail!("{location} carries semantic intent without a managed raster mask");
     }
-    if grade_node.local_mask_kind == LOCAL_MASK_MANAGED_RASTER
-        && grade_node.local_mask_semantic_query.is_empty()
-        && (grade_node.local_mask_semantic_maximum_regions != 0
-            || grade_node.local_mask_semantic_score_threshold_percent != 0)
+    if component.kind == LOCAL_MASK_MANAGED_RASTER
+        && component.semantic_query.is_empty()
+        && (component.semantic_maximum_regions != 0
+            || component.semantic_score_threshold_percent != 0)
     {
-        bail!("Grade Node {index} has semantic bounds without a semantic query");
+        bail!("{location} has semantic bounds without a semantic query");
     }
     let unit = |name: &str, value: f64| {
-        UnitInterval::new(value)
-            .with_context(|| format!("Grade Node {index} local mask {name} must be in [0, 1]"))
+        UnitInterval::new(value).with_context(|| format!("{location} {name} must be in [0, 1]"))
     };
-    match grade_node.local_mask_kind {
-        LOCAL_MASK_NONE => Ok((None, None)),
+    match component.kind {
+        LOCAL_MASK_NONE => bail!("{location} cannot use the empty mask kind"),
         LOCAL_MASK_LINEAR_GRADIENT => Ok((
             Some(MaskDefinition::linear_gradient(
-                unit("start x", grade_node.local_mask_x0)?,
-                unit("start y", grade_node.local_mask_y0)?,
-                unit("end x", grade_node.local_mask_x1)?,
-                unit("end y", grade_node.local_mask_y1)?,
-                grade_node.local_mask_invert,
+                unit("start x", component.x0)?,
+                unit("start y", component.y0)?,
+                unit("end x", component.x1)?,
+                unit("end y", component.y1)?,
+                component.leaf_invert,
             )?),
             None,
         )),
         LOCAL_MASK_RADIAL_GRADIENT => Ok((
             Some(MaskDefinition::radial_gradient(
-                unit("center x", grade_node.local_mask_x0)?,
-                unit("center y", grade_node.local_mask_y0)?,
-                unit("radius x", grade_node.local_mask_radius_x)?,
-                unit("radius y", grade_node.local_mask_radius_y)?,
-                unit("feather", grade_node.local_mask_feather)?,
-                grade_node.local_mask_invert,
+                unit("center x", component.x0)?,
+                unit("center y", component.y0)?,
+                unit("radius x", component.radius_x)?,
+                unit("radius y", component.radius_y)?,
+                unit("feather", component.feather)?,
+                component.leaf_invert,
             )?),
             None,
         )),
         LOCAL_MASK_BRUSH => {
-            if !grade_node.local_mask_brush_points.len().is_multiple_of(3) {
-                bail!("Grade Node {index} brush mask must contain x/y/stroke triples");
+            if !component.brush_points.len().is_multiple_of(3) {
+                bail!("{location} brush mask must contain x/y/stroke triples");
             }
-            let point_count = grade_node.local_mask_brush_points.len() / 3;
+            let point_count = component.brush_points.len() / 3;
             if point_count > MAX_MASK_BRUSH_POINTS {
                 bail!(
-                    "Grade Node {index} brush mask contains {point_count} points, but at most {MAX_MASK_BRUSH_POINTS} are supported"
+                    "{location} brush mask contains {point_count} points, but at most {MAX_MASK_BRUSH_POINTS} are supported"
                 );
             }
             let mut points = Vec::with_capacity(point_count);
-            for (point_index, point) in grade_node
-                .local_mask_brush_points
-                .chunks_exact(3)
-                .enumerate()
-            {
+            for (point_index, point) in component.brush_points.chunks_exact(3).enumerate() {
                 let begins_stroke = match point[2] {
                     0.0 => false,
                     1.0 => true,
                     _ => {
-                        bail!(
-                            "Grade Node {index} brush point {point_index} has an invalid stroke marker"
-                        )
+                        bail!("{location} brush point {point_index} has an invalid stroke marker")
                     }
                 };
                 points.push(MaskBrushPoint::new(
@@ -317,36 +317,36 @@ fn local_mask_definition_from_ffi(
             Ok((
                 Some(MaskDefinition::brush(
                     points,
-                    unit("brush radius", grade_node.local_mask_radius_x)?,
-                    unit("brush feather", grade_node.local_mask_feather)?,
-                    grade_node.local_mask_invert,
+                    unit("brush radius", component.radius_x)?,
+                    unit("brush feather", component.feather)?,
+                    component.leaf_invert,
                 )?),
                 None,
             ))
         }
         LOCAL_MASK_LUMINANCE_RANGE => Ok((
             Some(MaskDefinition::luminance_range(
-                unit("luminance lower bound", grade_node.local_mask_x0)?,
-                unit("luminance upper bound", grade_node.local_mask_x1)?,
-                unit("luminance softness", grade_node.local_mask_feather)?,
-                grade_node.local_mask_invert,
+                unit("luminance lower bound", component.x0)?,
+                unit("luminance upper bound", component.x1)?,
+                unit("luminance softness", component.feather)?,
+                component.leaf_invert,
             )?),
             None,
         )),
         LOCAL_MASK_COLOR_RANGE => Ok((
             Some(MaskDefinition::color_range(
-                unit("color center", grade_node.local_mask_x0)?.get() * 360.0,
-                unit("color width", grade_node.local_mask_x1)?.get() * 180.0,
-                unit("color softness", grade_node.local_mask_feather)?,
-                grade_node.local_mask_invert,
+                unit("color center", component.x0)?.get() * 360.0,
+                unit("color width", component.x1)?.get() * 180.0,
+                unit("color softness", component.feather)?,
+                component.leaf_invert,
             )?),
             None,
         )),
         LOCAL_MASK_MANAGED_RASTER => {
             let expansion_percent =
-                exact_managed_raster_percent("expansion", grade_node.local_mask_x0, -1.0, 1.0)?;
+                exact_managed_raster_percent("expansion", component.x0, -1.0, 1.0)?;
             let feather_percent =
-                exact_managed_raster_percent("feather", grade_node.local_mask_feather, 0.0, 1.0)?;
+                exact_managed_raster_percent("feather", component.feather, 0.0, 1.0)?;
             Ok((
                 None,
                 Some(PreservedManagedRasterSettings {
@@ -354,22 +354,228 @@ fn local_mask_definition_from_ffi(
                         .context("managed raster expansion percentage exceeds i8")?,
                     feather_percent: u8::try_from(feather_percent)
                         .context("managed raster feather percentage exceeds u8")?,
-                    invert: grade_node.local_mask_invert,
-                    semantic_intent: if grade_node.local_mask_semantic_query.is_empty() {
+                    invert: component.leaf_invert,
+                    semantic_intent: if component.semantic_query.is_empty() {
                         None
                     } else {
                         Some(SemanticMaskIntent::new(
-                            grade_node.local_mask_semantic_query.clone(),
-                            grade_node.local_mask_semantic_maximum_regions,
-                            grade_node.local_mask_semantic_score_threshold_percent,
+                            component.semantic_query.clone(),
+                            component.semantic_maximum_regions,
+                            component.semantic_score_threshold_percent,
                             SemanticMaskAggregation::Union,
                         )?)
                     },
                 }),
             ))
         }
-        other => bail!("Grade Node {index} has unsupported local mask kind {other}"),
+        other => bail!("{location} has unsupported local mask kind {other}"),
     }
+}
+
+fn mask_component_operation_from_ffi(
+    value: u8,
+    grade_node_index: usize,
+    component_index: usize,
+) -> AnyResult<MaskComponentOperation> {
+    match value {
+        0 => Ok(MaskComponentOperation::Base),
+        1 => Ok(MaskComponentOperation::Add),
+        2 => Ok(MaskComponentOperation::Subtract),
+        3 => Ok(MaskComponentOperation::Intersect),
+        other => bail!(
+            "Grade Node {grade_node_index} mask component {component_index} has unsupported operation {other}"
+        ),
+    }
+}
+
+fn mask_component_operation_ffi(operation: MaskComponentOperation) -> u8 {
+    match operation {
+        MaskComponentOperation::Base => 0,
+        MaskComponentOperation::Add => 1,
+        MaskComponentOperation::Subtract => 2,
+        MaskComponentOperation::Intersect => 3,
+    }
+}
+
+fn composite_mask_from_ffi(
+    grade_node: &ffi::FfiGradeNode,
+    grade_node_index: usize,
+) -> AnyResult<Option<CompositeMaskDraft>> {
+    if grade_node.local_mask_components.is_empty() {
+        if grade_node.local_mask_invert {
+            bail!("Grade Node {grade_node_index} cannot invert an empty local mask");
+        }
+        return Ok(None);
+    }
+    if grade_node.local_mask_components.len() > MAX_MASK_COMPONENTS {
+        bail!(
+            "Grade Node {grade_node_index} contains {} mask components, but at most {MAX_MASK_COMPONENTS} are supported",
+            grade_node.local_mask_components.len()
+        );
+    }
+    let mut component_ids =
+        std::collections::HashSet::with_capacity(grade_node.local_mask_components.len());
+    let components = grade_node
+        .local_mask_components
+        .iter()
+        .enumerate()
+        .map(|(component_index, component)| {
+            let id = component
+                .component_id
+                .parse::<MaskComponentId>()
+                .with_context(|| {
+                    format!(
+                        "parse Grade Node {grade_node_index} mask component {component_index} id {:?}",
+                        component.component_id
+                    )
+                })?;
+            if !component_ids.insert(id) {
+                bail!(
+                    "Grade Node {grade_node_index} contains duplicate mask component id {id}"
+                );
+            }
+            let operation = mask_component_operation_from_ffi(
+                component.operation,
+                grade_node_index,
+                component_index,
+            )?;
+            if (component_index == 0 && operation != MaskComponentOperation::Base)
+                || (component_index > 0 && operation == MaskComponentOperation::Base)
+            {
+                bail!(
+                    "Grade Node {grade_node_index} mask component {component_index} has an invalid operation order"
+                );
+            }
+            let (definition, preserved_managed_raster) =
+                local_mask_definition_from_ffi(component, grade_node_index, component_index)?;
+            let definition = match (definition, preserved_managed_raster) {
+                (Some(definition), None) => {
+                    MaskComponent::new(id, operation, component.enabled, definition.clone())
+                        .with_context(|| {
+                            format!(
+                                "validate Grade Node {grade_node_index} mask component {component_index}"
+                            )
+                        })?;
+                    MaskComponentDraftDefinition::Definition(definition)
+                }
+                (None, Some(settings)) => {
+                    MaskComponentDraftDefinition::PreservedManagedRaster(settings)
+                }
+                _ => bail!(
+                    "Grade Node {grade_node_index} mask component {component_index} has an ambiguous leaf representation"
+                ),
+            };
+            Ok(MaskComponentDraft {
+                id,
+                operation,
+                enabled: component.enabled,
+                definition,
+            })
+        })
+        .collect::<AnyResult<Vec<_>>>()?;
+    Ok(Some(CompositeMaskDraft {
+        components,
+        invert: grade_node.local_mask_invert,
+    }))
+}
+
+fn ffi_mask_component(
+    id: MaskComponentId,
+    operation: MaskComponentOperation,
+    enabled: bool,
+    definition: &MaskComponentDraftDefinition,
+) -> AnyResult<ffi::FfiMaskComponent> {
+    let (mask, preserved) = match definition {
+        MaskComponentDraftDefinition::Definition(definition) => (Some(definition), None),
+        MaskComponentDraftDefinition::PreservedManagedRaster(settings) => (None, Some(settings)),
+    };
+    let semantic_intent = mask
+        .and_then(MaskDefinition::semantic_intent)
+        .or_else(|| preserved.and_then(|settings| settings.semantic_intent.as_ref()));
+    let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, leaf_invert, brush_points) =
+        ffi_local_mask_fields(mask, preserved)?;
+    if kind == LOCAL_MASK_NONE {
+        bail!("a typed mask component cannot project an empty leaf");
+    }
+    Ok(ffi::FfiMaskComponent {
+        component_id: id.to_string(),
+        operation: mask_component_operation_ffi(operation),
+        enabled,
+        kind,
+        x0,
+        y0,
+        x1,
+        y1,
+        radius_x,
+        radius_y,
+        feather,
+        leaf_invert,
+        brush_points,
+        semantic_query: semantic_intent
+            .map_or_else(String::new, |intent| intent.query().to_owned()),
+        semantic_maximum_regions: semantic_intent.map_or(0, SemanticMaskIntent::maximum_regions),
+        semantic_score_threshold_percent: semantic_intent
+            .map_or(0, SemanticMaskIntent::score_threshold_percent),
+    })
+}
+
+fn ffi_mask_components(
+    grade_node: &GradeNodeDraft,
+) -> AnyResult<(Vec<ffi::FfiMaskComponent>, bool)> {
+    if let Some(composite) = &grade_node.composite_mask {
+        return Ok((
+            composite
+                .components
+                .iter()
+                .map(|component| {
+                    ffi_mask_component(
+                        component.id,
+                        component.operation,
+                        component.enabled,
+                        &component.definition,
+                    )
+                })
+                .collect::<AnyResult<Vec<_>>>()?,
+            composite.invert,
+        ));
+    }
+    if let Some(MaskDefinition::Composite { composite }) = grade_node.local_mask.as_ref() {
+        return Ok((
+            composite
+                .components()
+                .iter()
+                .map(|component| {
+                    ffi_mask_component(
+                        component.id(),
+                        component.operation(),
+                        component.enabled(),
+                        &MaskComponentDraftDefinition::Definition(component.definition().clone()),
+                    )
+                })
+                .collect::<AnyResult<Vec<_>>>()?,
+            composite.invert(),
+        ));
+    }
+    let definition = match (
+        grade_node.local_mask.as_ref(),
+        grade_node.preserved_managed_raster.as_ref(),
+    ) {
+        (None, None) => return Ok((Vec::new(), false)),
+        (Some(definition), None) => MaskComponentDraftDefinition::Definition(definition.clone()),
+        (None, Some(settings)) => {
+            MaskComponentDraftDefinition::PreservedManagedRaster(settings.clone())
+        }
+        (Some(_), Some(_)) => bail!("Grade Node cannot project two local-mask representations"),
+    };
+    Ok((
+        vec![ffi_mask_component(
+            MaskComponentId::from_uuid(uuid::Uuid::new_v4()),
+            MaskComponentOperation::Base,
+            true,
+            &definition,
+        )?],
+        false,
+    ))
 }
 
 fn photo_geometry_from_ffi(geometry: &ffi::FfiPhotoGeometry) -> AnyResult<PhotoGeometry> {
@@ -737,6 +943,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
     // materialize it from the supplied base before rendering or persistence.
     let mut graph_validation = grade_stack.clone();
     for grade_node in &mut graph_validation.grade_nodes {
+        grade_node.composite_mask = None;
         grade_node.preserved_managed_raster = None;
     }
     grade_stack_recipe_v1_snapshot(&graph_validation, None)
@@ -786,7 +993,7 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
         }),
         _ => bail!("Grade Node {index} has an incomplete shared-node reference"),
     };
-    let (local_mask, preserved_managed_raster) = local_mask_definition_from_ffi(grade_node, index)?;
+    let composite_mask = composite_mask_from_ffi(grade_node, index)?;
     Ok(GradeNodeDraft {
         recipe_v1_identity: GradeNodeRecipeV1Identity {
             grade_node_id,
@@ -826,8 +1033,9 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
             finishing_effects_render_op_id: recipe_finishing_effects_render_op_id(grade_node_id),
         },
         shared,
-        local_mask,
-        preserved_managed_raster,
+        local_mask: None,
+        composite_mask,
+        preserved_managed_raster: None,
         label: grade_node.label.clone(),
         opacity: UnitInterval::new(grade_node.opacity)
             .with_context(|| format!("validate Grade Node {index} opacity"))?,
@@ -1257,60 +1465,18 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
 pub(crate) fn encode_grade_node_draft_recipe_v1(
     grade_node: GradeNodeDraft,
 ) -> AnyResult<ffi::FfiGradeNode> {
+    let (local_mask_components, local_mask_invert) = ffi_mask_components(&grade_node)?;
     let identity = grade_node.recipe_v1_identity;
     let (shared_layer_id, shared_revision_id) = grade_node.shared.map_or_else(
         || (String::new(), String::new()),
         |shared| (shared.layer_id.to_string(), shared.revision_id.to_string()),
     );
-    let semantic_intent = grade_node
-        .local_mask
-        .as_ref()
-        .and_then(MaskDefinition::semantic_intent)
-        .or_else(|| {
-            grade_node
-                .preserved_managed_raster
-                .as_ref()
-                .and_then(|settings| settings.semantic_intent.as_ref())
-        })
-        .cloned();
-    let (
-        local_mask_kind,
-        local_mask_x0,
-        local_mask_y0,
-        local_mask_x1,
-        local_mask_y1,
-        local_mask_radius_x,
-        local_mask_radius_y,
-        local_mask_feather,
-        local_mask_invert,
-        local_mask_brush_points,
-    ) = ffi_local_mask_fields(
-        grade_node.local_mask.as_ref(),
-        grade_node.preserved_managed_raster.as_ref(),
-    )?;
     Ok(ffi::FfiGradeNode {
         grade_node_id: identity.grade_node_id.to_string(),
         shared_layer_id,
         shared_revision_id,
-        local_mask_kind,
-        local_mask_x0,
-        local_mask_y0,
-        local_mask_x1,
-        local_mask_y1,
-        local_mask_radius_x,
-        local_mask_radius_y,
-        local_mask_feather,
+        local_mask_components,
         local_mask_invert,
-        local_mask_brush_points,
-        local_mask_semantic_query: semantic_intent
-            .as_ref()
-            .map_or_else(String::new, |intent| intent.query().to_owned()),
-        local_mask_semantic_maximum_regions: semantic_intent
-            .as_ref()
-            .map_or(0, SemanticMaskIntent::maximum_regions),
-        local_mask_semantic_score_threshold_percent: semantic_intent
-            .as_ref()
-            .map_or(0, SemanticMaskIntent::score_threshold_percent),
         label: grade_node.label,
         opacity: grade_node.opacity.get(),
         enabled: grade_node.enabled,

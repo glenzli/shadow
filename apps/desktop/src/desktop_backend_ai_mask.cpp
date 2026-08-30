@@ -133,6 +133,7 @@ BackendPhotoEditState DesktopBackend::applySubjectMaskProposal(
     ffi_request.settings = ffi_grade_stack(request.grade_stack);
     ffi_request.target_grade_node_index = request.target_grade_node_index;
     ffi_request.target_grade_node_id = request.target_grade_node_id.toStdString();
+    ffi_request.target_mask_operation = request.target_mask_operation;
     ffi_request.invert = request.invert;
     ffi_request.semantic_query = request.semantic_query.toStdString();
     ffi_request.semantic_maximum_regions = request.semantic_maximum_regions;

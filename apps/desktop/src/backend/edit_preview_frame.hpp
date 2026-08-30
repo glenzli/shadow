@@ -17,6 +17,7 @@ struct BackendEditMaskCoverageView final {
     std::span<const std::uint8_t> samples;
     std::uint32_t version = 0;
     std::uint32_t target_layer_index = 0;
+    std::int32_t target_component_index = -1;
     std::uint64_t selection_revision = 0;
     QSize dimensions;
     std::size_t row_stride_bytes = 0;

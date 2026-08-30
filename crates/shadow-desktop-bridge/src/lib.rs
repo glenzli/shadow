@@ -1316,6 +1316,32 @@ mod ffi {
         vignette_highlights: f64,
     }
 
+    /// One typed leaf inside the node-bound local mask. Operation values are
+    /// 0 = Base, 1 = Add, 2 = Subtract, and 3 = Intersect. The first component
+    /// is always Base; the remaining authored order is semantically relevant.
+    #[derive(Debug, Clone)]
+    struct FfiMaskComponent {
+        component_id: String,
+        operation: u8,
+        enabled: bool,
+        /// 1 = linear gradient, 2 = radial gradient, 3 = brush,
+        /// 4 = luminance range, 5 = color range, 6 = opaque managed raster.
+        kind: u8,
+        x0: f64,
+        y0: f64,
+        x1: f64,
+        y1: f64,
+        radius_x: f64,
+        radius_y: f64,
+        feather: f64,
+        leaf_invert: bool,
+        /// Flattened brush triples: x, y, begins-stroke (0 or 1).
+        brush_points: Vec<f64>,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
+    }
+
     /// One user-managed Grade Node. All current Recipe adapter identities are
     /// explicit: persisted Recipes may contain legal non-derived ids, and a
     /// Qt round trip must return those exact values. They are not user-facing
@@ -1327,27 +1353,9 @@ mod ffi {
         shared_layer_id: String,
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
-        /// 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
-        /// 4 = luminance range, 5 = color range, 6 = opaque managed raster.
-        /// The common normalized fields keep this CXX DTO stable while the
-        /// domain owns authoritative shape validation.
-        local_mask_kind: u8,
-        local_mask_x0: f64,
-        local_mask_y0: f64,
-        local_mask_x1: f64,
-        local_mask_y1: f64,
-        local_mask_radius_x: f64,
-        local_mask_radius_y: f64,
-        local_mask_feather: f64,
+        local_mask_components: Vec<FfiMaskComponent>,
+        /// Applied after the complete ordered component composition.
         local_mask_invert: bool,
-        /// Flattened brush triples: x, y, begins-stroke (0 or 1).
-        local_mask_brush_points: Vec<f64>,
-        /// Empty for a non-semantic managed raster. The remaining values are
-        /// zero in that case and carry provider-neutral rerun parameters when
-        /// a semantic variant is present.
-        local_mask_semantic_query: String,
-        local_mask_semantic_maximum_regions: u8,
-        local_mask_semantic_score_threshold_percent: u8,
         label: String,
         /// Complete Grade Node strength in [0, 1].
         opacity: f64,
@@ -1634,6 +1642,8 @@ mod ffi {
         /// target and selection revision must use their zero sentinels.
         mask_coverage_requested: bool,
         mask_coverage_target_layer_index: u32,
+        mask_coverage_component_requested: bool,
+        mask_coverage_target_component_index: u32,
         /// UI transaction metadata returned unchanged with available coverage.
         /// It never enters native mask math or durable preview identity.
         mask_selection_revision: u64,
@@ -1732,6 +1742,8 @@ mod ffi {
         settings: FfiEditSettings,
         target_grade_node_index: u32,
         target_grade_node_id: String,
+        /// 0 = Base for an empty node, 1 = Add, 2 = Subtract, 3 = Intersect.
+        target_mask_operation: u8,
         invert: bool,
         semantic_query: String,
         semantic_maximum_regions: u8,
@@ -2042,6 +2054,8 @@ mod ffi {
         mask_coverage_available: bool,
         mask_coverage_version: u32,
         mask_coverage_target_layer_index: u32,
+        mask_coverage_component_selected: bool,
+        mask_coverage_target_component_index: u32,
         mask_selection_revision: u64,
         mask_coverage_width: u32,
         mask_coverage_height: u32,

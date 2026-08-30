@@ -214,6 +214,39 @@
     )
 
     add_executable(
+        shadow-edit-mask-component-mutation-test
+        tests/edit_mask_component_mutation_test.cpp
+        src/edit_mask_component_mutation.hpp
+    )
+    target_compile_features(
+        shadow-edit-mask-component-mutation-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-mask-component-mutation-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-mask-component-mutation-test
+        PRIVATE Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-mask-component-mutation-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-mask-component-mutation-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-mask-component-mutation
+        COMMAND shadow-edit-mask-component-mutation-test
+    )
+
+    add_executable(
         shadow-edit-stack-test
         tests/edit_stack_test.cpp
         src/edit_stack.hpp

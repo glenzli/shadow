@@ -319,10 +319,6 @@
         <translation>请输入不超过 256 字节的语义主体</translation>
     </message>
     <message>
-        <source>Re-evaluating copied Semantic Mask on this photo…</source>
-        <translation>正在此照片上重新计算复制的语义蒙版…</translation>
-    </message>
-    <message>
         <source>Semantic Mask for %1 applied · copying reruns it on the target photo</source>
         <translation>已应用“%1”的语义蒙版 · 复制时将在目标照片上重新计算</translation>
     </message>
@@ -341,10 +337,6 @@
     <message>
         <source>Semantic candidate ready · confirm or cancel</source>
         <translation>语义候选已就绪 · 请确认或取消</translation>
-    </message>
-    <message>
-        <source>This AI mask has no reusable semantic instruction</source>
-        <translation>此 AI 蒙版没有可复用的语义指令</translation>
     </message>
     <message>
         <location filename="../src/edit_ai_mask_controller.cpp" line="585"/>
@@ -1105,6 +1097,34 @@
         <location filename="../src/edit_local_mask_controller.cpp" line="208"/>
         <source>Copied node mask</source>
         <translation>已复制节点蒙版</translation>
+    </message>
+    <message>
+        <source>A node mask can contain at most 8 components</source>
+        <translation>节点蒙版最多可包含 8 个组件</translation>
+    </message>
+    <message>
+        <source>Added mask component</source>
+        <translation>已添加蒙版组件</translation>
+    </message>
+    <message>
+        <source>Added subtracting mask component</source>
+        <translation>已添加相减蒙版组件</translation>
+    </message>
+    <message>
+        <source>Added intersecting mask component</source>
+        <translation>已添加交集蒙版组件</translation>
+    </message>
+    <message>
+        <source>Copy AI mask components by re-evaluating their semantic selection on the target photo</source>
+        <translation>复制 AI 蒙版组件时，请在目标照片上重新计算其语义选择</translation>
+    </message>
+    <message>
+        <source>Removed mask component</source>
+        <translation>已移除蒙版组件</translation>
+    </message>
+    <message>
+        <source>Removed node mask</source>
+        <translation>已移除节点蒙版</translation>
     </message>
     <message>
         <location filename="../src/edit_local_mask_controller.cpp" line="214"/>
@@ -5656,6 +5676,86 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionWorkspace</name>
     <message>
+        <source> · %L1 MASK PART(S)</source>
+        <translation> · %L1 个蒙版组件</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>添加</translation>
+    </message>
+    <message>
+        <source>Add a component to the selected node mask</source>
+        <translation>向所选节点蒙版添加组件</translation>
+    </message>
+    <message>
+        <source>Add a semantic component that can be re-evaluated on another photo</source>
+        <translation>添加可在其他照片上重新计算的语义组件</translation>
+    </message>
+    <message>
+        <source>Add an AI subject component to the selected node mask</source>
+        <translation>向所选节点蒙版添加 AI 主体组件</translation>
+    </message>
+    <message>
+        <source>Add selected people details to the selected node mask</source>
+        <translation>将所选人物细节添加到所选节点蒙版</translation>
+    </message>
+    <message>
+        <source>Base</source>
+        <translation>基础</translation>
+    </message>
+    <message>
+        <source>COMBINE AS</source>
+        <translation>组合方式</translation>
+    </message>
+    <message>
+        <source>Combine</source>
+        <translation>组合</translation>
+    </message>
+    <message>
+        <source>Combined</source>
+        <translation>组合结果</translation>
+    </message>
+    <message>
+        <source>Enable mask component</source>
+        <translation>启用蒙版组件</translation>
+    </message>
+    <message>
+        <source>Intersect</source>
+        <translation>交集</translation>
+    </message>
+    <message>
+        <source>Invert combined node mask</source>
+        <translation>反转组合后的节点蒙版</translation>
+    </message>
+    <message>
+        <source>Invert combined result</source>
+        <translation>反转组合结果</translation>
+    </message>
+    <message>
+        <source>Invert selected component</source>
+        <translation>反转所选组件</translation>
+    </message>
+    <message>
+        <source>Invert selected mask component</source>
+        <translation>反转所选蒙版组件</translation>
+    </message>
+    <message>
+        <source>Overlay</source>
+        <translation>叠加显示</translation>
+    </message>
+    <message>
+        <source>Remove selected mask component</source>
+        <translation>移除所选蒙版组件</translation>
+    </message>
+    <message>
+        <source>Selected</source>
+        <translation>所选组件</translation>
+    </message>
+    <message>
+        <source>Subtract</source>
+        <translation>减去</translation>
+    </message>
+    <message>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
@@ -6174,11 +6274,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="300"/>
         <source>LOCAL · BYPASSED</source>
         <translation>本地 · 已旁路</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="300"/>
-        <source> · NODE MASK</source>
-        <translation> · 节点蒙版</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="320"/>
@@ -7257,11 +7352,6 @@ R %2 · G %3 · B %4</translation>
         <translation>羽化</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="425"/>
-        <source>Invert</source>
-        <translation>反相</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="213"/>
         <source>Clear brush strokes</source>
         <translation>清除画笔笔触</translation>
@@ -7332,11 +7422,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="382"/>
         <source>Expand / Contract</source>
         <translation>扩张 / 收缩</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionLocalMaskTools.qml" line="439"/>
-        <source>Invert node mask</source>
-        <translation>反转节点蒙版</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionVersionsPane.qml" line="119"/>
@@ -8314,11 +8399,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionMaskCreateMenu.qml" line="240"/>
         <source>Attach the mask to the selected Grade Node</source>
         <translation>将蒙版附加到所选调色节点</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionMaskCreateMenu.qml" line="240"/>
-        <source>The selected Grade Node already has a mask</source>
-        <translation>所选调色节点已有蒙版</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionMaskCreateMenu.qml" line="248"/>

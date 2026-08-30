@@ -214,6 +214,9 @@ void EditController::setGradeStack(
     const QString old_selected_id = selectedGradeNodeId();
     const int old_selected_index = selected_grade_node_index_;
     const BackendGradeNode* const old_selected = selectedGradeNode();
+    const BackendMaskComponent* const old_mask_component = selectedLocalMaskComponent();
+    const QString old_mask_component_id =
+        old_mask_component == nullptr ? QString{} : old_mask_component->component_id;
     const bool had_old_selection = old_selected != nullptr;
     const BackendGradeNode old_selected_value =
         had_old_selection ? *old_selected : BackendGradeNode{};
@@ -265,6 +268,26 @@ void EditController::setGradeStack(
     }
     grade_stack_ = std::move(grade_stack);
     selected_grade_node_index_ = new_selected_index;
+    if (selection_changed) {
+        selected_local_mask_component_index_ = 0;
+    } else if (!old_mask_component_id.isEmpty()) {
+        const auto* const selected = selectedGradeNode();
+        if (selected != nullptr) {
+            const auto preserved = std::find_if(
+                selected->local_mask_components.cbegin(),
+                selected->local_mask_components.cend(),
+                [&old_mask_component_id](const BackendMaskComponent& component) {
+                    return component.component_id == old_mask_component_id;
+                }
+            );
+            if (preserved != selected->local_mask_components.cend()) {
+                selected_local_mask_component_index_ = static_cast<int>(
+                    std::distance(selected->local_mask_components.cbegin(), preserved)
+                );
+            }
+        }
+    }
+    clampSelectedLocalMaskComponent();
     if (structural_selection_changed) {
         selected_recipe_node_kind_ = QStringLiteral("grade");
     }

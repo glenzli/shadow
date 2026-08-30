@@ -324,7 +324,7 @@ Rectangle {
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: (gradeNodeRow.modelData.shared ? (gradeNodeRow.modelData.enabled ? qsTr("SHARED · V%1 · ENABLED").arg(gradeNodeRow.modelData.sharedRevisionNumber) : qsTr("SHARED · V%1 · BYPASSED").arg(gradeNodeRow.modelData.sharedRevisionNumber)) : (gradeNodeRow.modelData.enabled ? qsTr("LOCAL · ENABLED") : qsTr("LOCAL · BYPASSED"))) + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · NODE MASK") : "")
+                            text: (gradeNodeRow.modelData.shared ? (gradeNodeRow.modelData.enabled ? qsTr("SHARED · V%1 · ENABLED").arg(gradeNodeRow.modelData.sharedRevisionNumber) : qsTr("SHARED · V%1 · BYPASSED").arg(gradeNodeRow.modelData.sharedRevisionNumber)) : (gradeNodeRow.modelData.enabled ? qsTr("LOCAL · ENABLED") : qsTr("LOCAL · BYPASSED"))) + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · %L1 MASK PART(S)").arg(gradeNodeRow.modelData.localMaskComponentCount) : "")
                             color: gradeNodeRow.modelData.enabled ? (gradeNodeRow.selected ? Theme.accentTextMuted : pane.textMuted) : Theme.textMuted
                             font.pixelSize: 9
                             font.weight: Font.DemiBold
@@ -343,7 +343,7 @@ Rectangle {
                     ShadowIconButton {
                         buttonSize: 30
                         iconSize: 17
-                        source: gradeNodeRow.modelData.localMaskKind === 1 ? "qrc:/icons/mask-linear.svg" : gradeNodeRow.modelData.localMaskKind === 2 ? "qrc:/icons/mask-radial.svg" : gradeNodeRow.modelData.localMaskKind === 3 ? "qrc:/icons/brush.svg" : gradeNodeRow.modelData.localMaskKind === 4 ? "qrc:/icons/mask-luminance-range.svg" : gradeNodeRow.modelData.localMaskKind === 5 ? "qrc:/icons/mask-color-range.svg" : "qrc:/icons/mask-add.svg"
+                        source: gradeNodeRow.modelData.localMaskComponentCount > 1 ? "qrc:/icons/mask.svg" : gradeNodeRow.modelData.localMaskKind === 1 ? "qrc:/icons/mask-linear.svg" : gradeNodeRow.modelData.localMaskKind === 2 ? "qrc:/icons/mask-radial.svg" : gradeNodeRow.modelData.localMaskKind === 3 ? "qrc:/icons/brush.svg" : gradeNodeRow.modelData.localMaskKind === 4 ? "qrc:/icons/mask-luminance-range.svg" : gradeNodeRow.modelData.localMaskKind === 5 ? "qrc:/icons/mask-color-range.svg" : "qrc:/icons/mask-add.svg"
                         toolTipText: gradeNodeRow.modelData.hasLocalMask ? qsTr("Edit this node mask") : qsTr("Add a mask to this node")
                         accessibleName: toolTipText
                         enabled: pane.editor.active && gradeNodeRow.modelData.enabled && !pane.editor.stateBusy

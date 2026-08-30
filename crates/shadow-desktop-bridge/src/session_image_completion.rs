@@ -149,6 +149,8 @@ impl DesktopSession {
                 use_working_recipe: true,
                 mask_coverage_requested: false,
                 mask_coverage_target_layer_index: 0,
+                mask_coverage_component_requested: false,
+                mask_coverage_target_component_index: 0,
                 mask_selection_revision: 0,
             },
         )?;

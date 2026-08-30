@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Result as AnyResult, bail};
+use anyhow::{Context, Result as AnyResult, bail};
 use shadow_bridge::{
     ColorRangeParameters, MAX_POINT_COLOR_RANGES, OklabColorWarperParameters,
     OklabLightnessToneCurve, PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
@@ -42,16 +42,17 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
-    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskDefinition,
-    MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
-    ParameterKey, ParameterValue, PhotoStructuralNodes, PortType, ProcessingStage, RecipeSnapshot,
+    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskComponent,
+    MaskDefinition, MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId,
+    ParameterBlock, ParameterKey, ParameterValue, PhotoStructuralNodes, PortType, ProcessingStage,
+    RecipeSnapshot,
 };
 
 use super::{
     CONTRAST_PIVOT, GradeNodeDraft, GradeStackDraft, LutEditParameters,
-    oklab_color_warper_ffi_values, recipe_v1_local_mask_revision,
-    validate_grade_stack_draft_against_recipe_v1_template, validate_grade_stack_draft_recipe_v1,
-    validate_tone_curve,
+    MaskComponentDraftDefinition, PreservedManagedRasterSettings, oklab_color_warper_ffi_values,
+    recipe_v1_local_mask_revision, validate_grade_stack_draft_against_recipe_v1_template,
+    validate_grade_stack_draft_recipe_v1, validate_tone_curve,
 };
 
 #[cfg(test)]
@@ -134,6 +135,65 @@ fn materialize_preserved_managed_rasters(
 ) -> AnyResult<GradeStackDraft> {
     let mut effective = grade_stack.clone();
     for grade_node in &mut effective.grade_nodes {
+        if let Some(composite) = grade_node.composite_mask.take() {
+            if grade_node.local_mask.is_some() || grade_node.preserved_managed_raster.is_some() {
+                bail!(
+                    "Grade Node {} cannot materialize multiple local-mask representations",
+                    grade_node.recipe_v1_identity.grade_node_id
+                );
+            }
+            let template_definition = template.and_then(|snapshot| {
+                snapshot
+                    .layers()
+                    .iter()
+                    .find(|layer| layer.id() == grade_node.recipe_v1_identity.grade_node_id)
+                    .and_then(LayerInstance::mask)
+                    .and_then(|reference| snapshot.resolve_mask(reference))
+                    .map(MaskRevision::definition)
+            });
+            let components = composite
+                .components
+                .into_iter()
+                .map(|component| {
+                    let definition = match component.definition {
+                        MaskComponentDraftDefinition::Definition(definition) => definition,
+                        MaskComponentDraftDefinition::PreservedManagedRaster(settings) => {
+                            let definition = template_definition
+                                .and_then(MaskDefinition::composite_definition)
+                                .and_then(|base| {
+                                    base.components()
+                                        .iter()
+                                        .find(|candidate| candidate.id() == component.id)
+                                })
+                                .map(MaskComponent::definition)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Grade Node {} cannot recover opaque managed mask component {} from its base Recipe",
+                                        grade_node.recipe_v1_identity.grade_node_id,
+                                        component.id
+                                    )
+                                })?;
+                            managed_raster_with_settings(definition, &settings).with_context(|| {
+                                format!(
+                                    "recover Grade Node {} managed mask component {}",
+                                    grade_node.recipe_v1_identity.grade_node_id,
+                                    component.id
+                                )
+                            })?
+                        }
+                    };
+                    MaskComponent::new(
+                        component.id,
+                        component.operation,
+                        component.enabled,
+                        definition,
+                    )
+                    .map_err(Into::into)
+                })
+                .collect::<AnyResult<Vec<_>>>()?;
+            grade_node.local_mask = Some(MaskDefinition::composite(components, composite.invert)?);
+            continue;
+        }
         let Some(settings) = grade_node.preserved_managed_raster.as_ref() else {
             continue;
         };
@@ -171,24 +231,31 @@ fn materialize_preserved_managed_rasters(
                 grade_node.recipe_v1_identity.grade_node_id
             )
         })?;
-        let MaskDefinition::ManagedRaster { raster, .. } = revision.definition() else {
-            bail!(
-                "Grade Node {} opaque mask marker does not match a managed raster in its base Recipe",
-                grade_node.recipe_v1_identity.grade_node_id
-            );
-        };
-        grade_node.local_mask = Some(
-            MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
-                raster.clone(),
-                settings.semantic_intent.clone(),
-                settings.expansion_percent,
-                settings.feather_percent,
-                settings.invert,
-            )?,
-        );
+        grade_node.local_mask = Some(managed_raster_with_settings(
+            revision.definition(),
+            settings,
+        )?);
         grade_node.preserved_managed_raster = None;
     }
     Ok(effective)
+}
+
+fn managed_raster_with_settings(
+    definition: &MaskDefinition,
+    settings: &PreservedManagedRasterSettings,
+) -> AnyResult<MaskDefinition> {
+    let MaskDefinition::ManagedRaster { raster, .. } = definition else {
+        bail!("opaque mask marker does not match a managed raster in its base Recipe");
+    };
+    Ok(
+        MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+            raster.clone(),
+            settings.semantic_intent.clone(),
+            settings.expansion_percent,
+            settings.feather_percent,
+            settings.invert,
+        )?,
+    )
 }
 
 #[allow(clippy::too_many_lines)] // The canonical persisted graph is clearest as one explicit chain.

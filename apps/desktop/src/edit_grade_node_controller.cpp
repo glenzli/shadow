@@ -3,6 +3,7 @@
 #include "edit_stack.hpp"
 
 #include <QCoreApplication>
+#include <QUuid>
 
 #include <algorithm>
 #include <cmath>
@@ -102,8 +103,17 @@ QVariantList EditController::gradeNodes() const {
         item.insert(QStringLiteral("rawLabel"), grade_node.label);
         item.insert(QStringLiteral("strengthPercent"), qRound(grade_node.opacity * 100.0));
         item.insert(QStringLiteral("enabled"), grade_node.enabled);
-        item.insert(QStringLiteral("hasLocalMask"), grade_node.local_mask_kind != 0U);
-        item.insert(QStringLiteral("localMaskKind"), static_cast<int>(grade_node.local_mask_kind));
+        item.insert(QStringLiteral("hasLocalMask"), !grade_node.local_mask_components.isEmpty());
+        item.insert(
+            QStringLiteral("localMaskKind"),
+            grade_node.local_mask_components.size() == 1
+                ? static_cast<int>(grade_node.local_mask_components.front().kind)
+                : 0
+        );
+        item.insert(
+            QStringLiteral("localMaskComponentCount"),
+            grade_node.local_mask_components.size()
+        );
         item.insert(QStringLiteral("index"), static_cast<int>(index));
         result.push_back(item);
     }
@@ -435,20 +445,11 @@ void EditController::duplicateSelectedGradeNode() {
     duplicate.basic = source->basic;
     duplicate.fine = source->fine;
     duplicate.enabled = source->enabled;
-    duplicate.local_mask_kind = source->local_mask_kind;
-    duplicate.local_mask_x0 = source->local_mask_x0;
-    duplicate.local_mask_y0 = source->local_mask_y0;
-    duplicate.local_mask_x1 = source->local_mask_x1;
-    duplicate.local_mask_y1 = source->local_mask_y1;
-    duplicate.local_mask_radius_x = source->local_mask_radius_x;
-    duplicate.local_mask_radius_y = source->local_mask_radius_y;
-    duplicate.local_mask_feather = source->local_mask_feather;
+    duplicate.local_mask_components = source->local_mask_components;
+    for (auto& component : duplicate.local_mask_components) {
+        component.component_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
     duplicate.local_mask_invert = source->local_mask_invert;
-    duplicate.local_mask_brush_points = source->local_mask_brush_points;
-    duplicate.local_mask_semantic_query = source->local_mask_semantic_query;
-    duplicate.local_mask_semantic_maximum_regions = source->local_mask_semantic_maximum_regions;
-    duplicate.local_mask_semantic_score_threshold_percent =
-        source->local_mask_semantic_score_threshold_percent;
 
     const BackendGradeStack before = grade_stack_;
     BackendGradeStack updated = grade_stack_;
@@ -516,21 +517,8 @@ void EditController::publishSelectedGradeNode(const QString& label) {
     published.grade_node.enabled = enabled;
     // Sharing publishes only the adjustment graph. The current photo keeps
     // its own spatial placement for that Grade Node.
-    published.grade_node.local_mask_kind = selected->local_mask_kind;
-    published.grade_node.local_mask_x0 = selected->local_mask_x0;
-    published.grade_node.local_mask_y0 = selected->local_mask_y0;
-    published.grade_node.local_mask_x1 = selected->local_mask_x1;
-    published.grade_node.local_mask_y1 = selected->local_mask_y1;
-    published.grade_node.local_mask_radius_x = selected->local_mask_radius_x;
-    published.grade_node.local_mask_radius_y = selected->local_mask_radius_y;
-    published.grade_node.local_mask_feather = selected->local_mask_feather;
+    published.grade_node.local_mask_components = selected->local_mask_components;
     published.grade_node.local_mask_invert = selected->local_mask_invert;
-    published.grade_node.local_mask_brush_points = selected->local_mask_brush_points;
-    published.grade_node.local_mask_semantic_query = selected->local_mask_semantic_query;
-    published.grade_node.local_mask_semantic_maximum_regions =
-        selected->local_mask_semantic_maximum_regions;
-    published.grade_node.local_mask_semantic_score_threshold_percent =
-        selected->local_mask_semantic_score_threshold_percent;
     BackendGradeStack updated = grade_stack_;
     updated.grade_nodes[selected_grade_node_index_] = published.grade_node;
     setGradeStack(std::move(updated), published.grade_node.grade_node_id);
@@ -570,21 +558,8 @@ void EditController::insertSharedGradeNode(const QString& layer_id) {
     BackendGradeNode inserted = iterator->grade_node;
     if (existing != updated.grade_nodes.end()) {
         inserted.enabled = existing->enabled;
-        inserted.local_mask_kind = existing->local_mask_kind;
-        inserted.local_mask_x0 = existing->local_mask_x0;
-        inserted.local_mask_y0 = existing->local_mask_y0;
-        inserted.local_mask_x1 = existing->local_mask_x1;
-        inserted.local_mask_y1 = existing->local_mask_y1;
-        inserted.local_mask_radius_x = existing->local_mask_radius_x;
-        inserted.local_mask_radius_y = existing->local_mask_radius_y;
-        inserted.local_mask_feather = existing->local_mask_feather;
+        inserted.local_mask_components = existing->local_mask_components;
         inserted.local_mask_invert = existing->local_mask_invert;
-        inserted.local_mask_brush_points = existing->local_mask_brush_points;
-        inserted.local_mask_semantic_query = existing->local_mask_semantic_query;
-        inserted.local_mask_semantic_maximum_regions =
-            existing->local_mask_semantic_maximum_regions;
-        inserted.local_mask_semantic_score_threshold_percent =
-            existing->local_mask_semantic_score_threshold_percent;
         *existing = inserted;
     } else {
         if (!canAddGradeNode()) {

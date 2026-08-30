@@ -10,11 +10,16 @@ use shadow_ai::{
     MAX_MASK_PROMPT_POINTS, MaskPointPolarity, MaskPrompt, MaskPromptPoint, RasterExtent,
     UnitInterval,
 };
-use shadow_domain::{SemanticMaskAggregation, SemanticMaskIntent};
+use shadow_domain::{
+    EntityId, MaskComponentId, MaskComponentOperation, SemanticMaskAggregation, SemanticMaskIntent,
+};
 
 use super::{
     DesktopSession, ffi,
-    recipe_v1::{GradeStackDraft, decode_grade_stack_draft_recipe_v1},
+    recipe_v1::{
+        CompositeMaskDraft, GradeStackDraft, MaskComponentDraft, MaskComponentDraftDefinition,
+        decode_grade_stack_draft_recipe_v1,
+    },
     subject_mask_people::{FaceRegionSet, prepare_person_candidates},
     subject_mask_runtime::{
         SubjectMaskInvocation, SubjectMaskSelection,
@@ -159,6 +164,8 @@ impl DesktopSession {
                             use_working_recipe: true,
                             mask_coverage_requested: false,
                             mask_coverage_target_layer_index: 0,
+                            mask_coverage_component_requested: false,
+                            mask_coverage_target_component_index: 0,
                             mask_selection_revision: 0,
                         },
                     )?;
@@ -485,6 +492,16 @@ impl DesktopSession {
             request.target_grade_node_index,
             &request.target_grade_node_id,
         )?;
+        let operation = subject_mask_operation(request.target_mask_operation)?;
+        let target_component_count = subject_mask_target_component_count(
+            &grade_stack.grade_nodes[request.target_grade_node_index as usize],
+        );
+        if (target_component_count == 0 && operation != MaskComponentOperation::Base)
+            || (target_component_count > 0 && operation == MaskComponentOperation::Base)
+            || target_component_count >= shadow_domain::MAX_MASK_COMPONENTS
+        {
+            bail!("subject-mask operation is incompatible with the target component stack");
+        }
         let mask = self.subject_masks.promote_proposal(
             request.proposal_token,
             request.generation,
@@ -504,8 +521,7 @@ impl DesktopSession {
             .grade_nodes
             .get_mut(request.target_grade_node_index as usize)
             .context("subject-mask target Grade Node index is unavailable")?;
-        target.local_mask = Some(mask);
-        target.preserved_managed_raster = None;
+        append_subject_mask_component(target, mask, operation)?;
         self.autosave_grade_stack_working_at(
             photo_id,
             source_path,
@@ -533,10 +549,82 @@ fn validate_subject_mask_target(
     if target.recipe_v1_identity.grade_node_id.to_string() != target_grade_node_id {
         bail!("subject-mask target Grade Node identity changed");
     }
-    if target.local_mask.is_some() {
-        bail!("subject-mask v1 requires a Grade Node without a geometric or condition mask");
+    if subject_mask_target_component_count(target) >= shadow_domain::MAX_MASK_COMPONENTS {
+        bail!("subject-mask target already contains the maximum number of mask components");
     }
     Ok(())
+}
+
+fn subject_mask_target_component_count(target: &super::recipe_v1::GradeNodeDraft) -> usize {
+    target.composite_mask.as_ref().map_or_else(
+        || usize::from(target.local_mask.is_some() || target.preserved_managed_raster.is_some()),
+        |composite| composite.components.len(),
+    )
+}
+
+fn subject_mask_operation(value: u8) -> AnyResult<MaskComponentOperation> {
+    match value {
+        0 => Ok(MaskComponentOperation::Base),
+        1 => Ok(MaskComponentOperation::Add),
+        2 => Ok(MaskComponentOperation::Subtract),
+        3 => Ok(MaskComponentOperation::Intersect),
+        other => bail!("subject-mask target uses unsupported component operation {other}"),
+    }
+}
+
+fn append_subject_mask_component(
+    target: &mut super::recipe_v1::GradeNodeDraft,
+    mask: shadow_domain::MaskDefinition,
+    operation: MaskComponentOperation,
+) -> AnyResult<MaskComponentId> {
+    let component_count = subject_mask_target_component_count(target);
+    if (component_count == 0 && operation != MaskComponentOperation::Base)
+        || (component_count > 0 && operation == MaskComponentOperation::Base)
+        || component_count >= shadow_domain::MAX_MASK_COMPONENTS
+    {
+        bail!("subject-mask operation is incompatible with the target component stack");
+    }
+    let component_id = MaskComponentId::from_uuid(uuid::Uuid::new_v4());
+    let new_component = MaskComponentDraft {
+        id: component_id,
+        operation,
+        enabled: true,
+        definition: MaskComponentDraftDefinition::Definition(mask),
+    };
+    if operation == MaskComponentOperation::Base {
+        target.local_mask = None;
+        target.preserved_managed_raster = None;
+        target.composite_mask = Some(CompositeMaskDraft {
+            components: vec![new_component],
+            invert: false,
+        });
+    } else if let Some(composite) = &mut target.composite_mask {
+        composite.components.push(new_component);
+    } else {
+        let base_definition = match (
+            target.local_mask.take(),
+            target.preserved_managed_raster.take(),
+        ) {
+            (Some(definition), None) => MaskComponentDraftDefinition::Definition(definition),
+            (None, Some(settings)) => {
+                MaskComponentDraftDefinition::PreservedManagedRaster(settings)
+            }
+            _ => bail!("subject-mask target has no unambiguous base component"),
+        };
+        target.composite_mask = Some(CompositeMaskDraft {
+            components: vec![
+                MaskComponentDraft {
+                    id: MaskComponentId::from_uuid(uuid::Uuid::new_v4()),
+                    operation: MaskComponentOperation::Base,
+                    enabled: true,
+                    definition: base_definition,
+                },
+                new_component,
+            ],
+            invert: false,
+        });
+    }
+    Ok(component_id)
 }
 
 fn subject_mask_points(points: &[ffi::FfiSubjectMaskPoint]) -> AnyResult<Vec<MaskPromptPoint>> {

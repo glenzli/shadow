@@ -265,6 +265,7 @@ QImage EditPreviewProvider::resolveImage(
             bool valid_photo = false;
             bool valid_recipe = false;
             bool valid_target = false;
+            bool valid_component = false;
             bool valid_selection = false;
             bool valid_preview = false;
             const MaskCoverageGeneration generation{
@@ -273,13 +274,15 @@ QImage EditPreviewProvider::resolveImage(
                     query.queryItemValue(QStringLiteral("recipe")).toULongLong(&valid_recipe),
                 .target_layer_index =
                     query.queryItemValue(QStringLiteral("target")).toUInt(&valid_target),
+                .target_component_index =
+                    query.queryItemValue(QStringLiteral("component")).toInt(&valid_component),
                 .selection_revision =
                     query.queryItemValue(QStringLiteral("selection")).toULongLong(&valid_selection),
                 .paired_preview_generation =
                     query.queryItemValue(QStringLiteral("preview")).toULongLong(&valid_preview),
             };
-            if (!valid_photo || !valid_recipe || !valid_target || !valid_selection
-                || !valid_preview) {
+            if (!valid_photo || !valid_recipe || !valid_target || !valid_component
+                || !valid_selection || !valid_preview) {
                 if (size != nullptr) {
                     *size = {};
                 }

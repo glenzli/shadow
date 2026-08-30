@@ -33,8 +33,14 @@ bool EditHistoryRestoreProjection::gradeNodeListChanged(
     for (qsizetype index = 0; index < before.grade_nodes.size(); ++index) {
         const auto& left = before.grade_nodes.at(index);
         const auto& right = after.grade_nodes.at(index);
+        const std::uint8_t left_single_mask_kind =
+            left.local_mask_components.size() == 1 ? left.local_mask_components.front().kind : 0U;
+        const std::uint8_t right_single_mask_kind =
+            right.local_mask_components.size() == 1 ? right.local_mask_components.front().kind : 0U;
         if (left.grade_node_id != right.grade_node_id || left.label != right.label
-            || left.enabled != right.enabled || left.local_mask_kind != right.local_mask_kind) {
+            || left.enabled != right.enabled
+            || left.local_mask_components.size() != right.local_mask_components.size()
+            || left_single_mask_kind != right_single_mask_kind) {
             return true;
         }
     }
@@ -45,16 +51,8 @@ bool EditHistoryRestoreProjection::localMaskChanged(
     const BackendGradeNode& before,
     const BackendGradeNode& after
 ) {
-    return before.local_mask_kind != after.local_mask_kind
-           || before.local_mask_x0 != after.local_mask_x0
-           || before.local_mask_y0 != after.local_mask_y0
-           || before.local_mask_x1 != after.local_mask_x1
-           || before.local_mask_y1 != after.local_mask_y1
-           || before.local_mask_radius_x != after.local_mask_radius_x
-           || before.local_mask_radius_y != after.local_mask_radius_y
-           || before.local_mask_feather != after.local_mask_feather
-           || before.local_mask_invert != after.local_mask_invert
-           || before.local_mask_brush_points != after.local_mask_brush_points;
+    return before.local_mask_components != after.local_mask_components
+           || before.local_mask_invert != after.local_mask_invert;
 }
 
 QString EditHistoryRestoreProjection::preferredGradeNodeForRestore(

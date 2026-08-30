@@ -7,8 +7,9 @@ use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
     AdjustmentImageCompletionPatch, AdjustmentLiquify, AdjustmentLiquifyPoint,
     AdjustmentLiquifyPushStroke, AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke,
-    AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
-    AdjustmentRetouchStroke, AdjustmentRetouchStrokePoint, AdjustmentSpotHealTarget,
+    AdjustmentLocalMask, AdjustmentLocalMaskComponent, AdjustmentMaskComponentOperation,
+    AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan, AdjustmentRetouchStroke,
+    AdjustmentRetouchStrokePoint, AdjustmentSpotHealTarget,
     COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     ColorRangeParameters,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
@@ -489,6 +490,37 @@ fn adjustment_local_mask_with_resolver(
                 "Recipe v1 persists bounded condition-mask expressions, but this renderer supports only single luminance and zero-minimum-chroma hue leaves"
             )
         }
+        MaskDefinition::Composite { composite } => AdjustmentLocalMask::Composite {
+            components: composite
+                .components()
+                .iter()
+                .map(|component| {
+                    let operation = match component.operation() {
+                        shadow_domain::MaskComponentOperation::Base => {
+                            AdjustmentMaskComponentOperation::Base
+                        }
+                        shadow_domain::MaskComponentOperation::Add => {
+                            AdjustmentMaskComponentOperation::Add
+                        }
+                        shadow_domain::MaskComponentOperation::Subtract => {
+                            AdjustmentMaskComponentOperation::Subtract
+                        }
+                        shadow_domain::MaskComponentOperation::Intersect => {
+                            AdjustmentMaskComponentOperation::Intersect
+                        }
+                    };
+                    Ok(AdjustmentLocalMaskComponent {
+                        operation,
+                        enabled: component.enabled(),
+                        mask: adjustment_local_mask_with_resolver(
+                            component.definition(),
+                            resolver,
+                        )?,
+                    })
+                })
+                .collect::<AnyResult<Vec<_>>>()?,
+            invert: composite.invert(),
+        },
         MaskDefinition::ManagedRaster {
             raster,
             expansion_percent,

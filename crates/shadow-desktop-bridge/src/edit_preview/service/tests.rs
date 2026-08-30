@@ -64,24 +64,27 @@ fn policy_controls_analysis_recipe_and_cache_admission() {
 #[test]
 fn mask_coverage_request_is_strict_and_keeps_selection_metadata_transient() {
     assert_eq!(
-        mask_coverage_request(false, 0, 0, 3, false).expect("empty request sentinel"),
+        mask_coverage_request(false, 0, false, 0, 0, 3, 0).expect("empty request sentinel"),
         None
     );
-    assert!(mask_coverage_request(false, 1, 0, 3, true).is_err());
-    assert!(mask_coverage_request(false, 0, 1, 3, true).is_err());
-    assert!(mask_coverage_request(true, 3, 9, 3, true).is_err());
+    assert!(mask_coverage_request(false, 1, false, 0, 0, 3, 1).is_err());
+    assert!(mask_coverage_request(false, 0, true, 0, 0, 3, 1).is_err());
+    assert!(mask_coverage_request(false, 0, false, 0, 1, 3, 1).is_err());
+    assert!(mask_coverage_request(true, 3, false, 0, 9, 3, 1).is_err());
     assert_eq!(
-        mask_coverage_request(true, 1, 9, 3, false).expect("legal layer without a mask"),
+        mask_coverage_request(true, 1, false, 0, 9, 3, 0).expect("legal layer without a mask"),
         None
     );
 
-    let first = mask_coverage_request(true, 1, 9, 3, true)
+    let first = mask_coverage_request(true, 1, true, 1, 9, 3, 2)
         .expect("valid coverage request")
         .expect("masked target");
-    let newer = mask_coverage_request(true, 1, 10, 3, true)
+    let newer = mask_coverage_request(true, 1, false, 0, 10, 3, 2)
         .expect("valid newer coverage request")
         .expect("masked target");
     assert_eq!(first.target_layer_index, newer.target_layer_index);
+    assert_eq!(first.target_component_index, Some(1));
+    assert_eq!(newer.target_component_index, None);
     assert_ne!(first.mask_selection_revision, newer.mask_selection_revision);
 
     // Durable admission is a property only of render policy and terminal.

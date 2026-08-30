@@ -19,16 +19,33 @@ void require(const bool condition, const std::string& message) {
     node.grade_node_id = QStringLiteral("grade-node");
     node.shared_layer_id = QStringLiteral("shared-layer");
     node.shared_revision_id = QStringLiteral("shared-revision");
-    node.local_mask_kind = 3;
-    node.local_mask_x0 = 0.11;
-    node.local_mask_y0 = 0.12;
-    node.local_mask_x1 = 0.81;
-    node.local_mask_y1 = 0.82;
-    node.local_mask_radius_x = 0.21;
-    node.local_mask_radius_y = 0.22;
-    node.local_mask_feather = 0.23;
+    node.local_mask_components = {
+        {
+            .component_id = QStringLiteral("11111111-1111-4111-8111-111111111111"),
+            .operation = 0,
+            .enabled = true,
+            .kind = 3,
+            .x0 = 0.11,
+            .y0 = 0.12,
+            .x1 = 0.81,
+            .y1 = 0.82,
+            .radius_x = 0.21,
+            .radius_y = 0.22,
+            .feather = 0.23,
+            .leaf_invert = true,
+            .brush_points = {0.1, 0.2, 1.0, 0.3, 0.4, 0.0},
+        },
+        {
+            .component_id = QStringLiteral("22222222-2222-4222-8222-222222222222"),
+            .operation = 2,
+            .enabled = false,
+            .kind = 4,
+            .x0 = 0.2,
+            .x1 = 0.8,
+            .feather = 0.15,
+        },
+    };
     node.local_mask_invert = true;
-    node.local_mask_brush_points = {0.1, 0.2, 1.0, 0.3, 0.4, 0.0};
     node.label = QStringLiteral("Configured");
     node.exposure_render_op_id = QStringLiteral("exposure");
     node.contrast_render_op_id = QStringLiteral("contrast");
@@ -267,7 +284,7 @@ void require_invalid_wire(Mutation mutation, const std::string& message) {
     bool rejected = false;
     try {
         static_cast<void>(desktop_backend_projection::grade_stack(wire));
-    } catch (const std::length_error&) {
+    } catch (const std::exception&) {
         rejected = true;
     }
     require(rejected, message);
@@ -295,6 +312,28 @@ void malformed_vectors_fail_closed() {
             values.truncate(values.size() - 1U);
         },
         "the Oklab Color Warper lattice must keep all 25 point pairs"
+    );
+    require_invalid_wire(
+        [](auto& wire) { wire.grade_nodes[0].local_mask_components[1].operation = 9; },
+        "unknown mask-component operations must fail closed"
+    );
+    require_invalid_wire(
+        [](auto& wire) { wire.grade_nodes[0].local_mask_components[1].kind = 0; },
+        "empty or unknown mask-component kinds must fail closed"
+    );
+    require_invalid_wire(
+        [](auto& wire) {
+            wire.grade_nodes[0].local_mask_components[1].component_id =
+                wire.grade_nodes[0].local_mask_components[0].component_id;
+        },
+        "duplicate mask-component identities must fail closed"
+    );
+    require_invalid_wire(
+        [](auto& wire) {
+            wire.grade_nodes[0].local_mask_components.truncate(0);
+            wire.grade_nodes[0].local_mask_invert = true;
+        },
+        "an empty node mask cannot retain final inversion"
     );
 }
 

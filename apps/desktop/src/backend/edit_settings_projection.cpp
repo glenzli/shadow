@@ -2,15 +2,62 @@
 
 #include "backend/rust_qt_projection.hpp"
 
+#include <QSet>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace desktop_backend_projection {
 namespace {
+
+void validate_mask_components(const BackendGradeNode& source) {
+    if (source.local_mask_components.size() > BACKEND_MAX_MASK_COMPONENTS) {
+        throw std::length_error("local_mask_components exceeds the bounded component count");
+    }
+    if (source.local_mask_components.isEmpty() && source.local_mask_invert) {
+        throw std::invalid_argument("an empty node mask cannot carry final inversion");
+    }
+    QSet<QString> component_ids;
+    for (qsizetype index = 0; index < source.local_mask_components.size(); ++index) {
+        const auto& component = source.local_mask_components.at(index);
+        if (component.component_id.isEmpty() || component.kind < 1U || component.kind > 6U
+            || component.operation > 3U || (index == 0 && component.operation != 0U)
+            || (index > 0 && component.operation == 0U)
+            || component_ids.contains(component.component_id)) {
+            throw std::invalid_argument("local_mask_components contains invalid topology");
+        }
+        component_ids.insert(component.component_id);
+    }
+}
+
+void validate_mask_components(const shadow::desktop::FfiGradeNode& source) {
+    if (source.local_mask_components.size()
+        > static_cast<std::size_t>(BACKEND_MAX_MASK_COMPONENTS)) {
+        throw std::length_error("local_mask_components exceeds the bounded component count");
+    }
+    if (source.local_mask_components.empty() && source.local_mask_invert) {
+        throw std::invalid_argument("an empty node mask cannot carry final inversion");
+    }
+    std::unordered_set<std::string> component_ids;
+    for (std::size_t index = 0; index < source.local_mask_components.size(); ++index) {
+        const auto& component = source.local_mask_components[index];
+        if (component.component_id.empty() || component.kind < 1U || component.kind > 6U
+            || component.operation > 3U || (index == 0U && component.operation != 0U)
+            || (index > 0U && component.operation == 0U)
+            || !component_ids
+                    .insert(
+                        std::string(component.component_id.data(), component.component_id.size())
+                    )
+                    .second) {
+            throw std::invalid_argument("local_mask_components contains invalid topology");
+        }
+    }
+}
 
 [[nodiscard]] shadow::desktop::FfiBasicEditParameters
 ffi_parameters(const BackendBasicEditParameters& source) {
@@ -296,29 +343,41 @@ shadow::desktop::FfiEditPreviewPolicy ffi_edit_preview_policy(const EditPreviewP
 }
 
 shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
+    validate_mask_components(source);
     shadow::desktop::FfiGradeNode result;
     result.grade_node_id = source.grade_node_id.toStdString();
     result.shared_layer_id = source.shared_layer_id.toStdString();
     result.shared_revision_id = source.shared_revision_id.toStdString();
-    result.local_mask_kind = source.local_mask_kind;
-    result.local_mask_x0 = source.local_mask_x0;
-    result.local_mask_y0 = source.local_mask_y0;
-    result.local_mask_x1 = source.local_mask_x1;
-    result.local_mask_y1 = source.local_mask_y1;
-    result.local_mask_radius_x = source.local_mask_radius_x;
-    result.local_mask_radius_y = source.local_mask_radius_y;
-    result.local_mask_feather = source.local_mask_feather;
-    result.local_mask_invert = source.local_mask_invert;
-    result.local_mask_brush_points.reserve(
-        static_cast<std::size_t>(source.local_mask_brush_points.size())
+    result.local_mask_components.reserve(
+        static_cast<std::size_t>(source.local_mask_components.size())
     );
-    for (const double value : source.local_mask_brush_points) {
-        result.local_mask_brush_points.push_back(value);
+    for (const auto& source_component : source.local_mask_components) {
+        shadow::desktop::FfiMaskComponent component;
+        component.component_id = source_component.component_id.toStdString();
+        component.operation = source_component.operation;
+        component.enabled = source_component.enabled;
+        component.kind = source_component.kind;
+        component.x0 = source_component.x0;
+        component.y0 = source_component.y0;
+        component.x1 = source_component.x1;
+        component.y1 = source_component.y1;
+        component.radius_x = source_component.radius_x;
+        component.radius_y = source_component.radius_y;
+        component.feather = source_component.feather;
+        component.leaf_invert = source_component.leaf_invert;
+        component.brush_points.reserve(
+            static_cast<std::size_t>(source_component.brush_points.size())
+        );
+        for (const double value : source_component.brush_points) {
+            component.brush_points.push_back(value);
+        }
+        component.semantic_query = source_component.semantic_query.toStdString();
+        component.semantic_maximum_regions = source_component.semantic_maximum_regions;
+        component.semantic_score_threshold_percent =
+            source_component.semantic_score_threshold_percent;
+        result.local_mask_components.push_back(std::move(component));
     }
-    result.local_mask_semantic_query = source.local_mask_semantic_query.toStdString();
-    result.local_mask_semantic_maximum_regions = source.local_mask_semantic_maximum_regions;
-    result.local_mask_semantic_score_threshold_percent =
-        source.local_mask_semantic_score_threshold_percent;
+    result.local_mask_invert = source.local_mask_invert;
     result.label = source.label.toStdString();
     result.opacity = source.opacity;
     result.exposure_render_op_id = source.exposure_render_op_id.toStdString();
@@ -336,29 +395,42 @@ shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
 }
 
 BackendGradeNode grade_node(const shadow::desktop::FfiGradeNode& source) {
+    validate_mask_components(source);
     BackendGradeNode result;
     result.grade_node_id = qstring(source.grade_node_id);
     result.shared_layer_id = qstring(source.shared_layer_id);
     result.shared_revision_id = qstring(source.shared_revision_id);
-    result.local_mask_kind = source.local_mask_kind;
-    result.local_mask_x0 = source.local_mask_x0;
-    result.local_mask_y0 = source.local_mask_y0;
-    result.local_mask_x1 = source.local_mask_x1;
-    result.local_mask_y1 = source.local_mask_y1;
-    result.local_mask_radius_x = source.local_mask_radius_x;
-    result.local_mask_radius_y = source.local_mask_radius_y;
-    result.local_mask_feather = source.local_mask_feather;
-    result.local_mask_invert = source.local_mask_invert;
-    result.local_mask_brush_points.reserve(
-        checked_qt_vector_size(source.local_mask_brush_points.size(), "local_mask_brush_points")
+    result.local_mask_components.reserve(
+        checked_qt_vector_size(source.local_mask_components.size(), "local_mask_components")
     );
-    for (const double value : source.local_mask_brush_points) {
-        result.local_mask_brush_points.push_back(value);
+    for (const auto& source_component : source.local_mask_components) {
+        BackendMaskComponent component;
+        component.component_id = qstring(source_component.component_id);
+        component.operation = source_component.operation;
+        component.enabled = source_component.enabled;
+        component.kind = source_component.kind;
+        component.x0 = source_component.x0;
+        component.y0 = source_component.y0;
+        component.x1 = source_component.x1;
+        component.y1 = source_component.y1;
+        component.radius_x = source_component.radius_x;
+        component.radius_y = source_component.radius_y;
+        component.feather = source_component.feather;
+        component.leaf_invert = source_component.leaf_invert;
+        component.brush_points.reserve(checked_qt_vector_size(
+            source_component.brush_points.size(),
+            "local_mask_component_brush_points"
+        ));
+        for (const double value : source_component.brush_points) {
+            component.brush_points.push_back(value);
+        }
+        component.semantic_query = qstring(source_component.semantic_query);
+        component.semantic_maximum_regions = source_component.semantic_maximum_regions;
+        component.semantic_score_threshold_percent =
+            source_component.semantic_score_threshold_percent;
+        result.local_mask_components.push_back(std::move(component));
     }
-    result.local_mask_semantic_query = qstring(source.local_mask_semantic_query);
-    result.local_mask_semantic_maximum_regions = source.local_mask_semantic_maximum_regions;
-    result.local_mask_semantic_score_threshold_percent =
-        source.local_mask_semantic_score_threshold_percent;
+    result.local_mask_invert = source.local_mask_invert;
     result.label = qstring(source.label);
     result.opacity = source.opacity;
     result.exposure_render_op_id = qstring(source.exposure_render_op_id);

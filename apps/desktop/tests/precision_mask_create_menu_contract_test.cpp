@@ -1,4 +1,5 @@
 #include <QCoreApplication>
+#include <QFile>
 #include <QGuiApplication>
 #include <QMetaObject>
 #include <QObject>
@@ -24,6 +25,7 @@ class FakeMaskEditor final : public QObject {
     Q_PROPERTY(bool gradeNodeEnabled READ gradeNodeEnabled NOTIFY availabilityChanged)
     Q_PROPERTY(bool canAddGradeNode READ canAddGradeNode NOTIFY availabilityChanged)
     Q_PROPERTY(QVariantMap selectedLocalMask READ selectedLocalMask NOTIFY availabilityChanged)
+    Q_PROPERTY(QVariantList localMaskComponents READ localMaskComponents NOTIFY availabilityChanged)
 
   public:
     using QObject::QObject;
@@ -55,6 +57,13 @@ class FakeMaskEditor final : public QObject {
     [[nodiscard]] QVariantMap selectedLocalMask() const {
         return {{QStringLiteral("kind"), mask_kind_}};
     }
+    [[nodiscard]] QVariantList localMaskComponents() const {
+        QVariantList components;
+        for (int index = 0; index < mask_component_count_; ++index) {
+            components.push_back(QVariantMap{{QStringLiteral("index"), index}});
+        }
+        return components;
+    }
 
     void setAvailability(
         const bool state_busy,
@@ -68,6 +77,13 @@ class FakeMaskEditor final : public QObject {
         node_enabled_ = node_enabled;
         can_add_node_ = can_add_node;
         mask_kind_ = mask_kind;
+        mask_component_count_ = mask_kind == 0 ? 0 : 1;
+        emit availabilityChanged();
+    }
+
+    void setMaskComponentCount(const int count) {
+        mask_component_count_ = count;
+        mask_kind_ = count == 0 ? 0 : 3;
         emit availabilityChanged();
     }
 
@@ -83,26 +99,48 @@ class FakeMaskEditor final : public QObject {
         return create_result_;
     }
 
-    Q_INVOKABLE bool beginAiMaskPrompt() {
+    Q_INVOKABLE bool addLocalMaskComponent(const int kind, const int operation) {
+        ++add_component_count_;
+        last_kind_ = kind;
+        last_operation_ = operation;
+        return create_result_;
+    }
+
+    Q_INVOKABLE bool
+    beginAiMaskPromptForOperation(const int operation, const bool prefer_current_node) {
         ++subject_prompt_count_;
+        last_operation_ = operation;
+        last_prefer_current_node_ = prefer_current_node;
         return ai_prompt_result_;
     }
 
-    Q_INVOKABLE bool beginAiFaceMaskPrompt() {
+    Q_INVOKABLE bool
+    beginAiFaceMaskPromptForOperation(const int operation, const bool prefer_current_node) {
         ++face_prompt_count_;
+        last_operation_ = operation;
+        last_prefer_current_node_ = prefer_current_node;
         return ai_prompt_result_;
     }
 
-    Q_INVOKABLE bool beginAiSemanticMask(const QString& query) {
+    Q_INVOKABLE bool beginAiSemanticMaskForOperation(
+        const QString& query,
+        const int operation,
+        const bool prefer_current_node
+    ) {
         ++semantic_prompt_count_;
         last_semantic_query_ = query;
+        last_operation_ = operation;
+        last_prefer_current_node_ = prefer_current_node;
         return ai_prompt_result_;
     }
 
     bool create_result_ = true;
     int create_count_ = 0;
+    int add_component_count_ = 0;
     int last_kind_ = -1;
     int last_destination_ = -1;
+    int last_operation_ = -1;
+    bool last_prefer_current_node_ = false;
     bool ai_prompt_result_ = true;
     int subject_prompt_count_ = 0;
     int face_prompt_count_ = 0;
@@ -121,6 +159,7 @@ class FakeMaskEditor final : public QObject {
     bool node_enabled_ = true;
     bool can_add_node_ = true;
     int mask_kind_ = 0;
+    int mask_component_count_ = 0;
     QString photo_id_ = QStringLiteral("photo");
     QString representation_id_ = QStringLiteral("representation");
     QString selected_node_id_ = QStringLiteral("node");
@@ -157,6 +196,24 @@ void drainBindings() {
 
 int main(int argc, char* argv[]) {
     QGuiApplication application(argc, argv);
+    QFile local_mask_tools(
+        QStringLiteral(SHADOW_DESKTOP_SOURCE_DIR "/qml/PrecisionLocalMaskTools.qml")
+    );
+    if (!require(
+            local_mask_tools.open(QIODevice::ReadOnly),
+            "local mask tools source is readable"
+        )) {
+        return EXIT_FAILURE;
+    }
+    const QByteArray local_mask_tools_source = local_mask_tools.readAll();
+    if (!require(
+            local_mask_tools_source.contains("removeSelectedLocalMaskComponent()")
+                && !local_mask_tools_source.contains("setSelectedLocalMask(0)"),
+            "the visible delete action delegates component removal instead of replacing the node "
+            "mask"
+        )) {
+        return EXIT_FAILURE;
+    }
     QQmlEngine engine;
     QQmlComponent component(
         &engine,
@@ -218,7 +275,8 @@ int main(int argc, char* argv[]) {
         || !require(
             invokeWithBool(menu.get(), "startAiMask", false)
                 && invokeWithBool(menu.get(), "startAiMask", true)
-                && editor.subject_prompt_count_ == 1 && editor.face_prompt_count_ == 1,
+                && editor.subject_prompt_count_ == 1 && editor.face_prompt_count_ == 1
+                && editor.last_operation_ == 0 && !editor.last_prefer_current_node_,
             "both AI selectors delegate one controller-owned new-node transaction"
         )
         || !require(
@@ -233,21 +291,42 @@ int main(int argc, char* argv[]) {
     editor.setAvailability(false, true, true, true, 3);
     drainBindings();
     if (!require(
-            !menu->property("currentNodeAvailable").toBool(),
-            "a node with a mask cannot accept a replacement creation"
+            menu->property("currentNodeAvailable").toBool(),
+            "a node with a mask can accept another bounded component"
         )
         || !require(
             invokeWithInt(menu.get(), "selectDestination", 0)
-                && menu->property("destination").toInt() == 1,
-            "an existing mask redirects creation to a new node"
+                && menu->property("destination").toInt() == 0,
+            "an existing mask keeps the selected-node destination"
         )) {
         return EXIT_FAILURE;
     }
 
-    menu->setProperty("destination", 0);
+    menu->setProperty("componentOperation", 2);
     if (!require(
-            invokeWithInt(menu.get(), "createMask", 1) && editor.create_count_ == 3,
-            "forcing the unavailable current destination cannot replace a mask"
+            invokeWithInt(menu.get(), "createMask", 1) && editor.create_count_ == 3
+                && editor.add_component_count_ == 1 && editor.last_kind_ == 1
+                && editor.last_operation_ == 2,
+            "current-node creation appends one subtracting component without replacing the mask"
+        )
+        || !require(
+            invokeWithBool(menu.get(), "startAiMask", false) && editor.subject_prompt_count_ == 2
+                && editor.last_operation_ == 2 && editor.last_prefer_current_node_,
+            "AI selection appends with the same selected operation"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    editor.setMaskComponentCount(8);
+    drainBindings();
+    if (!require(
+            !menu->property("currentNodeAvailable").toBool(),
+            "an eight-component mask closes the bounded current-node destination"
+        )
+        || !require(
+            invokeWithInt(menu.get(), "selectDestination", 0)
+                && menu->property("destination").toInt() == 1,
+            "a full component stack redirects creation to a new node"
         )) {
         return EXIT_FAILURE;
     }
@@ -269,8 +348,9 @@ int main(int argc, char* argv[]) {
             "a full node stack falls back to the selected empty node"
         )
         || !require(
-            invokeWithBool(menu.get(), "startAiMask", false) && editor.subject_prompt_count_ == 1,
-            "AI selection cannot start when no new Grade Node can be created"
+            invokeWithBool(menu.get(), "startAiMask", false) && editor.subject_prompt_count_ == 3
+                && editor.last_operation_ == 0 && editor.last_prefer_current_node_,
+            "AI selection can attach a Base component to the selected empty node"
         )) {
         return EXIT_FAILURE;
     }

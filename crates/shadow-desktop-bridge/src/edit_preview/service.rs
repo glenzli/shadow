@@ -105,12 +105,18 @@ fn log_interactive_raw_route(token: u64, receipt: &RawPipelineReceipt) {
 fn mask_coverage_request(
     requested: bool,
     target_layer_index: u32,
+    component_requested: bool,
+    target_component_index: u32,
     mask_selection_revision: u64,
     grade_node_count: usize,
-    target_has_mask: bool,
+    target_component_count: usize,
 ) -> AnyResult<Option<EditPreviewMaskCoverageRequest>> {
     if !requested {
-        if target_layer_index != 0 || mask_selection_revision != 0 {
+        if target_layer_index != 0
+            || component_requested
+            || target_component_index != 0
+            || mask_selection_revision != 0
+        {
             bail!("unrequested mask coverage must use zero target and revision sentinels");
         }
         return Ok(None);
@@ -120,11 +126,25 @@ fn mask_coverage_request(
     if target >= grade_node_count {
         bail!("mask coverage target is outside the authored Grade Stack");
     }
-    if !target_has_mask {
+    if target_component_count == 0 {
         return Ok(None);
     }
+    let target_component_index = if component_requested {
+        let component = usize::try_from(target_component_index)
+            .map_err(|_| anyhow!("mask coverage component does not fit the host address space"))?;
+        if component >= target_component_count {
+            bail!("mask coverage component is outside the authored node mask");
+        }
+        Some(target_component_index)
+    } else {
+        if target_component_index != 0 {
+            bail!("final mask coverage must use the zero component sentinel");
+        }
+        None
+    };
     Ok(Some(EditPreviewMaskCoverageRequest {
         target_layer_index,
+        target_component_index,
         mask_selection_revision,
     }))
 }
@@ -354,12 +374,14 @@ impl DesktopSession {
             let mask_coverage = mask_coverage_request(
                 request.mask_coverage_requested,
                 request.mask_coverage_target_layer_index,
+                request.mask_coverage_component_requested,
+                request.mask_coverage_target_component_index,
                 request.mask_selection_revision,
                 request.settings.grade_nodes.len(),
                 usize::try_from(request.mask_coverage_target_layer_index)
                     .ok()
                     .and_then(|target| request.settings.grade_nodes.get(target))
-                    .is_some_and(|grade_node| grade_node.local_mask_kind != 0),
+                    .map_or(0, |grade_node| grade_node.local_mask_components.len()),
             )?;
             let source_environment_cache_identity =
                 current_source_environment_cache_identity(&photo_provider_version());

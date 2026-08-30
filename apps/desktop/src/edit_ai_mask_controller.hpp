@@ -56,12 +56,17 @@ class EditAiMaskController final {
     [[nodiscard]] QString candidateSource() const;
     [[nodiscard]] QVariantList promptPoints() const;
 
-    [[nodiscard]] bool beginPrompt(AiMaskSelectionKind kind);
+    [[nodiscard]] bool beginPrompt(
+        AiMaskSelectionKind kind,
+        std::uint8_t target_mask_operation = 0,
+        bool prefer_current_node = false
+    );
     [[nodiscard]] bool beginSemantic(
         const QString& query,
         std::uint8_t maximum_regions,
         std::uint8_t score_threshold_percent,
-        bool prefer_current_node
+        bool prefer_current_node,
+        std::uint8_t target_mask_operation = 0
     );
     void setForegroundMode(bool foreground);
     void setFaceRegion(int region);
@@ -81,6 +86,7 @@ class EditAiMaskController final {
         QString source_path;
         QString target_grade_node_id;
         std::uint32_t target_grade_node_index = 0;
+        std::uint8_t target_mask_operation = 0;
         BackendGradeStack grade_stack;
         std::uint64_t photo_generation = 0;
         std::uint64_t input_session_token = 0;
@@ -88,7 +94,11 @@ class EditAiMaskController final {
 
     void finishExecution();
     void finishApply();
-    [[nodiscard]] bool beginSelection(AiMaskSelectionKind kind, bool prefer_current_node);
+    [[nodiscard]] bool beginSelection(
+        AiMaskSelectionKind kind,
+        bool prefer_current_node,
+        std::uint8_t target_mask_operation
+    );
     void requestGeneration();
     void tryStartPendingGeneration();
     void startGeneration();

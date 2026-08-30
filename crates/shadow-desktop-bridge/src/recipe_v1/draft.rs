@@ -5,9 +5,9 @@ use shadow_bridge::{
     PerceptualColorParameters, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
-    ImageCompletionRegion, LayerId, LayerRevisionId, MaskDefinition, PhotoCanvasNode,
-    PhotoFoundationNode, PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke,
-    SemanticMaskIntent, UnitInterval, operation::BASIC_LAYER_LABEL,
+    ImageCompletionRegion, LayerId, LayerRevisionId, MaskComponentId, MaskComponentOperation,
+    MaskDefinition, PhotoCanvasNode, PhotoFoundationNode, PhotoLiquifyNode, RawFoundationDenoise,
+    RetouchSpot, RetouchStroke, SemanticMaskIntent, UnitInterval, operation::BASIC_LAYER_LABEL,
 };
 
 use super::GradeNodeRecipeV1Identity;
@@ -21,12 +21,36 @@ pub(crate) struct PreservedManagedRasterSettings {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MaskComponentDraftDefinition {
+    Definition(MaskDefinition),
+    PreservedManagedRaster(PreservedManagedRasterSettings),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MaskComponentDraft {
+    pub(crate) id: MaskComponentId,
+    pub(crate) operation: MaskComponentOperation,
+    pub(crate) enabled: bool,
+    pub(crate) definition: MaskComponentDraftDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CompositeMaskDraft {
+    pub(crate) components: Vec<MaskComponentDraft>,
+    pub(crate) invert: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GradeNodeDraft {
     pub(crate) recipe_v1_identity: GradeNodeRecipeV1Identity,
     pub(crate) shared: Option<SharedGradeNodeReference>,
     /// Spatial placement is deliberately instance-local. Publishing a Grade
     /// Node shares its adjustment graph, never this photo's mask placement.
     pub(crate) local_mask: Option<MaskDefinition>,
+    /// Present only while Qt edits an authored multi-component mask. It is
+    /// materialized into one canonical MaskDefinition before compilation or
+    /// snapshot publication, so the domain remains the sole mask owner.
+    pub(crate) composite_mask: Option<CompositeMaskDraft>,
     /// The Qt DTO carries persisted managed rasters as an opaque kind-six
     /// marker plus reversible refinement controls. Snapshot encoding must
     /// recover the exact immutable raster reference from the explicit base
@@ -83,6 +107,7 @@ impl GradeNodeDraft {
             recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
             shared: None,
             local_mask: None,
+            composite_mask: None,
             preserved_managed_raster: None,
             label: label.into(),
             opacity: UnitInterval::ONE,
@@ -100,6 +125,7 @@ impl GradeNodeDraft {
             // the rendered controls but must never inherit the source link.
             shared: None,
             local_mask: self.local_mask.clone(),
+            composite_mask: self.composite_mask.clone(),
             preserved_managed_raster: self.preserved_managed_raster.clone(),
             label: self.label.clone(),
             opacity: self.opacity,

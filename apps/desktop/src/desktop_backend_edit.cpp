@@ -20,8 +20,8 @@ using desktop_backend_projection::edit_state;
 using desktop_backend_projection::ffi_edit_preview_policy;
 using desktop_backend_projection::ffi_grade_node;
 using desktop_backend_projection::ffi_grade_stack;
-using desktop_backend_projection::grade_stack;
 using desktop_backend_projection::grade_node;
+using desktop_backend_projection::grade_stack;
 using desktop_backend_projection::qbytes;
 using desktop_backend_projection::qcounts;
 using desktop_backend_projection::qstring;
@@ -29,14 +29,11 @@ using desktop_backend_projection::shared_grade_node;
 
 } // namespace
 
-BackendPhotoEditState DesktopBackend::photoEditState(
-    const QString& photo_id,
-    const QString& source_path
-) const {
-    return edit_state(impl_->session->photo_edit_state(
-        photo_id.toStdString(),
-        source_path.toStdString()
-    ));
+BackendPhotoEditState
+DesktopBackend::photoEditState(const QString& photo_id, const QString& source_path) const {
+    return edit_state(
+        impl_->session->photo_edit_state(photo_id.toStdString(), source_path.toStdString())
+    );
 }
 
 QByteArray DesktopBackend::exportShadowRecipe(
@@ -91,22 +88,23 @@ BackendPhotoEditState DesktopBackend::resetIncompatiblePhotoEditHistory(
     ));
 }
 
-QVariantList DesktopBackend::opticsProfileCandidates(
-    const QString& photo_id,
-    const QString& source_path
-) const {
+QVariantList
+DesktopBackend::opticsProfileCandidates(const QString& photo_id, const QString& source_path) const {
     const auto candidates = impl_->session->optics_profile_candidates(
-        photo_id.toStdString(), source_path.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString()
     );
     QVariantList result;
     result.reserve(checked_qt_vector_size(candidates.size(), "optics_profile_candidates"));
     for (const auto& candidate : candidates) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("cameraMaker"), qstring(candidate.camera_maker)},
-            {QStringLiteral("cameraModel"), qstring(candidate.camera_model)},
-            {QStringLiteral("lensMaker"), qstring(candidate.lens_maker)},
-            {QStringLiteral("lensModel"), qstring(candidate.lens_model)},
-        });
+        result.push_back(
+            QVariantMap{
+                {QStringLiteral("cameraMaker"), qstring(candidate.camera_maker)},
+                {QStringLiteral("cameraModel"), qstring(candidate.camera_model)},
+                {QStringLiteral("lensMaker"), qstring(candidate.lens_maker)},
+                {QStringLiteral("lensModel"), qstring(candidate.lens_model)},
+            }
+        );
     }
     return result;
 }
@@ -126,9 +124,9 @@ BackendSharedGradeNode DesktopBackend::publishSharedGradeNode(
     const BackendGradeNode& grade_node
 ) const {
     const auto ffi_node = ffi_grade_node(grade_node);
-    return shared_grade_node(impl_->session->publish_shared_grade_node(
-        label.toStdString(), ffi_node
-    ));
+    return shared_grade_node(
+        impl_->session->publish_shared_grade_node(label.toStdString(), ffi_node)
+    );
 }
 
 BackendBatchGradeReceipt DesktopBackend::applySharedGradeNodeToPhotos(
@@ -144,7 +142,8 @@ BackendBatchGradeReceipt DesktopBackend::applySharedGradeNodeToPhotos(
         ffi_targets.push_back(std::move(ffi_target));
     }
     const auto receipt = impl_->session->apply_shared_grade_node_to_photos(
-        layer_id.toStdString(), std::move(ffi_targets)
+        layer_id.toStdString(),
+        std::move(ffi_targets)
     );
     BackendBatchGradeReceipt result{
         .requested = receipt.requested,
@@ -152,9 +151,7 @@ BackendBatchGradeReceipt DesktopBackend::applySharedGradeNodeToPhotos(
         .unchanged = receipt.unchanged,
         .failed = receipt.failed,
     };
-    result.errors.reserve(
-        checked_qt_vector_size(receipt.errors.size(), "batch_grade_errors")
-    );
+    result.errors.reserve(checked_qt_vector_size(receipt.errors.size(), "batch_grade_errors"));
     for (const auto& error : receipt.errors) {
         result.errors.push_back(qstring(error));
     }
@@ -186,16 +183,22 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         request.max_edge = max_edge;
         request.jpeg_quality = jpeg_quality;
         request.policy = ffi_edit_preview_policy(policy);
-        request.use_working_recipe =
-            edit_preview_kind(policy) == EditPreviewKind::Current;
-        request.mask_coverage_requested =
-            mask_coverage_request.has_value();
+        request.use_working_recipe = edit_preview_kind(policy) == EditPreviewKind::Current;
+        request.mask_coverage_requested = mask_coverage_request.has_value();
+        if (mask_coverage_request.has_value()
+            && mask_coverage_request->target_component_index < -1) {
+            throw std::invalid_argument("mask coverage component target is invalid");
+        }
         request.mask_coverage_target_layer_index =
-            mask_coverage_request.has_value()
-            ? mask_coverage_request->target_layer_index : 0U;
+            mask_coverage_request.has_value() ? mask_coverage_request->target_layer_index : 0U;
+        request.mask_coverage_component_requested =
+            mask_coverage_request.has_value() && mask_coverage_request->target_component_index >= 0;
+        request.mask_coverage_target_component_index =
+            request.mask_coverage_component_requested
+                ? static_cast<std::uint32_t>(mask_coverage_request->target_component_index)
+                : 0U;
         request.mask_selection_revision =
-            mask_coverage_request.has_value()
-            ? mask_coverage_request->selection_revision : 0U;
+            mask_coverage_request.has_value() ? mask_coverage_request->selection_revision : 0U;
         ffi_photo_id = photo_id.toStdString();
         ffi_source_path = source_path.toStdString();
     } catch (...) {
@@ -240,8 +243,10 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     if ((interactive
          && (payload.row_stride_bytes != expected_rgb8_stride || !payload.bytes.empty()))
         || (!interactive && payload.row_stride_bytes != 0U)) {
-        throw std::runtime_error("edit preview returned a payload layout "
-                                 "inconsistent with its explicit policy");
+        throw std::runtime_error(
+            "edit preview returned a payload layout "
+            "inconsistent with its explicit policy"
+        );
     }
     const auto interactive_mask_coverage_samples =
         owned_payload->interactive_mask_coverage_samples();
@@ -249,14 +254,14 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         interactive ? QByteArray{} : qbytes(payload.mask_coverage_samples);
     const bool empty_mask_coverage_sentinel =
         payload.mask_coverage_version == 0U && payload.mask_coverage_target_layer_index == 0U
+        && !payload.mask_coverage_component_selected
+        && payload.mask_coverage_target_component_index == 0U
         && payload.mask_selection_revision == 0U && payload.mask_coverage_width == 0U
         && payload.mask_coverage_height == 0U && payload.mask_coverage_row_stride_bytes == 0U
         && mask_coverage_samples.isEmpty() && interactive_mask_coverage_samples.empty();
     if (!payload.mask_coverage_available) {
         if (!empty_mask_coverage_sentinel) {
-            throw std::runtime_error(
-                "unavailable mask coverage returned non-empty sentinels"
-            );
+            throw std::runtime_error("unavailable mask coverage returned non-empty sentinels");
         }
     } else {
         const std::uint64_t expected_mask_bytes =
@@ -265,6 +270,11 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         if (!mask_coverage_request.has_value()
             || payload.mask_coverage_version != EDIT_MASK_COVERAGE_VERSION
             || payload.mask_coverage_target_layer_index != mask_coverage_request->target_layer_index
+            || payload.mask_coverage_component_selected
+                   != (mask_coverage_request->target_component_index >= 0)
+            || (payload.mask_coverage_component_selected
+                && payload.mask_coverage_target_component_index
+                       != static_cast<std::uint32_t>(mask_coverage_request->target_component_index))
             || payload.mask_selection_revision != mask_coverage_request->selection_revision
             || payload.mask_coverage_width != payload.width
             || payload.mask_coverage_height != payload.height
@@ -327,6 +337,10 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
                 .samples = mask_coverage_samples,
                 .version = payload.mask_coverage_version,
                 .target_layer_index = payload.mask_coverage_target_layer_index,
+                .target_component_index =
+                    payload.mask_coverage_component_selected
+                        ? static_cast<std::int32_t>(payload.mask_coverage_target_component_index)
+                        : -1,
                 .selection_revision = payload.mask_selection_revision,
                 .width = payload.mask_coverage_width,
                 .height = payload.mask_coverage_height,
@@ -383,6 +397,8 @@ BackendRawWhiteBalancePickerResult DesktopBackend::pickRawWhiteBalance(
     request.use_working_recipe = true;
     request.mask_coverage_requested = false;
     request.mask_coverage_target_layer_index = 0U;
+    request.mask_coverage_component_requested = false;
+    request.mask_coverage_target_component_index = 0U;
     request.mask_selection_revision = 0U;
     const auto result = impl_->session->pick_raw_white_balance(
         photo_id.toStdString(),
@@ -417,6 +433,8 @@ BackendRawWhiteBalancePickerResult DesktopBackend::autoRawWhiteBalance(
     request.use_working_recipe = true;
     request.mask_coverage_requested = false;
     request.mask_coverage_target_layer_index = 0U;
+    request.mask_coverage_component_requested = false;
+    request.mask_coverage_target_component_index = 0U;
     request.mask_selection_revision = 0U;
     const auto result = impl_->session->auto_raw_white_balance(
         photo_id.toStdString(),
@@ -434,9 +452,7 @@ std::uint64_t DesktopBackend::beginEditPreviewRequest() const noexcept {
     return impl_->session->begin_basic_edit_preview();
 }
 
-bool DesktopBackend::cancelEditPreviewRequest(
-    const std::uint64_t render_token
-) const noexcept {
+bool DesktopBackend::cancelEditPreviewRequest(const std::uint64_t render_token) const noexcept {
     return impl_->session->cancel_basic_edit_preview(render_token);
 }
 
@@ -536,7 +552,9 @@ BackendPhotoEditState DesktopBackend::createPhotoVariant(
     const QString& name
 ) const {
     return edit_state(impl_->session->create_photo_variant(
-        photo_id.toStdString(), source_path.toStdString(), name.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        name.toStdString()
     ));
 }
 
@@ -560,7 +578,9 @@ BackendPhotoEditState DesktopBackend::activatePhotoVariant(
     const QString& variant_id
 ) const {
     return edit_state(impl_->session->activate_photo_variant(
-        photo_id.toStdString(), source_path.toStdString(), variant_id.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        variant_id.toStdString()
     ));
 }
 
@@ -570,7 +590,9 @@ BackendPhotoEditState DesktopBackend::removePhotoVariant(
     const QString& variant_id
 ) const {
     return edit_state(impl_->session->remove_photo_variant(
-        photo_id.toStdString(), source_path.toStdString(), variant_id.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        variant_id.toStdString()
     ));
 }
 

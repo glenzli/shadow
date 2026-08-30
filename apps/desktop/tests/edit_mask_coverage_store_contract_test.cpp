@@ -18,8 +18,11 @@ namespace {
     return condition;
 }
 
-[[nodiscard]] EditMaskCoveragePayload
-coverage_payload(const std::uint32_t target, const std::uint64_t selection) {
+[[nodiscard]] EditMaskCoveragePayload coverage_payload(
+    const std::uint32_t target,
+    const std::int32_t component,
+    const std::uint64_t selection
+) {
     QByteArray samples;
     samples.append(char{0});
     samples.append(char{64});
@@ -31,6 +34,7 @@ coverage_payload(const std::uint32_t target, const std::uint64_t selection) {
         .row_stride_bytes = 2,
         .version = EDIT_MASK_COVERAGE_VERSION,
         .target_layer_index = target,
+        .target_component_index = component,
         .selection_revision = selection,
     };
 }
@@ -38,11 +42,12 @@ coverage_payload(const std::uint32_t target, const std::uint64_t selection) {
 [[nodiscard]] QString provider_request(const MaskCoverageGeneration generation) {
     return QStringLiteral(
                "scope/mask/current?photo=%1&recipe=%2&target=%3"
-               "&selection=%4&preview=%5"
+               "&component=%4&selection=%5&preview=%6"
     )
         .arg(generation.photo)
         .arg(generation.recipe_revision)
         .arg(generation.target_layer_index)
+        .arg(generation.target_component_index)
         .arg(generation.selection_revision)
         .arg(generation.paired_preview_generation);
 }
@@ -68,6 +73,7 @@ int main() {
         .photo = 7,
         .recipe_revision = 11,
         .target_layer_index = 2,
+        .target_component_index = 1,
         .selection_revision = 5,
         .paired_preview_generation = 17,
     };
@@ -82,7 +88,11 @@ int main() {
     );
     if (!require(
             store->publishMaskCoverage(
-                coverage_payload(generation.target_layer_index, generation.selection_revision),
+                coverage_payload(
+                    generation.target_layer_index,
+                    generation.target_component_index,
+                    generation.selection_revision
+                ),
                 generation
             ),
             "an exact expected generation publishes after its paired preview"
@@ -113,13 +123,26 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    MaskCoverageGeneration final_coverage = generation;
+    final_coverage.target_component_index = -1;
+    if (!require(
+            provider.requestImage(provider_request(final_coverage), nullptr, {}).isNull(),
+            "selected-component coverage cannot satisfy a final-composite request"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     MaskCoverageGeneration next_generation = generation;
     ++next_generation.recipe_revision;
     ++next_generation.paired_preview_generation;
     store->expectMaskCoverage(next_generation);
     if (!require(
             !store->publishMaskCoverage(
-                coverage_payload(generation.target_layer_index, generation.selection_revision),
+                coverage_payload(
+                    generation.target_layer_index,
+                    generation.target_component_index,
+                    generation.selection_revision
+                ),
                 generation
             ),
             "an older in-flight generation cannot publish after expectation advances"
@@ -128,6 +151,7 @@ int main() {
             !store->publishMaskCoverage(
                 coverage_payload(
                     next_generation.target_layer_index,
+                    next_generation.target_component_index,
                     next_generation.selection_revision
                 ),
                 next_generation
@@ -145,17 +169,32 @@ int main() {
         {},
         next_generation.paired_preview_generation
     );
-    EditMaskCoveragePayload malformed =
-        coverage_payload(next_generation.target_layer_index, next_generation.selection_revision);
+    EditMaskCoveragePayload malformed = coverage_payload(
+        next_generation.target_layer_index,
+        next_generation.target_component_index,
+        next_generation.selection_revision
+    );
     malformed.row_stride_bytes = 3;
     if (!require(
             !store->publishMaskCoverage(std::move(malformed), next_generation),
             "a non-tightly-packed R8 payload fails closed"
         )
         || !require(
+            !store->publishMaskCoverage(
+                coverage_payload(
+                    next_generation.target_layer_index,
+                    -1,
+                    next_generation.selection_revision
+                ),
+                next_generation
+            ),
+            "final-composite coverage cannot publish into a selected-component expectation"
+        )
+        || !require(
             store->publishMaskCoverage(
                 coverage_payload(
                     next_generation.target_layer_index,
+                    next_generation.target_component_index,
                     next_generation.selection_revision
                 ),
                 next_generation

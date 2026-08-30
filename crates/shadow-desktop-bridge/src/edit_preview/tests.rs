@@ -78,6 +78,7 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     let mask_coverage = EditPreviewMaskCoverage {
         version: EDIT_PREVIEW_MASK_COVERAGE_VERSION.to_owned(),
         target_layer_index: 1,
+        target_component_index: Some(1),
         mask_selection_revision: 73,
         dimensions,
         row_stride_bytes: 2,

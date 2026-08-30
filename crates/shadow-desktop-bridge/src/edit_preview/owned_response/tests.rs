@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
-    AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
-    CancellableEditPreview, EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, EditPreviewCancellation,
+    AdjustmentLocalMask, AdjustmentLocalMaskComponent, AdjustmentMaskComponentOperation,
+    AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan, CancellableEditPreview,
+    EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, EditPreviewCancellation,
     EditPreviewMaskCoverageRequest, PhotoEditPreviewSession,
 };
 
@@ -71,6 +72,7 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
     let plan = single_masked_layer_plan();
     let request = EditPreviewMaskCoverageRequest {
         target_layer_index: 0,
+        target_component_index: Some(1),
         mask_selection_revision: 73,
     };
     let reference_cancellation =
@@ -153,6 +155,8 @@ fn assert_interactive_projection(fixture: &InteractiveOwnerFixture) {
         EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION
     );
     assert_eq!(projection.mask_coverage_target_layer_index, 0);
+    assert!(projection.mask_coverage_component_selected);
+    assert_eq!(projection.mask_coverage_target_component_index, 1);
     assert_eq!(projection.mask_selection_revision, 73);
     assert_eq!(projection.mask_coverage_width, projection.width);
     assert_eq!(projection.mask_coverage_height, projection.height);
@@ -270,11 +274,32 @@ fn single_masked_layer_plan() -> AdjustmentRenderPlan {
                 "layer-start",
                 AdjustmentRenderOperation::LocalMaskLayerStart {
                     opacity: 1.0,
-                    mask: Some(AdjustmentLocalMask::LinearGradient {
-                        start_x: 0.0,
-                        start_y: 0.0,
-                        end_x: 1.0,
-                        end_y: 1.0,
+                    mask: Some(AdjustmentLocalMask::Composite {
+                        components: vec![
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Base,
+                                enabled: true,
+                                mask: AdjustmentLocalMask::LinearGradient {
+                                    start_x: 0.0,
+                                    start_y: 0.0,
+                                    end_x: 1.0,
+                                    end_y: 1.0,
+                                    invert: false,
+                                },
+                            },
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Add,
+                                enabled: true,
+                                mask: AdjustmentLocalMask::RadialGradient {
+                                    center_x: 0.5,
+                                    center_y: 0.5,
+                                    radius_x: 0.25,
+                                    radius_y: 0.2,
+                                    feather: 0.5,
+                                    invert: false,
+                                },
+                            },
+                        ],
                         invert: false,
                     }),
                 },

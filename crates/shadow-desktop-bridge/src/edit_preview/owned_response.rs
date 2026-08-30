@@ -191,6 +191,11 @@ fn interactive_projection(
             .map_or(0, |_| EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION),
         mask_coverage_target_layer_index: mask_coverage
             .map_or(0, |coverage| coverage.target_layer_index),
+        mask_coverage_component_selected: mask_coverage
+            .is_some_and(|coverage| coverage.target_component_index.is_some()),
+        mask_coverage_target_component_index: mask_coverage
+            .and_then(|coverage| coverage.target_component_index)
+            .unwrap_or(0),
         mask_selection_revision: mask_coverage
             .map_or(0, |coverage| coverage.mask_selection_revision),
         mask_coverage_width: mask_coverage.map_or(0, |coverage| coverage.dimensions.width),

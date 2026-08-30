@@ -18,11 +18,14 @@ Popup {
     property string openedRepresentationId: ""
     property string openedGradeNodeId: ""
     property bool semanticExpanded: false
+    property int componentOperation: 1
     readonly property int currentNodeDestination: 0
     readonly property int newNodeDestination: 1
     readonly property int currentMaskKind: Number(menu.editor.selectedLocalMask.kind || 0)
-    readonly property bool currentNodeAvailable: menu.editor.active && menu.editor.hasSelectedGradeNode && menu.editor.gradeNodeEnabled && menu.currentMaskKind === 0 && !menu.editor.stateBusy
+    readonly property int currentMaskComponentCount: menu.editor.localMaskComponents.length
+    readonly property bool currentNodeAvailable: menu.editor.active && menu.editor.hasSelectedGradeNode && menu.editor.gradeNodeEnabled && menu.currentMaskComponentCount < 8 && !menu.editor.stateBusy
     readonly property bool newNodeAvailable: menu.editor.canAddGradeNode && !menu.editor.stateBusy
+    readonly property bool aiDestinationAvailable: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
 
     signal maskCreated
     signal aiMaskRequested
@@ -60,18 +63,23 @@ Popup {
         const available = destination === currentNodeDestination ? currentNodeAvailable : newNodeAvailable;
         if (!available)
             return;
-        if (menu.editor.createLocalMask(kind, destination)) {
+        const created = destination === currentNodeDestination && currentMaskComponentCount > 0
+            ? menu.editor.addLocalMaskComponent(kind, componentOperation)
+            : menu.editor.createLocalMask(kind, destination);
+        if (created) {
             menu.close();
             menu.maskCreated();
         }
     }
 
     function startAiMask(faceRegions) {
-        if (!newNodeAvailable)
+        if (!aiDestinationAvailable)
             return;
+        const preferCurrentNode = destination === currentNodeDestination;
+        const operation = preferCurrentNode && currentMaskComponentCount > 0 ? componentOperation : 0;
         const started = faceRegions
-            ? menu.editor.beginAiFaceMaskPrompt()
-            : menu.editor.beginAiMaskPrompt();
+            ? menu.editor.beginAiFaceMaskPromptForOperation(operation, preferCurrentNode)
+            : menu.editor.beginAiMaskPromptForOperation(operation, preferCurrentNode);
         if (started) {
             menu.close();
             menu.aiMaskRequested();
@@ -79,9 +87,11 @@ Popup {
     }
 
     function startSemanticMask(query) {
-        if (!newNodeAvailable || query.trim().length === 0)
+        if (!aiDestinationAvailable || query.trim().length === 0)
             return;
-        if (menu.editor.beginAiSemanticMask(query.trim())) {
+        const preferCurrentNode = destination === currentNodeDestination;
+        const operation = preferCurrentNode && currentMaskComponentCount > 0 ? componentOperation : 0;
+        if (menu.editor.beginAiSemanticMaskForOperation(query.trim(), operation, preferCurrentNode)) {
             menu.close();
             menu.aiMaskRequested();
         }
@@ -174,7 +184,7 @@ Popup {
             id: editCurrentMaskButton
             Layout.fillWidth: true
             implicitHeight: visible ? 40 : 0
-            visible: menu.currentMaskKind !== 0
+            visible: menu.currentMaskComponentCount > 0
             leftPadding: 9
             rightPadding: 9
             hoverEnabled: enabled
@@ -247,7 +257,7 @@ Popup {
                     minimumTabWidth: 108
                     underlineInset: 18
                     enabled: menu.currentNodeAvailable
-                    toolTipText: menu.currentMaskKind === 0 ? qsTr("Attach the mask to the selected Grade Node") : qsTr("The selected Grade Node already has a mask")
+                    toolTipText: menu.currentMaskComponentCount === 0 ? qsTr("Attach the mask to the selected Grade Node") : qsTr("Add a component to the selected node mask")
                     onClicked: menu.destination = menu.currentNodeDestination
                 }
 
@@ -280,6 +290,51 @@ Popup {
             rightPadding: 8
             topPadding: 3
             bottomPadding: 1
+            visible: menu.destination === menu.currentNodeDestination
+                && menu.currentMaskComponentCount > 0
+            text: qsTr("COMBINE AS")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.7
+        }
+
+        RowLayout {
+            objectName: "maskComponentOperationSelector"
+            Layout.fillWidth: true
+            visible: menu.destination === menu.currentNodeDestination
+                && menu.currentMaskComponentCount > 0
+            spacing: 4
+
+            ShadowButton {
+                compact: true
+                Layout.fillWidth: true
+                text: qsTr("Add")
+                variant: menu.componentOperation === 1 ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: menu.componentOperation = 1
+            }
+            ShadowButton {
+                compact: true
+                Layout.fillWidth: true
+                text: qsTr("Subtract")
+                variant: menu.componentOperation === 2 ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: menu.componentOperation = 2
+            }
+            ShadowButton {
+                compact: true
+                Layout.fillWidth: true
+                text: qsTr("Intersect")
+                variant: menu.componentOperation === 3 ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: menu.componentOperation = 3
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            leftPadding: 8
+            rightPadding: 8
+            topPadding: 3
+            bottomPadding: 1
             text: qsTr("MASK TYPE")
             color: Theme.textMuted
             font.pixelSize: 9
@@ -292,8 +347,8 @@ Popup {
             Layout.fillWidth: true
             text: qsTr("AI subject")
             variant: ShadowButton.Secondary
-            enabled: menu.newNodeAvailable
-            toolTipText: qsTr("Create a new Grade Node and prompt SAM 2.1")
+            enabled: menu.aiDestinationAvailable
+            toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add an AI subject component to the selected node mask") : qsTr("Create a new Grade Node and prompt SAM 2.1")
             onClicked: menu.startAiMask(false)
         }
 
@@ -302,8 +357,8 @@ Popup {
             Layout.fillWidth: true
             text: qsTr("AI people details")
             variant: ShadowButton.Secondary
-            enabled: menu.newNodeAvailable
-            toolTipText: qsTr("Create a new Grade Node and select facial features")
+            enabled: menu.aiDestinationAvailable
+            toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add selected people details to the selected node mask") : qsTr("Create a new Grade Node and select facial features")
             onClicked: menu.startAiMask(true)
         }
 
@@ -312,8 +367,8 @@ Popup {
             Layout.fillWidth: true
             text: qsTr("AI semantic")
             variant: menu.semanticExpanded ? ShadowButton.Primary : ShadowButton.Secondary
-            enabled: menu.newNodeAvailable
-            toolTipText: qsTr("Create a semantic mask that can be re-evaluated on another photo")
+            enabled: menu.aiDestinationAvailable
+            toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add a semantic component that can be re-evaluated on another photo") : qsTr("Create a semantic mask that can be re-evaluated on another photo")
             onClicked: menu.semanticExpanded = !menu.semanticExpanded
         }
 
@@ -323,7 +378,7 @@ Popup {
             Layout.leftMargin: 6
             Layout.rightMargin: 6
             visible: menu.semanticExpanded
-            startEnabled: menu.newNodeAvailable
+            startEnabled: menu.aiDestinationAvailable
             onStartRequested: query => menu.startSemanticMask(query)
         }
 

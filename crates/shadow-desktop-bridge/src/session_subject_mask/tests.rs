@@ -1,5 +1,97 @@
 use super::*;
 
+fn domain_unit(value: f64) -> shadow_domain::UnitInterval {
+    shadow_domain::UnitInterval::new(value).expect("valid test unit interval")
+}
+
+fn linear_mask() -> shadow_domain::MaskDefinition {
+    shadow_domain::MaskDefinition::linear_gradient(
+        domain_unit(0.1),
+        domain_unit(0.2),
+        domain_unit(0.8),
+        domain_unit(0.9),
+        false,
+    )
+    .expect("valid linear mask")
+}
+
+fn radial_mask() -> shadow_domain::MaskDefinition {
+    shadow_domain::MaskDefinition::radial_gradient(
+        domain_unit(0.5),
+        domain_unit(0.5),
+        domain_unit(0.25),
+        domain_unit(0.2),
+        domain_unit(0.1),
+        false,
+    )
+    .expect("valid radial mask")
+}
+
+#[test]
+fn append_subject_mask_preserves_existing_component_identity_and_order() {
+    let mut node = super::super::recipe_v1::GradeNodeDraft::neutral("Local");
+    let base_id =
+        append_subject_mask_component(&mut node, linear_mask(), MaskComponentOperation::Base)
+            .expect("append base mask");
+    let added_id =
+        append_subject_mask_component(&mut node, radial_mask(), MaskComponentOperation::Add)
+            .expect("append added mask");
+
+    let composite = node.composite_mask.expect("editable component vector");
+    assert_eq!(composite.components.len(), 2);
+    assert_eq!(composite.components[0].id, base_id);
+    assert_eq!(
+        composite.components[0].operation,
+        MaskComponentOperation::Base
+    );
+    assert_eq!(composite.components[1].id, added_id);
+    assert_eq!(
+        composite.components[1].operation,
+        MaskComponentOperation::Add
+    );
+}
+
+#[test]
+fn append_subject_mask_promotes_a_legacy_leaf_without_changing_its_definition() {
+    let mut node = super::super::recipe_v1::GradeNodeDraft::neutral("Local");
+    let legacy = linear_mask();
+    node.local_mask = Some(legacy.clone());
+
+    append_subject_mask_component(&mut node, radial_mask(), MaskComponentOperation::Subtract)
+        .expect("append subtract mask");
+
+    let composite = node.composite_mask.expect("promoted component vector");
+    assert_eq!(composite.components.len(), 2);
+    assert_eq!(
+        composite.components[0].operation,
+        MaskComponentOperation::Base
+    );
+    assert_eq!(
+        composite.components[0].definition,
+        MaskComponentDraftDefinition::Definition(legacy)
+    );
+    assert_eq!(
+        composite.components[1].operation,
+        MaskComponentOperation::Subtract
+    );
+}
+
+#[test]
+fn append_subject_mask_rejects_an_operation_that_breaks_component_topology() {
+    let mut node = super::super::recipe_v1::GradeNodeDraft::neutral("Local");
+    let error =
+        append_subject_mask_component(&mut node, radial_mask(), MaskComponentOperation::Add)
+            .expect_err("empty node cannot start with Add");
+    assert!(error.to_string().contains("incompatible"));
+
+    append_subject_mask_component(&mut node, linear_mask(), MaskComponentOperation::Base)
+        .expect("append base mask");
+    let error =
+        append_subject_mask_component(&mut node, radial_mask(), MaskComponentOperation::Base)
+            .expect_err("non-empty node cannot append Base");
+    assert!(error.to_string().contains("incompatible"));
+}
+
 #[test]
 fn point_prompt_requires_one_foreground_point() {
     let error = subject_mask_points(&[ffi::FfiSubjectMaskPoint {

@@ -225,13 +225,23 @@ class EditController final : public QObject {
     Q_PROPERTY(QString opticsCameraProfile READ opticsCameraProfile NOTIFY opticsChanged)
     Q_PROPERTY(QString opticsLensProfile READ opticsLensProfile NOTIFY opticsChanged)
     // A local mask belongs to the selected Grade Node instance, never to the
-    // shareable adjustment graph. The compact map keeps QML insulated from
-    // the persisted backend layout while all shape values remain normalized.
+    // shareable adjustment graph. One node owns one ordered component vector;
+    // QML edits the selected leaf while the renderer remains authoritative for
+    // the final Base/Add/Subtract/Intersect coverage.
+    Q_PROPERTY(QVariantList localMaskComponents READ localMaskComponents NOTIFY parametersChanged)
+    Q_PROPERTY(
+        int selectedLocalMaskComponentIndex READ selectedLocalMaskComponentIndex NOTIFY
+            parametersChanged
+    )
     Q_PROPERTY(QVariantMap selectedLocalMask READ selectedLocalMask NOTIFY parametersChanged)
     Q_PROPERTY(
         bool maskToolActive READ maskToolActive WRITE setMaskToolActive NOTIFY maskToolActiveChanged
     )
     Q_PROPERTY(QString maskCoverageSource READ maskCoverageSource NOTIFY maskCoverageSourceChanged)
+    Q_PROPERTY(
+        bool maskCoverageShowsSelectedComponent READ maskCoverageShowsSelectedComponent WRITE
+            setMaskCoverageShowsSelectedComponent NOTIFY maskCoverageModeChanged
+    )
     Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskFaceRegionMode READ aiMaskFaceRegionMode NOTIFY aiMaskPromptChanged)
@@ -522,10 +532,8 @@ class EditController final : public QObject {
     /// Read-only interchange projection. Format controllers may serialize the
     /// current stack but remain unable to mutate edit authority directly.
     [[nodiscard]] const BackendGradeStack& gradeStackForInterchange() const noexcept;
-    [[nodiscard]] bool applyShadowRecipeGradeNodes(
-        const BackendGradeStack& portable_grade_stack,
-        QString* error_text
-    );
+    [[nodiscard]] bool
+    applyShadowRecipeGradeNodes(const BackendGradeStack& portable_grade_stack, QString* error_text);
     void reportShadowRecipeExported(const QString& file_name);
     [[nodiscard]] QString previewSource() const;
     [[nodiscard]] QString provisionalPreviewSource() const;
@@ -574,8 +582,11 @@ class EditController final : public QObject {
     [[nodiscard]] QString opticsCameraProfile() const;
     [[nodiscard]] QString opticsLensProfile() const;
     [[nodiscard]] QVariantMap selectedLocalMask() const;
+    [[nodiscard]] QVariantList localMaskComponents() const;
+    [[nodiscard]] int selectedLocalMaskComponentIndex() const noexcept;
     [[nodiscard]] bool maskToolActive() const noexcept;
     [[nodiscard]] QString maskCoverageSource() const;
+    [[nodiscard]] bool maskCoverageShowsSelectedComponent() const noexcept;
     [[nodiscard]] bool aiMaskPromptActive() const noexcept;
     [[nodiscard]] bool aiMaskBusy() const noexcept;
     [[nodiscard]] bool aiMaskFaceRegionMode() const noexcept;
@@ -724,6 +735,11 @@ class EditController final : public QObject {
     // The new-node path creates, attaches, selects, and records one undo step
     // inside the controller rather than asking QML to chain mutations.
     Q_INVOKABLE bool createLocalMask(int kind, int destination);
+    Q_INVOKABLE bool addLocalMaskComponent(int kind, int operation);
+    Q_INVOKABLE void selectLocalMaskComponent(int index);
+    Q_INVOKABLE void setSelectedLocalMaskComponentEnabled(bool enabled);
+    Q_INVOKABLE void setSelectedLocalMaskComponentOperation(int operation);
+    Q_INVOKABLE void removeSelectedLocalMaskComponent();
     Q_INVOKABLE void setSelectedLocalMask(int kind);
     Q_INVOKABLE void copySelectedLocalMask();
     Q_INVOKABLE void pasteSelectedLocalMask();
@@ -733,11 +749,17 @@ class EditController final : public QObject {
     Q_INVOKABLE void appendSelectedLocalMaskBrushStroke(const QVariantList& points);
     Q_INVOKABLE void clearSelectedLocalMaskBrush();
     Q_INVOKABLE void resetSelectedLocalMask();
+    Q_INVOKABLE void setSelectedLocalMaskLeafInverted(bool inverted);
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setMaskToolActive(bool active);
+    void setMaskCoverageShowsSelectedComponent(bool selected_component);
     Q_INVOKABLE bool beginAiMaskPrompt();
     Q_INVOKABLE bool beginAiFaceMaskPrompt();
     Q_INVOKABLE bool beginAiSemanticMask(const QString& query);
+    Q_INVOKABLE bool beginAiMaskPromptForOperation(int operation, bool prefer_current_node);
+    Q_INVOKABLE bool beginAiFaceMaskPromptForOperation(int operation, bool prefer_current_node);
+    Q_INVOKABLE bool
+    beginAiSemanticMaskForOperation(const QString& query, int operation, bool prefer_current_node);
     Q_INVOKABLE void setAiMaskForegroundMode(bool foreground);
     Q_INVOKABLE void setAiMaskFaceRegion(int region);
     Q_INVOKABLE void setAiMaskSelectedPerson(int person_index);
@@ -1001,6 +1023,7 @@ class EditController final : public QObject {
     void nodeMaskClipboardChanged();
     void maskToolActiveChanged();
     void maskCoverageSourceChanged();
+    void maskCoverageModeChanged();
     void aiMaskPromptChanged();
     void imageCompletionChanged();
     void toneCurveChanged();
@@ -1027,19 +1050,8 @@ class EditController final : public QObject {
 
   private:
     struct NodeMaskClipboard final {
-        std::uint8_t kind = 0;
-        double x0 = 0.0;
-        double y0 = 0.0;
-        double x1 = 0.0;
-        double y1 = 0.0;
-        double radius_x = 0.0;
-        double radius_y = 0.0;
-        double feather = 0.0;
-        bool inverted = false;
-        QVector<double> brush_points;
-        QString semantic_query;
-        std::uint8_t semantic_maximum_regions = 0;
-        std::uint8_t semantic_score_threshold_percent = 0;
+        QVector<BackendMaskComponent> components;
+        bool final_invert = false;
     };
 
     void applyState(BackendPhotoEditState state);
@@ -1053,7 +1065,11 @@ class EditController final : public QObject {
     [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
     [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
     [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
-    static void initializeLocalMask(BackendGradeNode& grade_node, int kind);
+    static void
+    initializeLocalMaskComponent(BackendMaskComponent& component, int kind, int operation);
+    [[nodiscard]] BackendMaskComponent* selectedLocalMaskComponent() noexcept;
+    [[nodiscard]] const BackendMaskComponent* selectedLocalMaskComponent() const noexcept;
+    void clampSelectedLocalMaskComponent();
     void finishActiveGesture();
     void cancelActivePreview(bool force);
     void clearSessionHistory();
@@ -1204,6 +1220,7 @@ class EditController final : public QObject {
     QElapsedTimer interactive_preview_timing_;
     quint64 interactive_preview_timing_token_ = 0;
     quint64 mask_selection_revision_ = 0;
+    int selected_local_mask_component_index_ = 0;
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;
     quint32 level_zero_width_ = 0;
@@ -1265,6 +1282,7 @@ class EditController final : public QObject {
     bool raw_white_balance_picker_active_ = false;
     bool crop_tool_active_ = false;
     bool mask_tool_active_ = false;
+    bool mask_coverage_shows_selected_component_ = true;
     bool mask_coverage_refresh_pending_ = false;
     quint64 parameter_revision_ = 0;
 };

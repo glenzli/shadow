@@ -12,11 +12,31 @@ use super::{
     LOCAL_MASK_LUMINANCE_RANGE, LOCAL_MASK_MANAGED_RASTER, LOCAL_MASK_RADIAL_GRADIENT,
     PreservedManagedRasterSettings, decode_grade_stack_draft_recipe_v1,
     encode_grade_stack_draft_recipe_v1, ffi_local_mask_fields, local_mask_definition_from_ffi,
-    new_basic_grade_node,
 };
 
 fn unit(value: f64) -> UnitInterval {
     UnitInterval::new(value).expect("test unit interval")
+}
+
+fn ffi_mask_component(kind: u8) -> ffi::FfiMaskComponent {
+    ffi::FfiMaskComponent {
+        component_id: "00000000-0000-0000-0000-000000000001".to_owned(),
+        operation: 0,
+        enabled: true,
+        kind,
+        x0: 0.0,
+        y0: 0.0,
+        x1: 0.0,
+        y1: 0.0,
+        radius_x: 0.0,
+        radius_y: 0.0,
+        feather: 0.0,
+        leaf_invert: false,
+        brush_points: Vec::new(),
+        semantic_query: String::new(),
+        semantic_maximum_regions: 0,
+        semantic_score_threshold_percent: 0,
+    }
 }
 
 #[test]
@@ -190,29 +210,28 @@ fn condition_masks_round_trip_through_normalized_desktop_slots() {
         ),
     );
 
-    let mut grade_node = new_basic_grade_node("Condition mask").expect("neutral Grade Node");
-    grade_node.local_mask_kind = LOCAL_MASK_LUMINANCE_RANGE;
-    grade_node.local_mask_x0 = 0.2;
-    grade_node.local_mask_x1 = 0.8;
-    grade_node.local_mask_feather = 0.15;
-    grade_node.local_mask_invert = true;
+    let mut component = ffi_mask_component(LOCAL_MASK_LUMINANCE_RANGE);
+    component.x0 = 0.2;
+    component.x1 = 0.8;
+    component.feather = 0.15;
+    component.leaf_invert = true;
     assert_eq!(
-        local_mask_definition_from_ffi(&grade_node, 0).expect("decode luminance range"),
+        local_mask_definition_from_ffi(&component, 0, 0).expect("decode luminance range"),
         (Some(luminance), None)
     );
 
-    grade_node.local_mask_kind = LOCAL_MASK_COLOR_RANGE;
-    grade_node.local_mask_x0 = 0.75;
-    grade_node.local_mask_x1 = 0.25;
-    grade_node.local_mask_feather = 0.4;
-    grade_node.local_mask_invert = false;
+    component.kind = LOCAL_MASK_COLOR_RANGE;
+    component.x0 = 0.75;
+    component.x1 = 0.25;
+    component.feather = 0.4;
+    component.leaf_invert = false;
     assert_eq!(
-        local_mask_definition_from_ffi(&grade_node, 0).expect("decode color range"),
+        local_mask_definition_from_ffi(&component, 0, 0).expect("decode color range"),
         (Some(color), None)
     );
 
-    grade_node.local_mask_x0 = 1.0;
-    let (wrapped, preserved) = local_mask_definition_from_ffi(&grade_node, 0)
+    component.x0 = 1.0;
+    let (wrapped, preserved) = local_mask_definition_from_ffi(&component, 0, 0)
         .expect("normalized endpoint wraps to canonical hue");
     assert_eq!(preserved, None);
     let wrapped = wrapped.expect("color range");
@@ -227,21 +246,20 @@ fn condition_masks_round_trip_through_normalized_desktop_slots() {
 
 #[test]
 fn malformed_condition_mask_slots_fail_closed() {
-    let mut grade_node = new_basic_grade_node("Invalid mask").expect("neutral Grade Node");
-    grade_node.local_mask_kind = LOCAL_MASK_LUMINANCE_RANGE;
-    grade_node.local_mask_x0 = 0.8;
-    grade_node.local_mask_x1 = 0.2;
-    grade_node.local_mask_feather = 0.1;
-    assert!(local_mask_definition_from_ffi(&grade_node, 0).is_err());
+    let mut component = ffi_mask_component(LOCAL_MASK_LUMINANCE_RANGE);
+    component.x0 = 0.8;
+    component.x1 = 0.2;
+    component.feather = 0.1;
+    assert!(local_mask_definition_from_ffi(&component, 0, 0).is_err());
 
-    grade_node.local_mask_kind = LOCAL_MASK_COLOR_RANGE;
-    grade_node.local_mask_x0 = 0.5;
-    grade_node.local_mask_x1 = 0.0;
-    assert!(local_mask_definition_from_ffi(&grade_node, 0).is_err());
+    component.kind = LOCAL_MASK_COLOR_RANGE;
+    component.x0 = 0.5;
+    component.x1 = 0.0;
+    assert!(local_mask_definition_from_ffi(&component, 0, 0).is_err());
 
-    grade_node.local_mask_x1 = 0.2;
-    grade_node.local_mask_feather = f64::NAN;
-    assert!(local_mask_definition_from_ffi(&grade_node, 0).is_err());
+    component.x1 = 0.2;
+    component.feather = f64::NAN;
+    assert!(local_mask_definition_from_ffi(&component, 0, 0).is_err());
 }
 
 #[test]
@@ -270,13 +288,12 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
             Vec::new(),
         )
     );
-    let mut grade_node = new_basic_grade_node("Managed mask").expect("neutral Grade Node");
-    grade_node.local_mask_kind = LOCAL_MASK_MANAGED_RASTER;
-    grade_node.local_mask_x0 = 0.18;
-    grade_node.local_mask_feather = 0.31;
-    grade_node.local_mask_invert = true;
+    let mut component = ffi_mask_component(LOCAL_MASK_MANAGED_RASTER);
+    component.x0 = 0.18;
+    component.feather = 0.31;
+    component.leaf_invert = true;
     assert_eq!(
-        local_mask_definition_from_ffi(&grade_node, 0).expect("decode opaque managed raster"),
+        local_mask_definition_from_ffi(&component, 0, 0).expect("decode opaque managed raster"),
         (
             None,
             Some(PreservedManagedRasterSettings {
@@ -288,9 +305,9 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
         )
     );
 
-    grade_node.local_mask_x0 = 0.185;
+    component.x0 = 0.185;
     assert!(
-        local_mask_definition_from_ffi(&grade_node, 0)
+        local_mask_definition_from_ffi(&component, 0, 0)
             .expect_err("sub-percent managed refinement is not canonical")
             .to_string()
             .contains("one-percent increments")
@@ -311,20 +328,95 @@ fn semantic_managed_raster_intent_survives_the_qt_dto() {
     });
 
     let ffi = encode_grade_stack_draft_recipe_v1(draft).expect("encode semantic managed mask");
-    assert_eq!(ffi.grade_nodes[0].local_mask_semantic_query, "red train");
-    assert_eq!(ffi.grade_nodes[0].local_mask_semantic_maximum_regions, 4);
+    assert_eq!(ffi.grade_nodes[0].local_mask_components.len(), 1);
     assert_eq!(
-        ffi.grade_nodes[0].local_mask_semantic_score_threshold_percent,
+        ffi.grade_nodes[0].local_mask_components[0].semantic_query,
+        "red train"
+    );
+    assert_eq!(
+        ffi.grade_nodes[0].local_mask_components[0].semantic_maximum_regions,
+        4
+    );
+    assert_eq!(
+        ffi.grade_nodes[0].local_mask_components[0].semantic_score_threshold_percent,
         30
     );
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode semantic managed mask");
     assert_eq!(
         decoded.grade_nodes[0]
-            .preserved_managed_raster
+            .composite_mask
             .as_ref()
-            .and_then(|settings| settings.semantic_intent.as_ref()),
+            .and_then(|composite| composite.components.first())
+            .and_then(|component| match &component.definition {
+                super::MaskComponentDraftDefinition::PreservedManagedRaster(settings) => {
+                    settings.semantic_intent.as_ref()
+                }
+                super::MaskComponentDraftDefinition::Definition(_) => None,
+            }),
         Some(&intent)
     );
+}
+
+#[test]
+fn typed_mask_components_round_trip_stable_identity_order_bypass_and_final_inversion() {
+    let mut ffi =
+        encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("default DTO");
+    let mut base = ffi_mask_component(LOCAL_MASK_LINEAR_GRADIENT);
+    base.component_id = "00000000-0000-0000-0000-000000000011".to_owned();
+    base.x0 = 0.1;
+    base.y0 = 0.2;
+    base.x1 = 0.8;
+    base.y1 = 0.9;
+    let mut subtract = ffi_mask_component(LOCAL_MASK_LUMINANCE_RANGE);
+    subtract.component_id = "00000000-0000-0000-0000-000000000012".to_owned();
+    subtract.operation = 2;
+    subtract.enabled = false;
+    subtract.x0 = 0.3;
+    subtract.x1 = 0.7;
+    subtract.feather = 0.1;
+    ffi.grade_nodes[0].local_mask_components = vec![base, subtract];
+    ffi.grade_nodes[0].local_mask_invert = true;
+
+    let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode composite DTO");
+    let encoded = encode_grade_stack_draft_recipe_v1(decoded).expect("re-encode composite DTO");
+    let components = &encoded.grade_nodes[0].local_mask_components;
+    assert_eq!(components.len(), 2);
+    assert_eq!(
+        components[0].component_id,
+        "00000000-0000-0000-0000-000000000011"
+    );
+    assert_eq!(components[0].operation, 0);
+    assert!(components[0].enabled);
+    assert_eq!(
+        components[1].component_id,
+        "00000000-0000-0000-0000-000000000012"
+    );
+    assert_eq!(components[1].operation, 2);
+    assert!(!components[1].enabled);
+    assert!(encoded.grade_nodes[0].local_mask_invert);
+}
+
+#[test]
+fn typed_mask_components_fail_closed_on_unknown_or_ambiguous_topology() {
+    let mut ffi =
+        encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("default DTO");
+    let mut base = ffi_mask_component(LOCAL_MASK_LINEAR_GRADIENT);
+    base.x0 = 0.1;
+    base.y0 = 0.2;
+    base.x1 = 0.8;
+    base.y1 = 0.9;
+    ffi.grade_nodes[0].local_mask_components = vec![base.clone()];
+
+    ffi.grade_nodes[0].local_mask_components[0].operation = 9;
+    assert!(decode_grade_stack_draft_recipe_v1(&ffi).is_err());
+    ffi.grade_nodes[0].local_mask_components[0].operation = 0;
+    ffi.grade_nodes[0].local_mask_components[0].kind = 99;
+    assert!(decode_grade_stack_draft_recipe_v1(&ffi).is_err());
+    ffi.grade_nodes[0].local_mask_components[0].kind = LOCAL_MASK_LINEAR_GRADIENT;
+    let mut duplicate = base;
+    duplicate.operation = 1;
+    ffi.grade_nodes[0].local_mask_components.push(duplicate);
+    assert!(decode_grade_stack_draft_recipe_v1(&ffi).is_err());
 }
 
 #[test]

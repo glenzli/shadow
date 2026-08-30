@@ -132,31 +132,52 @@ struct BackendFineEditParameters final {
     auto operator<=>(const BackendFineEditParameters&) const = default;
 };
 
+inline constexpr qsizetype BACKEND_MAX_MASK_COMPONENTS = 8;
+
+struct BackendMaskComponent final {
+    // Stable photo-instance-local identity. Operation values are 0 = Base,
+    // 1 = Add, 2 = Subtract, and 3 = Intersect. Only the first component may
+    // be Base; later components retain their authored order.
+    QString component_id;
+    std::uint8_t operation = 0;
+    bool enabled = true;
+    // 1 = linear gradient, 2 = radial gradient, 3 = brush,
+    // 4 = Oklab luminance range, 5 = Oklch hue range, 6 = opaque managed
+    // raster. Kind 6 uses x0 for expansion/contraction [-1, 1] and feather for
+    // softness [0, 1]; Rust restores the separate immutable raster identity.
+    std::uint8_t kind = 0;
+    double x0 = 0.0;
+    double y0 = 0.0;
+    double x1 = 0.0;
+    double y1 = 0.0;
+    double radius_x = 0.0;
+    double radius_y = 0.0;
+    double feather = 0.0;
+    // Each leaf may invert its own coverage before the ordered operation. The
+    // node-level inversion below remains a separate final-composition step.
+    bool leaf_invert = false;
+    // Flattened x/y/begins-stroke triples. Keeping the wire shape flat avoids
+    // making Qt own the typed persistent mask contract.
+    QVector<double> brush_points;
+    // A semantic managed mask keeps its accepted raster for this photo and
+    // this provider-neutral query for re-evaluation when copied elsewhere.
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 0;
+    std::uint8_t semantic_score_threshold_percent = 0;
+
+    bool operator==(const BackendMaskComponent&) const = default;
+};
+
 struct BackendGradeNode final {
     QString grade_node_id;
     QString shared_layer_id;
     QString shared_revision_id;
-    // 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
-    // 4 = Oklab luminance range, 5 = Oklch hue range, 6 = opaque managed
-    // raster. Kind 6 uses x0 for expansion/contraction [-1, 1] and feather for
-    // softness [0, 1]; Rust restores the separate immutable raster identity.
-    std::uint8_t local_mask_kind = 0;
-    double local_mask_x0 = 0.0;
-    double local_mask_y0 = 0.0;
-    double local_mask_x1 = 0.0;
-    double local_mask_y1 = 0.0;
-    double local_mask_radius_x = 0.0;
-    double local_mask_radius_y = 0.0;
-    double local_mask_feather = 0.0;
+    // One node-bound MaskRevision owns this complete ordered vector. Empty
+    // means no mask. It is deliberately photo-instance-local even when the
+    // adjustment graph is shared.
+    QVector<BackendMaskComponent> local_mask_components;
+    // Applied after the complete Base/Add/Subtract/Intersect composition.
     bool local_mask_invert = false;
-    // Flattened x/y/begins-stroke triples. Keeping the wire shape flat avoids
-    // making Qt own the typed persistent mask contract.
-    QVector<double> local_mask_brush_points;
-    // A semantic managed mask keeps its accepted raster for this photo and
-    // this provider-neutral query for re-evaluation when copied elsewhere.
-    QString local_mask_semantic_query;
-    std::uint8_t local_mask_semantic_maximum_regions = 0;
-    std::uint8_t local_mask_semantic_score_threshold_percent = 0;
     QString label;
     // Complete Grade Node strength. The renderer evaluates the graph once and
     // performs one layer-boundary blend, including for masked nodes.
@@ -493,6 +514,7 @@ struct BackendSubjectMaskApplyRequest final {
     BackendGradeStack grade_stack;
     std::uint32_t target_grade_node_index = 0;
     QString target_grade_node_id;
+    std::uint8_t target_mask_operation = 0;
     bool invert = false;
     QString semantic_query;
     std::uint8_t semantic_maximum_regions = 0;
@@ -693,6 +715,7 @@ struct BackendMaskCoverage final {
     QByteArray samples;
     std::uint32_t version = 0;
     std::uint32_t target_layer_index = 0;
+    std::int32_t target_component_index = -1;
     std::uint64_t selection_revision = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;

@@ -375,7 +375,7 @@ Its implementation follows the same navigation:
   guard before a local original enters Precision. A disappeared path returns to the Library
   recovery flow and never becomes a misleading decoder failure.
 - [`src/edit_mask_assignment_controller.cpp`](src/edit_mask_assignment_controller.cpp) owns the
-  atomic choice between attaching a new mask to the selected empty node and creating, masking,
+  atomic choice between adding a typed component to the selected node mask and creating, masking,
   inserting, and selecting one new node. QML never chains those state mutations.
 - [`src/edit_ai_mask_controller.*`](src/edit_ai_mask_controller.hpp) owns the complete subject-mask
   lifecycle: one node-bound input session, point refinement, transient current-photo people,
@@ -391,13 +391,16 @@ Its implementation follows the same navigation:
   rasters remain parameters of the fixed AI Completion node; QML does not create a parallel
   retouch or asset subsystem.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
-  presentation, in-session clipboard semantics, the enumerable scalar-parameter contract,
-  geometry/condition validation, and brush strokes. Ordinary photo-local masks are not named or
-  persisted as a separate reusable asset library.
+  component selection and presentation, in-session clipboard semantics, the enumerable
+  scalar-parameter contract, geometry/condition validation, and brush strokes.
+  [`src/edit_mask_component_mutation.hpp`](src/edit_mask_component_mutation.hpp) owns the bounded
+  topology change for component removal; the controller surrounds it with one history/autosave
+  transaction. Ordinary photo-local masks are not named or persisted as a separate reusable asset
+  library.
 - [`src/edit_mask_coverage_controller.cpp`](src/edit_mask_coverage_controller.cpp) owns the
-  selected-node coverage request lifecycle: tool, photo, node, and mask invalidation; monotonic
-  selection identity; exact preview pairing; and transient provider publication. Renderer-owned
-  coverage samples and their generation contract live in
+  selected-node coverage request lifecycle: tool, photo, node, component/final-mask target, and
+  mask invalidation; monotonic selection identity; exact preview pairing; and transient provider
+  publication. Renderer-owned coverage samples and their generation contract live in
   [`src/edit_mask_coverage_contract.hpp`](src/edit_mask_coverage_contract.hpp).
 - [`src/edit_foundation_controller.cpp`](src/edit_foundation_controller.cpp) owns the singleton,
   photo-local RAW Foundation white-balance authoring lifecycle, exact camera-neutral validation,
@@ -581,11 +584,13 @@ Precision presentation follows the same responsibility tree:
   owns sharing and node collection popup lifecycles.
 - [`qml/PrecisionMaskCreateMenu.qml`](qml/PrecisionMaskCreateMenu.qml) owns mask-kind and
   current-node/new-node destination choice. The global tool defaults to a new node, a node-row
-  entry defaults to that node, and an existing mask is edited rather than silently replaced.
-  Geometry masks and Oklab-lightness/Oklch-hue condition masks use the same atomic transaction.
+  entry defaults to that node, and an existing mask receives an explicit Add, Subtract, or
+  Intersect component rather than being replaced. Geometry, condition, subject, people-detail,
+  and semantic masks use the same destination contract.
 - [`qml/PrecisionLocalMaskTools.qml`](qml/PrecisionLocalMaskTools.qml) owns only the selected
-  node mask's semantic geometry/range parameters, inversion, removal, and in-session copy/paste
-  controls; QML never interprets the compact condition-mask transport slots.
+  node mask's ordered component list, selected-leaf parameters and inversion, final inversion, removal,
+  selected/final coverage target, and in-session copy/paste controls; QML never evaluates mask
+  algebra or interprets the compact condition-mask transport slots.
 - [`qml/PrecisionMaskCoverageOverlay.qml`](qml/PrecisionMaskCoverageOverlay.qml) presents the
   renderer's exact selected-node R8 coverage with the theme mask tint and rejects a texture whose
   paired preview identity is no longer visible. Its view-only `O` toggle hides the tint without

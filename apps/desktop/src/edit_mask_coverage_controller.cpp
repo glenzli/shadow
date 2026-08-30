@@ -14,6 +14,22 @@ QString EditController::maskCoverageSource() const {
     return mask_coverage_source_;
 }
 
+bool EditController::maskCoverageShowsSelectedComponent() const noexcept {
+    return mask_coverage_shows_selected_component_;
+}
+
+void EditController::setMaskCoverageShowsSelectedComponent(const bool selected_component) {
+    if (mask_coverage_shows_selected_component_ == selected_component) {
+        return;
+    }
+    mask_coverage_shows_selected_component_ = selected_component;
+    emit maskCoverageModeChanged();
+    if (mask_tool_active_) {
+        invalidateMaskCoverage();
+        scheduleMaskCoverageRefresh();
+    }
+}
+
 void EditController::setMaskToolActive(const bool active) {
     if (mask_tool_active_ == active) {
         return;
@@ -105,11 +121,17 @@ EditController::currentMaskCoverageRequest(const BackendGradeStack& grade_stack)
         return std::nullopt;
     }
     const auto& target = grade_stack.grade_nodes.at(selected_grade_node_index_);
-    if (target.local_mask_kind < 1U || target.local_mask_kind > 6U) {
+    if (target.local_mask_components.isEmpty()) {
+        return std::nullopt;
+    }
+    const std::int32_t component_index =
+        mask_coverage_shows_selected_component_ ? selected_local_mask_component_index_ : -1;
+    if (component_index >= target.local_mask_components.size()) {
         return std::nullopt;
     }
     return EditMaskCoverageRequest{
         .target_layer_index = static_cast<std::uint32_t>(selected_grade_node_index_),
+        .target_component_index = component_index,
         .selection_revision = mask_selection_revision_,
     };
 }
@@ -122,6 +144,7 @@ EditController::maskCoverageGeneration(const EditPreviewGeneration& preview_gene
         .photo = preview_generation.photo,
         .recipe_revision = preview_generation.recipe_revision,
         .target_layer_index = request.target_layer_index,
+        .target_component_index = request.target_component_index,
         .selection_revision = request.selection_revision,
         .paired_preview_generation = preview_generation.current_revision,
     };
@@ -153,6 +176,7 @@ void EditController::publishMaskCoverage(
             .row_stride_bytes = coverage.row_stride_bytes,
             .version = coverage.version,
             .target_layer_index = coverage.target_layer_index,
+            .target_component_index = coverage.target_component_index,
             .selection_revision = coverage.selection_revision,
         },
         generation
@@ -168,12 +192,13 @@ void EditController::publishMaskCoverage(
 
     mask_coverage_source_ = QStringLiteral(
                                 "image://shadow-edit/scope/mask/current"
-                                "?photo=%1&recipe=%2&target=%3"
-                                "&selection=%4&preview=%5"
+                                "?photo=%1&recipe=%2&target=%3&component=%4"
+                                "&selection=%5&preview=%6"
     )
                                 .arg(generation.photo)
                                 .arg(generation.recipe_revision)
                                 .arg(generation.target_layer_index)
+                                .arg(generation.target_component_index)
                                 .arg(generation.selection_revision)
                                 .arg(generation.paired_preview_generation);
     emit maskCoverageSourceChanged();
