@@ -33,7 +33,8 @@ mod writer;
 
 pub use asset_registration::{RegisterAsset, RegisteredAsset, RegistrationStatus};
 pub use backup::{
-    CatalogBackupError, CatalogBackupReceipt, CatalogBackupVerification, create_catalog_backup,
+    CatalogBackupError, CatalogBackupReceipt, CatalogBackupVerification, CatalogRestoreError,
+    CatalogRestoreReceipt, create_catalog_backup, restore_catalog_backup_offline,
     verify_catalog_backup,
 };
 pub use cache_artifact::{

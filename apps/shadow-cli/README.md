@@ -22,6 +22,7 @@ cargo run --package shadow-cli -- <command> [arguments]
 | `stats <catalog.sqlite>` | Print bounded Catalog statistics |
 | `backup <catalog.sqlite> <backup.sqlite>` | Create and verify a non-overwriting Catalog backup |
 | `verify-backup <backup.sqlite>` | Run a non-mutating restore drill |
+| `restore-backup <backup.sqlite> <offline-catalog.sqlite>` | Verify and restore an offline Catalog while retaining the previous database and SQLite sidecars for rollback |
 | `inspect-raw <path>` | Inspect provider-neutral RAW capabilities |
 | `inspect-store <catalog.sqlite> <cache-root> <path>` | Inspect and persist one source snapshot and visual |
 | `people-cluster <catalog.sqlite> <cache-root> <infer-base-url> <token-file>` | Run local anonymous-person clustering diagnostics |
@@ -38,6 +39,9 @@ table in the same change when adding, renaming, or removing a command.
 - Keep Catalogs, caches, server state, downloaded originals, and photo fixtures outside Git.
 - Token arguments name owner-only files; do not place raw tokens on the command line or in logs.
 - Backup creation never overwrites an existing destination.
+- Restore requires the desktop app and Library Server to be stopped. It verifies the source and
+  restored Catalog, and keeps the displaced database, WAL, and shared-memory files in a reported
+  rollback directory.
 - Remote originals are verified before local Catalog admission.
 
 For normal application development, use the repository [development guide](../../docs/development/README.md).
