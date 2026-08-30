@@ -65,6 +65,104 @@ fn creates_current_catalog_shape() {
 }
 
 #[test]
+fn migrates_photo_variant_revision_without_replacing_existing_data() {
+    let mut catalog = Catalog::open_in_memory().expect("open current catalog");
+    catalog
+        .connection
+        .execute(
+            "INSERT INTO photos(id, created_at_ms) VALUES (zeroblob(16), 7)",
+            [],
+        )
+        .expect("persist photo before relationship migration");
+    catalog
+        .connection
+        .execute_batch(
+            "DROP TABLE photo_group_members;
+             DROP TABLE photo_groups;",
+        )
+        .expect("remove relationship responsibility from fixture");
+    install_schema_marker(
+        &catalog.connection,
+        PHOTO_VARIANTS_SCHEMA_VERSION,
+        PHOTO_VARIANTS_SCHEMA_IDENTITY,
+        123,
+    );
+
+    initialize(&mut catalog.connection).expect("migrate photo relationship schema");
+
+    assert_eq!(
+        current_version(&catalog.connection).expect("current revision"),
+        SCHEMA_VERSION
+    );
+    assert_eq!(
+        count_table_rows(&catalog.connection, "photos"),
+        1,
+        "migration preserves existing photos"
+    );
+    assert_eq!(
+        count_table_rows(&catalog.connection, "photo_variants"),
+        1,
+        "migration preserves existing Variants"
+    );
+    assert!(table_exists(&catalog.connection, "photo_groups").expect("relationship table"));
+    assert_eq!(schema_created_at_ms(&catalog.connection), 123);
+}
+
+#[test]
+fn migrates_logical_photo_revision_and_backfills_working_variant_heads() {
+    let mut catalog = Catalog::open_in_memory().expect("open current catalog");
+    catalog
+        .connection
+        .execute_batch(
+            "INSERT INTO photos(id, created_at_ms) VALUES (zeroblob(16), 7);
+             INSERT INTO recipe_commits(
+                 id, photo_id, recipe_id, commit_json, snapshot_digest, created_at_ms
+             ) VALUES (
+                 x'01010101010101010101010101010101', zeroblob(16),
+                 x'02020202020202020202020202020202', '{}', zeroblob(32), 9
+             );
+             INSERT INTO recipe_refs(photo_id, name, kind, commit_id, updated_at_ms)
+             VALUES (
+                 zeroblob(16), 'working', 'working',
+                 x'01010101010101010101010101010101', 11
+             );
+             DROP TABLE photo_group_members;
+             DROP TABLE photo_groups;
+             DROP TRIGGER photos_create_default_variant;
+             DROP TABLE photo_variant_state;
+             DROP TABLE photo_variants;",
+        )
+        .expect("seed logical-photo predecessor fixture");
+    install_schema_marker(
+        &catalog.connection,
+        LOGICAL_PHOTOS_SCHEMA_VERSION,
+        LOGICAL_PHOTOS_SCHEMA_IDENTITY,
+        456,
+    );
+
+    initialize(&mut catalog.connection).expect("migrate logical-photo schema");
+
+    let variant: (Vec<u8>, Option<Vec<u8>>, i64, i64) = catalog
+        .connection
+        .query_row(
+            "SELECT id, head_commit_id, created_at_ms, updated_at_ms
+             FROM photo_variants WHERE photo_id = zeroblob(16)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("read migrated default Variant");
+    assert_eq!(variant.0, vec![0; 16]);
+    assert_eq!(variant.1, Some(vec![1; 16]));
+    assert_eq!((variant.2, variant.3), (7, 11));
+    assert_eq!(
+        count_table_rows(&catalog.connection, "photo_variant_state"),
+        1
+    );
+    assert!(table_exists(&catalog.connection, "photo_groups").expect("relationship table"));
+    assert_eq!(schema_created_at_ms(&catalog.connection), 456);
+}
+
+#[test]
 fn rejects_prior_identity_for_a_development_reset() {
     let mut connection = Connection::open_in_memory().expect("open prior revision fixture");
     configure_connection(&connection, false).expect("configure prior revision fixture");
@@ -157,4 +255,47 @@ fn rejects_legacy_catalog_without_a_migration_attempt() {
     ));
     assert!(table_exists(&connection, "schema_migrations").expect("legacy marker remains"));
     assert!(!table_exists(&connection, "catalog_schema").expect("no partial v1 state"));
+}
+
+fn install_schema_marker(
+    connection: &Connection,
+    version: i64,
+    identity: &str,
+    created_at_ms: i64,
+) {
+    connection
+        .execute_batch(&format!(
+            "ALTER TABLE catalog_schema RENAME TO catalog_schema_current;
+             CREATE TABLE catalog_schema (
+                 version INTEGER PRIMARY KEY NOT NULL CHECK (version = {version}),
+                 identity TEXT NOT NULL CHECK (identity = '{identity}'),
+                 created_at_ms INTEGER NOT NULL
+             ) STRICT;"
+        ))
+        .expect("create predecessor schema marker");
+    connection
+        .execute(
+            "INSERT INTO catalog_schema(version, identity, created_at_ms) VALUES (?1, ?2, ?3)",
+            (version, identity, created_at_ms),
+        )
+        .expect("insert predecessor schema marker");
+    connection
+        .execute_batch("DROP TABLE catalog_schema_current;")
+        .expect("remove current schema marker");
+}
+
+fn count_table_rows(connection: &Connection, table: &str) -> i64 {
+    connection
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .expect("count fixture rows")
+}
+
+fn schema_created_at_ms(connection: &Connection) -> i64 {
+    connection
+        .query_row("SELECT created_at_ms FROM catalog_schema", [], |row| {
+            row.get(0)
+        })
+        .expect("read schema creation time")
 }

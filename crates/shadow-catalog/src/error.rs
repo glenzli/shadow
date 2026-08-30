@@ -10,7 +10,7 @@ pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error(
-        "development catalog reset required: found schema revision {found:?}; Shadow currently supports Catalog revision 20260821.1 and exact metadata-only alignment from 20260809.2"
+        "development catalog reset required: found schema revision {found:?}; Shadow currently supports Catalog revision 20260821.1 and transactional migration from dated revisions 20260806.1 through 20260809.2"
     )]
     DevelopmentCatalogResetRequired { found: Option<i64> },
     #[error("import session {0} does not exist")]
