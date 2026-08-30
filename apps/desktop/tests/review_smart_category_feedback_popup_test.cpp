@@ -190,10 +190,10 @@ class FakeReviewWorkspace final : public QObject {
         return image_understanding_;
     }
     [[nodiscard]] double width() const noexcept {
-        return 900.0;
+        return 1'200.0;
     }
     [[nodiscard]] double height() const noexcept {
-        return 700.0;
+        return 900.0;
     }
 
   private:
@@ -221,6 +221,15 @@ void click(QQuickWindow& window, QQuickItem& item) {
     drainBindings();
 }
 
+[[nodiscard]] bool
+itemFitsWindow(const QQuickItem& item, const QQuickWindow& window, const qreal margin) {
+    const QPointF top_left = item.mapToScene(QPointF(0.0, 0.0));
+    const QPointF bottom_right = item.mapToScene(QPointF(item.width(), item.height()));
+    return top_left.x() >= margin && top_left.y() >= margin
+           && bottom_right.x() <= static_cast<qreal>(window.width()) - margin
+           && bottom_right.y() <= static_cast<qreal>(window.height()) - margin;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -241,7 +250,7 @@ import Shadow.SmartCategoryFeedbackContract
 ApplicationWindow {
     id: host
     width: 900
-    height: 700
+    height: 360
     visible: true
     property var workspaceObject
 
@@ -250,7 +259,7 @@ ApplicationWindow {
         width: 120
         height: 80
         anchors.right: parent.right
-        anchors.top: parent.top
+        anchors.bottom: parent.bottom
     }
 
     ReviewSmartCategoryFeedbackPopup { id: reviewPopup }
@@ -278,14 +287,27 @@ ApplicationWindow {
         host->findChild<QQuickItem*>(QStringLiteral("completeSmartCategoryReviewButton"));
     auto* const completion_error =
         host->findChild<QQuickItem*>(QStringLiteral("smartCategoryReviewCompletionError"));
+    auto* const body_scroll =
+        host->findChild<QQuickItem*>(QStringLiteral("smartCategoryReviewBodyScroll"));
     drainBindings();
     if (!require(
-            window && popup && complete_button && completion_error,
+            window && popup && complete_button && completion_error && body_scroll,
             "the packaged popup exposes its completion action"
         )
         || !require(
             popup->property("visible").toBool() && complete_button->isEnabled(),
             "an unchanged uncertain classification can be completed"
+        )
+        || !require(
+            popup->property("y").toDouble() >= 8.0
+                && popup->property("y").toDouble() + popup->property("height").toDouble()
+                       <= static_cast<double>(window->height()) - 8.0,
+            "the popup is constrained to the real window overlay near the bottom edge"
+        )
+        || !require(
+            popup->property("height").toDouble() < popup->property("implicitHeight").toDouble()
+                && body_scroll->height() > 0.0 && itemFitsWindow(*complete_button, *window, 8.0),
+            "overflow scrolls inside the popup while the completion action remains reachable"
         )) {
         return EXIT_FAILURE;
     }

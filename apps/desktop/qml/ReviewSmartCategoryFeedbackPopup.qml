@@ -14,6 +14,10 @@ Popup {
     property string photoTitle: ""
     property string completionError: ""
     property int modelRevision: 0
+    property real anchorRight: 0
+    property real anchorTop: 0
+    readonly property real viewportMargin: 8
+    readonly property real anchorGap: 6
     readonly property bool hasWorkspace:
         workspace !== null && workspace !== undefined
     // This Popup outlives its card briefly while the gallery is reset for an
@@ -55,12 +59,36 @@ Popup {
         && imageUnderstandingController.photoProposalRepresentationId
             === representationId
 
-    width: 388
+    width: Math.min(388, Math.max(1,
+        (parent ? parent.width : 388) - viewportMargin * 2))
+    height: Math.min(implicitHeight, Math.max(1,
+        (parent ? parent.height : implicitHeight) - viewportMargin * 2))
     padding: 10
     modal: false
     focus: true
     parent: Overlay.overlay
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+    function reposition() {
+        if (!parent)
+            return
+        const minimumX = viewportMargin
+        const maximumX = Math.max(minimumX,
+            parent.width - width - viewportMargin)
+        x = Math.max(minimumX, Math.min(anchorRight - width, maximumX))
+
+        const minimumY = viewportMargin
+        const maximumY = Math.max(minimumY,
+            parent.height - height - viewportMargin)
+        const aligned = anchorTop
+        const above = anchorTop - height - anchorGap
+        if (aligned <= maximumY)
+            y = Math.max(minimumY, aligned)
+        else if (above >= minimumY)
+            y = Math.min(maximumY, above)
+        else
+            y = maximumY
+    }
 
     function openFor(item, workspaceValue, photoIdValue,
                      representationIdValue, titleValue) {
@@ -89,12 +117,12 @@ Popup {
         imageUnderstandingController.loadPhotoProposal(
             photoId, representationId)
         parent = Overlay.overlay
-        const point = item.mapToItem(Overlay.overlay, item.width, 0)
-        x = Math.max(8, Math.min(point.x - width,
-            workspace.width - width - 8))
-        y = Math.max(8, Math.min(point.y,
-            workspace.height - implicitHeight - 8))
+        const topRight = item.mapToItem(parent, item.width, 0)
+        anchorRight = topRight.x
+        anchorTop = topRight.y
+        reposition()
         open()
+        Qt.callLater(root.reposition)
     }
 
     function releaseOwner(ownerItem) {
@@ -108,6 +136,28 @@ Popup {
         completionError = ""
         categoryModel.clear()
         ++modelRevision
+    }
+
+    onWidthChanged: {
+        if (visible)
+            reposition()
+    }
+    onHeightChanged: {
+        if (visible)
+            reposition()
+    }
+
+    Connections {
+        target: root.parent
+        enabled: root.visible
+
+        function onWidthChanged() {
+            root.reposition()
+        }
+
+        function onHeightChanged() {
+            root.reposition()
+        }
     }
 
     function completeReview() {
@@ -191,181 +241,117 @@ Popup {
             color: Theme.border
         }
 
-        ListView {
-            id: categoryList
+        ScrollView {
+            id: reviewBodyScroll
+            objectName: "smartCategoryReviewBodyScroll"
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(contentHeight, 320)
+            Layout.fillHeight: true
+            Layout.minimumHeight: 72
+            Layout.preferredHeight: reviewBody.implicitHeight
             clip: true
-            spacing: 2
-            model: categoryModel
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-            delegate: Rectangle {
-                id: categoryRow
-                required property int index
-                required property string categoryId
-                required property string categoryName
-                required property bool uncertain
-                required property bool originalChosen
-                required property bool chosen
-                width: categoryList.width
-                height: 44
-                radius: Theme.compactControlRadius
-                color: categoryRow.uncertain
-                    ? Theme.warningSurface : Theme.transparent
-                border.width: categoryRow.uncertain ? 1 : 0
-                border.color: Theme.warningBorder
+            ColumnLayout {
+                id: reviewBody
+                width: reviewBodyScroll.availableWidth
+                spacing: 8
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 9
-                    anchors.rightMargin: 9
-                    spacing: 8
+                ListView {
+                    id: categoryList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(contentHeight, 320)
+                    clip: true
+                    spacing: 2
+                    model: categoryModel
 
-                    ShadowCheckBox {
-                        Layout.fillWidth: true
-                        compact: true
-                        text: categoryRow.categoryName
-                        checked: categoryRow.chosen
-                        accessibleName: qsTr("%1 belongs to this photo")
-                            .arg(categoryRow.categoryName)
-                        onToggled: {
-                            if (checked === categoryRow.chosen)
-                                return
-                            categoryModel.setProperty(
-                                categoryRow.index, "chosen", checked)
-                            ++root.modelRevision
+                    delegate: Rectangle {
+                        id: categoryRow
+                        required property int index
+                        required property string categoryId
+                        required property string categoryName
+                        required property bool uncertain
+                        required property bool originalChosen
+                        required property bool chosen
+                        width: categoryList.width
+                        height: 44
+                        radius: Theme.compactControlRadius
+                        color: categoryRow.uncertain
+                            ? Theme.warningSurface : Theme.transparent
+                        border.width: categoryRow.uncertain ? 1 : 0
+                        border.color: Theme.warningBorder
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 9
+                            anchors.rightMargin: 9
+                            spacing: 8
+
+                            ShadowCheckBox {
+                                Layout.fillWidth: true
+                                compact: true
+                                text: categoryRow.categoryName
+                                checked: categoryRow.chosen
+                                accessibleName: qsTr("%1 belongs to this photo")
+                                    .arg(categoryRow.categoryName)
+                                onToggled: {
+                                    if (checked === categoryRow.chosen)
+                                        return
+                                    categoryModel.setProperty(
+                                        categoryRow.index, "chosen", checked)
+                                    ++root.modelRevision
+                                }
+                            }
+
+                            Label {
+                                visible: categoryRow.uncertain
+                                text: qsTr("NEEDS REVIEW")
+                                color: Theme.warningText
+                                font.pixelSize: 8
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 0.6
+                            }
+
+                            Label {
+                                visible: !categoryRow.uncertain
+                                    && categoryRow.originalChosen
+                                text: qsTr("CURRENT")
+                                color: Theme.textMuted
+                                font.pixelSize: 8
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 0.6
+                            }
                         }
                     }
-
-                    Label {
-                        visible: categoryRow.uncertain
-                        text: qsTr("NEEDS REVIEW")
-                        color: Theme.warningText
-                        font.pixelSize: 8
-                        font.weight: Font.DemiBold
-                        font.letterSpacing: 0.6
-                    }
-
-                    Label {
-                        visible: !categoryRow.uncertain
-                            && categoryRow.originalChosen
-                        text: qsTr("CURRENT")
-                        color: Theme.textMuted
-                        font.pixelSize: 8
-                        font.weight: Font.DemiBold
-                        font.letterSpacing: 0.6
-                    }
-                }
-            }
-        }
-
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: 4
-            Layout.rightMargin: 4
-            text: qsTr("Your corrections are saved locally and help classify similar photos.")
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontMeta
-            wrapMode: Text.WordWrap
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: proposalContent.implicitHeight + 18
-            radius: Theme.compactControlRadius
-            color: Theme.surfaceSubtle
-            border.width: 1
-            border.color: Theme.border
-
-            ColumnLayout {
-                id: proposalContent
-                anchors.fill: parent
-                anchors.margins: 9
-                spacing: 5
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Local photo description")
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fontMeta
-                    font.weight: Font.DemiBold
                 }
 
                 Label {
                     Layout.fillWidth: true
-                    visible: root.photoProposalMatches
-                    text: root.photoProposalMatches
-                        ? root.imageUnderstandingController.photoDescription : ""
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontMeta
-                    wrapMode: Text.WordWrap
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    visible: root.photoProposalMatches
-                    text: root.photoProposalMatches
-                        ? qsTr("Suggested keywords: %1").arg(
-                            root.imageUnderstandingController
-                                .photoKeywords.join(" · ")) : ""
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
+                    text: qsTr("Your corrections are saved locally and help classify similar photos.")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
 
-                Label {
+                Rectangle {
                     Layout.fillWidth: true
-                    visible: !root.photoProposalMatches
-                    text: qsTr("This photo has no local description yet. It will be analyzed when it enters the configured background range.")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontMeta
-                    wrapMode: Text.WordWrap
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: root.photoProposalMatches
-                        && root.imageUnderstandingController
-                            .photoProposalDisposition === "suggested"
-
-                    Item { Layout.fillWidth: true }
-
-                    ShadowButton {
-                        compact: true
-                        text: qsTr("Add suggested keywords")
-                        onClicked:
-                            root.imageUnderstandingController
-                                .acceptPhotoKeywords()
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: advancedContent.implicitHeight + 18
-            radius: Theme.compactControlRadius
-            color: Theme.surfaceSubtle
-            border.width: 1
-            border.color: Theme.border
-
-            ColumnLayout {
-                id: advancedContent
-                anchors.fill: parent
-                anchors.margins: 9
-                spacing: 6
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 7
+                    implicitHeight: proposalContent.implicitHeight + 18
+                    radius: Theme.compactControlRadius
+                    color: Theme.surfaceSubtle
+                    border.width: 1
+                    border.color: Theme.border
 
                     ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 1
+                        id: proposalContent
+                        anchors.fill: parent
+                        anchors.margins: 9
+                        spacing: 5
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Advanced local review")
+                            text: qsTr("Local photo description")
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fontMeta
                             font.weight: Font.DemiBold
@@ -373,136 +359,218 @@ Popup {
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Ask the larger local model to choose only from your enabled categories.")
+                            visible: root.photoProposalMatches
+                            text: root.photoProposalMatches
+                                ? root.imageUnderstandingController.photoDescription : ""
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontMeta
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: root.photoProposalMatches
+                            text: root.photoProposalMatches
+                                ? qsTr("Suggested keywords: %1").arg(
+                                    root.imageUnderstandingController
+                                        .photoKeywords.join(" · ")) : ""
                             color: Theme.textMuted
                             font.pixelSize: Theme.fontMeta
                             wrapMode: Text.WordWrap
                         }
-                    }
 
-                    ShadowButton {
-                        compact: true
-                        // The popup can outlive a card during a gallery reset. Do not evaluate
-                        // any controller property (even for an invisible control) until the
-                        // retained workspace still owns one.
-                        visible: root.hasImageUnderstandingController
-                            && (!root.advancedStateMatches
-                                || (!root.imageUnderstandingController.advancedReviewBusy
-                                    && root.advancedDisposition.length === 0))
-                        enabled: root.hasImageUnderstandingController
-                            && !root.imageUnderstandingController.advancedReviewBusy
-                        text: qsTr("Ask model")
-                        onClicked:
-                            root.imageUnderstandingController
-                                .requestAdvancedReview(
-                                    root.photoId, root.representationId)
-                    }
-                }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: !root.photoProposalMatches
+                            text: qsTr("This photo has no local description yet. It will be analyzed when it enters the configured background range.")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontMeta
+                            wrapMode: Text.WordWrap
+                        }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: root.hasImageUnderstandingController
-                        && root.advancedStateMatches
-                        && root.imageUnderstandingController.advancedReviewBusy
-                    spacing: 7
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: root.photoProposalMatches
+                                && root.imageUnderstandingController
+                                    .photoProposalDisposition === "suggested"
 
-                    BusyIndicator {
-                        Layout.preferredWidth: 18
-                        Layout.preferredHeight: 18
-                        running: visible
-                    }
+                            Item { Layout.fillWidth: true }
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("Reviewing this photo locally…")
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fontMeta
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: root.hasImageUnderstandingController
-                        && root.advancedDisposition === "matched"
-                    spacing: 7
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.advancedDisposition === "matched"
-                            ? qsTr("Suggested category: %1")
-                                .arg(root.imageUnderstandingController
-                                    .advancedReviewCategoryName) : ""
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontMeta
-                        font.weight: Font.DemiBold
-                    }
-
-                    ShadowButton {
-                        objectName: "acceptAdvancedSmartCategorySuggestionButton"
-                        compact: true
-                        variant: ShadowButton.Primary
-                        text: qsTr("Accept suggestion")
-                        onClicked: {
-                            const acceptedCategoryId = String(
-                                root.imageUnderstandingController
-                                    .advancedReviewCategoryId)
-                            root.imageUnderstandingController
-                                .acceptAdvancedReview()
-                            if (root.imageUnderstandingController
-                                    .advancedReviewDisposition !== "accepted")
-                                return
-                            for (let index = 0;
-                                 index < categoryModel.count; ++index) {
-                                if (String(categoryModel.get(index).categoryId)
-                                        !== acceptedCategoryId)
-                                    continue
-                                categoryModel.setProperty(index, "chosen", true)
-                                categoryModel.setProperty(
-                                    index, "originalChosen", true)
-                                categoryModel.setProperty(
-                                    index, "uncertain", false)
-                                break
+                            ShadowButton {
+                                compact: true
+                                text: qsTr("Add suggested keywords")
+                                onClicked:
+                                    root.imageUnderstandingController
+                                        .acceptPhotoKeywords()
                             }
-                            ++root.modelRevision
-                            if (root.remainingUncertainCount === 0
-                                    && !root.hasChanges)
-                                root.close()
                         }
                     }
                 }
 
-                Label {
+                Rectangle {
                     Layout.fillWidth: true
-                    visible: root.hasImageUnderstandingController
-                        && root.advancedDisposition === "none"
-                    text: qsTr("The model found no suitable category. You can still correct the choices above.")
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontMeta
-                    wrapMode: Text.WordWrap
-                }
+                    implicitHeight: advancedContent.implicitHeight + 18
+                    radius: Theme.compactControlRadius
+                    color: Theme.surfaceSubtle
+                    border.width: 1
+                    border.color: Theme.border
 
-                Label {
-                    Layout.fillWidth: true
-                    visible: root.hasImageUnderstandingController
-                        && root.advancedDisposition === "uncertain"
-                    text: qsTr("The model is also uncertain. No category was changed.")
-                    color: Theme.warningText
-                    font.pixelSize: Theme.fontMeta
-                    wrapMode: Text.WordWrap
-                }
+                    ColumnLayout {
+                        id: advancedContent
+                        anchors.fill: parent
+                        anchors.margins: 9
+                        spacing: 6
 
-                Label {
-                    Layout.fillWidth: true
-                    visible: root.hasImageUnderstandingController
-                        && root.advancedStateMatches
-                        && root.imageUnderstandingController
-                            .advancedReviewError.length > 0
-                    text: root.advancedStateMatches
-                        ? root.imageUnderstandingController
-                            .advancedReviewError : ""
-                    color: Theme.dangerText
-                    font.pixelSize: Theme.fontMeta
-                    wrapMode: Text.WordWrap
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 7
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 1
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Advanced local review")
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontMeta
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Ask the larger local model to choose only from your enabled categories.")
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontMeta
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            ShadowButton {
+                                compact: true
+                                // The popup can outlive a card during a gallery reset. Do not evaluate
+                                // any controller property (even for an invisible control) until the
+                                // retained workspace still owns one.
+                                visible: root.hasImageUnderstandingController
+                                    && (!root.advancedStateMatches
+                                        || (!root.imageUnderstandingController.advancedReviewBusy
+                                            && root.advancedDisposition.length === 0))
+                                enabled: root.hasImageUnderstandingController
+                                    && !root.imageUnderstandingController.advancedReviewBusy
+                                text: qsTr("Ask model")
+                                onClicked:
+                                    root.imageUnderstandingController
+                                        .requestAdvancedReview(
+                                            root.photoId, root.representationId)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: root.hasImageUnderstandingController
+                                && root.advancedStateMatches
+                                && root.imageUnderstandingController.advancedReviewBusy
+                            spacing: 7
+
+                            BusyIndicator {
+                                Layout.preferredWidth: 18
+                                Layout.preferredHeight: 18
+                                running: visible
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Reviewing this photo locally…")
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontMeta
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: root.hasImageUnderstandingController
+                                && root.advancedDisposition === "matched"
+                            spacing: 7
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.advancedDisposition === "matched"
+                                    ? qsTr("Suggested category: %1")
+                                        .arg(root.imageUnderstandingController
+                                            .advancedReviewCategoryName) : ""
+                                color: Theme.textPrimary
+                                font.pixelSize: Theme.fontMeta
+                                font.weight: Font.DemiBold
+                            }
+
+                            ShadowButton {
+                                objectName: "acceptAdvancedSmartCategorySuggestionButton"
+                                compact: true
+                                variant: ShadowButton.Primary
+                                text: qsTr("Accept suggestion")
+                                onClicked: {
+                                    const acceptedCategoryId = String(
+                                        root.imageUnderstandingController
+                                            .advancedReviewCategoryId)
+                                    root.imageUnderstandingController
+                                        .acceptAdvancedReview()
+                                    if (root.imageUnderstandingController
+                                            .advancedReviewDisposition !== "accepted")
+                                        return
+                                    for (let index = 0;
+                                         index < categoryModel.count; ++index) {
+                                        if (String(categoryModel.get(index).categoryId)
+                                                !== acceptedCategoryId)
+                                            continue
+                                        categoryModel.setProperty(index, "chosen", true)
+                                        categoryModel.setProperty(
+                                            index, "originalChosen", true)
+                                        categoryModel.setProperty(
+                                            index, "uncertain", false)
+                                        break
+                                    }
+                                    ++root.modelRevision
+                                    if (root.remainingUncertainCount === 0
+                                            && !root.hasChanges)
+                                        root.close()
+                                }
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: root.hasImageUnderstandingController
+                                && root.advancedDisposition === "none"
+                            text: qsTr("The model found no suitable category. You can still correct the choices above.")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontMeta
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: root.hasImageUnderstandingController
+                                && root.advancedDisposition === "uncertain"
+                            text: qsTr("The model is also uncertain. No category was changed.")
+                            color: Theme.warningText
+                            font.pixelSize: Theme.fontMeta
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: root.hasImageUnderstandingController
+                                && root.advancedStateMatches
+                                && root.imageUnderstandingController
+                                    .advancedReviewError.length > 0
+                            text: root.advancedStateMatches
+                                ? root.imageUnderstandingController
+                                    .advancedReviewError : ""
+                            color: Theme.dangerText
+                            font.pixelSize: Theme.fontMeta
+                            wrapMode: Text.WordWrap
+                        }
+                    }
                 }
             }
         }
