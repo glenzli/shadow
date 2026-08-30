@@ -33,6 +33,12 @@ impl RecipeImportItemId {
     fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    pub(crate) fn parse(value: &str) -> AnyResult<Self> {
+        Ok(Self(
+            Uuid::parse_str(value).context("parse semantic Recipe import item identity")?,
+        ))
+    }
 }
 
 impl fmt::Display for RecipeImportItemId {

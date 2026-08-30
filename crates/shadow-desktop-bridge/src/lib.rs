@@ -56,11 +56,13 @@ mod raw_foundation_render_source;
 mod raw_foundation_runtime;
 mod raw_foundation_service;
 mod recipe_import_plan;
+mod recipe_import_service;
 mod recipe_interchange;
 mod recipe_v1;
 mod session_edit_history;
 mod session_image_completion;
 mod session_raw_foundation;
+mod session_recipe_import;
 mod session_shared_grade;
 mod session_subject_mask;
 mod shared_grade_application;
@@ -1732,6 +1734,59 @@ mod ffi {
         people: Vec<FfiSubjectMaskPerson>,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiRecipeImportItemTerminal {
+        Pending,
+        Running,
+        Staged,
+        Completed,
+        NotFound,
+        Unavailable,
+        Cancelled,
+        Failed,
+    }
+
+    #[derive(Debug)]
+    struct FfiRecipeImportItem {
+        item_id: String,
+        grade_node_id: String,
+        component_id: String,
+        operation: u8,
+        enabled: bool,
+        expansion_percent: i8,
+        feather_percent: u8,
+        leaf_invert: bool,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
+        terminal: FfiRecipeImportItemTerminal,
+        generation: u64,
+        progress_percent: u8,
+        detail: String,
+        proposal_token: u64,
+        preview_width: u32,
+        preview_height: u32,
+        preview_samples: Vec<u8>,
+    }
+
+    #[derive(Debug)]
+    struct FfiRecipeImportNode {
+        grade_node_id: String,
+        label: String,
+        semantic_leaf_count: u32,
+        unsupported_managed_leaf_count: u32,
+        excluded: bool,
+    }
+
+    #[derive(Debug)]
+    struct FfiRecipeImportPlan {
+        plan_token: u64,
+        generation: u64,
+        label: String,
+        items: Vec<FfiRecipeImportItem>,
+        nodes: Vec<FfiRecipeImportNode>,
+    }
+
     /// Apply-time identity and working-ref expectations captured after the UI
     /// accepts a current staged proposal.
     #[derive(Debug)]
@@ -2854,6 +2909,58 @@ mod ffi {
         /// Explicitly retires a staged proposal that lost the UI generation
         /// race or was abandoned by the user.
         fn discard_subject_mask_proposal(self: &DesktopSession, proposal_token: u64) -> Result<()>;
+        fn prepare_semantic_recipe_import(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            settings: &FfiEditSettings,
+            document_bytes: &[u8],
+        ) -> Result<FfiRecipeImportPlan>;
+        fn semantic_recipe_import_plan(
+            self: &DesktopSession,
+            plan_token: u64,
+        ) -> Result<FfiRecipeImportPlan>;
+        fn begin_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+        ) -> Result<u64>;
+        fn execute_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+            job_token: u64,
+        ) -> Result<FfiRecipeImportItem>;
+        fn cancel_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+            job_token: u64,
+        ) -> Result<FfiRecipeImportItem>;
+        fn accept_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+            proposal_token: u64,
+            generation: u64,
+        ) -> Result<FfiRecipeImportItem>;
+        fn exclude_semantic_recipe_import_node(
+            self: &DesktopSession,
+            plan_token: u64,
+            grade_node_id: &str,
+        ) -> Result<FfiRecipeImportPlan>;
+        fn finalize_semantic_recipe_import(
+            self: &DesktopSession,
+            plan_token: u64,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiEditSettings>;
+        fn close_semantic_recipe_import(self: &DesktopSession, plan_token: u64) -> Result<()>;
         /// Allocates one cancellable completion job before Qt submits its
         /// input render and Infer Runtime work.
         fn begin_image_completion_job(self: &DesktopSession) -> Result<u64>;
@@ -3037,6 +3144,7 @@ struct DesktopSession {
     people_library: people_library_store::PeopleLibraryStore,
     subject_masks: subject_mask_service::SubjectMaskService,
     subject_mask_runtime: subject_mask_runtime::SubjectMaskRuntime,
+    recipe_imports: recipe_import_service::RecipeImportService,
     image_completions: image_completion_service::ImageCompletionService,
     image_completion_runtime: image_completion_runtime::ImageCompletionRuntime,
     raw_foundations: raw_foundation_service::RawFoundationService,
@@ -3154,6 +3262,7 @@ fn open_desktop_session_at(
         people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,
         subject_masks,
         subject_mask_runtime,
+        recipe_imports: recipe_import_service::RecipeImportService::default(),
         image_completions,
         image_completion_runtime,
         raw_foundations: raw_foundation_service::RawFoundationService::new(),
