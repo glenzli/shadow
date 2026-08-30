@@ -1,7 +1,10 @@
 #include "people_analysis_controller.hpp"
 
+#include "ai_preferences.hpp"
+
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QTemporaryDir>
 #include <QVariantMap>
 
 #include <atomic>
@@ -31,23 +34,77 @@ void waitForCompletion(PeopleAnalysisController& controller) {
 }
 
 PeopleAnalysisController::Operations operationsForReport(BackendPeopleAnalysisReport report) {
+    auto current = std::make_shared<BackendPeopleAnalysisReport>();
+    auto undo = std::make_shared<BackendPeopleAnalysisReport>();
+    report.has_data = true;
     return {
-        .begin = [] { return std::uint64_t{41}; },
-        .execute = [report = std::move(report)](const std::uint64_t token) {
-            return BackendPeopleAnalysisExecution{
-                .job_token = token,
-                .report = report,
-            };
-        },
-        .progress = [](const std::uint64_t token) {
-            return BackendPeopleAnalysisProgress{
-                .job_token = token,
-                .phase = QStringLiteral("reviewing"),
-                .maximum_photos = 512,
-            };
-        },
+        .load = [current] { return *current; },
+        .begin =
+            [](const bool authorized) {
+                if (!authorized) {
+                    throw std::runtime_error("authorization required");
+                }
+                return std::uint64_t{41};
+            },
+        .execute =
+            [current,
+             report = std::move(report)](const std::uint64_t token, const bool authorized) {
+                if (!authorized) {
+                    throw std::runtime_error("authorization required");
+                }
+                *current = report;
+                return BackendPeopleAnalysisExecution{
+                    .job_token = token,
+                    .report = *current,
+                };
+            },
+        .progress =
+            [](const std::uint64_t token) {
+                return BackendPeopleAnalysisProgress{
+                    .job_token = token,
+                    .phase = QStringLiteral("reviewing"),
+                    .maximum_photos = 512,
+                };
+            },
         .cancel = [](std::uint64_t) { return true; },
         .retire = [](std::uint64_t) {},
+        .merge =
+            [current, undo](const QStringList& person_ids) {
+                *undo = *current;
+                BackendPeopleGroup merged;
+                for (const BackendPeopleGroup& group : std::as_const(current->groups)) {
+                    if (!person_ids.contains(group.group_id)) {
+                        continue;
+                    }
+                    if (merged.group_id.isEmpty()) {
+                        merged.group_id = group.group_id;
+                        merged.thumbnail_jpeg = group.thumbnail_jpeg;
+                    }
+                    merged.member_count += group.member_count;
+                    merged.photo_ids.append(group.photo_ids);
+                }
+                merged.manually_merged = true;
+                current->groups.erase(
+                    std::remove_if(
+                        current->groups.begin(),
+                        current->groups.end(),
+                        [&person_ids](const BackendPeopleGroup& group) {
+                            return person_ids.contains(group.group_id);
+                        }
+                    ),
+                    current->groups.end()
+                );
+                current->groups.prepend(std::move(merged));
+                current->can_undo_merge = true;
+                return *current;
+            },
+        .undo_merge =
+            [current, undo] {
+                *current = *undo;
+                current->can_undo_merge = false;
+                return *current;
+            },
+        .clear = [current] { *current = {}; },
     };
 }
 
@@ -55,39 +112,54 @@ PeopleAnalysisController::Operations operationsForReport(BackendPeopleAnalysisRe
 
 int main(int argc, char* argv[]) {
     QCoreApplication application(argc, argv);
-    PeopleAnalysisController controller(operationsForReport(BackendPeopleAnalysisReport{
-            .analyzed_photos = 12,
-            .detected_faces = 8,
-            .embedded_faces = 7,
-            .skipped_items = 2,
-            .ungrouped_faces = 1,
-            .truncated = false,
-            .groups = {
-                {
-                    .group_id = QStringLiteral("group-a"),
-                    .member_count = 2,
-                    .photo_ids = {QStringLiteral("photo-1"), QStringLiteral("photo-2")},
-                    .thumbnail_jpeg = QByteArrayLiteral("jpeg-a"),
-                },
-                {
-                    .group_id = QStringLiteral("group-b"),
-                    .member_count = 2,
-                    .photo_ids = {QStringLiteral("photo-3"), QStringLiteral("photo-4")},
-                    .thumbnail_jpeg = QByteArrayLiteral("jpeg-b"),
-                },
-                {
-                    .group_id = QStringLiteral("group-c"),
-                    .member_count = 2,
-                    .photo_ids = {QStringLiteral("photo-2"), QStringLiteral("photo-5")},
-                    .thumbnail_jpeg = QByteArrayLiteral("jpeg-c"),
-                },
-            },
-        }));
+    QTemporaryDir root;
+    if (!root.isValid()) {
+        return EXIT_FAILURE;
+    }
+    AiPreferences preferences(
+        root.filePath(QStringLiteral("application-data")),
+        root.filePath(QStringLiteral("preferences.ini"))
+    );
+    preferences.grantPeopleAnalysisConsent();
+    PeopleAnalysisController controller(
+        operationsForReport(
+            BackendPeopleAnalysisReport{
+                .analyzed_photos = 12,
+                .detected_faces = 8,
+                .embedded_faces = 7,
+                .skipped_items = 2,
+                .ungrouped_faces = 1,
+                .truncated = false,
+                .groups =
+                    {
+                        {
+                            .group_id = QStringLiteral("group-a"),
+                            .member_count = 2,
+                            .photo_ids = {QStringLiteral("photo-1"), QStringLiteral("photo-2")},
+                            .thumbnail_jpeg = QByteArrayLiteral("jpeg-a"),
+                        },
+                        {
+                            .group_id = QStringLiteral("group-b"),
+                            .member_count = 2,
+                            .photo_ids = {QStringLiteral("photo-3"), QStringLiteral("photo-4")},
+                            .thumbnail_jpeg = QByteArrayLiteral("jpeg-b"),
+                        },
+                        {
+                            .group_id = QStringLiteral("group-c"),
+                            .member_count = 2,
+                            .photo_ids = {QStringLiteral("photo-2"), QStringLiteral("photo-5")},
+                            .thumbnail_jpeg = QByteArrayLiteral("jpeg-c"),
+                        },
+                    },
+            }
+        ),
+        &preferences
+    );
     controller.startAnalysis();
     waitForCompletion(controller);
     const QVariantList groups = controller.groups();
     if (!require(!controller.busy(), "analysis reaches a terminal state")
-        || !require(controller.hasResults(), "successful analysis publishes session results")
+        || !require(controller.hasResults(), "successful analysis publishes stored people data")
         || !require(groups.size() == 3, "anonymous groups reach the QML projection")
         || !require(
             groups.front().toMap().value(QStringLiteral("photoCount")).toUInt() == 2,
@@ -139,23 +211,30 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    controller.clearSessionResults();
-    if (!require(!controller.hasResults(), "clear removes only session results")
+    controller.clearPeopleData();
+    if (!require(!controller.hasResults(), "clear removes stored people results")
         || !require(controller.groups().isEmpty(), "clear removes projected groups")) {
         return EXIT_FAILURE;
     }
 
-    PeopleAnalysisController failing({
-        .begin = [] { return std::uint64_t{42}; },
-        .execute = [](std::uint64_t) -> BackendPeopleAnalysisExecution {
-            throw std::runtime_error("provider unavailable");
+    PeopleAnalysisController failing(
+        {
+            .load = [] { return BackendPeopleAnalysisReport{}; },
+            .begin = [](bool) { return std::uint64_t{42}; },
+            .execute = [](std::uint64_t, bool) -> BackendPeopleAnalysisExecution {
+                throw std::runtime_error("provider unavailable");
+            },
+            .progress = [](
+                            const std::uint64_t token
+                        ) { return BackendPeopleAnalysisProgress{.job_token = token}; },
+            .cancel = [](std::uint64_t) { return true; },
+            .retire = [](std::uint64_t) {},
+            .merge = [](const QStringList&) { return BackendPeopleAnalysisReport{}; },
+            .undo_merge = [] { return BackendPeopleAnalysisReport{}; },
+            .clear = [] {},
         },
-        .progress = [](const std::uint64_t token) {
-            return BackendPeopleAnalysisProgress{.job_token = token};
-        },
-        .cancel = [](std::uint64_t) { return true; },
-        .retire = [](std::uint64_t) {},
-    });
+        &preferences
+    );
     failing.startAnalysis();
     waitForCompletion(failing);
     if (!require(!failing.errorText().isEmpty(), "provider failure becomes a safe UI error")
@@ -168,41 +247,50 @@ int main(int argc, char* argv[]) {
 
     auto cancelled = std::make_shared<std::atomic_bool>(false);
     auto retired = std::make_shared<std::atomic_bool>(false);
-    PeopleAnalysisController cancellable({
-        .begin = [] { return std::uint64_t{43}; },
-        .execute = [cancelled](const std::uint64_t token) {
-            while (!cancelled->load(std::memory_order_acquire)) {
-                std::this_thread::yield();
-            }
-            return BackendPeopleAnalysisExecution{
-                .job_token = token,
-                .cancelled = true,
-            };
+    PeopleAnalysisController cancellable(
+        {
+            .load = [] { return BackendPeopleAnalysisReport{}; },
+            .begin = [](bool) { return std::uint64_t{43}; },
+            .execute =
+                [cancelled](const std::uint64_t token, bool) {
+                    while (!cancelled->load(std::memory_order_acquire)) {
+                        std::this_thread::yield();
+                    }
+                    return BackendPeopleAnalysisExecution{
+                        .job_token = token,
+                        .cancelled = true,
+                    };
+                },
+            .progress =
+                [](const std::uint64_t token) {
+                    return BackendPeopleAnalysisProgress{
+                        .job_token = token,
+                        .phase = QStringLiteral("reviewing"),
+                        .analyzed_photos = 3,
+                        .maximum_photos = 512,
+                        .detected_faces = 2,
+                        .compared_faces = 1,
+                    };
+                },
+            .cancel =
+                [cancelled](std::uint64_t) {
+                    cancelled->store(true, std::memory_order_release);
+                    return true;
+                },
+            .retire = [retired](std::uint64_t) { retired->store(true, std::memory_order_release); },
+            .merge = [](const QStringList&) { return BackendPeopleAnalysisReport{}; },
+            .undo_merge = [] { return BackendPeopleAnalysisReport{}; },
+            .clear = [] {},
         },
-        .progress = [](const std::uint64_t token) {
-            return BackendPeopleAnalysisProgress{
-                .job_token = token,
-                .phase = QStringLiteral("reviewing"),
-                .analyzed_photos = 3,
-                .maximum_photos = 512,
-                .detected_faces = 2,
-                .compared_faces = 1,
-            };
-        },
-        .cancel = [cancelled](std::uint64_t) {
-            cancelled->store(true, std::memory_order_release);
-            return true;
-        },
-        .retire = [retired](std::uint64_t) {
-            retired->store(true, std::memory_order_release);
-        },
-    });
+        &preferences
+    );
     cancellable.startAnalysis();
     cancellable.cancelAnalysis();
     waitForCompletion(cancellable);
     return require(!cancellable.busy(), "cancelled analysis reaches a terminal state")
                    && require(
-                       cancellable.statusText().contains(QStringLiteral("stopped"), Qt::CaseInsensitive),
+                       cancellable.statusText()
+                           .contains(QStringLiteral("stopped"), Qt::CaseInsensitive),
                        "cancelled analysis has a distinct non-error status"
                    )
                    && require(cancellable.errorText().isEmpty(), "cancellation is not a failure")

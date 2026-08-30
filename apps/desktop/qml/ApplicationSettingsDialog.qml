@@ -11,6 +11,7 @@ Popup {
     required property var preferences
     required property var aiPreferences
     required property var imageUnderstandingController
+    required property var peopleAnalysisController
     required property var cachePreferences
     required property var cacheMaintenanceController
     required property var mapProviderPreferences
@@ -247,6 +248,7 @@ Popup {
                 SettingsAiPane {
                     aiPreferences: root.aiPreferences
                     imageUnderstandingController: root.imageUnderstandingController
+                    peopleAnalysisController: root.peopleAnalysisController
                     editor: root.editor
                 }
 

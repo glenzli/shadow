@@ -140,6 +140,7 @@ ApplicationWindow {
         id: applicationSettingsDialog
         preferences: window.preferences
         aiPreferences: window.aiPreferences
+        peopleAnalysisController: window.peopleAnalysisController
         imageUnderstandingController: window.imageUnderstandingController
         cachePreferences: window.cachePreferences
         cacheMaintenanceController: window.cacheMaintenanceController
@@ -410,6 +411,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.peopleAnalysisController
+            aiPreferences: window.aiPreferences
         }
 
         LibraryMapWorkspace {

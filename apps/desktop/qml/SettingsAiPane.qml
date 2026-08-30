@@ -9,10 +9,29 @@ ScrollView {
 
     required property var aiPreferences
     required property var imageUnderstandingController
+    required property var peopleAnalysisController
     required property var editor
     contentWidth: availableWidth
     clip: true
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+    Dialog {
+        id: clearPeopleDataDialog
+        objectName: "settingsClearPeopleDataDialog"
+        anchors.centerIn: parent
+        width: Math.min(480, parent.width - 48)
+        modal: true
+        title: qsTr("Clear people data?")
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: root.peopleAnalysisController.clearPeopleData()
+
+        Label {
+            width: 420
+            text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
+            color: Theme.textPrimary
+            wrapMode: Text.WordWrap
+        }
+    }
 
     component SettingsCard: Rectangle {
         Layout.fillWidth: true
@@ -120,6 +139,55 @@ ScrollView {
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
+            }
+        }
+
+        SettingsCard {
+            Label {
+                text: qsTr("People")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontBody
+                font.weight: Font.DemiBold
+            }
+
+            ShadowSwitch {
+                objectName: "peopleAnalysisExecutionPermissionSwitch"
+                Layout.fillWidth: true
+                text: qsTr("Allow local people analysis and organization")
+                checked: root.aiPreferences.peopleAnalysisExecutionAllowed
+                onToggled: {
+                    if (checked)
+                        root.aiPreferences.grantPeopleAnalysisConsent()
+                    else
+                        root.aiPreferences.revokePeopleAnalysisConsent()
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("When enabled, Shadow may analyze faces across the Library and retain local people groups and your merge corrections. Photos and people data are not uploaded.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: root.peopleAnalysisController.hasResults
+                    ? qsTr("%n local people groups are stored.", "", root.peopleAnalysisController.groups.length)
+                    : qsTr("No local people data is stored.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            ShadowButton {
+                objectName: "clearPeopleDataSettingsButton"
+                visible: root.peopleAnalysisController.hasResults
+                compact: true
+                text: qsTr("Clear People Data…")
+                enabled: !root.peopleAnalysisController.busy
+                onClicked: clearPeopleDataDialog.open()
             }
         }
 

@@ -1,5 +1,7 @@
 #include "people_analysis_controller.hpp"
 
+#include "ai_preferences.hpp"
+
 #include <QtConcurrentRun>
 
 #include <QDebug>
@@ -8,7 +10,6 @@
 
 #include <algorithm>
 #include <exception>
-#include <limits>
 #include <utility>
 
 namespace {
@@ -22,8 +23,12 @@ namespace {
 
 } // namespace
 
-PeopleAnalysisController::PeopleAnalysisController(Operations operations, QObject* const parent) :
-    QObject(parent), operations_(std::move(operations)) {
+PeopleAnalysisController::PeopleAnalysisController(
+    Operations operations,
+    AiPreferences* const preferences,
+    QObject* const parent
+) : QObject(parent), operations_(std::move(operations)), preferences_(preferences) {
+    Q_ASSERT(preferences_ != nullptr);
     progress_timer_.setInterval(125);
     progress_timer_.setTimerType(Qt::CoarseTimer);
     connect(&progress_timer_, &QTimer::timeout, this, &PeopleAnalysisController::pollProgress);
@@ -33,6 +38,22 @@ PeopleAnalysisController::PeopleAnalysisController(Operations operations, QObjec
         this,
         &PeopleAnalysisController::finishAnalysis
     );
+    connect(preferences_, &AiPreferences::peopleAnalysisConsentChanged, this, [this]() {
+        if (!preferences_->peopleAnalysisExecutionAllowed() && busy()) {
+            cancelAnalysis();
+        }
+        emit stateChanged();
+    });
+    try {
+        report_ = operations_.load();
+        has_results_ = report_.has_data;
+        if (has_results_) {
+            state_ = State::Ready;
+        }
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "Local people data could not be loaded:" << error.what();
+        state_ = State::Failed;
+    }
 }
 
 PeopleAnalysisController::~PeopleAnalysisController() {
@@ -64,7 +85,11 @@ bool PeopleAnalysisController::hasResults() const noexcept {
 QString PeopleAnalysisController::statusText() const {
     switch (state_) {
     case State::Idle:
-        return tr("Ready to organize people locally.");
+        return preferences_->peopleAnalysisExecutionAllowed()
+                   ? tr("Ready to organize people locally.")
+                   : tr("People analysis is off. Enable it to begin.");
+    case State::AuthorizationRequired:
+        return tr("Allow local people analysis before starting.");
     case State::Running:
         if (progress_.phase == QStringLiteral("grouping")) {
             return tr(
@@ -84,10 +109,10 @@ QString PeopleAnalysisController::statusText() const {
     case State::Cancelling:
         return tr("Stopping after the current model request…");
     case State::Cancelled:
-        return has_results_ ? tr("Analysis stopped. Existing session groups were kept.")
+        return has_results_ ? tr("Analysis stopped. Stored people data was kept.")
                             : tr("Analysis stopped.");
     case State::Ready:
-        return tr("Local people analysis finished.");
+        return tr("Local people data is ready.");
     case State::Failed:
         return tr("Local people analysis could not finish.");
     }
@@ -115,8 +140,7 @@ QVariantList PeopleAnalysisController::groups() const {
                 {QStringLiteral("photoCount"), group.member_count},
                 {QStringLiteral("thumbnailSource"), thumbnail_source(group.thumbnail_jpeg)},
                 {QStringLiteral("selected"), selected_group_ids_.contains(group.group_id)},
-                {QStringLiteral("merged"),
-                 group.group_id.startsWith(QStringLiteral("session-merged-person-"))},
+                {QStringLiteral("merged"), group.manually_merged},
             }
         );
     }
@@ -156,7 +180,7 @@ bool PeopleAnalysisController::canMergeSelectedGroups() const noexcept {
 }
 
 bool PeopleAnalysisController::canUndoMerge() const noexcept {
-    return has_merge_undo_;
+    return report_.can_undo_merge;
 }
 
 QString PeopleAnalysisController::mergeSelectionText() const {
@@ -180,9 +204,15 @@ void PeopleAnalysisController::startAnalysis() {
     if (watcher_.isRunning()) {
         return;
     }
+    if (!preferences_->peopleAnalysisExecutionAllowed()) {
+        state_ = State::AuthorizationRequired;
+        emit stateChanged();
+        emit authorizationRequired();
+        return;
+    }
     std::uint64_t job_token = 0;
     try {
-        job_token = operations_.begin();
+        job_token = operations_.begin(true);
     } catch (const std::exception& error) {
         qWarning().noquote() << "People analysis registration failed:" << error.what();
         state_ = State::Failed;
@@ -196,7 +226,7 @@ void PeopleAnalysisController::startAnalysis() {
     watcher_.setFuture(QtConcurrent::run([execute = operations_.execute, job_token]() {
         PeopleAnalysisTaskResult result{.job_token = job_token};
         try {
-            const BackendPeopleAnalysisExecution execution = execute(job_token);
+            const BackendPeopleAnalysisExecution execution = execute(job_token, true);
             result.job_token = execution.job_token;
             result.report = execution.report;
             result.cancelled = execution.cancelled;
@@ -225,12 +255,20 @@ void PeopleAnalysisController::cancelAnalysis() {
     }
 }
 
-void PeopleAnalysisController::clearSessionResults() {
+void PeopleAnalysisController::clearPeopleData() {
     if (watcher_.isRunning()) {
         return;
     }
+    try {
+        operations_.clear();
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "Local people data could not be cleared:" << error.what();
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
     report_ = {};
-    resetMergeState();
+    resetSelection();
     has_results_ = false;
     state_ = State::Idle;
     emit resultsChanged();
@@ -261,74 +299,31 @@ void PeopleAnalysisController::mergeSelectedGroups() {
     if (!canMergeSelectedGroups()) {
         return;
     }
-
-    QSet<QString> selected_ids;
-    selected_ids.reserve(selected_group_ids_.size());
-    for (const QString& group_id : std::as_const(selected_group_ids_)) {
-        selected_ids.insert(group_id);
-    }
-
-    qsizetype first_selected_index = -1;
-    std::uint64_t merged_member_count = 0;
-    QSet<QString> merged_photo_ids;
-    for (qsizetype index = 0; index < report_.groups.size(); ++index) {
-        const BackendPeopleGroup& group = report_.groups.at(index);
-        if (!selected_ids.contains(group.group_id)) {
-            continue;
-        }
-        if (first_selected_index < 0) {
-            first_selected_index = index;
-        }
-        merged_member_count += group.member_count;
-        for (const QString& photo_id : group.photo_ids) {
-            merged_photo_ids.insert(photo_id);
-        }
-    }
-    if (first_selected_index < 0) {
+    try {
+        report_ = operations_.merge(selected_group_ids_);
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People merge could not be saved:" << error.what();
+        state_ = State::Failed;
+        emit stateChanged();
         return;
     }
-
-    merge_undo_groups_ = report_.groups;
-    has_merge_undo_ = true;
-    QStringList photo_ids;
-    photo_ids.reserve(merged_photo_ids.size());
-    for (const QString& photo_id : std::as_const(merged_photo_ids)) {
-        photo_ids.push_back(photo_id);
-    }
-    photo_ids.sort();
-    const auto bounded_member_count = static_cast<std::uint32_t>(
-        std::min<std::uint64_t>(merged_member_count, std::numeric_limits<std::uint32_t>::max())
-    );
-    BackendPeopleGroup merged_group{
-        .group_id = QStringLiteral("session-merged-person-%1").arg(next_merged_group_id_++),
-        .member_count = bounded_member_count,
-        .photo_ids = std::move(photo_ids),
-        .thumbnail_jpeg = report_.groups.at(first_selected_index).thumbnail_jpeg,
-    };
-
-    QVector<BackendPeopleGroup> merged_groups;
-    merged_groups.reserve(report_.groups.size() - selected_ids.size() + 1);
-    for (qsizetype index = 0; index < report_.groups.size(); ++index) {
-        const BackendPeopleGroup& group = report_.groups.at(index);
-        if (index == first_selected_index) {
-            merged_groups.push_back(merged_group);
-        }
-        if (!selected_ids.contains(group.group_id)) {
-            merged_groups.push_back(group);
-        }
-    }
-    report_.groups = std::move(merged_groups);
-    selected_group_ids_.clear();
+    resetSelection();
     emit resultsChanged();
 }
 
 void PeopleAnalysisController::undoLastMerge() {
-    if (watcher_.isRunning() || !has_merge_undo_) {
+    if (watcher_.isRunning() || !report_.can_undo_merge) {
         return;
     }
-    report_.groups = std::exchange(merge_undo_groups_, {});
-    has_merge_undo_ = false;
-    selected_group_ids_.clear();
+    try {
+        report_ = operations_.undo_merge();
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People merge could not be undone:" << error.what();
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
+    resetSelection();
     emit resultsChanged();
 }
 
@@ -380,11 +375,8 @@ bool PeopleAnalysisController::selectedGroupsConflict() const noexcept {
     return false;
 }
 
-void PeopleAnalysisController::resetMergeState() {
+void PeopleAnalysisController::resetSelection() {
     selected_group_ids_.clear();
-    merge_undo_groups_.clear();
-    has_merge_undo_ = false;
-    next_merged_group_id_ = 1;
 }
 
 void PeopleAnalysisController::finishAnalysis() {
@@ -408,9 +400,9 @@ void PeopleAnalysisController::finishAnalysis() {
         emit stateChanged();
         return;
     }
-    resetMergeState();
+    resetSelection();
     report_ = result.report;
-    has_results_ = true;
+    has_results_ = report_.has_data;
     state_ = State::Ready;
     emit resultsChanged();
     emit stateChanged();

@@ -25,6 +25,7 @@ shadow-domain.workspace = true
 shadow-library-sharing.workspace = true
 shadow-native-path.workspace = true
 shadow-ai.workspace = true
+rusqlite.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tempfile.workspace = true

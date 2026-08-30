@@ -1,41 +1,26 @@
-//! Desktop-session delegation for transient anonymous-person analysis.
+//! Desktop-session delegation for authorized local people organization.
 
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
-use anyhow::{Context, Result as AnyResult};
+use anyhow::{Context, Result as AnyResult, bail};
 use shadow_ai::InferRuntimeClient;
-use shadow_core::{
-    PeopleAnalysisPolicy, PeopleAnalysisReport, analyze_review_people,
-    analyze_review_people_with_control,
-};
+use shadow_core::{PeopleAnalysisPolicy, analyze_review_people_with_control};
 
 use super::{
     DesktopSession, ffi,
     people_analysis_service::{PeopleAnalysisJobOutcome, PeopleAnalysisJobSnapshot},
+    people_library_store::PeopleLibrarySnapshot,
 };
 
 impl DesktopSession {
-    pub(crate) fn analyze_people(
-        &self,
-        infer_base_url: &str,
-        credential_file: &str,
-    ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
-        let provider = InferRuntimeClient::from_credential_file_with_discovery(
-            (!infer_base_url.is_empty()).then_some(infer_base_url),
-            Path::new(credential_file),
-        )
-        .context("configure local people-analysis provider")?;
-        let report = analyze_review_people(
-            &self.catalog,
-            &self.cache_root,
-            &provider,
-            PeopleAnalysisPolicy::default(),
-        )
-        .context("analyze current Library visuals for anonymous people")?;
-        ffi_people_analysis_report(report)
+    pub(crate) fn people_library_snapshot(&self) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
+        ffi_people_analysis_report(self.people_library.snapshot()?)
     }
 
-    pub(crate) fn begin_people_analysis_job(&self) -> AnyResult<u64> {
+    pub(crate) fn begin_people_analysis_job(&self, authorized: bool) -> AnyResult<u64> {
+        if !authorized {
+            bail!("local people analysis requires explicit user authorization");
+        }
         Ok(self
             .people_analyses
             .begin_job(PeopleAnalysisPolicy::default().maximum_photos)?)
@@ -57,7 +42,11 @@ impl DesktopSession {
         job_token: u64,
         infer_base_url: &str,
         credential_file: &str,
+        authorized: bool,
     ) -> AnyResult<ffi::FfiPeopleAnalysisExecution> {
+        if !authorized {
+            let _ = self.people_analyses.cancel_job(job_token)?;
+        }
         let policy = PeopleAnalysisPolicy::default();
         let outcome = self.people_analyses.execute_job(job_token, |control| {
             let provider = InferRuntimeClient::from_credential_file_with_discovery(
@@ -75,12 +64,18 @@ impl DesktopSession {
             .context("analyze current Library visuals for anonymous people")
         })?;
         match outcome {
-            PeopleAnalysisJobOutcome::Ready(report) => Ok(ffi::FfiPeopleAnalysisExecution {
-                job_token,
-                cancelled: false,
-                diagnostic: String::new(),
-                report: ffi_people_analysis_report(report)?,
-            }),
+            PeopleAnalysisJobOutcome::Ready(report) => {
+                let snapshot = self
+                    .people_library
+                    .replace_analysis(report)
+                    .context("publish local people organization")?;
+                Ok(ffi::FfiPeopleAnalysisExecution {
+                    job_token,
+                    cancelled: false,
+                    diagnostic: String::new(),
+                    report: ffi_people_analysis_report(snapshot)?,
+                })
+            }
             PeopleAnalysisJobOutcome::Cancelled => Ok(ffi::FfiPeopleAnalysisExecution {
                 job_token,
                 cancelled: true,
@@ -98,6 +93,21 @@ impl DesktopSession {
 
     pub(crate) fn retire_people_analysis_job(&self, job_token: u64) -> AnyResult<()> {
         Ok(self.people_analyses.retire_job(job_token)?)
+    }
+
+    pub(crate) fn merge_people(
+        &self,
+        person_ids: Vec<String>,
+    ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
+        ffi_people_analysis_report(self.people_library.merge_people(&person_ids)?)
+    }
+
+    pub(crate) fn undo_people_merge(&self) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
+        ffi_people_analysis_report(self.people_library.undo_merge()?)
+    }
+
+    pub(crate) fn clear_people_data(&self) -> AnyResult<()> {
+        self.people_library.clear()
     }
 }
 
@@ -118,6 +128,7 @@ fn ffi_people_analysis_job_status(
 
 fn empty_people_analysis_report() -> ffi::FfiPeopleAnalysisReport {
     ffi::FfiPeopleAnalysisReport {
+        has_data: false,
         analyzed_photos: 0,
         detected_faces: 0,
         embedded_faces: 0,
@@ -125,51 +136,35 @@ fn empty_people_analysis_report() -> ffi::FfiPeopleAnalysisReport {
         ungrouped_faces: 0,
         truncated: false,
         groups: Vec::new(),
+        can_undo_merge: false,
     }
 }
 
 fn ffi_people_analysis_report(
-    report: PeopleAnalysisReport,
+    snapshot: PeopleLibrarySnapshot,
 ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
-    let skipped_items = report
-        .skipped
-        .no_current_visual
-        .saturating_add(report.skipped.unsupported_visual)
-        .saturating_add(report.skipped.stale_input)
-        .saturating_add(report.skipped.low_detection_confidence)
-        .saturating_add(report.skipped.ineligible_embedding);
-    let mut group_previews = report
-        .group_previews
-        .into_iter()
-        .map(|preview| (preview.group_id, preview.thumbnail_jpeg))
-        .collect::<HashMap<_, _>>();
     Ok(ffi::FfiPeopleAnalysisReport {
-        analyzed_photos: bounded_u32(report.analyzed_photos, "analyzed photo count")?,
-        detected_faces: bounded_u32(report.detected_faces, "detected face count")?,
-        embedded_faces: bounded_u32(report.embedded_faces, "embedded face count")?,
-        skipped_items: bounded_u32(skipped_items, "skipped item count")?,
-        ungrouped_faces: bounded_u32(report.grouping.ungrouped.len(), "ungrouped face count")?,
-        truncated: report.truncated,
-        groups: report
-            .grouping
+        has_data: snapshot.has_data,
+        analyzed_photos: snapshot.analyzed_photos,
+        detected_faces: snapshot.detected_faces,
+        embedded_faces: snapshot.embedded_faces,
+        skipped_items: snapshot.skipped_items,
+        ungrouped_faces: snapshot.ungrouped_faces,
+        truncated: snapshot.truncated,
+        groups: snapshot
             .groups
             .into_iter()
             .map(|group| {
-                let member_count = bounded_u32(group.members.len(), "people group member count")?;
-                let photo_ids = group
-                    .members
-                    .into_iter()
-                    .map(|member| member.photo_id.to_string())
-                    .collect();
-                let thumbnail_jpeg = group_previews.remove(&group.group_id).unwrap_or_default();
                 Ok(ffi::FfiPeopleGroup {
-                    group_id: group.group_id,
-                    member_count,
-                    photo_ids,
-                    thumbnail_jpeg,
+                    group_id: group.person_id,
+                    member_count: group.member_count,
+                    photo_ids: group.photo_ids,
+                    thumbnail_jpeg: group.thumbnail_jpeg,
+                    manually_merged: group.manually_merged,
                 })
             })
             .collect::<AnyResult<Vec<_>>>()?,
+        can_undo_merge: snapshot.can_undo_merge,
     })
 }
 

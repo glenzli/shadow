@@ -14,6 +14,7 @@ mod library_service;
 mod location_reference_service;
 mod native_path_ffi;
 mod people_analysis_service;
+mod people_library_store;
 mod photo_inspection_service;
 mod relink_service;
 mod remote_library_service;
@@ -1009,8 +1010,7 @@ mod ffi {
         reclaimed_byte_len: u64,
     }
 
-    /// One anonymous review proposal. The opaque group id is stable only for
-    /// the exact transient analysis inputs; it is not a named-person identity.
+    /// One durable anonymous person in the device-local People Store.
     #[derive(Debug)]
     struct FfiPeopleGroup {
         group_id: String,
@@ -1019,15 +1019,17 @@ mod ffi {
         /// inside Rust; the desktop uses these ids solely to reject an
         /// impossible merge of two faces that co-occur in one photo.
         photo_ids: Vec<String>,
-        /// Bounded request-local representative face crop. It is discarded
-        /// with the People session and never enters the Catalog.
+        /// Bounded representative face crop held only by the independently
+        /// clearable local People Store.
         thumbnail_jpeg: Vec<u8>,
+        manually_merged: bool,
     }
 
-    /// Session-only projection of local face analysis. No embeddings or face
-    /// geometry cross the desktop ABI.
+    /// Device-local projection of people organization. No embeddings or face
+    /// geometry cross the desktop ABI or enter the Catalog.
     #[derive(Debug)]
     struct FfiPeopleAnalysisReport {
+        has_data: bool,
         analyzed_photos: u32,
         detected_faces: u32,
         embedded_faces: u32,
@@ -1035,6 +1037,7 @@ mod ffi {
         ungrouped_faces: u32,
         truncated: bool,
         groups: Vec<FfiPeopleGroup>,
+        can_undo_merge: bool,
     }
 
     /// Pollable session-local progress for one bounded people-analysis job.
@@ -2399,12 +2402,8 @@ mod ffi {
             self: &DesktopSession,
             dry_run: bool,
         ) -> Result<FfiCacheMaintenanceSweep>;
-        fn analyze_people(
-            self: &DesktopSession,
-            infer_base_url: &str,
-            credential_file: &str,
-        ) -> Result<FfiPeopleAnalysisReport>;
-        fn begin_people_analysis_job(self: &DesktopSession) -> Result<u64>;
+        fn people_library_snapshot(self: &DesktopSession) -> Result<FfiPeopleAnalysisReport>;
+        fn begin_people_analysis_job(self: &DesktopSession, authorized: bool) -> Result<u64>;
         fn people_analysis_job_status(
             self: &DesktopSession,
             job_token: u64,
@@ -2417,8 +2416,15 @@ mod ffi {
             job_token: u64,
             infer_base_url: &str,
             credential_file: &str,
+            authorized: bool,
         ) -> Result<FfiPeopleAnalysisExecution>;
         fn retire_people_analysis_job(self: &DesktopSession, job_token: u64) -> Result<()>;
+        fn merge_people(
+            self: &DesktopSession,
+            person_ids: Vec<String>,
+        ) -> Result<FfiPeopleAnalysisReport>;
+        fn undo_people_merge(self: &DesktopSession) -> Result<FfiPeopleAnalysisReport>;
+        fn clear_people_data(self: &DesktopSession) -> Result<()>;
         fn search_semantics(
             self: &DesktopSession,
             infer_base_url: &str,
@@ -2834,6 +2840,7 @@ struct DesktopSession {
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     people_analyses: people_analysis_service::PeopleAnalysisService,
+    people_library: people_library_store::PeopleLibraryStore,
     subject_masks: subject_mask_service::SubjectMaskService,
     subject_mask_runtime: subject_mask_runtime::SubjectMaskRuntime,
     raw_foundations: raw_foundation_service::RawFoundationService,
@@ -2909,6 +2916,10 @@ fn open_desktop_session_at(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("location-references");
+    let people_library_root = catalog_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("people");
     Ok(Box::new(DesktopSession {
         _actor: actor,
         library: LibraryService::new(catalog.clone()),
@@ -2936,6 +2947,7 @@ fn open_desktop_session_at(
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
         people_analyses: people_analysis_service::PeopleAnalysisService::new(),
+        people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,
         subject_masks,
         subject_mask_runtime,
         raw_foundations: raw_foundation_service::RawFoundationService::new(),

@@ -10,6 +10,9 @@ namespace {
 
 constexpr auto raw_denoise_allowed_key = "ai/raw_denoise_execution_allowed";
 constexpr auto subject_mask_allowed_key = "ai/subject_mask_execution_allowed";
+constexpr auto people_analysis_consent_state_key = "ai/people_analysis_consent_state";
+constexpr auto people_analysis_consent_revision_key = "ai/people_analysis_consent_revision";
+constexpr int people_analysis_consent_revision = 1;
 constexpr auto image_understanding_allowed_key = "ai/image_understanding_execution_allowed";
 constexpr auto image_understanding_background_key = "ai/image_understanding_background_enabled";
 constexpr auto image_understanding_scope_key = "ai/image_understanding_scan_scope";
@@ -52,6 +55,20 @@ AiPreferences::AiPreferences(
         settings_
             ->value(QString::fromLatin1(subject_mask_allowed_key), subject_mask_execution_allowed_)
             .toBool();
+    const int stored_people_consent_revision =
+        settings_->value(QString::fromLatin1(people_analysis_consent_revision_key), 0).toInt();
+    const QString stored_people_consent_state =
+        settings_
+            ->value(
+                QString::fromLatin1(people_analysis_consent_state_key),
+                people_analysis_consent_state_
+            )
+            .toString();
+    if (stored_people_consent_revision == people_analysis_consent_revision
+        && (stored_people_consent_state == QStringLiteral("granted")
+            || stored_people_consent_state == QStringLiteral("denied"))) {
+        people_analysis_consent_state_ = stored_people_consent_state;
+    }
     image_understanding_execution_allowed_ =
         settings_
             ->value(
@@ -113,6 +130,18 @@ bool AiPreferences::subjectMaskExecutionAllowed() const noexcept {
     return subject_mask_execution_allowed_;
 }
 
+bool AiPreferences::peopleAnalysisExecutionAllowed() const noexcept {
+    return people_analysis_consent_state_ == QStringLiteral("granted");
+}
+
+bool AiPreferences::peopleAnalysisConsentDecided() const noexcept {
+    return people_analysis_consent_state_ != QStringLiteral("not_asked");
+}
+
+QString AiPreferences::peopleAnalysisConsentState() const {
+    return people_analysis_consent_state_;
+}
+
 bool AiPreferences::imageUnderstandingExecutionAllowed() const noexcept {
     return image_understanding_execution_allowed_;
 }
@@ -161,6 +190,30 @@ void AiPreferences::setSubjectMaskExecutionAllowed(const bool allowed) {
     subject_mask_execution_allowed_ = allowed;
     persist(subject_mask_allowed_key, allowed);
     emit subjectMaskExecutionAllowedChanged();
+}
+
+void AiPreferences::grantPeopleAnalysisConsent() {
+    if (people_analysis_consent_state_ == QStringLiteral("granted")) {
+        return;
+    }
+    people_analysis_consent_state_ = QStringLiteral("granted");
+    persist(people_analysis_consent_state_key, people_analysis_consent_state_);
+    persist(people_analysis_consent_revision_key, people_analysis_consent_revision);
+    emit peopleAnalysisConsentChanged();
+}
+
+void AiPreferences::denyPeopleAnalysisConsent() {
+    if (people_analysis_consent_state_ == QStringLiteral("denied")) {
+        return;
+    }
+    people_analysis_consent_state_ = QStringLiteral("denied");
+    persist(people_analysis_consent_state_key, people_analysis_consent_state_);
+    persist(people_analysis_consent_revision_key, people_analysis_consent_revision);
+    emit peopleAnalysisConsentChanged();
+}
+
+void AiPreferences::revokePeopleAnalysisConsent() {
+    denyPeopleAnalysisConsent();
 }
 
 void AiPreferences::setImageUnderstandingExecutionAllowed(const bool allowed) {

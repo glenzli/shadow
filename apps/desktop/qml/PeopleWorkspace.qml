@@ -8,17 +8,23 @@ Item {
     id: people
 
     required property var controller
+    required property var aiPreferences
     readonly property int renderedGroupCount: peopleGroupRepeater.count
     readonly property int selectedGroupCount: controller.selectedGroupCount
 
     function requestStartAnalysis() {
-        if (!controller.busy)
-            controller.startAnalysis()
+        if (controller.busy)
+            return
+        if (!aiPreferences.peopleAnalysisExecutionAllowed) {
+            peopleConsentDialog.open()
+            return
+        }
+        controller.startAnalysis()
     }
 
-    function requestClearSession() {
+    function requestClearPeopleData() {
         if (!controller.busy && controller.hasResults)
-            controller.clearSessionResults()
+            clearPeopleDataDialog.open()
     }
 
     function requestCancelAnalysis() {
@@ -40,6 +46,71 @@ Item {
         const renderedGroups = controller.groups
         if (!controller.busy && index >= 0 && index < renderedGroups.length)
             controller.toggleGroupSelection(String(renderedGroups[index].groupId))
+    }
+
+    Connections {
+        target: people.controller
+        ignoreUnknownSignals: true
+
+        function onAuthorizationRequired() {
+            peopleConsentDialog.open()
+        }
+    }
+
+    Dialog {
+        id: peopleConsentDialog
+        objectName: "peopleConsentDialog"
+        anchors.centerIn: parent
+        width: Math.min(520, parent.width - 48)
+        modal: true
+        title: qsTr("Enable People?")
+        standardButtons: Dialog.Cancel | Dialog.Ok
+
+        onAccepted: {
+            people.aiPreferences.grantPeopleAnalysisConsent()
+            people.controller.startAnalysis()
+        }
+        onRejected: {
+            if (!people.aiPreferences.peopleAnalysisConsentDecided)
+                people.aiPreferences.denyPeopleAnalysisConsent()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 10
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Shadow will analyze faces in this Library and organize recurring people across photos. Photos, face features, and people data stay on this device.")
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("You can stop new analysis or clear all people data at any time in Settings.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    Dialog {
+        id: clearPeopleDataDialog
+        objectName: "clearPeopleDataDialog"
+        anchors.centerIn: parent
+        width: Math.min(480, parent.width - 48)
+        modal: true
+        title: qsTr("Clear people data?")
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: people.controller.clearPeopleData()
+
+        Label {
+            width: 420
+            text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
+            color: Theme.textPrimary
+            wrapMode: Text.WordWrap
+        }
     }
 
     Rectangle {
@@ -91,7 +162,7 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Find recurring people with local face analysis. Groups remain anonymous and disappear when Shadow closes.")
+                        text: qsTr("Find and organize recurring people with local face analysis.")
                         color: Theme.textMuted
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
@@ -123,14 +194,14 @@ Item {
                         spacing: 2
 
                         Label {
-                            text: qsTr("Session preview")
+                            text: qsTr("Local People data")
                             color: Theme.textPrimary
                             font.weight: Font.DemiBold
                         }
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Processing stays on this device. Face vectors, groups, and merges are not saved to the Library.")
+                            text: qsTr("Processing stays on this device. Face embeddings are not saved; groups, representative thumbnails, and your merges remain until you clear them.")
                             color: Theme.textMuted
                             font.pixelSize: 11
                             wrapMode: Text.WordWrap
@@ -145,8 +216,10 @@ Item {
 
                 ShadowButton {
                     objectName: "peopleStartButton"
-                    text: people.controller.hasResults
-                        ? qsTr("Analyze Again") : qsTr("Start Analysis")
+                    text: !people.aiPreferences.peopleAnalysisExecutionAllowed
+                        ? qsTr("Enable People")
+                        : people.controller.hasResults
+                            ? qsTr("Analyze Again") : qsTr("Start Analysis")
                     variant: ShadowButton.Primary
                     enabled: !people.controller.busy
                     onClicked: people.requestStartAnalysis()
@@ -163,9 +236,9 @@ Item {
                 ShadowButton {
                     objectName: "peopleClearButton"
                     visible: people.controller.hasResults
-                    text: qsTr("Clear Session Results")
+                    text: qsTr("Clear People Data")
                     enabled: !people.controller.busy
-                    onClicked: people.requestClearSession()
+                    onClicked: people.requestClearPeopleData()
                 }
 
                 BusyIndicator {
@@ -428,7 +501,7 @@ Item {
                             Label {
                                 visible: Boolean(peopleGroup.modelData.merged)
                                 Layout.fillWidth: true
-                                text: qsTr("Merged in this session")
+                                text: qsTr("Merged by you")
                                 color: Theme.accent
                                 font.pixelSize: 10
                                 horizontalAlignment: Text.AlignHCenter

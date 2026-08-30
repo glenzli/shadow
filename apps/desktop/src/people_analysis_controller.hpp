@@ -12,6 +12,8 @@
 #include <functional>
 #include <optional>
 
+class AiPreferences;
+
 struct PeopleAnalysisTaskResult final {
     std::uint64_t job_token = 0;
     BackendPeopleAnalysisReport report;
@@ -19,12 +21,11 @@ struct PeopleAnalysisTaskResult final {
     QString diagnostic;
 };
 
-/// Owns the complete session-only people-analysis lifecycle exposed to QML.
+/// Owns the complete authorized people-analysis lifecycle exposed to QML.
 ///
 /// Analysis starts only from an explicit user action, runs away from the UI
-/// thread, retains only anonymous group membership needed for session merge
-/// safety, and discards all results when this controller is destroyed or the
-/// user clears the session.
+/// thread, and publishes only the durable, independently clearable local
+/// People Store projection. Face embeddings remain inside the request.
 class PeopleAnalysisController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
@@ -46,14 +47,22 @@ class PeopleAnalysisController final : public QObject {
 
   public:
     struct Operations final {
-        std::function<std::uint64_t()> begin;
-        std::function<BackendPeopleAnalysisExecution(std::uint64_t)> execute;
+        std::function<BackendPeopleAnalysisReport()> load;
+        std::function<std::uint64_t(bool)> begin;
+        std::function<BackendPeopleAnalysisExecution(std::uint64_t, bool)> execute;
         std::function<BackendPeopleAnalysisProgress(std::uint64_t)> progress;
         std::function<bool(std::uint64_t)> cancel;
         std::function<void(std::uint64_t)> retire;
+        std::function<BackendPeopleAnalysisReport(const QStringList&)> merge;
+        std::function<BackendPeopleAnalysisReport()> undo_merge;
+        std::function<void()> clear;
     };
 
-    explicit PeopleAnalysisController(Operations operations, QObject* parent = nullptr);
+    explicit PeopleAnalysisController(
+        Operations operations,
+        AiPreferences* preferences,
+        QObject* parent = nullptr
+    );
     ~PeopleAnalysisController() override;
 
     [[nodiscard]] bool busy() const noexcept;
@@ -75,7 +84,7 @@ class PeopleAnalysisController final : public QObject {
 
     Q_INVOKABLE void startAnalysis();
     Q_INVOKABLE void cancelAnalysis();
-    Q_INVOKABLE void clearSessionResults();
+    Q_INVOKABLE void clearPeopleData();
     Q_INVOKABLE void toggleGroupSelection(const QString& group_id);
     Q_INVOKABLE void mergeSelectedGroups();
     Q_INVOKABLE void undoLastMerge();
@@ -84,10 +93,12 @@ class PeopleAnalysisController final : public QObject {
   signals:
     void stateChanged();
     void resultsChanged();
+    void authorizationRequired();
 
   private:
     enum class State {
         Idle,
+        AuthorizationRequired,
         Running,
         Cancelling,
         Cancelled,
@@ -96,21 +107,19 @@ class PeopleAnalysisController final : public QObject {
     };
 
     [[nodiscard]] bool selectedGroupsConflict() const noexcept;
-    void resetMergeState();
+    void resetSelection();
     void pollProgress();
     void retireJob(std::uint64_t job_token) noexcept;
     void finishAnalysis();
 
     Operations operations_;
+    AiPreferences* preferences_ = nullptr;
     QFutureWatcher<PeopleAnalysisTaskResult> watcher_;
     QTimer progress_timer_;
     BackendPeopleAnalysisReport report_;
     BackendPeopleAnalysisProgress progress_;
     QStringList selected_group_ids_;
-    QVector<BackendPeopleGroup> merge_undo_groups_;
     State state_ = State::Idle;
     bool has_results_ = false;
-    bool has_merge_undo_ = false;
-    qulonglong next_merged_group_id_ = 1;
     std::optional<std::uint64_t> active_job_token_;
 };

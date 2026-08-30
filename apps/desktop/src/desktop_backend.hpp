@@ -249,20 +249,23 @@ class DesktopBackend final {
     /// Executes only the already user-confirmed conservative sweep. It never
     /// deletes unknown entries, live Catalog blobs, or recent writes.
     [[nodiscard]] BackendCacheMaintenanceSweep runCacheMaintenanceSweep() const;
-    /// Executes bounded local face analysis and returns only anonymous group
-    /// counts. The report is rebuildable session state, never Catalog state.
-    [[nodiscard]] BackendPeopleAnalysisReport
-    analyzePeople(const QString& infer_base_url, const QString& credential_file) const;
-    [[nodiscard]] std::uint64_t beginPeopleAnalysisJob() const;
+    /// Loads the independently clearable device-local People Store. It is
+    /// keyed to Catalog photo identities but contains no face embeddings.
+    [[nodiscard]] BackendPeopleAnalysisReport peopleLibrarySnapshot() const;
+    [[nodiscard]] std::uint64_t beginPeopleAnalysisJob(bool authorized) const;
     [[nodiscard]] BackendPeopleAnalysisProgress
     peopleAnalysisJobStatus(std::uint64_t job_token) const;
     [[nodiscard]] bool cancelPeopleAnalysisJob(std::uint64_t job_token) const;
     [[nodiscard]] BackendPeopleAnalysisExecution executePeopleAnalysisJob(
         std::uint64_t job_token,
         const QString& infer_base_url,
-        const QString& credential_file
+        const QString& credential_file,
+        bool authorized
     ) const;
     void retirePeopleAnalysisJob(std::uint64_t job_token) const;
+    [[nodiscard]] BackendPeopleAnalysisReport mergePeople(const QStringList& person_ids) const;
+    [[nodiscard]] BackendPeopleAnalysisReport undoPeopleMerge() const;
+    void clearPeopleData() const;
     /// Executes bounded SigLIP text-to-image ranking over the current Review
     /// prefix. Results and exact visual tickets are session-only.
     [[nodiscard]] BackendSemanticSearchReport searchSemantics(

@@ -131,7 +131,7 @@ class FakePeopleAnalysisController final : public QObject {
         busy_ = false;
         emit changed();
     }
-    Q_INVOKABLE void clearSessionResults() {
+    Q_INVOKABLE void clearPeopleData() {
         ++clear_count;
         has_results_ = false;
         selected_.clear();
@@ -189,6 +189,43 @@ class FakePeopleAnalysisController final : public QObject {
     QSet<QString> selected_;
 };
 
+class FakePeoplePreferences final : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(
+        bool peopleAnalysisExecutionAllowed READ peopleAnalysisExecutionAllowed NOTIFY changed
+    )
+    Q_PROPERTY(bool peopleAnalysisConsentDecided READ peopleAnalysisConsentDecided NOTIFY changed)
+
+  public:
+    bool peopleAnalysisExecutionAllowed() const noexcept {
+        return allowed_;
+    }
+    bool peopleAnalysisConsentDecided() const noexcept {
+        return decided_;
+    }
+
+    Q_INVOKABLE void grantPeopleAnalysisConsent() {
+        allowed_ = true;
+        decided_ = true;
+        emit changed();
+    }
+    Q_INVOKABLE void denyPeopleAnalysisConsent() {
+        allowed_ = false;
+        decided_ = true;
+        emit changed();
+    }
+    Q_INVOKABLE void revokePeopleAnalysisConsent() {
+        denyPeopleAnalysisConsent();
+    }
+
+  signals:
+    void changed();
+
+  private:
+    bool allowed_ = false;
+    bool decided_ = false;
+};
+
 namespace {
 
 bool require(const bool condition, const char* const message) {
@@ -243,8 +280,10 @@ int main(int argc, char* argv[]) {
         QStringLiteral("PeopleWorkspace")
     );
     FakePeopleAnalysisController controller;
+    FakePeoplePreferences preferences;
     std::unique_ptr<QObject> object{component.createWithInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
+        {QStringLiteral("aiPreferences"), QVariant::fromValue(&preferences)},
         {QStringLiteral("width"), 900.0},
         {QStringLiteral("height"), 700.0},
     })};
@@ -279,10 +318,25 @@ int main(int argc, char* argv[]) {
     }
 
     click(window, *start_button);
-    if (!require(controller.start_count == 1, "manual action reaches the controller")
+    QObject* const consent_dialog =
+        workspace->findChild<QObject*>(QStringLiteral("peopleConsentDialog"));
+    if (!require(controller.start_count == 0, "analysis is gated before first-use consent")
+        || !require(
+            consent_dialog != nullptr && consent_dialog->property("opened").toBool(),
+            "first use opens the local people consent dialog"
+        )
+        || !require(
+            QMetaObject::invokeMethod(consent_dialog, "accept"),
+            "consent dialog can accept the local processing policy"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(controller.start_count == 1, "consent starts the requested analysis")
+        || !require(preferences.peopleAnalysisExecutionAllowed(), "consent is retained")
         || !require(
             workspace->property("renderedGroupCount").toInt() == 2,
-            "anonymous group cards follow session results"
+            "anonymous group cards follow stored people data"
         )) {
         return EXIT_FAILURE;
     }
@@ -342,14 +396,25 @@ int main(int argc, char* argv[]) {
 
     auto* const clear_button =
         workspace->findChild<QQuickItem*>(QStringLiteral("peopleClearButton"));
-    if (!require(clear_button != nullptr, "session clear action is packaged")) {
+    if (!require(clear_button != nullptr, "people-data clear action is packaged")) {
         return EXIT_FAILURE;
     }
     click(window, *clear_button);
-    return require(controller.clear_count == 1, "clear action reaches the controller")
+    QObject* const clear_dialog =
+        workspace->findChild<QObject*>(QStringLiteral("clearPeopleDataDialog"));
+    if (!require(controller.clear_count == 0, "people data is not cleared without confirmation")
+        || !require(
+            clear_dialog != nullptr && clear_dialog->property("opened").toBool(),
+            "clear action opens a destructive confirmation"
+        )
+        || !require(QMetaObject::invokeMethod(clear_dialog, "accept"), "clear can be confirmed")) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    return require(controller.clear_count == 1, "confirmed clear reaches the controller")
                    && require(
                        workspace->property("renderedGroupCount").toInt() == 0,
-                       "clearing removes the session cards"
+                       "clearing removes the people cards"
                    )
                ? EXIT_SUCCESS
                : EXIT_FAILURE;

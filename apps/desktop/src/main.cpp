@@ -20,10 +20,10 @@
 #include "map_provider_preferences.hpp"
 #include "optics_profile_library.hpp"
 #include "people_analysis_controller.hpp"
-#include "pipeline_launch.hpp"
-#include "pipeline_run_controller.hpp"
 #include "personal_location_search.hpp"
 #include "personal_profile.hpp"
+#include "pipeline_launch.hpp"
+#include "pipeline_run_controller.hpp"
 #include "review_controller.hpp"
 #include "review_focus_detail_provider.hpp"
 #include "review_gallery_grouping_controller.hpp"
@@ -99,6 +99,13 @@ namespace {
             }
         }
     }
+    const QString people_root =
+        QDir(QFileInfo(catalog_path).absolutePath()).filePath(QStringLiteral("people"));
+    QDir people_directory(people_root);
+    if (people_directory.exists() && !people_directory.removeRecursively()) {
+        *error_message = QObject::tr("Could not remove the local people data.");
+        return false;
+    }
     return true;
 }
 
@@ -116,13 +123,15 @@ offer_development_catalog_reset(const std::exception& error) {
             ? QObject::tr(
                   "This local catalog belongs to an incompatible development build. "
                   "Shadow does not migrate development schemas.\n\n"
-                  "Resetting removes the local photo index, edit history, and preview cache. "
+                  "Resetting removes the local photo index, edit history, people data, and preview "
+                  "cache. "
                   "Your original photo files, LUT library, and UI preferences are not changed."
               )
             : QObject::tr(
                   "Shadow could not open its local development catalog. You can reset it "
                   "and start again with a fresh catalog v1.\n\n"
-                  "Resetting removes the local photo index, edit history, and preview cache. "
+                  "Resetting removes the local photo index, edit history, people data, and preview "
+                  "cache. "
                   "Your original photo files, LUT library, and UI preferences are not changed.\n\n"
                   "Technical detail: %1"
               )
@@ -175,10 +184,8 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow"));
     QString pipeline_error;
-    const auto pipeline_request = parsePipelineLaunch(
-        QCoreApplication::arguments(),
-        &pipeline_error
-    );
+    const auto pipeline_request =
+        parsePipelineLaunch(QCoreApplication::arguments(), &pipeline_error);
     if (!pipeline_error.isEmpty()) {
         qCritical().noquote() << "Invalid pipeline launch:" << pipeline_error;
         return EXIT_FAILURE;
@@ -299,26 +306,37 @@ int main(int argc, char* argv[]) {
     }
     PeopleAnalysisController people_analysis_controller(
         PeopleAnalysisController::Operations{
-            .begin = [backend]() { return backend->beginPeopleAnalysisJob(); },
-            .execute = [backend, infer_base_url, infer_credential_file](
-                           const std::uint64_t job_token
-                       ) {
-                return backend->executePeopleAnalysisJob(
-                    job_token,
-                    infer_base_url,
-                    infer_credential_file
-                );
-            },
-            .progress = [backend](const std::uint64_t job_token) {
-                return backend->peopleAnalysisJobStatus(job_token);
-            },
-            .cancel = [backend](const std::uint64_t job_token) {
-                return backend->cancelPeopleAnalysisJob(job_token);
-            },
-            .retire = [backend](const std::uint64_t job_token) {
-                backend->retirePeopleAnalysisJob(job_token);
-            },
-        }
+            .load = [backend]() { return backend->peopleLibrarySnapshot(); },
+            .begin = [backend](
+                         const bool authorized
+                     ) { return backend->beginPeopleAnalysisJob(authorized); },
+            .execute =
+                [backend,
+                 infer_base_url,
+                 infer_credential_file](const std::uint64_t job_token, const bool authorized) {
+                    return backend->executePeopleAnalysisJob(
+                        job_token,
+                        infer_base_url,
+                        infer_credential_file,
+                        authorized
+                    );
+                },
+            .progress = [backend](
+                            const std::uint64_t job_token
+                        ) { return backend->peopleAnalysisJobStatus(job_token); },
+            .cancel = [backend](
+                          const std::uint64_t job_token
+                      ) { return backend->cancelPeopleAnalysisJob(job_token); },
+            .retire = [backend](
+                          const std::uint64_t job_token
+                      ) { backend->retirePeopleAnalysisJob(job_token); },
+            .merge = [backend](
+                         const QStringList& person_ids
+                     ) { return backend->mergePeople(person_ids); },
+            .undo_merge = [backend]() { return backend->undoPeopleMerge(); },
+            .clear = [backend]() { backend->clearPeopleData(); },
+        },
+        &ai_preferences
     );
     SemanticSearchController semantic_search_controller(
         [backend, infer_base_url, infer_credential_file](
@@ -411,22 +429,16 @@ int main(int argc, char* argv[]) {
             const QString& representation_id,
             const QString& source_revision
         ) {
-            return backend->acceptAdvancedClassificationReview(
-                photo_id,
-                representation_id,
-                source_revision
-            );
+            return backend
+                ->acceptAdvancedClassificationReview(photo_id, representation_id, source_revision);
         },
         [backend](
             const QString& photo_id,
             const QString& representation_id,
             const QString& source_revision
         ) {
-            backend->dismissAdvancedClassificationReview(
-                photo_id,
-                representation_id,
-                source_revision
-            );
+            backend
+                ->dismissAdvancedClassificationReview(photo_id, representation_id, source_revision);
         },
         [backend](const QString& photo_id, const QString& representation_id) {
             return backend->imageUnderstandingProposal(photo_id, representation_id);
@@ -436,11 +448,7 @@ int main(int argc, char* argv[]) {
             const QString& representation_id,
             const QString& source_revision
         ) {
-            backend->applyImageUnderstandingKeywords(
-                photo_id,
-                representation_id,
-                source_revision
-            );
+            backend->applyImageUnderstandingKeywords(photo_id, representation_id, source_revision);
         },
         [&smart_category_controller]() {
             return smart_category_controller.enabledReviewCategories();
