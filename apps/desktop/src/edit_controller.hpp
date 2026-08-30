@@ -519,6 +519,14 @@ class EditController final : public QObject {
     [[nodiscard]] QString representationId() const;
     [[nodiscard]] QString title() const;
     [[nodiscard]] QString sourcePath() const;
+    /// Read-only interchange projection. Format controllers may serialize the
+    /// current stack but remain unable to mutate edit authority directly.
+    [[nodiscard]] const BackendGradeStack& gradeStackForInterchange() const noexcept;
+    [[nodiscard]] bool applyShadowRecipeGradeNodes(
+        const BackendGradeStack& portable_grade_stack,
+        QString* error_text
+    );
+    void reportShadowRecipeExported(const QString& file_name);
     [[nodiscard]] QString previewSource() const;
     [[nodiscard]] QString provisionalPreviewSource() const;
     [[nodiscard]] QString beforePreviewSource() const;

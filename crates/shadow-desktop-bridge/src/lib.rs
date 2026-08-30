@@ -55,6 +55,7 @@ mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
 mod raw_foundation_runtime;
 mod raw_foundation_service;
+mod recipe_interchange;
 mod recipe_v1;
 mod session_edit_history;
 mod session_image_completion;
@@ -105,6 +106,7 @@ use library_server_host::{LibraryServerHost, open_library_server_host_ffi};
 use location_reference_service::LocationReferenceService;
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
+use recipe_interchange::preview_shadow_recipe_document;
 use recipe_v1::new_basic_grade_node;
 
 #[cxx::bridge(namespace = "shadow::desktop")]
@@ -1556,6 +1558,30 @@ mod ffi {
         geometry: FfiPhotoGeometry,
     }
 
+    /// A validated, destination-safe projection of one Shadow Recipe file.
+    ///
+    /// The file retains its complete immutable Recipe snapshot, but desktop
+    /// import deliberately projects only reusable Grade Nodes. Photo-private
+    /// source development, repair, completion, Liquify, and Canvas state are
+    /// reported here and never silently transplanted onto another photo.
+    #[derive(Debug, Clone)]
+    struct FfiShadowRecipeImportPreview {
+        label: String,
+        portable_settings: FfiEditSettings,
+        grade_node_count: u32,
+        portable_mask_count: u32,
+        managed_mask_node_count: u32,
+        semantic_mask_intent_count: u32,
+        detached_shared_node_count: u32,
+        removed_lut_count: u32,
+        excluded_retouch_region_count: u32,
+        excluded_completion_region_count: u32,
+        excluded_liquify_stroke_count: u32,
+        foundation_omitted: bool,
+        raw_denoise_omitted: bool,
+        canvas_omitted: bool,
+    }
+
     #[derive(Debug, Clone)]
     struct FfiOpticsSettings {
         enabled: bool,
@@ -2206,6 +2232,7 @@ mod ffi {
         fn interactive_retained_bytes(self: &OwnedEditedPreview) -> usize;
 
         fn new_basic_grade_node(label: &str) -> Result<FfiGradeNode>;
+        fn preview_shadow_recipe_document(bytes: &[u8]) -> Result<FfiShadowRecipeImportPreview>;
 
         #[cxx_name = "open_desktop_session"]
         fn open_desktop_session_ffi(
@@ -2685,6 +2712,14 @@ mod ffi {
             photo_id: &str,
             source_path: &str,
         ) -> Result<FfiPhotoEditState>;
+        fn export_shadow_recipe_document(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            settings: &FfiEditSettings,
+            label: &str,
+        ) -> Result<Vec<u8>>;
         /// Discards this photo's obsolete development Recipe history after an
         /// explicit UI confirmation, then returns a neutral current-v1 state.
         fn reset_incompatible_photo_edit_history(

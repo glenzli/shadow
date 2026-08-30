@@ -226,6 +226,15 @@ class DesktopBackend final {
     ) const;
     [[nodiscard]] BackendPhotoEditState
     photoEditState(const QString& photo_id, const QString& source_path) const;
+    [[nodiscard]] QByteArray exportShadowRecipe(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& grade_stack,
+        const QString& label
+    ) const;
+    [[nodiscard]] BackendShadowRecipeImportPreview
+    previewShadowRecipe(const QByteArray& document) const;
     [[nodiscard]] BackendPhotoEditState
     resetIncompatiblePhotoEditHistory(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] QVariantList

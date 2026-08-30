@@ -26,6 +26,32 @@
     )
 
     add_executable(
+        shadow-recipe-interchange-contract-test
+        tests/shadow_recipe_interchange_contract_test.cpp
+    )
+    target_compile_features(shadow-recipe-interchange-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        shadow-recipe-interchange-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(shadow-recipe-interchange-contract-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-recipe-interchange-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-recipe-interchange-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-recipe-interchange-contract
+        COMMAND shadow-recipe-interchange-contract-test
+    )
+
+    add_executable(
         shadow-edit-source-admission-test
         tests/edit_source_admission_test.cpp
         src/edit_source_admission.cpp

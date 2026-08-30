@@ -1680,6 +1680,34 @@
         <source>Sampled source is farther than the 512 px detail limit</source>
         <translation>取样源区超出 512 像素细节范围</translation>
     </message>
+    <message>
+        <source>Exported Shadow Recipe · %1</source>
+        <translation>已导出 Shadow Recipe · %1</translation>
+    </message>
+    <message>
+        <source>Imported Shadow Recipe · %1 Grade Nodes</source>
+        <translation>已导入 Shadow Recipe · %1 个调色节点</translation>
+    </message>
+    <message>
+        <source>Open a photo before importing a Shadow Recipe.</source>
+        <translation>请先打开照片，再导入 Shadow Recipe。</translation>
+    </message>
+    <message>
+        <source>Shadow could not represent this Recipe safely.</source>
+        <translation>Shadow 无法安全转换此配方。</translation>
+    </message>
+    <message>
+        <source>This Shadow Recipe does not contain an editable Grade Node.</source>
+        <translation>此 Shadow Recipe 不包含可编辑的调色节点。</translation>
+    </message>
+    <message>
+        <source>This Shadow Recipe exceeds the 16-Grade-Node desktop limit.</source>
+        <translation>此 Shadow Recipe 超出桌面端最多 16 个调色节点的限制。</translation>
+    </message>
+    <message>
+        <source>Wait for the current edit operation to finish.</source>
+        <translation>请等待当前编辑操作完成。</translation>
+    </message>
 </context>
 <context>
     <name>EditHistogram</name>
@@ -8638,6 +8666,14 @@ R %2 · G %3 · B %4</translation>
         <source>Import XMP adjustments…</source>
         <translation>导入 XMP 调整…</translation>
     </message>
+    <message>
+        <source>Export current Recipe…</source>
+        <translation>导出当前配方…</translation>
+    </message>
+    <message>
+        <source>Import Shadow Recipe…</source>
+        <translation>导入 Shadow Recipe…</translation>
+    </message>
 </context>
 <context>
     <name>QObject</name>
@@ -12896,6 +12932,149 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>This field is outside the controlled mapping.</source>
         <translation>此字段不在受控映射范围内。</translation>
+    </message>
+    <message>
+        <source>%1 managed-mask Grade Nodes will be imported disabled. Their source-photo pixels are never reused.</source>
+        <translation>%1 个含托管蒙版的调色节点将以停用状态导入；不会复用源照片的蒙版像素。</translation>
+    </message>
+    <message>
+        <source>%1 path-bound LUT references will be omitted because this file does not contain LUT resources.</source>
+        <translation>此文件不包含 LUT 资源，将略去 %1 个与本机路径绑定的 LUT 引用。</translation>
+    </message>
+    <message>
+        <source>%1 semantic managed masks will be omitted; their Grade Nodes remain disabled.</source>
+        <translation>将略去 %1 个语义托管蒙版；对应调色节点保持停用。</translation>
+    </message>
+    <message>
+        <source>%1 shared Grade Node links will become independent local nodes.</source>
+        <translation>%1 个共享调色节点链接将转为独立的本地节点。</translation>
+    </message>
+    <message>
+        <source>%1 source-photo AI completion regions will not be imported.</source>
+        <translation>不会导入源照片上的 %1 个 AI 补全区域。</translation>
+    </message>
+    <message>
+        <source>%1 source-photo Liquify strokes will not be imported.</source>
+        <translation>不会导入源照片上的 %1 个液化笔画。</translation>
+    </message>
+    <message>
+        <source>%1 source-photo repair regions will not be imported.</source>
+        <translation>不会导入源照片上的 %1 个修复区域。</translation>
+    </message>
+    <message>
+        <source>Choose a local destination for the Shadow Recipe.</source>
+        <translation>请选择 Shadow Recipe 的本地保存位置。</translation>
+    </message>
+    <message>
+        <source>Choose a valid Shadow Recipe before importing.</source>
+        <translation>请选择有效的 Shadow Recipe 后再导入。</translation>
+    </message>
+    <message>
+        <source>Crop, orientation, and perspective remain unchanged on this photo.</source>
+        <translation>此照片的裁剪、方向和透视保持不变。</translation>
+    </message>
+    <message>
+        <source>Open a photo before exporting a Shadow Recipe.</source>
+        <translation>请先打开照片，再导出 Shadow Recipe。</translation>
+    </message>
+    <message>
+        <source>Shadow could not create this Recipe: %1</source>
+        <translation>Shadow 无法创建此配方：%1</translation>
+    </message>
+    <message>
+        <source>Shadow could not read this Recipe: %1</source>
+        <translation>Shadow 无法读取此配方：%1</translation>
+    </message>
+    <message>
+        <source>Source development and AI RAW Denoise remain unchanged on this photo.</source>
+        <translation>此照片的源文件开发和 AI RAW 降噪保持不变。</translation>
+    </message>
+    <message>
+        <source>The Shadow Recipe could not be published atomically.</source>
+        <translation>无法安全完成 Shadow Recipe 文件的保存。</translation>
+    </message>
+    <message>
+        <source>The Shadow Recipe destination could not be opened.</source>
+        <translation>无法打开 Shadow Recipe 的保存位置。</translation>
+    </message>
+    <message>
+        <source>The Shadow Recipe file is larger than 16 MB.</source>
+        <translation>Shadow Recipe 文件大于 16 MB。</translation>
+    </message>
+    <message>
+        <source>The complete Shadow Recipe could not be written.</source>
+        <translation>无法完整写入 Shadow Recipe。</translation>
+    </message>
+    <message>
+        <source>The open photo changed after this Recipe was previewed. Preview it again.</source>
+        <translation>预览此配方后，当前照片已发生变化。请重新预览。</translation>
+    </message>
+    <message>
+        <source>The selected Shadow Recipe file could not be opened.</source>
+        <translation>无法打开所选 Shadow Recipe 文件。</translation>
+    </message>
+    <message>
+        <source>The selected Shadow Recipe file is unavailable.</source>
+        <translation>所选 Shadow Recipe 文件不可用。</translation>
+    </message>
+</context>
+<context>
+    <name>ShadowRecipeInterchangeDialog</name>
+    <message>
+        <source>%1 Grade Nodes · %2 portable masks</source>
+        <translation>%1 个调色节点 · %2 个可移植蒙版</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>所有文件 (*)</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Choose a Shadow Recipe</source>
+        <translation>选择 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Close Shadow Recipe import</source>
+        <translation>关闭 Shadow Recipe 导入</translation>
+    </message>
+    <message>
+        <source>Export Shadow Recipe</source>
+        <translation>导出 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>IMPORT NOTES</source>
+        <translation>导入说明</translation>
+    </message>
+    <message>
+        <source>Import Shadow Recipe</source>
+        <translation>导入 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Import replaces the current Grade Node list in one undoable step. Source development, repairs, AI completion, Liquify, and crop remain attached to this photo.</source>
+        <translation>导入会在一次可撤销操作中替换当前调色节点列表。源文件开发调整、修复、AI 补全、液化和裁剪仍保留在此照片上。</translation>
+    </message>
+    <message>
+        <source>JSON documents (*.json)</source>
+        <translation>JSON 文档 (*.json)</translation>
+    </message>
+    <message>
+        <source>Replace Grade Nodes</source>
+        <translation>替换调色节点</translation>
+    </message>
+    <message>
+        <source>Shadow Recipe was not exported</source>
+        <translation>未导出 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Shadow Recipes (*.shadowrecipe)</source>
+        <translation>Shadow Recipe (*.shadowrecipe)</translation>
     </message>
 </context>
 <context>

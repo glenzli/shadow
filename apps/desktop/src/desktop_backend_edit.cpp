@@ -20,6 +20,7 @@ using desktop_backend_projection::edit_state;
 using desktop_backend_projection::ffi_edit_preview_policy;
 using desktop_backend_projection::ffi_grade_node;
 using desktop_backend_projection::ffi_grade_stack;
+using desktop_backend_projection::grade_stack;
 using desktop_backend_projection::grade_node;
 using desktop_backend_projection::qbytes;
 using desktop_backend_projection::qcounts;
@@ -36,6 +37,48 @@ BackendPhotoEditState DesktopBackend::photoEditState(
         photo_id.toStdString(),
         source_path.toStdString()
     ));
+}
+
+QByteArray DesktopBackend::exportShadowRecipe(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack& grade_stack_value,
+    const QString& label
+) const {
+    const auto settings = ffi_grade_stack(grade_stack_value);
+    return qbytes(impl_->session->export_shadow_recipe_document(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        settings,
+        label.toStdString()
+    ));
+}
+
+BackendShadowRecipeImportPreview
+DesktopBackend::previewShadowRecipe(const QByteArray& document) const {
+    const auto bytes = rust::Slice<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(document.constData()),
+        static_cast<std::size_t>(document.size())
+    );
+    const auto preview = shadow::desktop::preview_shadow_recipe_document(bytes);
+    return {
+        .label = qstring(preview.label),
+        .portable_grade_stack = grade_stack(preview.portable_settings),
+        .grade_node_count = preview.grade_node_count,
+        .portable_mask_count = preview.portable_mask_count,
+        .managed_mask_node_count = preview.managed_mask_node_count,
+        .semantic_mask_intent_count = preview.semantic_mask_intent_count,
+        .detached_shared_node_count = preview.detached_shared_node_count,
+        .removed_lut_count = preview.removed_lut_count,
+        .excluded_retouch_region_count = preview.excluded_retouch_region_count,
+        .excluded_completion_region_count = preview.excluded_completion_region_count,
+        .excluded_liquify_stroke_count = preview.excluded_liquify_stroke_count,
+        .foundation_omitted = preview.foundation_omitted,
+        .raw_denoise_omitted = preview.raw_denoise_omitted,
+        .canvas_omitted = preview.canvas_omitted,
+    };
 }
 
 BackendPhotoEditState DesktopBackend::resetIncompatiblePhotoEditHistory(

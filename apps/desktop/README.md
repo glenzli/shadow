@@ -1079,6 +1079,19 @@ mapping, not XMP round-trip support: absolute source white balance, curves,
 profiles, structured masks, and other parameters without a stable local
 equivalent remain explicit non-imported fields.
 
+[`src/edit_interchange_controller.*`](src/edit_interchange_controller.hpp) also owns the
+versioned `.shadowrecipe` file boundary. Export serializes the complete current immutable Recipe
+snapshot and publishes the JSON document atomically; referenced managed masks, AI completion
+patches, and LUT resources remain local dependencies rather than embedded payloads. Import first
+validates the document digest and current desktop Recipe shape, then previews a conservative
+cross-photo projection. Applying replaces only the destination photo's Grade Node list as one
+undoable transaction. It keeps portable normalized masks, assigns fresh independent node
+identities, detaches shared-library links, omits path-bound LUTs, and leaves the destination's
+Foundation, RAW denoise, Repair, Completion, Liquify, and Canvas stages unchanged. A managed-raster
+node is imported bypassed rather than turning its local adjustment into a global adjustment; its
+source pixels are never reused. The dialog reports each omitted or disabled category before the
+user accepts the replacement. QML never interprets Recipe JSON or mutates the edit stack directly.
+
 ## Review comparison and culling
 
 Ordinary comparison is a browsing capability, not a judgment. Review places two repeatable cached

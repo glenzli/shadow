@@ -347,6 +347,7 @@ qt_add_executable(
     src/edit_controller.cpp
     src/edit_interchange_controller.cpp
     src/edit_interchange_controller.hpp
+    src/edit_interchange_application.cpp
     src/xmp_develop_import.cpp
     src/xmp_develop_import.hpp
     src/edit_variant_controller.cpp
@@ -861,6 +862,7 @@ qt_add_qml_module(
         qml/HueCurveEditor.qml
         qml/PrecisionGeometryTools.qml
         qml/PrecisionGradeNodeMenus.qml
+        qml/ShadowRecipeInterchangeDialog.qml
         qml/XmpImportDialog.qml
         qml/PrecisionGradeNodePane.qml
         qml/PrecisionLocalMaskOverlay.qml

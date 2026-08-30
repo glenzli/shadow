@@ -162,6 +162,24 @@ Item {
             }
 
             PopupAction {
+                text: qsTr("Import Shadow Recipe…")
+                enabled: menus.editor.active && !menus.editor.stateBusy
+                onClicked: {
+                    addGradeNodePopup.close()
+                    shadowRecipeDialog.chooseImportFile()
+                }
+            }
+
+            PopupAction {
+                text: qsTr("Export current Recipe…")
+                enabled: menus.editor.active && !menus.editor.stateBusy
+                onClicked: {
+                    addGradeNodePopup.close()
+                    shadowRecipeDialog.chooseExportFile()
+                }
+            }
+
+            PopupAction {
                 text: qsTr("Import XMP adjustments…")
                 enabled: menus.editor.active && menus.editor.canAddGradeNode
                     && !menus.editor.stateBusy
@@ -350,6 +368,12 @@ Item {
 
     XmpImportDialog {
         id: xmpImportDialog
+        interchangeController: menus.interchangeController
+    }
+
+    ShadowRecipeInterchangeDialog {
+        id: shadowRecipeDialog
+        editor: menus.editor
         interchangeController: menus.interchangeController
     }
 }

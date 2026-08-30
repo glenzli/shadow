@@ -391,6 +391,26 @@ struct BackendGradeStack final {
     bool operator==(const BackendGradeStack&) const = default;
 };
 
+/// Desktop projection of a validated Shadow Recipe import plan. The portable
+/// stack contributes only independent Grade Nodes; the destination photo keeps
+/// its own Foundation, Repair, Completion, Liquify, and Canvas stages.
+struct BackendShadowRecipeImportPreview final {
+    QString label;
+    BackendGradeStack portable_grade_stack;
+    std::uint32_t grade_node_count = 0;
+    std::uint32_t portable_mask_count = 0;
+    std::uint32_t managed_mask_node_count = 0;
+    std::uint32_t semantic_mask_intent_count = 0;
+    std::uint32_t detached_shared_node_count = 0;
+    std::uint32_t removed_lut_count = 0;
+    std::uint32_t excluded_retouch_region_count = 0;
+    std::uint32_t excluded_completion_region_count = 0;
+    std::uint32_t excluded_liquify_stroke_count = 0;
+    bool foundation_omitted = false;
+    bool raw_denoise_omitted = false;
+    bool canvas_omitted = false;
+};
+
 struct BackendSubjectMaskPoint final {
     double x = 0.5;
     double y = 0.5;

@@ -553,7 +553,7 @@ int main(int argc, char* argv[]) {
     );
     EditController
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
-    EditInterchangeController edit_interchange_controller(editor);
+    EditInterchangeController edit_interchange_controller(*backend, editor);
     HistoryCoordinator history({
         .photo_page = [backend](
                           const QString& photo_id,
