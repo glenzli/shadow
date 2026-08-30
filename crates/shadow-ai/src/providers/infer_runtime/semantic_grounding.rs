@@ -33,6 +33,13 @@ impl InferRuntimeClient {
     /// Grounds one bounded semantic query into normalized candidate regions.
     /// Dropping the SDK future is the same cooperative cancellation boundary
     /// used by interactive SAM requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request is invalid, Runtime discovery or
+    /// execution fails, or the response violates Shadow's bounded geometry
+    /// and provenance contract.
+    #[allow(clippy::too_many_arguments)]
     pub fn ground_semantics_cancellable(
         &self,
         image: &[u8],
