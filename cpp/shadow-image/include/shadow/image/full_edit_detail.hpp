@@ -96,6 +96,17 @@ struct RenderedDetailTile final {
     DetailTileExecutionReceipt execution;
 };
 
+// Packed host-endian, display-referred sRGB16 samples for one exact full-resolution rectangle.
+// This export-only contract reuses the CPU full-detail edit path and preserves precision until the
+// final high-bit display encoding boundary.
+struct RenderedDetailTile16 final {
+    DetailTileRect rect;
+    Dimensions full_dimensions;
+    std::uint32_t row_stride_bytes = 0;
+    std::vector<std::uint16_t> samples;
+    DetailTileExecutionReceipt execution;
+};
+
 // An immutable 1:1 source session. Raster/provider-compatibility and materialized RAW routes keep
 // their complete packed-u16 or scene-linear-fp32 raster. Eligible forced-CPU and automatic/Metal
 // RawFrame routes instead keep one owner-bound CFA source plus prepared camera/optics state. CPU
@@ -122,6 +133,18 @@ class FullEditDetailSession final {
         const PhotoLiquify* liquify = nullptr
     ) const;
     [[nodiscard]] RenderedDetailTile render_rgb8_layers(
+        std::span<const AdjustmentLayer> layers,
+        DetailTileRect rect,
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
+    ) const;
+    [[nodiscard]] RenderedDetailTile16 render_rgb16(
+        std::span<const AdjustmentNode> nodes,
+        DetailTileRect rect,
+        const PhotoGeometry& geometry = {},
+        const PhotoLiquify* liquify = nullptr
+    ) const;
+    [[nodiscard]] RenderedDetailTile16 render_rgb16_layers(
         std::span<const AdjustmentLayer> layers,
         DetailTileRect rect,
         const PhotoGeometry& geometry = {},

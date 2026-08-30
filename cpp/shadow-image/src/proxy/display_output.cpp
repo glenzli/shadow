@@ -31,18 +31,24 @@ struct OklabColor final {
     double b = 0.0;
 };
 
-inline constexpr std::uint64_t maximum_display_rgb8_bytes = 512ULL * 1'024ULL * 1'024ULL;
+inline constexpr std::uint64_t maximum_display_output_bytes = 512ULL * 1'024ULL * 1'024ULL;
 
-[[nodiscard]] std::size_t checked_output_size(const Dimensions dimensions) {
+[[nodiscard]] std::size_t checked_output_sample_count(
+    const Dimensions dimensions,
+    const std::size_t bytes_per_sample,
+    const std::string_view description
+) {
     const std::uint64_t pixels = dimensions.pixel_count();
-    if (pixels == 0U || pixels > maximum_display_rgb8_bytes / 3U) {
+    constexpr std::uint64_t channels = 3U;
+    if (pixels == 0U || bytes_per_sample == 0U
+        || pixels > maximum_display_output_bytes / channels / bytes_per_sample) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,
-            "display RGB8 output exceeds Shadow's 512 MiB retained-buffer limit"
+            std::string(description) + " exceeds Shadow's 512 MiB retained-buffer limit"
         );
     }
-    return static_cast<std::size_t>(pixels * 3U);
+    return static_cast<std::size_t>(pixels * channels);
 }
 
 void validate_source_and_request(const FloatRgbImage& source, const DisplayOutputRequest request) {
@@ -122,7 +128,6 @@ void validate_source_and_request(const FloatRgbImage& source, const DisplayOutpu
             }
         }
     }
-    static_cast<void>(checked_output_size(request.target_dimensions));
 }
 
 [[nodiscard]] OklabColor linear_srgb_to_oklab(const LinearRgb& rgb) noexcept {
@@ -266,24 +271,38 @@ display_quantization_dither(const std::uint32_t x, const std::uint32_t y) noexce
     return (unit - 0.5) * 0.90;
 }
 
-[[nodiscard]] std::uint8_t
-linear_display_sample_to_srgb8(const double linear_sample, const double dither) noexcept {
+[[nodiscard]] double linear_display_sample_to_srgb(const double linear_sample) noexcept {
     const double linear = std::clamp(linear_sample, 0.0, 1.0);
     constexpr double srgb_linear_threshold = 0.0031308;
-    const double encoded = linear <= srgb_linear_threshold
-                               ? 12.92 * linear
-                               : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
+    return linear <= srgb_linear_threshold ? 12.92 * linear
+                                           : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
+}
+
+[[nodiscard]] std::uint8_t
+linear_display_sample_to_srgb8(const double linear_sample, const double dither) noexcept {
+    const double encoded = linear_display_sample_to_srgb(linear_sample);
     return static_cast<std::uint8_t>(
         std::clamp(std::floor(encoded * 255.0 + dither + 0.5), 0.0, 255.0)
     );
 }
 
+[[nodiscard]] std::uint16_t linear_display_sample_to_srgb16(const double linear_sample) noexcept {
+    const double encoded = linear_display_sample_to_srgb(linear_sample);
+    return static_cast<std::uint16_t>(
+        std::clamp(std::floor(encoded * 65'535.0 + 0.5), 0.0, 65'535.0)
+    );
+}
+
 [[nodiscard]] DisplayRgb8Image
-render_on_cpu(const FloatRgbImage& source, const DisplayOutputRequest request) {
+render_rgb8_on_cpu(const FloatRgbImage& source, const DisplayOutputRequest request) {
     DisplayRgb8Image output{
         .dimensions = request.target_dimensions,
         .row_stride_bytes = static_cast<std::size_t>(request.target_dimensions.width) * 3U,
-        .bytes = std::vector<std::uint8_t>(checked_output_size(request.target_dimensions)),
+        .bytes = std::vector<std::uint8_t>(checked_output_sample_count(
+            request.target_dimensions,
+            sizeof(std::uint8_t),
+            "display RGB8 output"
+        )),
         .backend = DisplayOutputBackend::cpu,
         .fell_back = false,
         .diagnostic = {},
@@ -318,6 +337,52 @@ render_on_cpu(const FloatRgbImage& source, const DisplayOutputRequest request) {
                     for (std::size_t channel = 0U; channel < 3U; ++channel) {
                         output.bytes[output_index + channel] =
                             linear_display_sample_to_srgb8(mapped[channel], dither);
+                    }
+                }
+            }
+        }
+    );
+    return output;
+}
+
+[[nodiscard]] DisplayRgb16Image
+render_rgb16_on_cpu(const FloatRgbImage& source, const DisplayOutputRequest request) {
+    DisplayRgb16Image output{
+        .dimensions = request.target_dimensions,
+        .row_stride_bytes =
+            static_cast<std::size_t>(request.target_dimensions.width) * 3U * sizeof(std::uint16_t),
+        .samples = std::vector<std::uint16_t>(checked_output_sample_count(
+            request.target_dimensions,
+            sizeof(std::uint16_t),
+            "display RGB16 output"
+        )),
+    };
+    const std::size_t source_stride = source.row_stride_bytes / sizeof(float);
+    const std::size_t output_stride = output.row_stride_bytes / sizeof(std::uint16_t);
+    detail::parallel_for_rows(
+        source.dimensions.height,
+        16U,
+        [&source,
+         source_stride,
+         output_stride,
+         &output](const std::uint32_t first_row, const std::uint32_t last_row) {
+            for (std::uint32_t y = first_row; y < last_row; ++y) {
+                const std::size_t source_row = static_cast<std::size_t>(y) * source_stride;
+                const std::size_t output_row = static_cast<std::size_t>(y) * output_stride;
+                for (std::uint32_t x = 0U; x < source.dimensions.width; ++x) {
+                    const std::size_t source_index = source_row + static_cast<std::size_t>(x) * 3U;
+                    const std::size_t output_index = output_row + static_cast<std::size_t>(x) * 3U;
+                    const LinearRgb mapped = map_linear_srgb_to_display_gamut(
+                        {
+                            source.samples[source_index],
+                            source.samples[source_index + 1U],
+                            source.samples[source_index + 2U],
+                        },
+                        source.reference == ImageReference::scene_referred
+                    );
+                    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                        output.samples[output_index + channel] =
+                            linear_display_sample_to_srgb16(mapped[channel]);
                     }
                 }
             }
@@ -383,17 +448,48 @@ bool DisplayRgb8Image::valid() const noexcept {
            && bytes.size() == static_cast<std::size_t>(expected);
 }
 
+bool DisplayRgb16Image::valid() const noexcept {
+    const std::uint64_t row_bytes =
+        static_cast<std::uint64_t>(dimensions.width) * 3U * sizeof(std::uint16_t);
+    const std::uint64_t pixels = dimensions.pixel_count();
+    if (dimensions.width == 0U || dimensions.height == 0U
+        || row_bytes > std::numeric_limits<std::size_t>::max()
+        || row_stride_bytes != static_cast<std::size_t>(row_bytes)
+        || pixels > std::numeric_limits<std::uint64_t>::max() / 3U) {
+        return false;
+    }
+    const std::uint64_t expected = pixels * 3U;
+    return expected <= std::numeric_limits<std::size_t>::max()
+           && samples.size() == static_cast<std::size_t>(expected);
+}
+
 DisplayRgb8Image render_linear_srgb_to_display_srgb8_cpu_reference(
     const FloatRgbImage& source,
     const DisplayOutputRequest request
 ) {
     validate_source_and_request(source, request);
-    auto result = render_on_cpu(source, request);
+    auto result = render_rgb8_on_cpu(source, request);
     if (!result.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,
             0,
             "CPU display output produced an invalid RGB8 raster"
+        );
+    }
+    return result;
+}
+
+DisplayRgb16Image render_linear_srgb_to_display_srgb16_cpu_reference(
+    const FloatRgbImage& source,
+    const DisplayOutputRequest request
+) {
+    validate_source_and_request(source, request);
+    auto result = render_rgb16_on_cpu(source, request);
+    if (!result.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "CPU display output produced an invalid RGB16 raster"
         );
     }
     return result;
@@ -425,7 +521,7 @@ DisplayRgb8Image render_linear_srgb_to_display_srgb8_with_backend(
                                                : std::move(attempt.diagnostic);
             throw DecodeError(DecodeErrorCode::internal, 0, diagnostic);
         }
-        auto result = render_on_cpu(source, request);
+        auto result = render_rgb8_on_cpu(source, request);
         if (!result.valid()) {
             throw DecodeError(
                 DecodeErrorCode::internal,
@@ -438,7 +534,7 @@ DisplayRgb8Image render_linear_srgb_to_display_srgb8_with_backend(
                                                        : std::move(attempt.diagnostic);
         return result;
     }
-    auto result = render_on_cpu(source, request);
+    auto result = render_rgb8_on_cpu(source, request);
     if (!result.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,

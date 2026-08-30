@@ -12,34 +12,27 @@
 
 namespace {
 
-using shadow::image::test_support::SyntheticDecodeSession;
 using shadow::image::test_support::expect;
 using shadow::image::test_support::failures;
 using shadow::image::test_support::metadata;
 using shadow::image::test_support::neutral_plan;
 using shadow::image::test_support::reference_rgb;
+using shadow::image::test_support::SyntheticDecodeSession;
 
 using shadow::image::test_support::expect_decode_error;
 
 [[nodiscard]] double srgb8_to_linear(const std::uint8_t sample) {
     const double encoded = static_cast<double>(sample) / 255.0;
-    return encoded <= 0.04045
-        ? encoded / 12.92
-        : std::pow((encoded + 0.055) / 1.055, 2.4);
+    return encoded <= 0.04045 ? encoded / 12.92 : std::pow((encoded + 0.055) / 1.055, 2.4);
 }
 
-[[nodiscard]] std::array<double, 3> linear_srgb_to_oklab(
-    const std::array<double, 3>& rgb
-) {
-    const double l = std::cbrt(
-        0.4122214708 * rgb[0] + 0.5363325363 * rgb[1] + 0.0514459929 * rgb[2]
-    );
-    const double m = std::cbrt(
-        0.2119034982 * rgb[0] + 0.6806995451 * rgb[1] + 0.1073969566 * rgb[2]
-    );
-    const double s = std::cbrt(
-        0.0883024619 * rgb[0] + 0.2817188376 * rgb[1] + 0.6299787005 * rgb[2]
-    );
+[[nodiscard]] std::array<double, 3> linear_srgb_to_oklab(const std::array<double, 3>& rgb) {
+    const double l =
+        std::cbrt(0.4122214708 * rgb[0] + 0.5363325363 * rgb[1] + 0.0514459929 * rgb[2]);
+    const double m =
+        std::cbrt(0.2119034982 * rgb[0] + 0.6806995451 * rgb[1] + 0.1073969566 * rgb[2]);
+    const double s =
+        std::cbrt(0.0883024619 * rgb[0] + 0.2817188376 * rgb[1] + 0.6299787005 * rgb[2]);
     return {
         0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
         1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
@@ -47,9 +40,7 @@ using shadow::image::test_support::expect_decode_error;
     };
 }
 
-[[nodiscard]] std::array<double, 3> oklab_to_linear_srgb(
-    const std::array<double, 3>& lab
-) {
+[[nodiscard]] std::array<double, 3> oklab_to_linear_srgb(const std::array<double, 3>& lab) {
     const double l_root = lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2];
     const double m_root = lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2];
     const double s_root = lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2];
@@ -85,8 +76,18 @@ using shadow::image::test_support::expect_decode_error;
     result.transfer_function = image::RgbTransferFunction::linear;
     result.reference = image::RgbBufferReference::processed_raw;
     result.samples = {
-        1, 257, 32'768, 65'534, 11'111, 22'222,
-        65'534, 32'768, 257, 1, 33'333, 44'444,
+        1,
+        257,
+        32'768,
+        65'534,
+        11'111,
+        22'222,
+        65'534,
+        32'768,
+        257,
+        1,
+        33'333,
+        44'444,
     };
     return result;
 }
@@ -95,16 +96,15 @@ void processed_linear_grayscale_is_encoded_once_and_padding_is_ignored() {
     constexpr image::Dimensions dimensions{4, 2};
     SyntheticDecodeSession decoder(metadata(dimensions), grayscale_with_padding());
     const auto session = image::prepare_full_edit_detail(decoder);
-    const auto full = session.render_rgb8(
-        neutral_plan(),
-        {0, 0, dimensions.width, dimensions.height}
-    );
+    const auto full =
+        session.render_rgb8(neutral_plan(), {0, 0, dimensions.width, dimensions.height});
     const auto gray = [&full](const std::size_t pixel) { return full.bytes[pixel * 3U]; };
     expect(
         gray(0U) == 0U && gray(0U) == full.bytes[1U] && gray(0U) == full.bytes[2U]
             && gray(0U) < gray(1U) && gray(1U) < gray(2U) && gray(2U) < gray(3U)
             && gray(4U) > gray(5U) && gray(5U) > gray(6U) && gray(6U) > gray(7U),
-        "neutral detail applies a monotonic scene-to-display curve once to processed-linear grayscale"
+        "neutral detail applies a monotonic scene-to-display curve once to processed-linear "
+        "grayscale"
     );
     const auto crop = session.render_rgb8(neutral_plan(), {1, 0, 2, 2});
     expect(
@@ -116,6 +116,61 @@ void processed_linear_grayscale_is_encoded_once_and_padding_is_ignored() {
         },
         "detail crop honors padded source rows without reading padding samples"
     );
+}
+
+void full_detail_rgb16_preserves_high_bit_codes_for_nodes_and_layers() {
+    constexpr image::Dimensions dimensions{4, 2};
+    SyntheticDecodeSession decoder(metadata(dimensions), grayscale_with_padding());
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const auto plan = neutral_plan();
+    const auto nodes = session.render_rgb16(plan, {0, 0, dimensions.width, dimensions.height});
+    const std::array layers{
+        image::AdjustmentLayer{
+            .layer_id = "neutral-layer",
+            .nodes = {plan.front()},
+        },
+    };
+    const auto layered =
+        session.render_rgb16_layers(layers, {0, 0, dimensions.width, dimensions.height});
+    expect(
+        nodes.row_stride_bytes == dimensions.width * 3U * sizeof(std::uint16_t)
+            && nodes.samples.size() == dimensions.pixel_count() * 3U,
+        "full-detail RGB16 reports a packed high-bit tile contract"
+    );
+    expect(
+        nodes.execution.backend == image::DetailTileRenderBackend::cpu && !nodes.execution.fell_back
+            && nodes.execution.diagnostic.empty(),
+        "full-detail RGB16 records its deliberate CPU export boundary"
+    );
+    expect(
+        nodes.samples == layered.samples,
+        "neutral node and layer plans share the same RGB16 full-detail path"
+    );
+    expect(
+        std::any_of(
+            nodes.samples.begin(),
+            nodes.samples.end(),
+            [](const std::uint16_t sample) {
+                return sample != 0U && sample != 65'535U && sample % 257U != 0U;
+            }
+        ),
+        "full-detail RGB16 retains values that are not expanded RGB8 codes"
+    );
+    const auto crop = session.render_rgb16(plan, {1, 0, 2, 2});
+    for (std::uint32_t row = 0U; row < crop.rect.height; ++row) {
+        const std::size_t source =
+            (static_cast<std::size_t>(row) * dimensions.width + crop.rect.x) * 3U;
+        const std::size_t destination = static_cast<std::size_t>(row) * crop.rect.width * 3U;
+        expect(
+            std::equal(
+                crop.samples.begin() + static_cast<std::ptrdiff_t>(destination),
+                crop.samples.begin()
+                    + static_cast<std::ptrdiff_t>(destination + crop.rect.width * 3U),
+                nodes.samples.begin() + static_cast<std::ptrdiff_t>(source)
+            ),
+            "RGB16 detail crops reproduce the matching samples from a full render"
+        );
+    }
 }
 
 void neutral_scene_display_curve_preserves_superwhite_order() {
@@ -141,10 +196,8 @@ void neutral_scene_display_curve_preserves_superwhite_order() {
     expect(
         one_stop.bytes[0] >= 235U && one_stop.bytes[0] < 255U
             && two_stops.bytes[0] > one_stop.bytes[0] && two_stops.bytes[0] <= 255U
-            && one_stop.bytes[0] == one_stop.bytes[1]
-            && one_stop.bytes[1] == one_stop.bytes[2]
-            && two_stops.bytes[0] == two_stops.bytes[1]
-            && two_stops.bytes[1] == two_stops.bytes[2],
+            && one_stop.bytes[0] == one_stop.bytes[1] && one_stop.bytes[1] == one_stop.bytes[2]
+            && two_stops.bytes[0] == two_stops.bytes[1] && two_stops.bytes[1] == two_stops.bytes[2],
         "neutral display rendering keeps scene super-white ordered through the C1 SDR shoulder"
     );
 }
@@ -235,10 +288,8 @@ void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
         "display output desaturates along Oklab hue instead of clipping RGB independently"
     );
     expect(
-        circular_hue_distance(
-            oklab_hue_degrees(saturated_unclipped),
-            oklab_hue_degrees(mapped)
-        ) < 1.5,
+        circular_hue_distance(oklab_hue_degrees(saturated_unclipped), oklab_hue_degrees(mapped))
+            < 1.5,
         "8-bit gamut output preserves the saturated Oklab hue within quantization tolerance"
     );
 }
@@ -247,6 +298,7 @@ void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
 
 int main() {
     processed_linear_grayscale_is_encoded_once_and_padding_is_ignored();
+    full_detail_rgb16_preserves_high_bit_codes_for_nodes_and_layers();
     neutral_scene_display_curve_preserves_superwhite_order();
     display_quantization_dither_breaks_flat_8bit_contours_without_chroma_noise();
     processed_linear_contract_is_required_before_editing();
