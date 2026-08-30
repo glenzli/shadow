@@ -48,7 +48,7 @@ impl ShadowRecipeDocument {
             snapshot_blake3: digest,
             snapshot: self.snapshot.clone(),
         };
-        Ok(serde_json::to_vec_pretty(&wire)?)
+        checked_document_bytes(serde_json::to_vec_pretty(&wire)?)
     }
 
     pub fn from_json(bytes: &[u8]) -> Result<Self, ShadowRecipeDocumentError> {
@@ -131,6 +131,13 @@ fn snapshot_digest_hex(snapshot: &RecipeSnapshot) -> Result<String, serde_json::
     for byte in digest {
         use std::fmt::Write as _;
         write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    Ok(encoded)
+}
+
+fn checked_document_bytes(encoded: Vec<u8>) -> Result<Vec<u8>, ShadowRecipeDocumentError> {
+    if encoded.len() > MAX_SHADOW_RECIPE_DOCUMENT_BYTES {
+        return Err(ShadowRecipeDocumentError::DocumentTooLarge);
     }
     Ok(encoded)
 }

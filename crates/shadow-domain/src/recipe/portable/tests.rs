@@ -64,3 +64,12 @@ fn oversized_documents_are_rejected_without_parsing() {
         Err(ShadowRecipeDocumentError::DocumentTooLarge)
     ));
 }
+
+#[test]
+fn oversized_documents_are_also_rejected_when_encoding() {
+    let oversized = vec![b' '; MAX_SHADOW_RECIPE_DOCUMENT_BYTES + 1];
+    assert!(matches!(
+        checked_document_bytes(oversized),
+        Err(ShadowRecipeDocumentError::DocumentTooLarge)
+    ));
+}
