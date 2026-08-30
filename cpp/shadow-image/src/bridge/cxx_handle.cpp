@@ -37,10 +37,17 @@ namespace {
     return std::filesystem::path(encoded);
 }
 
-[[nodiscard]] std::optional<std::uint32_t>
+struct MaskCoverageTarget final {
+    std::uint32_t layer_index = 0U;
+    std::optional<std::uint32_t> component_index;
+};
+
+[[nodiscard]] std::optional<MaskCoverageTarget>
 mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
     if (!request.mask_coverage_requested) {
-        if (request.mask_coverage_target_layer_index != 0U) {
+        if (request.mask_coverage_target_layer_index != 0U
+            || request.mask_coverage_component_requested
+            || request.mask_coverage_target_component_index != 0U) {
             throw image::DecodeError(
                 image::DecodeErrorCode::invalid_request,
                 0,
@@ -49,7 +56,21 @@ mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
         }
         return std::nullopt;
     }
-    return request.mask_coverage_target_layer_index;
+    if (!request.mask_coverage_component_requested
+        && request.mask_coverage_target_component_index != 0U) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "unselected mask coverage component must use the zero target sentinel"
+        );
+    }
+    return MaskCoverageTarget{
+        .layer_index = request.mask_coverage_target_layer_index,
+        .component_index = request.mask_coverage_component_requested
+                               ? std::optional<std::uint32_t>{
+                                     request.mask_coverage_target_component_index}
+                               : std::nullopt,
+    };
 }
 
 void reject_mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
@@ -89,10 +110,11 @@ render_adjustment_plan_rgb8_frame(
     if (layers.has_value()) {
         return session.render_rgb8_layers_with_mask_coverage_cancellable(
             *layers,
-            target,
+            target.has_value() ? std::optional<std::uint32_t>{target->layer_index} : std::nullopt,
             cancellation.token(),
             geometry,
-            liquify.has_value() ? &*liquify : nullptr
+            liquify.has_value() ? &*liquify : nullptr,
+            target.has_value() ? target->component_index : std::nullopt
         );
     }
 
@@ -140,10 +162,11 @@ render_adjustment_plan_interactive_frame(
     if (layers.has_value()) {
         return session.render_interactive_frame_layers_with_mask_coverage_cancellable(
             *layers,
-            target,
+            target.has_value() ? std::optional<std::uint32_t>{target->layer_index} : std::nullopt,
             cancellation.token(),
             geometry,
-            liquify.has_value() ? &*liquify : nullptr
+            liquify.has_value() ? &*liquify : nullptr,
+            target.has_value() ? target->component_index : std::nullopt
         );
     }
     return session.render_interactive_frame_cancellable(
@@ -763,11 +786,12 @@ EditPreviewHandle::render_adjustment_plan_with_analysis_cancellable(
     if (layers.has_value()) {
         auto rendered = session_.render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
             *layers,
-            target,
+            target.has_value() ? std::optional<std::uint32_t>{target->layer_index} : std::nullopt,
             request.jpeg_quality,
             cancellation.token(),
             geometry,
-            liquify.has_value() ? &*liquify : nullptr
+            liquify.has_value() ? &*liquify : nullptr,
+            target.has_value() ? target->component_index : std::nullopt
         );
         if (rendered.cancelled()) {
             return FfiCancellableAnalyzedEditPreview{

@@ -3,14 +3,14 @@
 use shadow_domain::ImageDimensions;
 
 use crate::{
-    AdjustmentRenderOperation, AdjustmentRenderPlan, BridgeError, decoder::dimensions, ffi,
+    AdjustmentLocalMask, AdjustmentRenderOperation, AdjustmentRenderPlan, BridgeError,
+    decoder::dimensions, ffi,
 };
 
 /// Stable native semantic identity for exact pre-adjustment local-mask coverage.
-pub const EDIT_PREVIEW_MASK_COVERAGE_VERSION: &str =
-    "shadow.edit-preview-mask-coverage.v1:r8-pre-adjustment-input:inverted:paired-geometry";
+pub const EDIT_PREVIEW_MASK_COVERAGE_VERSION: &str = "shadow.edit-preview-mask-coverage.v2:r8-pre-adjustment-input:layer-or-component:paired-geometry";
 /// Compact desktop-facing schema number for the current coverage contract.
-pub const EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION: u32 = 2;
 
 /// One optional mask-coverage target in authored Grade Node order.
 ///
@@ -19,6 +19,9 @@ pub const EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct EditPreviewMaskCoverageRequest {
     pub target_layer_index: u32,
+    /// `None` captures the final layer mask. `Some` captures one composite
+    /// leaf before its ordered operation and the composite's final inversion.
+    pub target_component_index: Option<u32>,
     pub mask_selection_revision: u64,
 }
 
@@ -30,6 +33,7 @@ pub struct EditPreviewMaskCoverageRequest {
 pub struct EditPreviewMaskCoverage {
     pub version: String,
     pub target_layer_index: u32,
+    pub target_component_index: Option<u32>,
     pub mask_selection_revision: u64,
     pub dimensions: ImageDimensions,
     pub row_stride_bytes: u32,
@@ -47,23 +51,39 @@ pub(crate) fn validate_mask_coverage_request(
     plan: &AdjustmentRenderPlan,
     request: EditPreviewMaskCoverageRequest,
 ) -> Result<(), BridgeError> {
-    let layer_count = plan
+    let layers: Vec<_> = plan
         .nodes
         .iter()
-        .filter(|node| {
-            matches!(
-                node.operation,
-                AdjustmentRenderOperation::LocalMaskLayerStart { .. }
-            )
+        .filter_map(|node| match &node.operation {
+            AdjustmentRenderOperation::LocalMaskLayerStart { mask, .. } => Some(mask),
+            _ => None,
         })
-        .count();
+        .collect();
     let target = usize::try_from(request.target_layer_index).map_err(|_| {
         BridgeError::InvalidEditRequest("mask coverage target does not fit the host address space")
     })?;
-    if target >= layer_count {
+    if target >= layers.len() {
         return Err(BridgeError::InvalidEditRequest(
             "mask coverage target is outside the compiled Grade Node layers",
         ));
+    }
+    if let Some(component_index) = request.target_component_index {
+        let component_index = usize::try_from(component_index).map_err(|_| {
+            BridgeError::InvalidEditRequest(
+                "mask coverage component does not fit the host address space",
+            )
+        })?;
+        let Some(AdjustmentLocalMask::Composite { components, .. }) = layers[target].as_ref()
+        else {
+            return Err(BridgeError::InvalidEditRequest(
+                "component coverage requires a composite local mask",
+            ));
+        };
+        if component_index >= components.len() {
+            return Err(BridgeError::InvalidEditRequest(
+                "mask coverage component is outside the composite local mask",
+            ));
+        }
     }
     Ok(())
 }
@@ -76,6 +96,8 @@ pub(crate) fn validate_mask_coverage(
     if !coverage.available {
         if !coverage.version.is_empty()
             || coverage.layer_index != 0
+            || coverage.component_selected
+            || coverage.component_index != 0
             || coverage.dimensions.width != 0
             || coverage.dimensions.height != 0
             || coverage.row_stride_bytes != 0
@@ -101,6 +123,14 @@ pub(crate) fn validate_mask_coverage(
     if coverage.layer_index != request.target_layer_index {
         return Err(BridgeError::InvalidEditPreviewOutput(
             "mask coverage target does not match the requested Grade Node",
+        ));
+    }
+    if coverage.component_selected != request.target_component_index.is_some()
+        || (coverage.component_selected
+            && Some(coverage.component_index) != request.target_component_index)
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "mask coverage component does not match the requested target",
         ));
     }
 
@@ -139,6 +169,7 @@ pub(crate) fn validate_mask_coverage(
     Ok(Some(EditPreviewMaskCoverage {
         version: coverage.version,
         target_layer_index: coverage.layer_index,
+        target_component_index: request.target_component_index,
         mask_selection_revision: request.mask_selection_revision,
         dimensions: coverage_dimensions,
         row_stride_bytes: coverage.row_stride_bytes,

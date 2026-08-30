@@ -6,6 +6,26 @@ use super::parameter_validation::validate_finite_render_parameter;
 
 /// Maximum immutable raster payload admitted into one native render request.
 pub const MAX_MANAGED_RASTER_MASK_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum ordered leaf count in one composite local mask.
+pub const MAX_COMPOSITE_LOCAL_MASK_COMPONENTS: usize = 8;
+
+/// Ordered coverage operation applied by one composite-mask component.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdjustmentMaskComponentOperation {
+    Base,
+    Add,
+    Subtract,
+    Intersect,
+}
+
+/// One bounded leaf in an ordered composite local mask.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdjustmentLocalMaskComponent {
+    pub operation: AdjustmentMaskComponentOperation,
+    pub enabled: bool,
+    /// A legacy leaf mask. Nested composites are rejected during plan validation.
+    pub mask: AdjustmentLocalMask,
+}
 
 /// Portable grayscale coverage encoding for a managed raster mask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +86,13 @@ pub enum AdjustmentLocalMask {
         expansion: f64,
         /// Symmetric edge softening in `[0, 1]`.
         feather: f64,
+        invert: bool,
+    },
+    /// An ordered, non-nesting composition of existing leaf masks. Component
+    /// inversion remains leaf-local; `invert` is applied once to the final
+    /// composed coverage.
+    Composite {
+        components: Vec<AdjustmentLocalMaskComponent>,
         invert: bool,
     },
 }
@@ -282,6 +309,47 @@ pub(super) fn validate_adjustment_local_mask(
                 *encoding,
                 samples,
             )?;
+        }
+        AdjustmentLocalMask::Composite { components, .. } => {
+            if components.is_empty() || components.len() > MAX_COMPOSITE_LOCAL_MASK_COMPONENTS {
+                return Err(BridgeError::InvalidEditRequest(
+                    "composite local mask must contain 1 through 8 components",
+                ));
+            }
+            if components[0].operation != AdjustmentMaskComponentOperation::Base {
+                return Err(BridgeError::InvalidEditRequest(
+                    "composite local mask first component must use Base",
+                ));
+            }
+            if components[1..]
+                .iter()
+                .any(|component| component.operation == AdjustmentMaskComponentOperation::Base)
+            {
+                return Err(BridgeError::InvalidEditRequest(
+                    "only the first composite local-mask component may use Base",
+                ));
+            }
+            let mut managed_payload_bytes = 0usize;
+            for component in components {
+                if matches!(component.mask, AdjustmentLocalMask::Composite { .. }) {
+                    return Err(BridgeError::InvalidEditRequest(
+                        "composite local masks may not nest",
+                    ));
+                }
+                validate_adjustment_local_mask(&component.mask)?;
+                if let AdjustmentLocalMask::ManagedRaster { samples, .. } = &component.mask {
+                    managed_payload_bytes = managed_payload_bytes
+                        .checked_add(samples.len())
+                        .ok_or(BridgeError::InvalidEditRequest(
+                            "composite local-mask payload exceeds the host address space",
+                        ))?;
+                    if managed_payload_bytes > MAX_MANAGED_RASTER_MASK_BYTES {
+                        return Err(BridgeError::InvalidEditRequest(
+                            "composite local-mask raster payload exceeds the 64 MiB execution budget",
+                        ));
+                    }
+                }
+            }
         }
     }
     Ok(())

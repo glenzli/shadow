@@ -137,6 +137,7 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
     EditPreviewMaskCoverage result{
         .version = std::string(edit_preview_mask_coverage_version),
         .layer_index = coverage.layer_index,
+        .component_index = std::nullopt,
         .dimensions = coverage.dimensions,
         .row_stride_bytes = coverage.row_stride_bytes,
         .samples = std::move(coverage.samples),
@@ -154,6 +155,7 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
 [[nodiscard]] std::optional<EditPreviewMaskCoverage> finalize_cpu_mask_coverage(
     detail::LocalMaskCoverageRaster coverage,
     const std::uint32_t layer_index,
+    const std::optional<std::uint32_t> component_index,
     const PreparedPhotoStructuralRendering& structural,
     const std::stop_token cancellation
 ) {
@@ -176,6 +178,7 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
     EditPreviewMaskCoverage result{
         .version = std::string(edit_preview_mask_coverage_version),
         .layer_index = layer_index,
+        .component_index = component_index,
         .dimensions = geometrically_paired->dimensions,
         .row_stride_bytes = geometrically_paired->row_stride_bytes,
         .samples = std::move(geometrically_paired->samples),
@@ -402,7 +405,8 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
     const bool retain_linear_for_analysis,
     const std::stop_token cancellation,
     const std::optional<std::uint32_t> target_layer_index,
-    const detail::WarmEditGpuOutputIntent output_intent
+    const detail::WarmEditGpuOutputIntent output_intent,
+    const std::optional<std::uint32_t> target_component_index
 ) {
     if (cancellation.stop_requested()) {
         return std::nullopt;
@@ -419,6 +423,13 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
             "mask coverage target layer index is outside the warm-preview layer plan"
         );
     }
+    if (target_component_index.has_value() && !target_layer_index.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "mask coverage component requires a warm-preview target layer"
+        );
+    }
     static_cast<void>(detail::validate_adjustment_layer_plan(
         working_proxy,
         layers,
@@ -429,7 +440,7 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
         }
     ));
     std::string fallback_diagnostic;
-    if (backend_mode != AdjustmentBackendMode::cpu) {
+    if (backend_mode != AdjustmentBackendMode::cpu && !target_component_index.has_value()) {
         const detail::WarmEditGpuRenderContext render_context{
             .geometry = warm_gpu_geometry_context(working_proxy, structural),
             .output_intent = output_intent,
@@ -495,6 +506,12 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
         if (backend_mode == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }
+    } else if (backend_mode != AdjustmentBackendMode::cpu) {
+        fallback_diagnostic =
+            "composite local-mask component coverage requires exact CPU replay";
+        if (backend_mode == AdjustmentBackendMode::metal) {
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
+        }
     }
 
     if (working_proxy.samples.empty()) {
@@ -521,7 +538,8 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
                 .sensor_clipping_mask = sensor_clipping_mask,
                 .highlight_chroma_risk_map = highlight_chroma_risk_map,
             },
-            cancellation
+            cancellation,
+            target_component_index
         );
         if (!executed.has_value()) {
             return std::nullopt;
@@ -537,6 +555,7 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
             mask_coverage = finalize_cpu_mask_coverage(
                 std::move(*executed->mask_coverage),
                 *target_layer_index,
+                target_component_index,
                 structural,
                 cancellation
             );

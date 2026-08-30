@@ -74,7 +74,15 @@ PreparedLocalMaskCoverage prepare_local_mask_coverage(
         .brush_scale_x = static_cast<double>(full_dimensions.width) / shorter_side,
         .brush_scale_y = static_cast<double>(full_dimensions.height) / shorter_side,
     };
-    if (mask.kind == LocalMaskKind::luminance_range || mask.kind == LocalMaskKind::color_range) {
+    if (!mask.components.empty()) {
+        prepared.components.reserve(mask.components.size());
+        for (const LocalMaskComponent& component : mask.components) {
+            prepared.components.push_back(
+                prepare_local_mask_coverage(component.mask, source, full_dimensions)
+            );
+        }
+    } else if (mask.kind == LocalMaskKind::luminance_range
+               || mask.kind == LocalMaskKind::color_range) {
         prepared.color_transform = prepare_working_space_transform(source.working_space);
     } else if (mask.kind == LocalMaskKind::managed_raster
                && (mask.radius_y != 0.0 || mask.feather != 0.0)) {
@@ -91,6 +99,39 @@ double local_mask_coverage_at(
     const Vector3& source_rgb
 ) noexcept {
     const LocalMask& mask = *prepared.mask;
+    if (!prepared.components.empty()) {
+        double accumulated = 0.0;
+        for (std::size_t index = 0U; index < mask.components.size(); ++index) {
+            const LocalMaskComponent& component = mask.components[index];
+            if (!component.enabled) {
+                continue;
+            }
+            const double leaf = local_mask_coverage_at(
+                prepared.components[index],
+                normalized_x,
+                normalized_y,
+                source_rgb
+            );
+            switch (component.operation) {
+            case LocalMaskComponentOperation::base:
+                accumulated = leaf;
+                break;
+            case LocalMaskComponentOperation::add:
+                accumulated = std::max(accumulated, leaf);
+                break;
+            case LocalMaskComponentOperation::subtract:
+                accumulated = std::min(accumulated, 1.0 - leaf);
+                break;
+            case LocalMaskComponentOperation::intersect:
+                accumulated = std::min(accumulated, leaf);
+                break;
+            }
+        }
+        if (mask.invert) {
+            accumulated = 1.0 - accumulated;
+        }
+        return std::clamp(accumulated, 0.0, 1.0);
+    }
     double coverage = 0.0;
     switch (mask.kind) {
     case LocalMaskKind::linear_gradient: {
@@ -201,7 +242,8 @@ std::optional<LocalMaskCoverageRaster> render_local_mask_coverage(
     const LocalMask& mask,
     const AdjustmentExecutionContext context,
     const Dimensions full_dimensions,
-    const std::stop_token cancellation
+    const std::stop_token cancellation,
+    const std::optional<std::uint32_t> component_index
 ) {
     if (cancellation.stop_requested()) {
         return std::nullopt;
@@ -211,8 +253,20 @@ std::optional<LocalMaskCoverageRaster> render_local_mask_coverage(
         .samples =
             std::vector<float>(static_cast<std::size_t>(source.dimensions.pixel_count()), 0.0F),
     };
+    const LocalMask* evaluated_mask = &mask;
+    if (component_index.has_value()) {
+        if (mask.components.empty()
+            || static_cast<std::size_t>(*component_index) >= mask.components.size()) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "mask coverage component is outside the composite local mask"
+            );
+        }
+        evaluated_mask = &mask.components[*component_index].mask;
+    }
     const PreparedLocalMaskCoverage prepared =
-        prepare_local_mask_coverage(mask, source, full_dimensions);
+        prepare_local_mask_coverage(*evaluated_mask, source, full_dimensions);
     const std::size_t source_stride = source.row_stride_bytes / sizeof(float);
     for (std::uint32_t row = 0U; row < source.dimensions.height; ++row) {
         if (cancellation.stop_requested()) {

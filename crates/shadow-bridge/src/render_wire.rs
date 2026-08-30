@@ -3,9 +3,9 @@
 use super::{
     adjustment::{
         AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentLiquify,
-        AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentQuarterTurn,
-        AdjustmentRasterMaskEncoding, AdjustmentRenderNode, AdjustmentRenderOperation,
-        AdjustmentRenderPlan, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
+        AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentMaskComponentOperation,
+        AdjustmentQuarterTurn, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
+        AdjustmentRenderOperation, AdjustmentRenderPlan, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
     },
     decoder::{dimensions, preview_codec},
     detail_session::{DetailTileRect, DetailTileRequest},
@@ -35,6 +35,12 @@ pub(super) fn ffi_render_request_with_mask_coverage(
         jpeg_quality,
         mask_coverage_requested: mask_coverage.is_some(),
         mask_coverage_target_layer_index: mask_coverage.map_or(0, |value| value.target_layer_index),
+        mask_coverage_component_requested: mask_coverage
+            .and_then(|value| value.target_component_index)
+            .is_some(),
+        mask_coverage_target_component_index: mask_coverage
+            .and_then(|value| value.target_component_index)
+            .unwrap_or(0),
     }
 }
 
@@ -149,185 +155,203 @@ pub(super) const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTile
     }
 }
 
-// The flat CXX wire record is intentionally assembled in one auditable operation.
-#[allow(clippy::too_many_lines)]
-pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
-    let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
-        AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
-            let (
-                kind,
-                x0,
-                y0,
-                x1,
-                y1,
+fn ffi_local_mask_leaf(mask: &AdjustmentLocalMask) -> (Vec<f64>, Vec<u32>, Vec<u8>) {
+    let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert, brush_points, payload) =
+        match mask {
+            AdjustmentLocalMask::LinearGradient {
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                invert,
+            } => (
+                1.0,
+                *start_x,
+                *start_y,
+                *end_x,
+                *end_y,
+                0.0,
+                0.0,
+                0.0,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::RadialGradient {
+                center_x,
+                center_y,
                 radius_x,
                 radius_y,
                 feather,
                 invert,
-                brush_points,
-                is_brush,
-                mask_payload,
-            ) = match mask {
+            } => (
+                2.0,
+                *center_x,
+                *center_y,
+                0.0,
+                0.0,
+                *radius_x,
+                *radius_y,
+                *feather,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::Brush {
+                points,
+                radius,
+                feather,
+                invert,
+            } => (
+                3.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                *radius,
+                0.0,
+                *feather,
+                if *invert { 1.0 } else { 0.0 },
+                points
+                    .iter()
+                    .flat_map(|point| {
+                        [
+                            point.x,
+                            point.y,
+                            if point.begins_stroke { 1.0 } else { 0.0 },
+                        ]
+                    })
+                    .collect(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::LuminanceRange {
+                lower,
+                upper,
+                softness,
+                invert,
+            } => (
+                4.0,
+                *lower,
+                0.0,
+                *upper,
+                0.0,
+                0.0,
+                0.0,
+                *softness,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::ColorRange {
+                center_hue_degrees,
+                width_degrees,
+                softness,
+                invert,
+            } => (
+                5.0,
+                *center_hue_degrees / 360.0,
+                0.0,
+                *width_degrees / 180.0,
+                0.0,
+                0.0,
+                0.0,
+                *softness,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::ManagedRaster {
+                raster_width,
+                raster_height,
+                coordinate_width,
+                coordinate_height,
+                encoding,
+                samples,
+                expansion,
+                feather,
+                invert,
+            } => (
+                6.0,
+                f64::from(*raster_width),
+                f64::from(*raster_height),
+                f64::from(*coordinate_width),
+                f64::from(*coordinate_height),
+                match encoding {
+                    AdjustmentRasterMaskEncoding::Gray8 => 1.0,
+                    AdjustmentRasterMaskEncoding::Gray16Float => 2.0,
+                },
+                *expansion,
+                *feather,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                samples.clone(),
+            ),
+            AdjustmentLocalMask::Composite { .. } => {
+                unreachable!("validated composite local masks may not nest")
+            }
+        };
+    let point_count =
+        u32::try_from(brush_points.len() / 3).expect("validated brush point count fits in u32");
+    let mut parameters = vec![kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert];
+    parameters.extend(brush_points);
+    (
+        parameters,
+        if kind == 3.0 {
+            vec![point_count]
+        } else {
+            vec![]
+        },
+        payload,
+    )
+}
+
+fn ffi_local_mask_component(
+    component: &super::adjustment::AdjustmentLocalMaskComponent,
+) -> ffi::FfiAdjustmentMaskComponent {
+    let (parameters, parameter_group_lengths, payload) = ffi_local_mask_leaf(&component.mask);
+    ffi::FfiAdjustmentMaskComponent {
+        operation: match component.operation {
+            AdjustmentMaskComponentOperation::Base => 0,
+            AdjustmentMaskComponentOperation::Add => 1,
+            AdjustmentMaskComponentOperation::Subtract => 2,
+            AdjustmentMaskComponentOperation::Intersect => 3,
+        },
+        enabled: component.enabled,
+        parameters,
+        payload,
+        parameter_group_lengths,
+    }
+}
+
+// The flat CXX wire record is intentionally assembled in one auditable operation.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
+    let mut mask_components = Vec::new();
+    let mut mask_final_invert = false;
+    let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
+        AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
+            let (parameters, parameter_group_lengths, payload) = match mask {
                 None => (
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    Vec::new(),
-                    false,
-                    Vec::new(),
+                    vec![*opacity, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    vec![],
+                    vec![],
                 ),
-                Some(AdjustmentLocalMask::LinearGradient {
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    invert,
-                }) => (
-                    1.0,
-                    *start_x,
-                    *start_y,
-                    *end_x,
-                    *end_y,
-                    0.0,
-                    0.0,
-                    0.0,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::RadialGradient {
-                    center_x,
-                    center_y,
-                    radius_x,
-                    radius_y,
-                    feather,
-                    invert,
-                }) => (
-                    2.0,
-                    *center_x,
-                    *center_y,
-                    0.0,
-                    0.0,
-                    *radius_x,
-                    *radius_y,
-                    *feather,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::Brush {
-                    points,
-                    radius,
-                    feather,
-                    invert,
-                }) => (
-                    3.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    *radius,
-                    0.0,
-                    *feather,
-                    if *invert { 1.0 } else { 0.0 },
-                    points
-                        .iter()
-                        .flat_map(|point| {
-                            [
-                                point.x,
-                                point.y,
-                                if point.begins_stroke { 1.0 } else { 0.0 },
-                            ]
-                        })
-                        .collect(),
-                    true,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::LuminanceRange {
-                    lower,
-                    upper,
-                    softness,
-                    invert,
-                }) => (
-                    4.0,
-                    *lower,
-                    0.0,
-                    *upper,
-                    0.0,
-                    0.0,
-                    0.0,
-                    *softness,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::ColorRange {
-                    center_hue_degrees,
-                    width_degrees,
-                    softness,
-                    invert,
-                }) => (
-                    5.0,
-                    *center_hue_degrees / 360.0,
-                    0.0,
-                    *width_degrees / 180.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    *softness,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::ManagedRaster {
-                    raster_width,
-                    raster_height,
-                    coordinate_width,
-                    coordinate_height,
-                    encoding,
-                    samples,
-                    expansion,
-                    feather,
-                    invert,
-                }) => (
-                    6.0,
-                    f64::from(*raster_width),
-                    f64::from(*raster_height),
-                    f64::from(*coordinate_width),
-                    f64::from(*coordinate_height),
-                    match encoding {
-                        AdjustmentRasterMaskEncoding::Gray8 => 1.0,
-                        AdjustmentRasterMaskEncoding::Gray16Float => 2.0,
-                    },
-                    *expansion,
-                    *feather,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    samples.clone(),
-                ),
+                Some(AdjustmentLocalMask::Composite { components, invert }) => {
+                    mask_components = components.iter().map(ffi_local_mask_component).collect();
+                    mask_final_invert = *invert;
+                    (vec![*opacity], vec![], vec![])
+                }
+                Some(mask) => {
+                    let (mut parameters, groups, payload) = ffi_local_mask_leaf(mask);
+                    parameters.insert(0, *opacity);
+                    (parameters, groups, payload)
+                }
             };
-            let point_count = u32::try_from(brush_points.len() / 3)
-                .expect("validated brush point count fits in u32");
-            let mut parameters = vec![
-                *opacity, kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert,
-            ];
-            parameters.extend(brush_points);
             (
                 ffi::FfiAdjustmentOperation::LocalMaskLayerStart,
                 parameters,
-                if is_brush { vec![point_count] } else { vec![] },
-                mask_payload,
+                parameter_group_lengths,
+                payload,
             )
         }
         AdjustmentRenderOperation::LocalMaskLayerEnd => (
@@ -618,6 +642,8 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
         parameters,
         payload,
         parameter_group_lengths,
+        mask_components,
+        mask_final_invert,
     }
 }
 

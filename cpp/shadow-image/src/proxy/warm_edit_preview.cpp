@@ -1246,7 +1246,8 @@ WarmEditPreviewSession::render_rgb8_layers_with_mask_coverage_cancellable(
     const std::optional<std::uint32_t> target_layer_index,
     const std::stop_token cancellation,
     const PhotoGeometry& geometry,
-    const PhotoLiquify* liquify
+    const PhotoLiquify* liquify,
+    const std::optional<std::uint32_t> target_component_index
 ) const {
     auto prepared = prepare_edit_preview_layer_pixels(
         working_proxy_,
@@ -1260,7 +1261,8 @@ WarmEditPreviewSession::render_rgb8_layers_with_mask_coverage_cancellable(
         false,
         cancellation,
         target_layer_index,
-        detail::WarmEditGpuOutputIntent::host_rgb8
+        detail::WarmEditGpuOutputIntent::host_rgb8,
+        target_component_index
     );
     if (!prepared.has_value()) {
         return {};
@@ -1280,7 +1282,8 @@ WarmEditPreviewSession::render_interactive_frame_layers_with_mask_coverage_cance
     const std::optional<std::uint32_t> target_layer_index,
     const std::stop_token cancellation,
     const PhotoGeometry& geometry,
-    const PhotoLiquify* liquify
+    const PhotoLiquify* liquify,
+    const std::optional<std::uint32_t> target_component_index
 ) const {
     auto prepared = prepare_edit_preview_layer_pixels(
         working_proxy_,
@@ -1294,7 +1297,8 @@ WarmEditPreviewSession::render_interactive_frame_layers_with_mask_coverage_cance
         false,
         cancellation,
         target_layer_index,
-        detail::WarmEditGpuOutputIntent::metal_presentation_surface
+        detail::WarmEditGpuOutputIntent::metal_presentation_surface,
+        target_component_index
     );
     if (!prepared.has_value()) {
         return {};
@@ -1432,7 +1436,8 @@ WarmEditPreviewSession::render_jpeg_with_analysis_layers_and_mask_coverage_cance
     const std::uint8_t jpeg_quality,
     const std::stop_token cancellation,
     const PhotoGeometry& geometry,
-    const PhotoLiquify* liquify
+    const PhotoLiquify* liquify,
+    const std::optional<std::uint32_t> target_component_index
 ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_layer_pixels(
@@ -1447,7 +1452,8 @@ WarmEditPreviewSession::render_jpeg_with_analysis_layers_and_mask_coverage_cance
         true,
         cancellation,
         target_layer_index,
-        detail::WarmEditGpuOutputIntent::host_rgb8
+        detail::WarmEditGpuOutputIntent::host_rgb8,
+        target_component_index
     );
     if (!prepared.has_value()) {
         return {};

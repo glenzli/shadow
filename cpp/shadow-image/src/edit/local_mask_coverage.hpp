@@ -23,6 +23,7 @@ struct PreparedLocalMaskCoverage final {
     double brush_scale_y = 1.0;
     std::optional<WorkingSpaceTransform> color_transform;
     std::optional<RefinedManagedRasterMask> refined_managed_raster;
+    std::vector<PreparedLocalMaskCoverage> components;
 };
 
 [[nodiscard]] PreparedLocalMaskCoverage prepare_local_mask_coverage(
@@ -60,7 +61,8 @@ struct LocalMaskCoverageR8 final {
     const LocalMask& mask,
     AdjustmentExecutionContext context,
     Dimensions full_dimensions,
-    std::stop_token cancellation
+    std::stop_token cancellation,
+    std::optional<std::uint32_t> component_index = std::nullopt
 );
 
 [[nodiscard]] std::optional<LocalMaskCoverageR8> apply_local_mask_coverage_geometry(
@@ -83,7 +85,8 @@ execute_adjustment_layers_with_mask_coverage(
     std::span<const AdjustmentLayer> layers,
     std::optional<std::uint32_t> target_layer_index,
     AdjustmentExecutionContext context,
-    std::stop_token cancellation
+    std::stop_token cancellation,
+    std::optional<std::uint32_t> target_component_index = std::nullopt
 );
 
 } // namespace shadow::image::detail

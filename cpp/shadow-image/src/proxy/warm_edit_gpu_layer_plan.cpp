@@ -5,6 +5,7 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <utility>
 
@@ -28,6 +29,14 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
         validate_adjustment_layer_plan(source_layout, layers, context.adjustment);
     WarmGpuLayerPlan result;
     result.active_layers.reserve(layers.size());
+    if (std::any_of(layers.begin(), layers.end(), [](const AdjustmentLayer& layer) {
+            return layer.mask.has_value() && !layer.mask->components.empty();
+        })) {
+        result.complete = false;
+        result.diagnostic =
+            "composite local masks require exact CPU replay; resident Metal supports legacy leaves only";
+        return result;
+    }
     if (target_layer_index.has_value()) {
         const AdjustmentLayer& target = layers[*target_layer_index];
         if (target.mask.has_value()) {

@@ -68,6 +68,12 @@ void require_parameter_count(
         .enabled = source.enabled,
     };
 
+    if (!source.mask_components.empty() || source.mask_final_invert) {
+        throw_invalid_adjustment_plan(
+            "only a local-mask layer start may carry composite-mask wire fields"
+        );
+    }
+
     if (source.operation != FfiAdjustmentOperation::PerceptualColor
         && source.operation != FfiAdjustmentOperation::SpotHeal
         && source.operation != FfiAdjustmentOperation::ImageCompletion
@@ -555,6 +561,150 @@ void require_parameter_count(
     return result;
 }
 
+template <typename Wire>
+[[nodiscard]] image::LocalMask local_mask_leaf(
+    const Wire& source,
+    const std::size_t parameter_offset
+) {
+    if (source.parameters.size() < parameter_offset + 9U) {
+        throw_invalid_adjustment_plan("local-mask leaf has an incomplete parameter record");
+    }
+    for (std::size_t index = parameter_offset; index < source.parameters.size(); ++index) {
+        if (!std::isfinite(source.parameters[index])) {
+            throw_invalid_adjustment_plan("local-mask leaf has a non-finite parameter");
+        }
+    }
+    const double kind = source.parameters[parameter_offset];
+    const double invert = source.parameters[parameter_offset + 8U];
+    if ((kind != 1.0 && kind != 2.0 && kind != 3.0 && kind != 4.0 && kind != 5.0
+         && kind != 6.0)
+        || (invert != 0.0 && invert != 1.0)) {
+        throw_invalid_adjustment_plan("local-mask leaf kind or inversion is out of range");
+    }
+    const bool brush = kind == 3.0;
+    const bool managed_raster = kind == 6.0;
+    if ((!brush
+         && (!source.parameter_group_lengths.empty()
+             || source.parameters.size() != parameter_offset + 9U))
+        || (brush
+            && (source.parameter_group_lengths.size() != 1U
+                || source.parameters.size()
+                       != parameter_offset + 9U
+                              + static_cast<std::size_t>(source.parameter_group_lengths[0]) * 3U
+                || source.parameter_group_lengths[0] > 4096U))) {
+        throw_invalid_adjustment_plan("local-mask leaf has invalid brush groups");
+    }
+    if ((managed_raster && source.payload.empty())
+        || (!managed_raster && !source.payload.empty())) {
+        throw_invalid_adjustment_plan("local-mask leaf has an invalid immutable raster payload");
+    }
+
+    const auto parameter = [&](const std::size_t slot) {
+        return source.parameters[parameter_offset + slot];
+    };
+    if (kind == 1.0) {
+        return image::LocalMask{
+            .kind = image::LocalMaskKind::linear_gradient,
+            .x0 = parameter(1U),
+            .y0 = parameter(2U),
+            .x1 = parameter(3U),
+            .y1 = parameter(4U),
+            .invert = invert == 1.0,
+        };
+    }
+    if (kind == 2.0) {
+        return image::LocalMask{
+            .kind = image::LocalMaskKind::radial_gradient,
+            .x0 = parameter(1U),
+            .y0 = parameter(2U),
+            .radius_x = parameter(5U),
+            .radius_y = parameter(6U),
+            .feather = parameter(7U),
+            .invert = invert == 1.0,
+        };
+    }
+    if (kind == 3.0) {
+        std::vector<image::LocalMaskPoint> points;
+        points.reserve(source.parameter_group_lengths[0]);
+        for (std::size_t offset = parameter_offset + 9U; offset < source.parameters.size();
+             offset += 3U) {
+            const double begins_stroke = source.parameters[offset + 2U];
+            if (begins_stroke != 0.0 && begins_stroke != 1.0) {
+                throw_invalid_adjustment_plan(
+                    "local-mask brush point has an invalid stroke marker"
+                );
+            }
+            points.push_back(
+                image::LocalMaskPoint{
+                    .x = source.parameters[offset],
+                    .y = source.parameters[offset + 1U],
+                    .begins_stroke = begins_stroke == 1.0,
+                }
+            );
+        }
+        return image::LocalMask{
+            .kind = image::LocalMaskKind::brush,
+            .radius_x = parameter(5U),
+            .feather = parameter(7U),
+            .invert = invert == 1.0,
+            .points = std::move(points),
+        };
+    }
+    if (kind == 4.0) {
+        return image::LocalMask{
+            .kind = image::LocalMaskKind::luminance_range,
+            .x0 = parameter(1U),
+            .x1 = parameter(3U),
+            .feather = parameter(7U),
+            .invert = invert == 1.0,
+        };
+    }
+    if (kind == 5.0) {
+        return image::LocalMask{
+            .kind = image::LocalMaskKind::color_range,
+            .x0 = parameter(1U),
+            .x1 = parameter(3U),
+            .feather = parameter(7U),
+            .invert = invert == 1.0,
+        };
+    }
+
+    const auto dimension = [&](const std::size_t slot) {
+        const double value = parameter(slot);
+        if (value < 1.0
+            || value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())
+            || std::trunc(value) != value) {
+            throw_invalid_adjustment_plan(
+                "managed raster mask dimensions must be positive integers"
+            );
+        }
+        return static_cast<std::uint32_t>(value);
+    };
+    const double encoding = parameter(5U);
+    const double expansion = parameter(6U);
+    const double feather = parameter(7U);
+    if ((encoding != 1.0 && encoding != 2.0) || expansion < -1.0 || expansion > 1.0
+        || feather < 0.0 || feather > 1.0) {
+        throw_invalid_adjustment_plan(
+            "managed raster mask encoding or refinement slots are invalid"
+        );
+    }
+    return image::LocalMask{
+        .kind = image::LocalMaskKind::managed_raster,
+        .radius_y = expansion,
+        .feather = feather,
+        .invert = invert == 1.0,
+        .managed_raster = image::ManagedRasterMask{
+            .raster_dimensions = image::Dimensions{.width = dimension(1U), .height = dimension(2U)},
+            .coordinate_dimensions =
+                image::Dimensions{.width = dimension(3U), .height = dimension(4U)},
+            .encoding = encoding == 1.0 ? image::ManagedRasterMaskEncoding::gray8
+                                        : image::ManagedRasterMaskEncoding::gray16_float,
+            .samples = std::vector<std::uint8_t>(source.payload.begin(), source.payload.end()),
+        },
+    };
+}
+
 } // namespace
 
 [[nodiscard]] std::vector<image::AdjustmentNode>
@@ -598,44 +748,12 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
             }
             if (node.parameter_schema_version != image::adjustment_parameter_schema_version
                 || node.implementation_version != image::adjustment_implementation_version
-                || node.parameters.size() < 10U) {
+                || node.parameters.empty()) {
                 throw_invalid_adjustment_plan("local-mask layer start has an invalid contract");
             }
-            for (const double value : node.parameters) {
-                if (!std::isfinite(value)) {
-                    throw_invalid_adjustment_plan(
-                        "local-mask layer start has a non-finite parameter"
-                    );
-                }
-            }
             const double opacity = node.parameters[0];
-            const double kind = node.parameters[1];
-            const double invert = node.parameters[9];
-            if (opacity < 0.0 || opacity > 1.0
-                || (kind != 0.0 && kind != 1.0 && kind != 2.0 && kind != 3.0 && kind != 4.0
-                    && kind != 5.0 && kind != 6.0)
-                || (invert != 0.0 && invert != 1.0)) {
-                throw_invalid_adjustment_plan(
-                    "local-mask layer start has an out-of-range parameter"
-                );
-            }
-            const bool brush = kind == 3.0;
-            const bool managed_raster = kind == 6.0;
-            if ((!brush && (!node.parameter_group_lengths.empty() || node.parameters.size() != 10U))
-                || (brush
-                    && (node.parameter_group_lengths.size() != 1U
-                        || node.parameters.size()
-                               != 10U
-                                      + static_cast<std::size_t>(node.parameter_group_lengths[0])
-                                            * 3U
-                        || node.parameter_group_lengths[0] > 4096U))) {
-                throw_invalid_adjustment_plan("local-mask layer start has invalid brush groups");
-            }
-            if ((managed_raster && node.payload.empty())
-                || (!managed_raster && !node.payload.empty())) {
-                throw_invalid_adjustment_plan(
-                    "local-mask layer start has an invalid immutable raster payload"
-                );
+            if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0) {
+                throw_invalid_adjustment_plan("local-mask layer opacity is out of range");
             }
             image::AdjustmentLayer layer{
                 .layer_id = std::string(node.node_id.data(), node.node_id.size()),
@@ -644,117 +762,80 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
                 .mask = std::nullopt,
                 .nodes = {},
             };
-            if (kind == 1.0) {
-                layer.mask = image::LocalMask{
-                    .kind = image::LocalMaskKind::linear_gradient,
-                    .x0 = node.parameters[2],
-                    .y0 = node.parameters[3],
-                    .x1 = node.parameters[4],
-                    .y1 = node.parameters[5],
-                    .invert = invert == 1.0,
-                };
-            } else if (kind == 2.0) {
-                layer.mask = image::LocalMask{
-                    .kind = image::LocalMaskKind::radial_gradient,
-                    .x0 = node.parameters[2],
-                    .y0 = node.parameters[3],
-                    .radius_x = node.parameters[6],
-                    .radius_y = node.parameters[7],
-                    .feather = node.parameters[8],
-                    .invert = invert == 1.0,
-                };
-            } else if (kind == 3.0) {
-                std::vector<image::LocalMaskPoint> points;
-                points.reserve(node.parameter_group_lengths[0]);
-                for (std::size_t offset = 10U; offset < node.parameters.size(); offset += 3U) {
-                    const double begins_stroke = node.parameters[offset + 2U];
-                    if (begins_stroke != 0.0 && begins_stroke != 1.0) {
+            if (!node.mask_components.empty()) {
+                if (node.parameters.size() != 1U || !node.parameter_group_lengths.empty()
+                    || !node.payload.empty()
+                    || node.mask_components.size()
+                           > image::maximum_composite_local_mask_components) {
+                    throw_invalid_adjustment_plan(
+                        "composite local-mask layer start has an invalid bounded record"
+                    );
+                }
+                std::vector<image::LocalMaskComponent> components;
+                components.reserve(node.mask_components.size());
+                std::size_t raster_bytes = 0U;
+                for (std::size_t index = 0U; index < node.mask_components.size(); ++index) {
+                    const FfiAdjustmentMaskComponent& component = node.mask_components[index];
+                    if (component.operation > 3U
+                        || (index == 0U && component.operation != 0U)
+                        || (index > 0U && component.operation == 0U)) {
                         throw_invalid_adjustment_plan(
-                            "local-mask brush point has an invalid stroke marker"
+                            "composite local-mask component operation or order is invalid"
                         );
                     }
-                    points.push_back(
-                        image::LocalMaskPoint{
-                            .x = node.parameters[offset],
-                            .y = node.parameters[offset + 1U],
-                            .begins_stroke = begins_stroke == 1.0,
+                    if (component.payload.size()
+                        > image::maximum_composite_local_mask_raster_bytes - raster_bytes) {
+                        throw_invalid_adjustment_plan(
+                            "composite local-mask raster payload exceeds the 64 MiB execution budget"
+                        );
+                    }
+                    raster_bytes += component.payload.size();
+                    components.push_back(
+                        image::LocalMaskComponent{
+                            .operation = static_cast<image::LocalMaskComponentOperation>(
+                                component.operation
+                            ),
+                            .enabled = component.enabled,
+                            .mask = local_mask_leaf(component, 0U),
                         }
                     );
                 }
                 layer.mask = image::LocalMask{
-                    .kind = image::LocalMaskKind::brush,
-                    .radius_x = node.parameters[6],
-                    .feather = node.parameters[8],
-                    .invert = invert == 1.0,
-                    .points = std::move(points),
+                    .invert = node.mask_final_invert,
+                    .components = std::move(components),
                 };
-            } else if (kind == 4.0) {
-                layer.mask = image::LocalMask{
-                    .kind = image::LocalMaskKind::luminance_range,
-                    .x0 = node.parameters[2],
-                    .x1 = node.parameters[4],
-                    .feather = node.parameters[8],
-                    .invert = invert == 1.0,
-                };
-            } else if (kind == 5.0) {
-                layer.mask = image::LocalMask{
-                    .kind = image::LocalMaskKind::color_range,
-                    .x0 = node.parameters[2],
-                    .x1 = node.parameters[4],
-                    .feather = node.parameters[8],
-                    .invert = invert == 1.0,
-                };
-            } else if (kind == 6.0) {
-                const auto dimension = [&](const std::size_t slot) {
-                    const double value = node.parameters[slot];
-                    if (value < 1.0
-                        || value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())
-                        || std::trunc(value) != value) {
-                        throw_invalid_adjustment_plan(
-                            "managed raster mask dimensions must be positive integers"
-                        );
-                    }
-                    return static_cast<std::uint32_t>(value);
-                };
-                const double encoding = node.parameters[6];
-                const double expansion = node.parameters[7];
-                const double feather = node.parameters[8];
-                if ((encoding != 1.0 && encoding != 2.0) || expansion < -1.0 || expansion > 1.0
-                    || feather < 0.0 || feather > 1.0) {
+            } else {
+                if (node.mask_final_invert || node.parameters.size() < 10U) {
                     throw_invalid_adjustment_plan(
-                        "managed raster mask encoding or refinement slots are invalid"
+                        "legacy local-mask layer start has an invalid contract"
                     );
                 }
-                layer.mask = image::LocalMask{
-                    .kind = image::LocalMaskKind::managed_raster,
-                    .radius_y = expansion,
-                    .feather = feather,
-                    .invert = invert == 1.0,
-                    .managed_raster = image::ManagedRasterMask{
-                        .raster_dimensions =
-                            image::Dimensions{
-                                .width = dimension(2U),
-                                .height = dimension(3U),
-                            },
-                        .coordinate_dimensions =
-                            image::Dimensions{
-                                .width = dimension(4U),
-                                .height = dimension(5U),
-                            },
-                        .encoding = encoding == 1.0
-                                        ? image::ManagedRasterMaskEncoding::gray8
-                                        : image::ManagedRasterMaskEncoding::gray16_float,
-                        .samples =
-                            std::vector<std::uint8_t>(node.payload.begin(), node.payload.end()),
-                    },
-                };
+                const double kind = node.parameters[1];
+                if (kind == 0.0) {
+                    if (node.parameters.size() != 10U || !node.parameter_group_lengths.empty()
+                        || !node.payload.empty()) {
+                        throw_invalid_adjustment_plan(
+                            "unmasked local-mask layer must use the canonical empty record"
+                        );
+                    }
+                    for (std::size_t index = 1U; index < node.parameters.size(); ++index) {
+                        if (node.parameters[index] != 0.0) {
+                            throw_invalid_adjustment_plan(
+                                "unmasked local-mask layer must use zero leaf sentinels"
+                            );
+                        }
+                    }
+                } else {
+                    layer.mask = local_mask_leaf(node, 1U);
+                }
             }
             open_layer = std::move(layer);
             continue;
         }
         if (node.operation == FfiAdjustmentOperation::LocalMaskLayerEnd) {
             if (!open_layer.has_value() || !node.parameters.empty() || !node.payload.empty()
-                || !node.parameter_group_lengths.empty()) {
+                || !node.parameter_group_lengths.empty() || !node.mask_components.empty()
+                || node.mask_final_invert) {
                 throw_invalid_adjustment_plan("local-mask layer end has no matching valid start");
             }
             if (open_layer->nodes.empty()) {

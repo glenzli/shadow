@@ -110,7 +110,8 @@ std::optional<AdjustmentLayersWithMaskCoverage> execute_adjustment_layers_with_m
     const std::span<const AdjustmentLayer> layers,
     const std::optional<std::uint32_t> target_layer_index,
     const AdjustmentExecutionContext context,
-    const std::stop_token cancellation
+    const std::stop_token cancellation,
+    const std::optional<std::uint32_t> target_component_index
 ) {
     if (target_layer_index.has_value()
         && static_cast<std::size_t>(*target_layer_index) >= layers.size()) {
@@ -118,6 +119,13 @@ std::optional<AdjustmentLayersWithMaskCoverage> execute_adjustment_layers_with_m
             DecodeErrorCode::invalid_request,
             0,
             "mask coverage target layer index is outside the adjustment-layer plan"
+        );
+    }
+    if (target_component_index.has_value() && !target_layer_index.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "mask coverage component requires a target layer"
         );
     }
     const Dimensions full = validate_adjustment_layer_plan(input, layers, context);
@@ -136,7 +144,8 @@ std::optional<AdjustmentLayersWithMaskCoverage> execute_adjustment_layers_with_m
                 *layer.mask,
                 context,
                 full,
-                cancellation
+                cancellation,
+                target_component_index
             );
             if (!mask_coverage.has_value()) {
                 return std::nullopt;
@@ -155,7 +164,7 @@ std::optional<AdjustmentLayersWithMaskCoverage> execute_adjustment_layers_with_m
             const bool captured_target =
                 target_layer_index.has_value()
                 && layer_index == static_cast<std::size_t>(*target_layer_index)
-                && mask_coverage.has_value();
+                && mask_coverage.has_value() && !target_component_index.has_value();
             mix_masked_layer(
                 output,
                 source,

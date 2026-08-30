@@ -472,6 +472,8 @@ mod ffi {
         available: bool,
         version: String,
         layer_index: u32,
+        component_selected: bool,
+        component_index: u32,
         dimensions: FfiDimensions,
         row_stride_bytes: u32,
         samples: Vec<u8>,
@@ -536,6 +538,19 @@ mod ffi {
         FinishingEffects,
     }
 
+    /// One leaf record in a bounded composite local mask. `parameters` uses
+    /// the legacy leaf slots without layer opacity: kind, x0, y0, x1, y1,
+    /// radius_x, radius_y, feather, invert, followed by optional brush triples.
+    #[derive(Debug)]
+    struct FfiAdjustmentMaskComponent {
+        /// 0 = Base, 1 = Add, 2 = Subtract, 3 = Intersect.
+        operation: u8,
+        enabled: bool,
+        parameters: Vec<f64>,
+        payload: Vec<u8>,
+        parameter_group_lengths: Vec<u32>,
+    }
+
     #[derive(Debug)]
     struct FfiAdjustmentNode {
         node_id: String,
@@ -552,6 +567,11 @@ mod ffi {
         /// stores the number of additional sampled color ranges; Spot Heal
         /// stores its target count.
         parameter_group_lengths: Vec<u32>,
+        /// Empty for every legacy operation and every single-leaf local mask.
+        mask_components: Vec<FfiAdjustmentMaskComponent>,
+        /// Applied once after ordered component composition. Legacy leaf
+        /// inversion remains in the fixed parameter record above.
+        mask_final_invert: bool,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -599,6 +619,8 @@ mod ffi {
         jpeg_quality: u8,
         mask_coverage_requested: bool,
         mask_coverage_target_layer_index: u32,
+        mask_coverage_component_requested: bool,
+        mask_coverage_target_component_index: u32,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -838,6 +860,8 @@ mod ffi {
         fn mask_coverage_available(self: &InteractiveEditPreviewFrameHandle) -> bool;
         fn mask_coverage_version(self: &InteractiveEditPreviewFrameHandle) -> String;
         fn mask_coverage_layer_index(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn mask_coverage_component_selected(self: &InteractiveEditPreviewFrameHandle) -> bool;
+        fn mask_coverage_component_index(self: &InteractiveEditPreviewFrameHandle) -> u32;
         fn mask_coverage_width(self: &InteractiveEditPreviewFrameHandle) -> u32;
         fn mask_coverage_height(self: &InteractiveEditPreviewFrameHandle) -> u32;
         fn mask_coverage_row_stride_bytes(self: &InteractiveEditPreviewFrameHandle) -> u32;

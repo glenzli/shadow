@@ -7,8 +7,9 @@ use shadow_domain::ImageDimensions;
 
 use crate::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
-    AdjustmentLocalMask, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
-    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, CancellableEditPreview,
+    AdjustmentLocalMask, AdjustmentLocalMaskComponent, AdjustmentMaskComponentOperation,
+    AdjustmentRasterMaskEncoding, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentRenderPlan, BasicEditParameters, CancellableEditPreview,
     EDIT_PREVIEW_MASK_COVERAGE_VERSION, EditPreviewCancellation, EditPreviewMaskCoverageRequest,
     InteractiveEditPreviewStorage, OwnedInteractivePreviewFrame, PhotoEditPreviewSession,
     basic_adjustment_render_plan, ffi,
@@ -107,6 +108,7 @@ fn rgb_and_requested_coverage_share_one_stable_owner() {
     let plan = single_masked_layer_plan();
     let request = EditPreviewMaskCoverageRequest {
         target_layer_index: 0,
+        target_component_index: None,
         mask_selection_revision: 73,
     };
     let cancellation =
@@ -128,6 +130,7 @@ fn rgb_and_requested_coverage_share_one_stable_owner() {
     let coverage_pointer = coverage.samples.as_ptr();
     assert_eq!(coverage.version, EDIT_PREVIEW_MASK_COVERAGE_VERSION);
     assert_eq!(coverage.target_layer_index, 0);
+    assert_eq!(coverage.target_component_index, None);
     assert_eq!(coverage.mask_selection_revision, 73);
     assert_eq!(coverage.dimensions, frame.dimensions());
     assert_eq!(coverage.row_stride_bytes, coverage.dimensions.width);
@@ -152,6 +155,66 @@ fn rgb_and_requested_coverage_share_one_stable_owner() {
             .as_ptr(),
         coverage_pointer
     );
+}
+
+#[test]
+fn selected_composite_component_identity_crosses_the_owned_frame_boundary() {
+    let fixture = jpeg_fixture_path();
+    let session = PhotoEditPreviewSession::open(&fixture, 64).expect("open JPEG preview session");
+    let mut plan = single_masked_layer_plan();
+    let AdjustmentRenderOperation::LocalMaskLayerStart { mask, .. } = &mut plan.nodes[0].operation
+    else {
+        panic!("fixture plan starts with one mask layer");
+    };
+    let managed_leaf = |sample| AdjustmentLocalMask::ManagedRaster {
+        raster_width: 1,
+        raster_height: 1,
+        coordinate_width: 64,
+        coordinate_height: 64,
+        encoding: AdjustmentRasterMaskEncoding::Gray8,
+        samples: vec![sample],
+        expansion: 0.0,
+        feather: 0.0,
+        invert: false,
+    };
+    *mask = Some(AdjustmentLocalMask::Composite {
+        components: vec![
+            AdjustmentLocalMaskComponent {
+                operation: AdjustmentMaskComponentOperation::Base,
+                enabled: true,
+                mask: managed_leaf(64),
+            },
+            AdjustmentLocalMaskComponent {
+                operation: AdjustmentMaskComponentOperation::Add,
+                enabled: true,
+                mask: managed_leaf(192),
+            },
+        ],
+        invert: false,
+    });
+    let cancellation =
+        EditPreviewCancellation::new().expect("allocate preview cancellation source");
+    let completed = session
+        .render_plan_interactive_frame_cancellable(
+            &plan,
+            Some(EditPreviewMaskCoverageRequest {
+                target_layer_index: 0,
+                target_component_index: Some(1),
+                mask_selection_revision: 75,
+            }),
+            &cancellation,
+        )
+        .expect("render selected composite leaf through exact CPU replay");
+    let CancellableEditPreview::Completed(frame) = completed else {
+        panic!("active selected-component render must complete");
+    };
+    let coverage = frame
+        .mask_coverage()
+        .expect("selected component publishes paired coverage");
+    assert_eq!(coverage.target_layer_index, 0);
+    assert_eq!(coverage.target_component_index, Some(1));
+    assert_eq!(coverage.mask_selection_revision, 75);
+    assert!(coverage.samples.iter().all(|sample| *sample == 192));
 }
 
 #[test]
@@ -181,6 +244,7 @@ fn managed_raster_crosses_cxx_and_publishes_cpu_coverage() {
             &plan,
             Some(EditPreviewMaskCoverageRequest {
                 target_layer_index: 0,
+                target_component_index: None,
                 mask_selection_revision: 74,
             }),
             &cancellation,

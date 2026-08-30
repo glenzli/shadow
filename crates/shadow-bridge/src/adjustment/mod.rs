@@ -38,8 +38,9 @@ pub use liquify::{
     MAX_ADJUSTMENT_LIQUIFY_POINTS_PER_STROKE, MAX_ADJUSTMENT_LIQUIFY_STROKES,
 };
 pub use local_mask::{
-    AdjustmentLocalMask, AdjustmentMaskBrushPoint, AdjustmentRasterMaskEncoding,
-    MAX_MANAGED_RASTER_MASK_BYTES,
+    AdjustmentLocalMask, AdjustmentLocalMaskComponent, AdjustmentMaskBrushPoint,
+    AdjustmentMaskComponentOperation, AdjustmentRasterMaskEncoding,
+    MAX_COMPOSITE_LOCAL_MASK_COMPONENTS, MAX_MANAGED_RASTER_MASK_BYTES,
 };
 pub use lut::MAX_LUT_DOCUMENT_BYTES;
 pub use oklab_color_warper::{

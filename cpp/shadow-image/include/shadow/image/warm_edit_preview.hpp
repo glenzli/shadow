@@ -311,7 +311,8 @@ class WarmEditPreviewSession final {
         std::optional<std::uint32_t> target_layer_index,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {},
-        const PhotoLiquify* liquify = nullptr
+        const PhotoLiquify* liquify = nullptr,
+        std::optional<std::uint32_t> target_component_index = std::nullopt
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<InteractiveEditPreviewFrame>
     render_interactive_frame_layers_with_mask_coverage_cancellable(
@@ -319,7 +320,8 @@ class WarmEditPreviewSession final {
         std::optional<std::uint32_t> target_layer_index,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {},
-        const PhotoLiquify* liquify = nullptr
+        const PhotoLiquify* liquify = nullptr,
+        std::optional<std::uint32_t> target_component_index = std::nullopt
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreview>
     render_jpeg_with_analysis_cancellable(
@@ -336,7 +338,8 @@ class WarmEditPreviewSession final {
         std::uint8_t jpeg_quality,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {},
-        const PhotoLiquify* liquify = nullptr
+        const PhotoLiquify* liquify = nullptr,
+        std::optional<std::uint32_t> target_component_index = std::nullopt
     ) const;
 
   private:

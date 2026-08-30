@@ -6,6 +6,7 @@
 
 #include "../../src/edit/local_mask_coverage.hpp"
 #include "../../src/proxy/warm_edit_gpu.hpp"
+#include "../../src/proxy/warm_edit_gpu_layer_plan.hpp"
 
 #include <algorithm>
 #include <array>
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <stop_token>
+#include <string>
 #include <string_view>
 
 namespace image = shadow::image;
@@ -159,6 +161,47 @@ void expect(const bool condition, const std::string_view message) {
         );
     }
     return packed;
+}
+
+void composite_masks_are_explicitly_admitted_to_cpu_replay_only() {
+    const auto source = make_random_image(41U, 29U, true);
+    image::LocalMask composite;
+    composite.components = {
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::base,
+            .mask = masks()[0U],
+        },
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::add,
+            .mask = masks()[1U],
+        },
+    };
+    const std::array layers{
+        image::AdjustmentLayer{
+            .layer_id = "composite-cpu-replay",
+            .mask = std::move(composite),
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "composite-exposure",
+                        .parameters = image::ExposureAdjustment{.stops = 0.2},
+                    },
+                },
+        },
+    };
+    const auto plan = image::detail::prepare_warm_gpu_layer_plan(
+        source,
+        layers,
+        image::detail::WarmEditGpuRenderContext{
+            .adjustment =
+                image::AdjustmentExecutionContext{.full_dimensions = source.dimensions},
+        }
+    );
+    expect(
+        !plan.complete && plan.active_layers.empty()
+            && plan.diagnostic.find("exact CPU replay") != std::string::npos,
+        "resident Metal explicitly declines composite masks instead of executing a legacy leaf"
+    );
 }
 
 void five_kinds_match_cpu_on_pre_adjustment_input_and_geometry() {
@@ -408,6 +451,7 @@ void inactive_targets_capture_and_fail_closed() {
 } // namespace
 
 int run_resident_gpu_mask_coverage_contract() {
+    composite_masks_are_explicitly_admitted_to_cpu_replay_only();
     five_kinds_match_cpu_on_pre_adjustment_input_and_geometry();
     inactive_targets_capture_and_fail_closed();
     return failures;

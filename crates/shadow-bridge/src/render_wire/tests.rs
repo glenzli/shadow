@@ -2,8 +2,9 @@ use crate::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
     AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
     AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke, AdjustmentLocalMask,
-    AdjustmentMaskBrushPoint, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
-    AdjustmentRenderOperation, AdjustmentRenderPlan, EditPreviewMaskCoverageRequest,
+    AdjustmentLocalMaskComponent, AdjustmentMaskBrushPoint, AdjustmentMaskComponentOperation,
+    AdjustmentRasterMaskEncoding, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentRenderPlan, EditPreviewMaskCoverageRequest,
 };
 
 use super::{ffi_render_node, ffi_render_request, ffi_render_request_with_mask_coverage};
@@ -36,6 +37,8 @@ fn legacy_local_mask_wire_records_remain_exact() {
         [0.75, 1.0, 0.1, 0.2, 0.8, 0.9, 0.0, 0.0, 0.0, 1.0]
     );
     assert!(linear.parameter_group_lengths.is_empty());
+    assert!(linear.mask_components.is_empty());
+    assert!(!linear.mask_final_invert);
 
     let radial = ffi_render_node(&layer_start(Some(AdjustmentLocalMask::RadialGradient {
         center_x: 0.4,
@@ -68,6 +71,61 @@ fn legacy_local_mask_wire_records_remain_exact() {
         ]
     );
     assert_eq!(brush.parameter_group_lengths, [1]);
+}
+
+#[test]
+#[allow(clippy::float_cmp)] // The composite records are the exact flat CXX protocol.
+fn composite_mask_wire_keeps_order_enable_and_leaf_records_explicit() {
+    let composite = ffi_render_node(&layer_start(Some(AdjustmentLocalMask::Composite {
+        components: vec![
+            AdjustmentLocalMaskComponent {
+                operation: AdjustmentMaskComponentOperation::Base,
+                enabled: true,
+                mask: AdjustmentLocalMask::LinearGradient {
+                    start_x: 0.1,
+                    start_y: 0.2,
+                    end_x: 0.8,
+                    end_y: 0.9,
+                    invert: false,
+                },
+            },
+            AdjustmentLocalMaskComponent {
+                operation: AdjustmentMaskComponentOperation::Subtract,
+                enabled: false,
+                mask: AdjustmentLocalMask::ManagedRaster {
+                    raster_width: 2,
+                    raster_height: 2,
+                    coordinate_width: 6_000,
+                    coordinate_height: 4_000,
+                    encoding: AdjustmentRasterMaskEncoding::Gray8,
+                    samples: vec![0, 64, 128, 255],
+                    expansion: -0.2,
+                    feather: 0.3,
+                    invert: true,
+                },
+            },
+        ],
+        invert: true,
+    })));
+
+    assert_eq!(composite.parameters, [0.75]);
+    assert!(composite.parameter_group_lengths.is_empty());
+    assert!(composite.payload.is_empty());
+    assert!(composite.mask_final_invert);
+    assert_eq!(composite.mask_components.len(), 2);
+    assert_eq!(composite.mask_components[0].operation, 0);
+    assert!(composite.mask_components[0].enabled);
+    assert_eq!(
+        composite.mask_components[0].parameters,
+        [1.0, 0.1, 0.2, 0.8, 0.9, 0.0, 0.0, 0.0, 0.0]
+    );
+    assert_eq!(composite.mask_components[1].operation, 2);
+    assert!(!composite.mask_components[1].enabled);
+    assert_eq!(
+        composite.mask_components[1].parameters,
+        [6.0, 2.0, 2.0, 6_000.0, 4_000.0, 1.0, -0.2, 0.3, 1.0]
+    );
+    assert_eq!(composite.mask_components[1].payload, [0, 64, 128, 255]);
 }
 
 #[test]
@@ -133,6 +191,8 @@ fn coverage_target_is_optional_native_input_and_selection_revision_stays_host_si
     let without_coverage = ffi_render_request_with_mask_coverage(&plan, 2_048, 90, None);
     assert!(!without_coverage.mask_coverage_requested);
     assert_eq!(without_coverage.mask_coverage_target_layer_index, 0);
+    assert!(!without_coverage.mask_coverage_component_requested);
+    assert_eq!(without_coverage.mask_coverage_target_component_index, 0);
 
     let with_coverage = ffi_render_request_with_mask_coverage(
         &plan,
@@ -140,11 +200,27 @@ fn coverage_target_is_optional_native_input_and_selection_revision_stays_host_si
         90,
         Some(EditPreviewMaskCoverageRequest {
             target_layer_index: 0,
+            target_component_index: None,
             mask_selection_revision: u64::MAX,
         }),
     );
     assert!(with_coverage.mask_coverage_requested);
     assert_eq!(with_coverage.mask_coverage_target_layer_index, 0);
+    assert!(!with_coverage.mask_coverage_component_requested);
+    assert_eq!(with_coverage.mask_coverage_target_component_index, 0);
+
+    let selected_component = ffi_render_request_with_mask_coverage(
+        &plan,
+        2_048,
+        90,
+        Some(EditPreviewMaskCoverageRequest {
+            target_layer_index: 0,
+            target_component_index: Some(3),
+            mask_selection_revision: 0,
+        }),
+    );
+    assert!(selected_component.mask_coverage_component_requested);
+    assert_eq!(selected_component.mask_coverage_target_component_index, 3);
 }
 
 #[test]

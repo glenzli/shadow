@@ -211,6 +211,8 @@ edit_preview_mask_coverage(const std::optional<image::EditPreviewMaskCoverage>& 
     result.available = true;
     result.version = rust::String(coverage->version);
     result.layer_index = coverage->layer_index;
+    result.component_selected = coverage->component_index.has_value();
+    result.component_index = coverage->component_index.value_or(0U);
     result.dimensions = dimensions(coverage->dimensions);
     result.row_stride_bytes = coverage->row_stride_bytes;
     result.samples.reserve(coverage->samples.size());

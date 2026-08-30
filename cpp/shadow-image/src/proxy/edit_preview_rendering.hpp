@@ -58,7 +58,8 @@ struct PreparedEditPreviewPixels final {
     bool retain_linear_for_analysis,
     std::stop_token cancellation,
     std::optional<std::uint32_t> target_layer_index,
-    detail::WarmEditGpuOutputIntent output_intent
+    detail::WarmEditGpuOutputIntent output_intent,
+    std::optional<std::uint32_t> target_component_index = std::nullopt
 );
 
 [[nodiscard]] std::optional<EditPreviewAnalysis> analyze_edit_preview(

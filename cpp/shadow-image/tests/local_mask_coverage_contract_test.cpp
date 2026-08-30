@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <stop_token>
 #include <vector>
@@ -33,6 +34,35 @@ using image::test_support::ScopedEnvironment;
         .node_id = "coverage-no-op",
         .parameters = image::ExposureAdjustment{.stops = 0.0},
     };
+}
+
+[[nodiscard]] image::LocalMask constant_managed_mask(const std::uint8_t coverage) {
+    return image::LocalMask{
+        .kind = image::LocalMaskKind::managed_raster,
+        .managed_raster =
+            image::ManagedRasterMask{
+                .raster_dimensions = {.width = 1U, .height = 1U},
+                .coordinate_dimensions = {.width = 6'000U, .height = 4'000U},
+                .samples = {coverage},
+            },
+    };
+}
+
+[[nodiscard]] image::LocalMask composite_mask(
+    const std::array<image::LocalMaskComponentOperation, 4U>& operations,
+    const std::array<std::uint8_t, 4U>& coverages,
+    const bool invert = false
+) {
+    image::LocalMask mask{.invert = invert};
+    for (std::size_t index = 0U; index < operations.size(); ++index) {
+        mask.components.push_back(
+            image::LocalMaskComponent{
+                .operation = operations[index],
+                .mask = constant_managed_mask(coverages[index]),
+            }
+        );
+    }
+    return mask;
 }
 
 [[nodiscard]] std::array<image::LocalMask, 5U> representative_masks() {
@@ -245,6 +275,92 @@ void analyzed_jpeg_keeps_the_same_coverage_transaction() {
     );
 }
 
+void composite_coverage_is_idempotent_ordered_and_component_selectable() {
+    const RetainedRgbSession source(processed_linear_gradient(48U, 32U));
+    const auto warm = image::prepare_warm_edit_preview(source, 48U);
+    const ScopedEnvironment cpu("SHADOW_IMAGE_ACCELERATION", "cpu");
+    const std::array operations{
+        image::LocalMaskComponentOperation::base,
+        image::LocalMaskComponentOperation::add,
+        image::LocalMaskComponentOperation::subtract,
+        image::LocalMaskComponentOperation::intersect,
+    };
+    const std::array layers{
+        image::AdjustmentLayer{
+            .layer_id = "composite",
+            .mask = composite_mask(operations, {102U, 102U, 204U, 230U}),
+            .nodes = {no_op_node()},
+        },
+    };
+    const auto final = warm.render_rgb8_layers_with_mask_coverage_cancellable(layers, 0U, {});
+    const auto selected = warm.render_rgb8_layers_with_mask_coverage_cancellable(
+        layers,
+        0U,
+        {},
+        {},
+        nullptr,
+        2U
+    );
+    expect(
+        final.completed.has_value() && final.completed->mask_coverage.has_value()
+            && selected.completed.has_value() && selected.completed->mask_coverage.has_value(),
+        "final and selected composite coverage publish complete paired transactions"
+    );
+    if (!final.completed || !final.completed->mask_coverage || !selected.completed
+        || !selected.completed->mask_coverage) {
+        return;
+    }
+    const auto& final_coverage = *final.completed->mask_coverage;
+    const auto& selected_coverage = *selected.completed->mask_coverage;
+    expect(
+        !final_coverage.component_index.has_value()
+            && selected_coverage.component_index == 2U,
+        "coverage identity distinguishes the final composition from a selected leaf"
+    );
+    expect(
+        std::all_of(final_coverage.samples.begin(), final_coverage.samples.end(), [](const auto value) {
+            return value == 51U;
+        })
+            && std::all_of(
+                selected_coverage.samples.begin(),
+                selected_coverage.samples.end(),
+                [](const auto value) { return value == 204U; }
+            ),
+        "Add is idempotent and Subtract/Intersect use the fixed ordered min/max algebra"
+    );
+
+    const std::array reordered_layers{
+        image::AdjustmentLayer{
+            .layer_id = "reordered-composite",
+            .mask = composite_mask(
+                {
+                    image::LocalMaskComponentOperation::base,
+                    image::LocalMaskComponentOperation::subtract,
+                    image::LocalMaskComponentOperation::add,
+                    image::LocalMaskComponentOperation::intersect,
+                },
+                {102U, 204U, 153U, 230U},
+                true
+            ),
+            .nodes = {no_op_node()},
+        },
+    };
+    const auto reordered = warm.render_rgb8_layers_with_mask_coverage_cancellable(
+        reordered_layers,
+        0U,
+        {}
+    );
+    expect(
+        reordered.completed.has_value() && reordered.completed->mask_coverage.has_value()
+            && std::all_of(
+                reordered.completed->mask_coverage->samples.begin(),
+                reordered.completed->mask_coverage->samples.end(),
+                [](const auto value) { return value == 102U; }
+            ),
+        "component order is authored state and final inversion is applied exactly once"
+    );
+}
+
 void invalid_target_and_cancellation_fail_closed() {
     const RetainedRgbSession source(processed_linear_gradient());
     const auto warm = image::prepare_warm_edit_preview(source, 96U);
@@ -292,6 +408,7 @@ int main() {
     five_kinds_publish_geometrically_paired_r8();
     target_semantics_capture_without_mutating_the_frame();
     analyzed_jpeg_keeps_the_same_coverage_transaction();
+    composite_coverage_is_idempotent_ordered_and_component_selectable();
     invalid_target_and_cancellation_fail_closed();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
