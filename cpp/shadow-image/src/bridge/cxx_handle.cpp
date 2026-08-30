@@ -948,4 +948,26 @@ FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(
     );
 }
 
+FfiRenderedDetailTile16 FullEditDetailHandle::render_adjustment_plan_tile16(
+    const FfiAdjustmentDetailTileRequest& request
+) const {
+    const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    const auto liquify = adjustment_render_wire::photo_liquify(request.liquify);
+    return rendered_detail_tile16(
+        layers.has_value() ? session_.render_rgb16_layers(
+                                 *layers,
+                                 detail_tile_rect(request.rect),
+                                 geometry,
+                                 liquify.has_value() ? &*liquify : nullptr
+                             )
+                           : session_.render_rgb16(
+                                 adjustment_render_wire::adjustment_nodes(request.nodes),
+                                 detail_tile_rect(request.rect),
+                                 geometry,
+                                 liquify.has_value() ? &*liquify : nullptr
+                             )
+    );
+}
+
 } // namespace shadow::bridge

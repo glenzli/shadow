@@ -2341,6 +2341,11 @@ R %2 · G %3 · B %4</translation>
         <translation>长边</translation>
     </message>
     <message>
+        <location filename="../qml/ExportSettingsPane.qml" line="181"/>
+        <source>Bit depth</source>
+        <translation>位深</translation>
+    </message>
+    <message>
         <location filename="../qml/ExportSettingsPane.qml" line="153"/>
         <source>Original size</source>
         <translation>原始尺寸</translation>

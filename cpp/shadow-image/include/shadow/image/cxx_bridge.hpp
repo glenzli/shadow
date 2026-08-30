@@ -209,6 +209,8 @@ class FullEditDetailHandle final {
     [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiRenderedDetailTile
     render_adjustment_plan_tile(const FfiAdjustmentDetailTileRequest& request) const;
+    [[nodiscard]] FfiRenderedDetailTile16
+    render_adjustment_plan_tile16(const FfiAdjustmentDetailTileRequest& request) const;
 
   private:
     image::FullEditDetailSession session_;

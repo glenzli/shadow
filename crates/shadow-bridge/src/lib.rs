@@ -637,6 +637,19 @@ mod ffi {
         diagnostic: String,
     }
 
+    #[derive(Debug)]
+    struct FfiRenderedDetailTile16 {
+        rect: FfiDetailTileRect,
+        full_dimensions: FfiDimensions,
+        row_stride_bytes: u32,
+        samples: Vec<u16>,
+        execution_backend: u8,
+        execution_backend_version: u32,
+        source_cache_hit: bool,
+        fell_back: bool,
+        diagnostic: String,
+    }
+
     unsafe extern "C++" {
         include!("shadow/image/cxx_bridge.hpp");
 
@@ -844,6 +857,10 @@ mod ffi {
             self: &FullEditDetailHandle,
             request: &FfiAdjustmentDetailTileRequest,
         ) -> Result<FfiRenderedDetailTile>;
+        fn render_adjustment_plan_tile16(
+            self: &FullEditDetailHandle,
+            request: &FfiAdjustmentDetailTileRequest,
+        ) -> Result<FfiRenderedDetailTile16>;
     }
 }
 

@@ -121,10 +121,16 @@ individual tiles, avoiding independent chroma/block
 boundaries at tile seams. The detail wrapper is also `Send + Sync`; concurrent calls read the
 retained source and own all crop/edit/output memory independently.
 
+`render_plan_tile16` is the export-only counterpart. It forces CPU replay through the same
+full-detail plan and returns tightly packed display-encoded RGB16 samples for true 16-bit TIFF
+assembly. The caller validates the direct-execution receipt and stitches only bounded tiles; this
+path is not used by interactive preview or presentation.
+
 Compressed embedded previews and durable generated proxies are small enough to cross as owned
 bytes. Interactive RGB8 and R8 coverage instead stay in one immutable native frame owner and cross
 as borrowed slices. Large mosaic and full-resolution u16 RGB buffers remain in C++; detail
-requests copy only bounded RGB8 tiles across FFI rather than exposing `Vec<u16>`.
+requests copy only bounded RGB8 tiles across FFI. RGB16 crosses the boundary only for explicit
+high-bit-depth export tiles.
 
 AI RAW foundations use a separate, explicit large-payload contract in
 [`src/raw_foundation.rs`](src/raw_foundation.rs). The verified artifact/cache owner supplies

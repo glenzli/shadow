@@ -56,6 +56,16 @@ impl DetailSessionRequirements {
         }
     }
 
+    /// Derives source admission for a high-bit export. RGB16 currently uses
+    /// the portable CPU display boundary, so it must not retain a Metal-only
+    /// source even when the authored plan has no other CPU-only stage.
+    #[must_use]
+    pub const fn for_high_bit_export(_plan: &AdjustmentRenderPlan) -> Self {
+        Self {
+            requires_cpu_replay: true,
+        }
+    }
+
     /// Whether the retained source must support complete CPU replay.
     #[must_use]
     pub const fn requires_cpu_replay(self) -> bool {
@@ -113,6 +123,17 @@ pub struct RenderedDetailTile {
     pub execution: DetailTileExecutionReceipt,
 }
 
+/// Packed host-endian, display-encoded sRGB RGB16 samples for one exact
+/// full-resolution rectangle.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RenderedDetailTile16 {
+    pub rect: DetailTileRect,
+    pub full_dimensions: ImageDimensions,
+    pub row_stride_bytes: u32,
+    pub samples: Vec<u16>,
+    pub execution: DetailTileExecutionReceipt,
+}
+
 /// Effective complete adjustment-plus-display backend for one detail tile.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum DetailTileRenderBackend {
@@ -130,6 +151,41 @@ pub struct DetailTileExecutionReceipt {
     pub source_cache_hit: bool,
     pub fell_back: bool,
     pub diagnostic: Option<String>,
+}
+
+fn detail_execution_receipt(
+    execution_backend: u8,
+    execution_backend_version: u32,
+    source_cache_hit: bool,
+    fell_back: bool,
+    diagnostic: String,
+) -> Result<DetailTileExecutionReceipt, BridgeError> {
+    let backend = match execution_backend {
+        0 => DetailTileRenderBackend::Cpu,
+        1 => DetailTileRenderBackend::Metal,
+        _ => {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "detail execution backend is unknown",
+            ));
+        }
+    };
+    let diagnostic = (!diagnostic.is_empty()).then_some(diagnostic);
+    if execution_backend_version != 1
+        || (backend == DetailTileRenderBackend::Cpu && source_cache_hit)
+        || (backend == DetailTileRenderBackend::Metal && fell_back)
+        || fell_back != diagnostic.is_some()
+    {
+        return Err(BridgeError::InvalidEditDetailOutput(
+            "detail execution receipt is inconsistent",
+        ));
+    }
+    Ok(DetailTileExecutionReceipt {
+        backend,
+        backend_version: execution_backend_version,
+        source_cache_hit,
+        fell_back,
+        diagnostic,
+    })
 }
 
 /// A reusable immutable full-resolution linear RGB source in sRGB primaries for 1:1 tiles.
@@ -556,38 +612,99 @@ impl LibRawEditDetailSession {
                 "RGB8 byte length must equal row stride times height",
             ));
         }
-        let backend = match rendered.execution_backend {
-            0 => DetailTileRenderBackend::Cpu,
-            1 => DetailTileRenderBackend::Metal,
-            _ => {
-                return Err(BridgeError::InvalidEditDetailOutput(
-                    "detail execution backend is unknown",
-                ));
-            }
-        };
-        let valid_version = rendered.execution_backend_version == 1;
-        let diagnostic = (!rendered.diagnostic.is_empty()).then_some(rendered.diagnostic);
-        if !valid_version
-            || (backend == DetailTileRenderBackend::Cpu && rendered.source_cache_hit)
-            || (backend == DetailTileRenderBackend::Metal && rendered.fell_back)
-            || rendered.fell_back != diagnostic.is_some()
-        {
-            return Err(BridgeError::InvalidEditDetailOutput(
-                "detail execution receipt is inconsistent",
-            ));
-        }
+        let execution = detail_execution_receipt(
+            rendered.execution_backend,
+            rendered.execution_backend_version,
+            rendered.source_cache_hit,
+            rendered.fell_back,
+            rendered.diagnostic,
+        )?;
         Ok(RenderedDetailTile {
             rect,
             full_dimensions,
             row_stride_bytes: rendered.row_stride_bytes,
             bytes: rendered.bytes,
-            execution: DetailTileExecutionReceipt {
-                backend,
-                backend_version: rendered.execution_backend_version,
-                source_cache_hit: rendered.source_cache_hit,
-                fell_back: rendered.fell_back,
-                diagnostic,
-            },
+            execution,
+        })
+    }
+
+    /// Executes the same dependency-ordered plan through the CPU high-bit
+    /// display boundary and returns packed RGB16 without scaling or source I/O.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for an invalid plan or rectangle,
+    /// [`BridgeError::Decoder`] for authoritative kernel failures, or
+    /// [`BridgeError::InvalidEditDetailOutput`] if bridge output violates its contract.
+    pub fn render_plan_tile16(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        request: DetailTileRequest,
+    ) -> Result<RenderedDetailTile16, BridgeError> {
+        plan.validate()?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        request.validate(output_dimensions)?;
+        if !self.cpu_replay_available {
+            return Err(BridgeError::InvalidEditRequest(
+                "RGB16 detail output requires a CPU-replayable source",
+            ));
+        }
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let rendered =
+            handle.render_adjustment_plan_tile16(&ffi_detail_tile_request(plan, request))?;
+        let rect = detail_tile_rect(rendered.rect);
+        let full_dimensions = dimensions(&rendered.full_dimensions);
+        if rect != request.rect || full_dimensions != output_dimensions {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "returned identity does not match the requested RGB16 tile and prepared source",
+            ));
+        }
+        let expected_stride = rect
+            .width
+            .checked_mul(3)
+            .and_then(|value| value.checked_mul(2))
+            .ok_or(BridgeError::InvalidEditDetailOutput(
+                "RGB16 row stride overflows",
+            ))?;
+        if rendered.row_stride_bytes != expected_stride {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "RGB16 row stride must equal width times six",
+            ));
+        }
+        let expected_len = usize::try_from(rect.width)
+            .ok()
+            .and_then(|width| width.checked_mul(3))
+            .and_then(|row_samples| {
+                usize::try_from(rect.height)
+                    .ok()
+                    .and_then(|height| row_samples.checked_mul(height))
+            })
+            .ok_or(BridgeError::InvalidEditDetailOutput(
+                "RGB16 sample length overflows addressable memory",
+            ))?;
+        if rendered.samples.len() != expected_len {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "RGB16 sample length must equal width times height times three",
+            ));
+        }
+        let execution = detail_execution_receipt(
+            rendered.execution_backend,
+            rendered.execution_backend_version,
+            rendered.source_cache_hit,
+            rendered.fell_back,
+            rendered.diagnostic,
+        )?;
+        if execution.backend != DetailTileRenderBackend::Cpu || execution.fell_back {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "RGB16 detail output must report the direct CPU export boundary",
+            ));
+        }
+        Ok(RenderedDetailTile16 {
+            rect,
+            full_dimensions,
+            row_stride_bytes: rendered.row_stride_bytes,
+            samples: rendered.samples,
+            execution,
         })
     }
 }

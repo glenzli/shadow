@@ -5,9 +5,9 @@ use shadow_domain::ImageDimensions;
 use crate::{
     AdjustmentGeometry, AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
     AdjustmentLiquifyStroke, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
-    BridgeError, DetailSessionRequirements, DetailTileRect, DetailTileRequest,
-    LibRawEditDetailSession, MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE,
-    OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
+    BridgeError, DetailSessionRequirements, DetailTileRect, DetailTileRenderBackend,
+    DetailTileRequest, LibRawEditDetailSession, MAX_EDIT_DETAIL_RETAINED_BYTES,
+    MAX_EDIT_DETAIL_TILE_SIDE, OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
 };
 
 fn liquify() -> AdjustmentLiquify {
@@ -62,6 +62,11 @@ fn detail_source_requirements_are_derived_from_the_complete_structural_plan() {
         bypassed_structural.requires_cpu_replay(),
         "bypass preserves CPU-capable source admission so re-enable never reopens the photo"
     );
+
+    assert!(
+        DetailSessionRequirements::for_high_bit_export(&plan(None)).requires_cpu_replay(),
+        "RGB16 export must not admit a Metal-only retained source"
+    );
 }
 
 #[test]
@@ -78,6 +83,44 @@ fn prepared_raster_detail_source_reports_the_required_cpu_replay_capability() {
     .expect("tracked raster fixture prepares one CPU-replay-capable detail session");
     assert!(session.cpu_replay_available());
     assert!(session.satisfies_requirements(requirements));
+}
+
+#[test]
+fn prepared_raster_detail_source_renders_exact_rgb16_samples_through_cpu_export() {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/desktop/assets/lut-preview-reference.jpg");
+    let mut export_plan = plan(None);
+    export_plan.nodes[0].operation = AdjustmentRenderOperation::Exposure { stops: 0.37 };
+    let requirements = DetailSessionRequirements::for_high_bit_export(&export_plan);
+    let session = PhotoEditDetailSession::open_with_requirements(
+        &source,
+        RawDevelopmentPlan::detail(),
+        &OpticsSettings::default(),
+        requirements,
+    )
+    .expect("tracked raster fixture prepares one high-bit export session");
+    let request = DetailTileRequest {
+        rect: DetailTileRect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 8,
+        },
+    };
+
+    let rendered = session
+        .render_plan_tile16(&export_plan, request)
+        .expect("high-bit detail render succeeds through the direct CPU boundary");
+
+    assert_eq!(rendered.rect, request.rect);
+    assert_eq!(rendered.row_stride_bytes, 8 * 3 * 2);
+    assert_eq!(rendered.samples.len(), 8 * 8 * 3);
+    assert_eq!(rendered.execution.backend, DetailTileRenderBackend::Cpu);
+    assert!(!rendered.execution.fell_back);
+    assert!(
+        rendered.samples.iter().any(|sample| sample % 257 != 0),
+        "the RGB16 bridge must preserve native high-bit results rather than expand RGB8 values"
+    );
 }
 
 #[test]

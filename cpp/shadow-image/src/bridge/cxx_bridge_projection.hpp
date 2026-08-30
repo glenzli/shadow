@@ -28,6 +28,9 @@ namespace shadow::bridge::cxx_bridge_projection {
 [[nodiscard]] FfiRenderedDetailTile rendered_detail_tile(
     const image::RenderedDetailTile& tile
 );
+[[nodiscard]] FfiRenderedDetailTile16 rendered_detail_tile16(
+    const image::RenderedDetailTile16& tile
+);
 [[nodiscard]] FfiOpticsReceipt optics_receipt(
     const image::OpticsProfileReceipt& receipt
 );

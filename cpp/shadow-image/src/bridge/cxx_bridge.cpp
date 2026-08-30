@@ -290,6 +290,31 @@ edit_preview_mask_coverage(const std::optional<image::EditPreviewMaskCoverage>& 
     return result;
 }
 
+[[nodiscard]] FfiRenderedDetailTile16
+rendered_detail_tile16(const image::RenderedDetailTile16& tile) {
+    FfiRenderedDetailTile16 result;
+    result.rect = detail_tile_rect(tile.rect);
+    result.full_dimensions = dimensions(tile.full_dimensions);
+    result.row_stride_bytes = tile.row_stride_bytes;
+    result.samples.reserve(tile.samples.size());
+    for (const auto sample : tile.samples) {
+        result.samples.push_back(sample);
+    }
+    switch (tile.execution.backend) {
+    case image::DetailTileRenderBackend::cpu:
+        result.execution_backend = 0U;
+        break;
+    case image::DetailTileRenderBackend::metal:
+        result.execution_backend = 1U;
+        break;
+    }
+    result.execution_backend_version = tile.execution.backend_version;
+    result.source_cache_hit = tile.execution.source_cache_hit;
+    result.fell_back = tile.execution.fell_back;
+    result.diagnostic = rust::String(tile.execution.diagnostic);
+    return result;
+}
+
 [[nodiscard]] rust::String optics_status(const image::OpticsProfileStatus status) {
     switch (status) {
     case image::OpticsProfileStatus::disabled:

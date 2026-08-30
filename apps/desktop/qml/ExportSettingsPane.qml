@@ -14,6 +14,7 @@ Item {
     property string format: "jpeg"
     property int maxEdge: 0
     property int quality: 90
+    property int tiffBitDepth: 16
     property string colorSpace: "srgb"
     property int resolutionDpi: 300
     property string metadataPolicy: "none"
@@ -30,6 +31,7 @@ Item {
         if (!preset)
             return
         format = String(preset.format || "jpeg")
+        tiffBitDepth = format === "tiff" ? Number(preset.bitDepth || 8) : 16
         maxEdge = Number(preset.maxEdge || 0)
         quality = Number(preset.quality || 90)
         colorSpace = String(preset.colorSpace || "srgb")
@@ -53,6 +55,7 @@ Item {
             "format": format,
             "maxEdge": Number.isFinite(parsedEdge) ? Math.max(0, Math.min(16384, Math.round(parsedEdge))) : 0,
             "quality": Math.round(quality),
+            "bitDepth": format === "tiff" ? Math.round(tiffBitDepth) : 8,
             "colorSpace": String(colorSpace),
             "resolutionDpi": Number.isFinite(parsedDpi) ? Math.max(1, Math.min(2400, Math.round(parsedDpi))) : 300,
             "metadataPolicy": String(metadataPolicy),
@@ -170,6 +173,28 @@ Item {
                         text: "px"
                         color: Theme.textMuted
                         font.pixelSize: 10
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: settings.format === "tiff"
+                    Label {
+                        Layout.preferredWidth: 92
+                        text: qsTr("Bit depth")
+                        color: Theme.textSecondary
+                        font.pixelSize: 11
+                    }
+                    ShadowTabButton {
+                        Layout.fillWidth: true
+                        text: "8-bit"
+                        active: settings.tiffBitDepth === 8
+                        onClicked: settings.tiffBitDepth = 8
+                    }
+                    ShadowTabButton {
+                        Layout.fillWidth: true
+                        text: "16-bit"
+                        active: settings.tiffBitDepth === 16
+                        onClicked: settings.tiffBitDepth = 16
                     }
                 }
                 RowLayout {

@@ -1839,6 +1839,7 @@ mod ffi {
         base_commit_id: String,
         settings: FfiEditSettings,
         use_working_recipe: bool,
+        bit_depth: u8,
     }
 
     /// One immutable version in newest-first order.
@@ -2081,13 +2082,16 @@ mod ffi {
         tiles: Vec<FfiEditedDetailTile>,
     }
 
-    /// Tightly packed display-sRGB RGB8 pixels prepared with ExportImage RAW intent.
+    /// Tightly packed display-sRGB RGB8 or host-endian RGB16 pixels prepared
+    /// with ExportImage RAW intent. Exactly one payload matches `bit_depth`.
     #[derive(Debug)]
     struct FfiEditedExportRaster {
         width: u32,
         height: u32,
         row_stride_bytes: u32,
+        bit_depth: u8,
         bytes: Vec<u8>,
+        samples16: Vec<u16>,
     }
 
     /// A user-selected photo plus its already-resolved output destination.
@@ -2877,6 +2881,7 @@ mod ffi {
         fn render_durable_export_item(
             self: &DesktopSession,
             item: &FfiDurableExportItem,
+            bit_depth: u8,
         ) -> Result<FfiEditedExportRaster>;
         fn execute_durable_raw_dng_item(
             self: &DesktopSession,

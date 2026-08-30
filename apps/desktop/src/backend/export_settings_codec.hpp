@@ -12,6 +12,7 @@ struct BackendExportOptions final {
     QString format = QStringLiteral("jpeg");
     std::uint32_t max_edge = 0;
     std::uint8_t jpeg_quality = 90;
+    std::uint8_t tiff_bit_depth = 8;
     QString color_space = QStringLiteral("srgb");
     std::uint16_t resolution_dpi = 300;
     QString metadata_policy = QStringLiteral("none");
@@ -28,20 +29,11 @@ struct BackendExportOptions final {
 /// Owns the field names, defaults, normalization, validation, and durable JSON
 /// representation shared by the QML-facing controller and export executor.
 class ExportSettingsCodec final {
-public:
-    [[nodiscard]] static BackendExportOptions fromVariantMap(
-        const QVariantMap& values
-    );
-    [[nodiscard]] static BackendExportOptions fromDurableJson(
-        const QString& settings_json
-    );
-    [[nodiscard]] static QString toDurableJson(
-        const BackendExportOptions& options
-    );
-    [[nodiscard]] static QVariantMap normalizedPreset(
-        const QString& id,
-        const QString& name,
-        const QVariantMap& values
-    );
+  public:
+    [[nodiscard]] static BackendExportOptions fromVariantMap(const QVariantMap& values);
+    [[nodiscard]] static BackendExportOptions fromDurableJson(const QString& settings_json);
+    [[nodiscard]] static QString toDurableJson(const BackendExportOptions& options);
+    [[nodiscard]] static QVariantMap
+    normalizedPreset(const QString& id, const QString& name, const QVariantMap& values);
     static void validate(const BackendExportOptions& options);
 };

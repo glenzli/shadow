@@ -78,7 +78,7 @@ public:
             QStringLiteral("shadow-output-receipt-20260809.1")
         },
         {QStringLiteral("format"), options.format},
-        {QStringLiteral("bit_depth"), 8},
+        {QStringLiteral("bit_depth"), static_cast<int>(options.tiff_bit_depth)},
         {QStringLiteral("color_space"), options.color_space},
         {
             QStringLiteral("resolution_dpi"),
@@ -102,30 +102,75 @@ public:
         throw std::invalid_argument("export destination path is empty");
     }
     ExportSettingsCodec::validate(options);
+    if (raster.bit_depth != options.tiff_bit_depth) {
+        throw std::runtime_error(
+            "export renderer bit depth does not match the frozen Output Recipe"
+        );
+    }
+    const bool high_bit = raster.bit_depth == 16;
     const std::uint64_t expected_row_stride =
-        static_cast<std::uint64_t>(raster.width) * 3U;
+        static_cast<std::uint64_t>(raster.width) * 3U * (high_bit ? 2U : 1U);
     const std::uint64_t required_byte_count =
         static_cast<std::uint64_t>(raster.row_stride_bytes) * raster.height;
     if (raster.width == 0 || raster.height == 0
         || expected_row_stride > std::numeric_limits<std::uint32_t>::max()
         || raster.row_stride_bytes != expected_row_stride
         || raster.width > static_cast<std::uint32_t>(std::numeric_limits<int>::max())
-        || raster.height > static_cast<std::uint32_t>(std::numeric_limits<int>::max())
-        || required_byte_count > static_cast<std::uint64_t>(raster.bytes.size())) {
-        throw std::runtime_error("export renderer returned an invalid RGB8 raster");
+        || raster.height > static_cast<std::uint32_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("export renderer returned an invalid raster identity");
     }
-    const qsizetype byte_count =
-        checked_qt_vector_size(raster.bytes.size(), "export_raster");
-    QImage image(
-        raster.bytes.data(),
-        static_cast<int>(raster.width),
-        static_cast<int>(raster.height),
-        static_cast<qsizetype>(raster.row_stride_bytes),
-        QImage::Format_RGB888
-    );
-    image = image.copy();
-    if (image.isNull() || image.sizeInBytes() > byte_count) {
-        throw std::runtime_error("could not materialize the rendered export raster");
+    QImage image;
+    if (!high_bit) {
+        if (!raster.samples16.empty()
+            || required_byte_count != static_cast<std::uint64_t>(raster.bytes.size())) {
+            throw std::runtime_error("export renderer returned an invalid RGB8 raster");
+        }
+        const qsizetype row_stride = checked_qt_vector_size(
+            raster.row_stride_bytes,
+            "export_row_stride"
+        );
+        QImage borrowed(
+            raster.bytes.data(),
+            static_cast<int>(raster.width),
+            static_cast<int>(raster.height),
+            row_stride,
+            QImage::Format_RGB888
+        );
+        image = borrowed.copy();
+        if (borrowed.isNull() || image.isNull()) {
+            throw std::runtime_error("could not materialize the RGB8 export raster");
+        }
+    } else {
+        const std::uint64_t required_samples = required_byte_count / 2U;
+        if (!raster.bytes.empty()
+            || required_samples != static_cast<std::uint64_t>(raster.samples16.size())) {
+            throw std::runtime_error("export renderer returned an invalid RGB16 raster");
+        }
+        image = QImage(
+            static_cast<int>(raster.width),
+            static_cast<int>(raster.height),
+            QImage::Format_RGBX64
+        );
+        if (image.isNull()) {
+            throw std::runtime_error("could not allocate the RGB16 export raster");
+        }
+        const std::size_t source_stride =
+            static_cast<std::size_t>(raster.row_stride_bytes) / sizeof(std::uint16_t);
+        for (std::uint32_t row = 0; row < raster.height; ++row) {
+            auto* const destination = reinterpret_cast<QRgba64*>(
+                image.scanLine(static_cast<int>(row))
+            );
+            const std::size_t source_row = static_cast<std::size_t>(row) * source_stride;
+            for (std::uint32_t column = 0; column < raster.width; ++column) {
+                const std::size_t source = source_row + static_cast<std::size_t>(column) * 3U;
+                destination[column] = QRgba64::fromRgba64(
+                    raster.samples16[source],
+                    raster.samples16[source + 1U],
+                    raster.samples16[source + 2U],
+                    std::numeric_limits<std::uint16_t>::max()
+                );
+            }
+        }
     }
     image.setColorSpace(QColorSpace::SRgb);
     if (options.max_edge > 0
@@ -187,6 +232,17 @@ public:
             throw std::runtime_error(
                 "could not convert the export raster to Display P3"
             );
+        }
+    }
+    if (high_bit && image.depth() < 64) {
+        throw std::runtime_error(
+            "a TIFF output transform reduced the RGB16 raster to 8-bit"
+        );
+    }
+    if (high_bit && image.format() != QImage::Format_RGBX64) {
+        image = image.convertToFormat(QImage::Format_RGBX64);
+        if (image.isNull()) {
+            throw std::runtime_error("could not normalize the RGB16 TIFF raster");
         }
     }
     const int dots_per_meter = qRound(
@@ -324,7 +380,10 @@ BackendExportReceipt ExportBackend::executeDurableExportItem(
 
         session_->begin_durable_export_render(item.item_id.toStdString());
         stage = 1;
-        const auto raster = session_->render_durable_export_item(ffi_item);
+        const auto raster = session_->render_durable_export_item(
+            ffi_item,
+            options.tiff_bit_depth
+        );
 
         session_->begin_durable_export_encoding(item.item_id.toStdString());
         stage = 2;

@@ -715,9 +715,9 @@ admission, background execution, preset persistence, and backend publication:
   owns the naming, identity-preserving edit, and removal transactions; built-in presets remain
   immutable.
 - [`qml/ExportSettingsPane.qml`](qml/ExportSettingsPane.qml) owns the editable Output Recipe draft:
-  JPEG/PNG/TIFF raster formats, non-upscaling long edge, quality, tagged sRGB or Display P3
-  conversion, print-resolution metadata, explicit strip-or-copyright metadata policy, and filename
-  suffix. Its RAW DNG mode is a distinct source-stage interchange export: it preserves the original
+  JPEG/PNG/TIFF raster formats, selectable 8/16-bit TIFF, non-upscaling long edge, quality, tagged
+  sRGB or Display P3 conversion, print-resolution metadata, explicit strip-or-copyright metadata
+  policy, and filename suffix. Its RAW DNG mode is a distinct source-stage interchange export: it preserves the original
   CFA mosaic and source calibration while deliberately ignoring edits, resizing, color-space
   conversion, raster metadata policy, and watermarks.
   [`qml/ExportWatermarkPane.qml`](qml/ExportWatermarkPane.qml) owns the independent watermark
@@ -746,10 +746,10 @@ admission, background execution, preset persistence, and backend publication:
   its source identity, encodes an uncompressed calibration-bearing DNG, and publishes it without
   overwriting an existing destination. [`src/backend/export_raster_encoder.cpp`](src/backend/export_raster_encoder.cpp)
   owns the final JPEG/PNG encoding and a plugin-independent, lossless-Deflate TIFF writer backed by
-  libtiff. The JPEG/PNG/TIFF raster contract is tagged RGB8; the DNG route instead preserves the
-  original up-to-16-bit CFA samples and is not a rendered RGB image. True high-bit-depth rendered
-  output still requires a future linear high-bit-depth renderer endpoint rather than expanding the
-  current 8-bit raster result.
+  libtiff. JPEG/PNG and 8-bit TIFF use the display RGB8 boundary. A 16-bit TIFF accepts only the
+  renderer's RGB16 boundary and rejects an expanded RGB8 input; it retains lossless Deflate,
+  output-profile, resolution, and explicit metadata behavior. The DNG route instead preserves the
+  original up-to-16-bit CFA samples and is not a rendered RGB image.
 
 `DesktopBackend` composes that export component with the shared session but does not forward its
 workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)
@@ -757,8 +757,8 @@ links the production component and verifies its settings schema plus an empty re
 [`tests/export_preset_store_test.cpp`](tests/export_preset_store_test.cpp) verifies preset
 normalization, persistence, stable built-in identities, runtime retranslation, and preservation of
 user-authored names; [`tests/export_raster_encoder_contract_test.cpp`](tests/export_raster_encoder_contract_test.cpp)
-reopens a generated TIFF and verifies its honest RGB8 identity, profile, lossless compression,
-resolution, and explicit copyright fields.
+reopens generated 8-bit and 16-bit TIFF files and verifies their sample depth, high-bit values,
+profile, lossless compression, resolution, and explicit copyright fields.
 
 Review presentation keeps the workspace as the composition and compatibility surface:
 

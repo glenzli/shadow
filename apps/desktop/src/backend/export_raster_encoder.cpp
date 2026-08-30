@@ -2,9 +2,9 @@
 
 #include <QByteArray>
 #include <QColorSpace>
+#include <QIODevice>
 #include <QImage>
 #include <QImageWriter>
-#include <QIODevice>
 
 #include <tiffio.h>
 
@@ -12,6 +12,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -19,33 +20,18 @@ namespace {
     return static_cast<QIODevice*>(handle);
 }
 
-tmsize_t read_tiff_bytes(
-    const thandle_t handle,
-    void* const bytes,
-    const tmsize_t count
-) {
-    return count < 0 ? -1 : device(handle)->read(
-        static_cast<char*>(bytes),
-        static_cast<qint64>(count)
-    );
+tmsize_t read_tiff_bytes(const thandle_t handle, void* const bytes, const tmsize_t count) {
+    return count < 0 ? -1
+                     : device(handle)->read(static_cast<char*>(bytes), static_cast<qint64>(count));
 }
 
-tmsize_t write_tiff_bytes(
-    const thandle_t handle,
-    void* const bytes,
-    const tmsize_t count
-) {
-    return count < 0 ? -1 : device(handle)->write(
-        static_cast<const char*>(bytes),
-        static_cast<qint64>(count)
-    );
+tmsize_t write_tiff_bytes(const thandle_t handle, void* const bytes, const tmsize_t count) {
+    return count < 0
+               ? -1
+               : device(handle)->write(static_cast<const char*>(bytes), static_cast<qint64>(count));
 }
 
-toff_t seek_tiff_bytes(
-    const thandle_t handle,
-    const toff_t offset,
-    const int origin
-) {
+toff_t seek_tiff_bytes(const thandle_t handle, const toff_t offset, const int origin) {
     QIODevice* const output = device(handle);
     qint64 position = 0;
     if (origin == SEEK_SET) {
@@ -79,20 +65,18 @@ void unmap_tiff_bytes(thandle_t, void*, toff_t) {}
 
 void require_tiff_field(const int accepted, const char* const name) {
     if (accepted != 1) {
-        throw std::runtime_error(
-            std::string("could not configure TIFF field: ") + name
-        );
+        throw std::runtime_error(std::string("could not configure TIFF field: ") + name);
     }
 }
 
-void write_tiff(
-    QIODevice& destination,
-    const QImage& input,
-    const BackendExportOptions& options
-) {
-    QImage image = input.convertToFormat(QImage::Format_RGB888);
+void write_tiff(QIODevice& destination, const QImage& input, const BackendExportOptions& options) {
+    const bool high_bit = options.tiff_bit_depth == 16;
+    if (high_bit && input.format() != QImage::Format_RGBX64) {
+        throw std::invalid_argument("16-bit TIFF requires a true RGBX64 input raster");
+    }
+    QImage image = high_bit ? input : input.convertToFormat(QImage::Format_RGB888);
     if (image.isNull()) {
-        throw std::runtime_error("could not prepare the TIFF RGB8 raster");
+        throw std::runtime_error("could not prepare the TIFF raster");
     }
     TIFF* const tiff = TIFFClientOpen(
         "Shadow output",
@@ -110,20 +94,11 @@ void write_tiff(
         throw std::runtime_error("could not initialize the TIFF encoder");
     }
     try {
+        require_tiff_field(TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH, image.width()), "width");
+        require_tiff_field(TIFFSetField(tiff, TIFFTAG_IMAGELENGTH, image.height()), "height");
+        require_tiff_field(TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, 3), "samples per pixel");
         require_tiff_field(
-            TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH, image.width()),
-            "width"
-        );
-        require_tiff_field(
-            TIFFSetField(tiff, TIFFTAG_IMAGELENGTH, image.height()),
-            "height"
-        );
-        require_tiff_field(
-            TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, 3),
-            "samples per pixel"
-        );
-        require_tiff_field(
-            TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE, 8),
+            TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE, options.tiff_bit_depth),
             "bits per sample"
         );
         require_tiff_field(
@@ -162,9 +137,7 @@ void write_tiff(
         const QByteArray profile = image.colorSpace().iccProfile();
         if (!profile.isEmpty()
             && profile.size()
-                <= static_cast<qsizetype>(
-                    std::numeric_limits<std::uint32_t>::max()
-                )) {
+                   <= static_cast<qsizetype>(std::numeric_limits<std::uint32_t>::max())) {
             require_tiff_field(
                 TIFFSetField(
                     tiff,
@@ -186,22 +159,29 @@ void write_tiff(
             }
             if (!copyright.isEmpty()) {
                 require_tiff_field(
-                    TIFFSetField(
-                        tiff,
-                        TIFFTAG_COPYRIGHT,
-                        copyright.constData()
-                    ),
+                    TIFFSetField(tiff, TIFFTAG_COPYRIGHT, copyright.constData()),
                     "copyright"
                 );
             }
         }
+        std::vector<std::uint16_t> high_bit_row;
+        if (high_bit) {
+            high_bit_row.resize(static_cast<std::size_t>(image.width()) * 3U);
+        }
         for (int row = 0; row < image.height(); ++row) {
-            if (TIFFWriteScanline(
-                    tiff,
-                    const_cast<uchar*>(image.constScanLine(row)),
-                    static_cast<std::uint32_t>(row),
-                    0
-                ) < 0) {
+            void* row_bytes = const_cast<uchar*>(image.constScanLine(row));
+            if (high_bit) {
+                const auto* const pixels =
+                    reinterpret_cast<const QRgba64*>(image.constScanLine(row));
+                for (int x = 0; x < image.width(); ++x) {
+                    const std::size_t offset = static_cast<std::size_t>(x) * 3U;
+                    high_bit_row[offset] = pixels[x].red();
+                    high_bit_row[offset + 1U] = pixels[x].green();
+                    high_bit_row[offset + 2U] = pixels[x].blue();
+                }
+                row_bytes = high_bit_row.data();
+            }
+            if (TIFFWriteScanline(tiff, row_bytes, static_cast<std::uint32_t>(row), 0) < 0) {
                 throw std::runtime_error("could not encode a TIFF scanline");
             }
         }
@@ -223,9 +203,8 @@ void writeEncodedOutputRaster(
         write_tiff(destination, image, options);
         return;
     }
-    const QByteArray encoder = options.format == QStringLiteral("png")
-        ? QByteArrayLiteral("png")
-        : QByteArrayLiteral("jpg");
+    const QByteArray encoder = options.format == QStringLiteral("png") ? QByteArrayLiteral("png")
+                                                                       : QByteArrayLiteral("jpg");
     QImageWriter writer(&destination, encoder);
     if (options.format == QStringLiteral("jpeg")) {
         writer.setQuality(options.jpeg_quality);
@@ -236,16 +215,12 @@ void writeEncodedOutputRaster(
             writer.setText(QStringLiteral("Author"), options.creator);
         }
         if (!options.copyright_notice.isEmpty()) {
-            writer.setText(
-                QStringLiteral("Copyright"),
-                options.copyright_notice
-            );
+            writer.setText(QStringLiteral("Copyright"), options.copyright_notice);
         }
     }
     if (!writer.write(image)) {
         throw std::runtime_error(
-            std::string("could not encode export: ")
-            + writer.errorString().toStdString()
+            std::string("could not encode export: ") + writer.errorString().toStdString()
         );
     }
 }

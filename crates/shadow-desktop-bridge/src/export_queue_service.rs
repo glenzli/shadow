@@ -225,6 +225,7 @@ impl ExportQueueService {
         &self,
         session: &DesktopSession,
         item: &ffi::FfiDurableExportItem,
+        bit_depth: u8,
     ) -> AnyResult<ffi::FfiEditedExportRaster> {
         let item = self.persisted_item(item)?;
         if item.state != ExportItemState::Rendering {
@@ -264,6 +265,7 @@ impl ExportQueueService {
                 // The renderer treats the explicit commit id as immutable;
                 // this flag retains its Recipe template/provenance handling.
                 use_working_recipe: true,
+                bit_depth,
             },
         )
     }

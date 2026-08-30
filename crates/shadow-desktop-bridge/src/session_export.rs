@@ -44,8 +44,9 @@ impl DesktopSession {
     pub(crate) fn render_durable_export_item(
         &self,
         item: &ffi::FfiDurableExportItem,
+        bit_depth: u8,
     ) -> AnyResult<ffi::FfiEditedExportRaster> {
-        self.export_queue.render(self, item)
+        self.export_queue.render(self, item, bit_depth)
     }
 
     pub(crate) fn execute_durable_raw_dng_item(
