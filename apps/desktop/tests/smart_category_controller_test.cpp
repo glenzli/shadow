@@ -31,6 +31,27 @@ BackendSmartClassificationSnapshot emptySnapshot() {
     snapshot.status = QStringLiteral("empty");
     return snapshot;
 }
+
+QString presentedFailure(const QString& diagnostic) {
+    SmartCategoryController controller(
+        [diagnostic](const QVector<BackendSmartCategoryDefinition>&,
+                     const QString&,
+                     const QString&,
+                     const bool,
+                     const bool) -> BackendSmartClassificationBatch {
+            throw std::runtime_error(diagnostic.toStdString());
+        },
+        []() { return emptySnapshot(); },
+        [](const QString&) { return QStringList{}; },
+        []() { return QVector<BackendSmartCategoryReviewItem>{}; },
+        [](const QString&, const QString&, const QString&, const std::int8_t) {},
+        [](const QString&) {}
+    );
+    controller.ensureCurrent();
+    waitUntilReady(controller);
+    require(controller.failed(), "a runner failure must reach the failed presentation state");
+    return controller.errorText();
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -326,6 +347,23 @@ int main(int argc, char** argv) {
             - 0.07
         ) < 0.001,
         "untouched preview thresholds migrate to competitive prompt-family floors"
+    );
+
+    require(
+        presentedFailure(QStringLiteral("unknown intent profile `vision.embed_image`"))
+            == QStringLiteral(
+                "The installed Infer Runtime does not support this smart-classification contract. "
+                "Update Infer Runtime, then try again."
+            ),
+        "an unavailable intent is presented as a contract mismatch, not a transport failure"
+    );
+    require(
+        presentedFailure(QStringLiteral("local index publication failed"))
+            == QStringLiteral(
+                "Smart classification could not finish. The previous results are still available; "
+                "try again."
+            ),
+        "an unrelated failure does not incorrectly blame Infer Runtime availability"
     );
 
     QSettings().clear();

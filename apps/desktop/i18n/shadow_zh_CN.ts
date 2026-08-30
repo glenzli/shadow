@@ -12676,8 +12676,23 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../src/smart_category_controller.cpp" line="228"/>
-        <source>The previous results are still available. Check Infer Runtime, then try again.</source>
-        <translation>之前的分类结果仍可使用。请检查 Infer Runtime 后重试。</translation>
+        <source>Infer Runtime access is not configured. Complete the local AI setup, then try again.</source>
+        <translation>尚未配置 Infer Runtime 访问。请完成本地 AI 设置后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="235"/>
+        <source>The installed Infer Runtime does not support this smart-classification contract. Update Infer Runtime, then try again.</source>
+        <translation>当前安装的 Infer Runtime 不支持此智能分类契约。请更新 Infer Runtime 后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="242"/>
+        <source>The semantic classification model is unavailable. Complete the local AI setup, then try again.</source>
+        <translation>语义分类模型当前不可用。请完成本地 AI 设置后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/smart_category_controller.cpp" line="248"/>
+        <source>Smart classification could not finish. The previous results are still available; try again.</source>
+        <translation>智能分类未能完成，之前的分类结果仍可使用。请重试。</translation>
     </message>
     <message>
         <location filename="../src/smart_category_controller.cpp" line="554"/>

@@ -220,12 +220,39 @@ QString SmartCategoryController::statusText() const {
 QString SmartCategoryController::errorText() const {
     if (state_ != State::Failed)
         return {};
+    const auto contains = [this](const char* text) {
+        return diagnostic_.contains(QString::fromLatin1(text), Qt::CaseInsensitive);
+    };
     if (diagnostic_.contains(QStringLiteral("connection refused"), Qt::CaseInsensitive)
         || diagnostic_.contains(QStringLiteral("couldn't connect"), Qt::CaseInsensitive)
-        || diagnostic_.contains(QStringLiteral("failed to connect"), Qt::CaseInsensitive)) {
+        || diagnostic_.contains(QStringLiteral("failed to connect"), Qt::CaseInsensitive)
+        || contains("HTTP transport failed") || contains("discovery failed")) {
         return tr("Infer Runtime is unavailable. Start it, then try again.");
     }
-    return tr("The previous results are still available. Check Infer Runtime, then try again.");
+    if (contains("credential is unavailable") || contains("unauthorized")
+        || contains("forbidden")) {
+        return tr(
+            "Infer Runtime access is not configured. Complete the local AI setup, then try again."
+        );
+    }
+    if (contains("contract is incompatible") || contains("unknown intent profile")
+        || contains("capability contract")) {
+        return tr(
+            "The installed Infer Runtime does not support this smart-classification contract. "
+            "Update Infer Runtime, then try again."
+        );
+    }
+    if (contains("no eligible deployment") || contains("no eligible model")
+        || contains("model is unavailable") || contains("provider is unavailable")) {
+        return tr(
+            "The semantic classification model is unavailable. Complete the local AI setup, then "
+            "try again."
+        );
+    }
+    return tr(
+        "Smart classification could not finish. The previous results are still available; try "
+        "again."
+    );
 }
 QString SmartCategoryController::selectedCategoryId() const {
     return selected_category_id_;
