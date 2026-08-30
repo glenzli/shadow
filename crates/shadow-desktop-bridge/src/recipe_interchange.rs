@@ -16,10 +16,10 @@ use shadow_domain::{
 use crate::{
     DesktopSession, ffi,
     recipe_v1::{
-        GradeNodeRecipeV1Identity, GradeStackDraft, LutEditParameters,
-        decode_grade_stack_draft_from_recipe_v1_snapshot, decode_grade_stack_draft_recipe_v1,
-        encode_grade_stack_draft_recipe_v1, grade_stack_recipe_v1_snapshot,
-        validate_grade_stack_draft_recipe_v1,
+        GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft, LutEditParameters,
+        MaskComponentDraftDefinition, decode_grade_stack_draft_from_recipe_v1_snapshot,
+        decode_grade_stack_draft_recipe_v1, encode_grade_stack_draft_recipe_v1,
+        grade_stack_recipe_v1_snapshot, validate_grade_stack_draft_recipe_v1,
     },
 };
 
@@ -155,22 +155,7 @@ fn make_destination_safe(draft: &mut GradeStackDraft) -> AnyResult<ImportCounts>
             counts.detached_shared_node_count += 1;
         }
 
-        if let Some(settings) = node.preserved_managed_raster.take() {
-            counts.managed_mask_node_count += 1;
-            if settings.semantic_intent.is_some() {
-                counts.semantic_mask_intent_count += 1;
-            }
-            // Applying the adjustment globally would be materially wrong.
-            // Keep the authored controls visible, but bypass the node until a
-            // destination-local mask can be created or adaptively re-solved.
-            node.enabled = false;
-        } else if matches!(node.local_mask, Some(MaskDefinition::ManagedRaster { .. })) {
-            counts.managed_mask_node_count += 1;
-            node.local_mask = None;
-            node.enabled = false;
-        } else if node.local_mask.is_some() {
-            counts.portable_mask_count += 1;
-        }
+        make_destination_mask_safe(node, &mut counts)?;
 
         if !node.fine.lut.resource_id.is_empty()
             || !node.fine.lut.title.is_empty()
@@ -182,6 +167,181 @@ fn make_destination_safe(draft: &mut GradeStackDraft) -> AnyResult<ImportCounts>
     }
 
     Ok(counts)
+}
+
+/// Removes every source-photo managed raster before the draft crosses the
+/// synchronous desktop import boundary.
+///
+/// A composite with one unresolved managed leaf cannot be represented by the
+/// current editable draft without either retaining the source raster or
+/// changing ordered Base/Add/Subtract/Intersect meaning. The conservative
+/// projection therefore bypasses the complete Grade Node and removes its
+/// complete mask topology. A future adaptive-import plan must carry semantic
+/// intent outside this immediately applicable DTO until destination-local
+/// rasters have replaced every unresolved leaf.
+fn make_destination_mask_safe(
+    node: &mut GradeNodeDraft,
+    counts: &mut ImportCounts,
+) -> AnyResult<()> {
+    if node.composite_mask.is_some()
+        && (node.local_mask.is_some() || node.preserved_managed_raster.is_some())
+    {
+        return Err(anyhow!(
+            "Shadow Recipe Grade Node has multiple local-mask representations"
+        ));
+    }
+
+    if let Some(composite) = node.composite_mask.as_ref() {
+        let mut managed_leaf_count = 0_u32;
+        let mut semantic_leaf_count = 0_u32;
+        for component in &composite.components {
+            match &component.definition {
+                MaskComponentDraftDefinition::PreservedManagedRaster(settings) => {
+                    managed_leaf_count = managed_leaf_count.checked_add(1).ok_or_else(|| {
+                        anyhow!("Shadow Recipe managed-mask component count exceeds u32")
+                    })?;
+                    if settings.semantic_intent.is_some() {
+                        semantic_leaf_count =
+                            semantic_leaf_count.checked_add(1).ok_or_else(|| {
+                                anyhow!("Shadow Recipe semantic-mask intent count exceeds u32")
+                            })?;
+                    }
+                }
+                MaskComponentDraftDefinition::Definition(MaskDefinition::ManagedRaster {
+                    semantic_intent,
+                    ..
+                }) => {
+                    managed_leaf_count = managed_leaf_count.checked_add(1).ok_or_else(|| {
+                        anyhow!("Shadow Recipe managed-mask component count exceeds u32")
+                    })?;
+                    if semantic_intent.is_some() {
+                        semantic_leaf_count =
+                            semantic_leaf_count.checked_add(1).ok_or_else(|| {
+                                anyhow!("Shadow Recipe semantic-mask intent count exceeds u32")
+                            })?;
+                    }
+                }
+                MaskComponentDraftDefinition::Definition(_) => {}
+            }
+        }
+        if managed_leaf_count > 0 {
+            add_count(
+                &mut counts.managed_mask_node_count,
+                1,
+                "managed-mask Grade Nodes",
+            )?;
+            add_count(
+                &mut counts.semantic_mask_intent_count,
+                semantic_leaf_count,
+                "semantic-mask intents",
+            )?;
+            // Removing only the managed leaves would silently redefine later
+            // Subtract/Intersect operations. Remove the whole topology and
+            // bypass the adjustment until an adaptive plan can resolve every
+            // destination-local leaf.
+            node.composite_mask = None;
+            node.local_mask = None;
+            node.preserved_managed_raster = None;
+            node.enabled = false;
+        } else {
+            add_count(
+                &mut counts.portable_mask_count,
+                bounded_count(composite.components.len(), "portable mask components")?,
+                "portable masks",
+            )?;
+        }
+        return Ok(());
+    }
+
+    if let Some(settings) = node.preserved_managed_raster.take() {
+        add_count(
+            &mut counts.managed_mask_node_count,
+            1,
+            "managed-mask Grade Nodes",
+        )?;
+        if settings.semantic_intent.is_some() {
+            add_count(
+                &mut counts.semantic_mask_intent_count,
+                1,
+                "semantic-mask intents",
+            )?;
+        }
+        // Applying the adjustment globally would be materially wrong.
+        node.local_mask = None;
+        node.enabled = false;
+        return Ok(());
+    }
+
+    match node.local_mask.as_ref() {
+        Some(MaskDefinition::ManagedRaster {
+            semantic_intent, ..
+        }) => {
+            add_count(
+                &mut counts.managed_mask_node_count,
+                1,
+                "managed-mask Grade Nodes",
+            )?;
+            if semantic_intent.is_some() {
+                add_count(
+                    &mut counts.semantic_mask_intent_count,
+                    1,
+                    "semantic-mask intents",
+                )?;
+            }
+            node.local_mask = None;
+            node.enabled = false;
+        }
+        Some(MaskDefinition::Composite { composite }) => {
+            let mut managed_leaf_count = 0_u32;
+            let mut semantic_leaf_count = 0_u32;
+            for component in composite.components() {
+                if let MaskDefinition::ManagedRaster {
+                    semantic_intent, ..
+                } = component.definition()
+                {
+                    managed_leaf_count = managed_leaf_count.checked_add(1).ok_or_else(|| {
+                        anyhow!("Shadow Recipe managed-mask component count exceeds u32")
+                    })?;
+                    if semantic_intent.is_some() {
+                        semantic_leaf_count =
+                            semantic_leaf_count.checked_add(1).ok_or_else(|| {
+                                anyhow!("Shadow Recipe semantic-mask intent count exceeds u32")
+                            })?;
+                    }
+                }
+            }
+            if managed_leaf_count > 0 {
+                add_count(
+                    &mut counts.managed_mask_node_count,
+                    1,
+                    "managed-mask Grade Nodes",
+                )?;
+                add_count(
+                    &mut counts.semantic_mask_intent_count,
+                    semantic_leaf_count,
+                    "semantic-mask intents",
+                )?;
+                node.local_mask = None;
+                node.enabled = false;
+            } else {
+                add_count(
+                    &mut counts.portable_mask_count,
+                    bounded_count(composite.components().len(), "portable mask components")?,
+                    "portable masks",
+                )?;
+            }
+        }
+        Some(_) => add_count(&mut counts.portable_mask_count, 1, "portable masks")?,
+        None => {}
+    }
+    Ok(())
+}
+
+fn add_count(target: &mut u32, value: u32, label: &str) -> AnyResult<()> {
+    *target = target
+        .checked_add(value)
+        .ok_or_else(|| anyhow!("Shadow Recipe {label} count exceeds u32"))?;
+    Ok(())
 }
 
 fn bounded_count(value: usize, label: &str) -> AnyResult<u32> {
