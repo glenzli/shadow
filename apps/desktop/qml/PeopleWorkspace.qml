@@ -21,6 +21,11 @@ Item {
             controller.clearSessionResults()
     }
 
+    function requestCancelAnalysis() {
+        if (controller.busy && !controller.cancelRequested)
+            controller.cancelAnalysis()
+    }
+
     function requestMergeSelection() {
         if (!controller.busy && controller.canMergeSelectedGroups)
             controller.mergeSelectedGroups()
@@ -145,6 +150,14 @@ Item {
                     variant: ShadowButton.Primary
                     enabled: !people.controller.busy
                     onClicked: people.requestStartAnalysis()
+                }
+
+                ShadowButton {
+                    objectName: "peopleCancelButton"
+                    visible: people.controller.busy
+                    text: people.controller.cancelRequested ? qsTr("Stopping…") : qsTr("Stop")
+                    enabled: !people.controller.cancelRequested
+                    onClicked: people.requestCancelAnalysis()
                 }
 
                 ShadowButton {

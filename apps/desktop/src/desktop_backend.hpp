@@ -253,6 +253,16 @@ class DesktopBackend final {
     /// counts. The report is rebuildable session state, never Catalog state.
     [[nodiscard]] BackendPeopleAnalysisReport
     analyzePeople(const QString& infer_base_url, const QString& credential_file) const;
+    [[nodiscard]] std::uint64_t beginPeopleAnalysisJob() const;
+    [[nodiscard]] BackendPeopleAnalysisProgress
+    peopleAnalysisJobStatus(std::uint64_t job_token) const;
+    [[nodiscard]] bool cancelPeopleAnalysisJob(std::uint64_t job_token) const;
+    [[nodiscard]] BackendPeopleAnalysisExecution executePeopleAnalysisJob(
+        std::uint64_t job_token,
+        const QString& infer_base_url,
+        const QString& credential_file
+    ) const;
+    void retirePeopleAnalysisJob(std::uint64_t job_token) const;
     /// Executes bounded SigLIP text-to-image ranking over the current Review
     /// prefix. Results and exact visual tickets are session-only.
     [[nodiscard]] BackendSemanticSearchReport searchSemantics(

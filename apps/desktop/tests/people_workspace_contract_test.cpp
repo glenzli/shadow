@@ -21,6 +21,7 @@
 class FakePeopleAnalysisController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
+    Q_PROPERTY(bool cancelRequested READ cancelRequested NOTIFY changed)
     Q_PROPERTY(bool hasResults READ hasResults NOTIFY changed)
     Q_PROPERTY(QString statusText READ statusText NOTIFY changed)
     Q_PROPERTY(QString errorText READ errorText NOTIFY changed)
@@ -38,7 +39,10 @@ class FakePeopleAnalysisController final : public QObject {
 
   public:
     bool busy() const noexcept {
-        return false;
+        return busy_;
+    }
+    bool cancelRequested() const noexcept {
+        return cancel_requested_;
     }
     bool hasResults() const noexcept {
         return has_results_;
@@ -121,6 +125,12 @@ class FakePeopleAnalysisController final : public QObject {
         has_results_ = true;
         emit changed();
     }
+    Q_INVOKABLE void cancelAnalysis() {
+        ++cancel_count;
+        cancel_requested_ = true;
+        busy_ = false;
+        emit changed();
+    }
     Q_INVOKABLE void clearSessionResults() {
         ++clear_count;
         has_results_ = false;
@@ -159,12 +169,21 @@ class FakePeopleAnalysisController final : public QObject {
     int clear_count = 0;
     int merge_count = 0;
     int undo_count = 0;
+    int cancel_count = 0;
+
+    void setBusy(const bool busy) {
+        busy_ = busy;
+        cancel_requested_ = false;
+        emit changed();
+    }
 
   signals:
     void changed();
 
   private:
     bool has_results_ = false;
+    bool busy_ = false;
+    bool cancel_requested_ = false;
     bool merged_ = false;
     bool can_undo_merge_ = false;
     QSet<QString> selected_;
@@ -246,6 +265,19 @@ int main(int argc, char* argv[]) {
     if (!require(start_button != nullptr, "manual analysis action is packaged")) {
         return EXIT_FAILURE;
     }
+
+    controller.setBusy(true);
+    drainBindings();
+    auto* const cancel_button =
+        workspace->findChild<QQuickItem*>(QStringLiteral("peopleCancelButton"));
+    if (!require(cancel_button != nullptr, "running analysis exposes a stop action")) {
+        return EXIT_FAILURE;
+    }
+    click(window, *cancel_button);
+    if (!require(controller.cancel_count == 1, "stop action reaches the controller")) {
+        return EXIT_FAILURE;
+    }
+
     click(window, *start_button);
     if (!require(controller.start_count == 1, "manual action reaches the controller")
         || !require(

@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use shadow_ai::{
     DetectedFace, DetectedFaceBatch, EmbeddedFace, FaceAnalysisProvider, FaceBoundingBox,
@@ -136,6 +139,43 @@ fn cached_visuals_reach_transient_anonymous_grouping_without_persisting_vectors(
     assert_eq!(thumbnail.width(), 88);
     assert_eq!(thumbnail.height(), 88);
     assert!(!report.truncated);
+    fixture.finish();
+}
+
+#[derive(Debug)]
+struct CancelledControl {
+    published: AtomicBool,
+}
+
+impl PeopleAnalysisControl for CancelledControl {
+    fn cancellation_requested(&self) -> bool {
+        true
+    }
+
+    fn publish(&self, _progress: PeopleAnalysisProgress) {
+        self.published.store(true, Ordering::Release);
+    }
+}
+
+#[test]
+fn cancellation_before_review_avoids_provider_and_progress_work() {
+    let fixture = PeopleFixture::new();
+    fixture.add_photo(1, "/photos/one.dng");
+    let control = CancelledControl {
+        published: AtomicBool::new(false),
+    };
+
+    let error = analyze_review_people_with_control(
+        &fixture.catalog,
+        &fixture.cache_root,
+        &FakeFaceProvider,
+        PeopleAnalysisPolicy::default(),
+        &control,
+    )
+    .expect_err("cancelled analysis must stop");
+
+    assert!(matches!(error, PeopleAnalysisError::Cancelled));
+    assert!(!control.published.load(Ordering::Acquire));
     fixture.finish();
 }
 

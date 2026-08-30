@@ -22,8 +22,11 @@ namespace {
 
 } // namespace
 
-PeopleAnalysisController::PeopleAnalysisController(Runner runner, QObject* const parent) :
-    QObject(parent), runner_(std::move(runner)) {
+PeopleAnalysisController::PeopleAnalysisController(Operations operations, QObject* const parent) :
+    QObject(parent), operations_(std::move(operations)) {
+    progress_timer_.setInterval(125);
+    progress_timer_.setTimerType(Qt::CoarseTimer);
+    connect(&progress_timer_, &QTimer::timeout, this, &PeopleAnalysisController::pollProgress);
     connect(
         &watcher_,
         &QFutureWatcher<PeopleAnalysisTaskResult>::finished,
@@ -33,11 +36,25 @@ PeopleAnalysisController::PeopleAnalysisController(Runner runner, QObject* const
 }
 
 PeopleAnalysisController::~PeopleAnalysisController() {
+    if (active_job_token_.has_value()) {
+        try {
+            (void)operations_.cancel(*active_job_token_);
+        } catch (const std::exception& error) {
+            qWarning().noquote() << "People analysis shutdown cancellation failed:" << error.what();
+        }
+    }
     watcher_.waitForFinished();
+    if (active_job_token_.has_value()) {
+        retireJob(*active_job_token_);
+    }
 }
 
 bool PeopleAnalysisController::busy() const noexcept {
     return watcher_.isRunning();
+}
+
+bool PeopleAnalysisController::cancelRequested() const noexcept {
+    return state_ == State::Cancelling || progress_.cancellation_requested;
 }
 
 bool PeopleAnalysisController::hasResults() const noexcept {
@@ -49,7 +66,26 @@ QString PeopleAnalysisController::statusText() const {
     case State::Idle:
         return tr("Ready to organize people locally.");
     case State::Running:
-        return tr("Finding faces and preparing anonymous groups…");
+        if (progress_.phase == QStringLiteral("grouping")) {
+            return tr(
+                "Preparing anonymous groups from %n compared faces…",
+                nullptr,
+                static_cast<int>(progress_.compared_faces)
+            );
+        }
+        if (progress_.analyzed_photos > 0) {
+            return tr("Analyzing photo %1 of at most %2 · %3 faces · %4 compared")
+                .arg(progress_.analyzed_photos)
+                .arg(progress_.maximum_photos)
+                .arg(progress_.detected_faces)
+                .arg(progress_.compared_faces);
+        }
+        return tr("Preparing local people analysis…");
+    case State::Cancelling:
+        return tr("Stopping after the current model request…");
+    case State::Cancelled:
+        return has_results_ ? tr("Analysis stopped. Existing session groups were kept.")
+                            : tr("Analysis stopped.");
     case State::Ready:
         return tr("Local people analysis finished.");
     case State::Failed:
@@ -144,18 +180,49 @@ void PeopleAnalysisController::startAnalysis() {
     if (watcher_.isRunning()) {
         return;
     }
+    std::uint64_t job_token = 0;
+    try {
+        job_token = operations_.begin();
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People analysis registration failed:" << error.what();
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
+    active_job_token_ = job_token;
+    progress_ = {.job_token = job_token};
     state_ = State::Running;
     emit stateChanged();
-    watcher_.setFuture(QtConcurrent::run([runner = runner_]() {
-        PeopleAnalysisTaskResult result;
+    watcher_.setFuture(QtConcurrent::run([execute = operations_.execute, job_token]() {
+        PeopleAnalysisTaskResult result{.job_token = job_token};
         try {
-            result.report = runner();
+            const BackendPeopleAnalysisExecution execution = execute(job_token);
+            result.job_token = execution.job_token;
+            result.report = execution.report;
+            result.cancelled = execution.cancelled;
+            result.diagnostic = execution.diagnostic;
         } catch (const std::exception& error) {
             result.diagnostic = QString::fromUtf8(error.what());
         }
         return result;
     }));
+    progress_timer_.start();
     emit stateChanged();
+}
+
+void PeopleAnalysisController::cancelAnalysis() {
+    if (!watcher_.isRunning() || !active_job_token_.has_value() || cancelRequested()) {
+        return;
+    }
+    try {
+        if (operations_.cancel(*active_job_token_)) {
+            progress_.cancellation_requested = true;
+            state_ = State::Cancelling;
+            emit stateChanged();
+        }
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People analysis cancellation failed:" << error.what();
+    }
 }
 
 void PeopleAnalysisController::clearSessionResults() {
@@ -270,6 +337,33 @@ void PeopleAnalysisController::retranslateUi() {
     emit resultsChanged();
 }
 
+void PeopleAnalysisController::pollProgress() {
+    if (!active_job_token_.has_value() || !watcher_.isRunning()) {
+        return;
+    }
+    try {
+        const BackendPeopleAnalysisProgress next = operations_.progress(*active_job_token_);
+        if (next.job_token != *active_job_token_) {
+            return;
+        }
+        progress_ = next;
+        if (next.cancellation_requested) {
+            state_ = State::Cancelling;
+        }
+        emit stateChanged();
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People analysis progress unavailable:" << error.what();
+    }
+}
+
+void PeopleAnalysisController::retireJob(const std::uint64_t job_token) noexcept {
+    try {
+        operations_.retire(job_token);
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People analysis retirement failed:" << error.what();
+    }
+}
+
 bool PeopleAnalysisController::selectedGroupsConflict() const noexcept {
     QSet<QString> photo_ids;
     for (const BackendPeopleGroup& group : report_.groups) {
@@ -294,7 +388,20 @@ void PeopleAnalysisController::resetMergeState() {
 }
 
 void PeopleAnalysisController::finishAnalysis() {
+    progress_timer_.stop();
     const PeopleAnalysisTaskResult result = watcher_.result();
+    if (!active_job_token_.has_value() || result.job_token != *active_job_token_) {
+        qWarning() << "Ignoring stale people analysis result" << result.job_token;
+        return;
+    }
+    const std::uint64_t job_token = *active_job_token_;
+    active_job_token_.reset();
+    retireJob(job_token);
+    if (result.cancelled || state_ == State::Cancelling) {
+        state_ = State::Cancelled;
+        emit stateChanged();
+        return;
+    }
     if (!result.diagnostic.isEmpty()) {
         qWarning().noquote() << "People analysis failed:" << result.diagnostic;
         state_ = State::Failed;

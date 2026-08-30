@@ -94,6 +94,42 @@ pub struct PeopleGroupPreview {
     pub thumbnail_jpeg: Vec<u8>,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum PeopleAnalysisPhase {
+    Reviewing,
+    Grouping,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct PeopleAnalysisProgress {
+    pub phase: PeopleAnalysisPhase,
+    pub analyzed_photos: usize,
+    pub maximum_photos: usize,
+    pub detected_faces: usize,
+    pub compared_faces: usize,
+}
+
+/// Cooperative lifecycle boundary for one bounded people-analysis job.
+///
+/// Provider calls are synchronous. Cancellation is therefore observed before
+/// and after each call, never represented as interrupting an in-flight model
+/// request.
+pub trait PeopleAnalysisControl: Send + Sync {
+    fn cancellation_requested(&self) -> bool;
+    fn publish(&self, progress: PeopleAnalysisProgress);
+}
+
+#[derive(Debug)]
+struct UnobservedPeopleAnalysis;
+
+impl PeopleAnalysisControl for UnobservedPeopleAnalysis {
+    fn cancellation_requested(&self) -> bool {
+        false
+    }
+
+    fn publish(&self, _progress: PeopleAnalysisProgress) {}
+}
+
 /// Analyzes a bounded, stable Review ordering without persisting embeddings.
 ///
 /// The function rechecks each selected artifact after all model calls for that
@@ -109,28 +145,66 @@ pub fn analyze_review_people(
     provider: &impl FaceAnalysisProvider,
     policy: PeopleAnalysisPolicy,
 ) -> Result<PeopleAnalysisReport, PeopleAnalysisError> {
+    analyze_review_people_with_control(
+        catalog,
+        cache_root,
+        provider,
+        policy,
+        &UnobservedPeopleAnalysis,
+    )
+}
+
+/// Runs the same transient analysis with observable progress and cooperative
+/// cancellation owned by the caller's session-local job lifecycle.
+pub fn analyze_review_people_with_control(
+    catalog: &CatalogHandle,
+    cache_root: impl Into<std::path::PathBuf>,
+    provider: &impl FaceAnalysisProvider,
+    policy: PeopleAnalysisPolicy,
+    control: &(impl PeopleAnalysisControl + ?Sized),
+) -> Result<PeopleAnalysisReport, PeopleAnalysisError> {
     let policy = policy.validate()?;
     let cache = ContentAddressedStore::open(cache_root.into())?;
     let mut occurrences = Vec::new();
     let mut cursor: Option<ReviewCursor> = None;
     let mut analyzed_photos = 0;
     let mut detected_faces = 0;
+    let mut compared_faces = 0;
     let mut skipped = PeopleAnalysisSkipped::default();
     let mut truncated = false;
     let mut occurrence_thumbnails = BTreeMap::new();
     let mut resident_thumbnail_bytes = 0_usize;
 
+    publish_progress(
+        control,
+        PeopleAnalysisPhase::Reviewing,
+        analyzed_photos,
+        policy.maximum_photos,
+        detected_faces,
+        compared_faces,
+    )?;
+
     'pages: loop {
+        ensure_active(control)?;
         let page = catalog.review_page(cursor.as_ref(), REVIEW_PAGE_SIZE)?;
         if page.items.is_empty() {
             break;
         }
         for item in page.items {
+            ensure_active(control)?;
             if analyzed_photos == policy.maximum_photos {
                 truncated = true;
                 break 'pages;
             }
             analyzed_photos += 1;
+            publish_progress(
+                control,
+                PeopleAnalysisPhase::Reviewing,
+                analyzed_photos,
+                policy.maximum_photos,
+                detected_faces,
+                compared_faces,
+            )?;
             let Some(record) = item.visual else {
                 skipped.no_current_visual += 1;
                 continue;
@@ -141,13 +215,23 @@ pub fn analyze_review_people(
             }
             let image = read_verified_visual(&cache, &record)?;
             let source_revision = source_revision(item.photo_id, &record);
+            ensure_active(control)?;
             let detection = provider.detect_faces(&image, "image/jpeg", &source_revision)?;
+            ensure_active(control)?;
             if detection.width != record.artifact.dimensions.width
                 || detection.height != record.artifact.dimensions.height
             {
                 return Err(PeopleAnalysisError::ProviderGeometryMismatch);
             }
             detected_faces += detection.detections.len();
+            publish_progress(
+                control,
+                PeopleAnalysisPhase::Reviewing,
+                analyzed_photos,
+                policy.maximum_photos,
+                detected_faces,
+                compared_faces,
+            )?;
             let mut current_occurrences = Vec::new();
             let mut thumbnail_source = None;
             let mut thumbnail_decode_attempted = false;
@@ -160,6 +244,7 @@ pub fn analyze_review_people(
                     truncated = true;
                     break 'pages;
                 }
+                ensure_active(control)?;
                 let embedded = match provider.embed_face(
                     &image,
                     "image/jpeg",
@@ -173,6 +258,16 @@ pub fn analyze_review_people(
                     }
                     Err(error) => return Err(error.into()),
                 };
+                ensure_active(control)?;
+                compared_faces += 1;
+                publish_progress(
+                    control,
+                    PeopleAnalysisPhase::Reviewing,
+                    analyzed_photos,
+                    policy.maximum_photos,
+                    detected_faces,
+                    compared_faces,
+                )?;
                 let occurrence_id = occurrence_id(
                     &source_revision,
                     ordinal,
@@ -219,7 +314,16 @@ pub fn analyze_review_people(
         }
     }
 
+    publish_progress(
+        control,
+        PeopleAnalysisPhase::Grouping,
+        analyzed_photos,
+        policy.maximum_photos,
+        detected_faces,
+        compared_faces,
+    )?;
     let grouping = propose_anonymous_people(&occurrences, policy.grouping)?;
+    ensure_active(control)?;
     let group_previews = grouping
         .groups
         .iter()
@@ -241,6 +345,34 @@ pub fn analyze_review_people(
         grouping,
         group_previews,
     })
+}
+
+fn ensure_active(
+    control: &(impl PeopleAnalysisControl + ?Sized),
+) -> Result<(), PeopleAnalysisError> {
+    if control.cancellation_requested() {
+        return Err(PeopleAnalysisError::Cancelled);
+    }
+    Ok(())
+}
+
+fn publish_progress(
+    control: &(impl PeopleAnalysisControl + ?Sized),
+    phase: PeopleAnalysisPhase,
+    analyzed_photos: usize,
+    maximum_photos: usize,
+    detected_faces: usize,
+    compared_faces: usize,
+) -> Result<(), PeopleAnalysisError> {
+    ensure_active(control)?;
+    control.publish(PeopleAnalysisProgress {
+        phase,
+        analyzed_photos,
+        maximum_photos,
+        detected_faces,
+        compared_faces,
+    });
+    ensure_active(control)
 }
 
 fn read_verified_visual(
@@ -326,6 +458,8 @@ fn hash_field(hasher: &mut blake3::Hasher, value: &[u8]) {
 
 #[derive(Debug, Error)]
 pub enum PeopleAnalysisError {
+    #[error("anonymous-person analysis was cancelled")]
+    Cancelled,
     #[error("anonymous-person analysis policy is invalid")]
     InvalidPolicy,
     #[error("infer-runtime image geometry disagrees with the selected Catalog artifact")]

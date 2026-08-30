@@ -5,12 +5,17 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 
+#include <cstdint>
 #include <functional>
+#include <optional>
 
 struct PeopleAnalysisTaskResult final {
+    std::uint64_t job_token = 0;
     BackendPeopleAnalysisReport report;
+    bool cancelled = false;
     QString diagnostic;
 };
 
@@ -23,6 +28,7 @@ struct PeopleAnalysisTaskResult final {
 class PeopleAnalysisController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
+    Q_PROPERTY(bool cancelRequested READ cancelRequested NOTIFY stateChanged)
     Q_PROPERTY(bool hasResults READ hasResults NOTIFY resultsChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorText READ errorText NOTIFY stateChanged)
@@ -39,12 +45,19 @@ class PeopleAnalysisController final : public QObject {
     Q_PROPERTY(QString mergeSelectionText READ mergeSelectionText NOTIFY resultsChanged)
 
   public:
-    using Runner = std::function<BackendPeopleAnalysisReport()>;
+    struct Operations final {
+        std::function<std::uint64_t()> begin;
+        std::function<BackendPeopleAnalysisExecution(std::uint64_t)> execute;
+        std::function<BackendPeopleAnalysisProgress(std::uint64_t)> progress;
+        std::function<bool(std::uint64_t)> cancel;
+        std::function<void(std::uint64_t)> retire;
+    };
 
-    explicit PeopleAnalysisController(Runner runner, QObject* parent = nullptr);
+    explicit PeopleAnalysisController(Operations operations, QObject* parent = nullptr);
     ~PeopleAnalysisController() override;
 
     [[nodiscard]] bool busy() const noexcept;
+    [[nodiscard]] bool cancelRequested() const noexcept;
     [[nodiscard]] bool hasResults() const noexcept;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorText() const;
@@ -61,6 +74,7 @@ class PeopleAnalysisController final : public QObject {
     [[nodiscard]] QString mergeSelectionText() const;
 
     Q_INVOKABLE void startAnalysis();
+    Q_INVOKABLE void cancelAnalysis();
     Q_INVOKABLE void clearSessionResults();
     Q_INVOKABLE void toggleGroupSelection(const QString& group_id);
     Q_INVOKABLE void mergeSelectedGroups();
@@ -75,21 +89,28 @@ class PeopleAnalysisController final : public QObject {
     enum class State {
         Idle,
         Running,
+        Cancelling,
+        Cancelled,
         Ready,
         Failed,
     };
 
     [[nodiscard]] bool selectedGroupsConflict() const noexcept;
     void resetMergeState();
+    void pollProgress();
+    void retireJob(std::uint64_t job_token) noexcept;
     void finishAnalysis();
 
-    Runner runner_;
+    Operations operations_;
     QFutureWatcher<PeopleAnalysisTaskResult> watcher_;
+    QTimer progress_timer_;
     BackendPeopleAnalysisReport report_;
+    BackendPeopleAnalysisProgress progress_;
     QStringList selected_group_ids_;
     QVector<BackendPeopleGroup> merge_undo_groups_;
     State state_ = State::Idle;
     bool has_results_ = false;
     bool has_merge_undo_ = false;
     qulonglong next_merged_group_id_ = 1;
+    std::optional<std::uint64_t> active_job_token_;
 };

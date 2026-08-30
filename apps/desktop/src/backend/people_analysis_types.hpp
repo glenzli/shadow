@@ -27,3 +27,21 @@ struct BackendPeopleAnalysisReport final {
     bool truncated = false;
     QVector<BackendPeopleGroup> groups;
 };
+
+struct BackendPeopleAnalysisProgress final {
+    std::uint64_t job_token = 0;
+    QString phase;
+    std::uint32_t analyzed_photos = 0;
+    std::uint32_t maximum_photos = 0;
+    std::uint32_t detected_faces = 0;
+    std::uint32_t compared_faces = 0;
+    bool cancellation_requested = false;
+    bool terminal = false;
+};
+
+struct BackendPeopleAnalysisExecution final {
+    std::uint64_t job_token = 0;
+    bool cancelled = false;
+    QString diagnostic;
+    BackendPeopleAnalysisReport report;
+};

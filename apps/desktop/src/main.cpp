@@ -298,8 +298,26 @@ int main(int argc, char* argv[]) {
                 .filePath(QStringLiteral("Shadow/credentials/infer-runtime-shadow.token"));
     }
     PeopleAnalysisController people_analysis_controller(
-        [backend, infer_base_url, infer_credential_file]() {
-            return backend->analyzePeople(infer_base_url, infer_credential_file);
+        PeopleAnalysisController::Operations{
+            .begin = [backend]() { return backend->beginPeopleAnalysisJob(); },
+            .execute = [backend, infer_base_url, infer_credential_file](
+                           const std::uint64_t job_token
+                       ) {
+                return backend->executePeopleAnalysisJob(
+                    job_token,
+                    infer_base_url,
+                    infer_credential_file
+                );
+            },
+            .progress = [backend](const std::uint64_t job_token) {
+                return backend->peopleAnalysisJobStatus(job_token);
+            },
+            .cancel = [backend](const std::uint64_t job_token) {
+                return backend->cancelPeopleAnalysisJob(job_token);
+            },
+            .retire = [backend](const std::uint64_t job_token) {
+                backend->retirePeopleAnalysisJob(job_token);
+            },
         }
     );
     SemanticSearchController semantic_search_controller(

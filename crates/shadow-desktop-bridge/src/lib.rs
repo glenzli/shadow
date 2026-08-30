@@ -13,6 +13,7 @@ mod library_server_service;
 mod library_service;
 mod location_reference_service;
 mod native_path_ffi;
+mod people_analysis_service;
 mod photo_inspection_service;
 mod relink_service;
 mod remote_library_service;
@@ -1034,6 +1035,29 @@ mod ffi {
         ungrouped_faces: u32,
         truncated: bool,
         groups: Vec<FfiPeopleGroup>,
+    }
+
+    /// Pollable session-local progress for one bounded people-analysis job.
+    #[derive(Debug)]
+    struct FfiPeopleAnalysisJobStatus {
+        job_token: u64,
+        phase: String,
+        analyzed_photos: u32,
+        maximum_photos: u32,
+        detected_faces: u32,
+        compared_faces: u32,
+        cancellation_requested: bool,
+        terminal: bool,
+    }
+
+    /// Terminal worker result. Provider diagnostics stay out of QML and are
+    /// consumed by the controller's safe recovery presentation.
+    #[derive(Debug)]
+    struct FfiPeopleAnalysisExecution {
+        job_token: u64,
+        cancelled: bool,
+        diagnostic: String,
+        report: FfiPeopleAnalysisReport,
     }
 
     /// One session-only semantic match. The visual handle authorizes exactly
@@ -2380,6 +2404,21 @@ mod ffi {
             infer_base_url: &str,
             credential_file: &str,
         ) -> Result<FfiPeopleAnalysisReport>;
+        fn begin_people_analysis_job(self: &DesktopSession) -> Result<u64>;
+        fn people_analysis_job_status(
+            self: &DesktopSession,
+            job_token: u64,
+        ) -> Result<FfiPeopleAnalysisJobStatus>;
+        /// True only when cancellation won before the worker published a
+        /// terminal result.
+        fn cancel_people_analysis_job(self: &DesktopSession, job_token: u64) -> Result<bool>;
+        fn execute_people_analysis_job(
+            self: &DesktopSession,
+            job_token: u64,
+            infer_base_url: &str,
+            credential_file: &str,
+        ) -> Result<FfiPeopleAnalysisExecution>;
+        fn retire_people_analysis_job(self: &DesktopSession, job_token: u64) -> Result<()>;
         fn search_semantics(
             self: &DesktopSession,
             infer_base_url: &str,
@@ -2794,6 +2833,7 @@ struct DesktopSession {
     edit_preview_render_tokens: PreviewRenderRegistry,
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
+    people_analyses: people_analysis_service::PeopleAnalysisService,
     subject_masks: subject_mask_service::SubjectMaskService,
     subject_mask_runtime: subject_mask_runtime::SubjectMaskRuntime,
     raw_foundations: raw_foundation_service::RawFoundationService,
@@ -2895,6 +2935,7 @@ fn open_desktop_session_at(
         edit_preview_render_tokens: PreviewRenderRegistry::default(),
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
+        people_analyses: people_analysis_service::PeopleAnalysisService::new(),
         subject_masks,
         subject_mask_runtime,
         raw_foundations: raw_foundation_service::RawFoundationService::new(),

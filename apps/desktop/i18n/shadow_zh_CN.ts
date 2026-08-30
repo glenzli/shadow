@@ -4992,8 +4992,30 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../src/people_analysis_controller.cpp" line="38"/>
-        <source>Finding faces and preparing anonymous groups…</source>
-        <translation>正在查找人脸并准备匿名分组…</translation>
+        <source>Preparing local people analysis…</source>
+        <translation>正在准备本机人物分析…</translation>
+    </message>
+    <message>
+        <source>Analyzing photo %1 of at most %2 · %3 faces · %4 compared</source>
+        <translation>正在分析第 %1 张照片（最多 %2 张）· 已发现 %3 张人脸 · 已比对 %4 张</translation>
+    </message>
+    <message numerus="yes">
+        <source>Preparing anonymous groups from %n compared faces…</source>
+        <translation>
+            <numerusform>正在根据已比对的 %n 张人脸准备匿名分组…</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Stopping after the current model request…</source>
+        <translation>正在当前模型请求完成后停止…</translation>
+    </message>
+    <message>
+        <source>Analysis stopped. Existing session groups were kept.</source>
+        <translation>分析已停止。现有会话分组已保留。</translation>
+    </message>
+    <message>
+        <source>Analysis stopped.</source>
+        <translation>分析已停止。</translation>
     </message>
     <message>
         <location filename="../src/people_analysis_controller.cpp" line="40"/>
@@ -5065,6 +5087,14 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PeopleWorkspace.qml" line="136"/>
         <source>Clear Session Results</source>
         <translation>清除会话结果</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>停止</translation>
+    </message>
+    <message>
+        <source>Stopping…</source>
+        <translation>正在停止…</translation>
     </message>
     <message>
         <location filename="../qml/PeopleWorkspace.qml" line="184"/>

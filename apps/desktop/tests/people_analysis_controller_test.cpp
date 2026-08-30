@@ -4,9 +4,12 @@
 #include <QElapsedTimer>
 #include <QVariantMap>
 
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
+#include <thread>
 
 namespace {
 
@@ -27,12 +30,32 @@ void waitForCompletion(PeopleAnalysisController& controller) {
     QCoreApplication::processEvents();
 }
 
+PeopleAnalysisController::Operations operationsForReport(BackendPeopleAnalysisReport report) {
+    return {
+        .begin = [] { return std::uint64_t{41}; },
+        .execute = [report = std::move(report)](const std::uint64_t token) {
+            return BackendPeopleAnalysisExecution{
+                .job_token = token,
+                .report = report,
+            };
+        },
+        .progress = [](const std::uint64_t token) {
+            return BackendPeopleAnalysisProgress{
+                .job_token = token,
+                .phase = QStringLiteral("reviewing"),
+                .maximum_photos = 512,
+            };
+        },
+        .cancel = [](std::uint64_t) { return true; },
+        .retire = [](std::uint64_t) {},
+    };
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
     QCoreApplication application(argc, argv);
-    PeopleAnalysisController controller([] {
-        return BackendPeopleAnalysisReport{
+    PeopleAnalysisController controller(operationsForReport(BackendPeopleAnalysisReport{
             .analyzed_photos = 12,
             .detected_faces = 8,
             .embedded_faces = 7,
@@ -59,8 +82,7 @@ int main(int argc, char* argv[]) {
                     .thumbnail_jpeg = QByteArrayLiteral("jpeg-c"),
                 },
             },
-        };
-    });
+        }));
     controller.startAnalysis();
     waitForCompletion(controller);
     const QVariantList groups = controller.groups();
@@ -123,16 +145,68 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    PeopleAnalysisController failing([]() -> BackendPeopleAnalysisReport {
-        throw std::runtime_error("provider unavailable");
+    PeopleAnalysisController failing({
+        .begin = [] { return std::uint64_t{42}; },
+        .execute = [](std::uint64_t) -> BackendPeopleAnalysisExecution {
+            throw std::runtime_error("provider unavailable");
+        },
+        .progress = [](const std::uint64_t token) {
+            return BackendPeopleAnalysisProgress{.job_token = token};
+        },
+        .cancel = [](std::uint64_t) { return true; },
+        .retire = [](std::uint64_t) {},
     });
     failing.startAnalysis();
     waitForCompletion(failing);
-    return require(!failing.errorText().isEmpty(), "provider failure becomes a safe UI error")
+    if (!require(!failing.errorText().isEmpty(), "provider failure becomes a safe UI error")
+        || !require(
+            !failing.errorText().contains(QStringLiteral("provider unavailable")),
+            "raw provider diagnostics are not exposed to QML"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    auto cancelled = std::make_shared<std::atomic_bool>(false);
+    auto retired = std::make_shared<std::atomic_bool>(false);
+    PeopleAnalysisController cancellable({
+        .begin = [] { return std::uint64_t{43}; },
+        .execute = [cancelled](const std::uint64_t token) {
+            while (!cancelled->load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+            return BackendPeopleAnalysisExecution{
+                .job_token = token,
+                .cancelled = true,
+            };
+        },
+        .progress = [](const std::uint64_t token) {
+            return BackendPeopleAnalysisProgress{
+                .job_token = token,
+                .phase = QStringLiteral("reviewing"),
+                .analyzed_photos = 3,
+                .maximum_photos = 512,
+                .detected_faces = 2,
+                .compared_faces = 1,
+            };
+        },
+        .cancel = [cancelled](std::uint64_t) {
+            cancelled->store(true, std::memory_order_release);
+            return true;
+        },
+        .retire = [retired](std::uint64_t) {
+            retired->store(true, std::memory_order_release);
+        },
+    });
+    cancellable.startAnalysis();
+    cancellable.cancelAnalysis();
+    waitForCompletion(cancellable);
+    return require(!cancellable.busy(), "cancelled analysis reaches a terminal state")
                    && require(
-                       !failing.errorText().contains(QStringLiteral("provider unavailable")),
-                       "raw provider diagnostics are not exposed to QML"
+                       cancellable.statusText().contains(QStringLiteral("stopped"), Qt::CaseInsensitive),
+                       "cancelled analysis has a distinct non-error status"
                    )
+                   && require(cancellable.errorText().isEmpty(), "cancellation is not a failure")
+                   && require(retired->load(std::memory_order_acquire), "terminal job is retired")
                ? EXIT_SUCCESS
                : EXIT_FAILURE;
 }
