@@ -127,6 +127,27 @@ void DesktopBackend::setSmartCategoryFeedback(
     );
 }
 
+void DesktopBackend::completeSmartCategoryReview(
+    const QString& photo_id,
+    const QString& representation_id,
+    const QVector<BackendSmartCategoryFeedbackDecision>& decisions
+) const {
+    rust::Vec<rust::String> category_ids;
+    rust::Vec<std::int8_t> ffi_decisions;
+    category_ids.reserve(static_cast<std::size_t>(decisions.size()));
+    ffi_decisions.reserve(static_cast<std::size_t>(decisions.size()));
+    for (const BackendSmartCategoryFeedbackDecision& decision : decisions) {
+        category_ids.push_back(decision.category_id.toStdString());
+        ffi_decisions.push_back(decision.decision);
+    }
+    impl_->session->complete_smart_category_review(
+        photo_id.toStdString(),
+        representation_id.toStdString(),
+        std::move(category_ids),
+        std::move(ffi_decisions)
+    );
+}
+
 void DesktopBackend::pauseSmartClassification(const QString& generation) const {
     impl_->session->pause_smart_classification(generation.toStdString());
 }

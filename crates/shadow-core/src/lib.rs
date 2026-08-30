@@ -95,11 +95,11 @@ pub use semantic_search::{
 };
 pub use smart_classification::{
     SmartCategoryCount, SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartCategoryMatch,
-    SmartCategoryReviewItem, SmartClassificationBatch, SmartClassificationError,
-    SmartClassificationPolicy, SmartClassificationRequest, SmartClassificationSnapshot,
-    SmartClassificationStatus, classify_review_smart_categories, pause_smart_classification,
-    set_smart_category_feedback, smart_category_members, smart_category_review_queue,
-    smart_classification_snapshot,
+    SmartCategoryReviewDecision, SmartCategoryReviewItem, SmartClassificationBatch,
+    SmartClassificationError, SmartClassificationPolicy, SmartClassificationRequest,
+    SmartClassificationSnapshot, SmartClassificationStatus, classify_review_smart_categories,
+    complete_smart_category_review, pause_smart_classification, set_smart_category_feedback,
+    smart_category_members, smart_category_review_queue, smart_classification_snapshot,
 };
 pub use technical_observation::{
     TECHNICAL_ANALYSIS_MAX_EDGE, TechnicalObservationActor, TechnicalObservationError,

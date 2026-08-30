@@ -48,13 +48,15 @@ SmartCategoryController::SmartCategoryController(
     MembersLoader members_loader,
     ReviewQueueLoader review_queue_loader,
     FeedbackWriter feedback_writer,
+    ReviewCompleter review_completer,
     PauseWriter pause_writer,
     QObject* const parent
 ) :
     QObject(parent), runner_(std::move(runner)), snapshot_loader_(std::move(snapshot_loader)),
     members_loader_(std::move(members_loader)),
     review_queue_loader_(std::move(review_queue_loader)),
-    feedback_writer_(std::move(feedback_writer)), pause_writer_(std::move(pause_writer)) {
+    feedback_writer_(std::move(feedback_writer)), review_completer_(std::move(review_completer)),
+    pause_writer_(std::move(pause_writer)) {
     loadSettings();
     connect(
         &watcher_,
@@ -430,6 +432,40 @@ void SmartCategoryController::recordFeedback(
         diagnostic_ = QString::fromUtf8(error.what());
         state_ = State::Failed;
         emit stateChanged();
+    }
+}
+
+bool SmartCategoryController::completeReview(
+    const QString& photo_id,
+    const QString& representation_id,
+    const QVariantList& decisions
+) {
+    if (photo_id.isEmpty() || representation_id.isEmpty() || decisions.isEmpty())
+        return false;
+    QVector<BackendSmartCategoryFeedbackDecision> review;
+    review.reserve(decisions.size());
+    QSet<QString> categories;
+    for (const QVariant& value : decisions) {
+        const QVariantMap item = value.toMap();
+        const QString category_id = item.value(QStringLiteral("categoryId")).toString();
+        const int decision = item.value(QStringLiteral("decision")).toInt();
+        if (category_id.isEmpty() || categories.contains(category_id)
+            || (decision != -1 && decision != 1)) {
+            return false;
+        }
+        categories.insert(category_id);
+        review.push_back({category_id, static_cast<std::int8_t>(decision)});
+    }
+    try {
+        review_completer_(photo_id, representation_id, review);
+        restoreSnapshot();
+        feedback_refresh_timer_.start();
+        return true;
+    } catch (const std::exception& error) {
+        diagnostic_ = QString::fromUtf8(error.what());
+        state_ = State::Failed;
+        emit stateChanged();
+        return false;
     }
 }
 

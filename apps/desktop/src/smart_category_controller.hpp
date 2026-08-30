@@ -60,6 +60,8 @@ class SmartCategoryController final : public QObject {
     using ReviewQueueLoader = std::function<QVector<BackendSmartCategoryReviewItem>()>;
     using FeedbackWriter =
         std::function<void(const QString&, const QString&, const QString&, std::int8_t)>;
+    using ReviewCompleter = std::function<
+        void(const QString&, const QString&, const QVector<BackendSmartCategoryFeedbackDecision>&)>;
     using PauseWriter = std::function<void(const QString&)>;
 
     explicit SmartCategoryController(
@@ -68,6 +70,7 @@ class SmartCategoryController final : public QObject {
         MembersLoader members_loader,
         ReviewQueueLoader review_queue_loader,
         FeedbackWriter feedback_writer,
+        ReviewCompleter review_completer,
         PauseWriter pause_writer,
         QObject* parent = nullptr
     );
@@ -110,6 +113,11 @@ class SmartCategoryController final : public QObject {
         const QString& representation_id,
         const QString& category_id,
         int decision
+    );
+    Q_INVOKABLE bool completeReview(
+        const QString& photo_id,
+        const QString& representation_id,
+        const QVariantList& decisions
     );
     Q_INVOKABLE void updateCategory(
         const QString& category_id,
@@ -159,6 +167,7 @@ class SmartCategoryController final : public QObject {
     MembersLoader members_loader_;
     ReviewQueueLoader review_queue_loader_;
     FeedbackWriter feedback_writer_;
+    ReviewCompleter review_completer_;
     PauseWriter pause_writer_;
     QFutureWatcher<SmartCategoryTaskResult> watcher_;
     QVector<Category> categories_;

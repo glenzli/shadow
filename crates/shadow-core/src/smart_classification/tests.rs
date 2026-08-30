@@ -363,6 +363,192 @@ fn durable_checkpoint_resumes_and_publishes_atomically() {
 }
 
 #[test]
+fn whole_photo_review_records_unchanged_choices_and_clears_uncertainty_atomically() {
+    let root = std::env::temp_dir().join(format!(
+        "shadow-smart-category-whole-review-{}",
+        PhotoId::new_v7()
+    ));
+    let mut index = SemanticIndex::open(&root).expect("open index");
+    let reviewed_photo = PhotoId::new_v7();
+    let reviewed_representation = RepresentationId::new_v7();
+    let incomplete_photo = PhotoId::new_v7();
+    let incomplete_representation = RepresentationId::new_v7();
+    let run = index
+        .prepare_run("config-v1", None, true, false)
+        .expect("start run");
+    index
+        .checkpoint_batch(
+            &run,
+            "siglip-test@build:space:v1",
+            "test-build",
+            2,
+            2,
+            None,
+            &[
+                SmartCategoryMatch {
+                    photo_id: reviewed_photo,
+                    representation_id: reviewed_representation,
+                    source_revision: "review-source".into(),
+                    category_id: "portrait".into(),
+                    cosine_similarity: 0.071,
+                },
+                SmartCategoryMatch {
+                    photo_id: incomplete_photo,
+                    representation_id: incomplete_representation,
+                    source_revision: "incomplete-source".into(),
+                    category_id: "portrait".into(),
+                    cosine_similarity: 0.071,
+                },
+            ],
+            &[
+                SmartClassifiedPhoto {
+                    photo_id: reviewed_photo,
+                    representation_id: reviewed_representation,
+                    source_revision: "review-source".into(),
+                },
+                SmartClassifiedPhoto {
+                    photo_id: incomplete_photo,
+                    representation_id: incomplete_representation,
+                    source_revision: "incomplete-source".into(),
+                },
+            ],
+            &[
+                SmartCategoryUncertainty {
+                    photo_id: reviewed_photo,
+                    representation_id: reviewed_representation,
+                    source_revision: "review-source".into(),
+                    category_id: "portrait".into(),
+                    adapted_similarity: 0.071,
+                    decision_margin: 0.001,
+                },
+                SmartCategoryUncertainty {
+                    photo_id: reviewed_photo,
+                    representation_id: reviewed_representation,
+                    source_revision: "review-source".into(),
+                    category_id: "travel".into(),
+                    adapted_similarity: 0.069,
+                    decision_margin: -0.001,
+                },
+                SmartCategoryUncertainty {
+                    photo_id: incomplete_photo,
+                    representation_id: incomplete_representation,
+                    source_revision: "incomplete-source".into(),
+                    category_id: "portrait".into(),
+                    adapted_similarity: 0.071,
+                    decision_margin: 0.001,
+                },
+                SmartCategoryUncertainty {
+                    photo_id: incomplete_photo,
+                    representation_id: incomplete_representation,
+                    source_revision: "incomplete-source".into(),
+                    category_id: "travel".into(),
+                    adapted_similarity: 0.069,
+                    decision_margin: -0.001,
+                },
+            ],
+        )
+        .expect("publish review candidates");
+    let feedback_space = shadow_ai::SemanticEmbeddingSpace::new(
+        shadow_ai::SEMANTIC_EMBEDDING_CONTRACT_VERSION,
+        "siglip-test@build:space:v1",
+        2,
+    )
+    .expect("feedback space");
+    index
+        .store_image(
+            "review-source",
+            &shadow_ai::SemanticEmbedding::new(feedback_space.clone(), vec![0.8, 0.6])
+                .expect("review embedding"),
+            "test-build",
+        )
+        .expect("store review embedding");
+    index
+        .store_image(
+            "incomplete-source",
+            &shadow_ai::SemanticEmbedding::new(feedback_space, vec![0.6, 0.8])
+                .expect("incomplete embedding"),
+            "test-build",
+        )
+        .expect("store incomplete embedding");
+
+    complete_smart_category_review(
+        &root,
+        reviewed_photo,
+        reviewed_representation,
+        &[
+            SmartCategoryReviewDecision {
+                category_id: "portrait".into(),
+                decision: SmartCategoryFeedbackDecision::Belongs,
+            },
+            SmartCategoryReviewDecision {
+                category_id: "travel".into(),
+                decision: SmartCategoryFeedbackDecision::DoesNotBelong,
+            },
+        ],
+    )
+    .expect("complete unchanged whole-photo review");
+    assert_eq!(index.published_uncertain_photo_count().expect("count"), 1);
+    assert!(
+        index
+            .published_members("portrait")
+            .expect("portrait members")
+            .contains(&format!("{reviewed_photo}\u{1f}{reviewed_representation}"))
+    );
+    assert!(
+        index
+            .published_members("travel")
+            .expect("travel members")
+            .is_empty()
+    );
+    let stored = index
+        .stored_feedback("siglip-test@build:space:v1")
+        .expect("load complete review feedback");
+    assert_eq!(stored.len(), 2);
+    assert!(
+        stored
+            .iter()
+            .any(|item| item.category_id == "portrait" && item.label == 1)
+    );
+    assert!(
+        stored
+            .iter()
+            .any(|item| item.category_id == "travel" && item.label == -1)
+    );
+
+    assert!(matches!(
+        complete_smart_category_review(
+            &root,
+            incomplete_photo,
+            incomplete_representation,
+            &[SmartCategoryReviewDecision {
+                category_id: "portrait".into(),
+                decision: SmartCategoryFeedbackDecision::DoesNotBelong,
+            }],
+        ),
+        Err(SmartClassificationError::Index(
+            SemanticIndexError::IncompleteReview
+        ))
+    ));
+    assert_eq!(index.published_uncertain_photo_count().expect("count"), 1);
+    assert_eq!(
+        index
+            .stored_feedback("siglip-test@build:space:v1")
+            .expect("load feedback after rejected review")
+            .len(),
+        2,
+        "an incomplete review must not partially write feedback"
+    );
+    let replacement = index
+        .prepare_run("config-v1", None, true, false)
+        .expect("start adaptation run");
+    assert_eq!(
+        replacement.adaptation_revision, 1,
+        "one whole-photo review requests one adaptation revision"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn schema_one_vector_cache_migrates_without_reembedding() {
     let root = std::env::temp_dir().join(format!(
         "shadow-smart-category-migration-{}",

@@ -6,11 +6,13 @@ import QtQuick.Layouts
 
 Popup {
     id: root
+    objectName: "smartCategoryReviewPopup"
 
     property var workspace: null
     property string photoId: ""
     property string representationId: ""
     property string photoTitle: ""
+    property string completionError: ""
     property int modelRevision: 0
     readonly property bool hasWorkspace:
         workspace !== null && workspace !== undefined
@@ -31,6 +33,15 @@ Popup {
                 return revision >= 0
         }
         return false
+    }
+    readonly property int remainingUncertainCount: {
+        const revision = modelRevision
+        let count = 0
+        for (let index = 0; index < categoryModel.count; ++index) {
+            if (Boolean(categoryModel.get(index).uncertain))
+                ++count
+        }
+        return revision >= 0 ? count : 0
     }
     readonly property bool advancedStateMatches: hasImageUnderstandingController
         && imageUnderstandingController.advancedReviewPhotoId === photoId
@@ -59,6 +70,7 @@ Popup {
         photoId = String(photoIdValue)
         representationId = String(representationIdValue)
         photoTitle = String(titleValue)
+        completionError = ""
         categoryModel.clear()
         const options = workspace.smartCategoryController.feedbackCategories(
             photoId, representationId)
@@ -93,24 +105,34 @@ Popup {
         photoId = ""
         representationId = ""
         photoTitle = ""
+        completionError = ""
         categoryModel.clear()
         ++modelRevision
     }
 
-    function saveCorrections() {
+    function completeReview() {
         if (!hasWorkspace)
             return
-        let changed = false
+        const decisions = []
         for (let index = 0; index < categoryModel.count; ++index) {
             const option = categoryModel.get(index)
-            if (Boolean(option.chosen) === Boolean(option.originalChosen))
+            if (!Boolean(option.uncertain)
+                    && Boolean(option.chosen)
+                        === Boolean(option.originalChosen))
                 continue
-            changed = true
-            workspace.smartCategoryController.recordFeedback(
-                photoId, representationId, String(option.categoryId),
-                Boolean(option.chosen) ? 1 : -1)
+            decisions.push({
+                "categoryId": String(option.categoryId),
+                "decision": Boolean(option.chosen) ? 1 : -1
+            })
         }
-        if (changed && advancedStateMatches
+        if (!workspace.smartCategoryController.completeReview(
+                photoId, representationId, decisions)) {
+            completionError = qsTr(
+                "The review could not be saved. Your choices remain open; try again.")
+            return
+        }
+        completionError = ""
+        if (advancedStateMatches
                 && advancedDisposition !== "accepted"
                 && advancedDisposition !== "dismissed"
                 && advancedDisposition !== "") {
@@ -416,14 +438,34 @@ Popup {
                     }
 
                     ShadowButton {
+                        objectName: "acceptAdvancedSmartCategorySuggestionButton"
                         compact: true
                         variant: ShadowButton.Primary
                         text: qsTr("Accept suggestion")
                         onClicked: {
+                            const acceptedCategoryId = String(
+                                root.imageUnderstandingController
+                                    .advancedReviewCategoryId)
                             root.imageUnderstandingController
                                 .acceptAdvancedReview()
                             if (root.imageUnderstandingController
-                                    .advancedReviewDisposition === "accepted")
+                                    .advancedReviewDisposition !== "accepted")
+                                return
+                            for (let index = 0;
+                                 index < categoryModel.count; ++index) {
+                                if (String(categoryModel.get(index).categoryId)
+                                        !== acceptedCategoryId)
+                                    continue
+                                categoryModel.setProperty(index, "chosen", true)
+                                categoryModel.setProperty(
+                                    index, "originalChosen", true)
+                                categoryModel.setProperty(
+                                    index, "uncertain", false)
+                                break
+                            }
+                            ++root.modelRevision
+                            if (root.remainingUncertainCount === 0
+                                    && !root.hasChanges)
                                 root.close()
                         }
                     }
@@ -465,6 +507,18 @@ Popup {
             }
         }
 
+        Label {
+            objectName: "smartCategoryReviewCompletionError"
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.rightMargin: 4
+            visible: root.completionError.length > 0
+            text: root.completionError
+            color: Theme.dangerText
+            font.pixelSize: Theme.fontMeta
+            wrapMode: Text.WordWrap
+        }
+
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
@@ -478,10 +532,12 @@ Popup {
             }
 
             ShadowButton {
-                text: qsTr("Save corrections")
+                objectName: "completeSmartCategoryReviewButton"
+                text: qsTr("Complete review")
                 variant: ShadowButton.Primary
-                enabled: root.hasChanges
-                onClicked: root.saveCorrections()
+                enabled: root.hasWorkspace
+                    && (root.remainingUncertainCount > 0 || root.hasChanges)
+                onClicked: root.completeReview()
             }
         }
     }

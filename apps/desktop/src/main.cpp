@@ -384,6 +384,11 @@ int main(int argc, char* argv[]) {
         ) {
             backend->setSmartCategoryFeedback(photo_id, representation_id, category_id, decision);
         },
+        [backend](
+            const QString& photo_id,
+            const QString& representation_id,
+            const QVector<BackendSmartCategoryFeedbackDecision>& decisions
+        ) { backend->completeSmartCategoryReview(photo_id, representation_id, decisions); },
         [backend](const QString& generation) { backend->pauseSmartClassification(generation); }
     );
     ImageUnderstandingController image_understanding_controller(

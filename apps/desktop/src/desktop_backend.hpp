@@ -293,6 +293,11 @@ class DesktopBackend final {
         const QString& category_id,
         std::int8_t decision
     ) const;
+    void completeSmartCategoryReview(
+        const QString& photo_id,
+        const QString& representation_id,
+        const QVector<BackendSmartCategoryFeedbackDecision>& decisions
+    ) const;
     void pauseSmartClassification(const QString& generation) const;
     [[nodiscard]] BackendImageUnderstandingBatch processImageUnderstandingBatch(
         const QString& infer_base_url,

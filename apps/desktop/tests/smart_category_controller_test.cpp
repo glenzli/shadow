@@ -34,17 +34,20 @@ BackendSmartClassificationSnapshot emptySnapshot() {
 
 QString presentedFailure(const QString& diagnostic) {
     SmartCategoryController controller(
-        [diagnostic](const QVector<BackendSmartCategoryDefinition>&,
-                     const QString&,
-                     const QString&,
-                     const bool,
-                     const bool) -> BackendSmartClassificationBatch {
+        [diagnostic](
+            const QVector<BackendSmartCategoryDefinition>&,
+            const QString&,
+            const QString&,
+            const bool,
+            const bool
+        ) -> BackendSmartClassificationBatch {
             throw std::runtime_error(diagnostic.toStdString());
         },
         []() { return emptySnapshot(); },
         [](const QString&) { return QStringList{}; },
         []() { return QVector<BackendSmartCategoryReviewItem>{}; },
         [](const QString&, const QString&, const QString&, const std::int8_t) {},
+        [](const QString&, const QString&, const QVector<BackendSmartCategoryFeedbackDecision>&) {},
         [](const QString&) {}
     );
     controller.ensureCurrent();
@@ -65,9 +68,9 @@ int main(int argc, char** argv) {
     QVector<BackendSmartCategoryReviewItem> review_queue;
     int calls = 0;
     int feedback_calls = 0;
+    int review_completion_calls = 0;
     QString captured_revision;
-    QString captured_feedback_category;
-    std::int8_t captured_feedback_decision = 0;
+    QVector<BackendSmartCategoryFeedbackDecision> captured_review;
     SmartCategoryController controller(
         [&](const QVector<BackendSmartCategoryDefinition>& definitions,
             const QString& config_revision,
@@ -109,13 +112,22 @@ int main(int argc, char** argv) {
                     QStringLiteral("travel"),
                     {QStringLiteral("photo-a\x1frepresentation-a")}
                 );
-                review_queue = {{
-                    .photo_id = QStringLiteral("photo-b"),
-                    .representation_id = QStringLiteral("representation-b"),
-                    .category_id = QStringLiteral("portrait"),
-                    .adapted_similarity = 0.071F,
-                    .decision_margin = 0.001F,
-                }};
+                review_queue = {
+                    {
+                        .photo_id = QStringLiteral("photo-b"),
+                        .representation_id = QStringLiteral("representation-b"),
+                        .category_id = QStringLiteral("portrait"),
+                        .adapted_similarity = 0.071F,
+                        .decision_margin = 0.001F,
+                    },
+                    {
+                        .photo_id = QStringLiteral("photo-b"),
+                        .representation_id = QStringLiteral("representation-b"),
+                        .category_id = QStringLiteral("travel"),
+                        .adapted_similarity = 0.069F,
+                        .decision_margin = -0.001F,
+                    },
+                };
             }
             return batch;
         },
@@ -132,8 +144,19 @@ int main(int argc, char** argv) {
                 "feedback preserves the representation identity"
             );
             ++feedback_calls;
-            captured_feedback_category = category_id;
-            captured_feedback_decision = decision;
+            require(!category_id.isEmpty(), "single feedback preserves the category identity");
+            require(decision >= -1 && decision <= 1, "single feedback preserves its decision");
+        },
+        [&](const QString& photo_id,
+            const QString& representation_id,
+            const QVector<BackendSmartCategoryFeedbackDecision>& decisions) {
+            require(photo_id == QStringLiteral("photo-b"), "review preserves the photo identity");
+            require(
+                representation_id == QStringLiteral("representation-b"),
+                "review preserves the representation identity"
+            );
+            ++review_completion_calls;
+            captured_review = decisions;
             review_queue.clear();
             snapshot.adaptation_pending = true;
         },
@@ -198,17 +221,32 @@ int main(int argc, char** argv) {
         controller.selectedRepresentationKeys().size() == 1,
         "uncertainty queue is available through the existing gallery filter"
     );
-    controller.recordFeedback(
-        QStringLiteral("photo-b"),
-        QStringLiteral("representation-b"),
-        QStringLiteral("portrait"),
-        -1
-    );
-    require(feedback_calls == 1, "one correction crosses the durable feedback boundary once");
     require(
-        captured_feedback_category == QStringLiteral("portrait")
-            && captured_feedback_decision == -1,
-        "the user's negative decision is not softened before persistence"
+        controller.completeReview(
+            QStringLiteral("photo-b"),
+            QStringLiteral("representation-b"),
+            {
+                QVariantMap{
+                    {QStringLiteral("categoryId"), QStringLiteral("portrait")},
+                    {QStringLiteral("decision"), 1}
+                },
+                QVariantMap{
+                    {QStringLiteral("categoryId"), QStringLiteral("travel")},
+                    {QStringLiteral("decision"), -1}
+                },
+            }
+        ),
+        "an unchanged whole-photo review completes"
+    );
+    require(feedback_calls == 0, "whole-photo review does not degrade into separate writes");
+    require(review_completion_calls == 1, "one review crosses the durable boundary once");
+    require(
+        captured_review.size() == 2
+            && captured_review.at(0).category_id == QStringLiteral("portrait")
+            && captured_review.at(0).decision == 1
+            && captured_review.at(1).category_id == QStringLiteral("travel")
+            && captured_review.at(1).decision == -1,
+        "the complete positive and negative decisions cross without reinterpretation"
     );
     require(
         controller.uncertainCount() == 0,
@@ -249,6 +287,7 @@ int main(int argc, char** argv) {
         [](const QString&) { return QStringList{}; },
         []() { return QVector<BackendSmartCategoryReviewItem>{}; },
         [](const QString&, const QString&, const QString&, const std::int8_t) {},
+        [](const QString&, const QString&, const QVector<BackendSmartCategoryFeedbackDecision>&) {},
         [](const QString&) {}
     );
     QElapsedTimer pending_timer;
@@ -299,6 +338,7 @@ int main(int argc, char** argv) {
         [&](const QString& category_id) { return members.value(category_id); },
         []() { return QVector<BackendSmartCategoryReviewItem>{}; },
         [](const QString&, const QString&, const QString&, const std::int8_t) {},
+        [](const QString&, const QString&, const QVector<BackendSmartCategoryFeedbackDecision>&) {},
         [](const QString&) {}
     );
     require(
@@ -335,6 +375,7 @@ int main(int argc, char** argv) {
         [](const QString&) { return QStringList{}; },
         []() { return QVector<BackendSmartCategoryReviewItem>{}; },
         [](const QString&, const QString&, const QString&, const std::int8_t) {},
+        [](const QString&, const QString&, const QVector<BackendSmartCategoryFeedbackDecision>&) {},
         [](const QString&) {}
     );
     require(

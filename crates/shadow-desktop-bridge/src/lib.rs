@@ -2555,6 +2555,13 @@ mod ffi {
             category_id: &str,
             decision: i8,
         ) -> Result<()>;
+        fn complete_smart_category_review(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+            category_ids: Vec<String>,
+            decisions: Vec<i8>,
+        ) -> Result<()>;
         fn pause_smart_classification(self: &DesktopSession, generation: &str) -> Result<()>;
         fn process_image_understanding_batch(
             self: &DesktopSession,

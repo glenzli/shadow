@@ -41,6 +41,11 @@ struct BackendSmartCategoryReviewItem final {
     float decision_margin = 0.0F;
 };
 
+struct BackendSmartCategoryFeedbackDecision final {
+    QString category_id;
+    std::int8_t decision = 0;
+};
+
 struct BackendSmartClassificationBatch final {
     QString config_revision;
     QString generation;

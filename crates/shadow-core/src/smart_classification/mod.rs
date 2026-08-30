@@ -8,7 +8,10 @@
 mod adaptation;
 mod index;
 
-use std::{collections::HashMap, fmt::Write as _};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write as _,
+};
 
 use blake3::Hasher;
 use serde::Serialize;
@@ -64,6 +67,12 @@ pub enum SmartCategoryFeedbackDecision {
     Clear,
     DoesNotBelong,
     Belongs,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SmartCategoryReviewDecision {
+    pub category_id: String,
+    pub decision: SmartCategoryFeedbackDecision,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -477,6 +486,43 @@ pub fn set_smart_category_feedback(
         &representation_id.to_string(),
         category_id,
         decision,
+    )?;
+    Ok(())
+}
+
+/// Completes the uncertainty review for one published photo as one durable decision.
+///
+/// Every category that is currently uncertain for the photo must be present, even
+/// when the user accepts its existing membership. Additional explicit corrections
+/// may be included in the same transaction. The review leaves the queue only after
+/// all feedback and membership projections have committed successfully.
+///
+/// # Errors
+///
+/// Returns validation or index errors when decisions are invalid, incomplete, or
+/// refer to a photo outside the current published review queue.
+pub fn complete_smart_category_review(
+    cache_root: impl AsRef<std::path::Path>,
+    photo_id: PhotoId,
+    representation_id: RepresentationId,
+    decisions: &[SmartCategoryReviewDecision],
+) -> Result<(), SmartClassificationError> {
+    if decisions.is_empty() || decisions.len() > MAX_SMART_CATEGORY_DEFINITIONS {
+        return Err(SmartClassificationError::InvalidRequest);
+    }
+    let mut categories = HashSet::with_capacity(decisions.len());
+    for decision in decisions {
+        validate_category_id(&decision.category_id)?;
+        if decision.decision == SmartCategoryFeedbackDecision::Clear
+            || !categories.insert(decision.category_id.as_str())
+        {
+            return Err(SmartClassificationError::InvalidRequest);
+        }
+    }
+    SemanticIndex::open(cache_root.as_ref())?.complete_user_review(
+        &photo_id.to_string(),
+        &representation_id.to_string(),
+        decisions,
     )?;
     Ok(())
 }

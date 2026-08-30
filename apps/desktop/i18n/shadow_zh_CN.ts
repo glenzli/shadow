@@ -9661,8 +9661,13 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="481"/>
-        <source>Save corrections</source>
-        <translation>保存纠错</translation>
+        <source>The review could not be saved. Your choices remain open; try again.</source>
+        <translation>无法保存本次审核。当前选择会保持打开，请重试。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewSmartCategoryFeedbackPopup.qml" line="481"/>
+        <source>Complete review</source>
+        <translation>完成审核</translation>
     </message>
 </context>
 <context>
