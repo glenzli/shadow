@@ -235,6 +235,44 @@ class DesktopBackend final {
     ) const;
     [[nodiscard]] BackendShadowRecipeImportPreview
     previewShadowRecipe(const QByteArray& document) const;
+    [[nodiscard]] BackendRecipeImportPlan prepareSemanticRecipeImport(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const BackendGradeStack& grade_stack,
+        const QByteArray& document
+    ) const;
+    [[nodiscard]] BackendRecipeImportPlan semanticRecipeImportPlan(std::uint64_t plan_token) const;
+    [[nodiscard]] std::uint64_t
+    beginSemanticRecipeImportItem(std::uint64_t plan_token, const QString& item_id) const;
+    [[nodiscard]] BackendRecipeImportItem executeSemanticRecipeImportItem(
+        std::uint64_t plan_token,
+        const QString& item_id,
+        std::uint64_t job_token
+    ) const;
+    [[nodiscard]] BackendRecipeImportItem cancelSemanticRecipeImportItem(
+        std::uint64_t plan_token,
+        const QString& item_id,
+        std::uint64_t job_token
+    ) const;
+    [[nodiscard]] BackendRecipeImportItem acceptSemanticRecipeImportItem(
+        std::uint64_t plan_token,
+        const QString& item_id,
+        std::uint64_t proposal_token,
+        std::uint64_t generation
+    ) const;
+    [[nodiscard]] BackendRecipeImportPlan
+    excludeSemanticRecipeImportNode(std::uint64_t plan_token, const QString& grade_node_id) const;
+    [[nodiscard]] BackendGradeStack finalizeSemanticRecipeImport(
+        std::uint64_t plan_token,
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const BackendGradeStack& grade_stack
+    ) const;
+    void closeSemanticRecipeImport(std::uint64_t plan_token) const;
     [[nodiscard]] BackendPhotoEditState
     resetIncompatiblePhotoEditHistory(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] QVariantList

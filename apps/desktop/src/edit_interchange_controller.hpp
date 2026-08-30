@@ -3,9 +3,14 @@
 #include "backend/edit_types.hpp"
 #include "xmp_develop_import.hpp"
 
+#include <QFutureWatcher>
 #include <QObject>
 #include <QUrl>
 #include <QVariantList>
+
+#include <atomic>
+#include <cstdint>
+#include <mutex>
 
 class EditController;
 class DesktopBackend;
@@ -32,6 +37,29 @@ class EditInterchangeController final : public QObject {
     Q_PROPERTY(int recipePortableMaskCount READ recipePortableMaskCount NOTIFY recipePreviewChanged)
     Q_PROPERTY(QVariantList recipeWarnings READ recipeWarnings NOTIFY recipePreviewChanged)
     Q_PROPERTY(QString recipeErrorText READ recipeErrorText NOTIFY recipePreviewChanged)
+    Q_PROPERTY(int recipeSemanticItemCount READ recipeSemanticItemCount NOTIFY recipePreviewChanged)
+    Q_PROPERTY(
+        int recipeSemanticCompletedCount READ recipeSemanticCompletedCount NOTIFY
+            recipePreviewChanged
+    )
+    Q_PROPERTY(
+        int recipeSemanticFailedCount READ recipeSemanticFailedCount NOTIFY recipePreviewChanged
+    )
+    Q_PROPERTY(
+        QVariantList recipeSemanticItems READ recipeSemanticItems NOTIFY recipePreviewChanged
+    )
+    Q_PROPERTY(
+        bool recipeAdaptationRunning READ recipeAdaptationRunning NOTIFY recipePreviewChanged
+    )
+    Q_PROPERTY(
+        bool recipeAdaptationPartial READ recipeAdaptationPartial NOTIFY recipePreviewChanged
+    )
+    Q_PROPERTY(bool recipeCanAdapt READ recipeCanAdapt NOTIFY recipePreviewChanged)
+    Q_PROPERTY(bool recipeCanRetryFailed READ recipeCanRetryFailed NOTIFY recipePreviewChanged)
+    Q_PROPERTY(
+        bool recipeCanApplyAvailableNodes READ recipeCanApplyAvailableNodes NOTIFY
+            recipePreviewChanged
+    )
     Q_PROPERTY(
         QString recipeApplyErrorText READ recipeApplyErrorText NOTIFY recipeApplyErrorChanged
     )
@@ -45,6 +73,7 @@ class EditInterchangeController final : public QObject {
         EditController& editor,
         QObject* parent = nullptr
     );
+    ~EditInterchangeController() override;
 
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] bool canApply() const noexcept;
@@ -63,6 +92,15 @@ class EditInterchangeController final : public QObject {
     [[nodiscard]] int recipePortableMaskCount() const noexcept;
     [[nodiscard]] QVariantList recipeWarnings() const;
     [[nodiscard]] QString recipeErrorText() const;
+    [[nodiscard]] int recipeSemanticItemCount() const noexcept;
+    [[nodiscard]] int recipeSemanticCompletedCount() const noexcept;
+    [[nodiscard]] int recipeSemanticFailedCount() const noexcept;
+    [[nodiscard]] QVariantList recipeSemanticItems() const;
+    [[nodiscard]] bool recipeAdaptationRunning() const noexcept;
+    [[nodiscard]] bool recipeAdaptationPartial() const noexcept;
+    [[nodiscard]] bool recipeCanAdapt() const noexcept;
+    [[nodiscard]] bool recipeCanRetryFailed() const noexcept;
+    [[nodiscard]] bool recipeCanApplyAvailableNodes() const noexcept;
     [[nodiscard]] QString recipeApplyErrorText() const;
     [[nodiscard]] QString recipeExportErrorText() const;
 
@@ -72,6 +110,10 @@ class EditInterchangeController final : public QObject {
     Q_INVOKABLE void clearShadowRecipe();
     Q_INVOKABLE void previewShadowRecipe(const QUrl& file_url);
     Q_INVOKABLE bool applyShadowRecipe();
+    Q_INVOKABLE bool startShadowRecipeAdaptation();
+    Q_INVOKABLE void cancelShadowRecipeAdaptation();
+    Q_INVOKABLE bool retryFailedShadowRecipeItems();
+    Q_INVOKABLE bool applyAvailableShadowRecipeNodes();
     Q_INVOKABLE bool exportShadowRecipe(const QUrl& file_url, const QString& label);
 
   signals:
@@ -91,6 +133,19 @@ class EditInterchangeController final : public QObject {
     void setApplyError(QString error);
     void setRecipeApplyError(QString error);
     void setRecipeExportError(QString error);
+    void finishRecipeAdaptation();
+    void closeRecipePlan() noexcept;
+    [[nodiscard]] bool recipeTargetIsCurrent() const noexcept;
+
+    enum class RecipeAdaptationMode : std::uint8_t { All, RetryFailed, ApplyAvailable };
+    struct RecipeAdaptationResult final {
+        BackendRecipeImportPlan plan;
+        BackendGradeStack grade_stack;
+        QString error;
+        std::uint64_t controller_generation = 0;
+        bool finalized = false;
+    };
+    [[nodiscard]] bool startRecipeAdaptation(RecipeAdaptationMode mode);
 
     DesktopBackend& backend_;
     EditController& editor_;
@@ -101,10 +156,19 @@ class EditInterchangeController final : public QObject {
     bool ready_ = false;
     QString recipe_source_name_;
     BackendShadowRecipeImportPreview recipe_preview_;
+    BackendRecipeImportPlan recipe_import_plan_;
     QString recipe_preview_error_;
     QString recipe_apply_error_;
     QString recipe_export_error_;
     QString recipe_target_photo_id_;
+    QString recipe_target_source_path_;
     QString recipe_target_base_commit_id_;
+    QString recipe_target_working_commit_id_;
+    BackendGradeStack recipe_target_grade_stack_;
+    QFutureWatcher<RecipeAdaptationResult> recipe_adaptation_watcher_;
+    std::atomic<std::uint64_t> recipe_controller_generation_{0};
+    mutable std::mutex recipe_job_mutex_;
+    QString recipe_active_item_id_;
+    std::uint64_t recipe_active_job_token_ = 0;
     bool recipe_ready_ = false;
 };

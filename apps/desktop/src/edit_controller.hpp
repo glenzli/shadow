@@ -520,6 +520,7 @@ class EditController final : public QObject {
     [[nodiscard]] QString autosaveErrorText() const;
     [[nodiscard]] bool versionDraft() const noexcept;
     [[nodiscard]] QString editBaseCommitId() const;
+    [[nodiscard]] QString durableWorkingCommitId() const;
     [[nodiscard]] QString activeVariantId() const;
     [[nodiscard]] QVariantList photoVariants() const;
     [[nodiscard]] bool variantActionsEnabled() const noexcept;

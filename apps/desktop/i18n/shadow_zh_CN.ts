@@ -13050,6 +13050,30 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>请选择有效的 Shadow Recipe 后再导入。</translation>
     </message>
     <message>
+        <source>Adapt the semantic masks before importing this Shadow Recipe.</source>
+        <translation>请先适配语义蒙版，再导入此 Shadow Recipe。</translation>
+    </message>
+    <message>
+        <source>Check Infer Runtime and the local models, then retry.</source>
+        <translation>请检查 Infer Runtime 和本地模型后重试。</translation>
+    </message>
+    <message>
+        <source>No matching subject was found in this photo.</source>
+        <translation>未在此照片中找到匹配的主体。</translation>
+    </message>
+    <message>
+        <source>Preview this Shadow Recipe again before adapting it.</source>
+        <translation>请重新预览此 Shadow Recipe 后再进行适配。</translation>
+    </message>
+    <message>
+        <source>Shadow could not adapt this Recipe: %1</source>
+        <translation>Shadow 无法适配此配方：%1</translation>
+    </message>
+    <message>
+        <source>This Shadow Recipe does not contain a semantic mask to adapt.</source>
+        <translation>此 Shadow Recipe 不包含可适配的语义蒙版。</translation>
+    </message>
+    <message>
         <source>Crop, orientation, and perspective remain unchanged on this photo.</source>
         <translation>此照片的裁剪、方向和透视保持不变。</translation>
     </message>

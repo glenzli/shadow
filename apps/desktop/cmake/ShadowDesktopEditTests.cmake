@@ -80,6 +80,31 @@
     )
 
     add_executable(
+        shadow-edit-interchange-controller-test
+        tests/edit_interchange_controller_test.cpp
+    )
+    target_compile_features(shadow-edit-interchange-controller-test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        shadow-edit-interchange-controller-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(shadow-edit-interchange-controller-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-interchange-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-interchange-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-interchange-controller
+        COMMAND shadow-edit-interchange-controller-test
+    )
+
+    add_executable(
         shadow-edit-source-admission-test
         tests/edit_source_admission_test.cpp
         src/edit_source_admission.cpp

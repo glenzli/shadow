@@ -432,6 +432,55 @@ struct BackendShadowRecipeImportPreview final {
     bool canvas_omitted = false;
 };
 
+enum class BackendRecipeImportItemTerminal : std::uint8_t {
+    Pending,
+    Running,
+    Staged,
+    Completed,
+    NotFound,
+    Unavailable,
+    Cancelled,
+    Failed,
+};
+
+struct BackendRecipeImportItem final {
+    QString item_id;
+    QString grade_node_id;
+    QString component_id;
+    std::uint8_t operation = 0;
+    bool enabled = true;
+    std::int8_t expansion_percent = 0;
+    std::uint8_t feather_percent = 0;
+    bool leaf_invert = false;
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 1;
+    std::uint8_t semantic_score_threshold_percent = 50;
+    BackendRecipeImportItemTerminal terminal = BackendRecipeImportItemTerminal::Pending;
+    std::uint64_t generation = 0;
+    std::uint8_t progress_percent = 0;
+    QString detail;
+    std::uint64_t proposal_token = 0;
+    std::uint32_t preview_width = 0;
+    std::uint32_t preview_height = 0;
+    QByteArray preview_samples;
+};
+
+struct BackendRecipeImportNode final {
+    QString grade_node_id;
+    QString label;
+    std::uint32_t semantic_leaf_count = 0;
+    std::uint32_t unsupported_managed_leaf_count = 0;
+    bool excluded = false;
+};
+
+struct BackendRecipeImportPlan final {
+    std::uint64_t plan_token = 0;
+    std::uint64_t generation = 0;
+    QString label;
+    QVector<BackendRecipeImportItem> items;
+    QVector<BackendRecipeImportNode> nodes;
+};
+
 struct BackendSubjectMaskPoint final {
     double x = 0.5;
     double y = 0.5;

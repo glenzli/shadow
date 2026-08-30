@@ -27,6 +27,78 @@ using desktop_backend_projection::qcounts;
 using desktop_backend_projection::qstring;
 using desktop_backend_projection::shared_grade_node;
 
+[[nodiscard]] BackendRecipeImportItemTerminal
+recipe_import_terminal(const shadow::desktop::FfiRecipeImportItemTerminal terminal) {
+    using Ffi = shadow::desktop::FfiRecipeImportItemTerminal;
+    switch (terminal) {
+    case Ffi::Pending:
+        return BackendRecipeImportItemTerminal::Pending;
+    case Ffi::Running:
+        return BackendRecipeImportItemTerminal::Running;
+    case Ffi::Staged:
+        return BackendRecipeImportItemTerminal::Staged;
+    case Ffi::Completed:
+        return BackendRecipeImportItemTerminal::Completed;
+    case Ffi::NotFound:
+        return BackendRecipeImportItemTerminal::NotFound;
+    case Ffi::Unavailable:
+        return BackendRecipeImportItemTerminal::Unavailable;
+    case Ffi::Cancelled:
+        return BackendRecipeImportItemTerminal::Cancelled;
+    case Ffi::Failed:
+        return BackendRecipeImportItemTerminal::Failed;
+    }
+    throw std::runtime_error("unsupported semantic Recipe import terminal");
+}
+
+[[nodiscard]] BackendRecipeImportItem
+recipe_import_item(const shadow::desktop::FfiRecipeImportItem& item) {
+    return {
+        .item_id = qstring(item.item_id),
+        .grade_node_id = qstring(item.grade_node_id),
+        .component_id = qstring(item.component_id),
+        .operation = item.operation,
+        .enabled = item.enabled,
+        .expansion_percent = item.expansion_percent,
+        .feather_percent = item.feather_percent,
+        .leaf_invert = item.leaf_invert,
+        .semantic_query = qstring(item.semantic_query),
+        .semantic_maximum_regions = item.semantic_maximum_regions,
+        .semantic_score_threshold_percent = item.semantic_score_threshold_percent,
+        .terminal = recipe_import_terminal(item.terminal),
+        .generation = item.generation,
+        .progress_percent = item.progress_percent,
+        .detail = qstring(item.detail),
+        .proposal_token = item.proposal_token,
+        .preview_width = item.preview_width,
+        .preview_height = item.preview_height,
+        .preview_samples = qbytes(item.preview_samples),
+    };
+}
+
+[[nodiscard]] BackendRecipeImportPlan
+recipe_import_plan(const shadow::desktop::FfiRecipeImportPlan& plan) {
+    BackendRecipeImportPlan result{
+        .plan_token = plan.plan_token,
+        .generation = plan.generation,
+        .label = qstring(plan.label),
+    };
+    result.items.reserve(checked_qt_vector_size(plan.items.size(), "semantic_recipe_import_items"));
+    for (const auto& item : plan.items)
+        result.items.push_back(recipe_import_item(item));
+    result.nodes.reserve(checked_qt_vector_size(plan.nodes.size(), "semantic_recipe_import_nodes"));
+    for (const auto& node : plan.nodes) {
+        result.nodes.push_back({
+            .grade_node_id = qstring(node.grade_node_id),
+            .label = qstring(node.label),
+            .semantic_leaf_count = node.semantic_leaf_count,
+            .unsupported_managed_leaf_count = node.unsupported_managed_leaf_count,
+            .excluded = node.excluded,
+        });
+    }
+    return result;
+}
+
 } // namespace
 
 BackendPhotoEditState
@@ -76,6 +148,111 @@ DesktopBackend::previewShadowRecipe(const QByteArray& document) const {
         .raw_denoise_omitted = preview.raw_denoise_omitted,
         .canvas_omitted = preview.canvas_omitted,
     };
+}
+
+BackendRecipeImportPlan DesktopBackend::prepareSemanticRecipeImport(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const BackendGradeStack& grade_stack_value,
+    const QByteArray& document
+) const {
+    const auto settings = ffi_grade_stack(grade_stack_value);
+    const auto bytes = rust::Slice<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(document.constData()),
+        static_cast<std::size_t>(document.size())
+    );
+    return recipe_import_plan(impl_->session->prepare_semantic_recipe_import(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
+        settings,
+        bytes
+    ));
+}
+
+BackendRecipeImportPlan
+DesktopBackend::semanticRecipeImportPlan(const std::uint64_t plan_token) const {
+    return recipe_import_plan(impl_->session->semantic_recipe_import_plan(plan_token));
+}
+
+std::uint64_t DesktopBackend::beginSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id
+) const {
+    return impl_->session->begin_semantic_recipe_import_item(plan_token, item_id.toStdString());
+}
+
+BackendRecipeImportItem DesktopBackend::executeSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id,
+    const std::uint64_t job_token
+) const {
+    return recipe_import_item(impl_->session->execute_semantic_recipe_import_item(
+        plan_token,
+        item_id.toStdString(),
+        job_token
+    ));
+}
+
+BackendRecipeImportItem DesktopBackend::cancelSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id,
+    const std::uint64_t job_token
+) const {
+    return recipe_import_item(impl_->session->cancel_semantic_recipe_import_item(
+        plan_token,
+        item_id.toStdString(),
+        job_token
+    ));
+}
+
+BackendRecipeImportItem DesktopBackend::acceptSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id,
+    const std::uint64_t proposal_token,
+    const std::uint64_t generation
+) const {
+    return recipe_import_item(impl_->session->accept_semantic_recipe_import_item(
+        plan_token,
+        item_id.toStdString(),
+        proposal_token,
+        generation
+    ));
+}
+
+BackendRecipeImportPlan DesktopBackend::excludeSemanticRecipeImportNode(
+    const std::uint64_t plan_token,
+    const QString& grade_node_id
+) const {
+    return recipe_import_plan(
+        impl_->session->exclude_semantic_recipe_import_node(plan_token, grade_node_id.toStdString())
+    );
+}
+
+BackendGradeStack DesktopBackend::finalizeSemanticRecipeImport(
+    const std::uint64_t plan_token,
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const BackendGradeStack& grade_stack_value
+) const {
+    const auto settings = ffi_grade_stack(grade_stack_value);
+    return grade_stack(impl_->session->finalize_semantic_recipe_import(
+        plan_token,
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
+        settings
+    ));
+}
+
+void DesktopBackend::closeSemanticRecipeImport(const std::uint64_t plan_token) const {
+    impl_->session->close_semantic_recipe_import(plan_token);
 }
 
 BackendPhotoEditState DesktopBackend::resetIncompatiblePhotoEditHistory(
