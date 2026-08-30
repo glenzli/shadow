@@ -41,6 +41,7 @@ use thiserror::Error;
 use crate::subject_mask_people::{
     FaceRegionSet, ParsedSubjectMaskPerson, SubjectMaskPersonCandidate, compose_face_region_mask,
 };
+use crate::subject_mask_service::PreparedSubjectMaskInput;
 
 const MAX_PROVIDER_INPUT_JPEG_BYTES: usize = 64 * 1024 * 1024;
 const SOFT_MASK_MEDIA_TYPE: &str = "application/x-shadow-soft-mask";
@@ -68,6 +69,26 @@ pub(crate) struct SubjectMaskInvocation {
     pub(crate) original_space_input_content_hash: String,
     pub(crate) coordinate_extent: RasterExtent,
     pub(crate) selection: SubjectMaskSelection,
+}
+
+#[derive(Debug)]
+pub(crate) struct SemanticMaskInvocation {
+    pub(crate) request_id: String,
+    pub(crate) promotion_id: String,
+    pub(crate) generation: u64,
+    pub(crate) photo_id: String,
+    pub(crate) original_space_input: PreparedSubjectMaskInput,
+    pub(crate) intent: SemanticMaskIntent,
+}
+
+#[derive(Debug)]
+pub(crate) enum SemanticMaskStageOutcome {
+    Staged(DerivedRasterStageReceipt),
+    ProviderUnavailable(DerivedRasterStageReceipt),
+    ProviderFailed(DerivedRasterStageReceipt),
+    NotFound,
+    Cancelled,
+    Unavailable(SubjectMaskRuntimeError),
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +129,65 @@ impl SubjectMaskRuntime {
         cancellation: &CancellationToken,
     ) -> Result<DerivedRasterStageReceipt, SubjectMaskRuntimeError> {
         self.stage_with_runtime(store, invocation, cancellation)
+    }
+
+    /// Grounds one semantic intent and stages its SAM-derived raster without
+    /// publishing durable Recipe state.
+    pub(crate) fn stage_semantic_intent(
+        &self,
+        store: &FilesystemDerivedRasterStore,
+        invocation: SemanticMaskInvocation,
+        cancellation: &CancellationToken,
+    ) -> SemanticMaskStageOutcome {
+        let invocation = SubjectMaskInvocation {
+            request_id: invocation.request_id,
+            promotion_id: invocation.promotion_id,
+            generation: invocation.generation,
+            photo_id: invocation.photo_id,
+            original_space_input_jpeg: invocation.original_space_input.bytes,
+            original_space_input_content_hash: invocation.original_space_input.content_hash,
+            coordinate_extent: invocation.original_space_input.coordinate_extent,
+            selection: SubjectMaskSelection::SemanticQuery {
+                intent: invocation.intent,
+            },
+        };
+        Self::classify_semantic_stage(self.stage_with_runtime(store, invocation, cancellation))
+    }
+
+    fn classify_semantic_stage(
+        result: Result<DerivedRasterStageReceipt, SubjectMaskRuntimeError>,
+    ) -> SemanticMaskStageOutcome {
+        match result {
+            Ok(receipt)
+                if matches!(
+                    receipt.outcome,
+                    shadow_core::DerivedRasterStageOutcome::Unavailable { .. }
+                ) =>
+            {
+                SemanticMaskStageOutcome::ProviderUnavailable(receipt)
+            }
+            Ok(receipt)
+                if matches!(
+                    receipt.outcome,
+                    shadow_core::DerivedRasterStageOutcome::Failed { .. }
+                ) =>
+            {
+                SemanticMaskStageOutcome::ProviderFailed(receipt)
+            }
+            Ok(receipt)
+                if matches!(
+                    receipt.outcome,
+                    shadow_core::DerivedRasterStageOutcome::Cancelled
+                ) =>
+            {
+                SemanticMaskStageOutcome::Cancelled
+            }
+            Ok(receipt) => SemanticMaskStageOutcome::Staged(receipt),
+            Err(SubjectMaskRuntimeError::SemanticQueryNotFound) => {
+                SemanticMaskStageOutcome::NotFound
+            }
+            Err(error) => SemanticMaskStageOutcome::Unavailable(error),
+        }
     }
 
     pub(crate) fn detect_people(

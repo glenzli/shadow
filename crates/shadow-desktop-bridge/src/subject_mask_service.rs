@@ -77,13 +77,35 @@ pub(crate) struct SubjectMaskProposalPreview {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct SubjectMaskInputIdentity {
+pub(crate) struct SubjectMaskRefinement {
+    pub(crate) expansion_percent: i8,
+    pub(crate) feather_percent: u8,
+    pub(crate) leaf_invert: bool,
+    pub(crate) semantic_intent: Option<SemanticMaskIntent>,
+}
+
+impl SubjectMaskRefinement {
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        if !(-100..=100).contains(&self.expansion_percent) {
+            return Err(RecipeValidationError::InvalidManagedRasterMaskExpansion(
+                self.expansion_percent,
+            ));
+        }
+        if self.feather_percent > 100 {
+            return Err(RecipeValidationError::InvalidManagedRasterMaskFeather(
+                self.feather_percent,
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SubjectMaskRenderInputIdentity {
     pub(crate) photo_id: String,
     pub(crate) source_path: String,
     pub(crate) base_commit_id: String,
     pub(crate) grade_stack: GradeStackDraft,
-    pub(crate) target_grade_node_index: u32,
-    pub(crate) target_grade_node_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -169,11 +191,11 @@ impl SubjectMaskService {
     }
 
     /// Reserves preparation exactly once, or returns the immutable input
-    /// already prepared for the same photo, Recipe and target identity.
-    pub(crate) fn admit_input(
+    /// already prepared for the same photo and render-input identity.
+    pub(crate) fn admit_original_space_input(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
     ) -> Result<SubjectMaskInputAdmission, SubjectMaskServiceError> {
         let mut sessions = self
             .input_sessions
@@ -213,10 +235,10 @@ impl SubjectMaskService {
         }
     }
 
-    pub(crate) fn complete_input_preparation(
+    pub(crate) fn complete_original_space_input_preparation(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
         bytes: Vec<u8>,
         coordinate_extent: RasterExtent,
     ) -> Result<PreparedSubjectMaskInput, SubjectMaskServiceError> {
@@ -268,7 +290,7 @@ impl SubjectMaskService {
     pub(crate) fn people_snapshot(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
     ) -> Result<Option<Vec<SubjectMaskPersonSnapshot>>, SubjectMaskServiceError> {
         let sessions = self
             .input_sessions
@@ -296,7 +318,7 @@ impl SubjectMaskService {
     pub(crate) fn cache_people(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
         people: Vec<SubjectMaskPersonCandidate>,
     ) -> Result<Vec<SubjectMaskPersonSnapshot>, SubjectMaskServiceError> {
         if people.len() > MAX_SUBJECT_MASK_PEOPLE {
@@ -356,7 +378,7 @@ impl SubjectMaskService {
     pub(crate) fn person_candidate(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
         person_index: u32,
     ) -> Result<SubjectMaskPersonCandidate, SubjectMaskServiceError> {
         let sessions = self
@@ -378,7 +400,7 @@ impl SubjectMaskService {
     pub(crate) fn parsed_person(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
         person_index: u32,
     ) -> Result<Option<Arc<ParsedSubjectMaskPerson>>, SubjectMaskServiceError> {
         let sessions = self
@@ -392,7 +414,7 @@ impl SubjectMaskService {
     pub(crate) fn cache_parsed_person(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
         person_index: u32,
         parsed: ParsedSubjectMaskPerson,
     ) -> Result<Arc<ParsedSubjectMaskPerson>, SubjectMaskServiceError> {
@@ -431,10 +453,10 @@ impl SubjectMaskService {
             .clone())
     }
 
-    pub(crate) fn abort_input_preparation(
+    pub(crate) fn abort_original_space_input_preparation(
         &self,
         input_session_token: u64,
-        identity: &SubjectMaskInputIdentity,
+        identity: &SubjectMaskRenderInputIdentity,
     ) -> Result<(), SubjectMaskServiceError> {
         let mut sessions = self
             .input_sessions
@@ -652,9 +674,9 @@ impl SubjectMaskService {
         &self,
         proposal_token: u64,
         current_generation: u64,
-        invert: bool,
-        semantic_intent: Option<SemanticMaskIntent>,
+        refinement: SubjectMaskRefinement,
     ) -> Result<MaskDefinition, SubjectMaskServiceError> {
+        refinement.validate()?;
         let staged = self
             .proposals
             .lock()
@@ -664,20 +686,9 @@ impl SubjectMaskService {
         let mut store = self.store.clone();
         let managed =
             promote_staged_derived_raster_if_current(&mut store, current_generation, staged)?;
-        let definition = managed_soft_mask_definition(&managed, invert)
+        let definition = managed_soft_mask_definition(&managed, refinement.leaf_invert)
             .map_err(SubjectMaskServiceError::Store)?;
-        let MaskDefinition::ManagedRaster { raster, .. } = definition else {
-            return Err(SubjectMaskServiceError::ExpectedSoftMaskProposal);
-        };
-        Ok(
-            MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
-                raster,
-                semantic_intent,
-                0,
-                0,
-                invert,
-            )?,
-        )
+        definition_with_refinement(definition, refinement)
     }
 
     fn take_job(&self, job_token: u64) -> Result<Option<SubjectMaskJob>, SubjectMaskServiceError> {
@@ -689,6 +700,24 @@ impl SubjectMaskService {
     }
 }
 
+fn definition_with_refinement(
+    definition: MaskDefinition,
+    refinement: SubjectMaskRefinement,
+) -> Result<MaskDefinition, SubjectMaskServiceError> {
+    let MaskDefinition::ManagedRaster { raster, .. } = definition else {
+        return Err(SubjectMaskServiceError::ExpectedSoftMaskProposal);
+    };
+    Ok(
+        MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+            raster,
+            refinement.semantic_intent,
+            refinement.expansion_percent,
+            refinement.feather_percent,
+            refinement.leaf_invert,
+        )?,
+    )
+}
+
 #[derive(Debug)]
 struct SubjectMaskJob {
     cancellation: CancellationToken,
@@ -698,9 +727,9 @@ struct SubjectMaskJob {
 #[derive(Debug)]
 enum SubjectMaskInputSession {
     Vacant,
-    Preparing(SubjectMaskInputIdentity),
+    Preparing(SubjectMaskRenderInputIdentity),
     Ready {
-        identity: SubjectMaskInputIdentity,
+        identity: SubjectMaskRenderInputIdentity,
         input: PreparedSubjectMaskInput,
         people: Option<Arc<[SubjectMaskPersonCandidate]>>,
         parsed_people: BTreeMap<u32, Arc<ParsedSubjectMaskPerson>>,
@@ -722,7 +751,7 @@ struct ReadySubjectMaskInputSessionMut<'a> {
 fn ready_input_session<'a>(
     sessions: &'a BTreeMap<u64, SubjectMaskInputSession>,
     input_session_token: u64,
-    identity: &SubjectMaskInputIdentity,
+    identity: &SubjectMaskRenderInputIdentity,
 ) -> Result<ReadySubjectMaskInputSession<'a>, SubjectMaskServiceError> {
     match sessions.get(&input_session_token) {
         Some(SubjectMaskInputSession::Ready {
@@ -750,7 +779,7 @@ fn ready_input_session<'a>(
 fn ready_input_session_mut<'a>(
     sessions: &'a mut BTreeMap<u64, SubjectMaskInputSession>,
     input_session_token: u64,
-    identity: &SubjectMaskInputIdentity,
+    identity: &SubjectMaskRenderInputIdentity,
 ) -> Result<ReadySubjectMaskInputSessionMut<'a>, SubjectMaskServiceError> {
     match sessions.get_mut(&input_session_token) {
         Some(SubjectMaskInputSession::Ready {

@@ -22,12 +22,13 @@ use super::{
     },
     subject_mask_people::{FaceRegionSet, prepare_person_candidates},
     subject_mask_runtime::{
-        SubjectMaskInvocation, SubjectMaskSelection,
+        SemanticMaskInvocation, SemanticMaskStageOutcome, SubjectMaskInvocation,
+        SubjectMaskSelection,
         geometry::{map_output_prompt_to_original, project_gray8_mask_to_output},
     },
     subject_mask_service::{
-        SubjectMaskCompletion, SubjectMaskInputAdmission, SubjectMaskInputIdentity,
-        SubjectMaskPersonSnapshot, SubjectMaskServiceError,
+        SubjectMaskCompletion, SubjectMaskInputAdmission, SubjectMaskPersonSnapshot,
+        SubjectMaskRefinement, SubjectMaskRenderInputIdentity, SubjectMaskServiceError,
     },
     wall_clock::current_time_ms,
 };
@@ -115,17 +116,15 @@ impl DesktopSession {
             | ffi::FfiSubjectMaskKind::SemanticQuery => Vec::new(),
             _ => bail!("subject-mask selection kind is unsupported"),
         };
-        let input_identity = SubjectMaskInputIdentity {
+        let input_identity = SubjectMaskRenderInputIdentity {
             photo_id: photo_id.to_owned(),
             source_path: source_path.to_owned(),
             base_commit_id: request.base_commit_id.clone(),
             grade_stack: grade_stack.clone(),
-            target_grade_node_index: request.target_grade_node_index,
-            target_grade_node_id: request.target_grade_node_id.clone(),
         };
         let prepared_input = match self
             .subject_masks
-            .admit_input(request.input_session_token, &input_identity)?
+            .admit_original_space_input(request.input_session_token, &input_identity)?
         {
             SubjectMaskInputAdmission::Reuse(input) => input,
             SubjectMaskInputAdmission::Prepare => {
@@ -182,19 +181,23 @@ impl DesktopSession {
                     let coordinate_extent =
                         RasterExtent::new(input_preview.width, input_preview.height)
                             .context("subject-mask input preview dimensions are invalid")?;
-                    Ok(Some(self.subject_masks.complete_input_preparation(
-                        request.input_session_token,
-                        &input_identity,
-                        input_preview.bytes,
-                        coordinate_extent,
-                    )?))
+                    Ok(Some(
+                        self.subject_masks
+                            .complete_original_space_input_preparation(
+                                request.input_session_token,
+                                &input_identity,
+                                input_preview.bytes,
+                                coordinate_extent,
+                            )?,
+                    ))
                 })();
                 match prepared {
                     Ok(Some(input)) => input,
                     Ok(None) => {
-                        let _ = self
-                            .subject_masks
-                            .abort_input_preparation(request.input_session_token, &input_identity);
+                        let _ = self.subject_masks.abort_original_space_input_preparation(
+                            request.input_session_token,
+                            &input_identity,
+                        );
                         self.subject_masks.finish_job(request.job_token)?;
                         return Ok(subject_mask_terminal(
                             request,
@@ -204,9 +207,10 @@ impl DesktopSession {
                         ));
                     }
                     Err(error) => {
-                        let _ = self
-                            .subject_masks
-                            .abort_input_preparation(request.input_session_token, &input_identity);
+                        let _ = self.subject_masks.abort_original_space_input_preparation(
+                            request.input_session_token,
+                            &input_identity,
+                        );
                         return Err(error);
                     }
                 }
@@ -357,28 +361,70 @@ impl DesktopSession {
             }
             _ => bail!("subject-mask selection kind is unsupported"),
         };
-        let receipt = match self.subject_mask_runtime.stage(
-            self.subject_masks.store(),
-            SubjectMaskInvocation {
-                request_id: format!(
-                    "desktop-subject-mask-{}-{}",
-                    request.job_token, request.generation
-                ),
-                promotion_id: format!(
-                    "photo:{photo_id}:grade-node:{}:subject-mask:{}",
-                    request.target_grade_node_id, request.job_token
-                ),
-                generation: request.generation,
-                photo_id: photo_id.to_owned(),
-                original_space_input_jpeg: prepared_input.bytes.clone(),
-                original_space_input_content_hash: prepared_input.content_hash.clone(),
-                coordinate_extent,
-                selection,
+        let request_id = format!(
+            "desktop-subject-mask-{}-{}",
+            request.job_token, request.generation
+        );
+        let promotion_id = format!(
+            "photo:{photo_id}:grade-node:{}:subject-mask:{}",
+            request.target_grade_node_id, request.job_token
+        );
+        let staged = match selection {
+            SubjectMaskSelection::SemanticQuery { intent } => {
+                self.subject_mask_runtime.stage_semantic_intent(
+                    self.subject_masks.store(),
+                    SemanticMaskInvocation {
+                        request_id,
+                        promotion_id,
+                        generation: request.generation,
+                        photo_id: photo_id.to_owned(),
+                        original_space_input: prepared_input.clone(),
+                        intent,
+                    },
+                    &cancellation,
+                )
+            }
+            selection => match self.subject_mask_runtime.stage(
+                self.subject_masks.store(),
+                SubjectMaskInvocation {
+                    request_id,
+                    promotion_id,
+                    generation: request.generation,
+                    photo_id: photo_id.to_owned(),
+                    original_space_input_jpeg: prepared_input.bytes.clone(),
+                    original_space_input_content_hash: prepared_input.content_hash.clone(),
+                    coordinate_extent,
+                    selection,
+                },
+                &cancellation,
+            ) {
+                Ok(receipt) => SemanticMaskStageOutcome::Staged(receipt),
+                Err(error) => SemanticMaskStageOutcome::Unavailable(error),
             },
-            &cancellation,
-        ) {
-            Ok(receipt) => receipt,
-            Err(error) => {
+        };
+        let receipt = match staged {
+            SemanticMaskStageOutcome::Staged(receipt)
+            | SemanticMaskStageOutcome::ProviderUnavailable(receipt)
+            | SemanticMaskStageOutcome::ProviderFailed(receipt) => receipt,
+            SemanticMaskStageOutcome::Cancelled => {
+                self.subject_masks.finish_job(request.job_token)?;
+                return Ok(subject_mask_terminal(
+                    request,
+                    ffi::FfiSubjectMaskTerminal::Cancelled,
+                    0,
+                    String::new(),
+                ));
+            }
+            SemanticMaskStageOutcome::NotFound => {
+                self.subject_masks.finish_job(request.job_token)?;
+                return Ok(subject_mask_terminal(
+                    request,
+                    ffi::FfiSubjectMaskTerminal::Failed,
+                    0,
+                    "semantic query did not match a visible region".into(),
+                ));
+            }
+            SemanticMaskStageOutcome::Unavailable(error) => {
                 self.subject_masks.finish_job(request.job_token)?;
                 let terminal = if cancellation.is_cancelled() {
                     ffi::FfiSubjectMaskTerminal::Cancelled
@@ -406,7 +452,14 @@ impl DesktopSession {
                     "desktop-subject-mask-{}-{}",
                     request.job_token, request.generation
                 );
-                if request_id != expected_request_id || generation != request.generation {
+                if validate_staged_subject_mask_identity(
+                    &expected_request_id,
+                    request.generation,
+                    &request_id,
+                    generation,
+                )
+                .is_err()
+                {
                     let _ = self.subject_masks.discard_proposal(proposal_token);
                     bail!("subject-mask runtime returned mismatched request identity");
                 }
@@ -505,16 +558,20 @@ impl DesktopSession {
         let mask = self.subject_masks.promote_proposal(
             request.proposal_token,
             request.generation,
-            request.invert,
-            if request.semantic_query.is_empty() {
-                None
-            } else {
-                Some(SemanticMaskIntent::new(
-                    request.semantic_query.clone(),
-                    request.semantic_maximum_regions,
-                    request.semantic_score_threshold_percent,
-                    SemanticMaskAggregation::Union,
-                )?)
+            SubjectMaskRefinement {
+                expansion_percent: 0,
+                feather_percent: 0,
+                leaf_invert: request.invert,
+                semantic_intent: if request.semantic_query.is_empty() {
+                    None
+                } else {
+                    Some(SemanticMaskIntent::new(
+                        request.semantic_query.clone(),
+                        request.semantic_maximum_regions,
+                        request.semantic_score_threshold_percent,
+                        SemanticMaskAggregation::Union,
+                    )?)
+                },
             },
         )?;
         let target = grade_stack
@@ -535,6 +592,18 @@ impl DesktopSession {
     pub(crate) fn discard_subject_mask_proposal(&self, proposal_token: u64) -> AnyResult<()> {
         Ok(self.subject_masks.discard_proposal(proposal_token)?)
     }
+}
+
+fn validate_staged_subject_mask_identity(
+    expected_request_id: &str,
+    expected_generation: u64,
+    request_id: &str,
+    generation: u64,
+) -> AnyResult<()> {
+    if request_id != expected_request_id || generation != expected_generation {
+        bail!("subject-mask runtime returned mismatched request identity");
+    }
+    Ok(())
 }
 
 fn validate_subject_mask_target(

@@ -146,3 +146,11 @@ fn identity_input_geometry_removes_every_final_canvas_transform() {
     assert!(!geometry.flip_horizontal);
     assert!(!geometry.flip_vertical);
 }
+
+#[test]
+fn staged_semantic_identity_rejects_stale_request_or_generation() {
+    validate_staged_subject_mask_identity("request-7", 7, "request-7", 7)
+        .expect("current identity");
+    assert!(validate_staged_subject_mask_identity("request-7", 7, "request-6", 7).is_err());
+    assert!(validate_staged_subject_mask_identity("request-7", 7, "request-7", 6).is_err());
+}
