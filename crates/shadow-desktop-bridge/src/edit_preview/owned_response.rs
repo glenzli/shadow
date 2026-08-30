@@ -9,6 +9,7 @@ use shadow_bridge::{
     EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, InteractiveEditPreviewStorage, OpticsReceipt,
     OwnedInteractivePreviewFrame,
 };
+use shadow_domain::ImageDimensions;
 
 use crate::{AnyResult, ffi};
 
@@ -48,9 +49,10 @@ impl OwnedEditedPreview {
 
     pub(crate) fn interactive(
         frame: OwnedInteractivePreviewFrame,
+        level_zero_dimensions: ImageDimensions,
         optics: &OpticsReceipt,
     ) -> Box<Self> {
-        let projection = interactive_projection(&frame, optics);
+        let projection = interactive_projection(&frame, level_zero_dimensions, optics);
         Box::new(Self {
             projection,
             interactive_frame: Some(frame),
@@ -169,6 +171,7 @@ impl OwnedEditedPreview {
 
 fn interactive_projection(
     frame: &OwnedInteractivePreviewFrame,
+    level_zero_dimensions: ImageDimensions,
     optics: &OpticsReceipt,
 ) -> ffi::FfiEditedPreview {
     let dimensions = frame.dimensions();
@@ -177,6 +180,8 @@ fn interactive_projection(
         terminal: ffi::FfiEditPreviewTerminal::Completed,
         width: dimensions.width,
         height: dimensions.height,
+        level_zero_width: level_zero_dimensions.width,
+        level_zero_height: level_zero_dimensions.height,
         row_stride_bytes: frame.row_stride_bytes(),
         // The opaque owner supplies these two large payloads as borrowed
         // slices. Empty vectors make an accidental materializing path visible.

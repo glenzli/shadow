@@ -64,6 +64,7 @@ pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
 pub struct LibRawEditPreviewSession {
     handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
     dimensions: ImageDimensions,
+    level_zero_dimensions: ImageDimensions,
     max_edge: u32,
     sensor_clipping_mask: SensorClippingMask,
     raw_development_receipt: RawDevelopmentReceipt,
@@ -130,6 +131,7 @@ impl std::fmt::Debug for LibRawEditPreviewSession {
         formatter
             .debug_struct("LibRawEditPreviewSession")
             .field("dimensions", &self.dimensions)
+            .field("level_zero_dimensions", &self.level_zero_dimensions)
             .field("max_edge", &self.max_edge)
             .field(
                 "sensor_clipping_available",
@@ -407,6 +409,7 @@ impl LibRawEditPreviewSession {
     ) -> Result<Self, BridgeError> {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
+        let level_zero_dimensions = dimensions(&prepared.level_zero_dimensions());
         let prepared_max_edge = prepared.max_edge();
         // This is optional inspection data prepared alongside the immutable source raster. It
         // must never reopen or unpack a RAW file merely to drive a zebra overlay.
@@ -427,6 +430,7 @@ impl LibRawEditPreviewSession {
         Ok(Self {
             handle,
             dimensions: prepared_dimensions,
+            level_zero_dimensions,
             max_edge: prepared_max_edge,
             sensor_clipping_mask,
             raw_development_receipt,
@@ -556,6 +560,12 @@ impl LibRawEditPreviewSession {
     #[must_use]
     pub const fn dimensions(&self) -> ImageDimensions {
         self.dimensions
+    }
+
+    /// Returns the oriented level-zero source dimensions used by pixel-sized edit parameters.
+    #[must_use]
+    pub const fn level_zero_dimensions(&self) -> ImageDimensions {
+        self.level_zero_dimensions
     }
 
     /// Returns the requested longest-edge bound used during preparation.

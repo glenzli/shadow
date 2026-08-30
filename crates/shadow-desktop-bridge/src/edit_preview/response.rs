@@ -14,6 +14,8 @@ pub(crate) fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
         terminal: ffi::FfiEditPreviewTerminal::Cancelled,
         width: 0,
         height: 0,
+        level_zero_width: 0,
+        level_zero_height: 0,
         row_stride_bytes: 0,
         bytes: Vec::new(),
         mask_coverage_available: false,
@@ -67,6 +69,7 @@ pub(crate) fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
 #[allow(clippy::too_many_lines)]
 pub(crate) fn completed_edited_preview(
     proxy: ProxyPayload,
+    level_zero_dimensions: shadow_domain::ImageDimensions,
     analysis: Option<&EditPreviewAnalysis>,
     mask_coverage: Option<EditPreviewMaskCoverage>,
     optics: &OpticsReceipt,
@@ -120,6 +123,8 @@ pub(crate) fn completed_edited_preview(
         terminal: ffi::FfiEditPreviewTerminal::Completed,
         width: proxy.dimensions.width,
         height: proxy.dimensions.height,
+        level_zero_width: level_zero_dimensions.width,
+        level_zero_height: level_zero_dimensions.height,
         row_stride_bytes,
         bytes: proxy.bytes,
         mask_coverage_available,

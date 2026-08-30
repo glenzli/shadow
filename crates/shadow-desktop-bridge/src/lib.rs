@@ -2004,6 +2004,9 @@ mod ffi {
         terminal: FfiEditPreviewTerminal,
         width: u32,
         height: u32,
+        /// Current geometry's level-zero output dimensions used by pixel-sized Recipe parameters.
+        level_zero_width: u32,
+        level_zero_height: u32,
         /// Zero for an encoded JPEG; `width * 3` for tightly packed
         /// display-sRGB RGB8 interactive pixels.
         row_stride_bytes: u32,

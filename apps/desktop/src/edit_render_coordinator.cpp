@@ -180,6 +180,12 @@ void EditController::finishPreviewTask() {
                 static_cast<int>(result.preview.width),
                 static_cast<int>(result.preview.height)
             );
+            if (level_zero_width_ != result.preview.level_zero_width
+                || level_zero_height_ != result.preview.level_zero_height) {
+                level_zero_width_ = result.preview.level_zero_width;
+                level_zero_height_ = result.preview.level_zero_height;
+                emit previewGeometryChanged();
+            }
             preview_store_->publish(
                 EditPreviewSlot::Current,
                 std::move(result.preview.bytes),

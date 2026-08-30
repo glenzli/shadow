@@ -47,6 +47,8 @@ class EditController final : public QObject {
     Q_PROPERTY(QString detailErrorText READ detailErrorText NOTIFY detailErrorTextChanged)
     Q_PROPERTY(quint32 detailFullWidth READ detailFullWidth NOTIFY detailGeometryChanged)
     Q_PROPERTY(quint32 detailFullHeight READ detailFullHeight NOTIFY detailGeometryChanged)
+    Q_PROPERTY(quint32 levelZeroWidth READ levelZeroWidth NOTIFY previewGeometryChanged)
+    Q_PROPERTY(quint32 levelZeroHeight READ levelZeroHeight NOTIFY previewGeometryChanged)
     Q_PROPERTY(quint64 detailRetainedBytes READ detailRetainedBytes NOTIFY detailGeometryChanged)
     Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
     Q_PROPERTY(
@@ -495,6 +497,8 @@ class EditController final : public QObject {
     [[nodiscard]] QString detailErrorText() const;
     [[nodiscard]] quint32 detailFullWidth() const noexcept;
     [[nodiscard]] quint32 detailFullHeight() const noexcept;
+    [[nodiscard]] quint32 levelZeroWidth() const noexcept;
+    [[nodiscard]] quint32 levelZeroHeight() const noexcept;
     [[nodiscard]] quint64 detailRetainedBytes() const noexcept;
     [[nodiscard]] QVariantList detailTiles() const;
     [[nodiscard]] bool fullResolutionPreparing() const noexcept;
@@ -946,6 +950,7 @@ class EditController final : public QObject {
     void detailRenderingChanged();
     void detailErrorTextChanged();
     void detailGeometryChanged();
+    void previewGeometryChanged();
     void detailTilesChanged();
     void fullResolutionStateChanged();
     void dirtyChanged();
@@ -1193,6 +1198,8 @@ class EditController final : public QObject {
     quint64 mask_selection_revision_ = 0;
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;
+    quint32 level_zero_width_ = 0;
+    quint32 level_zero_height_ = 0;
     quint64 detail_retained_bytes_ = 0;
     quint64 full_resolution_retained_bytes_ = 0;
     QVariantList detail_tiles_;

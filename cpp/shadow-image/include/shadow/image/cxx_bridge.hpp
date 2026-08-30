@@ -129,6 +129,7 @@ class EditPreviewHandle final {
     EditPreviewHandle& operator=(const EditPreviewHandle&) = delete;
 
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
+    [[nodiscard]] FfiDimensions level_zero_dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
     [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;

@@ -560,7 +560,7 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("previewContentRect"), QRectF{0, 0, 400, 300}},
         {QStringLiteral("previewFrameReady"), false},
         {QStringLiteral("readyPreviewGeneration"), QString{}},
-        {QStringLiteral("displayScale"), 1.0},
+        {QStringLiteral("displayScale"), 0.1},
         {QStringLiteral("levelZeroWidth"), 4'000.0},
         {QStringLiteral("levelZeroHeight"), 3'000.0},
         {QStringLiteral("interactionEnabled"), true},
@@ -583,8 +583,8 @@ int main(int argc, char* argv[]) {
         picker->findChild<QObject*>(QStringLiteral("retouchBrushLargerShortcut"));
     if (!require(
             brush_cursor != nullptr && smaller_brush != nullptr && larger_brush != nullptr
-                && std::abs(brush_cursor->property("width").toDouble() - 36.0) < 0.01,
-            "the retouch cursor presents the authored level-zero brush radius"
+                && std::abs(brush_cursor->property("width").toDouble() - 3.6) < 0.01,
+            "the retouch cursor scales its level-zero radius into the bounded preview"
         )
         || !require(
             QMetaObject::invokeMethod(smaller_brush, "activated")
@@ -595,7 +595,7 @@ int main(int argc, char* argv[]) {
     }
     drainBindings();
     if (!require(
-            std::abs(brush_cursor->property("width").toDouble() - 34.0) < 0.01
+            std::abs(brush_cursor->property("width").toDouble() - 3.4) < 0.01
                 && QMetaObject::invokeMethod(larger_brush, "activated")
                 && editor.retouch_brush_radius == 18,
             "shortcut edits and the live cursor remain in one brush-session state"
@@ -668,8 +668,6 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    picker->setProperty("displayScale", 0.1);
-    drainBindings();
     QObject* const active_coverage =
         picker->findChild<QObject*>(QStringLiteral("activeRetouchCoverage"));
     if (!require(

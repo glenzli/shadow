@@ -475,6 +475,10 @@ FfiDimensions EditPreviewHandle::dimensions() const noexcept {
     return cxx_bridge_projection::dimensions(session_.dimensions());
 }
 
+FfiDimensions EditPreviewHandle::level_zero_dimensions() const noexcept {
+    return cxx_bridge_projection::dimensions(session_.level_zero_dimensions());
+}
+
 std::uint32_t EditPreviewHandle::max_edge() const noexcept {
     return session_.max_edge();
 }

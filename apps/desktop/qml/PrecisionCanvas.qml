@@ -94,8 +94,19 @@ Rectangle {
     readonly property bool dualComparison: comparisonActive && beforeReady && (comparisonMode === comparisonSideBySide || comparisonMode === comparisonStacked)
     readonly property bool scopePreviewAvailable: editor.active && previewFrameReadyState && readyPreviewGenerationState.length > 0 && !showingProvisionalPreview && !comparisonActive && Boolean(editor.histogram.valid) && !Boolean(editor.histogram.updating) && !Boolean(editor.histogram.stale) && String(editor.histogram.generation) === readyPreviewGenerationState
     readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
-    readonly property real imagePixelWidth: editor.detailFullWidth > 0 ? editor.detailFullWidth : Math.max(1, editedPreview.sourceSize.width)
-    readonly property real imagePixelHeight: editor.detailFullHeight > 0 ? editor.detailFullHeight : Math.max(1, editedPreview.sourceSize.height)
+    // Pixel-sized Recipe parameters are authored against the oriented level-zero source, not the
+    // bounded 1536px preview texture. The texture remains only a compatibility fallback while the
+    // first authoritative preview response is loading.
+    readonly property real imagePixelWidth: editor.detailFullWidth > 0
+        ? editor.detailFullWidth
+        : (editor.levelZeroWidth > 0
+            ? editor.levelZeroWidth
+            : Math.max(1, editedPreview.sourceSize.width))
+    readonly property real imagePixelHeight: editor.detailFullHeight > 0
+        ? editor.detailFullHeight
+        : (editor.levelZeroHeight > 0
+            ? editor.levelZeroHeight
+            : Math.max(1, editedPreview.sourceSize.height))
     readonly property real fitScale: Math.min(previewFlick.width / imagePixelWidth, previewFlick.height / imagePixelHeight)
     readonly property real displayScale: fitView ? Math.max(0.0001, fitScale) : zoomFactor / deviceScale
 

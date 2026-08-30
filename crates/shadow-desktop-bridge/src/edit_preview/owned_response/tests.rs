@@ -90,6 +90,7 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
         panic!("active interactive render must complete");
     };
     let optics = session.optics_receipt().clone();
+    let level_zero_dimensions = session.level_zero_dimensions();
     drop(session);
 
     let storage = frame.storage();
@@ -121,7 +122,11 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
         .samples
         .as_ptr();
 
-    let owner = move_owner(OwnedEditedPreview::interactive(frame, &optics));
+    let owner = move_owner(OwnedEditedPreview::interactive(
+        frame,
+        level_zero_dimensions,
+        &optics,
+    ));
     InteractiveOwnerFixture {
         owner,
         storage,
@@ -135,6 +140,11 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
 fn assert_interactive_projection(fixture: &InteractiveOwnerFixture) {
     let projection = fixture.owner.projection();
     assert_eq!(projection.terminal, ffi::FfiEditPreviewTerminal::Completed);
+    assert_eq!(
+        (projection.level_zero_width, projection.level_zero_height),
+        (960, 640),
+        "the bounded frame retains its exact level-zero source geometry"
+    );
     assert_eq!(projection.row_stride_bytes, projection.width * 3);
     assert!(projection.bytes.is_empty());
     assert!(projection.mask_coverage_available);

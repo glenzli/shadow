@@ -635,6 +635,30 @@ Dimensions WarmEditPreviewSession::dimensions() const noexcept {
     return working_proxy_.dimensions;
 }
 
+Dimensions WarmEditPreviewSession::level_zero_dimensions() const noexcept {
+    const auto level_zero_axis = [](const std::uint32_t raster_extent, const double scale) {
+        if (raster_extent == 0U || !std::isfinite(scale) || scale <= 0.0) {
+            return raster_extent;
+        }
+        const double extent = static_cast<double>(raster_extent) / scale;
+        if (!std::isfinite(extent) || extent < 1.0
+            || extent > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return raster_extent;
+        }
+        return static_cast<std::uint32_t>(std::llround(extent));
+    };
+    return {
+        .width = level_zero_axis(
+            working_proxy_.dimensions.width,
+            working_proxy_.level_zero_to_raster_scale_x
+        ),
+        .height = level_zero_axis(
+            working_proxy_.dimensions.height,
+            working_proxy_.level_zero_to_raster_scale_y
+        ),
+    };
+}
+
 std::uint32_t WarmEditPreviewSession::max_edge() const noexcept {
     return max_edge_;
 }

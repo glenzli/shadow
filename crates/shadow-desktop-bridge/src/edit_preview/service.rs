@@ -412,6 +412,10 @@ impl DesktopSession {
                         interactive_timing_token: interactive_timing
                             .then_some(request.render_token),
                     })?;
+            let level_zero_output_dimensions = recipe
+                .plan
+                .geometry
+                .output_dimensions(session.level_zero_dimensions())?;
             if let Some(started) = interactive_started.as_ref() {
                 log_interactive_bridge_timing(request.render_token, started, "session-ready");
                 log_interactive_raw_route(request.render_token, session.raw_pipeline_receipt());
@@ -547,11 +551,13 @@ impl DesktopSession {
             match rendered {
                 CompletedEditPreview::Interactive(frame) => Ok(OwnedEditedPreview::interactive(
                     frame,
+                    level_zero_output_dimensions,
                     session.optics_receipt(),
                 )),
                 CompletedEditPreview::Encoded(proxy) => {
                     Ok(OwnedEditedPreview::materialized(completed_edited_preview(
                         proxy,
+                        level_zero_output_dimensions,
                         None,
                         None,
                         session.optics_receipt(),
@@ -563,6 +569,7 @@ impl DesktopSession {
                     let rendered = *rendered;
                     Ok(OwnedEditedPreview::materialized(completed_edited_preview(
                         rendered.proxy,
+                        level_zero_output_dimensions,
                         Some(&rendered.analysis),
                         rendered.mask_coverage,
                         session.optics_receipt(),

@@ -229,6 +229,14 @@ quint32 EditController::detailFullHeight() const noexcept {
     return detail_full_height_;
 }
 
+quint32 EditController::levelZeroWidth() const noexcept {
+    return level_zero_width_;
+}
+
+quint32 EditController::levelZeroHeight() const noexcept {
+    return level_zero_height_;
+}
+
 quint64 EditController::detailRetainedBytes() const noexcept {
     return detail_retained_bytes_;
 }

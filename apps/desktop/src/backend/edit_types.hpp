@@ -697,6 +697,8 @@ struct BackendEditedPreview final {
     BackendOpticsReceipt optics;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    std::uint32_t level_zero_width = 0;
+    std::uint32_t level_zero_height = 0;
     EditPreviewTerminal terminal = EditPreviewTerminal::Completed;
 };
 

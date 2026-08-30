@@ -190,6 +190,9 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         static_cast<int>(payload.width),
         static_cast<int>(payload.height)
     );
+    if (payload.level_zero_width == 0U || payload.level_zero_height == 0U) {
+        throw std::runtime_error("edit preview returned empty level-zero geometry");
+    }
     const std::uint64_t expected_rgb8_stride = static_cast<std::uint64_t>(payload.width) * 3U;
     if ((interactive
          && (payload.row_stride_bytes != expected_rgb8_stride || !payload.bytes.empty()))
@@ -306,6 +309,8 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             },
         .width = payload.width,
         .height = payload.height,
+        .level_zero_width = payload.level_zero_width,
+        .level_zero_height = payload.level_zero_height,
         .terminal = EditPreviewTerminal::Completed,
     };
     if (interactive) {

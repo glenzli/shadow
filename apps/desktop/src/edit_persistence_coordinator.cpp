@@ -139,6 +139,11 @@ bool EditController::openPhoto(
     preview_queued_ = false;
     before_requested_ = false;
     clearHistograms();
+    if (level_zero_width_ != 0U || level_zero_height_ != 0U) {
+        level_zero_width_ = 0U;
+        level_zero_height_ = 0U;
+        emit previewGeometryChanged();
+    }
     if (!optics_receipt_.isEmpty()) {
         optics_receipt_.clear();
         emit opticsReceiptChanged();

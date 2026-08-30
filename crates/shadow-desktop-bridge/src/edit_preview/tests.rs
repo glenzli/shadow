@@ -29,6 +29,10 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
         width: 2,
         height: 1,
     };
+    let level_zero_dimensions = ImageDimensions {
+        width: 8_256,
+        height: 5_504,
+    };
     let mut red = [0; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT];
     red[7] = 2;
     let mut headroom = [0; EDIT_PREVIEW_HDR_HEADROOM_BIN_COUNT];
@@ -82,6 +86,7 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
 
     let settled = completed_edited_preview(
         proxy(dimensions),
+        level_zero_dimensions,
         Some(&analysis),
         Some(mask_coverage.clone()),
         &optics,
@@ -90,6 +95,10 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     );
     assert_eq!(settled.terminal, ffi::FfiEditPreviewTerminal::Completed);
     assert_eq!((settled.width, settled.height), (2, 1));
+    assert_eq!(
+        (settled.level_zero_width, settled.level_zero_height),
+        (8_256, 5_504)
+    );
     assert_eq!(settled.row_stride_bytes, 0);
     assert_eq!(settled.red_histogram[7], 2);
     assert_eq!(settled.below_zero_samples, [1, 2, 3]);
@@ -111,6 +120,7 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     let mask_coverage_allocation = mask_coverage.samples.as_ptr();
     let interactive = completed_edited_preview(
         rgb8_proxy(dimensions),
+        level_zero_dimensions,
         None,
         Some(mask_coverage),
         &optics,

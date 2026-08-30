@@ -194,6 +194,10 @@ class WarmEditPreviewSession final {
     ~WarmEditPreviewSession() = default;
 
     [[nodiscard]] Dimensions dimensions() const noexcept;
+    // Authoring geometry begins in oriented level-zero source pixels even though the retained
+    // working raster is bounded. Callers apply the current crop/rotation geometry to this source
+    // extent before presenting pixel-sized interactive controls.
+    [[nodiscard]] Dimensions level_zero_dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
     // Provenance of the provider render retained by this preview. It remains separate from the
     // editable recipe and from the later optical-correction receipt.
