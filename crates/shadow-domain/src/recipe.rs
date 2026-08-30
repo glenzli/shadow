@@ -28,6 +28,7 @@ mod photo_foundation;
 mod photo_geometry;
 mod photo_liquify;
 mod photo_structural_nodes;
+mod portable;
 mod raw_foundation_denoise;
 mod retouch;
 mod snapshot;
@@ -80,6 +81,11 @@ pub use photo_liquify::{
     PhotoLiquifyNode,
 };
 pub use photo_structural_nodes::{PhotoStructuralNodeRef, PhotoStructuralNodes};
+pub use portable::{
+    CURRENT_SHADOW_RECIPE_DOCUMENT_VERSION, MAX_SHADOW_RECIPE_DOCUMENT_BYTES,
+    MAX_SHADOW_RECIPE_LABEL_BYTES, SHADOW_RECIPE_FORMAT, ShadowRecipeDocument,
+    ShadowRecipeDocumentError,
+};
 pub use raw_foundation_denoise::{
     RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT, RawFoundationDenoise, RawFoundationDenoiseModel,
 };
