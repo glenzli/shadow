@@ -1017,6 +1017,9 @@ mod ffi {
     #[derive(Debug)]
     struct FfiPeopleGroup {
         group_id: String,
+        /// User-authored local label. An empty value means the presentation
+        /// should use its localized anonymous-person fallback.
+        display_name: String,
         member_count: u32,
         /// Logical photo identities only. Face geometry and embeddings remain
         /// inside Rust; the desktop uses these ids solely to reject an
@@ -2524,6 +2527,11 @@ mod ffi {
         fn merge_people(
             self: &DesktopSession,
             person_ids: Vec<String>,
+        ) -> Result<FfiPeopleAnalysisReport>;
+        fn rename_person(
+            self: &DesktopSession,
+            person_id: &str,
+            display_name: &str,
         ) -> Result<FfiPeopleAnalysisReport>;
         fn undo_people_merge(self: &DesktopSession) -> Result<FfiPeopleAnalysisReport>;
         fn clear_people_data(self: &DesktopSession) -> Result<()>;
