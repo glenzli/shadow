@@ -13101,8 +13101,20 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>ShadowRecipeInterchangeDialog</name>
     <message>
+        <source>%1 of %2 ready</source>
+        <translation>已就绪 %1 / %2</translation>
+    </message>
+    <message>
         <source>%1 Grade Nodes · %2 portable masks</source>
         <translation>%1 个调色节点 · %2 个可移植蒙版</translation>
+    </message>
+    <message>
+        <source>Adapt and Import</source>
+        <translation>适配并导入</translation>
+    </message>
+    <message>
+        <source>Adapting…</source>
+        <translation>正在适配…</translation>
     </message>
     <message>
         <source>All files (*)</source>
@@ -13111,6 +13123,18 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>Cancel</source>
         <translation>取消</translation>
+    </message>
+    <message>
+        <source>Cancel adaptation</source>
+        <translation>取消适配</translation>
+    </message>
+    <message>
+        <source>Cancelled</source>
+        <translation>已取消</translation>
+    </message>
+    <message>
+        <source>Check Infer Runtime and the local models, then retry.</source>
+        <translation>请检查 Infer Runtime 和本地模型，然后重试。</translation>
     </message>
     <message>
         <source>Choose a Shadow Recipe</source>
@@ -13125,8 +13149,20 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>关闭 Shadow Recipe 导入</translation>
     </message>
     <message>
+        <source>Creating mask</source>
+        <translation>正在生成蒙版</translation>
+    </message>
+    <message>
         <source>Export Shadow Recipe</source>
         <translation>导出 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>失败</translation>
+    </message>
+    <message>
+        <source>Finding subject</source>
+        <translation>正在定位主体</translation>
     </message>
     <message>
         <source>IMPORT NOTES</source>
@@ -13137,6 +13173,14 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>导入 Shadow Recipe</translation>
     </message>
     <message>
+        <source>Import adapted Recipe</source>
+        <translation>导入已适配配方</translation>
+    </message>
+    <message>
+        <source>Import available nodes</source>
+        <translation>导入可用节点</translation>
+    </message>
+    <message>
         <source>Import replaces the current Grade Node list in one undoable step. Source development, repairs, AI completion, Liquify, and crop remain attached to this photo.</source>
         <translation>导入会在一次可撤销操作中替换当前调色节点列表。源文件开发调整、修复、AI 补全、液化和裁剪仍保留在此照片上。</translation>
     </message>
@@ -13145,8 +13189,36 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>JSON 文档 (*.json)</translation>
     </message>
     <message>
+        <source>Not found</source>
+        <translation>未找到</translation>
+    </message>
+    <message>
+        <source>Preparing</source>
+        <translation>正在准备</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>已就绪</translation>
+    </message>
+    <message>
         <source>Replace Grade Nodes</source>
         <translation>替换调色节点</translation>
+    </message>
+    <message>
+        <source>Retry failed items</source>
+        <translation>重试失败项</translation>
+    </message>
+    <message>
+        <source>SEMANTIC MASK ADAPTATION</source>
+        <translation>语义蒙版适配</translation>
+    </message>
+    <message>
+        <source>Semantic mask adaptation progress</source>
+        <translation>语义蒙版适配进度</translation>
+    </message>
+    <message>
+        <source>Semantic subject: %1</source>
+        <translation>语义主体：%1</translation>
     </message>
     <message>
         <source>Shadow Recipe was not exported</source>
@@ -13155,6 +13227,18 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>Shadow Recipes (*.shadowrecipe)</source>
         <translation>Shadow Recipe (*.shadowrecipe)</translation>
+    </message>
+    <message>
+        <source>Some Grade Nodes could not be adapted. Retry those items, or explicitly import only the available nodes. Unavailable nodes are excluded as complete Grade Nodes.</source>
+        <translation>部分调色节点未能完成适配。可重试这些项目，或明确仅导入可用节点。不可用内容会按完整调色节点排除。</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>不可用</translation>
+    </message>
+    <message>
+        <source>Waiting</source>
+        <translation>等待中</translation>
     </message>
 </context>
 <context>

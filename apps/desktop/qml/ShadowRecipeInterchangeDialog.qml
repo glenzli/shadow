@@ -13,11 +13,79 @@ Dialog {
     required property var interchangeController
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(640, Math.max(0, parent.width - 48))
-    height: Math.min(700, Math.max(0, parent.height - 48))
+    width: Math.min(640, Math.max(0, (parent ? parent.width : 688) - 48))
+    height: Math.min(700, Math.max(0, (parent ? parent.height : 748) - 48))
     modal: true
     closePolicy: Popup.CloseOnEscape
     padding: 0
+
+    readonly property bool hasSemanticRecipe:
+        interchangeController.recipeSemanticItemCount > 0
+    readonly property int semanticResolvedCount: Math.min(
+        interchangeController.recipeSemanticItemCount,
+        interchangeController.recipeSemanticCompletedCount
+            + interchangeController.recipeSemanticFailedCount
+    )
+    readonly property real semanticProgress: interchangeController.recipeSemanticItemCount > 0
+        ? semanticResolvedCount / interchangeController.recipeSemanticItemCount : 0
+
+    function semanticStateLabel(state) {
+        switch (state) {
+        case "waiting": return qsTr("Waiting")
+        case "preparing": return qsTr("Preparing")
+        case "grounding": return qsTr("Finding subject")
+        case "segmenting": return qsTr("Creating mask")
+        case "completed": return qsTr("Ready")
+        case "notFound": return qsTr("Not found")
+        case "unavailable": return qsTr("Unavailable")
+        case "failed": return qsTr("Failed")
+        case "cancelled": return qsTr("Cancelled")
+        default: return qsTr("Waiting")
+        }
+    }
+
+    function semanticStateColor(state) {
+        if (state === "completed")
+            return Theme.successText
+        if (state === "notFound" || state === "unavailable"
+                || state === "failed")
+            return Theme.errorText
+        if (state === "cancelled")
+            return Theme.textMuted
+        return Theme.accentTextMuted
+    }
+
+    function semanticItemDetail(item) {
+        if (item.state === "unavailable")
+            return qsTr("Check Infer Runtime and the local models, then retry.")
+        if (item.errorText && item.errorText.length > 0)
+            return item.errorText
+        if (item.query && item.query.length > 0)
+            return qsTr("Semantic subject: %1").arg(item.query)
+        return ""
+    }
+
+    function applyRecipe() {
+        if (hasSemanticRecipe && interchangeController.recipeAdaptationPartial)
+            return false
+        return interchangeController.applyShadowRecipe()
+    }
+
+    function startAdaptation() {
+        return interchangeController.startShadowRecipeAdaptation()
+    }
+
+    function cancelAdaptation() {
+        interchangeController.cancelShadowRecipeAdaptation()
+    }
+
+    function retryFailedItems() {
+        return interchangeController.retryFailedShadowRecipeItems()
+    }
+
+    function applyAvailableNodes() {
+        return interchangeController.applyAvailableShadowRecipeNodes()
+    }
 
     function chooseImportFile() {
         interchangeController.clearShadowRecipe()
@@ -198,6 +266,110 @@ Dialog {
                 }
             }
 
+            ColumnLayout {
+                id: semanticAdaptationSection
+                objectName: "semanticRecipeAdaptationSection"
+                visible: dialog.hasSemanticRecipe
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("SEMANTIC MASK ADAPTATION")
+                        color: Theme.textMuted
+                        font.pixelSize: 9
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.35
+                    }
+                    Label {
+                        text: qsTr("%1 of %2 ready")
+                            .arg(dialog.interchangeController.recipeSemanticCompletedCount)
+                            .arg(dialog.interchangeController.recipeSemanticItemCount)
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                    }
+                }
+
+                ProgressBar {
+                    objectName: "semanticRecipeProgress"
+                    Layout.fillWidth: true
+                    from: 0
+                    to: 1
+                    value: dialog.semanticProgress
+                    indeterminate: dialog.interchangeController.recipeAdaptationRunning
+                        && dialog.semanticResolvedCount === 0
+                    Accessible.name: qsTr("Semantic mask adaptation progress")
+                }
+
+                Label {
+                    visible: dialog.interchangeController.recipeAdaptationPartial
+                    Layout.fillWidth: true
+                    text: qsTr("Some Grade Nodes could not be adapted. Retry those items, or explicitly import only the available nodes. Unavailable nodes are excluded as complete Grade Nodes.")
+                    color: Theme.warningText
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                }
+
+                Repeater {
+                    model: dialog.interchangeController.recipeSemanticItems
+                    delegate: Rectangle {
+                        id: semanticItemRow
+                        required property var modelData
+                        objectName: "semanticRecipeItem-" + modelData.itemId
+                        Layout.fillWidth: true
+                        implicitHeight: semanticItemColumn.implicitHeight + 18
+                        radius: 6
+                        color: Theme.panel
+                        border.width: 1
+                        border.color: Theme.border
+
+                        ColumnLayout {
+                            id: semanticItemColumn
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            spacing: 3
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: semanticItemRow.modelData.nodeLabel
+                                    color: Theme.textPrimary
+                                    font.pixelSize: 11
+                                    font.weight: Font.Medium
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    text: dialog.semanticStateLabel(
+                                        semanticItemRow.modelData.state)
+                                    color: dialog.semanticStateColor(
+                                        semanticItemRow.modelData.state)
+                                    font.pixelSize: 10
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                            Label {
+                                visible: text.length > 0
+                                Layout.fillWidth: true
+                                text: dialog.semanticItemDetail(
+                                    semanticItemRow.modelData)
+                                color: semanticItemRow.modelData.state === "unavailable"
+                                    ? Theme.errorText : Theme.textMuted
+                                font.pixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+                }
+            }
+
             Label {
                 visible: dialog.interchangeController.recipeApplyErrorText.length > 0
                 Layout.fillWidth: true
@@ -213,6 +385,7 @@ Dialog {
     }
 
     footer: Rectangle {
+        objectName: "recipeDialogFooter"
         implicitHeight: 58
         color: Theme.transparent
         Rectangle {
@@ -229,18 +402,63 @@ Dialog {
             spacing: 8
             Item { Layout.fillWidth: true }
             ShadowButton {
-                text: qsTr("Cancel")
+                objectName: "cancelShadowRecipeButton"
+                text: dialog.interchangeController.recipeAdaptationRunning
+                    ? qsTr("Cancel adaptation") : qsTr("Cancel")
                 variant: ShadowButton.Secondary
-                onClicked: dialog.close()
+                onClicked: {
+                    if (dialog.interchangeController.recipeAdaptationRunning)
+                        dialog.cancelAdaptation()
+                    else
+                        dialog.close()
+                }
             }
             ShadowButton {
-                objectName: "replaceShadowRecipeGradeNodesButton"
-                text: qsTr("Replace Grade Nodes")
-                variant: ShadowButton.Primary
-                enabled: dialog.interchangeController.recipeCanApply
+                objectName: "retryFailedShadowRecipeButton"
+                visible: dialog.hasSemanticRecipe
+                    && dialog.interchangeController.recipeCanRetryFailed
+                text: qsTr("Retry failed items")
+                variant: ShadowButton.Secondary
+                enabled: !dialog.interchangeController.recipeAdaptationRunning
+                onClicked: dialog.retryFailedItems()
+            }
+            ShadowButton {
+                objectName: "applyAvailableShadowRecipeButton"
+                visible: dialog.hasSemanticRecipe
+                    && dialog.interchangeController.recipeCanApplyAvailableNodes
+                text: qsTr("Import available nodes")
+                variant: ShadowButton.Secondary
+                enabled: !dialog.interchangeController.recipeAdaptationRunning
                 onClicked: {
-                    if (dialog.interchangeController.applyShadowRecipe())
+                    if (dialog.applyAvailableNodes())
                         dialog.close()
+                }
+            }
+            ShadowButton {
+                objectName: "applyShadowRecipeButton"
+                visible: !dialog.hasSemanticRecipe
+                    || !dialog.interchangeController.recipeAdaptationPartial
+                text: dialog.hasSemanticRecipe
+                    ? (dialog.interchangeController.recipeCanAdapt
+                        ? qsTr("Adapt and Import")
+                        : dialog.interchangeController.recipeAdaptationRunning
+                            ? qsTr("Adapting…")
+                            : qsTr("Import adapted Recipe"))
+                    : qsTr("Replace Grade Nodes")
+                variant: ShadowButton.Primary
+                enabled: dialog.hasSemanticRecipe
+                    ? (dialog.interchangeController.recipeCanAdapt
+                        || (!dialog.interchangeController.recipeAdaptationPartial
+                            && dialog.interchangeController.recipeCanApply))
+                        && !dialog.interchangeController.recipeAdaptationRunning
+                    : dialog.interchangeController.recipeCanApply
+                onClicked: {
+                    if (dialog.hasSemanticRecipe
+                            && dialog.interchangeController.recipeCanAdapt) {
+                        dialog.startAdaptation()
+                    } else if (dialog.applyRecipe()) {
+                        dialog.close()
+                    }
                 }
             }
         }
@@ -279,7 +497,7 @@ Dialog {
         id: exportErrorDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
-        width: Math.min(430, Math.max(0, parent.width - 48))
+        width: Math.min(430, Math.max(0, (parent ? parent.width : 478) - 48))
         modal: true
         title: qsTr("Shadow Recipe was not exported")
         standardButtons: Dialog.Ok

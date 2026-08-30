@@ -34,7 +34,30 @@
         shadow-recipe-interchange-contract-test
         PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     )
-    target_link_libraries(shadow-recipe-interchange-contract-test PRIVATE Qt6::Core)
+    target_link_libraries(
+        shadow-recipe-interchange-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    qt_add_qml_module(
+        shadow-recipe-interchange-contract-test
+        URI Shadow.RecipeInterchangeContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ShadowRecipeInterchangeDialog.qml
+            qml/ShadowButton.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-recipe-interchange-contract-test
+        shadow-recipe-interchange-contract-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg
+    )
     if(MSVC)
         target_compile_options(
             shadow-recipe-interchange-contract-test
@@ -49,6 +72,11 @@
     add_test(
         NAME shadow-desktop-recipe-interchange-contract
         COMMAND shadow-recipe-interchange-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-recipe-interchange-contract
+        PROPERTIES ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
     )
 
     add_executable(

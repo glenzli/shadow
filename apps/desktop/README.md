@@ -1097,6 +1097,14 @@ node is imported bypassed rather than turning its local adjustment into a global
 source pixels are never reused. The dialog reports each omitted or disabled category before the
 user accepts the replacement. QML never interprets Recipe JSON or mutates the edit stack directly.
 
+When an imported Recipe contains semantic masks, the same dialog first adapts those masks to the
+destination photo. It presents overall and per-item progress, keeps cancellation and retry visible,
+and applies the ordinary all-node import only after every semantic item is ready. A partial result
+requires an explicit choice to import the available Grade Nodes; any node containing an unavailable
+semantic item is excluded as a whole rather than silently losing one mask component. Runtime
+unavailability is presented as an Infer Runtime or local-model readiness issue, without exposing
+provider diagnostics in the dialog.
+
 ## Review comparison and culling
 
 Ordinary comparison is a browsing capability, not a judgment. Review places two repeatable cached
