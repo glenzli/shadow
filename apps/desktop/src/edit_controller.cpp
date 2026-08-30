@@ -284,6 +284,10 @@ QString EditController::editBaseCommitId() const {
     return base_commit_id_;
 }
 
+QString EditController::durableWorkingCommitId() const {
+    return durable_working_commit_id_;
+}
+
 QString EditController::activeVariantId() const {
     return active_variant_id_;
 }
