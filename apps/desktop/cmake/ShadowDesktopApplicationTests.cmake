@@ -12,6 +12,8 @@
     add_executable(
         shadow-people-analysis-controller-test
         tests/people_analysis_controller_test.cpp
+        src/ai_preferences.cpp
+        src/ai_preferences.hpp
         src/people_analysis_controller.cpp
         src/people_analysis_controller.hpp
     )
