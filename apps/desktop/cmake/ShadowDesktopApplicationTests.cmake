@@ -102,6 +102,56 @@
     )
 
     add_executable(
+        shadow-review-smart-category-feedback-popup-test
+        tests/review_smart_category_feedback_popup_test.cpp
+    )
+    target_compile_features(
+        shadow-review-smart-category-feedback-popup-test PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-review-smart-category-feedback-popup-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    qt_add_qml_module(
+        shadow-review-smart-category-feedback-popup-test
+        URI Shadow.SmartCategoryFeedbackContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ReviewSmartCategoryFeedbackPopup.qml
+            qml/ShadowButton.qml
+            qml/ShadowCheckBox.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-review-smart-category-feedback-popup-test
+        shadow-review-smart-category-feedback-popup-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/check.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-smart-category-feedback-popup-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-smart-category-feedback-popup-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-smart-category-feedback-popup
+        COMMAND shadow-review-smart-category-feedback-popup-test
+    )
+    set_tests_properties(
+        shadow-desktop-review-smart-category-feedback-popup
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-image-understanding-controller-test
         tests/image_understanding_controller_test.cpp
         src/image_understanding_controller.cpp
